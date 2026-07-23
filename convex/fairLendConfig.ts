@@ -14,9 +14,9 @@ export const FAIRLEND_BROKERAGE_NAME = "FairLendBrokerage";
 
 /**
  * Canonical default broker for every automatic FairLendBrokerage assignment.
- * The WorkOS id below identifies this user; the email is also verified when an
- * assignment is made so a stale or misconfigured id cannot silently route work
- * to the wrong broker.
+ * Email is the durable identity because WorkOS user ids can change when an
+ * account is recreated. Assignment code resolves the current active broker
+ * membership by this email inside the FairLend organization.
  */
 export const FAIRLEND_DEFAULT_BROKER_EMAIL = "elie@fairlend.ca";
 

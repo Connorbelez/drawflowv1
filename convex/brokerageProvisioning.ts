@@ -1,5 +1,5 @@
-import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
+import { v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
 import {
@@ -14,6 +14,7 @@ import {
 import {
   ASSIGNABLE_BROKER_ROLES,
   ensureBuilderBrokerAssignment,
+  ensureBuilderBrokerAssignmentForWorkflow,
   getBuilderBrokerAssignmentHealth,
   requireDefaultBrokerMember,
   requireEligibleBrokerMember,
@@ -190,6 +191,16 @@ export const listBrokerageProvisioning = userManagementWriteQuery
         .filter((user) => user.workosUserId)
         .map((user) => [user.workosUserId as string, user]),
     );
+    const fairLendPrincipalMembership = memberships.find((membership) => {
+      const user = usersByWorkosId.get(membership.workosUserId);
+      return (
+        membership.status === "active" &&
+        membership.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID &&
+        hasAnyRole(membershipRoleSlugs(membership), BROKER_ROLES) &&
+        user?.status === "active" &&
+        normalizeEmail(user.email) === FAIRLEND_DEFAULT_BROKER_EMAIL
+      );
+    });
     const brokeragesByWorkosOrg = new Map(
       brokerages.map((brokerage) => [
         brokerage.workosOrganizationId,
@@ -212,7 +223,10 @@ export const listBrokerageProvisioning = userManagementWriteQuery
     return {
       fairLendBootstrap: {
         displayName: FAIRLEND_BROKERAGE_NAME,
-        principalBrokerWorkosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
+        principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+        principalBrokerWorkosUserId:
+          fairLendPrincipalMembership?.workosUserId ??
+          FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
         workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
       },
       organizations: organizations.map((organization) => {
@@ -267,6 +281,7 @@ export const listBrokerageProvisioning = userManagementWriteQuery
                 _id: brokerage._id,
                 displayName: brokerage.displayName,
                 legalName: brokerage.legalName,
+                principalBrokerEmail: brokerage.principalBrokerEmail,
                 principalBrokerWorkosUserId:
                   brokerage.principalBrokerWorkosUserId,
                 status: brokerage.status,
@@ -649,7 +664,6 @@ export const repairOwnBuilderBrokerAssignment = builderMutation
 
     const { workosUserId: assignedBrokerWorkosUserId } =
       await requireDefaultBrokerMember(ctx, brokerage);
-
     return ensureBuilderBrokerAssignment(ctx, {
       actorRoles: ctx.viewer.roles,
       actorWorkosUserId: ctx.viewer.subject,
@@ -691,9 +705,6 @@ export const reconcileBrokerageBuilderAssignments = userManagementWriteMutation
     if (brokerage?.status !== "active") {
       throw new Error("The brokerage is not active.");
     }
-    const { workosUserId: assignedBrokerWorkosUserId } =
-      await requireDefaultBrokerMember(ctx, brokerage);
-
     const page = await ctx.db
       .query("builderProfiles")
       .withIndex("by_brokerage_and_status", (q) =>
@@ -709,10 +720,9 @@ export const reconcileBrokerageBuilderAssignments = userManagementWriteMutation
     const now = Date.now();
 
     for (const builderProfile of page.page) {
-      const result = await ensureBuilderBrokerAssignment(ctx, {
+      const result = await ensureBuilderBrokerAssignmentForWorkflow(ctx, {
         actorRoles: ctx.viewer.roles,
         actorWorkosUserId: ctx.viewer.subject,
-        assignedBrokerWorkosUserId,
         brokerage,
         builderProfile,
         command: "reconcileBrokerageBuilderAssignments",
@@ -759,31 +769,44 @@ export const provisionBrokerageProfile = userManagementWriteMutation
       now,
       workosOrganizationId: args.workosOrganizationId,
     });
-    const principalBrokerWorkosUserId =
-      (args.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID
-        ? FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID
-        : undefined) ||
-      args.principalBrokerWorkosUserId?.trim() ||
-      (hasAnyRole(membershipRoleSlugs(membership), ["principle-broker"])
-        ? membership.workosUserId
-        : undefined);
     const existing = await ctx.db
       .query("brokerages")
       .withIndex("by_workos_organization", (q) =>
         q.eq("workosOrganizationId", args.workosOrganizationId),
       )
       .unique();
-    const effectivePrincipalBrokerWorkosUserId =
-      principalBrokerWorkosUserId ?? existing?.principalBrokerWorkosUserId;
-    if (!effectivePrincipalBrokerWorkosUserId) {
+    const requestedPrincipalBrokerWorkosUserId =
+      args.principalBrokerWorkosUserId?.trim() ||
+      (hasAnyRole(membershipRoleSlugs(membership), ["principle-broker"])
+        ? membership.workosUserId
+        : undefined);
+    const principal =
+      args.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID
+        ? await requireDefaultBrokerMember(ctx, {
+            principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+            principalBrokerWorkosUserId: requestedPrincipalBrokerWorkosUserId,
+            workosOrganizationId: args.workosOrganizationId,
+          })
+        : requestedPrincipalBrokerWorkosUserId
+          ? {
+              ...(await requireEligibleBrokerMember(ctx, {
+                workosOrganizationId: args.workosOrganizationId,
+                workosUserId: requestedPrincipalBrokerWorkosUserId,
+              })),
+              workosUserId: requestedPrincipalBrokerWorkosUserId,
+            }
+          : existing
+            ? await requireDefaultBrokerMember(ctx, existing)
+            : null;
+    if (!principal) {
       throw new Error(
         "Configure an active principal broker before provisioning the brokerage.",
       );
     }
-    await requireEligibleBrokerMember(ctx, {
-      workosOrganizationId: args.workosOrganizationId,
-      workosUserId: effectivePrincipalBrokerWorkosUserId,
-    });
+    const principalBrokerEmail = normalizeEmail(principal.broker.email);
+    if (!principalBrokerEmail) {
+      throw new Error("The principal broker must have a valid email address.");
+    }
     const displayName =
       args.displayName?.trim() ||
       (args.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID
@@ -795,7 +818,8 @@ export const provisionBrokerageProfile = userManagementWriteMutation
       await ctx.db.patch(existing._id, {
         displayName,
         legalName,
-        principalBrokerWorkosUserId: effectivePrincipalBrokerWorkosUserId,
+        principalBrokerEmail,
+        principalBrokerWorkosUserId: principal.workosUserId,
         status: "active",
         updatedAt: now,
       });
@@ -806,7 +830,8 @@ export const provisionBrokerageProfile = userManagementWriteMutation
       createdAt: now,
       displayName,
       legalName,
-      principalBrokerWorkosUserId: effectivePrincipalBrokerWorkosUserId,
+      principalBrokerEmail,
+      principalBrokerWorkosUserId: principal.workosUserId,
       status: "active",
       updatedAt: now,
       workosOrganizationId: args.workosOrganizationId,
@@ -829,13 +854,10 @@ export const provisionFairLendBrokerage = userManagementWriteMutation
       now,
       workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
     });
-    await ensureWorkosUserAndMembership(ctx, {
-      email: FAIRLEND_DEFAULT_BROKER_EMAIL,
-      name: "Elie",
-      now,
-      roleSlugs: ["principle-broker"],
+    const principal = await requireDefaultBrokerMember(ctx, {
+      principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+      principalBrokerWorkosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
       workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
-      workosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
     });
 
     const existing = await ctx.db
@@ -848,7 +870,8 @@ export const provisionFairLendBrokerage = userManagementWriteMutation
       await ctx.db.patch(existing._id, {
         displayName: FAIRLEND_BROKERAGE_NAME,
         legalName: FAIRLEND_BROKERAGE_NAME,
-        principalBrokerWorkosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
+        principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+        principalBrokerWorkosUserId: principal.workosUserId,
         status: "active",
         updatedAt: now,
       });
@@ -859,7 +882,8 @@ export const provisionFairLendBrokerage = userManagementWriteMutation
       createdAt: now,
       displayName: FAIRLEND_BROKERAGE_NAME,
       legalName: FAIRLEND_BROKERAGE_NAME,
-      principalBrokerWorkosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
+      principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+      principalBrokerWorkosUserId: principal.workosUserId,
       status: "active",
       updatedAt: now,
       workosOrganizationId: FAIRLEND_WORKOS_ORGANIZATION_ID,
@@ -870,6 +894,7 @@ export const provisionFairLendBrokerage = userManagementWriteMutation
 
 export const provisionBuilderProfile = userManagementWriteMutation
   .input({
+    assignedBrokerWorkosUserId: v.optional(v.string()),
     displayName: v.string(),
     ownerWorkosUserId: v.optional(v.string()),
     workosOrganizationId: v.string(),
@@ -991,18 +1016,19 @@ export const provisionBuilderProfile = userManagementWriteMutation
         "The builder profile could not be loaded after provisioning.",
       );
     }
-    const { workosUserId: assignedBrokerWorkosUserId } =
-      await requireDefaultBrokerMember(ctx, brokerage);
-    await ensureBuilderBrokerAssignment(ctx, {
+    const assignedBrokerWorkosUserId =
+      args.assignedBrokerWorkosUserId?.trim() || undefined;
+    await ensureBuilderBrokerAssignmentForWorkflow(ctx, {
       actorRoles: ctx.viewer.roles,
       actorWorkosUserId: ctx.viewer.subject,
-      assignedBrokerWorkosUserId,
+      ...(assignedBrokerWorkosUserId ? { assignedBrokerWorkosUserId } : {}),
       brokerage,
       builderProfile,
       command: "provisionBuilderProfile",
       now,
-      reason:
-        "Assigning the brokerage principal broker during builder profile provisioning.",
+      reason: assignedBrokerWorkosUserId
+        ? "Assigning the selected eligible broker during builder profile provisioning."
+        : "Assigning the brokerage principal broker during builder profile provisioning.",
     });
 
     return { builderProfileId, linkId, operation };
@@ -1064,12 +1090,9 @@ export const linkBuilderAccount = userManagementWriteMutation
       operation = "created";
     }
 
-    const { workosUserId: assignedBrokerWorkosUserId } =
-      await requireDefaultBrokerMember(ctx, brokerage);
-    await ensureBuilderBrokerAssignment(ctx, {
+    await ensureBuilderBrokerAssignmentForWorkflow(ctx, {
       actorRoles: ctx.viewer.roles,
       actorWorkosUserId: ctx.viewer.subject,
-      assignedBrokerWorkosUserId,
       brokerage,
       builderProfile: profile,
       command: "linkBuilderAccount",
@@ -1324,12 +1347,9 @@ export const finalizeNewBuilderProvisioning = internalMutation
         "The builder profile could not be loaded after provisioning.",
       );
     }
-    const { workosUserId: assignedBrokerWorkosUserId } =
-      await requireDefaultBrokerMember(ctx, brokerage);
-    await ensureBuilderBrokerAssignment(ctx, {
+    await ensureBuilderBrokerAssignmentForWorkflow(ctx, {
       actorRoles: normalizeRoleSlugs(args.actorRoles),
       actorWorkosUserId: args.actorWorkosUserId,
-      assignedBrokerWorkosUserId,
       brokerage,
       builderProfile,
       command: "provisionNewBuilder",
@@ -1774,15 +1794,16 @@ async function ensureBrokerage(
     )
     .unique();
   if (existing) {
-    const fairLendPrincipalPatch =
-      workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID &&
-      existing.principalBrokerWorkosUserId !==
-        FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID
-        ? {
-            principalBrokerWorkosUserId:
-              FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
-          }
-        : {};
+    const fairLendPrincipal =
+      workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID
+        ? await requireDefaultBrokerMember(ctx, existing)
+        : null;
+    const fairLendPrincipalPatch = fairLendPrincipal
+      ? {
+          principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+          principalBrokerWorkosUserId: fairLendPrincipal.workosUserId,
+        }
+      : {};
     if (
       existing.status !== "active" ||
       Object.keys(fairLendPrincipalPatch).length > 0
@@ -1805,11 +1826,17 @@ async function ensureBrokerage(
       "Provision a brokerage profile for this organization before adding a builder.",
     );
   }
+  const principal = await requireDefaultBrokerMember(ctx, {
+    principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+    principalBrokerWorkosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
+    workosOrganizationId,
+  });
   const brokerageId = await ctx.db.insert("brokerages", {
     createdAt: now,
     displayName: FAIRLEND_BROKERAGE_NAME,
     legalName: FAIRLEND_BROKERAGE_NAME,
-    principalBrokerWorkosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
+    principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+    principalBrokerWorkosUserId: principal.workosUserId,
     status: "active",
     updatedAt: now,
     workosOrganizationId,

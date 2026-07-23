@@ -131,6 +131,7 @@ export interface BuilderRosterHandlers {
     workosUserId: string;
   }) => Promise<void>;
   onProvisionBuilder: (input: {
+    assignedBrokerWorkosUserId: string;
     displayName: string;
     ownerWorkosUserId: string;
     workosOrganizationId: string;
@@ -464,6 +465,8 @@ export function BuilderRosterSurface({
         </Frame>
 
         <UnprovisionedBuildersPanel
+          assignableBrokerages={assignableBrokerages}
+          brokerOptionsPending={brokerOptionsPending}
           candidates={unprovisionedBuilders}
           onProvision={onProvisionBuilder}
           pending={pending}
@@ -506,10 +509,14 @@ export function BuilderRosterSurface({
 }
 
 function UnprovisionedBuildersPanel({
+  assignableBrokerages,
+  brokerOptionsPending,
   candidates,
   onProvision,
   pending,
 }: {
+  assignableBrokerages: AssignableBrokerage[];
+  brokerOptionsPending: boolean;
   candidates: UnprovisionedBuilder[] | undefined;
   onProvision: BuilderRosterHandlers["onProvisionBuilder"];
   pending: boolean;
@@ -570,6 +577,8 @@ function UnprovisionedBuildersPanel({
                   </div>
                 </div>
                 <ProvisionBuilderDialog
+                  assignableBrokerages={assignableBrokerages}
+                  brokerOptionsPending={brokerOptionsPending}
                   candidate={candidate}
                   onProvision={onProvision}
                 />
@@ -583,9 +592,13 @@ function UnprovisionedBuildersPanel({
 }
 
 function ProvisionBuilderDialog({
+  assignableBrokerages,
+  brokerOptionsPending,
   candidate,
   onProvision,
 }: {
+  assignableBrokerages: AssignableBrokerage[];
+  brokerOptionsPending: boolean;
   candidate: UnprovisionedBuilder;
   onProvision: BuilderRosterHandlers["onProvisionBuilder"];
 }): ReactElement {
@@ -597,12 +610,27 @@ function ProvisionBuilderDialog({
     candidate.email?.split("@")[0]?.trim() ||
     candidate.workosUserId;
   const [name, setName] = useState(ownerFallback);
+  const brokerage = assignableBrokerages.find(
+    (option) => option.workosOrganizationId === candidate.workosOrganizationId
+  );
+  const brokers = brokerage?.brokers ?? [];
+  const defaultBrokerWorkosUserId =
+    brokers.find((broker) => broker.isPrincipal)?.workosUserId ??
+    brokers[0]?.workosUserId ??
+    "";
+  const [assignedBrokerWorkosUserId, setAssignedBrokerWorkosUserId] = useState(
+    defaultBrokerWorkosUserId
+  );
   const [saving, setSaving] = useState(false);
   const trimmed = name.trim();
   const brokerageName = candidate.brokerageDisplayName?.trim().toLowerCase();
   const mirrorsBrokerage =
     brokerageName !== undefined && trimmed.toLowerCase() === brokerageName;
-  const invalid = trimmed.length === 0 || mirrorsBrokerage;
+  const selectedBroker = brokers.find(
+    (broker) => broker.workosUserId === assignedBrokerWorkosUserId
+  );
+  const invalid =
+    trimmed.length === 0 || mirrorsBrokerage || !selectedBroker || saving;
 
   return (
     <Dialog
@@ -610,6 +638,7 @@ function ProvisionBuilderDialog({
         setOpen(next);
         if (next) {
           setName(ownerFallback);
+          setAssignedBrokerWorkosUserId(defaultBrokerWorkosUserId);
         }
       }}
       open={open}
@@ -646,6 +675,69 @@ function ProvisionBuilderDialog({
             </p>
           )}
         </div>
+        <div className="flex flex-col gap-2 py-1">
+          <Label htmlFor={`builder-broker-${candidate.workosMembershipId}`}>
+            Assigned broker
+          </Label>
+          <Select
+            disabled={brokerOptionsPending || brokers.length === 0}
+            items={brokers.map((broker) => broker.workosUserId)}
+            onValueChange={(value) =>
+              setAssignedBrokerWorkosUserId(value ?? "")
+            }
+            value={assignedBrokerWorkosUserId || undefined}
+          >
+            <SelectTrigger
+              id={`builder-broker-${candidate.workosMembershipId}`}
+            >
+              <SelectValue>
+                {(value) => {
+                  const broker = brokers.find(
+                    (option) => option.workosUserId === value
+                  );
+                  return (
+                    broker?.name ??
+                    broker?.email ??
+                    (brokerOptionsPending
+                      ? "Loading brokers..."
+                      : "Select broker")
+                  );
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              {brokers.map((broker) => (
+                <SelectItem
+                  key={broker.workosUserId}
+                  onClick={() =>
+                    setAssignedBrokerWorkosUserId(broker.workosUserId)
+                  }
+                  value={broker.workosUserId}
+                >
+                  <div className="flex min-w-0 flex-col">
+                    <span className="truncate font-medium">
+                      {broker.name ?? broker.email ?? broker.workosUserId}
+                    </span>
+                    <span className="truncate text-muted-foreground text-xs">
+                      {broker.email ?? broker.workosUserId}
+                      {broker.isPrincipal ? " · Principal broker" : ""}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {!brokerOptionsPending && brokers.length === 0 ? (
+            <p className="text-destructive text-xs" role="alert">
+              No active eligible brokers are available for this brokerage.
+            </p>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              Required. Only active broker members of this brokerage can be
+              assigned.
+            </p>
+          )}
+        </div>
         <DialogFooter>
           <DialogClose
             render={
@@ -655,11 +747,12 @@ function ProvisionBuilderDialog({
             }
           />
           <Button
-            disabled={invalid || saving}
+            disabled={invalid}
             onClick={async () => {
               setSaving(true);
               try {
                 await onProvision({
+                  assignedBrokerWorkosUserId,
                   displayName: trimmed,
                   ownerWorkosUserId: candidate.workosUserId,
                   workosOrganizationId: candidate.workosOrganizationId,

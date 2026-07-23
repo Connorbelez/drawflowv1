@@ -1,7 +1,6 @@
 import { normalizeRoleSlugs, type RoleSlug } from "./authz";
 import {
   FAIRLEND_DEFAULT_BROKER_EMAIL,
-  FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
   FAIRLEND_WORKOS_ORGANIZATION_ID,
 } from "./fairLendConfig";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
@@ -135,6 +134,30 @@ export function ensureBuilderBrokerAssignment(
   return writeBuilderBrokerAssignment(ctx, input, false);
 }
 
+/** Preserve a healthy assignment; otherwise use an explicit broker or the principal. */
+export async function ensureBuilderBrokerAssignmentForWorkflow(
+  ctx: MutationCtx,
+  input: Omit<BuilderBrokerAssignmentInput, "assignedBrokerWorkosUserId"> & {
+    assignedBrokerWorkosUserId?: string;
+  }
+): Promise<EnsureBuilderBrokerAssignmentResult> {
+  const health = await getBuilderBrokerAssignmentHealth(ctx, input);
+  if (health.healthy && health.assignment) {
+    return {
+      assignmentId: health.assignment._id,
+      operation: "unchanged",
+    };
+  }
+
+  const assignedBrokerWorkosUserId =
+    input.assignedBrokerWorkosUserId ??
+    (await requireDefaultBrokerMember(ctx, input.brokerage)).workosUserId;
+  return ensureBuilderBrokerAssignment(ctx, {
+    ...input,
+    assignedBrokerWorkosUserId,
+  });
+}
+
 /**
  * Resolve and validate the broker used by automatic brokerage workflows.
  * FairLendBrokerage is pinned to Elie; standalone brokerages retain their
@@ -144,12 +167,26 @@ export async function requireDefaultBrokerMember(
   ctx: ReadCtx,
   brokerage: Pick<
     Doc<"brokerages">,
-    "principalBrokerWorkosUserId" | "workosOrganizationId"
+    | "principalBrokerEmail"
+    | "principalBrokerWorkosUserId"
+    | "workosOrganizationId"
   >
 ) {
-  const isFairLendBrokerage =
-    brokerage.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID;
-  const workosUserId = getConfiguredDefaultBrokerWorkosUserId(brokerage);
+  const configuredEmail = getConfiguredDefaultBrokerEmail(brokerage);
+  if (configuredEmail) {
+    const eligible = await findEligibleBrokerMemberByEmail(ctx, {
+      email: configuredEmail,
+      workosOrganizationId: brokerage.workosOrganizationId,
+    });
+    if (!eligible) {
+      throw new Error(
+        `The brokerage principal broker (${configuredEmail}) must be an active broker member of the brokerage.`
+      );
+    }
+    return eligible;
+  }
+
+  const workosUserId = brokerage.principalBrokerWorkosUserId;
   if (!workosUserId) {
     throw new Error("The brokerage has not configured a principal broker.");
   }
@@ -158,15 +195,6 @@ export async function requireDefaultBrokerMember(
     workosOrganizationId: brokerage.workosOrganizationId,
     workosUserId,
   });
-  if (
-    isFairLendBrokerage &&
-    eligible.broker.email.trim().toLowerCase() !== FAIRLEND_DEFAULT_BROKER_EMAIL
-  ) {
-    throw new Error(
-      `The FairLendBrokerage default broker must be ${FAIRLEND_DEFAULT_BROKER_EMAIL}.`
-    );
-  }
-
   return { ...eligible, workosUserId };
 }
 
@@ -179,14 +207,18 @@ export async function listAssignableBrokerMembers(
   ctx: ReadCtx,
   brokerage: Pick<
     Doc<"brokerages">,
-    "principalBrokerWorkosUserId" | "workosOrganizationId"
+    | "principalBrokerEmail"
+    | "principalBrokerWorkosUserId"
+    | "workosOrganizationId"
   >
 ): Promise<{
   defaultAssignedBrokerWorkosUserId: string;
   options: AssignableBrokerMemberOption[];
 }> {
+  const configuredDefaultBrokerEmail =
+    getConfiguredDefaultBrokerEmail(brokerage);
   const configuredDefaultBrokerWorkosUserId =
-    getConfiguredDefaultBrokerWorkosUserId(brokerage);
+    brokerage.principalBrokerWorkosUserId;
   const memberships = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_organization", (q) =>
@@ -216,7 +248,9 @@ export async function listAssignableBrokerMembers(
     options.push({
       ...(broker.email ? { email: broker.email } : {}),
       isPrincipal:
-        membership.workosUserId === configuredDefaultBrokerWorkosUserId,
+        configuredDefaultBrokerEmail === undefined
+          ? membership.workosUserId === configuredDefaultBrokerWorkosUserId
+          : normalizeEmail(broker.email) === configuredDefaultBrokerEmail,
       name:
         fullName ||
         broker.name?.trim() ||
@@ -232,11 +266,10 @@ export async function listAssignableBrokerMembers(
     }
     return a.name.localeCompare(b.name);
   });
-  const configuredDefault = sortedOptions.find(
-    (option) =>
-      option.workosUserId === configuredDefaultBrokerWorkosUserId &&
-      (brokerage.workosOrganizationId !== FAIRLEND_WORKOS_ORGANIZATION_ID ||
-        option.email?.trim().toLowerCase() === FAIRLEND_DEFAULT_BROKER_EMAIL)
+  const configuredDefault = sortedOptions.find((option) =>
+    configuredDefaultBrokerEmail === undefined
+      ? option.workosUserId === configuredDefaultBrokerWorkosUserId
+      : normalizeEmail(option.email) === configuredDefaultBrokerEmail
   );
   const defaultAssignedBrokerWorkosUserId =
     configuredDefault?.workosUserId ?? sortedOptions[0]?.workosUserId;
@@ -252,15 +285,15 @@ export async function listAssignableBrokerMembers(
   };
 }
 
-function getConfiguredDefaultBrokerWorkosUserId(
+function getConfiguredDefaultBrokerEmail(
   brokerage: Pick<
     Doc<"brokerages">,
-    "principalBrokerWorkosUserId" | "workosOrganizationId"
+    "principalBrokerEmail" | "workosOrganizationId"
   >
 ): string | undefined {
   return brokerage.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID
-    ? FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID
-    : brokerage.principalBrokerWorkosUserId;
+    ? FAIRLEND_DEFAULT_BROKER_EMAIL
+    : normalizeEmail(brokerage.principalBrokerEmail);
 }
 
 /**
@@ -476,6 +509,47 @@ export async function requireEligibleBrokerMember(
   return { broker, membership };
 }
 
+async function findEligibleBrokerMemberByEmail(
+  ctx: ReadCtx,
+  input: { email: string; workosOrganizationId: string }
+) {
+  const matches = new Map<string, {
+    broker: Doc<"users">;
+    membership: Doc<"workosOrganizationMemberships">;
+    workosUserId: string;
+  }>();
+  for await (const membership of ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_organization", (q) =>
+      q.eq("workosOrganizationId", input.workosOrganizationId)
+    )) {
+    if (
+      membership.status !== "active" ||
+      !hasAssignableBrokerRole(membership)
+    ) {
+      continue;
+    }
+    const broker = await getWorkosUser(ctx, membership.workosUserId);
+    if (
+      broker?.status === "active" &&
+      broker.emailVerified !== false &&
+      normalizeEmail(broker.email) === input.email
+    ) {
+      matches.set(membership.workosUserId, {
+        broker,
+        membership,
+        workosUserId: membership.workosUserId,
+      });
+    }
+  }
+  if (matches.size > 1) {
+    throw new Error(
+      `Multiple active broker members use the principal broker email ${input.email}. Resolve the duplicate WorkOS accounts before assigning work.`
+    );
+  }
+  return matches.values().next().value ?? null;
+}
+
 export function hasAssignableBrokerRole(
   membership: Pick<
     Doc<"workosOrganizationMemberships">,
@@ -507,11 +581,33 @@ async function getActiveOrganizationMembership(
   return null;
 }
 
-function getWorkosUser(ctx: ReadCtx, workosUserId: string) {
-  return ctx.db
+async function getWorkosUser(ctx: ReadCtx, workosUserId: string) {
+  const projectedUsers = await ctx.db
     .query("users")
     .withIndex("by_workos_user_id", (q) => q.eq("workosUserId", workosUserId))
-    .unique();
+    .collect();
+  if (projectedUsers.length <= 1) {
+    return projectedUsers[0] ?? null;
+  }
+
+  const activeUsers = projectedUsers.filter((user) => user.status === "active");
+  const candidates = activeUsers.length > 0 ? activeUsers : projectedUsers;
+  const projectedEmails = new Set(
+    candidates.map((user) => normalizeEmail(user.email)).filter(Boolean)
+  );
+  if (projectedEmails.size > 1) {
+    throw new Error(
+      `Conflicting user projections exist for WorkOS user ${workosUserId}. Sync the WorkOS directory before assigning work.`
+    );
+  }
+  return candidates.sort(
+    (a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)
+  )[0];
+}
+
+function normalizeEmail(email: string | undefined): string | undefined {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || undefined;
 }
 
 function unhealthy(

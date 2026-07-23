@@ -42,6 +42,28 @@ function asRole(
 async function bootstrappedBroker() {
   const base = convexTest(schema, modules);
   const broker = asRole(base, ["principle-broker"], PRINCIPAL_BROKER);
+  await broker.run(async (ctx: any) => {
+    await ctx.db.insert("users", {
+      authId: PRINCIPAL_BROKER,
+      email: FAIRLEND_DEFAULT_BROKER_EMAIL,
+      emailVerified: true,
+      name: "Elie Soberano",
+      sourceEventId: "evt_test_fairlend_principal",
+      sourceEventType: "user.created",
+      status: "active",
+      workosUserId: PRINCIPAL_BROKER,
+    });
+    await ctx.db.insert("workosOrganizationMemberships", {
+      roleSlug: "principle-broker",
+      roleSlugs: ["principle-broker"],
+      sourceEventId: "evt_test_fairlend_principal_membership",
+      sourceEventType: "organization_membership.created",
+      status: "active",
+      workosMembershipId: "om_test_fairlend_principal",
+      workosOrganizationId: FAIRLEND_ORG,
+      workosUserId: PRINCIPAL_BROKER,
+    });
+  });
   await broker.mutation(
     (api as any).brokerageProvisioning.provisionFairLendBrokerage,
     {},
@@ -107,6 +129,103 @@ describe("new builder onboarding", () => {
       name: "TestOrganization",
       workosOrganizationId,
     });
+  });
+
+  test("standalone brokerages resolve their stored principal email after a WorkOS id change", async () => {
+    const workosOrganizationId = "org_rotated_principal";
+    const originalPrincipalWorkosUserId = "user_original_principal";
+    const currentPrincipalWorkosUserId = "user_current_principal";
+    const principalEmail = "principal@rotated-brokerage.example";
+    const base = convexTest(schema, modules);
+    const admin = asRole(base, ["admin"], "user_admin");
+    let originalUserId: string;
+    let originalMembershipId: string;
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: "Rotated Brokerage",
+        sourceEventId: "evt_rotated_brokerage",
+        sourceEventType: "organization.created",
+        status: "active",
+        workosOrganizationId,
+      });
+      originalUserId = await ctx.db.insert("users", {
+        authId: originalPrincipalWorkosUserId,
+        email: principalEmail,
+        name: "Original Principal",
+        sourceEventId: "evt_original_principal",
+        sourceEventType: "user.created",
+        status: "active",
+        workosUserId: originalPrincipalWorkosUserId,
+      });
+      originalMembershipId = await ctx.db.insert(
+        "workosOrganizationMemberships",
+        {
+          roleSlug: "principle-broker",
+          roleSlugs: ["principle-broker"],
+          sourceEventId: "evt_original_principal_membership",
+          sourceEventType: "organization_membership.created",
+          status: "active",
+          workosMembershipId: "om_original_principal",
+          workosOrganizationId,
+          workosUserId: originalPrincipalWorkosUserId,
+        },
+      );
+    });
+    await admin.mutation(
+      (api as any).brokerageProvisioning.provisionBrokerageProfile,
+      {
+        displayName: "Rotated Brokerage",
+        principalBrokerWorkosUserId: originalPrincipalWorkosUserId,
+        workosOrganizationId,
+      },
+    );
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(originalUserId, { status: "deleted" });
+      await ctx.db.patch(originalMembershipId, { status: "deleted" });
+      await ctx.db.insert("users", {
+        authId: currentPrincipalWorkosUserId,
+        email: principalEmail,
+        name: "Current Principal",
+        sourceEventId: "evt_current_principal",
+        sourceEventType: "user.created",
+        status: "active",
+        workosUserId: currentPrincipalWorkosUserId,
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "principle-broker",
+        roleSlugs: ["principle-broker"],
+        sourceEventId: "evt_current_principal_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_current_principal",
+        workosOrganizationId,
+        workosUserId: currentPrincipalWorkosUserId,
+      });
+    });
+
+    const provisioned = await admin.mutation(
+      (api as any).brokerageProvisioning.provisionBuilderProfile,
+      {
+        displayName: "Rotated Principal Builder",
+        ownerWorkosUserId: "user_rotated_principal_owner",
+        workosOrganizationId,
+      },
+    );
+    const assignment = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("builderBrokerAssignments")
+        .withIndex("by_builderProfileId_and_status_and_effectiveAt", (q: any) =>
+          q
+            .eq("builderProfileId", provisioned.builderProfileId)
+            .eq("status", "active"),
+        )
+        .unique(),
+    );
+
+    expect(assignment.assignedBrokerWorkosUserId).toBe(
+      currentPrincipalWorkosUserId,
+    );
   });
 
   test("provisionNewBuilder creates a WorkOS account, builder profile, and owner link", async () => {
@@ -699,6 +818,293 @@ describe("new builder onboarding", () => {
       organizationId: FAIRLEND_ORG,
       status: "active",
     });
+  });
+
+  test("non-broker admin can select an eligible broker while provisioning a builder", async () => {
+    const selectedBrokerWorkosUserId = "user_selected_builder_broker";
+    const { base, broker } = await bootstrappedBroker();
+    await broker.run(async (ctx: any) => {
+      await ctx.db.insert("users", {
+        authId: selectedBrokerWorkosUserId,
+        email: "selected.broker@example.com",
+        name: "Selected Broker",
+        sourceEventId: "evt_selected_builder_broker",
+        sourceEventType: "user.created",
+        status: "active",
+        workosUserId: selectedBrokerWorkosUserId,
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "broker",
+        roleSlugs: ["broker"],
+        sourceEventId: "evt_selected_builder_broker_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_selected_builder_broker",
+        workosOrganizationId: FAIRLEND_ORG,
+        workosUserId: selectedBrokerWorkosUserId,
+      });
+    });
+    const admin = asRole(base, ["admin"], "user_non_broker_admin");
+
+    const provisioned = await admin.mutation(
+      (api as any).brokerageProvisioning.provisionBuilderProfile,
+      {
+        assignedBrokerWorkosUserId: selectedBrokerWorkosUserId,
+        displayName: "Admin Provisioned Builders",
+        ownerWorkosUserId: "user_admin_provisioned_builder",
+        workosOrganizationId: FAIRLEND_ORG,
+      },
+    );
+    const assignment = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("builderBrokerAssignments")
+        .withIndex("by_builderProfileId_and_status_and_effectiveAt", (q: any) =>
+          q
+            .eq("builderProfileId", provisioned.builderProfileId)
+            .eq("status", "active"),
+        )
+        .unique(),
+    );
+
+    expect(assignment.assignedBrokerWorkosUserId).toBe(
+      selectedBrokerWorkosUserId,
+    );
+  });
+
+  test("provisionBuilderProfile resolves the FairLend principal by email after a WorkOS id change", async () => {
+    const currentPrincipalBrokerWorkosUserId = "user_current_fairlend_principal";
+    const base = convexTest(schema, modules);
+    const admin = asRole(base, ["admin"], "user_admin");
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: FAIRLEND_BROKERAGE_NAME,
+        sourceEventId: "evt_fairlend",
+        sourceEventType: "organization.created",
+        status: "active",
+        workosOrganizationId: FAIRLEND_ORG,
+      });
+      await ctx.db.insert("users", {
+        authId: currentPrincipalBrokerWorkosUserId,
+        email: FAIRLEND_DEFAULT_BROKER_EMAIL,
+        emailVerified: true,
+        name: "Elie Soberano",
+        sourceEventId: "evt_current_fairlend_principal",
+        sourceEventType: "user.created",
+        status: "active",
+        workosUserId: currentPrincipalBrokerWorkosUserId,
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "principle-broker",
+        roleSlugs: ["principle-broker"],
+        sourceEventId: "evt_current_fairlend_principal_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_current_fairlend_principal",
+        workosOrganizationId: FAIRLEND_ORG,
+        workosUserId: currentPrincipalBrokerWorkosUserId,
+      });
+      await ctx.db.insert("brokerages", {
+        createdAt: 1,
+        displayName: FAIRLEND_BROKERAGE_NAME,
+        legalName: FAIRLEND_BROKERAGE_NAME,
+        principalBrokerWorkosUserId: PRINCIPAL_BROKER,
+        status: "active",
+        updatedAt: 1,
+        workosOrganizationId: FAIRLEND_ORG,
+      });
+    });
+
+    const provisioned = await admin.mutation(
+      (api as any).brokerageProvisioning.provisionBuilderProfile,
+      {
+        displayName: "Rotated Principal Builders",
+        ownerWorkosUserId: "user_rotated_principal_builder",
+        workosOrganizationId: FAIRLEND_ORG,
+      },
+    );
+    const assignment = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("builderBrokerAssignments")
+        .withIndex("by_builderProfileId_and_status_and_effectiveAt", (q: any) =>
+          q
+            .eq("builderProfileId", provisioned.builderProfileId)
+            .eq("status", "active"),
+        )
+        .unique(),
+    );
+
+    expect(assignment.assignedBrokerWorkosUserId).toBe(
+      currentPrincipalBrokerWorkosUserId,
+    );
+  });
+
+  test("provisionBuilderProfile accepts an explicitly selected eligible broker", async () => {
+    const selectedBrokerWorkosUserId = "user_selected_broker";
+    const { broker } = await bootstrappedBroker();
+    await broker.run(async (ctx: any) => {
+      await ctx.db.insert("users", {
+        authId: selectedBrokerWorkosUserId,
+        email: "selected-broker@fairlend.ca",
+        emailVerified: true,
+        name: "Selected Broker",
+        sourceEventId: "evt_selected_broker",
+        sourceEventType: "user.created",
+        status: "active",
+        workosUserId: selectedBrokerWorkosUserId,
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "broker",
+        roleSlugs: ["broker"],
+        sourceEventId: "evt_selected_broker_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_selected_broker",
+        workosOrganizationId: FAIRLEND_ORG,
+        workosUserId: selectedBrokerWorkosUserId,
+      });
+    });
+
+    const provisioned = await broker.mutation(
+      (api as any).brokerageProvisioning.provisionBuilderProfile,
+      {
+        assignedBrokerWorkosUserId: selectedBrokerWorkosUserId,
+        displayName: "Selected Broker Builders",
+        ownerWorkosUserId: "user_selected_broker_builder",
+        workosOrganizationId: FAIRLEND_ORG,
+      },
+    );
+    const assignment = await broker.run(async (ctx: any) =>
+      ctx.db
+        .query("builderBrokerAssignments")
+        .withIndex("by_builderProfileId_and_status_and_effectiveAt", (q: any) =>
+          q
+            .eq("builderProfileId", provisioned.builderProfileId)
+            .eq("status", "active"),
+        )
+        .unique(),
+    );
+
+    expect(assignment.assignedBrokerWorkosUserId).toBe(
+      selectedBrokerWorkosUserId,
+    );
+  });
+
+  test("provisionBuilderProfile preserves a healthy assignment instead of transferring implicitly", async () => {
+    const selectedBrokerWorkosUserId = "user_existing_selected_broker";
+    const { broker } = await bootstrappedBroker();
+    await broker.run(async (ctx: any) => {
+      await ctx.db.insert("users", {
+        authId: selectedBrokerWorkosUserId,
+        email: "existing-selected-broker@fairlend.ca",
+        emailVerified: true,
+        name: "Existing Selected Broker",
+        sourceEventId: "evt_existing_selected_broker",
+        sourceEventType: "user.created",
+        status: "active",
+        workosUserId: selectedBrokerWorkosUserId,
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "broker",
+        roleSlugs: ["broker"],
+        sourceEventId: "evt_existing_selected_broker_membership",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_existing_selected_broker",
+        workosOrganizationId: FAIRLEND_ORG,
+        workosUserId: selectedBrokerWorkosUserId,
+      });
+    });
+    const first = await broker.mutation(
+      (api as any).brokerageProvisioning.provisionBuilderProfile,
+      {
+        assignedBrokerWorkosUserId: selectedBrokerWorkosUserId,
+        displayName: "Existing Assignment Builders",
+        ownerWorkosUserId: "user_existing_assignment_builder",
+        workosOrganizationId: FAIRLEND_ORG,
+      },
+    );
+
+    await broker.mutation(
+      (api as any).brokerageProvisioning.provisionBuilderProfile,
+      {
+        assignedBrokerWorkosUserId: PRINCIPAL_BROKER,
+        displayName: "Existing Assignment Builders",
+        ownerWorkosUserId: "user_existing_assignment_builder",
+        workosOrganizationId: FAIRLEND_ORG,
+      },
+    );
+    const assignment = await broker.run(async (ctx: any) =>
+      ctx.db
+        .query("builderBrokerAssignments")
+        .withIndex("by_builderProfileId_and_status_and_effectiveAt", (q: any) =>
+          q.eq("builderProfileId", first.builderProfileId).eq("status", "active"),
+        )
+        .unique(),
+    );
+
+    expect(assignment.assignedBrokerWorkosUserId).toBe(
+      selectedBrokerWorkosUserId,
+    );
+  });
+
+  test("principal resolution fails closed when duplicate active broker accounts share the configured email", async () => {
+    const base = convexTest(schema, modules);
+    const admin = asRole(base, ["admin"], "user_admin");
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: FAIRLEND_BROKERAGE_NAME,
+        sourceEventId: "evt_duplicate_principal_org",
+        sourceEventType: "organization.created",
+        status: "active",
+        workosOrganizationId: FAIRLEND_ORG,
+      });
+      await ctx.db.insert("brokerages", {
+        createdAt: 1,
+        displayName: FAIRLEND_BROKERAGE_NAME,
+        legalName: FAIRLEND_BROKERAGE_NAME,
+        principalBrokerEmail: FAIRLEND_DEFAULT_BROKER_EMAIL,
+        principalBrokerWorkosUserId: PRINCIPAL_BROKER,
+        status: "active",
+        updatedAt: 1,
+        workosOrganizationId: FAIRLEND_ORG,
+      });
+      for (const suffix of ["old", "current"]) {
+        const workosUserId = `user_duplicate_principal_${suffix}`;
+        await ctx.db.insert("users", {
+          authId: workosUserId,
+          email: FAIRLEND_DEFAULT_BROKER_EMAIL,
+          emailVerified: true,
+          name: `Duplicate Principal ${suffix}`,
+          sourceEventId: `evt_duplicate_principal_${suffix}`,
+          sourceEventType: "user.created",
+          status: "active",
+          workosUserId,
+        });
+        await ctx.db.insert("workosOrganizationMemberships", {
+          roleSlug: "principle-broker",
+          roleSlugs: ["principle-broker"],
+          sourceEventId: `evt_duplicate_principal_membership_${suffix}`,
+          sourceEventType: "organization_membership.created",
+          status: "active",
+          workosMembershipId: `om_duplicate_principal_${suffix}`,
+          workosOrganizationId: FAIRLEND_ORG,
+          workosUserId,
+        });
+      }
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).brokerageProvisioning.provisionBuilderProfile,
+        {
+          displayName: "Duplicate Principal Builders",
+          ownerWorkosUserId: "user_duplicate_principal_builder",
+          workosOrganizationId: FAIRLEND_ORG,
+        },
+      ),
+    ).rejects.toThrow(/multiple active broker members/i);
   });
 
   test("linkBuilderAccount repairs a missing principal broker assignment", async () => {

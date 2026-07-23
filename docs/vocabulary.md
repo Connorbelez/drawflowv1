@@ -41,6 +41,8 @@ The top brokerage authority inside a brokerage.
 
 The role source is WorkOS. DrawFlow enforces the one-active-principal-broker rule in application logic when managing WorkOS role assignments.
 
+DrawFlow stores the principal's normalized email as the durable brokerage setting and resolves the current active WorkOS user and membership at assignment time. WorkOS user IDs are cached references, not durable identity, because an account recreation can replace them. FairLendBrokerage uses `elie@fairlend.ca` as its configured principal identity.
+
 ### Broker
 
 A brokerage user assigned to manage a build or proposal.
