@@ -1470,42 +1470,135 @@ export function buildTimelineSetupScenarioDraws({
       0
     )
   );
-  const draws = [...scenario.draws]
-    .sort(
-      (left, right) =>
-        (left.order ?? 0) - (right.order ?? 0) ||
-        left.timingDay - right.timingDay ||
-        left.drawKey.localeCompare(right.drawKey)
-    )
-    .map((draw, index) => ({
-      ...draw,
-      amountCents: Math.max(
-        0,
-        Math.round(
-          (reimbursableBudgetCents * Math.max(0, Math.round(draw.amountBps))) /
-            TOTAL_REIMBURSEMENT_BPS
-        )
-      ),
-      order: draw.order ?? index + 1,
-      timingDay: Math.max(0, Math.round(draw.timingDay)),
-    }));
+  const sortedScenarioDraws = [...scenario.draws].sort(
+    (left, right) =>
+      (left.order ?? 0) - (right.order ?? 0) ||
+      left.timingDay - right.timingDay ||
+      left.drawKey.localeCompare(right.drawKey)
+  );
+  const desiredDraws = sortedScenarioDraws.map((draw, index) => ({
+    ...draw,
+    amountCents: Math.max(
+      0,
+      Math.round(
+        (reimbursableBudgetCents * Math.max(0, Math.round(draw.amountBps))) /
+          TOTAL_REIMBURSEMENT_BPS
+      )
+    ),
+    order: draw.order ?? index + 1,
+    timingDay: Math.max(0, Math.round(draw.timingDay)),
+  }));
+  // Template amountBps are shares of the lender facility, but they can
+  // front-load past cumulative completed-work eligibility for the generated
+  // milestone schedule. Fit amounts (and final timing) to that envelope so
+  // generate-timeline stays valid at any LTV / borrower co-pay.
+  const fittedDraws = fitScenarioDrawsToCompletedWorkEligibility(
+    desiredDraws,
+    items,
+    reimbursableBudgetCents
+  );
 
-  const result: TimelineSetupDrawResult[] = [];
+  return fittedDraws.map((draw, index) => ({
+    amountCents: draw.amountCents,
+    customDate: true,
+    drawKey:
+      draw.drawKey.trim() || `draw-${String(index + 1).padStart(2, "0")}`,
+    label: draw.label.trim() || `Draw ${String(index + 1).padStart(2, "0")}`,
+    milestoneKey: milestoneKeyForScenarioDraw(items, draw.timingDay),
+    order: index + 1,
+    timingDay: draw.timingDay,
+  }));
+}
 
-  for (const [index, draw] of draws.entries()) {
-    result.push({
-      amountCents: draw.amountCents,
-      customDate: true,
-      drawKey:
-        draw.drawKey.trim() || `draw-${String(index + 1).padStart(2, "0")}`,
-      label: draw.label.trim() || `Draw ${String(index + 1).padStart(2, "0")}`,
-      milestoneKey: milestoneKeyForScenarioDraw(items, draw.timingDay),
-      order: index + 1,
-      timingDay: draw.timingDay,
-    });
+export function fitScenarioDrawsToCompletedWorkEligibility<
+  T extends { amountCents: number; timingDay: number },
+>(
+  draws: T[],
+  items: TimelineItem<DemoMilestone>[],
+  reimbursableBudgetCents: number
+): T[] {
+  if (draws.length === 0) {
+    return draws;
   }
 
-  return result;
+  const milestoneEligibility = items
+    .filter((item) => item.data)
+    .map((item) => ({
+      amountCents: dollarsToCents(
+        getMilestoneDrawAvailabilityAmount(item.data)
+      ),
+      dayEnd: getMilestoneEndX(item),
+    }))
+    .sort((left, right) => left.dayEnd - right.dayEnd);
+
+  const cumulativeEligibleCentsAt = (timingDay: number) =>
+    milestoneEligibility.reduce(
+      (total, milestone) =>
+        milestone.dayEnd <= timingDay ? total + milestone.amountCents : total,
+      0
+    );
+
+  const totalEligibleCents = milestoneEligibility.reduce(
+    (total, milestone) => total + milestone.amountCents,
+    0
+  );
+  const targetDrawCents = Math.min(
+    Math.max(0, Math.round(reimbursableBudgetCents)),
+    totalEligibleCents
+  );
+  const lastMilestoneDayEnd =
+    milestoneEligibility.at(-1)?.dayEnd ?? draws.at(-1)?.timingDay ?? 0;
+
+  const fitted = draws.map((draw) => ({ ...draw }));
+  let allocatedCents = 0;
+  let carryCents = 0;
+
+  for (const [index, draw] of fitted.entries()) {
+    const isLast = index === fitted.length - 1;
+    const timingDay = isLast
+      ? Math.max(draw.timingDay, lastMilestoneDayEnd)
+      : draw.timingDay;
+    const desiredCents = Math.max(0, Math.round(draw.amountCents)) + carryCents;
+    const remainingTarget = Math.max(0, targetDrawCents - allocatedCents);
+    const eligibleRemaining = Math.max(
+      0,
+      cumulativeEligibleCentsAt(timingDay) - allocatedCents
+    );
+    const amountCents = Math.min(
+      desiredCents,
+      remainingTarget,
+      eligibleRemaining
+    );
+    fitted[index] = {
+      ...draw,
+      amountCents,
+      timingDay,
+    };
+    allocatedCents += amountCents;
+    carryCents = Math.max(0, desiredCents - amountCents);
+  }
+
+  if (carryCents > 0 && fitted.length > 0) {
+    const lastIndex = fitted.length - 1;
+    const last = fitted[lastIndex];
+    if (!last) {
+      return fitted;
+    }
+    const timingDay = Math.max(last.timingDay, lastMilestoneDayEnd);
+    const eligibleRemaining = Math.max(
+      0,
+      cumulativeEligibleCentsAt(timingDay) - allocatedCents
+    );
+    const remainingTarget = Math.max(0, targetDrawCents - allocatedCents);
+    const extraCents = Math.min(carryCents, eligibleRemaining, remainingTarget);
+    fitted[lastIndex] = {
+      ...last,
+      amountCents: last.amountCents + extraCents,
+      timingDay,
+    };
+  }
+
+  return fitted;
 }
 
 function milestoneKeyForScenarioDraw(

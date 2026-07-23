@@ -91,7 +91,8 @@ export function calculateDrawAvailabilityAmount(
 }
 
 export function getMilestoneDrawAvailabilityAmount(
-  milestone: DemoMilestone | undefined
+  milestone: DemoMilestone | undefined,
+  coPayBps: number | undefined = undefined
 ) {
   if (!milestone) {
     return 0;
@@ -103,7 +104,7 @@ export function getMilestoneDrawAvailabilityAmount(
 
   return calculateDrawAvailabilityAmount(
     milestone.amount,
-    DEFAULT_BORROWER_CO_PAY_BPS
+    coPayBps ?? DEFAULT_BORROWER_CO_PAY_BPS
   );
 }
 

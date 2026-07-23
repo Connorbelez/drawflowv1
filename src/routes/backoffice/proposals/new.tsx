@@ -71,11 +71,17 @@ function NewBackofficeProductionProposalRoute() {
         proposedStartDate: packagePayload.proposedStartDate,
         workosOrganizationId,
       });
-      await saveDraft({
+      const saveResult = await saveDraft({
         ...packagePayload,
         proposalId,
         workosOrganizationId,
       });
+      if (saveResult.warnings.length > 0) {
+        console.warn(
+          "Draft proposal saved with schedule warnings",
+          saveResult.warnings
+        );
+      }
       await navigate({
         params: { planId: proposalId },
         to: "/backoffice/proposals/$planId",

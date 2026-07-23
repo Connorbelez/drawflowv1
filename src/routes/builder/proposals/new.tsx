@@ -102,7 +102,7 @@ function NewProductionProposalRoute() {
           };
         })
       );
-      await saveDraft({
+      const saveResult = await saveDraft({
         ...packagePayload,
         documents: [
           ...(packagePayload.documents ?? []),
@@ -111,6 +111,12 @@ function NewProductionProposalRoute() {
         proposalId,
         workosOrganizationId,
       });
+      if (saveResult.warnings.length > 0) {
+        console.warn(
+          "Draft proposal saved with schedule warnings",
+          saveResult.warnings
+        );
+      }
       await navigate({
         params: { proposalId },
         to: result.redirectToDurableRoute
