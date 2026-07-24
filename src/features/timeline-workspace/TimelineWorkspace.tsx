@@ -2254,6 +2254,7 @@ export function TimelineWorkspace({
     setActiveCapitalSpikeId(null);
     setActiveDrawId(draw.id);
     setSelectedPanelOpen(true);
+    setProbeValue(Math.round(draw.x));
     setDrawEditDraft({
       amount: String(draw.amount),
       x: String(Math.round(draw.x)),
@@ -3197,6 +3198,25 @@ export function TimelineWorkspace({
       return;
     }
 
+    const maxSchedulableAmount = getMaxSchedulableDrawAmount(
+      nextX,
+      items,
+      draws,
+      {
+        excludeDrawId: drawId,
+        proposedDrawId: drawId,
+      }
+    );
+
+    if (nextAmount > maxSchedulableAmount) {
+      toast.error(
+        maxSchedulableAmount <= 0
+          ? DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE
+          : `Only ${money(maxSchedulableAmount)} is unlocked and available to draw by day ${nextX}.`
+      );
+      return;
+    }
+
     const nextDraws = relabelTimelineDraws(
       draws.map((draw) =>
         draw.id === drawId
@@ -3209,11 +3229,6 @@ export function TimelineWorkspace({
           : draw
       )
     );
-
-    if (findDrawUnlockCapacityViolation(items, nextDraws)) {
-      toast.error(DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE);
-      return;
-    }
 
     const sequencedTargetDraw =
       nextDraws.find((draw) => draw.id === drawId) ?? targetDraw;
@@ -4811,13 +4826,34 @@ export function TimelineWorkspace({
                         >
                           <DrawTimelineMarker
                             active={draw.id === activeDrawId}
+                            availableAmount={getMaxSchedulableDrawAmount(
+                              Math.round(
+                                Number(
+                                  draw.id === activeDrawId
+                                    ? drawEditDraft.x
+                                    : draw.x
+                                )
+                              ) || draw.x,
+                              items,
+                              draws,
+                              {
+                                excludeDrawId: draw.id,
+                                proposedDrawId: draw.id,
+                              }
+                            )}
                             currentDay={currentDay}
                             draft={drawEditDraft}
                             draw={draw}
                             inlineEditorEnabled={!liveBuildMode}
                             onApply={applyDrawEdit}
                             onCancel={() => setActiveDrawId(null)}
-                            onDraftChange={setDrawEditDraft}
+                            onDraftChange={(draft) => {
+                              setDrawEditDraft(draft);
+                              const nextDay = Math.round(Number(draft.x));
+                              if (Number.isFinite(nextDay)) {
+                                setProbeValue(nextDay);
+                              }
+                            }}
                             onOpen={() => openDrawEditor(draw)}
                             reducedMotion={Boolean(prefersReducedMotion)}
                           />
@@ -7148,16 +7184,20 @@ export function resolveMilestoneDrawPositionDay(
 export function getCumulativeDrawPosition(
   availability: DrawAvailabilityDatum | null | undefined
 ): CumulativeDrawPosition {
+  const totalDrawn = Math.max(0, availability?.interestBearingDraw ?? 0);
+  const totalUnlocked = Math.max(
+    0,
+    availability?.totalUnlockedDraw ??
+      // Fallback for sparse fixtures: never prefer policy-inflated additional
+      // available draw over explicit unlocked capacity.
+      totalDrawn
+  );
+
   return {
-    availableToDraw: Math.max(0, availability?.additionalAvailableDraw ?? 0),
+    availableToDraw: Math.max(0, totalUnlocked - totalDrawn),
     day: availability?.day ?? 0,
-    totalDrawn: Math.max(0, availability?.interestBearingDraw ?? 0),
-    totalUnlocked: Math.max(
-      0,
-      availability?.totalUnlockedDraw ??
-        (availability?.interestBearingDraw ?? 0) +
-          (availability?.additionalAvailableDraw ?? 0)
-    ),
+    totalDrawn,
+    totalUnlocked,
   };
 }
 
@@ -10176,6 +10216,7 @@ function MilestoneRequestBadges({
 
 function DrawTimelineMarker({
   active,
+  availableAmount,
   currentDay,
   draw,
   draft,
@@ -10187,6 +10228,7 @@ function DrawTimelineMarker({
   reducedMotion,
 }: {
   active: boolean;
+  availableAmount?: number;
   currentDay: number;
   draw: DemoDraw;
   draft: DrawEditDraft;
@@ -10201,6 +10243,11 @@ function DrawTimelineMarker({
   const amountInputId = `draw-amount-${draw.id}`;
   const markerState = getDrawTimelineMarkerState(draw, currentDay);
   const stateCopy = getDrawTimelineMarkerCopy(markerState);
+  const draftDay = Math.round(Number(draft.x));
+  const resolvedAvailableAmount =
+    typeof availableAmount === "number" && Number.isFinite(availableAmount)
+      ? Math.max(0, Math.round(availableAmount))
+      : null;
   const markerClasses = {
     happened:
       "border-emerald-300 hover:border-emerald-400 hover:bg-emerald-50 dark:border-emerald-500/35 dark:hover:bg-emerald-500/10",
@@ -10290,6 +10337,16 @@ function DrawTimelineMarker({
               <p className="text-muted-foreground text-xs">
                 Update release date and reimbursement amount.
               </p>
+              {resolvedAvailableAmount === null ? null : (
+                <p
+                  className="mt-1 text-muted-foreground text-xs tabular-nums"
+                  data-testid={`timeline-draw-available-${getDrawDomId(draw)}`}
+                >
+                  {Number.isFinite(draftDay)
+                    ? `${money(resolvedAvailableAmount)} unlocked by day ${draftDay}`
+                    : `${money(resolvedAvailableAmount)} unlocked`}
+                </p>
+              )}
             </div>
             <div className="grid gap-3">
               <div className="grid gap-1.5">

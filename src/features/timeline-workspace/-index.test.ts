@@ -8,6 +8,7 @@ import {
   calculateApprovedDrawRequestLimit,
   calculateDrawRequestLimit,
   findDrawUnlockCapacityViolation,
+  getCumulativeDrawPosition,
   getMaxSchedulableDrawAmount,
   buildDrawAvailabilityChartData,
   buildDrawAvailabilityData,
@@ -1576,6 +1577,66 @@ describe("timeline cash shortfall logic", () => {
     });
   });
 
+  test("editing a later draw stays allowed when an earlier draw is already over capacity", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 1",
+          durationDays: 4,
+          evidence: "Planning",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Excavation"],
+        },
+        id: "foundation",
+        x: 0,
+      },
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 2",
+          durationDays: 4,
+          evidence: "Planning",
+          icon: "framing",
+          name: "Framing",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Walls"],
+        },
+        id: "framing",
+        x: 20,
+      },
+    ];
+    // Foundation unlocks 80k at day 12; framing unlocks another 80k at day 32.
+    const draws: DemoDraw[] = [
+      {
+        amount: 100_000,
+        id: "early-over",
+        label: "Draw 1",
+        x: 12,
+      },
+      {
+        amount: 10_000,
+        id: "later-draw",
+        label: "Draw 2",
+        x: 32,
+      },
+    ];
+
+    expect(findDrawUnlockCapacityViolation(items, draws)).toMatchObject({
+      draw: expect.objectContaining({ id: "early-over" }),
+    });
+    expect(
+      getMaxSchedulableDrawAmount(32, items, draws, {
+        excludeDrawId: "later-draw",
+        proposedDrawId: "later-draw",
+      }),
+    ).toBe(60_000);
+  });
+
   test("draw marker state distinguishes planned requested happened and rejected", () => {
     expect(
       getDrawTimelineMarkerState(
@@ -1715,6 +1776,49 @@ describe("timeline cash shortfall logic", () => {
       totalDrawn: 80_000,
       totalUnlocked: 220_000,
     });
+  });
+
+  test("cumulative unlock position ignores lender-policy headroom in available to draw", () => {
+    const availability = buildDrawAvailabilityData(
+      [
+        cashflowPoint({
+          cashOnHand: 100_000,
+          day: 0,
+          event: "start",
+          id: "start",
+          name: "Starting cash",
+        }),
+        cashflowPoint({
+          cashOnHand: 100_000,
+          day: 57,
+          drawCapacityUnlocked: 250_000,
+          event: "milestone",
+          id: "unlock",
+          name: "Unlock",
+        }),
+        cashflowPoint({
+          cashOnHand: 190_000,
+          day: 57,
+          drawAmount: 90_000,
+          event: "draw",
+          id: "draw-1",
+          name: "Draw 1",
+        }),
+      ],
+      300_000,
+    );
+
+    const position = getCumulativeDrawPosition(
+      interpolateDrawAvailability(availability, 57),
+    );
+
+    expect(position).toEqual({
+      availableToDraw: 160_000,
+      day: 57,
+      totalDrawn: 90_000,
+      totalUnlocked: 250_000,
+    });
+    expect(availability.at(-1)?.additionalAvailableDraw).toBe(210_000);
   });
 });
 
