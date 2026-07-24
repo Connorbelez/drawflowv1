@@ -872,7 +872,7 @@ describe("TimelineWorkspace mode split", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(toast.error).toHaveBeenCalledWith(
-      "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.",
+      "Only $96,000 is unlocked and available to draw by day 22.",
     );
     expect(updateDraw).toHaveBeenCalledTimes(1);
   });
