@@ -222,6 +222,7 @@ type EvilComposedChartProps<
   tooltipLabelFormatter?: ComponentProps<
     typeof ChartTooltipContent
   >["labelFormatter"];
+  tooltipIndicator?: ComponentProps<typeof ChartTooltipContent>["indicator"];
 
   // Interactive Stuffs
   isLoading?: boolean;
@@ -310,6 +311,7 @@ export function EvilComposedChart<
   tooltipDefaultIndex,
   tooltipHiddenKeys,
   tooltipLabelFormatter,
+  tooltipIndicator,
   isClickable = false,
   isLoading = false,
   loadingBars,
@@ -435,6 +437,7 @@ export function EvilComposedChart<
             content={
               <ChartTooltipContent
                 hiddenKeys={tooltipHiddenKeys}
+                indicator={tooltipIndicator}
                 labelFormatter={tooltipLabelFormatter}
                 roundness={tooltipRoundness}
                 selected={selectedDataKey}
