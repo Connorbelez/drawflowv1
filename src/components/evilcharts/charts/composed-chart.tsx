@@ -97,8 +97,8 @@ interface ReferenceLineLabelProps {
 
 function ReferenceLineLabel({
   fill,
-  fontSize = 11,
-  fontWeight = 600,
+  fontSize = 15,
+  fontWeight = 700,
   value,
   viewBox,
 }: ReferenceLineLabelProps) {
@@ -121,11 +121,12 @@ function ReferenceLineLabel({
       ? fontSize
       : typeof fontSize === "string"
         ? Number.parseFloat(fontSize)
-        : 11;
+        : 15;
+  const lineHeight = numericFontSize + 4;
   const estimatedHalfWidth =
     Math.max(...lines.map((line) => line.length), 1) *
-    (Number.isFinite(numericFontSize) ? numericFontSize : 11) *
-    0.28;
+    (Number.isFinite(numericFontSize) ? numericFontSize : 15) *
+    0.32;
   const textX =
     Number.isFinite(width) && width > 0
       ? Math.min(
@@ -133,22 +134,40 @@ function ReferenceLineLabel({
           Math.max(estimatedHalfWidth + 8, width - estimatedHalfWidth - 8)
         )
       : x;
+  const textY = y - 10 - (lines.length - 1) * lineHeight;
+  const padX = 10;
+  const padY = 6;
+  const bgWidth = estimatedHalfWidth * 2 + padX * 2;
+  const bgHeight = lines.length * lineHeight + padY * 2;
+  const bgX = textX - bgWidth / 2;
+  const bgY = textY - numericFontSize - padY + 2;
 
   return (
-    <text
-      fill={fill}
-      fontSize={fontSize}
-      fontWeight={fontWeight}
-      textAnchor="middle"
-      x={textX}
-      y={y - 8 - (lines.length - 1) * 12}
-    >
-      {lines.map((line, index) => (
-        <tspan dy={index === 0 ? 0 : 12} key={`${line}-${index}`} x={textX}>
-          {line}
-        </tspan>
-      ))}
-    </text>
+    <g>
+      <rect
+        fill="rgba(0,0,0,0.55)"
+        height={bgHeight}
+        rx={6}
+        ry={6}
+        width={bgWidth}
+        x={bgX}
+        y={bgY}
+      />
+      <text
+        fill={fill}
+        fontSize={fontSize}
+        fontWeight={fontWeight}
+        textAnchor="middle"
+        x={textX}
+        y={textY}
+      >
+        {lines.map((line, index) => (
+          <tspan dy={index === 0 ? 0 : lineHeight} key={`${line}-${index}`} x={textX}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
   );
 }
 
