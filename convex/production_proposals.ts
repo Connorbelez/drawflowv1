@@ -1458,6 +1458,7 @@ export const saveDraftProposalPackage = authenticatedMutation
       auth,
       borrowerCoPayBps: args.borrowerCoPayBps,
       draws: args.draws,
+      lenderDrawPolicyLimitCents: args.lenderDrawPolicyLimitCents,
       milestones: args.milestones,
       now,
       proposalId: args.proposalId,
@@ -1723,6 +1724,7 @@ interface DraftProposalContractorAssignmentInput {
 interface DraftProposalSavedMilestone {
   _id: Id<"proposalMilestones">;
   budgetCents: number;
+  dayEnd: number;
   drawAvailabilityCents: number;
   key: string;
 }
@@ -1740,6 +1742,7 @@ async function insertDraftProposalPlanRows(
     auth: DraftProposalSaveAuth;
     borrowerCoPayBps: number;
     draws?: DraftProposalDrawInput[];
+    lenderDrawPolicyLimitCents?: number;
     milestones: DraftProposalMilestoneInput[];
     now: number;
     proposalId: Id<"buildProposals">;
@@ -1752,6 +1755,8 @@ async function insertDraftProposalPlanRows(
     submilestoneByMilestoneAndKey: new Map(),
     totalBudgetCents: 0,
   };
+  // Tracks cumulative drawn from auto-generated milestone draws for clamping.
+  let cumulativeAutoDrawnCents = 0;
 
   for (const rawRow of [...input.milestones].sort(
     (a, b) => a.order - b.order
@@ -1778,6 +1783,7 @@ async function insertDraftProposalPlanRows(
     planRows.milestoneByKey.set(row.key, {
       _id: milestoneId,
       budgetCents: row.budgetCents,
+      dayEnd: row.dayEnd,
       drawAvailabilityCents,
       key: row.key,
     });
@@ -1793,11 +1799,23 @@ async function insertDraftProposalPlanRows(
       );
     }
     if (input.draws === undefined) {
+      // Clamp auto-generated draw to cumulative milestone capacity available
+      // at this draw's timing day (backend eligibility: dayEnd <= timingDay).
+      const cumulativeAvailable = [...planRows.milestoneByKey.values()].reduce(
+        (total, m) => (m.dayEnd <= row.dayEnd ? total + m.drawAvailabilityCents : total),
+        0
+      );
+      const limit = input.lenderDrawPolicyLimitCents ?? Infinity;
+      const remainingMilestoneCapacity = Math.max(0, cumulativeAvailable - cumulativeAutoDrawnCents);
+      const remainingLenderLimit = Math.max(0, limit - cumulativeAutoDrawnCents);
+      const maxAllowed = Math.min(remainingMilestoneCapacity, remainingLenderLimit);
+      const clampedAmount = Math.min(drawAvailabilityCents, maxAllowed);
       const drawId = await insertDraftProposalMilestoneDraw(ctx, input, {
-        drawAvailabilityCents,
+        drawAvailabilityCents: clampedAmount,
         milestoneId,
         row,
       });
+      cumulativeAutoDrawnCents += clampedAmount;
       planRows.drawIdByMilestoneKey.set(row.key, drawId);
     }
   }

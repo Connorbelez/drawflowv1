@@ -80,6 +80,99 @@ describe("durable timeline plan helpers", () => {
     ).toThrow("At least one included milestone is required.");
   });
 
+  test("clamps auto-generated draws to cumulative available capacity", () => {
+    const normalized = normalizeSetupPayload({
+      borrowerCoPayBps: 2_000,
+      milestones: [
+        {
+          budgetCents: 100_000,
+          durationDays: 4,
+          key: "foundation",
+          name: "Foundation",
+          x: 10,
+        },
+        {
+          budgetCents: 100_000,
+          durationDays: 4,
+          key: "framing",
+          name: "Framing",
+          x: 14,
+        },
+      ],
+    });
+
+    // Both milestones end on the same day, so at that day's draw timing
+    // the cumulative available capacity is shared. Each draw should be
+    // clamped to its fair share.
+    expect(normalized.draws).toHaveLength(2);
+    expect(normalized.draws[0].amountCents).toBe(80_000);
+    expect(normalized.draws[1].amountCents).toBe(80_000);
+  });
+
+  test("clamps draws to lender draw policy limit", () => {
+    const normalized = normalizeSetupPayload({
+      borrowerCoPayBps: 2_000,
+      lenderDrawPolicyLimitCents: 120_000,
+      milestones: [
+        {
+          budgetCents: 100_000,
+          durationDays: 4,
+          key: "foundation",
+          name: "Foundation",
+          x: 10,
+        },
+        {
+          budgetCents: 100_000,
+          durationDays: 4,
+          key: "framing",
+          name: "Framing",
+          x: 14,
+        },
+      ],
+    });
+
+    // Total milestone capacity = 160_000, but lender limit = 120_000.
+    // First draw gets 80_000, second draw clamped to 40_000.
+    expect(normalized.draws[0].amountCents).toBe(80_000);
+    expect(normalized.draws[1].amountCents).toBe(40_000);
+  });
+
+  test("leaves draws at full amount when capacity is unlocked", () => {
+    const normalized = normalizeSetupPayload({
+      borrowerCoPayBps: 2_000,
+      milestones: [
+        {
+          budgetCents: 100_000,
+          durationDays: 4,
+          key: "foundation",
+          name: "Foundation",
+          x: 10,
+        },
+      ],
+    });
+
+    // draw.x = dayEnd + 8 = 14 + 8 = 22, milestone.dayEnd = 14
+    // 14 <= 22 so capacity IS unlocked. Draw should be full amount.
+    expect(normalized.draws[0].amountCents).toBe(80_000);
+  });
+
+  test("schedules auto-generated draws after review lag", () => {
+    const normalized = normalizeSetupPayload({
+      milestones: [
+        {
+          budgetCents: 100_000,
+          durationDays: 4,
+          key: "foundation",
+          name: "Foundation",
+          x: 10,
+        },
+      ],
+    });
+
+    // Was +7 (bug), now +8 to match DEFAULT_DRAW_REVIEW_LAG_DAYS
+    expect(normalized.draws[0].x).toBe(18);
+  });
+
   test("generates proposal short slugs in the required live-link format", () => {
     const slug = createProposalSlugCandidate(123_456);
 
