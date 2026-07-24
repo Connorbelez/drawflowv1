@@ -1464,6 +1464,66 @@ describe("timeline cash shortfall logic", () => {
     });
   });
 
+  test("approvedDrawLimit adds headroom to available limit proportionally", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 1",
+          durationDays: 4,
+          evidence: "Planning",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Excavation"],
+        },
+        id: "foundation",
+        x: 10,
+      },
+    ];
+    const targetDraw: DemoDraw = {
+      amount: 50_000,
+      id: "draw-1",
+      label: "Draw 1",
+      x: 22,
+    };
+    // Without approvedDrawLimit: capacity = 80_000
+    const withoutLimit = calculateDrawRequestLimit(targetDraw, items, []);
+    expect(withoutLimit.availableLimit).toBe(80_000);
+
+    // With approvedDrawLimit = 120_000: headroom = 40_000, all added at peak
+    const withLimit = calculateDrawRequestLimit(targetDraw, items, [], 120_000);
+    expect(withLimit.availableLimit).toBe(120_000);
+    expect(withLimit.totalUnlocked).toBe(80_000);
+  });
+
+  test("getMaxSchedulableDrawAmount respects approvedDrawLimit", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 1",
+          durationDays: 4,
+          evidence: "Planning",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Excavation"],
+        },
+        id: "foundation",
+        x: 10,
+      },
+    ];
+    // Without approvedDrawLimit: max schedulable = 80_000
+    expect(getMaxSchedulableDrawAmount(22, items, [])).toBe(80_000);
+    // With approvedDrawLimit = 120_000: max schedulable = 120_000
+    expect(getMaxSchedulableDrawAmount(22, items, [], {}, 120_000)).toBe(
+      120_000
+    );
+  });
+
   test("blocks scheduling draws that exceed unlocked capacity at any point", () => {
     const items: TimelineItem<DemoMilestone>[] = [
       {

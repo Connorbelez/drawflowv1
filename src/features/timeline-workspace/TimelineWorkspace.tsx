@@ -2416,7 +2416,8 @@ export function TimelineWorkspace({
       requestedX,
       items,
       draws,
-      { proposedDrawId: nextDrawId }
+      { proposedDrawId: nextDrawId },
+      approvedDrawLimit
     );
 
     if (maxSchedulableAmount <= 0) {
@@ -3205,7 +3206,8 @@ export function TimelineWorkspace({
       {
         excludeDrawId: drawId,
         proposedDrawId: drawId,
-      }
+      },
+      approvedDrawLimit
     );
 
     if (nextAmount > maxSchedulableAmount) {
@@ -3320,8 +3322,8 @@ export function TimelineWorkspace({
           );
     const requestedDraw = { ...targetDraw, x: nextX };
     const limit = liveBuildMode
-      ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws)
-      : calculateDrawRequestLimit(requestedDraw, items, draws);
+      ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit)
+      : calculateDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit);
     const nextAmount = clampNumber(
       Math.round(request.amount),
       0,
@@ -4839,7 +4841,8 @@ export function TimelineWorkspace({
                               {
                                 excludeDrawId: draw.id,
                                 proposedDrawId: draw.id,
-                              }
+                              },
+                              approvedDrawLimit
                             )}
                             currentDay={currentDay}
                             draft={drawEditDraft}
@@ -6093,10 +6096,50 @@ function getDrawTimelineMarkerCopy(state: DrawTimelineMarkerState) {
   return "Planned";
 }
 
+function calculateApprovedLimitShare(
+  items: TimelineItem<DemoMilestone>[],
+  totalUnlockedAtDay: number,
+  approvedDrawLimit?: number
+): number {
+  const normalizedApprovedDrawLimit =
+    typeof approvedDrawLimit === "number" && Number.isFinite(approvedDrawLimit)
+      ? Math.max(0, Math.round(approvedDrawLimit))
+      : undefined;
+
+  if (normalizedApprovedDrawLimit === undefined) {
+    return 0;
+  }
+
+  const maxTotalUnlocked = items.reduce((total, item) => {
+    if (!item.data) {
+      return total;
+    }
+    return total + getMilestoneRequestableDrawAmount(item.data);
+  }, 0);
+
+  const approvedHeadroom = Math.max(
+    0,
+    normalizedApprovedDrawLimit - maxTotalUnlocked
+  );
+
+  if (approvedHeadroom <= 0) {
+    return 0;
+  }
+
+  if (maxTotalUnlocked <= 0) {
+    return approvedHeadroom;
+  }
+
+  return totalUnlockedAtDay >= maxTotalUnlocked
+    ? approvedHeadroom
+    : Math.round((approvedHeadroom * totalUnlockedAtDay) / maxTotalUnlocked);
+}
+
 export function calculateDrawRequestLimit(
   targetDraw: DemoDraw,
   items: TimelineItem<DemoMilestone>[],
-  draws: DemoDraw[]
+  draws: DemoDraw[],
+  approvedDrawLimit?: number
 ): DrawRequestLimit {
   const drawDay = targetDraw.x;
   const totalUnlocked = items.reduce((total, item) => {
@@ -6121,7 +6164,13 @@ export function calculateDrawRequestLimit(
 
     return total + draw.amount;
   }, 0);
-  const availableLimit = Math.max(0, totalUnlocked - alreadyDrawn);
+  const baseAvailableLimit = Math.max(0, totalUnlocked - alreadyDrawn);
+  const approvedLimitShare = calculateApprovedLimitShare(
+    items,
+    totalUnlocked,
+    approvedDrawLimit
+  );
+  const availableLimit = baseAvailableLimit + approvedLimitShare;
 
   return {
     alreadyDrawn,
@@ -6169,7 +6218,8 @@ function isMilestoneAdminApproved(item: TimelineItem<DemoMilestone>) {
 export function calculateApprovedDrawRequestLimit(
   targetDraw: DemoDraw,
   items: TimelineItem<DemoMilestone>[],
-  draws: DemoDraw[]
+  draws: DemoDraw[],
+  approvedDrawLimit?: number
 ): ApprovedDrawRequestLimit {
   const drawDay = targetDraw.x;
   const blockingMilestones: string[] = [];
@@ -6196,7 +6246,13 @@ export function calculateApprovedDrawRequestLimit(
 
     return total + draw.amount;
   }, 0);
-  const availableLimit = Math.max(0, totalUnlocked - alreadyDrawn);
+  const baseAvailableLimit = Math.max(0, totalUnlocked - alreadyDrawn);
+  const approvedLimitShare = calculateApprovedLimitShare(
+    items,
+    totalUnlocked,
+    approvedDrawLimit
+  );
+  const availableLimit = baseAvailableLimit + approvedLimitShare;
 
   return {
     alreadyDrawn,
@@ -6209,14 +6265,15 @@ export function calculateApprovedDrawRequestLimit(
 
 export function findDrawUnlockCapacityViolation(
   items: TimelineItem<DemoMilestone>[],
-  draws: DemoDraw[]
+  draws: DemoDraw[],
+  approvedDrawLimit?: number
 ): { draw: DemoDraw; limit: DrawRequestLimit } | null {
   const orderedDraws = [...draws].sort(
     (a, b) => a.x - b.x || a.id.localeCompare(b.id)
   );
 
   for (const draw of orderedDraws) {
-    const limit = calculateDrawRequestLimit(draw, items, draws);
+    const limit = calculateDrawRequestLimit(draw, items, draws, approvedDrawLimit);
     if (draw.amount > limit.availableLimit) {
       return { draw, limit };
     }
@@ -6229,7 +6286,8 @@ export function getMaxSchedulableDrawAmount(
   requestedDay: number,
   items: TimelineItem<DemoMilestone>[],
   draws: DemoDraw[],
-  options: { excludeDrawId?: string; proposedDrawId?: string } = {}
+  options: { excludeDrawId?: string; proposedDrawId?: string } = {},
+  approvedDrawLimit?: number
 ): number {
   const proposedDrawId =
     options.proposedDrawId ?? `__proposed-draw-${requestedDay}`;
@@ -6242,10 +6300,12 @@ export function getMaxSchedulableDrawAmount(
     label: "Proposed draw",
     x: requestedDay,
   };
-  let maxAmount = calculateDrawRequestLimit(probeDraw, items, [
-    ...drawsWithoutExcluded,
+  let maxAmount = calculateDrawRequestLimit(
     probeDraw,
-  ]).availableLimit;
+    items,
+    [...drawsWithoutExcluded, probeDraw],
+    approvedDrawLimit
+  ).availableLimit;
 
   for (const laterDraw of drawsWithoutExcluded) {
     const proposedComesBeforeLater =
@@ -6260,7 +6320,8 @@ export function getMaxSchedulableDrawAmount(
     const limitWithoutProposed = calculateDrawRequestLimit(
       laterDraw,
       items,
-      drawsWithoutExcluded
+      drawsWithoutExcluded,
+      approvedDrawLimit
     );
     maxAmount = Math.min(
       maxAmount,
@@ -7803,6 +7864,7 @@ function SelectedContextPanel({
           draws={draws}
           items={items}
           onReviewDrawRequest={onReviewDrawRequest}
+          approvedDrawLimit={approvedDrawLimit}
         />
       );
     }
@@ -7816,6 +7878,7 @@ function SelectedContextPanel({
         onSubmitDrawRequest={onSubmitDrawRequest}
         onUpdatePlannedDraw={onUpdatePlannedDraw}
         requiresApprovedMilestones={requiresApprovedDrawMilestones}
+        approvedDrawLimit={approvedDrawLimit}
       />
     );
   }
@@ -9035,6 +9098,7 @@ export function DrawRequestPanel({
   onSubmitDrawRequest,
   onUpdatePlannedDraw,
   requiresApprovedMilestones,
+  approvedDrawLimit,
 }: {
   draw: DemoDraw;
   drawItem: TimelineItem<DemoMilestone> | null;
@@ -9049,6 +9113,7 @@ export function DrawRequestPanel({
     patch: { amount?: number; x?: number }
   ) => void;
   requiresApprovedMilestones: boolean;
+  approvedDrawLimit?: number;
 }) {
   const [requestedDay, setRequestedDay] = useState(() => Math.round(draw.x));
   const [requestedAmount, setRequestedAmount] = useState(() =>
@@ -9059,9 +9124,9 @@ export function DrawRequestPanel({
     setRequestedAmount(Math.round(draw.amount));
   }, [draw.amount, draw.x]);
   const requestedDraw = { ...draw, x: requestedDay };
-  const predictedLimit = calculateDrawRequestLimit(requestedDraw, items, draws);
+  const predictedLimit = calculateDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit);
   const requestableLimit = requiresApprovedMilestones
-    ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws)
+    ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit)
     : predictedLimit;
   const blockingMilestones =
     "blockingMilestones" in requestableLimit
@@ -9105,8 +9170,8 @@ export function DrawRequestPanel({
 
     const requestedDraw = { ...draw, x: requestedX };
     const requestLimit = requiresApprovedMilestones
-      ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws)
-      : calculateDrawRequestLimit(requestedDraw, items, draws);
+      ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit)
+      : calculateDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit);
 
     onSubmitDrawRequest(draw.id, {
       amount: Math.min(
@@ -9328,6 +9393,7 @@ export function LenderDrawReviewPanel({
   draws,
   items,
   onReviewDrawRequest,
+  approvedDrawLimit,
 }: {
   draw: DemoDraw;
   drawItem: TimelineItem<DemoMilestone> | null;
@@ -9337,8 +9403,9 @@ export function LenderDrawReviewPanel({
     drawId: string,
     review: { note?: string; status: "approved" | "rejected" }
   ) => void;
+  approvedDrawLimit?: number;
 }) {
-  const limit = calculateDrawRequestLimit(draw, items, draws);
+  const limit = calculateDrawRequestLimit(draw, items, draws, approvedDrawLimit);
   const hasBuilderRequest =
     draw.requestStatus === "requested" ||
     draw.requestStatus === "approved" ||
