@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
+import { useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -9,6 +10,11 @@ import {
   MilestoneExecutionSheetPrototype,
   type MilestonePrototypeVariant,
 } from "#/features/backoffice-build-detail/MilestoneExecutionSheet.prototype.tsx";
+import {
+  type MilestoneStartPrototypeVariant,
+  MilestoneStartWorkflowPrototype,
+  type PrototypeEntrySource,
+} from "#/features/backoffice-build-detail/MilestoneStartWorkflow.prototype.tsx";
 import {
   type ProductionBuildDetail,
   type ProductionBuildDetailActions,
@@ -32,7 +38,7 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 export type BuilderBuildSearch = {
   timeframe?: CalendarTimeframe;
   milestone?: string;
-  variant?: MilestonePrototypeVariant;
+  variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant;
   tab?:
     | "calendar"
     | "contractors"
@@ -45,6 +51,16 @@ export type BuilderBuildSearch = {
     | "timeline";
   rail?: "open" | "closed";
 };
+
+function isMilestoneStartPrototypeVariant(
+  variant: BuilderBuildSearch["variant"]
+): variant is MilestoneStartPrototypeVariant {
+  return (
+    variant === "start-dialog" ||
+    variant === "start-context" ||
+    variant === "start-guided"
+  );
+}
 
 const VISUAL_ACTIVE_BUILD_STAFF_DIRECTORY: StaffDirectory = {
   actions: ["create", "view", "update", "delete"],
@@ -127,8 +143,11 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
     const variant =
       search.variant === "ledger" ||
       search.variant === "console" ||
-      search.variant === "field-walk"
-        ? (search.variant as MilestonePrototypeVariant)
+      search.variant === "field-walk" ||
+      search.variant === "start-dialog" ||
+      search.variant === "start-context" ||
+      search.variant === "start-guided"
+        ? (search.variant as BuilderBuildSearch["variant"])
         : undefined;
     const rail =
       search.rail === "closed" || search.rail === "open"
@@ -320,7 +339,14 @@ export function BuilderBuildWorkspaceRoute({
   workosOrganizationId: string;
 }) {
   const navigate = useNavigate();
+  const [prototypeStartRequest, setPrototypeStartRequest] = useState<{
+    entrySource: PrototypeEntrySource;
+    milestoneKey: string;
+    submilestoneKey?: string;
+  } | null>(null);
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+  const milestoneStartPrototypeEnabled =
+    import.meta.env.DEV && isMilestoneStartPrototypeVariant(search.variant);
   const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
     visualFixtureEnabled
@@ -445,7 +471,9 @@ export function BuilderBuildWorkspaceRoute({
       search: { ...search, timeframe },
       to: `${routeBase}/builds/$buildId`,
     } as never);
-  const onChangePrototypeVariant = (variant?: MilestonePrototypeVariant) =>
+  const onChangePrototypeVariant = (
+    variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant
+  ) =>
     navigate({
       params: { buildId },
       replace: true,
@@ -743,11 +771,36 @@ export function BuilderBuildWorkspaceRoute({
         }
       : undefined,
   } as ProductionBuildDetailActions;
+  const surfaceActions: ProductionBuildDetailActions =
+    milestoneStartPrototypeEnabled
+      ? {
+          ...actions,
+          startMilestoneWork: ({ milestoneKey, note }) => {
+            setPrototypeStartRequest({
+              entrySource: note?.toLowerCase().includes("calendar")
+                ? "calendar"
+                : "milestone_card",
+              milestoneKey,
+            });
+          },
+          updateSubmilestoneExecution: (input) => {
+            if (input.status === "in_progress") {
+              setPrototypeStartRequest({
+                entrySource: "submilestone",
+                milestoneKey: input.milestoneKey,
+                submilestoneKey: input.submilestoneKey,
+              });
+              return;
+            }
+            return actions.updateSubmilestoneExecution?.(input);
+          },
+        }
+      : actions;
 
   return (
     <>
       <ProductionBuildDetailSurface
-        actions={actions}
+        actions={surfaceActions}
         activeBuildId={activeBuildId}
         activeTab={search.tab ?? "details"}
         breadcrumbRootHref={routeBase}
@@ -764,11 +817,18 @@ export function BuilderBuildWorkspaceRoute({
         }
         detail={detail}
         fundingWorkspaceEnabled
-        milestoneKey={search.variant ? undefined : search.milestone}
+        milestoneKey={
+          milestoneStartPrototypeEnabled
+            ? search.milestone
+            : search.variant
+              ? undefined
+              : search.milestone
+        }
         onChangeCalendarTimeframe={onChangeCalendarTimeframe}
         onChangeMilestone={onChangeMilestone}
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
+        prototypeMilestoneStartTrigger={milestoneStartPrototypeEnabled}
         rail={search.rail}
         staff={
           includeStaffTab ? (
@@ -802,7 +862,24 @@ export function BuilderBuildWorkspaceRoute({
         }
         workosOrganizationId={workosOrganizationId}
       />
-      {import.meta.env.DEV && search.variant ? (
+      {milestoneStartPrototypeEnabled ? (
+        <MilestoneStartWorkflowPrototype
+          detail={detail}
+          entrySource={prototypeStartRequest?.entrySource}
+          key={
+            prototypeStartRequest
+              ? `${prototypeStartRequest.milestoneKey}:${prototypeStartRequest.submilestoneKey ?? "milestone"}`
+              : "start-work-prototype-idle"
+          }
+          milestoneKey={prototypeStartRequest?.milestoneKey ?? search.milestone}
+          onDismiss={() => setPrototypeStartRequest(null)}
+          onExit={() => onChangePrototypeVariant(undefined)}
+          onVariantChange={onChangePrototypeVariant}
+          open={Boolean(prototypeStartRequest)}
+          submilestoneKey={prototypeStartRequest?.submilestoneKey}
+          variant={search.variant}
+        />
+      ) : import.meta.env.DEV && search.variant ? (
         <MilestoneExecutionSheetPrototype
           detail={detail}
           milestoneKey={search.milestone}

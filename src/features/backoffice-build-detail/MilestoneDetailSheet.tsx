@@ -174,6 +174,7 @@ interface MilestoneDetailSheetProps {
     submilestoneKey: string;
   }) => Promise<unknown> | unknown;
   pending?: boolean;
+  prototypeSubmilestoneStartTrigger?: boolean;
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This controller intentionally coordinates the ledger, nested detail, and guided escape hatch as one transactional sheet.
@@ -193,6 +194,7 @@ export function MilestoneDetailSheet({
   onUpdateSubmilestone,
   onUploadEvidence,
   pending: externalPending,
+  prototypeSubmilestoneStartTrigger = false,
 }: MilestoneDetailSheetProps) {
   const [view, setView] = useState<SheetView>("ledger");
   const [selectedKey, setSelectedKey] = useState(
@@ -375,6 +377,9 @@ export function MilestoneDetailSheet({
               onUpdate={updateSubmilestone}
               onUploadEvidence={onUploadEvidence}
               pendingKey={pendingKey}
+              prototypeSubmilestoneStartTrigger={
+                prototypeSubmilestoneStartTrigger
+              }
               rows={rows}
             />
           ) : null}
@@ -389,6 +394,9 @@ export function MilestoneDetailSheet({
               onUpdate={updateSubmilestone}
               onUploadEvidence={onUploadEvidence}
               pendingKey={pendingKey}
+              prototypeSubmilestoneStartTrigger={
+                prototypeSubmilestoneStartTrigger
+              }
             />
           ) : null}
           {view === "guided" && selected ? (
@@ -406,6 +414,9 @@ export function MilestoneDetailSheet({
               onUpdate={updateSubmilestone}
               onUploadEvidence={onUploadEvidence}
               pendingKey={pendingKey}
+              prototypeSubmilestoneStartTrigger={
+                prototypeSubmilestoneStartTrigger
+              }
               rows={rows}
               step={guidedStep}
             />
@@ -502,6 +513,7 @@ function LedgerView({
   onUpdate,
   onUploadEvidence,
   pendingKey,
+  prototypeSubmilestoneStartTrigger,
   rows,
 }: {
   data: MilestoneSheetData;
@@ -513,6 +525,7 @@ function LedgerView({
   ) => Promise<void>;
   onUploadEvidence?: MilestoneDetailSheetProps["onUploadEvidence"];
   pendingKey: string | null;
+  prototypeSubmilestoneStartTrigger: boolean;
   rows: MilestoneSheetSubmilestone[];
 }) {
   const completed = rows.filter((row) => row.status === "complete").length;
@@ -618,6 +631,27 @@ function LedgerView({
                   }
                 />
                 <div className="flex flex-wrap gap-2">
+                  {prototypeSubmilestoneStartTrigger &&
+                  item.status === "planned" ? (
+                    <Button
+                      data-testid={`submilestone-start-work-${item.key}`}
+                      disabled={pendingKey === item.key || !onUpdate}
+                      loading={pendingKey === item.key}
+                      onClick={() => {
+                        onUpdate(
+                          {
+                            status: "in_progress",
+                            submilestoneKey: item.key,
+                          },
+                          { status: "in_progress" }
+                        ).catch(ignoreHandledMutationError);
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Play /> Start work
+                    </Button>
+                  ) : null}
                   <EvidenceUploader
                     compact
                     data={data}
@@ -686,6 +720,7 @@ function DetailView({
   onUpdate,
   onUploadEvidence,
   pendingKey,
+  prototypeSubmilestoneStartTrigger,
 }: {
   activeTab: DetailTab;
   data: MilestoneSheetData;
@@ -699,18 +734,41 @@ function DetailView({
   ) => Promise<void>;
   onUploadEvidence?: MilestoneDetailSheetProps["onUploadEvidence"];
   pendingKey: string | null;
+  prototypeSubmilestoneStartTrigger: boolean;
 }) {
   return (
     <div className="grid gap-3">
       <Button className="w-fit" onClick={onBack} size="sm" variant="ghost">
         <ArrowLeft /> Back to milestone
       </Button>
-      <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-          Submilestone
-        </p>
-        <h3 className="font-semibold text-xl">{item.name}</h3>
-        <StatusBadge status={item.status} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+            Submilestone
+          </p>
+          <h3 className="font-semibold text-xl">{item.name}</h3>
+          <StatusBadge status={item.status} />
+        </div>
+        {prototypeSubmilestoneStartTrigger && item.status === "planned" ? (
+          <Button
+            data-testid={`submilestone-detail-start-work-${item.key}`}
+            disabled={pendingKey === item.key}
+            loading={pendingKey === item.key}
+            onClick={() => {
+              onUpdate(
+                {
+                  status: "in_progress",
+                  submilestoneKey: item.key,
+                },
+                { status: "in_progress" }
+              ).catch(ignoreHandledMutationError);
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <Play /> Start work
+          </Button>
+        ) : null}
       </div>
       <Tabs
         onValueChange={(value) => onTabChange(value as DetailTab)}
@@ -792,6 +850,7 @@ function GuidedView({
   onUpdate,
   onUploadEvidence,
   pendingKey,
+  prototypeSubmilestoneStartTrigger,
   rows,
   step,
 }: {
@@ -808,6 +867,7 @@ function GuidedView({
   ) => Promise<void>;
   onUploadEvidence?: MilestoneDetailSheetProps["onUploadEvidence"];
   pendingKey: string | null;
+  prototypeSubmilestoneStartTrigger: boolean;
   rows: MilestoneSheetSubmilestone[];
   step: number;
 }) {
@@ -846,18 +906,41 @@ function GuidedView({
                 {formatCentsExact(item.budgetCents)} planned
               </p>
             </div>
-            <select
-              aria-label="Choose guided work item"
-              className="h-9 rounded-lg border bg-background px-3 text-sm lg:hidden"
-              onChange={(event) => onSelect(event.currentTarget.value)}
-              value={item.key}
-            >
-              {rows.map((row) => (
-                <option key={row.key} value={row.key}>
-                  {row.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {prototypeSubmilestoneStartTrigger &&
+              item.status === "planned" ? (
+                <Button
+                  data-testid={`submilestone-guided-start-work-${item.key}`}
+                  disabled={pendingKey === item.key}
+                  loading={pendingKey === item.key}
+                  onClick={() => {
+                    onUpdate(
+                      {
+                        status: "in_progress",
+                        submilestoneKey: item.key,
+                      },
+                      { status: "in_progress" }
+                    ).catch(ignoreHandledMutationError);
+                  }}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Play /> Start work
+                </Button>
+              ) : null}
+              <select
+                aria-label="Choose guided work item"
+                className="h-9 rounded-lg border bg-background px-3 text-sm lg:hidden"
+                onChange={(event) => onSelect(event.currentTarget.value)}
+                value={item.key}
+              >
+                {rows.map((row) => (
+                  <option key={row.key} value={row.key}>
+                    {row.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <Progress value={((step + 1) / steps.length) * 100} />
           <div className="flex gap-1 overflow-x-auto pb-1">
