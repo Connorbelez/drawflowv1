@@ -45,23 +45,23 @@ interface DerivedCapitalSupportEvent {
 }
 
 export function buildProductionRoadmapProjection(
-  detail: ProductionProposalDetail,
+  detail: ProductionProposalDetail
 ): ProductionRoadmapProjection {
   const milestones = [...(detail.milestones ?? [])].sort(
-    (a, b) => a.order - b.order,
+    (a, b) => a.order - b.order
   );
   const draws = [...(detail.draws ?? detail.plannedDraws ?? [])].sort(
-    (a, b) => a.timingDay - b.timingDay,
+    (a, b) => a.timingDay - b.timingDay
   );
   const drawByMilestoneKey = new Map(
     draws
       .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw]),
+      .map((draw) => [draw.milestoneKey as string, draw])
   );
   const maxDay = Math.max(
     60,
     ...milestones.map((milestone) => milestone.dayEnd + 10),
-    ...draws.map((draw) => draw.timingDay + 10),
+    ...draws.map((draw) => draw.timingDay + 10)
   );
   const xDomain: [number, number] = [0, maxDay];
   const xTicks = buildTicks(maxDay);
@@ -71,7 +71,7 @@ export function buildProductionRoadmapProjection(
     milestones,
     draws,
     xDomain,
-    xTicks,
+    xTicks
   );
 
   return {
@@ -84,7 +84,7 @@ export function buildProductionRoadmapProjection(
         detail.proposal.interestAnnualBps ??
         DEFAULT_INTEREST_ANNUAL_BPS,
       xDomain,
-      xTicks,
+      xTicks
     ),
     items: milestones.map((milestone, index) => ({
       data: {
@@ -92,11 +92,10 @@ export function buildProductionRoadmapProjection(
         draw: drawByMilestoneKey.get(milestone.key)?.label ?? "Planned draw",
         drawAvailabilityAmount: milestoneDrawAvailabilityDollars(
           milestone,
-          detail.proposal.borrowerCoPayBps,
+          detail.proposal.borrowerCoPayBps
         ),
         drawX:
-          drawByMilestoneKey.get(milestone.key)?.timingDay ??
-          milestone.dayEnd,
+          drawByMilestoneKey.get(milestone.key)?.timingDay ?? milestone.dayEnd,
         durationDays:
           milestone.durationDays ??
           Math.max(1, milestone.dayEnd - milestone.dayStart),
@@ -121,7 +120,7 @@ export function buildProductionRoadmapProjection(
       detail,
       milestones,
       draws,
-      cashflow.derivedCapitalSupportEvents,
+      cashflow.derivedCapitalSupportEvents
     ),
   };
 }
@@ -131,10 +130,10 @@ function buildCashflowProjection(
   milestones: NonNullable<ProductionProposalDetail["milestones"]>,
   draws: NonNullable<ProductionProposalDetail["draws"]>,
   xDomain: [number, number],
-  xTicks: number[],
+  xTicks: number[]
 ) {
   let cashOnHand = centsToDollars(
-    detail.proposal.borrowerWorkingCapitalLimitCents,
+    detail.proposal.borrowerWorkingCapitalLimitCents
   );
   const derivedCapitalSupportEvents: DerivedCapitalSupportEvent[] = [];
   const data: TimelineCashflowCompoundDatum[] = [
@@ -232,7 +231,7 @@ function buildCashflowProjection(
     referenceLines: [
       ...draws.map((draw) => drawReferenceLine(draw.timingDay)),
       ...derivedCapitalSupportEvents.map((event) =>
-        cashInfusionReferenceLine(event.day),
+        cashInfusionReferenceLine(event.day)
       ),
     ],
     xDomain,
@@ -246,7 +245,7 @@ function milestoneDrawAvailabilityDollars(
     budgetCents: number;
     drawAvailabilityCents?: number;
   },
-  borrowerCoPayBps: number | undefined,
+  borrowerCoPayBps: number | undefined
 ) {
   if (milestone.drawAvailabilityCents !== undefined) {
     return centsToDollars(milestone.drawAvailabilityCents);
@@ -254,7 +253,7 @@ function milestoneDrawAvailabilityDollars(
 
   return calculateDrawAvailabilityAmount(
     centsToDollars(milestone.budgetCents),
-    borrowerCoPayBps,
+    borrowerCoPayBps
   );
 }
 
@@ -264,7 +263,7 @@ function buildDrawAvailabilityProjection(
   borrowerCoPayBps: number | undefined,
   interestAnnualBps: number,
   xDomain: [number, number],
-  xTicks: number[],
+  xTicks: number[]
 ) {
   let unlockedDraw = 0;
   let releasedDraw = 0;
@@ -299,14 +298,15 @@ function buildDrawAvailabilityProjection(
       type: "release" as const,
     })),
   ].sort(
-    (a, b) => a.day - b.day || a.sortOrder - b.sortOrder || a.id.localeCompare(b.id),
+    (a, b) =>
+      a.day - b.day || a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)
   );
 
   for (const event of events) {
     totalInterestAccrued += calculateDailyCompoundedInterest(
       releasedDraw + totalInterestAccrued,
       event.day - previousDay,
-      interestAnnualBps,
+      interestAnnualBps
     );
     previousDay = event.day;
 
@@ -328,12 +328,14 @@ function buildDrawAvailabilityProjection(
   }
   const yMax = Math.max(
     1,
-    ...data.map((row) => row.totalAvailableDraw + row.additionalAvailableDraw),
+    ...data.map((row) => row.totalAvailableDraw + row.additionalAvailableDraw)
   );
   return {
     data,
     referenceLines: [
-      ...milestones.map((milestone) => milestoneEndReferenceLine(milestone.dayEnd)),
+      ...milestones.map((milestone) =>
+        milestoneEndReferenceLine(milestone.dayEnd)
+      ),
       ...draws.map((draw) => drawReferenceLine(draw.timingDay)),
     ],
     xDomain,
@@ -345,7 +347,7 @@ function buildDrawAvailabilityProjection(
 function calculateDailyCompoundedInterest(
   principal: number,
   elapsedDays: number,
-  interestAnnualBps: number,
+  interestAnnualBps: number
 ) {
   if (principal <= 0 || elapsedDays <= 0 || interestAnnualBps <= 0) {
     return 0;
@@ -359,13 +361,13 @@ function buildTimelineMarkers(
   detail: ProductionProposalDetail,
   milestones: NonNullable<ProductionProposalDetail["milestones"]>,
   draws: NonNullable<ProductionProposalDetail["draws"]>,
-  capitalSupportEvents: DerivedCapitalSupportEvent[],
+  capitalSupportEvents: DerivedCapitalSupportEvent[]
 ): TimelineMarker[] {
   const borrowerWorkingCapital = centsToDollars(
-    detail.proposal.borrowerWorkingCapitalLimitCents,
+    detail.proposal.borrowerWorkingCapitalLimitCents
   );
   const lenderPolicyLimit = centsToDollars(
-    detail.proposal.lenderDrawPolicyLimitCents,
+    detail.proposal.lenderDrawPolicyLimitCents
   );
   const capitalStressMarkers = milestones.flatMap((milestone) => {
     const amount = centsToDollars(milestone.budgetCents);
@@ -467,8 +469,8 @@ function formatCompactMoney(value: number) {
     return `${sign}$${(absolute / 1_000_000).toFixed(1)}M`;
   }
 
-  if (absolute >= 1_000) {
-    return `${sign}$${Math.round(absolute / 1_000)}K`;
+  if (absolute >= 1000) {
+    return `${sign}$${Math.round(absolute / 1000)}K`;
   }
 
   return `${sign}$${Math.round(absolute)}`;

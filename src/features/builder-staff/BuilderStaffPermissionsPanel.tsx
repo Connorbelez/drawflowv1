@@ -115,7 +115,7 @@ const RESOURCE_LABELS: Record<BuilderStaffPermissionResource, string> = {
 };
 
 export function BuilderStaffPermissionsPanel(
-  props: BuilderStaffPermissionsPanelProps,
+  props: BuilderStaffPermissionsPanelProps
 ) {
   const [selectedWorkosUserId, setSelectedWorkosUserId] = useState<
     string | null
@@ -138,25 +138,25 @@ export function BuilderStaffPermissionsPanel(
       : {
           buildId: props.buildId,
           workosOrganizationId: props.workosOrganizationId,
-        },
+        }
   ) as StaffDirectory | undefined;
   const saveProposalStaff = useMutation(
-    api.production_proposals.saveProposalBuilderStaffPermissions,
+    api.production_proposals.saveProposalBuilderStaffPermissions
   );
   const saveActiveBuildStaff = useMutation(
-    api.production_proposals.saveActiveBuildBuilderStaffPermissions,
+    api.production_proposals.saveActiveBuildBuilderStaffPermissions
   );
   const provisionProposalStaff = useAction(
-    api.production_proposals.provisionProposalBuilderStaffPermissions,
+    api.production_proposals.provisionProposalBuilderStaffPermissions
   );
   const provisionActiveBuildStaff = useAction(
-    api.production_proposals.provisionActiveBuildBuilderStaffPermissions,
+    api.production_proposals.provisionActiveBuildBuilderStaffPermissions
   );
   const removeProposalStaff = useMutation(
-    api.production_proposals.removeProposalBuilderStaffMember,
+    api.production_proposals.removeProposalBuilderStaffMember
   );
   const removeActiveBuildStaff = useMutation(
-    api.production_proposals.removeActiveBuildBuilderStaffMember,
+    api.production_proposals.removeActiveBuildBuilderStaffMember
   );
 
   useEffect(() => {
@@ -171,7 +171,10 @@ export function BuilderStaffPermissionsPanel(
       return next;
     });
     setSelectedWorkosUserId((current) => {
-      if (current && directory.staff.some((member) => member.workosUserId === current)) {
+      if (
+        current &&
+        directory.staff.some((member) => member.workosUserId === current)
+      ) {
         return current;
       }
       return (
@@ -186,9 +189,9 @@ export function BuilderStaffPermissionsPanel(
   const selectedMember = useMemo(
     () =>
       directory?.staff.find(
-        (member) => member.workosUserId === selectedWorkosUserId,
+        (member) => member.workosUserId === selectedWorkosUserId
       ) ?? null,
-    [directory, selectedWorkosUserId],
+    [directory, selectedWorkosUserId]
   );
   const selectedPermissions =
     selectedMember && draftPermissions[selectedMember.workosUserId]
@@ -274,7 +277,7 @@ export function BuilderStaffPermissionsPanel(
       return;
     }
     const permissions = defaultNewStaffPermissions(
-      resources as BuilderStaffPermissionResource[],
+      resources as BuilderStaffPermissionResource[]
     );
     setPendingAction("add");
     try {
@@ -349,7 +352,8 @@ export function BuilderStaffPermissionsPanel(
       <FrameHeader>
         <FrameTitle>Builder staff</FrameTitle>
         <FrameDescription>
-          Manage app-level access for this {props.scope === "proposal" ? "proposal" : "active build"}.
+          Manage app-level access for this{" "}
+          {props.scope === "proposal" ? "proposal" : "active build"}.
         </FrameDescription>
       </FrameHeader>
       <FramePanel className="grid gap-4 p-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
@@ -441,7 +445,9 @@ export function BuilderStaffPermissionsPanel(
                       selectedMember.role === "owner" ||
                       pendingAction !== null
                     }
-                    loading={pendingAction === `save:${selectedMember.workosUserId}`}
+                    loading={
+                      pendingAction === `save:${selectedMember.workosUserId}`
+                    }
                     onClick={() => void saveSelected()}
                     size="sm"
                   >
@@ -481,6 +487,7 @@ export function BuilderStaffPermissionsPanel(
                           Cancel
                         </AlertDialogClose>
                         <AlertDialogClose
+                          onClick={() => void removeSelected()}
                           render={
                             <Button
                               loading={
@@ -490,7 +497,6 @@ export function BuilderStaffPermissionsPanel(
                               variant="destructive"
                             />
                           }
-                          onClick={() => void removeSelected()}
                         >
                           Remove staff
                         </AlertDialogClose>
@@ -533,7 +539,7 @@ export function BuilderStaffPermissionsPanel(
                                   permission.resourceType,
                                   action.field,
                                   checked === true,
-                                  setDraftPermissions,
+                                  setDraftPermissions
                                 )
                               }
                             />
@@ -560,7 +566,9 @@ function clonePermissions(permissions: StaffPermissionGrant[]) {
   return permissions.map((permission) => ({ ...permission }));
 }
 
-function defaultNewStaffPermissions(resources: BuilderStaffPermissionResource[]) {
+function defaultNewStaffPermissions(
+  resources: BuilderStaffPermissionResource[]
+) {
   return resources.map((resourceType) => ({
     canCreate: false,
     canDelete: false,
@@ -577,14 +585,14 @@ function updatePermissionDraft(
   value: boolean,
   setDraftPermissions: React.Dispatch<
     React.SetStateAction<Record<string, StaffPermissionGrant[]>>
-  >,
+  >
 ) {
   setDraftPermissions((current) => ({
     ...current,
     [workosUserId]: (current[workosUserId] ?? []).map((permission) =>
       permission.resourceType === resourceType
         ? { ...permission, [field]: value }
-        : permission,
+        : permission
     ),
   }));
 }

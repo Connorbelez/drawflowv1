@@ -1,0 +1,11 @@
+{
+  "input": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/toronto-boat-singles/generated/raw/sailboat-lower-left.png",
+  "output": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/toronto-boat-singles/generated/webp/sailboat-lower-left.webp",
+  "size": {
+    "width": 695,
+    "height": 1084
+  },
+  "transparent_background": "auto",
+  "inferred_background": null,
+  "quality": 92
+}

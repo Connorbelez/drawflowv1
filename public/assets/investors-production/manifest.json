@@ -11,11 +11,7 @@
       "file": "public/assets/investors-production/bitmap/midrise-rental-building.webp",
       "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae33855288195b26659962fdcf4f0.png",
       "description": "Modern five-storey mid-rise rental building with landscaping.",
-      "sections": [
-        "01-hero",
-        "02-investment-thesis",
-        "04-why-housing-finance"
-      ],
+      "sections": ["01-hero", "02-investment-thesis", "04-why-housing-finance"],
       "role": "Primary hero and thesis housing subject.",
       "width": 1280,
       "height": 760,
@@ -120,9 +116,7 @@
       "file": "public/assets/investors-production/bitmap/sustainable-retrofit.webp",
       "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae657ff188195bfdb7ef6731e9d91.png",
       "description": "Sustainable retrofit residential building with green facade and solar panels.",
-      "sections": [
-        "05-affordable-sustainable-rental-housing"
-      ],
+      "sections": ["05-affordable-sustainable-rental-housing"],
       "role": "Project type subject.",
       "width": 980,
       "height": 653,
@@ -146,9 +140,7 @@
       "file": "public/assets/investors-production/bitmap/construction-draw-project.webp",
       "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae6cca9208195919780930c10117a.png",
       "description": "Mid-rise residential construction project with crane and framing.",
-      "sections": [
-        "08-borrower-project-types"
-      ],
+      "sections": ["08-borrower-project-types"],
       "role": "Construction draw financing subject.",
       "width": 980,
       "height": 653,
@@ -172,9 +164,7 @@
       "file": "public/assets/investors-production/bitmap/detached-private-mortgage-property.webp",
       "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae74c5dc4819591888539e957aaaa.png",
       "description": "Detached residential property for private mortgage solution use cases.",
-      "sections": [
-        "08-borrower-project-types"
-      ],
+      "sections": ["08-borrower-project-types"],
       "role": "Private mortgage borrower subject.",
       "width": 980,
       "height": 610,
@@ -225,9 +215,7 @@
       "file": "public/assets/investors-production/bitmap/loan-file-dossier-stack.webp",
       "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae8a7d3088195a9f8c9d094f38c8e.png",
       "description": "Underwriting loan-file dossier stack with folders and papers.",
-      "sections": [
-        "07-underwriting-discipline"
-      ],
+      "sections": ["07-underwriting-discipline"],
       "role": "Underwriting evidence/discipline prop.",
       "width": 900,
       "height": 600,
@@ -251,9 +239,7 @@
       "file": "public/assets/investors-production/bitmap/underwriting-memo-paper-stack.webp",
       "sourceGeneratedFile": "/Users/connor/.codex/generated_images/019eb74f-3675-7df3-93af-50fa8e733881/ig_02f1c68ad4d1d1d4016a2ae9a31c1081958e394eb34b94f3be.png",
       "description": "Clean stack of underwriting memo papers without readable text.",
-      "sections": [
-        "07-underwriting-discipline"
-      ],
+      "sections": ["07-underwriting-discipline"],
       "role": "Central memo stack prop.",
       "width": 760,
       "height": 507,
@@ -276,9 +262,7 @@
       "slug": "limestone-paper-texture",
       "file": "public/assets/investors-production/bitmap/limestone-paper-texture.webp",
       "description": "Generated seamless-feeling limestone paper grain used as the page background texture.",
-      "sections": [
-        "shared"
-      ],
+      "sections": ["shared"],
       "role": "Background texture, not a mockup crop.",
       "width": 640,
       "height": 640,
@@ -287,10 +271,7 @@
       "opaquePixelRatio": 1.0,
       "sourceGeneratedFile": "procedural",
       "optimizedBytes": 25544,
-      "pipeline": [
-        "procedural grain",
-        "cwebp -q 88 -m 6 -metadata none"
-      ]
+      "pipeline": ["procedural grain", "cwebp -q 88 -m 6 -metadata none"]
     }
   ],
   "vectorAssets": [

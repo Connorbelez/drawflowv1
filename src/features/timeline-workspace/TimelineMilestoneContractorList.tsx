@@ -12,10 +12,10 @@ function formatAssignmentCost(cents: number) {
 
 export function contractorsForMilestone(
   planning: ContractorPlanningModel | null | undefined,
-  milestoneKey: string,
+  milestoneKey: string
 ) {
   return (planning?.milestoneAssignments ?? []).filter(
-    (assignment) => assignment.milestoneKey === milestoneKey,
+    (assignment) => assignment.milestoneKey === milestoneKey
   );
 }
 
@@ -33,7 +33,7 @@ export function TimelineMilestoneContractorList({
     (planning?.proposalContractors ?? []).map((contractor) => [
       contractor.contractorId,
       contractor,
-    ]),
+    ])
   );
 
   return (
@@ -91,16 +91,16 @@ export function TimelineMilestoneContractorList({
                   {assignment.estimatedCostCents !== undefined ||
                   assignment.estimatedHours !== undefined ? (
                     <p className="mt-1.5 text-[11px] text-muted-foreground tabular-nums">
-                      {assignment.estimatedCostCents !== undefined
-                        ? formatAssignmentCost(assignment.estimatedCostCents)
-                        : null}
+                      {assignment.estimatedCostCents === undefined
+                        ? null
+                        : formatAssignmentCost(assignment.estimatedCostCents)}
                       {assignment.estimatedCostCents !== undefined &&
                       assignment.estimatedHours !== undefined
                         ? " · "
                         : null}
-                      {assignment.estimatedHours !== undefined
-                        ? `${assignment.estimatedHours}h est.`
-                        : null}
+                      {assignment.estimatedHours === undefined
+                        ? null
+                        : `${assignment.estimatedHours}h est.`}
                     </p>
                   ) : null}
                 </div>

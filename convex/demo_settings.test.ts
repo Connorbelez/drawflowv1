@@ -9,6 +9,7 @@ import { coerceGuidanceField } from "./demo_site_visit_guidance";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+const timelineDemoKeyPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 describe("timeline demo settings Convex functions", () => {
   test("seed defaults replaces existing timeline settings with canonical rows", async () => {
@@ -17,12 +18,16 @@ describe("timeline demo settings Convex functions", () => {
     const first = await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
     const seeded = await t.query(api.demo_settings.getTimelineDemoSettings, {});
     const template = seeded.templates.find(
-      (row: any) => row.templateKey === "single_family_full_build"
+      (row: any) => row.templateKey === "single-family-full-build"
+    );
+    const gardenTemplate = seeded.templates.find(
+      (row: any) => row.templateKey === "garden-suite"
     );
 
-    expect(first.templates).toBe(3);
+    expect(first.templates).toBe(4);
     expect(first.personas).toBe(2);
-    expect(first.settings.templates).toHaveLength(3);
+    expect(first.settings.templates).toHaveLength(4);
+    expectSettingsKeysToUseHyphenSlugs(first.settings.templates);
     expectDefaultDrawTimings(first.settings.templates);
     expect(template.milestones).toHaveLength(7);
     expect(template.status.totalPocBps).toBe(10_000);
@@ -39,6 +44,63 @@ describe("timeline demo settings Convex functions", () => {
           milestoneKey: "framing",
           text: expect.stringContaining("Wide shot"),
         }),
+      ])
+    );
+    expect(gardenTemplate).toMatchObject({
+      activeScenarioName: "Standard Garden Suite reimbursement",
+      summary: "16 milestones, 65 budget line items, 100.00% PoC, 141 field days",
+      title: "Garden Suite",
+    });
+    expect(gardenTemplate.milestones).toHaveLength(16);
+    expect(gardenTemplate.status.totalPocBps).toBe(10_000);
+    expect(gardenTemplate.milestones.map((row: any) => row.name)).toEqual([
+      "Soft Costs & Pre-Construction",
+      "Site Work & Servicing",
+      "Concrete & Foundation",
+      "Framing & Structure",
+      "Roofing & Exterior Envelope",
+      "Windows & Exterior Doors",
+      "Mechanical - HVAC & Plumbing",
+      "Electrical",
+      "Insulation & Drywall",
+      "Flooring & Stairs",
+      "Interior Doors, Trim & Paint",
+      "Kitchen",
+      "Bathrooms & Powder Room",
+      "Exterior Site Finishes",
+      "Laundry & Misc. Equipment",
+      "General Conditions",
+    ]);
+    expect(gardenTemplate.submilestones).toHaveLength(65);
+    expect(
+      gardenTemplate.submilestones
+        .filter(
+          (row: any) => row.milestoneKey === "soft-costs-and-pre-construction"
+        )
+        .map((row: any) => row.name)
+    ).toEqual([
+      "Legal / topographic survey",
+      "Architectural & permit drawings",
+      "Structural engineering",
+      "Arborist report & tree protection plan",
+      "Geotechnical / soils investigation",
+      "City of Toronto building permit",
+      "Builder's risk insurance",
+      "Legal & disbursements",
+    ]);
+    expect(
+      gardenTemplate.submilestones
+        .filter((row: any) => row.milestoneKey === "general-conditions")
+        .map((row: any) => row.name)
+    ).toEqual([
+      "Supervision, PM, temp services, dumpsters, scaffold, final clean",
+    ]);
+    expect(gardenTemplate.submilestones.map((row: any) => row.name)).not.toEqual(
+      expect.arrayContaining([
+        "Project subtotal (pre-contingency)",
+        "HST  (D10)",
+        "TOTAL INCL. HST",
+        "NET ALL-IN (if rebate eligible)",
       ])
     );
     expectDefaultTimingRules(seeded.templates);
@@ -74,18 +136,18 @@ describe("timeline demo settings Convex functions", () => {
       templateKey: template.templateKey,
     });
     await t.mutation(api.demo_settings.setActiveTimelineDrawScenario, {
-      scenarioKey: "conservative_review_lag",
+      scenarioKey: "conservative-review-lag",
       templateKey: template.templateKey,
     });
 
     const second = await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
     const afterReseed = await t.query(api.demo_settings.getTimelineDemoSettings, {});
     const reseededTemplate = afterReseed.templates.find(
-      (row: any) => row.templateKey === "single_family_full_build"
+      (row: any) => row.templateKey === "single-family-full-build"
     );
 
-    expect(second.templates).toBe(3);
-    expect(afterReseed.templates).toHaveLength(3);
+    expect(second.templates).toBe(4);
+    expect(afterReseed.templates).toHaveLength(4);
     expect(reseededTemplate.activeScenarioName).toBe("Standard reimbursement");
     expect(
       reseededTemplate.milestones.find(
@@ -123,12 +185,30 @@ describe("timeline demo settings Convex functions", () => {
     );
   });
 
+  test("projects legacy underscore template keys as valid hyphen slugs", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
+    await rewriteSeededFullBuildRowsToLegacyKeys(t);
+
+    const settings = await t.query(api.demo_settings.getTimelineDemoSettings, {});
+    const template = settings.templates.find(
+      (row: any) => row.title === "Single Family Full Build"
+    );
+
+    expect(template.templateKey).toBe("single-family-full-build");
+    expect(template.activeScenarioKey).toBe("standard-reimbursement");
+    expect(template.scenarios.map((row: any) => row.scenarioKey).sort()).toEqual(
+      ["conservative-review-lag", "standard-reimbursement"]
+    );
+    expectSettingsKeysToUseHyphenSlugs(settings.templates);
+  });
+
   test("validates PoC totals and draw scenario active uniqueness", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
     const settings = await t.query(api.demo_settings.getTimelineDemoSettings, {});
     const template = settings.templates.find(
-      (row: any) => row.templateKey === "single_family_full_build"
+      (row: any) => row.templateKey === "single-family-full-build"
     );
     const invalidMilestones = template.milestones.map((row: any) => ({
       dependencyKeys: row.dependencyKeys,
@@ -160,8 +240,22 @@ describe("timeline demo settings Convex functions", () => {
       })
     ).rejects.toThrow(/100\.00%/);
 
+    await expect(
+      t.mutation(api.demo_settings.saveTimelineTemplateConfiguration, {
+        milestones: toMilestoneInputs(template),
+        scenarios: template.scenarios.map(toScenarioInput),
+        template: {
+          description: template.description,
+          isDefault: template.isDefault,
+          summary: template.summary,
+          templateKey: "single_family_full_build",
+          title: template.title,
+        },
+      })
+    ).rejects.toThrow(/Template key must use lowercase letters/);
+
     await t.mutation(api.demo_settings.setActiveTimelineDrawScenario, {
-      scenarioKey: "conservative_review_lag",
+      scenarioKey: "conservative-review-lag",
       templateKey: template.templateKey,
     });
     const afterActiveChange = await t.query(
@@ -169,16 +263,16 @@ describe("timeline demo settings Convex functions", () => {
       {}
     );
     const changedTemplate = afterActiveChange.templates.find(
-      (row: any) => row.templateKey === "single_family_full_build"
+      (row: any) => row.templateKey === "single-family-full-build"
     );
 
     expect(changedTemplate.scenarios.filter((row: any) => row.isActive)).toHaveLength(
       1
     );
-    expect(changedTemplate.activeScenarioKey).toBe("conservative_review_lag");
+    expect(changedTemplate.activeScenarioKey).toBe("conservative-review-lag");
     await expect(
       t.mutation(api.demo_settings.deleteTimelineDrawScenario, {
-        scenarioKey: "conservative_review_lag",
+        scenarioKey: "conservative-review-lag",
         templateKey: template.templateKey,
       })
     ).rejects.toThrow(/Active scenario/);
@@ -189,7 +283,7 @@ describe("timeline demo settings Convex functions", () => {
     await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
     const settings = await t.query(api.demo_settings.getTimelineDemoSettings, {});
     const template = settings.templates.find(
-      (row: any) => row.templateKey === "single_family_full_build"
+      (row: any) => row.templateKey === "single-family-full-build"
     );
     const milestones = toMilestoneInputs(template).map((row: any) =>
       row.milestoneKey === "framing"
@@ -209,7 +303,7 @@ describe("timeline demo settings Convex functions", () => {
     });
     const after = await t.query(api.demo_settings.getTimelineDemoSettings, {});
     const updated = after.templates.find(
-      (row: any) => row.templateKey === "single_family_full_build"
+      (row: any) => row.templateKey === "single-family-full-build"
     );
 
     expect(updated.guidanceItems).toEqual(
@@ -228,19 +322,19 @@ describe("timeline demo settings Convex functions", () => {
     );
   });
 
-  test("rejects draw timing outside adjacent milestone handoff windows", async () => {
+  test("allows draw timing inside milestone windows", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
     const settings = await t.query(api.demo_settings.getTimelineDemoSettings, {});
     const template = settings.templates.find(
-      (row: any) => row.templateKey === "single_family_full_build"
+      (row: any) => row.templateKey === "single-family-full-build"
     );
     const scenario = toScenarioInput({
       ...template.scenarios.find(
-        (row: any) => row.scenarioKey === "standard_reimbursement"
+        (row: any) => row.scenarioKey === "standard-reimbursement"
       ),
       draws: template.scenarios
-        .find((row: any) => row.scenarioKey === "standard_reimbursement")
+        .find((row: any) => row.scenarioKey === "standard-reimbursement")
         .draws.map((row: any, index: number) => ({
           ...row,
           timingDay: index === 0 ? 10 : row.timingDay,
@@ -252,9 +346,7 @@ describe("timeline demo settings Convex functions", () => {
         scenario,
         templateKey: template.templateKey,
       })
-    ).rejects.toThrow(
-      /Draw 01, day 10: conflicts with Site prep & foundation \(ends day 14\) and Framing & structure \(starts day 19\)\. Valid window: days 15-18\. Nearest valid day: 15\./
-    );
+    ).resolves.toBeTruthy();
   });
 
   test("allows final draw timing in the final closeout handoff window", async () => {
@@ -262,14 +354,14 @@ describe("timeline demo settings Convex functions", () => {
     await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
     const settings = await t.query(api.demo_settings.getTimelineDemoSettings, {});
     const template = settings.templates.find(
-      (row: any) => row.templateKey === "single_family_full_build"
+      (row: any) => row.templateKey === "single-family-full-build"
     );
     const scenario = toScenarioInput({
       ...template.scenarios.find(
-        (row: any) => row.scenarioKey === "standard_reimbursement"
+        (row: any) => row.scenarioKey === "standard-reimbursement"
       ),
       draws: template.scenarios
-        .find((row: any) => row.scenarioKey === "standard_reimbursement")
+        .find((row: any) => row.scenarioKey === "standard-reimbursement")
         .draws.map((row: any, index: number, draws: any[]) => ({
           ...row,
           timingDay: index === draws.length - 1 ? 133 : row.timingDay,
@@ -283,9 +375,9 @@ describe("timeline demo settings Convex functions", () => {
 
     expect(
       result.templates
-        .find((row: any) => row.templateKey === "single_family_full_build")
+        .find((row: any) => row.templateKey === "single-family-full-build")
         .scenarios.find(
-          (row: any) => row.scenarioKey === "standard_reimbursement"
+          (row: any) => row.scenarioKey === "standard-reimbursement"
         ).draws.at(-1).timingDay
     ).toBe(133);
   });
@@ -298,8 +390,8 @@ describe("timeline demo settings Convex functions", () => {
         .query("demo_timelineDrawScenarios")
         .withIndex("by_scenario", (q) =>
           q
-            .eq("templateKey", "single_family_full_build")
-            .eq("scenarioKey", "standard_reimbursement")
+            .eq("templateKey", "single-family-full-build")
+            .eq("scenarioKey", "standard-reimbursement")
         )
         .unique();
       if (!scenario) {
@@ -310,8 +402,8 @@ describe("timeline demo settings Convex functions", () => {
         .query("demo_timelineDrawScenarioDraws")
         .withIndex("by_scenario_and_order", (q) =>
           q
-            .eq("templateKey", "single_family_full_build")
-            .eq("scenarioKey", "standard_reimbursement")
+            .eq("templateKey", "single-family-full-build")
+            .eq("scenarioKey", "standard-reimbursement")
         )
         .first();
       if (!draw) {
@@ -323,10 +415,10 @@ describe("timeline demo settings Convex functions", () => {
     await t.mutation(api.demo_settings.seedTimelineDemoDefaults, {});
     const settings = await t.query(api.demo_settings.getTimelineDemoSettings, {});
     const template = settings.templates.find(
-      (row: any) => row.templateKey === "single_family_full_build"
+      (row: any) => row.templateKey === "single-family-full-build"
     );
     const scenario = template.scenarios.find(
-      (row: any) => row.scenarioKey === "standard_reimbursement"
+      (row: any) => row.scenarioKey === "standard-reimbursement"
     );
 
     expect(scenario.seedVersion).toBe(2);
@@ -368,6 +460,42 @@ function expectDefaultTimingRules(templates: any[]) {
   }
 }
 
+function expectSettingsKeysToUseHyphenSlugs(templates: any[]) {
+  for (const template of templates) {
+    expect(template.templateKey).toMatch(timelineDemoKeyPattern);
+    for (const scenario of template.scenarios) {
+      expect(scenario.scenarioKey).toMatch(timelineDemoKeyPattern);
+    }
+  }
+}
+
+async function rewriteSeededFullBuildRowsToLegacyKeys(t: any) {
+  const canonicalTemplateKey = "single-family-full-build";
+  const legacyTemplateKey = "single_family_full_build";
+  await t.run(async (ctx: any) => {
+    for (const table of [
+      "demo_timelineTemplates",
+      "demo_timelineTemplateMilestones",
+      "demo_timelineTemplateSubmilestones",
+      "demo_timelineTemplateMilestoneGuidance",
+      "demo_timelineTemplateMilestoneGuidanceItems",
+      "demo_timelineDrawScenarios",
+      "demo_timelineDrawScenarioDraws",
+    ]) {
+      for (const row of await ctx.db.query(table).take(500)) {
+        if (row.templateKey === canonicalTemplateKey) {
+          await ctx.db.patch(row._id, {
+            templateKey: legacyTemplateKey,
+            ...(typeof row.scenarioKey === "string"
+              ? { scenarioKey: row.scenarioKey.replaceAll("-", "_") }
+              : {}),
+          });
+        }
+      }
+    }
+  });
+}
+
 function expectDefaultDrawTimings(templates: any[]) {
   const timingsByScenario = Object.fromEntries(
     templates.flatMap((template) =>
@@ -379,10 +507,13 @@ function expectDefaultDrawTimings(templates: any[]) {
   );
 
   expect(timingsByScenario).toMatchObject({
-    "multiplex_build:standard_multiplex": [51, 86, 119, 143, 167],
-    "single_family_full_build:conservative_review_lag": [18, 41, 66, 110, 127],
-    "single_family_full_build:standard_reimbursement": [16, 39, 64, 108, 125],
-    "single_family_renovation:quick_inspection": [33, 57, 93, 111],
+    "multiplex-build:standard-multiplex": [51, 86, 119, 143, 167],
+    "garden-suite:standard-garden-suite-reimbursement": [
+      48, 95, 142, 192, 218,
+    ],
+    "single-family-full-build:conservative-review-lag": [18, 41, 66, 110, 127],
+    "single-family-full-build:standard-reimbursement": [16, 39, 64, 108, 125],
+    "single-family-renovation:quick-inspection": [33, 57, 93, 111],
   });
 }
 

@@ -2,19 +2,23 @@
 
 export type BuildDetailSubTab =
   | "calendar"
+  | "contractors"
   | "details"
   | "evidence"
   | "gantt"
   | "materials"
+  | "milestones"
   | "staff"
   | "timeline";
 
 export const BUILD_DETAIL_TABS: { value: BuildDetailSubTab; label: string }[] =
   [
     { value: "details", label: "Details" },
+    { value: "milestones", label: "Milestones" },
+    { value: "contractors", label: "Contractors" },
+    { value: "materials", label: "Materials" },
     { value: "timeline", label: "Timeline" },
     { value: "evidence", label: "Evidence" },
-    { value: "materials", label: "Materials" },
     { value: "staff", label: "Staff" },
     { value: "calendar", label: "Calendar" },
     { value: "gantt", label: "Gantt" },
@@ -30,7 +34,7 @@ export function BuildDetailTabBar({
   tabs?: BuildDetailSubTab[];
 }) {
   const visibleTabs = BUILD_DETAIL_TABS.filter((tab) =>
-    tabs.includes(tab.value),
+    tabs.includes(tab.value)
   );
   return (
     <div className="-mx-2 overflow-x-auto px-2 sm:mx-0 sm:px-0">
@@ -44,7 +48,7 @@ export function BuildDetailTabBar({
             aria-selected={activeTab === tab.value}
             className={
               activeTab === tab.value
-                ? "min-h-11 flex-1 whitespace-nowrap rounded-md bg-primary/25 px-3 py-2 text-xs text-foreground sm:min-h-9 sm:flex-none sm:py-1.5"
+                ? "min-h-11 flex-1 whitespace-nowrap rounded-md bg-primary/25 px-3 py-2 text-foreground text-xs sm:min-h-9 sm:flex-none sm:py-1.5"
                 : "min-h-11 flex-1 whitespace-nowrap rounded-md px-3 py-2 text-muted-foreground text-xs hover:bg-accent hover:text-foreground sm:min-h-9 sm:flex-none sm:py-1.5"
             }
             data-testid={`build-detail-tab-${tab.value}`}

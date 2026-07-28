@@ -1,30 +1,24 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import {
-  CalendarClock,
-  Gauge,
-  Plus,
-  UserRound,
-  Wrench,
-} from "lucide-react";
+import { CalendarClock, Gauge, Plus, UserRound, Wrench } from "lucide-react";
 import { useMemo, useState } from "react";
-
-import { api } from "../../../../convex/_generated/api";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardHeader, CardTitle } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import {
-  ContractorQuickAddDrawer,
   type ContractorProfileDraft,
+  ContractorQuickAddDrawer,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import {
-  ContractorRosterTable,
   type ContractorRosterRow,
+  ContractorRosterTable,
 } from "#/features/contractors/ContractorRosterTable.tsx";
 import {
   getVisualContractorList,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/contractors/contractorVisualFixtures.ts";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/backoffice/contractors/")({
   staticData: {
@@ -49,22 +43,29 @@ function RouteComponent() {
       : {
           includeInactive: true,
           workosOrganizationId,
-        },
+        }
   );
   const result = visualFixture ? getVisualContractorList() : liveResult;
   const createContractor = useMutation(contractorApi.createContractorProfile);
+  const sendInvite = useMutation(
+    (api as any).contractorOnboarding.sendContractorProfileInvite
+  );
 
   const capabilityCount = result?.summary?.capabilityKeys?.length ?? 0;
   const contractors = (result?.contractors ?? []) as ContractorRosterRow[];
   const activeCount = contractors.filter(
-    (contractor) => (contractor.status ?? "active") === "active",
+    (contractor) => (contractor.status ?? "active") === "active"
   ).length;
   const averageRate = useMemo(() => {
     const rates = contractors
       .map((contractor) => contractor.defaultPayRateCents)
       .filter((rate: unknown): rate is number => typeof rate === "number");
-    if (rates.length === 0) return null;
-    return Math.round(rates.reduce((sum, rate) => sum + rate, 0) / rates.length);
+    if (rates.length === 0) {
+      return null;
+    }
+    return Math.round(
+      rates.reduce((sum, rate) => sum + rate, 0) / rates.length
+    );
   }, [contractors]);
 
   const createProfile = async ({
@@ -75,9 +76,16 @@ function RouteComponent() {
     if (!result?.brokerage?._id) {
       throw new Error("Brokerage provisioning is required first.");
     }
-    await createContractor({
+    return await createContractor({
       ...contractor,
       brokerageId: result.brokerage._id,
+      workosOrganizationId,
+    });
+  };
+
+  const inviteContractor = async (contractorId: string) => {
+    await sendInvite({
+      contractorId: contractorId as Id<"contractorProfiles">,
       workosOrganizationId,
     });
   };
@@ -142,7 +150,9 @@ function RouteComponent() {
 
       <ContractorQuickAddDrawer
         createLabel="Create profile"
+        inviteAfterCreateDescription="Create the profile and send a WorkOS invitation to the contractor's email."
         onCreate={createProfile}
+        onInviteCreatedContractor={inviteContractor}
         onOpenChange={setDrawerOpen}
         open={drawerOpen}
         title="Create contractor profile"

@@ -84,6 +84,15 @@ function expectHtmlInput(element: Element | undefined): HTMLInputElement {
   return element as HTMLInputElement;
 }
 
+function expectElementBefore(first: Element, second: Element) {
+  expect(
+    Boolean(
+      first.compareDocumentPosition(second) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    )
+  ).toBe(true);
+}
+
 afterEach(() => {
   mediaQueryMockState.isMobile = false;
   timelineSearchMockState.share = null;
@@ -173,6 +182,32 @@ test("cash use summary uses actual milestone spend when completion cost is filed
     lenderCashUsed: 96_000,
     totalPlannedSpend: 90_000,
   });
+});
+
+test("clusters hover-probe cashflow metrics before static plan totals", () => {
+  renderWorkspace({
+    status: "draft",
+    workspaceMode: "proposal",
+  });
+
+  const orderedMetricIds = [
+    "timeline-cashflow-probe-day",
+    "timeline-cashflow-probe-cash",
+    "timeline-cashflow-probe-interest-paid",
+    "timeline-cashflow-ending-cash",
+    "timeline-cashflow-lender-cash-used",
+    "timeline-cashflow-builder-cash-used",
+    "timeline-cashflow-total-interest-paid",
+    "timeline-cashflow-risk-summary",
+  ];
+  const orderedMetrics = orderedMetricIds.map((id) => screen.getByTestId(id));
+
+  for (const [index, metric] of orderedMetrics.entries()) {
+    const nextMetric = orderedMetrics[index + 1];
+    if (nextMetric) {
+      expectElementBefore(metric, nextMetric);
+    }
+  }
 });
 
 function timelineState({
@@ -410,6 +445,49 @@ describe("TimelineWorkspace mode split", () => {
       }),
     );
     expect(createDraw.mock.calls[0]?.[0].x).toBe(9);
+  });
+
+  test("optimizes draft proposal with in-milestone draws instead of cash infusions", () => {
+    const createCashInfusion = vi.fn().mockResolvedValue(undefined);
+    const createDraw = vi.fn().mockResolvedValue(undefined);
+    const deleteDraw = vi.fn().mockResolvedValue(undefined);
+    const baseline = timelineState({ milestoneAmount: 100 });
+    const initialState: TimelineShareState = {
+      ...baseline,
+      draws: [],
+      items: baseline.items.map((item) => ({
+        ...item,
+        data: {
+          ...item.data,
+          drawAvailabilityAmount: 100,
+          durationDays: 10,
+        } satisfies DemoMilestone,
+      })),
+      startingCash: 50,
+    };
+
+    renderWorkspace({
+      initialState,
+      persistence: { createCashInfusion, createDraw, deleteDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-optimize-scenario"));
+
+    expect(createCashInfusion).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(createDraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 5_000,
+        customDate: true,
+        itemMilestoneKey: "foundation",
+        label: "Draw 01",
+        order: 1,
+      }),
+    );
+    expect(createDraw.mock.calls[0]?.[0].x).toBeGreaterThan(0);
+    expect(createDraw.mock.calls[0]?.[0].x).toBeLessThan(10);
   });
 
   test("reports when draft proposal draws are already optimized", () => {

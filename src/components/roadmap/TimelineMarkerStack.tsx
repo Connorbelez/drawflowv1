@@ -170,7 +170,9 @@ export function TimelineMarkerStack({
               aria-hidden="true"
               className={cn(
                 "absolute top-0 left-0 w-px origin-top",
-                metric.isActive ? STACK_ACTIVE_LINE_CLASS : STACK_WEAK_LINE_CLASS
+                metric.isActive
+                  ? STACK_ACTIVE_LINE_CLASS
+                  : STACK_WEAK_LINE_CLASS
               )}
               data-testid={`timeline-marker-connector-${metric.id}`}
               key={metric.id}
@@ -232,7 +234,9 @@ export function TimelineMarkerStack({
                 : { opacity: 0, scale: 0.96, y: 6 }
             }
             initial={
-              prefersReducedMotion ? { opacity: 1 } : { opacity: 0, scale: 0.96, y: -6 }
+              prefersReducedMotion
+                ? { opacity: 1 }
+                : { opacity: 0, scale: 0.96, y: -6 }
             }
             key={activeMember.marker.id}
             transition={{
@@ -319,7 +323,7 @@ export function TimelineMarkerStack({
             aria-expanded={listOpen}
             aria-haspopup="listbox"
             aria-label={`Show next marker (${activeIndex + 1} of ${stack.members.length})`}
-            className="grid size-7 place-items-center rounded-full border border-border bg-background font-semibold text-[10px] tabular-nums text-foreground shadow-sm transition-colors hover:border-ring hover:text-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="grid size-7 place-items-center rounded-full border border-border bg-background font-semibold text-[10px] text-foreground tabular-nums shadow-sm transition-colors hover:border-ring hover:text-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             data-testid={`timeline-marker-stack-cycle-${stack.id}`}
             onClick={cycleStack}
             onFocus={handleListEnter}

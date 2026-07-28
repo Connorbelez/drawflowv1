@@ -24,8 +24,10 @@ import {
   X,
 } from "lucide-react";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
-
-import { api } from "../../../convex/_generated/api";
+import {
+  DeviceCaptureDialog,
+  type DeviceCaptureKind,
+} from "#/components/device-capture-dialog.tsx";
 import {
   FieldRichTextEditor,
   FieldRichTextPreview,
@@ -50,6 +52,7 @@ import {
   guidanceLinesToHtml,
   type SiteVisitGuidanceHtml,
 } from "#/lib/site-visit-guidance.ts";
+import { api } from "../../../convex/_generated/api";
 import {
   assertPackageWithinCap,
   buildStagedEvidence,
@@ -175,7 +178,7 @@ type SubmittedSummary = {
 };
 
 const DEFAULT_REPORT_NOTES = plainTextToRichTextHtml(
-  "Observed requested milestone scope on site. Evidence package attached for lender admin review.",
+  "Observed requested milestone scope on site. Evidence package attached for lender admin review."
 );
 
 type GuideSection = {
@@ -264,23 +267,23 @@ function SiteVisitTokenRouteContent({
   const generateUploadUrl = useMutation(
     source === "production"
       ? (api as any).production_proposals.generateActiveBuildSiteVisitUploadUrl
-      : api.demo_drawflow.demo_generateSiteVisitUploadUrl,
+      : api.demo_drawflow.demo_generateSiteVisitUploadUrl
   );
   const registerFile = useMutation(
     source === "production"
       ? (api as any).production_proposals.registerActiveBuildSiteVisitFile
-      : api.demo_drawflow.demo_registerSiteVisitFile,
+      : api.demo_drawflow.demo_registerSiteVisitFile
   );
   const markOpened = useMutation(
     source === "production"
       ? (api as any).production_proposals.markActiveBuildSiteVisitTokenOpened
-      : api.demo_drawflow.demo_markSiteVisitTokenOpened,
+      : api.demo_drawflow.demo_markSiteVisitTokenOpened
   );
   const submitReport = useMutation(
     source === "production"
       ? (api as any).production_proposals
           .submitActiveBuildTokenizedSiteVisitReport
-      : api.demo_drawflow.demo_submitTokenizedSiteVisitReport,
+      : api.demo_drawflow.demo_submitTokenizedSiteVisitReport
   );
   const openedRef = useRef(false);
   const [selectedTarget, setSelectedTarget] = useState("visit-wide");
@@ -351,14 +354,14 @@ function SiteVisitTokenRouteContent({
             [
               "Submitted",
               `${formatVisitTime(submittedSummary.completedAt)} · ${formatVisitDay(
-                submittedSummary.completedAt,
+                submittedSummary.completedAt
               )}`,
             ],
             ["Recommendation", submittedSummary.recommendation],
             [
               "Files stored",
               `${submittedSummary.fileCount} · ${formatSiteVisitBytes(
-                submittedSummary.totalBytes,
+                submittedSummary.totalBytes
               )}`,
             ],
           ]}
@@ -427,21 +430,19 @@ function SiteVisitTokenRouteContent({
   const qualityRatingTargets = contractorRatingTargetsForScope(
     targets,
     selectedMilestoneKey,
-    selectedSubmilestoneKey,
+    selectedSubmilestoneKey
   );
   const uploadedBytes = files.reduce((sum, file) => sum + file.sizeBytes, 0);
   const stagedBytes = packageTotalBytes(
-    stagedItems.map((item) => item.evidence),
+    stagedItems.map((item) => item.evidence)
   );
   const totalPackageBytes = uploadedBytes + stagedBytes;
   const expiresInMinutes = Math.max(
     0,
-    Math.ceil(((visit.tokenExpiresAt ?? now) - now) / 60_000),
+    Math.ceil(((visit.tokenExpiresAt ?? now) - now) / 60_000)
   );
 
-  const stageFiles = (event: ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = "";
+  const stageSelectedFiles = (selectedFiles: File[]) => {
     if (selectedFiles.length === 0) {
       return;
     }
@@ -467,9 +468,15 @@ function SiteVisitTokenRouteContent({
       setError(
         stageError instanceof Error
           ? stageError.message
-          : "Unable to stage selected evidence.",
+          : "Unable to stage selected evidence."
       );
     }
+  };
+
+  const stageFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    stageSelectedFiles(selectedFiles);
   };
 
   const uploadStagedFiles = async () => {
@@ -493,7 +500,7 @@ function SiteVisitTokenRouteContent({
             contractorIds: contractorIdsForEvidenceTarget(
               targets,
               input.targetMilestoneKey,
-              input.targetSubmilestoneKey,
+              input.targetSubmilestoneKey
             ),
           });
         },
@@ -513,7 +520,7 @@ function SiteVisitTokenRouteContent({
       setError(
         uploadError instanceof Error
           ? uploadError.message
-          : "Unable to upload site visit evidence.",
+          : "Unable to upload site visit evidence."
       );
       setUploadingCount(0);
       throw uploadError;
@@ -544,7 +551,7 @@ function SiteVisitTokenRouteContent({
             note: reportNoteText,
             rating,
             submilestoneKey: target.submilestoneKey,
-          }),
+          })
         );
       }
       await submitReport(reportPayload);
@@ -559,7 +566,7 @@ function SiteVisitTokenRouteContent({
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Unable to submit site visit report.",
+          : "Unable to submit site visit report."
       );
     }
   };
@@ -600,6 +607,7 @@ function SiteVisitTokenRouteContent({
           <Frame>
             <FramePanel className="p-3 sm:p-4 lg:p-5">
               <SiteVisitCapturePanel
+                onStageCapturedFile={(file) => stageSelectedFiles([file])}
                 onStageFiles={stageFiles}
                 onUploadStaged={() => void uploadStagedFiles()}
                 selectedTarget={selectedTarget}
@@ -623,7 +631,7 @@ function SiteVisitTokenRouteContent({
             files={stagedItems.map((item) => item.evidence)}
             onRemove={(id) =>
               setStagedItems((current) =>
-                current.filter((item) => item.evidence.id !== id),
+                current.filter((item) => item.evidence.id !== id)
               )
             }
             targets={targets}
@@ -727,6 +735,7 @@ function SiteVisitTokenRouteContent({
         files={files}
         onClose={() => setDrawer(null)}
         onStageFiles={stageFiles}
+        onStageCapturedFile={(file) => stageSelectedFiles([file])}
         onUploadStaged={() => void uploadStagedFiles()}
         open={drawer !== null}
         permit={permit}
@@ -782,7 +791,7 @@ function MobileShell({
           <h1 className="mt-4 max-w-3xl text-balance font-semibold text-4xl leading-none tracking-tight sm:text-5xl lg:mt-3 lg:text-4xl">
             {build?.name ?? "Site visit"}
           </h1>
-          <p className="mt-2 max-w-2xl text-muted-foreground text-lg lg:text-base">
+          <p className="mt-2 max-w-2xl text-lg text-muted-foreground lg:text-base">
             {deriveAddress(build)} {deriveCityLine(build)}
           </p>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 lg:mt-4">
@@ -832,6 +841,7 @@ function SectionTitle({
 }
 
 function SiteVisitCapturePanel({
+  onStageCapturedFile,
   onStageFiles,
   onUploadStaged,
   selectedTarget,
@@ -844,6 +854,7 @@ function SiteVisitCapturePanel({
   uploadingCount,
   variant = "page",
 }: {
+  onStageCapturedFile: (file: File) => void;
   onStageFiles: (event: ChangeEvent<HTMLInputElement>) => void;
   onUploadStaged: () => void;
   selectedTarget: string;
@@ -856,6 +867,8 @@ function SiteVisitCapturePanel({
   uploadingCount: number;
   variant?: "drawer" | "page";
 }) {
+  const [captureKind, setCaptureKind] = useState<DeviceCaptureKind | null>(null);
+
   return (
     <>
       {variant === "page" ? (
@@ -868,7 +881,7 @@ function SiteVisitCapturePanel({
           </p>
         </div>
       ) : null}
-      <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-3 sm:gap-3">
+      <div className="grid grid-cols-1 gap-2 sm:gap-3 min-[360px]:grid-cols-3">
         <CaptureButton
           accept="image/*,video/*,application/pdf"
           icon={<FileText className="size-7" />}
@@ -878,23 +891,29 @@ function SiteVisitCapturePanel({
           onChange={onStageFiles}
         />
         <CaptureButton
-          accept="video/*"
-          capture="environment"
           icon={<Video className="size-7" />}
           label="Record"
           meta="Optional"
-          onChange={onStageFiles}
+          onActivate={() => setCaptureKind("video")}
         />
         <CaptureButton
-          accept="image/*"
-          capture="environment"
           icon={<Camera className="size-7" />}
           label="Take Photo"
           meta="JPG to WEBP"
-          nativeCamera
-          onChange={onStageFiles}
+          onActivate={() => setCaptureKind("photo")}
         />
       </div>
+
+      <DeviceCaptureDialog
+        kind={captureKind ?? "photo"}
+        onCapture={onStageCapturedFile}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCaptureKind(null);
+          }
+        }}
+        open={captureKind !== null}
+      />
 
       <div className="mt-5">
         <h2 className="font-semibold text-primary text-sm uppercase tracking-[0.22em]">
@@ -909,7 +928,7 @@ function SiteVisitCapturePanel({
           </TargetButton>
           {targets.map((target, index) => {
             const milestoneTarget = encodeMilestoneVisitTarget(
-              target.milestoneKey,
+              target.milestoneKey
             );
             return (
               <TargetButton
@@ -927,7 +946,7 @@ function SiteVisitCapturePanel({
               .map((submilestone, subIndex) => {
                 const subTarget = encodeSubmilestoneVisitTarget(
                   target.milestoneKey,
-                  submilestone.key,
+                  submilestone.key
                 );
                 return (
                   <TargetButton
@@ -938,7 +957,7 @@ function SiteVisitCapturePanel({
                     {subCode(target, subIndex, targetIndex)} {submilestone.name}
                   </TargetButton>
                 );
-              }),
+              })
           )}
         </div>
       </div>
@@ -983,69 +1002,43 @@ function SiteVisitCapturePanel({
 
 function CaptureButton({
   accept,
-  capture,
   icon,
   label,
   meta,
   multiple = false,
-  nativeCamera = false,
+  onActivate,
   onChange,
 }: {
-  accept: string;
-  capture?: "environment" | "user";
+  accept?: string;
   icon: React.ReactNode;
   label: string;
   meta: string;
   multiple?: boolean;
-  nativeCamera?: boolean;
-  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onActivate?: () => void;
+  onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const openPicker = () => {
-    inputRef.current?.click();
-  };
-
   return (
     <Card
       aria-label={label}
       className="grid min-h-28 cursor-pointer place-items-center p-2 text-center transition-colors hover:border-primary/40 hover:bg-accent/5 sm:min-h-32 lg:min-h-24"
-      data-testid={
-        nativeCamera
-          ? "site-visit-take-photo"
-          : `site-visit-capture-${label.toLowerCase().replace(/\s+/g, "-")}`
-      }
-      onClick={nativeCamera ? openPicker : undefined}
-      onKeyDown={
-        nativeCamera
-          ? (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                openPicker();
-              }
-            }
-          : undefined
-      }
+      data-testid={`site-visit-capture-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      onClick={onActivate}
       render={
-        nativeCamera ? (
-          <div role="button" tabIndex={0} />
-        ) : (
-          <label role="button" />
-        )
+        onActivate ? <button type="button" /> : <label role="button" />
       }
     >
-      <input
-        accept={accept}
-        {...(capture ? { capture } : {})}
-        className="sr-only"
-        multiple={multiple}
-        onChange={onChange}
-        ref={inputRef}
-        type="file"
-      />
+      {accept && onChange ? (
+        <input
+          accept={accept}
+          className="sr-only"
+          multiple={multiple}
+          onChange={onChange}
+          type="file"
+        />
+      ) : null}
       <span className="text-primary">{icon}</span>
       <strong className="text-sm">{label}</strong>
-      <span className="text-muted-foreground text-[10px] uppercase tracking-[0.18em]">
+      <span className="text-[10px] text-muted-foreground uppercase tracking-[0.18em]">
         {meta}
       </span>
     </Card>
@@ -1099,7 +1092,7 @@ function EvidenceGrid({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 min-[360px]:grid-cols-2">
       {files.map((file) => {
         const id = "_id" in file ? file._id : file.id;
         const name = "fileName" in file ? file.fileName : file.name;
@@ -1136,7 +1129,7 @@ function EvidenceGrid({
                 {targetLabel(
                   targets,
                   file.targetMilestoneKey,
-                  file.targetSubmilestoneKey,
+                  file.targetSubmilestoneKey
                 )}
               </Badge>
               <Badge variant="outline">
@@ -1237,11 +1230,11 @@ function NavButton({
     >
       <span className="relative">
         {icon}
-        {badge !== undefined ? (
-          <span className="-right-2 -top-2 absolute grid size-5 place-items-center rounded-full bg-muted-foreground text-background text-[10px]">
+        {badge === undefined ? null : (
+          <span className="absolute -top-2 -right-2 grid size-5 place-items-center rounded-full bg-muted-foreground text-[10px] text-background">
             {badge}
           </span>
-        ) : null}
+        )}
       </span>
       <span className="whitespace-nowrap font-medium text-[10px] uppercase tracking-[0.06em] min-[380px]:text-[11px] min-[380px]:tracking-[0.1em]">
         {label}
@@ -1379,6 +1372,7 @@ function SiteVisitDrawer({
   buildCode,
   files,
   onClose,
+  onStageCapturedFile,
   onStageFiles,
   onUploadStaged,
   open,
@@ -1397,6 +1391,7 @@ function SiteVisitDrawer({
   buildCode: string;
   files: VisitFile[];
   onClose: () => void;
+  onStageCapturedFile: (file: File) => void;
   onStageFiles: (event: ChangeEvent<HTMLInputElement>) => void;
   onUploadStaged: () => void;
   open: boolean;
@@ -1437,13 +1432,13 @@ function SiteVisitDrawer({
                   ? permit
                     ? permitDisplayName(permit)
                     : "No permit attached"
-                : type === "scope"
-                  ? `${targets.length} milestones`
-                  : type === "uploaded"
-                    ? `${files.length} files · ${formatSiteVisitBytes(files.reduce((sum, file) => sum + file.sizeBytes, 0))}`
-                    : type === "capture"
-                      ? `${stagedCount} staged · ${formatSiteVisitBytes(totalPackageBytes)} package`
-                      : "Inspection checklist"}
+                  : type === "scope"
+                    ? `${targets.length} milestones`
+                    : type === "uploaded"
+                      ? `${files.length} files · ${formatSiteVisitBytes(files.reduce((sum, file) => sum + file.sizeBytes, 0))}`
+                      : type === "capture"
+                        ? `${stagedCount} staged · ${formatSiteVisitBytes(totalPackageBytes)} package`
+                        : "Inspection checklist"}
             </p>
           </div>
           <Button onClick={onClose} size="icon" type="button" variant="ghost">
@@ -1461,6 +1456,7 @@ function SiteVisitDrawer({
             <EvidenceGrid files={files} targets={targets} variant="uploaded" />
           ) : type === "capture" ? (
             <SiteVisitCapturePanel
+              onStageCapturedFile={onStageCapturedFile}
               onStageFiles={onStageFiles}
               onUploadStaged={onUploadStaged}
               selectedTarget={selectedTarget}
@@ -1751,9 +1747,9 @@ function PermitMeta({ permit }: { permit: VisitPermit }) {
       <InfoItem
         label="Size"
         value={
-          permit.sizeBytes !== undefined
-            ? formatSiteVisitBytes(permit.sizeBytes)
-            : "Not recorded"
+          permit.sizeBytes === undefined
+            ? "Not recorded"
+            : formatSiteVisitBytes(permit.sizeBytes)
         }
       />
       <InfoItem
@@ -1896,8 +1892,8 @@ function normalizedGuidance(target: VisitTarget): SiteVisitGuidanceHtml {
         .slice(0, 4)
         .map(
           (checkpoint) =>
-            `${checkpoint} is complete, visible, and consistent with the approved scope.`,
-        ),
+            `${checkpoint} is complete, visible, and consistent with the approved scope.`
+        )
     ),
   };
 }
@@ -1909,14 +1905,14 @@ function shortMilestoneLabel(value: string) {
 
 function subCode(target: VisitTarget, index: number) {
   return `${String(target.milestoneOrder || 1).padStart(2, "0")}${String.fromCharCode(
-    97 + index,
+    97 + index
   )}`;
 }
 
 function targetLabel(
   targets: VisitTarget[],
   milestoneKey?: string,
-  submilestoneKey?: string,
+  submilestoneKey?: string
 ) {
   if (!milestoneKey) {
     return "Visit-wide";
@@ -1929,7 +1925,7 @@ function targetLabel(
     return targetCode(target);
   }
   const submilestone = visitSubmilestones(target).find(
-    (item) => item.key === submilestoneKey,
+    (item) => item.key === submilestoneKey
   );
   return submilestone
     ? `${targetCode(target)} · ${submilestone.name}`
@@ -1937,12 +1933,12 @@ function targetLabel(
 }
 
 function visitSubmilestones(
-  target: VisitTarget,
+  target: VisitTarget
 ): Array<{ key: string; name: string }> {
   return target.submilestones.map((submilestone) =>
     typeof submilestone === "string"
       ? { key: slugifyTargetKey(submilestone), name: submilestone }
-      : submilestone,
+      : submilestone
   );
 }
 
@@ -1952,7 +1948,7 @@ function encodeMilestoneVisitTarget(milestoneKey: string) {
 
 function encodeSubmilestoneVisitTarget(
   milestoneKey: string,
-  submilestoneKey: string,
+  submilestoneKey: string
 ) {
   return `submilestone:${milestoneKey}:${submilestoneKey}`;
 }
@@ -1975,7 +1971,7 @@ function parseSelectedVisitTarget(value: string) {
 function contractorRatingTargetsForScope(
   targets: VisitTarget[],
   milestoneKey?: string,
-  submilestoneKey?: string,
+  submilestoneKey?: string
 ) {
   const matches = targets.flatMap((target) => {
     if (milestoneKey && target.milestoneKey !== milestoneKey) {
@@ -1986,7 +1982,7 @@ function contractorRatingTargetsForScope(
         (contractor) =>
           !submilestoneKey ||
           contractor.submilestoneKey === submilestoneKey ||
-          !contractor.submilestoneKey,
+          !contractor.submilestoneKey
       )
       .map((contractor) => ({
         ...contractor,
@@ -2010,7 +2006,7 @@ function contractorRatingTargetsForScope(
 function contractorIdsForEvidenceTarget(
   targets: VisitTarget[],
   milestoneKey?: string,
-  submilestoneKey?: string,
+  submilestoneKey?: string
 ) {
   return contractorRatingTargetsForScope(targets, milestoneKey, submilestoneKey)
     .map((target) => target._id)
@@ -2020,11 +2016,11 @@ function contractorIdsForEvidenceTarget(
 function parseQualityRating(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
-    return undefined;
+    return;
   }
   const parsed = Number(trimmed);
   if (!Number.isFinite(parsed)) {
-    return undefined;
+    return;
   }
   return Math.max(1, Math.min(5, Math.round(parsed)));
 }

@@ -451,10 +451,7 @@ export function groupMarkersByProximity(
   for (const member of sortedMembers) {
     const previousMember = currentStack.at(-1);
 
-    if (
-      previousMember &&
-      member.layoutX - previousMember.layoutX > threshold
-    ) {
+    if (previousMember && member.layoutX - previousMember.layoutX > threshold) {
       stacks.push(buildTimelineMarkerStack(currentStack));
       currentStack = [];
     }

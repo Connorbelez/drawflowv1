@@ -15,6 +15,7 @@ import {
   type ChangeEvent,
   type DragEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -34,22 +35,34 @@ import {
   parseCurrencyToCents,
 } from "#/features/builder-proposal-demo/template-helpers.ts";
 import {
+  isValidIsoDateOnly,
+  todayIsoDate,
+} from "#/features/production-proposals/proposalScheduleDates.ts";
+import {
   type BudgetWorkbookProposalDraft,
   parseBudgetWorkbookFile,
 } from "#/features/proposal-import/budget-workbook-schema.ts";
 import {
-  isValidIsoDateOnly,
-  todayIsoDate,
-} from "#/features/production-proposals/proposalScheduleDates.ts";
+  type AssistantClientAction,
+  consumeQueuedAssistantClientActions,
+  normalizeAssistantRoute,
+  queueAssistantClientActions,
+  readQueuedAssistantClientActions,
+  registerAssistantClientAction,
+} from "#/features/assistant/assistantClientActionBridge.ts";
 import { coerceSiteVisitGuidance } from "#/lib/site-visit-guidance.ts";
 import { cn } from "#/lib/utils.ts";
 import {
   type TimelineMilestoneWorksheetContractorAssignment,
   type TimelineMilestoneWorksheetContractorOption,
   type TimelineMilestoneWorksheetCostItem,
-  type TimelineScheduleDisplayMode,
   TimelineMilestoneWorksheetTable,
+  type TimelineScheduleDisplayMode,
 } from "./-TimelineMilestoneWorksheetTable.tsx";
+import {
+  buildMilestoneSpendEvents,
+  getMilestoneEndX,
+} from "./-timeline-milestone-schedule.ts";
 import { mapSubmilestoneSnapshotRows } from "./-timeline-milestone-submilestones.ts";
 import type {
   DemoMilestone,
@@ -83,6 +96,30 @@ const DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT = "1";
 const DURATION_PREFIX_REGEX = /^T/i;
 const STRIP_LEADING_DOLLAR = /^\$/;
 const TRAILING_ZERO_DECIMAL_REGEX = /\.?0+$/;
+const ASSISTANT_SETUP_CLIENT_ACTION_KEYS = [
+  "select_proposal_template",
+  "set_proposal_setup_field",
+  "set_proposal_setup_address",
+  "set_proposal_setup_permit_status",
+  "advance_proposal_setup_step",
+  "set_setup_milestone_included",
+  "create_setup_milestone",
+  "reorder_setup_milestones",
+  "update_setup_milestone",
+  "update_setup_milestone_schedule_budget",
+  "set_setup_budget_cascade_mode",
+  "create_setup_submilestone",
+  "update_setup_submilestone",
+  "move_setup_submilestone",
+  "delete_setup_submilestone",
+  "update_setup_field_guidance",
+  "import_proposal_budget_workbook",
+  "create_setup_contractor_assignment",
+  "delete_setup_contractor_assignment",
+  "create_setup_cost_item",
+  "update_setup_cost_item",
+  "delete_setup_cost_item",
+] as const;
 const subMilestoneDescriptions = [
   "Basis, scope, and quantities",
   "Field completion target",
@@ -483,16 +520,11 @@ export const SUB_MILESTONE_BANK: SubMilestoneBankItem[] = [
 const TEMPLATE_THUMBNAILS: Record<string, string> = {
   "4-plex": "/drawflow-template-thumbnails/four-plex-blueprint.svg",
   four_plex: "/drawflow-template-thumbnails/four-plex-blueprint.svg",
-  multiplex_build:
-    "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   "multiplex-build":
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
-  single_family_full_build:
-    "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
+  "garden-suite": "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   "single-family-full-build":
     "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
-  single_family_renovation:
-    "/drawflow-template-thumbnails/single-family-renovation-blueprint.png",
   "single-family-renovation":
     "/drawflow-template-thumbnails/single-family-renovation-blueprint.png",
 };
@@ -503,9 +535,26 @@ export interface TimelineSetupTemplate {
   description: string;
   isDefault?: boolean;
   rows: TimelineSetupPreset[];
+  scenarios?: TimelineSetupScenario[];
   summary: string;
   templateKey: string;
   title: string;
+}
+
+export interface TimelineSetupScenario {
+  draws: TimelineSetupScenarioDraw[];
+  isActive?: boolean;
+  isDefault?: boolean;
+  scenarioKey: string;
+}
+
+export interface TimelineSetupScenarioDraw {
+  amountBps: number;
+  drawKey: string;
+  label: string;
+  order?: number;
+  reviewNote?: string;
+  timingDay: number;
 }
 
 export interface TimelineSetupPreset {
@@ -562,6 +611,7 @@ export interface TimelineSetupResult {
   contractorAssignments: TimelineSetupContractorAssignment[];
   costItems: TimelineSetupCostItem[];
   currentDay: number;
+  draws?: TimelineSetupDrawResult[];
   includedCount: number;
   items: TimelineItem<DemoMilestone>[];
   permitFiles: File[];
@@ -574,6 +624,16 @@ export interface TimelineSetupResult {
   templateKey: string;
   templateTitle: string;
   totalBudget: number;
+}
+
+export interface TimelineSetupDrawResult {
+  amountCents: number;
+  customDate?: boolean;
+  drawKey: string;
+  label: string;
+  milestoneKey?: string;
+  order?: number;
+  timingDay: number;
 }
 
 export interface TimelineSetupFlowProps {
@@ -793,6 +853,7 @@ export function budgetWorkbookDraftToSetupRows(
         percentageBps: Math.round(
           (milestone.budgetAmount / Math.max(1, draft.totalBudget)) * 10_000
         ),
+        startDay: index,
         subMilestoneDetails,
         subMilestones: subMilestoneDetails.map((detail) => detail.name),
         type: "imported_budget",
@@ -964,6 +1025,7 @@ export function createCustomMilestoneRow({
       name,
       order,
       percentageBps: 0,
+      startDay: 0,
       subMilestoneDetails,
       subMilestones: [],
       type: "custom",
@@ -1009,7 +1071,7 @@ function buildDefaultTemplate(
       } satisfies TimelineSetupPreset;
     }),
     summary: `${baseItems.length} project milestones`,
-    templateKey: "single_family_full_build",
+    templateKey: "single-family-full-build",
     title: "Single Family Full Build",
   } satisfies TimelineSetupTemplate;
 }
@@ -1085,7 +1147,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
         ),
       ],
       summary: "7 renovation milestones",
-      templateKey: "single_family_renovation",
+      templateKey: "single-family-renovation",
       title: "Single Family Renovation",
     },
     {
@@ -1157,7 +1219,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
         ),
       ],
       summary: "7 multiplex milestones",
-      templateKey: "multiplex_build",
+      templateKey: "multiplex-build",
       title: "Multi-plex Build",
     },
   ];
@@ -1318,6 +1380,201 @@ export function buildTimelineItemsFromSetupRows(
   });
 }
 
+export function selectTimelineSetupScenario(
+  template: TimelineSetupTemplate | undefined
+): TimelineSetupScenario | undefined {
+  return (
+    template?.scenarios?.find((scenario) => scenario.isActive) ??
+    template?.scenarios?.find((scenario) => scenario.isDefault) ??
+    template?.scenarios?.[0]
+  );
+}
+
+function resolveAgentTemplate(
+  requestedTemplateKey: string,
+  templates: TimelineSetupTemplate[]
+) {
+  const requested = normalizeAgentTemplateToken(requestedTemplateKey);
+  const aliases = new Set([requested]);
+  if (
+    requested === "garden-suite" ||
+    requested === "garden-suite-build" ||
+    requested === "garden-suite-template" ||
+    requested === "laneway-suite"
+  ) {
+    aliases.add("garden-suite");
+    aliases.add("garden-suite-build");
+    aliases.add("garden-suite-template");
+    aliases.add("laneway-suite");
+  }
+  return templates.find((template) => {
+    const templateTokens = [
+      template.templateKey,
+      template.title,
+      template.summary,
+    ].map(normalizeAgentTemplateToken);
+    return templateTokens.some((token) => aliases.has(token));
+  });
+}
+
+function normalizeAgentTemplateToken(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-")
+    .replace(/[^a-z0-9-]+/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+export function buildTimelineSetupScenarioDraws({
+  budgetCents,
+  items,
+  scenario,
+  startingCashCents,
+}: {
+  budgetCents: number;
+  items: TimelineItem<DemoMilestone>[];
+  scenario: TimelineSetupScenario | undefined;
+  startingCashCents: number;
+}): TimelineSetupDrawResult[] | undefined {
+  if (!scenario?.draws.length) {
+    return;
+  }
+
+  const events = items
+    .filter((item) => item.data)
+    .flatMap((item) =>
+      buildMilestoneSpendEvents(item).map((event) => ({
+        amountCents: dollarsToCents(event.amount),
+        day: Math.max(0, Math.round(event.day)),
+        id: event.id,
+        sortOrder: getSetupSpendSortOrder(event.kind),
+      }))
+    )
+    .sort(
+      (left, right) =>
+        left.day - right.day ||
+        left.sortOrder - right.sortOrder ||
+        left.id.localeCompare(right.id)
+    );
+  const draws = [...scenario.draws]
+    .sort(
+      (left, right) =>
+        (left.order ?? 0) - (right.order ?? 0) ||
+        left.timingDay - right.timingDay ||
+        left.drawKey.localeCompare(right.drawKey)
+    )
+    .map((draw, index) => ({
+      ...draw,
+      amountCents: Math.max(
+        0,
+        Math.round(
+          (Math.max(0, Math.round(budgetCents)) *
+            Math.max(0, Math.round(draw.amountBps))) /
+            TOTAL_REIMBURSEMENT_BPS
+        )
+      ),
+      order: draw.order ?? index + 1,
+      timingDay: Math.max(0, Math.round(draw.timingDay)),
+    }));
+
+  let eventIndex = 0;
+  let cashOnHand = Math.max(0, Math.round(startingCashCents));
+  const result: TimelineSetupDrawResult[] = [];
+
+  for (const [index, draw] of draws.entries()) {
+    while (
+      eventIndex < events.length &&
+      events[eventIndex]!.day <= draw.timingDay
+    ) {
+      cashOnHand -= events[eventIndex]!.amountCents;
+      eventIndex += 1;
+    }
+
+    const nextDrawDay = draws[index + 1]?.timingDay;
+    let amountCents = draw.amountCents;
+    const projectedMinimumCash = projectMinimumSetupCash({
+      cashOnHand: cashOnHand + amountCents,
+      events,
+      fromIndex: eventIndex,
+      throughDay: nextDrawDay,
+    });
+    if (projectedMinimumCash < 0) {
+      amountCents += Math.abs(projectedMinimumCash);
+    }
+
+    cashOnHand += amountCents;
+    result.push({
+      amountCents,
+      customDate: true,
+      drawKey:
+        draw.drawKey.trim() || `draw-${String(index + 1).padStart(2, "0")}`,
+      label: draw.label.trim() || `Draw ${String(index + 1).padStart(2, "0")}`,
+      milestoneKey: milestoneKeyForScenarioDraw(items, draw.timingDay),
+      order: index + 1,
+      timingDay: draw.timingDay,
+    });
+  }
+
+  return result;
+}
+
+function projectMinimumSetupCash({
+  cashOnHand,
+  events,
+  fromIndex,
+  throughDay,
+}: {
+  cashOnHand: number;
+  events: Array<{ amountCents: number; day: number }>;
+  fromIndex: number;
+  throughDay?: number;
+}) {
+  let projectedCash = cashOnHand;
+  let minimumCash = projectedCash;
+
+  for (let index = fromIndex; index < events.length; index += 1) {
+    const event = events[index]!;
+    if (throughDay !== undefined && event.day > throughDay) {
+      break;
+    }
+    projectedCash -= event.amountCents;
+    minimumCash = Math.min(minimumCash, projectedCash);
+  }
+
+  return minimumCash;
+}
+
+function milestoneKeyForScenarioDraw(
+  items: TimelineItem<DemoMilestone>[],
+  timingDay: number
+) {
+  const orderedItems = [...items]
+    .filter((item) => item.data)
+    .sort((left, right) => getMilestoneEndX(left) - getMilestoneEndX(right));
+  const completed = orderedItems
+    .filter((item) => getMilestoneEndX(item) <= timingDay)
+    .at(-1);
+
+  return completed?.id ?? orderedItems[0]?.id;
+}
+
+function getSetupSpendSortOrder(
+  kind: ReturnType<typeof buildMilestoneSpendEvents>[number]["kind"]
+) {
+  if (kind === "initial") {
+    return 1;
+  }
+  if (kind === "distributed") {
+    return 2;
+  }
+  return 3;
+}
+
+function dollarsToCents(value: number) {
+  return Math.max(0, Math.round(value * 100));
+}
+
 export function buildPlanningPayloadFromSetupRows(
   rows: TimelineSetupMilestoneRow[]
 ): {
@@ -1415,6 +1672,133 @@ function setupRowSubmilestoneKeys(row: TimelineSetupMilestoneRow) {
   return new Set(row.subMilestoneDetails.map((detail) => detail.id));
 }
 
+function assistantActionInput(action: AssistantClientAction) {
+  return (action.input ?? {}) as Record<string, unknown>;
+}
+
+function assistantString(
+  input: Record<string, unknown>,
+  keys: string[],
+  fallback = ""
+) {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+  return fallback;
+}
+
+function assistantNumber(input: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value.replace(/[$,%\s,]/g, ""));
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return Number.NaN;
+}
+
+function assistantBoolean(
+  input: Record<string, unknown>,
+  keys: string[],
+  fallback = false
+) {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "string") {
+      if (["true", "yes", "included", "skipped"].includes(value.toLowerCase())) {
+        return true;
+      }
+      if (["false", "no", "excluded", "required"].includes(value.toLowerCase())) {
+        return false;
+      }
+    }
+  }
+  return fallback;
+}
+
+function assistantCurrencyText(
+  input: Record<string, unknown>,
+  keys: string[],
+  fallback = "$0"
+) {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return formatCurrency(Math.max(0, Math.round(value)));
+    }
+    if (typeof value === "string" && value.trim()) {
+      return normalizeCurrencyText(value);
+    }
+  }
+  return fallback;
+}
+
+function assistantPercentText(
+  input: Record<string, unknown>,
+  keys: string[],
+  fallback = DEFAULT_SETUP_CO_PAY_TEXT
+) {
+  const bps = assistantNumber(input, ["coPayBps", "borrowerCoPayBps"]);
+  if (Number.isFinite(bps)) {
+    return formatBpsPercent(normalizeBorrowerCoPayBps(Math.round(bps)));
+  }
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return normalizePercentText(String(value));
+    }
+    if (typeof value === "string" && value.trim()) {
+      return normalizePercentText(value);
+    }
+  }
+  return fallback;
+}
+
+function setupRowWithSubmilestoneBudgetRollup(row: TimelineSetupMilestoneRow) {
+  const totalBudgetCents = row.subMilestoneDetails.reduce((sum, detail) => {
+    const cents = parseCurrencyToCents(detail.budgetText);
+    return sum + (Number.isFinite(cents) ? Math.max(0, cents) : 0);
+  }, 0);
+  if (totalBudgetCents <= 0) {
+    return withSubMilestoneDetails(row, row.subMilestoneDetails);
+  }
+  return withSubMilestoneDetails(
+    { ...row, budgetText: formatCurrency(totalBudgetCents) },
+    row.subMilestoneDetails
+  );
+}
+
+function makeSetupSubmilestoneId(
+  row: TimelineSetupMilestoneRow,
+  name: string
+) {
+  const baseId = `${row.key}-${slugifySubMilestone(name)}`;
+  const existing = new Set(row.subMilestoneDetails.map((detail) => detail.id));
+  if (!existing.has(baseId)) {
+    return baseId;
+  }
+  let suffix = 2;
+  while (existing.has(`${baseId}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${baseId}-${suffix}`;
+}
+
 function TemplateStep({
   budgetText,
   cashText,
@@ -1435,7 +1819,9 @@ function TemplateStep({
   proposedStartDate,
   selectedTemplateKey,
   templates,
+  assistantNotice,
 }: {
+  assistantNotice?: string;
   budgetText: string;
   cashText: string;
   coPayText: string;
@@ -1487,6 +1873,14 @@ function TemplateStep({
           description="Choose a template that best matches your project."
           title="1. Select Template"
         >
+          {assistantNotice ? (
+            <div
+              className="mb-3 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-primary text-sm"
+              data-testid="timeline-setup-assistant-notice"
+            >
+              {assistantNotice}
+            </div>
+          ) : null}
           <div className="timeline-template-grid">
             {templates.map((template) => {
               const selected = template.templateKey === selectedTemplateKey;
@@ -1499,6 +1893,8 @@ function TemplateStep({
                     "timeline-template-card",
                     selected && "is-selected"
                   )}
+                  data-agent-action="select_proposal_template"
+                  data-agent-id={`proposal-template:${template.templateKey}`}
                   data-testid={`timeline-setup-template-card-${template.templateKey}`}
                   key={template.templateKey}
                   onClick={() => onTemplateSelect(template.templateKey)}
@@ -2126,7 +2522,9 @@ function BudgetStep({
       onBack={onBack}
       onCascadeBudgetEditsChange={onCascadeBudgetEditsChange}
       onComplete={onComplete}
-      onRowsChange={onRowsChange}
+      onRowsChange={(nextRows) =>
+        onRowsChange(nextRows as TimelineSetupMilestoneRow[])
+      }
       onScheduleDisplayModeChange={onScheduleDisplayModeChange}
       projectAddress={projectAddress}
       proposedStartDate={proposedStartDate}
@@ -2217,6 +2615,7 @@ export function TimelineSetupFlow({
       : []
   );
   const [error, setError] = useState("");
+  const [assistantNotice, setAssistantNotice] = useState("");
   const selectedTemplate =
     templates.find(
       (template) => template.templateKey === selectedTemplateKey
@@ -2364,6 +2763,12 @@ export function TimelineSetupFlow({
       (budgetCents * reimbursementBps) / TOTAL_REIMBURSEMENT_BPS
     );
     const items = buildTimelineItemsFromSetupRows(rows, borrowerCoPayBps);
+    const scenarioDraws = buildTimelineSetupScenarioDraws({
+      budgetCents,
+      items,
+      scenario: selectTimelineSetupScenario(selectedTemplate),
+      startingCashCents: Math.round(cashCents),
+    });
     const planningPayload = buildPlanningPayloadFromSetupRows(rows);
     const activeItem = items[0];
 
@@ -2374,6 +2779,7 @@ export function TimelineSetupFlow({
       borrowerCoPayCents,
       contractorAssignments: planningPayload.contractorAssignments,
       currentDay: GENERATED_TIMELINE_CURRENT_DAY,
+      draws: scenarioDraws,
       includedCount: items.length,
       items,
       permitFiles,
@@ -2391,17 +2797,639 @@ export function TimelineSetupFlow({
     });
   };
 
-  const selectTemplate = (templateKey: string) => {
-    setSelectedTemplateKey(templateKey);
-    setImportedBudgetTitle("");
-    const nextTemplate = templates.find(
-      (template) => template.templateKey === templateKey
-    );
+  const selectTemplate = useCallback(
+    (templateKey: string) => {
+      setSelectedTemplateKey(templateKey);
+      setImportedBudgetTitle("");
+      const nextTemplate = templates.find(
+        (template) => template.templateKey === templateKey
+      );
 
-    if (nextTemplate) {
-      regenerateRows(nextTemplate, budgetText);
+      if (nextTemplate) {
+        regenerateRows(nextTemplate, budgetText);
+      }
+    },
+    [budgetText, templates]
+  );
+
+  useEffect(() => {
+    const templateListLoaded = settingsTemplates !== undefined;
+    const executeSetupAction = (action: AssistantClientAction) => {
+      const input = assistantActionInput(action);
+      const rowKey = assistantString(input, ["rowKey", "milestoneKey", "key"]);
+      const subMilestoneId = assistantString(input, [
+        "subMilestoneId",
+        "submilestoneId",
+        "subMilestoneKey",
+        "submilestoneKey",
+      ]);
+
+      switch (action.actionKey) {
+        case "select_proposal_template": {
+          const requestedTemplateKey = assistantString(input, ["templateKey"]);
+          const resolvedTemplate = resolveAgentTemplate(
+            requestedTemplateKey,
+            templates
+          );
+          if (!resolvedTemplate) {
+            if (!templateListLoaded) {
+              queueAssistantClientActions([
+                {
+                  actionKey: "select_proposal_template",
+                  input: { templateKey: requestedTemplateKey },
+                  route: action.route ?? window.location.pathname,
+                },
+              ]);
+              return {
+                ok: false,
+                reason: "Proposal templates are still loading.",
+                retryable: true,
+              };
+            }
+            const message = `Template ${requestedTemplateKey} is not available on this proposal setup screen.`;
+            setError(message);
+            return { ok: false, reason: message };
+          }
+          setStep("template");
+          selectTemplate(resolvedTemplate.templateKey);
+          setError("");
+          setAssistantNotice(`${resolvedTemplate.title} selected`);
+          return {
+            ok: true,
+            templateKey: resolvedTemplate.templateKey,
+            title: resolvedTemplate.title,
+          };
+        }
+        case "set_proposal_setup_field": {
+          const field = assistantString(input, ["field"]).toLowerCase();
+          if (field.includes("start")) {
+            setProposedStartDate(
+              assistantString(input, ["value", "proposedStartDate"])
+            );
+          } else if (field.includes("budget")) {
+            setBudgetText(
+              assistantCurrencyText(input, [
+                "value",
+                "budgetCents",
+                "totalBudgetCents",
+                "totalBudget",
+              ])
+            );
+          } else if (
+            field.includes("cash") ||
+            field.includes("workingcapital") ||
+            field.includes("working capital")
+          ) {
+            setCashText(
+              assistantCurrencyText(input, [
+                "value",
+                "cashCents",
+                "maxCashOnHandCents",
+                "borrowerWorkingCapitalLimitCents",
+              ])
+            );
+          } else if (field.includes("pay")) {
+            setCoPayText(
+              assistantPercentText(input, [
+                "value",
+                "coPay",
+                "coPayPercent",
+                "borrowerCoPayPercent",
+              ])
+            );
+          } else {
+            return { ok: false, reason: `Unsupported setup field: ${field}` };
+          }
+          setError("");
+          return { field, ok: true };
+        }
+        case "set_proposal_setup_address": {
+          setProjectAddress(
+            assistantString(input, ["address", "label", "value"])
+          );
+          setError("");
+          return { ok: true };
+        }
+        case "set_proposal_setup_permit_status": {
+          const skipped = assistantBoolean(input, ["skipped", "value", "status"]);
+          setPermitsSkipped(skipped);
+          setError("");
+          return { ok: true, skipped };
+        }
+        case "advance_proposal_setup_step": {
+          const targetStep = assistantString(input, ["step", "targetStep"]);
+          if (targetStep === "template" || targetStep === "back") {
+            setStep("template");
+            return { ok: true, step: "template" };
+          }
+          if (!targetStep || targetStep === "budget" || targetStep === "next") {
+            continueToBudget();
+            return { ok: true, step: "budget" };
+          }
+          return {
+            ok: false,
+            reason:
+              "Completing setup must go through create_build_proposal_from_setup HITL.",
+          };
+        }
+        case "set_setup_milestone_included": {
+          const included = assistantBoolean(input, ["included", "value"], true);
+          setRows((current) =>
+            current.map((row) =>
+              row.key === rowKey ? { ...row, excluded: !included } : row
+            )
+          );
+          setStep("budget");
+          setError("");
+          return { included, ok: true, rowKey };
+        }
+        case "create_setup_milestone": {
+          const name = assistantString(input, ["name", "title"], "New milestone");
+          let createdKey = "";
+          setRows((current) => {
+            const row = createCustomMilestoneRow({
+              name,
+              order: current.length + 1,
+              rows: current,
+            });
+            createdKey = row.key;
+            return [...current, row];
+          });
+          setStep("budget");
+          setError("");
+          return { ok: true, rowKey: createdKey };
+        }
+        case "reorder_setup_milestones": {
+          const orderKeys = Array.isArray(input.orderKeys)
+            ? input.orderKeys.map(String)
+            : [];
+          if (orderKeys.length === 0) {
+            return { ok: false, reason: "orderKeys is required." };
+          }
+          setRows((current) => {
+            const byKey = new Map(current.map((row) => [row.key, row]));
+            const ordered = orderKeys
+              .map((key) => byKey.get(key))
+              .filter((row): row is TimelineSetupMilestoneRow => Boolean(row));
+            const missing = current.filter((row) => !orderKeys.includes(row.key));
+            return [...ordered, ...missing].map((row, index) => ({
+              ...row,
+              order: index + 1,
+            }));
+          });
+          setStep("budget");
+          setError("");
+          return { ok: true, orderKeys };
+        }
+        case "update_setup_milestone":
+        case "update_setup_milestone_schedule_budget": {
+          setRows((current) =>
+            current.map((row) => {
+              if (row.key !== rowKey) {
+                return row;
+              }
+              const budgetText =
+                input.budgetCents !== undefined || input.budgetText !== undefined
+                  ? assistantCurrencyText(input, ["budgetCents", "budgetText"])
+                  : row.budgetText;
+              const durationDays = assistantNumber(input, [
+                "durationDays",
+                "duration",
+              ]);
+              return {
+                ...row,
+                ...(input.dependencyKeys && Array.isArray(input.dependencyKeys)
+                  ? { dependencyKeys: input.dependencyKeys.map(String) }
+                  : {}),
+                budgetText,
+                durationText: Number.isFinite(durationDays)
+                  ? normalizeDurationText(String(durationDays))
+                  : row.durationText,
+                icon: assistantString(input, ["icon"], row.icon) as IsometricIconKey,
+                name: assistantString(input, ["name", "title"], row.name),
+                startDay: Number.isFinite(
+                  assistantNumber(input, ["startDay", "dayStart"])
+                )
+                  ? Math.max(
+                      0,
+                      Math.round(assistantNumber(input, ["startDay", "dayStart"]))
+                    )
+                  : row.startDay,
+                type: assistantString(input, ["type"], row.type),
+              };
+            })
+          );
+          setStep("budget");
+          setError("");
+          return { ok: true, rowKey };
+        }
+        case "set_setup_budget_cascade_mode": {
+          const enabled = assistantBoolean(input, ["enabled", "value"], true);
+          setCascadeBudgetEdits(enabled);
+          return { enabled, ok: true };
+        }
+        case "create_setup_submilestone": {
+          let createdId = "";
+          setRows((current) =>
+            current.map((row) => {
+              if (row.key !== rowKey) {
+                return row;
+              }
+              const name = assistantString(
+                input,
+                ["name", "title"],
+                "New sub-milestone"
+              );
+              const id =
+                assistantString(input, ["id", "subMilestoneId"]) ||
+                makeSetupSubmilestoneId(row, name);
+              createdId = id;
+              return setupRowWithSubmilestoneBudgetRollup(
+                withSubMilestoneDetails(row, [
+                  ...row.subMilestoneDetails,
+                  {
+                    budgetText: assistantCurrencyText(
+                      input,
+                      ["budgetCents", "budgetText"],
+                      DEFAULT_NEW_SUB_MILESTONE_BUDGET_TEXT
+                    ),
+                    description: assistantString(
+                      input,
+                      ["description"],
+                      "Define reimbursable scope, evidence, and acceptance criteria"
+                    ),
+                    durationText: normalizeDurationText(
+                      assistantString(
+                        input,
+                        ["durationDays", "durationText"],
+                        DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT
+                      )
+                    ),
+                    id,
+                    name,
+                    startDay: Number.isFinite(
+                      assistantNumber(input, ["startDay", "dayStart"])
+                    )
+                      ? Math.max(
+                          0,
+                          Math.round(
+                            assistantNumber(input, ["startDay", "dayStart"])
+                          )
+                        )
+                      : undefined,
+                  },
+                ])
+              );
+            })
+          );
+          setStep("budget");
+          setError("");
+          return { ok: true, subMilestoneId: createdId };
+        }
+        case "update_setup_submilestone":
+        case "update_setup_field_guidance": {
+          setRows((current) =>
+            current.map((row) => {
+              if (rowKey && row.key !== rowKey) {
+                return row;
+              }
+              if (
+                !row.subMilestoneDetails.some(
+                  (detail) => detail.id === subMilestoneId
+                )
+              ) {
+                return row;
+              }
+              return setupRowWithSubmilestoneBudgetRollup(
+                withSubMilestoneDetails(
+                  row,
+                  row.subMilestoneDetails.map((detail) => {
+                    if (detail.id !== subMilestoneId) {
+                      return detail;
+                    }
+                    const durationDays = assistantNumber(input, [
+                      "durationDays",
+                      "duration",
+                    ]);
+                    const startDay = assistantNumber(input, [
+                      "startDay",
+                      "dayStart",
+                    ]);
+                    return {
+                      ...detail,
+                      ...(input.budgetCents !== undefined ||
+                      input.budgetText !== undefined
+                        ? {
+                            budgetText: assistantCurrencyText(input, [
+                              "budgetCents",
+                              "budgetText",
+                            ]),
+                          }
+                        : {}),
+                      description: assistantString(
+                        input,
+                        ["description", "guidance", "verificationNote"],
+                        detail.description
+                      ),
+                      durationText: Number.isFinite(durationDays)
+                        ? normalizeDurationText(String(durationDays))
+                        : detail.durationText,
+                      name: assistantString(input, ["name", "title"], detail.name),
+                      startDay: Number.isFinite(startDay)
+                        ? Math.max(0, Math.round(startDay))
+                        : detail.startDay,
+                    };
+                  })
+                )
+              );
+            })
+          );
+          setStep("budget");
+          setError("");
+          return { ok: true, subMilestoneId };
+        }
+        case "move_setup_submilestone": {
+          const targetRowKey = assistantString(input, [
+            "targetRowKey",
+            "targetMilestoneKey",
+          ]);
+          const targetIndex = assistantNumber(input, ["targetIndex", "index"]);
+          if (!subMilestoneId || !targetRowKey) {
+            return {
+              ok: false,
+              reason: "subMilestoneId and targetRowKey are required.",
+            };
+          }
+          setRows((current) =>
+            current.map((row) => {
+              const moved = current
+                .flatMap((source) => source.subMilestoneDetails)
+                .find((detail) => detail.id === subMilestoneId);
+              if (!moved) {
+                return row;
+              }
+              if (row.subMilestoneDetails.some((detail) => detail.id === subMilestoneId)) {
+                return setupRowWithSubmilestoneBudgetRollup(
+                  withSubMilestoneDetails(
+                    row,
+                    row.subMilestoneDetails.filter(
+                      (detail) => detail.id !== subMilestoneId
+                    )
+                  )
+                );
+              }
+              if (row.key === targetRowKey) {
+                const index = Number.isFinite(targetIndex)
+                  ? Math.max(0, Math.min(row.subMilestoneDetails.length, targetIndex))
+                  : row.subMilestoneDetails.length;
+                return setupRowWithSubmilestoneBudgetRollup(
+                  withSubMilestoneDetails(row, [
+                    ...row.subMilestoneDetails.slice(0, index),
+                    moved,
+                    ...row.subMilestoneDetails.slice(index),
+                  ])
+                );
+              }
+              return row;
+            })
+          );
+          setStep("budget");
+          setError("");
+          return { ok: true, subMilestoneId, targetRowKey };
+        }
+        case "delete_setup_submilestone": {
+          setRows((current) =>
+            current.map((row) =>
+              rowKey && row.key !== rowKey
+                ? row
+                : setupRowWithSubmilestoneBudgetRollup(
+                    withSubMilestoneDetails(
+                      row,
+                      row.subMilestoneDetails.filter(
+                        (detail) => detail.id !== subMilestoneId
+                      )
+                    )
+                  )
+            )
+          );
+          setStep("budget");
+          setError("");
+          return { ok: true, subMilestoneId };
+        }
+        case "create_setup_cost_item": {
+          const itemId =
+            assistantString(input, ["itemId", "id"]) ||
+            `setup-cost-${Date.now()}`;
+          const relevantSubMilestoneIds = [
+            ...(Array.isArray(input.relevantSubmilestoneKeys)
+              ? input.relevantSubmilestoneKeys.map(String)
+              : []),
+            ...(Array.isArray(input.relevantSubMilestoneIds)
+              ? input.relevantSubMilestoneIds.map(String)
+              : []),
+            ...(subMilestoneId ? [subMilestoneId] : []),
+          ];
+          setRows((current) =>
+            current.map((row) =>
+              row.key === rowKey
+                ? {
+                    ...row,
+                    costItems: [
+                      ...(row.costItems ?? []),
+                      {
+                        costCents: Math.max(
+                          0,
+                          Math.round(
+                            assistantNumber(input, ["costCents", "cost"])
+                          )
+                        ),
+                        description: assistantString(input, ["description"]),
+                        id: itemId,
+                        itemType:
+                          assistantString(input, ["itemType", "type"], "material") ===
+                          "equipment"
+                            ? "equipment"
+                            : "material",
+                        quantity: Math.max(
+                          1,
+                          assistantNumber(input, ["quantity"]) || 1
+                        ),
+                        relevantSubMilestoneIds,
+                        supplier: assistantString(input, ["supplier"]),
+                        title: assistantString(input, ["title", "name"], "Material"),
+                      },
+                    ],
+                  }
+                : row
+            )
+          );
+          setStep("budget");
+          setError("");
+          return { itemId, ok: true };
+        }
+        case "update_setup_cost_item": {
+          const itemId = assistantString(input, ["itemId", "id"]);
+          setRows((current) =>
+            current.map((row) => ({
+              ...row,
+              costItems: (row.costItems ?? []).map((item) =>
+                item.id === itemId
+                  ? {
+                      ...item,
+                      ...(input.costCents !== undefined
+                        ? {
+                            costCents: Math.max(
+                              0,
+                              Math.round(
+                                assistantNumber(input, ["costCents", "cost"])
+                              )
+                            ),
+                          }
+                        : {}),
+                      description: assistantString(
+                        input,
+                        ["description"],
+                        item.description
+                      ),
+                      quantity:
+                        input.quantity === undefined
+                          ? item.quantity
+                          : Math.max(1, assistantNumber(input, ["quantity"]) || 1),
+                      supplier: assistantString(
+                        input,
+                        ["supplier"],
+                        item.supplier
+                      ),
+                      title: assistantString(input, ["title", "name"], item.title),
+                    }
+                  : item
+              ),
+            }))
+          );
+          setStep("budget");
+          setError("");
+          return { itemId, ok: true };
+        }
+        case "delete_setup_cost_item": {
+          const itemId = assistantString(input, ["itemId", "id"]);
+          setRows((current) =>
+            current.map((row) => ({
+              ...row,
+              costItems: (row.costItems ?? []).filter(
+                (item) => item.id !== itemId
+              ),
+            }))
+          );
+          setStep("budget");
+          setError("");
+          return { itemId, ok: true };
+        }
+        case "create_setup_contractor_assignment": {
+          const assignmentId =
+            assistantString(input, ["assignmentId", "id"]) ||
+            `setup-contractor-${Date.now()}`;
+          const subMilestoneIds = Array.isArray(input.subMilestoneIds)
+            ? input.subMilestoneIds.map(String)
+            : subMilestoneId
+              ? [subMilestoneId]
+              : [];
+          setRows((current) =>
+            current.map((row) =>
+              row.key === rowKey
+                ? {
+                    ...row,
+                    contractorAssignments: [
+                      ...(row.contractorAssignments ?? []),
+                      {
+                        contractorId: assistantString(input, ["contractorId"]),
+                        contractorName: assistantString(
+                          input,
+                          ["contractorName", "name"],
+                          "Contractor"
+                        ),
+                        estimatedCostCents: Number.isFinite(
+                          assistantNumber(input, ["estimatedCostCents"])
+                        )
+                          ? Math.max(
+                              0,
+                              Math.round(
+                                assistantNumber(input, ["estimatedCostCents"])
+                              )
+                            )
+                          : undefined,
+                        estimatedHours: Number.isFinite(
+                          assistantNumber(input, ["estimatedHours"])
+                        )
+                          ? Math.max(
+                              0,
+                              assistantNumber(input, ["estimatedHours"])
+                            )
+                          : undefined,
+                        id: assignmentId,
+                        role: assistantString(input, ["role"], "Contractor"),
+                        subMilestoneIds,
+                      },
+                    ],
+                  }
+                : row
+            )
+          );
+          setStep("budget");
+          setError("");
+          return { assignmentId, ok: true };
+        }
+        case "delete_setup_contractor_assignment": {
+          const assignmentId = assistantString(input, ["assignmentId", "id"]);
+          setRows((current) =>
+            current.map((row) => ({
+              ...row,
+              contractorAssignments: (row.contractorAssignments ?? []).filter(
+                (assignment) => assignment.id !== assignmentId
+              ),
+            }))
+          );
+          setStep("budget");
+          setError("");
+          return { assignmentId, ok: true };
+        }
+        case "import_proposal_budget_workbook":
+          return {
+            ok: false,
+            reason:
+              "Budget workbook import requires a trusted file attachment and cannot be executed from a prompt-only client action.",
+          };
+        default:
+          return { ok: false, reason: "Unsupported setup assistant action." };
+      }
+    };
+    const route = normalizeAssistantRoute(window.location.pathname);
+    const matchingQueuedActions = readQueuedAssistantClientActions().filter(
+      (action) =>
+        action.actionKey === "select_proposal_template" &&
+        (!action.route || normalizeAssistantRoute(action.route) === route)
+    );
+    const hasResolvableQueuedAction = matchingQueuedActions.some((action) =>
+      resolveAgentTemplate(
+        assistantString(assistantActionInput(action), ["templateKey"]),
+        templates
+      )
+    );
+    if (!templateListLoaded && !hasResolvableQueuedAction) {
+      return;
     }
-  };
+    const unregister = ASSISTANT_SETUP_CLIENT_ACTION_KEYS.map((actionKey) =>
+      registerAssistantClientAction(actionKey, executeSetupAction)
+    );
+    for (const actionKey of ASSISTANT_SETUP_CLIENT_ACTION_KEYS) {
+      for (const action of consumeQueuedAssistantClientActions({
+        actionKey,
+        route,
+      })) {
+        executeSetupAction(action);
+      }
+    }
+    return () => unregister.forEach((dispose) => dispose());
+  }, [budgetText, selectTemplate, settingsTemplates, templates]);
 
   const importBudgetFile = async (file: File) => {
     const draft = await parseBudgetWorkbookFile(file);
@@ -2479,6 +3507,7 @@ export function TimelineSetupFlow({
             proposedStartDate={proposedStartDate}
             selectedTemplateKey={selectedTemplateKey}
             templates={templates}
+            assistantNotice={assistantNotice}
           />
         ) : (
           <BudgetStep

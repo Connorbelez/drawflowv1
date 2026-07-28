@@ -71,7 +71,9 @@ vi.mock("../integrations/workos/provider", () => ({
   ),
 }));
 
-import { RootDocument } from "./__root.tsx";
+import { getAuth } from "@workos/authkit-tanstack-react-start";
+
+import { RootDocument, RootError, Route } from "./__root.tsx";
 
 describe("RootDocument", () => {
   test("mounts the global toast renderer for sonner feedback", () => {
@@ -83,5 +85,49 @@ describe("RootDocument", () => {
 
     expect(markup).toContain('data-testid="global-toaster"');
     expect(markup).toContain('data-position="top-right"');
+  });
+});
+
+describe("RootError", () => {
+  test("renders a recoverable route error surface", () => {
+    const markup = renderToStaticMarkup(
+      <RootError
+        error={new Error("Failed to fetch dynamically imported module")}
+        reset={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("DrawFlow could not load this screen.");
+    expect(markup).toContain("Failed to fetch dynamically imported module");
+    expect(markup).toContain("Try again");
+    expect(markup).toContain("Back to backoffice");
+  });
+});
+
+describe("root auth boundary", () => {
+  test("treats AuthKit failures as an unauthenticated local session", async () => {
+    vi.mocked(getAuth).mockRejectedValueOnce(new Error("HTTPError"));
+    const clearAuth = vi.fn();
+
+    const auth = await Route.beforeLoad?.({
+      context: {
+        convexQueryClient: {
+          serverHttpClient: {
+            clearAuth,
+            setAuth: vi.fn(),
+          },
+        },
+      },
+    } as never);
+
+    expect(auth).toEqual({
+      organizationId: null,
+      permissions: [],
+      role: null,
+      roles: [],
+      token: null,
+      userId: null,
+    });
+    expect(clearAuth).toHaveBeenCalled();
   });
 });

@@ -3,42 +3,44 @@ const DAY_MS = 86_400_000;
 
 export function dateFromProposalDayOffset(
   proposedStartDate: string,
-  dayOffset: number,
+  dayOffset: number
 ) {
   return isoDateFromUtcMs(
-    utcMsFromIsoDate(proposedStartDate) + Math.round(dayOffset) * DAY_MS,
+    utcMsFromIsoDate(proposedStartDate) + Math.round(dayOffset) * DAY_MS
   );
 }
 
 export function dayOffsetFromProposalDate(
   proposedStartDate: string,
-  scheduleDate: string,
+  scheduleDate: string
 ) {
   return Math.round(
     (utcMsFromIsoDate(scheduleDate) - utcMsFromIsoDate(proposedStartDate)) /
-      DAY_MS,
+      DAY_MS
   );
 }
 
 export function inclusiveEndDateFromProposalSchedule(
   proposedStartDate: string,
   dayStart: number,
-  durationDays: number,
+  durationDays: number
 ) {
   return dateFromProposalDayOffset(
     proposedStartDate,
-    Math.round(dayStart) + Math.max(1, Math.round(durationDays)) - 1,
+    Math.round(dayStart) + Math.max(1, Math.round(durationDays)) - 1
   );
 }
 
 export function proposalDurationDaysFromInclusiveDates(
   startDate: string,
-  inclusiveEndDate: string,
+  inclusiveEndDate: string
 ) {
   return Math.max(
     1,
-    Math.round((utcMsFromIsoDate(inclusiveEndDate) - utcMsFromIsoDate(startDate)) / DAY_MS) +
-      1,
+    Math.round(
+      (utcMsFromIsoDate(inclusiveEndDate) - utcMsFromIsoDate(startDate)) /
+        DAY_MS
+    ) + 1
   );
 }
 

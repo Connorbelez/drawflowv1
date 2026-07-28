@@ -20,7 +20,7 @@ const X_SHARE_HREF = /twitter\.com\/intent\/tweet/;
 async function openGeneratedTimeline(page: Page) {
   await page.goto("/demo/timeline");
   await expect(
-    page.getByTestId("timeline-setup-template-screen"),
+    page.getByTestId("timeline-setup-template-screen")
   ).toBeVisible();
   await page.getByTestId("timeline-setup-continue-budget").click();
   await expect(page.getByTestId("timeline-setup-budget-screen")).toBeVisible();
@@ -38,13 +38,13 @@ async function openGeneratedTimeline(page: Page) {
 async function openDurableGeneratedTimeline(page: Page) {
   await page.goto("/demo/timeline");
   await expect(
-    page.getByTestId("timeline-setup-template-screen"),
+    page.getByTestId("timeline-setup-template-screen")
   ).toBeVisible();
   await page.getByTestId("timeline-setup-continue-budget").click();
   await expect(page.getByTestId("timeline-setup-budget-screen")).toBeVisible();
   await page.getByTestId("timeline-setup-durable-route-toggle").click();
   await expect(
-    page.getByTestId("timeline-setup-durable-route-toggle"),
+    page.getByTestId("timeline-setup-durable-route-toggle")
   ).toBeChecked();
   await page.getByTestId("timeline-setup-complete").click();
   await expect(page).toHaveURL(/\/demo\/timeline\/[^/?#]+(?:\?.*)?$/);
@@ -58,17 +58,17 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
   await page.goto("/demo/timeline");
 
   await expect(
-    page.getByTestId("timeline-setup-template-screen"),
+    page.getByTestId("timeline-setup-template-screen")
   ).toBeVisible();
   await expect(
-    page.getByTestId("timeline-setup-template-card-single_family_full_build"),
+    page.getByTestId("timeline-setup-template-card-single-family-full-build")
   ).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Proposal Summary")).toBeVisible();
   await expect(page.getByText("What happens next")).toBeVisible();
   await expect(page.getByText("Compliance Note")).toBeVisible();
   await expect(page.getByLabel("Co-pay")).toBeVisible();
   await expect(
-    page.getByRole("complementary").getByText("Reimbursement Scope"),
+    page.getByRole("complementary").getByText("Reimbursement Scope")
   ).toBeVisible();
   await expect(page.getByLabel("Project address")).toBeVisible();
   await page.getByTestId("timeline-setup-budget-input").fill("$1,320,000");
@@ -83,30 +83,30 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
   await expect(page.getByText("package.json")).toBeVisible();
   await page.getByTestId("timeline-setup-skip-permits").click();
   await expect(page.getByTestId("timeline-setup-skip-permits")).toHaveText(
-    "Skipped",
+    "Skipped"
   );
   await page.getByTestId("timeline-setup-continue-budget").click();
 
   await expect(page.getByTestId("timeline-setup-budget-screen")).toBeVisible();
   await expect(
-    page.getByTestId("timeline-setup-budget-screen").getByText("Toronto, ON"),
+    page.getByTestId("timeline-setup-budget-screen").getByText("Toronto, ON")
   ).toBeVisible();
   await expect(
-    page.getByTestId("timeline-setup-budget-row-site-prep"),
+    page.getByTestId("timeline-setup-budget-row-site-prep")
   ).toBeVisible();
   await expect(
-    page.getByTestId("timeline-setup-row-name-site-prep"),
+    page.getByTestId("timeline-setup-row-name-site-prep")
   ).toContainText("Site prep & foundation");
   await expect(
-    page.getByTestId("timeline-setup-row-name-edit-site-prep-display"),
+    page.getByTestId("timeline-setup-row-name-edit-site-prep-display")
   ).toHaveCount(0);
   await expect(
-    page.getByTestId("timeline-setup-row-expand-site-prep"),
+    page.getByTestId("timeline-setup-row-expand-site-prep")
   ).toBeVisible();
   await expect(
     page.getByTestId("timeline-setup-budget-table").getByRole("columnheader", {
       name: "Name",
-    }),
+    })
   ).toBeVisible();
   for (const position of [
     "top-left",
@@ -115,7 +115,7 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
     "bottom-right",
   ]) {
     await expect(
-      page.getByTestId(`timeline-setup-budget-table-corner-${position}`),
+      page.getByTestId(`timeline-setup-budget-table-corner-${position}`)
     ).toBeVisible();
   }
   await page
@@ -123,15 +123,15 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
     .fill("Solar readiness");
   await page.getByTestId("timeline-setup-add-custom-milestone").click();
   await expect(
-    page.getByTestId("timeline-setup-budget-row-custom-solar-readiness"),
+    page.getByTestId("timeline-setup-budget-row-custom-solar-readiness")
   ).toBeVisible();
   await expect(
-    page.getByTestId("timeline-setup-row-name-custom-solar-readiness"),
+    page.getByTestId("timeline-setup-row-name-custom-solar-readiness")
   ).toContainText("Solar readiness");
   await expect(
     page.getByTestId(
-      "timeline-setup-submilestone-card-custom-solar-readiness-scope-definition-0",
-    ),
+      "timeline-setup-submilestone-card-custom-solar-readiness-scope-definition-0"
+    )
   ).toBeVisible();
   await page
     .getByTestId("timeline-setup-row-budget-custom-solar-readiness")
@@ -141,8 +141,8 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
     .fill("7");
   await expect(
     page.getByTestId(
-      "timeline-setup-submilestone-card-site-prep-permit-mobilization-0",
-    ),
+      "timeline-setup-submilestone-card-site-prep-permit-mobilization-0"
+    )
   ).toBeVisible();
   const expectedIconMap = {
     closeout: "closeout",
@@ -157,31 +157,31 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
 
   for (const [rowKey, iconKey] of Object.entries(expectedIconMap)) {
     await expect(
-      page.getByTestId(`timeline-setup-row-icon-${rowKey}`),
+      page.getByTestId(`timeline-setup-row-icon-${rowKey}`)
     ).toHaveAttribute("data-icon", iconKey);
     await expect(
-      page.getByTestId(`timeline-setup-row-icon-${rowKey}`),
+      page.getByTestId(`timeline-setup-row-icon-${rowKey}`)
     ).toHaveAttribute("src", /drawflow-milestone-blueprint-icons/);
     await expect(
-      page.getByTestId(`timeline-setup-row-drag-${rowKey}`),
+      page.getByTestId(`timeline-setup-row-drag-${rowKey}`)
     ).toBeAttached();
   }
 
   await expect(
     page.getByTestId(
-      "timeline-setup-submilestone-card-site-prep-permit-mobilization-0",
-    ),
+      "timeline-setup-submilestone-card-site-prep-permit-mobilization-0"
+    )
   ).toBeVisible();
   await expect(
     page.getByTestId(
-      "timeline-setup-submilestone-name-site-prep-permit-mobilization-0",
-    ),
+      "timeline-setup-submilestone-name-site-prep-permit-mobilization-0"
+    )
   ).toHaveValue("Permit mobilization");
   await page
     .getByTestId("timeline-setup-submilestone-card-site-prep-excavation-1")
     .click();
   await expect(
-    page.getByTestId("timeline-setup-submilestone-name-site-prep-excavation-1"),
+    page.getByTestId("timeline-setup-submilestone-name-site-prep-excavation-1")
   ).toHaveValue("Excavation");
   await page
     .getByTestId("timeline-setup-submilestone-budget-site-prep-excavation-1")
@@ -190,25 +190,25 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
     .getByTestId("timeline-setup-submilestone-duration-site-prep-excavation-1")
     .fill("T6");
   await expect(
-    page.getByTestId("timeline-setup-submilestone-card-site-prep-excavation-1"),
+    page.getByTestId("timeline-setup-submilestone-card-site-prep-excavation-1")
   ).toContainText("$44,000");
   await expect(
-    page.getByTestId("timeline-setup-submilestone-card-site-prep-excavation-1"),
+    page.getByTestId("timeline-setup-submilestone-card-site-prep-excavation-1")
   ).toContainText("T6");
   await page
     .getByTestId("timeline-setup-submilestone-bank-input-site-prep")
     .fill("Final grading");
   await page
     .getByTestId(
-      "timeline-setup-submilestone-bank-item-final-grading-and-landscaping",
+      "timeline-setup-submilestone-bank-item-final-grading-and-landscaping"
     )
     .click();
   await expect(
     page
       .locator(
-        '[data-testid^="timeline-setup-submilestone-card-site-prep-custom-"]',
+        '[data-testid^="timeline-setup-submilestone-card-site-prep-custom-"]'
       )
-      .filter({ hasText: "Final grading and landscaping" }),
+      .filter({ hasText: "Final grading and landscaping" })
   ).toBeVisible();
   for (const [query, itemTestId] of [
     ["Survey staking", "timeline-setup-submilestone-bank-item-survey-staking"],
@@ -229,24 +229,24 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
   await expect(
     page
       .locator(
-        '[data-testid^="timeline-setup-submilestone-card-site-prep-custom-"]',
+        '[data-testid^="timeline-setup-submilestone-card-site-prep-custom-"]'
       )
-      .filter({ hasText: "Topsoil stripping" }),
+      .filter({ hasText: "Topsoil stripping" })
   ).toBeVisible();
   const subMilestoneListGeometry = await page
     .getByTestId(
-      "timeline-setup-submilestone-card-site-prep-permit-mobilization-0",
+      "timeline-setup-submilestone-card-site-prep-permit-mobilization-0"
     )
     .evaluate((card) => {
       const list = card.closest(".timeline-submilestone-card-list");
       const cards = Array.from(
-        list?.querySelectorAll(".timeline-submilestone-card") ?? [],
+        list?.querySelectorAll(".timeline-submilestone-card") ?? []
       );
 
       return {
         canScroll: list ? list.scrollHeight > list.clientHeight : false,
         minCardHeight: Math.min(
-          ...cards.map((candidate) => candidate.getBoundingClientRect().height),
+          ...cards.map((candidate) => candidate.getBoundingClientRect().height)
         ),
         overflowY: list ? getComputedStyle(list).overflowY : "",
       };
@@ -266,26 +266,26 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
   await expect(
     page
       .locator(
-        '[data-testid^="timeline-setup-submilestone-card-site-prep-custom-"]',
+        '[data-testid^="timeline-setup-submilestone-card-site-prep-custom-"]'
       )
-      .filter({ hasText: "Survey closeout" }),
+      .filter({ hasText: "Survey closeout" })
   ).toBeVisible();
   await page
     .locator(
-      '[data-testid^="timeline-setup-submilestone-card-site-prep-custom-"]',
+      '[data-testid^="timeline-setup-submilestone-card-site-prep-custom-"]'
     )
     .filter({ hasText: "Survey closeout" })
     .click();
   await expect(
     page.locator(
-      '[data-testid^="timeline-setup-submilestone-name-site-prep-custom-"]',
-    ),
+      '[data-testid^="timeline-setup-submilestone-name-site-prep-custom-"]'
+    )
   ).toHaveValue("Survey closeout");
   await page
     .getByTestId("timeline-setup-submilestone-remove-site-prep-excavation-1")
     .click();
   await expect(
-    page.getByTestId("timeline-setup-submilestone-card-site-prep-excavation-1"),
+    page.getByTestId("timeline-setup-submilestone-card-site-prep-excavation-1")
   ).toHaveCount(0);
   await page.getByTestId("timeline-setup-row-expand-site-prep").click();
 
@@ -314,23 +314,23 @@ test("timeline setup selects a template, edits the blueprint budget table, and g
 
   await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
   await expect(page.getByTestId("timeline-card-framing")).toContainText(
-    /Milestone 1/i,
+    /Milestone 1/i
   );
   await expect(page.getByTestId("timeline-card-site-prep")).toContainText(
-    /Milestone 2/i,
+    /Milestone 2/i
   );
   await expect(page.getByTestId("timeline-draw-marker-framing")).toContainText(
-    /Draw 1/i,
+    /Draw 1/i
   );
   await expect(
-    page.getByTestId("timeline-card-custom-solar-readiness"),
+    page.getByTestId("timeline-card-custom-solar-readiness")
   ).toContainText("Solar readiness");
   await page.getByTestId("timeline-card-framing").click();
   await expect(page.getByTestId("timeline-card-cost-framing")).toHaveText(
-    "$180,000",
+    "$180,000"
   );
   await expect(page.getByTestId("timeline-card-duration-framing")).toHaveText(
-    "20 days",
+    "20 days"
   );
 });
 
@@ -346,33 +346,33 @@ test("settings reuses the timeline worksheet table and compound chart", async ({
   }
 
   await expect(
-    page.getByRole("tablist", { name: "Settings sections" }),
+    page.getByRole("tablist", { name: "Settings sections" })
   ).toBeVisible();
   await expect(page.getByRole("tab", { name: /Demos/ })).toHaveAttribute(
     "aria-selected",
-    "true",
+    "true"
   );
   await expect(
-    page.getByTestId("timeline-settings-template-blueprint-table"),
+    page.getByTestId("timeline-settings-template-blueprint-table")
   ).toBeVisible();
   await expect(
     page.getByTestId("timeline-setup-budget-table").getByRole("columnheader", {
       name: "Name",
-    }),
+    })
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Draw scenarios" }).click();
   await expect(page.getByText("CC-02", { exact: false })).toBeVisible();
   await expect(
-    page.getByTestId("timeline-settings-scenario-header"),
+    page.getByTestId("timeline-settings-scenario-header")
   ).toContainText("Set active");
   await expect(
-    page.getByTestId("timeline-settings-cashflow-compound-chart"),
+    page.getByTestId("timeline-settings-cashflow-compound-chart")
   ).toBeVisible();
   const amountInput = page.getByLabel("Draw 03 amount");
   await amountInput.click();
   await amountInput.press(
-    process.platform === "darwin" ? "Meta+A" : "Control+A",
+    process.platform === "darwin" ? "Meta+A" : "Control+A"
   );
   await amountInput.press("Backspace");
   await expect(amountInput).toHaveValue("");
@@ -384,7 +384,7 @@ test("settings reuses the timeline worksheet table and compound chart", async ({
   await expect(amountInput).toHaveValue("15.00%");
   await expect(page.getByText("NaN", { exact: false })).toHaveCount(0);
   const cashflowChart = page.getByTestId(
-    "timeline-settings-cashflow-compound-chart",
+    "timeline-settings-cashflow-compound-chart"
   );
   await expect
     .poll(() => cashflowChart.locator(".recharts-reference-line").count())
@@ -394,7 +394,7 @@ test("settings reuses the timeline worksheet table and compound chart", async ({
   if (cashflowBox) {
     await page.mouse.move(
       cashflowBox.x + cashflowBox.width * 0.5,
-      cashflowBox.y + cashflowBox.height * 0.5,
+      cashflowBox.y + cashflowBox.height * 0.5
     );
   }
   const cashflowTooltip = page
@@ -404,7 +404,7 @@ test("settings reuses the timeline worksheet table and compound chart", async ({
   await expect(cashflowTooltip).toContainText(/Day \d+/);
   await expect(cashflowTooltip).not.toContainText("Capital spike");
   await expect(
-    page.locator('svg[aria-label="Cashflow preview chart"]'),
+    page.locator('svg[aria-label="Cashflow preview chart"]')
   ).toHaveCount(0);
 
   const templateCard = page
@@ -422,7 +422,7 @@ test("settings reuses the timeline worksheet table and compound chart", async ({
   expect(cardBox).not.toBeNull();
   expect(badgeBox).not.toBeNull();
   expect((badgeBox?.x ?? 0) + (badgeBox?.width ?? 0)).toBeLessThanOrEqual(
-    (cardBox?.x ?? 0) + (cardBox?.width ?? 0) + 1,
+    (cardBox?.x ?? 0) + (cardBox?.width ?? 0) + 1
   );
 });
 
@@ -432,20 +432,20 @@ test("timeline setup lands generated roadmap at T0", async ({ page }) => {
   await expect(
     page.getByTestId("selected-draw-details").getByRole("heading", {
       name: "Site prep & foundation",
-    }),
+    })
   ).toBeVisible();
   await expect(page.getByText("Proposal start")).toBeVisible();
   await page.getByTestId("timeline-card-site-prep").click();
   await expect(
-    page.getByTestId("timeline-card-start-date-site-prep"),
+    page.getByTestId("timeline-card-start-date-site-prep")
   ).toHaveText("Day 0");
 
   const todayAndStartX = await page.evaluate(() => {
     const today = document.querySelector(
-      "[data-testid=timeline-marker-connector-today]",
+      "[data-testid=timeline-marker-connector-today]"
     );
     const startNode = document.querySelector(
-      "[data-testid=demo-timeline-node-site-prep]",
+      "[data-testid=demo-timeline-node-site-prep]"
     );
 
     if (!(today instanceof HTMLElement && startNode instanceof HTMLElement)) {
@@ -464,8 +464,8 @@ test("timeline setup lands generated roadmap at T0", async ({ page }) => {
   expect(
     Math.abs(
       (todayAndStartX?.todayX ?? 0) -
-        (todayAndStartX?.startNodeCenterX ?? Number.POSITIVE_INFINITY),
-    ),
+        (todayAndStartX?.startNodeCenterX ?? Number.POSITIVE_INFINITY)
+    )
   ).toBeLessThan(4);
 });
 
@@ -477,28 +477,28 @@ test("animated curved timeline demo selects progress and inserts spaced nodes", 
   await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
   await expect(page.getByTestId("demo-timeline-node-rough-in")).toBeVisible();
   await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
-    "$400,000",
+    "$400,000"
   );
   await expect(
-    page.getByTestId("timeline-cashflow-risk-summary"),
+    page.getByTestId("timeline-cashflow-risk-summary")
   ).toContainText("Clear");
   await expect(page.getByTestId("timeline-cash-shortfall-point")).toHaveCount(
-    0,
+    0
   );
   await expect(page.getByTestId("timeline-draw-total-available")).toHaveText(
-    "$1,250,000",
+    "$1,250,000"
   );
   await expect(page.getByTestId("timeline-draw-interest-bearing")).toHaveText(
-    "$1,250,000",
+    "$1,250,000"
   );
   await expect(
-    page.getByTestId("timeline-draw-additional-available"),
+    page.getByTestId("timeline-draw-additional-available")
   ).toHaveText("$0");
 
   const viewport = page.getByTestId("timeline-scroll-viewport");
   await expect
     .poll(async () =>
-      viewport.evaluate((element) => element.scrollWidth > element.clientWidth),
+      viewport.evaluate((element) => element.scrollWidth > element.clientWidth)
     )
     .toBe(true);
 
@@ -506,35 +506,35 @@ test("animated curved timeline demo selects progress and inserts spaced nodes", 
   await expect(
     page.getByTestId("selected-draw-details").getByRole("heading", {
       name: "Final inspection & closeout",
-    }),
+    })
   ).toBeVisible();
 
   await openTimelineInsertMenu(page, { x: 520, y: 48 });
   await expect(page.getByTestId("timeline-insert-menu")).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: ADD_DRAW_LABEL }),
+    page.getByRole("menuitem", { name: ADD_DRAW_LABEL })
   ).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: ADD_CAPITAL_SPIKE_LABEL }),
+    page.getByRole("menuitem", { name: ADD_CAPITAL_SPIKE_LABEL })
   ).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: REMOVE_DRAW_LABEL }),
+    page.getByRole("menuitem", { name: REMOVE_DRAW_LABEL })
   ).toBeHidden();
   await expect(
-    page.getByRole("menuitem", { name: REMOVE_MILESTONE_LABEL }),
+    page.getByRole("menuitem", { name: REMOVE_MILESTONE_LABEL })
   ).toBeHidden();
   await page.getByRole("menuitem", { name: ADD_MILESTONE_LABEL }).click();
 
   await expect(
     page.getByTestId("selected-draw-details").getByRole("heading", {
       name: "Field change 1",
-    }),
+    })
   ).toBeVisible();
   await expect(
-    page.locator('[data-testid^="demo-timeline-node-inserted-"]'),
+    page.locator('[data-testid^="demo-timeline-node-inserted-"]')
   ).toHaveCount(1);
   await expect(
-    page.locator('[data-testid^="timeline-card-connector-inserted-"]'),
+    page.locator('[data-testid^="timeline-card-connector-inserted-"]')
   ).toHaveCount(1);
 
   await openTimelineInsertMenu(page, { x: 620, y: 48 });
@@ -544,10 +544,10 @@ test("animated curved timeline demo selects progress and inserts spaced nodes", 
     .first();
   await expect(manualDrawMarker).toBeVisible();
   await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
-    "$500,000",
+    "$500,000"
   );
   await expect(page.getByTestId("timeline-draw-interest-bearing")).toHaveText(
-    "$1,457,500",
+    "$1,457,500"
   );
 
   await manualDrawMarker.click();
@@ -557,20 +557,20 @@ test("animated curved timeline demo selects progress and inserts spaced nodes", 
   await manualDrawEditor.getByLabel("Draw amount").fill("150000");
   await manualDrawEditor.getByRole("button", { name: "Apply" }).click();
   await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
-    "$550,000",
+    "$550,000"
   );
   await expect(page.getByTestId("timeline-draw-interest-bearing")).toHaveText(
-    "$1,507,500",
+    "$1,507,500"
   );
   await expect(page.getByTestId("timeline-draw-total-available")).toHaveText(
-    "$1,507,500",
+    "$1,507,500"
   );
   await expect(
-    page.getByTestId("timeline-draw-additional-available"),
+    page.getByTestId("timeline-draw-additional-available")
   ).toHaveText("$0");
   await expect(page.getByTestId("timeline-final-financial-card")).toBeVisible();
   await expect(page.getByTestId("timeline-final-draw-fees")).toHaveText(
-    "$4,500",
+    "$4,500"
   );
 });
 
@@ -582,33 +582,33 @@ test("timeline renders milestone completion nodes and phase-aware cards", async 
   await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
   await expect(page.getByTestId("demo-timeline-node-rough-in")).toBeVisible();
   await expect(
-    page.getByTestId("demo-timeline-end-node-rough-in"),
+    page.getByTestId("demo-timeline-end-node-rough-in")
   ).toBeVisible();
   await expect(
-    page.getByTestId("timeline-card-connector-rough-in"),
+    page.getByTestId("timeline-card-connector-rough-in")
   ).toHaveCount(1);
   await expect(
-    page.getByTestId("timeline-card-connector-rough-in-end"),
+    page.getByTestId("timeline-card-connector-rough-in-end")
   ).toHaveCount(0);
 
   await page.getByTestId("demo-timeline-node-rough-in").click();
   await expect(page.getByTestId("timeline-card-status-rough-in")).toHaveText(
-    "In progress",
+    "In progress"
   );
 
   await page.getByTestId("demo-timeline-end-node-rough-in").click();
   await expect(page.getByTestId("timeline-card-status-rough-in")).toHaveText(
-    "In progress",
+    "In progress"
   );
   await expect(
-    page.getByTestId("demo-timeline-end-node-rough-in"),
+    page.getByTestId("demo-timeline-end-node-rough-in")
   ).not.toHaveClass(COMPLETED_NODE_BORDER_CLASS);
   await page.getByTestId("timeline-card-rough-in").click();
   await expect(
-    page.getByTestId("timeline-card-start-date-rough-in"),
+    page.getByTestId("timeline-card-start-date-rough-in")
   ).toHaveText("Day 52");
   await expect(page.getByTestId("timeline-card-duration-rough-in")).toHaveText(
-    "20 days",
+    "20 days"
   );
 });
 
@@ -628,7 +628,7 @@ test("timeline milestone cards expand in place without collapsing the card layou
   await card.click();
 
   await expect(
-    page.getByTestId("timeline-card-start-date-site-prep"),
+    page.getByTestId("timeline-card-start-date-site-prep")
   ).toBeVisible();
   await expect(page.getByTestId("timeline-card-close-site-prep")).toBeVisible();
   await expect
@@ -636,10 +636,10 @@ test("timeline milestone cards expand in place without collapsing the card layou
       const box = await card.boundingBox();
       return Boolean(
         box &&
-        box.width > 360 &&
-        box.width < 390 &&
-        box.height > 370 &&
-        box.height < 430,
+          box.width > 360 &&
+          box.width < 390 &&
+          box.height > 370 &&
+          box.height < 430
       );
     })
     .toBe(true);
@@ -678,17 +678,17 @@ test("timeline milestone cards expand in place without collapsing the card layou
 
   await card.click({ position: { x: 16, y: 16 } });
   await expect(
-    page.getByTestId("timeline-card-start-date-site-prep"),
+    page.getByTestId("timeline-card-start-date-site-prep")
   ).toBeVisible();
 
   await card.getByText("Excavation").scrollIntoViewIfNeeded();
   const lowerWhitespace = await card.evaluate((element) => {
     const cardRect = element.getBoundingClientRect();
     const chips = Array.from(
-      element.querySelectorAll("span.rounded-md"),
+      element.querySelectorAll("span.rounded-md")
     ).filter((chip) => chip.textContent?.trim());
     const lowestChipBottom = Math.max(
-      ...chips.map((chip) => chip.getBoundingClientRect().bottom),
+      ...chips.map((chip) => chip.getBoundingClientRect().bottom)
     );
 
     return cardRect.bottom - lowestChipBottom;
@@ -697,7 +697,7 @@ test("timeline milestone cards expand in place without collapsing the card layou
   expect(lowerWhitespace).toBeLessThan(130);
   const chipHitTest = await card.evaluate((element) => {
     const chip = Array.from(element.querySelectorAll("span.rounded-md")).find(
-      (candidate) => candidate.textContent?.trim() === "Excavation",
+      (candidate) => candidate.textContent?.trim() === "Excavation"
     );
 
     if (!chip) {
@@ -707,7 +707,7 @@ test("timeline milestone cards expand in place without collapsing the card layou
     const rect = chip.getBoundingClientRect();
     const hit = document.elementFromPoint(
       rect.left + rect.width / 2,
-      rect.bottom - 2,
+      rect.bottom - 2
     );
     const hitChip = hit?.closest("span.rounded-md");
 
@@ -732,17 +732,17 @@ test("timeline milestone cards expand in place without collapsing the card layou
 
   await page.getByTestId("timeline-card-close-site-prep").click();
   await expect(
-    page.getByTestId("timeline-card-start-date-site-prep"),
+    page.getByTestId("timeline-card-start-date-site-prep")
   ).toBeHidden();
   await expect
     .poll(async () => {
       const box = await card.boundingBox();
       return Boolean(
         box &&
-        box.width > 220 &&
-        box.width < 245 &&
-        box.height > 250 &&
-        box.height < 310,
+          box.width > 220 &&
+          box.width < 245 &&
+          box.height > 250 &&
+          box.height < 310
       );
     })
     .toBe(true);
@@ -760,10 +760,10 @@ test("expanded milestone cards edit schedule and cost fields", async ({
   const duration = page.getByTestId("timeline-card-duration-framing");
   const plannedCost = page.getByTestId("timeline-card-cost-framing");
   const initialPayment = page.getByTestId(
-    "timeline-card-initial-payment-framing",
+    "timeline-card-initial-payment-framing"
   );
   const completionPayment = page.getByTestId(
-    "timeline-card-completion-payment-framing",
+    "timeline-card-completion-payment-framing"
   );
 
   await expect(startDate).toHaveText("Day 24");
@@ -776,15 +776,15 @@ test("expanded milestone cards edit schedule and cost fields", async ({
     .poll(async () => {
       const expandedMetricBoxes = await Promise.all(
         [startDate, duration, initialPayment, completionPayment].map((metric) =>
-          requiredRelativeBox(metric, card),
-        ),
+          requiredRelativeBox(metric, card)
+        )
       );
       const metricValueY = expandedMetricBoxes[0]?.y ?? 0;
 
       return Math.max(
         ...expandedMetricBoxes.map((metricBox) =>
-          Math.abs(metricBox.y - metricValueY),
-        ),
+          Math.abs(metricBox.y - metricValueY)
+        )
       );
     })
     .toBeLessThanOrEqual(1);
@@ -799,34 +799,34 @@ test("expanded milestone cards edit schedule and cost fields", async ({
   const durationBoxBeforeEdit = await requiredRelativeBox(duration, card);
   const initialPaymentBoxBeforeEdit = await requiredRelativeBox(
     initialPayment,
-    card,
+    card
   );
 
   await duration.click();
   const durationInput = page.getByTestId(
-    "timeline-card-duration-framing-input",
+    "timeline-card-duration-framing-input"
   );
   await expect(durationInput).toBeFocused();
 
   const durationBoxEditing = await requiredRelativeBox(duration, card);
   const initialPaymentBoxEditing = await requiredRelativeBox(
     initialPayment,
-    card,
+    card
   );
   const durationSuffixBox = await requiredRelativeBox(
     page.getByTestId("timeline-card-duration-framing-suffix"),
-    card,
+    card
   );
 
   expect(
-    Math.abs(durationBoxEditing.width - durationBoxBeforeEdit.width),
+    Math.abs(durationBoxEditing.width - durationBoxBeforeEdit.width)
   ).toBeLessThanOrEqual(1);
   expect(
-    Math.abs(initialPaymentBoxEditing.x - initialPaymentBoxBeforeEdit.x),
+    Math.abs(initialPaymentBoxEditing.x - initialPaymentBoxBeforeEdit.x)
   ).toBeLessThanOrEqual(2);
   expect(durationSuffixBox.x).toBeGreaterThanOrEqual(durationBoxEditing.x - 1);
   expect(durationSuffixBox.x + durationSuffixBox.width).toBeLessThanOrEqual(
-    durationBoxEditing.x + durationBoxEditing.width + 1,
+    durationBoxEditing.x + durationBoxEditing.width + 1
   );
 
   await durationInput.fill("21");
@@ -840,7 +840,7 @@ test("expanded milestone cards edit schedule and cost fields", async ({
   const plannedCostBoxEditing = await requiredBox(plannedCost);
 
   expect(
-    Math.abs(plannedCostBoxEditing.width - plannedCostBoxBeforeEdit.width),
+    Math.abs(plannedCostBoxEditing.width - plannedCostBoxBeforeEdit.width)
   ).toBeLessThanOrEqual(1);
 
   await plannedCostInput.fill("175000");
@@ -874,7 +874,7 @@ test("timeline keeps handoff spacing between completion and next milestone start
 
   await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
   await expect(
-    page.getByTestId("demo-timeline-end-node-rough-in"),
+    page.getByTestId("demo-timeline-end-node-rough-in")
   ).toBeVisible();
   await expect(page.getByTestId("demo-timeline-node-exterior")).toBeVisible();
 
@@ -900,7 +900,7 @@ test("timeline snapshot share links hydrate editable forks", async ({
   await expect(
     page.getByTestId("selected-draw-details").getByRole("heading", {
       name: "Final inspection & closeout",
-    }),
+    })
   ).toBeVisible();
   await page.getByRole("switch").click();
   await expect(page.getByRole("switch")).toBeChecked();
@@ -918,7 +918,7 @@ test("timeline snapshot share links hydrate editable forks", async ({
   await expect(page.getByTestId("timeline-share-menu")).toBeVisible();
   await expect(page.getByTestId("timeline-share-qr")).toBeVisible();
   await expect(page.getByTestId("timeline-share-disclaimer")).toHaveText(
-    "live collaboration session under construction",
+    "live collaboration session under construction"
   );
   await expect(page.getByTestId("timeline-share-url")).toHaveValue(SHARE_QUERY);
 
@@ -926,11 +926,11 @@ test("timeline snapshot share links hydrate editable forks", async ({
   expect(shareUrl).toContain("/demo/timeline?share=");
   await expect(page.getByTestId("timeline-share-x")).toHaveAttribute(
     "href",
-    X_SHARE_HREF,
+    X_SHARE_HREF
   );
   await expect(page.getByTestId("timeline-share-email")).toHaveAttribute(
     "href",
-    MAILTO_HREF,
+    MAILTO_HREF
   );
 
   await page.getByRole("button", { name: COPY_LINK_LABEL }).click();
@@ -942,22 +942,22 @@ test("timeline snapshot share links hydrate editable forks", async ({
   const sharedPage = await context.newPage();
   await sharedPage.goto(shareUrl);
   await expect(
-    sharedPage.getByTestId("animated-curved-timeline"),
+    sharedPage.getByTestId("animated-curved-timeline")
   ).toBeVisible();
   await expect(
     sharedPage.getByTestId("selected-draw-details").getByRole("heading", {
       name: "Final inspection & closeout",
-    }),
+    })
   ).toBeVisible();
   await expect(sharedPage.getByRole("switch")).toBeChecked();
   await expect(
-    sharedPage.getByTestId("timeline-draw-marker-rough-in"),
+    sharedPage.getByTestId("timeline-draw-marker-rough-in")
   ).toContainText("$255,000");
   await expect(
-    sharedPage.getByTestId("timeline-draw-marker-rough-in"),
+    sharedPage.getByTestId("timeline-draw-marker-rough-in")
   ).toContainText("Day 108");
   await expect(
-    sharedPage.getByTestId("timeline-cashflow-ending-cash"),
+    sharedPage.getByTestId("timeline-cashflow-ending-cash")
   ).toHaveText("$410,000");
 
   await sharedPage.getByTestId("timeline-draw-marker-rough-in").click();
@@ -965,13 +965,13 @@ test("timeline snapshot share links hydrate editable forks", async ({
   await forkEditor.getByLabel("Draw amount").fill("260000");
   await forkEditor.getByRole("button", { name: "Apply" }).click();
   await expect(
-    sharedPage.getByTestId("timeline-draw-marker-rough-in"),
+    sharedPage.getByTestId("timeline-draw-marker-rough-in")
   ).toContainText("$260,000");
 
   const pristineSharedPage = await context.newPage();
   await pristineSharedPage.goto(shareUrl);
   await expect(
-    pristineSharedPage.getByTestId("timeline-draw-marker-rough-in"),
+    pristineSharedPage.getByTestId("timeline-draw-marker-rough-in")
   ).toContainText("$255,000");
 });
 
@@ -995,7 +995,7 @@ test("durable generated timeline persists draw edits and deletes across reload",
   await editedDraw.click();
   const editedDrawDomId = (editedDrawTestId ?? "").replace(
     "timeline-draw-marker-",
-    "",
+    ""
   );
   const editor = page.getByTestId(`timeline-draw-editor-${editedDrawDomId}`);
   await expect(editor).toBeVisible();
@@ -1015,26 +1015,26 @@ test("durable generated timeline persists draw edits and deletes across reload",
   await page.mouse.click(
     removedBox.x + removedBox.width / 2,
     removedBox.y + removedBox.height / 2,
-    { button: "right" },
+    { button: "right" }
   );
   await expect(page.getByTestId("timeline-item-context-menu")).toBeVisible();
   await page.getByRole("menuitem", { name: REMOVE_DRAW_LABEL }).click();
   await expect(removedDraw).toHaveCount(0);
   await expect(page.getByTestId("timeline-durable-save-status")).toHaveText(
-    "Saved",
+    "Saved"
   );
 
   await page.reload();
   await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
   await expect(page.getByTestId(removedDrawTestId ?? "")).toHaveCount(0);
   await expect(page.getByTestId(editedDrawTestId ?? "")).toContainText(
-    "Draw 01",
+    "Draw 01"
   );
   await expect(page.getByTestId(editedDrawTestId ?? "")).toContainText(
-    "Day 111",
+    "Day 111"
   );
   await expect(page.getByTestId(editedDrawTestId ?? "")).toContainText(
-    "$123,000",
+    "$123,000"
   );
 });
 
@@ -1054,7 +1054,7 @@ test("durable generated timeline persists draw approval and locks deletion", asy
   await firstDraw.scrollIntoViewIfNeeded();
   await firstDraw.click();
   await expect(
-    page.getByTestId(`selected-draw-request-form-${drawDomId}`),
+    page.getByTestId(`selected-draw-request-form-${drawDomId}`)
   ).toBeVisible();
   await page
     .getByTestId(`selected-draw-request-amount-input-${drawDomId}`)
@@ -1066,24 +1066,24 @@ test("durable generated timeline persists draw approval and locks deletion", asy
 
   await page.getByTestId("timeline-role-lender").click();
   await expect(
-    page.getByTestId(`lender-draw-review-panel-${drawDomId}`),
+    page.getByTestId(`lender-draw-review-panel-${drawDomId}`)
   ).toBeVisible();
   await page
     .getByTestId(`lender-draw-review-note-${drawDomId}`)
     .fill("Admin approval persisted.");
   await page.getByTestId(`lender-draw-approve-${drawDomId}`).click();
   await expect(
-    page.getByTestId(`lender-draw-review-panel-${drawDomId}`),
+    page.getByTestId(`lender-draw-review-panel-${drawDomId}`)
   ).toContainText("Draw approved");
   await expect(page.getByTestId("timeline-durable-save-status")).toHaveText(
-    "Saved",
+    "Saved"
   );
 
   await page.reload();
   await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
   await page.getByTestId(drawTestId ?? "").click();
   await expect(page.getByTestId("selected-draw-details")).toContainText(
-    "Draw approved",
+    "Draw approved"
   );
 
   const approvedDraw = page.getByTestId(drawTestId ?? "");
@@ -1095,14 +1095,14 @@ test("durable generated timeline persists draw approval and locks deletion", asy
   await page.mouse.click(
     approvedBox.x + approvedBox.width / 2,
     approvedBox.y + approvedBox.height / 2,
-    { button: "right" },
+    { button: "right" }
   );
   await expect(page.getByTestId("timeline-item-context-menu")).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: REMOVE_DRAW_LABEL }),
+    page.getByRole("menuitem", { name: REMOVE_DRAW_LABEL })
   ).toBeDisabled();
   await expect(page.getByTestId("timeline-item-context-menu")).toContainText(
-    "Approved reimbursement draws cannot be deleted.",
+    "Approved reimbursement draws cannot be deleted."
   );
 });
 
@@ -1122,7 +1122,7 @@ test("timeline route stays responsive across mobile and tablet widths", async ({
     await expect(page.getByTestId("timeline-cashflow-chart")).toBeVisible();
     await expect(page.getByTestId("animated-curved-timeline")).toBeVisible();
     await expect(
-      page.getByTestId("timeline-draw-availability-chart"),
+      page.getByTestId("timeline-draw-availability-chart")
     ).toBeVisible();
     await expectNoPageHorizontalOverflow(page);
 
@@ -1147,7 +1147,7 @@ test("timeline route stays responsive across mobile and tablet widths", async ({
     await expectOverlayWithinViewport(
       page,
       "selected-draw-mobile-drawer",
-      viewport,
+      viewport
     );
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("selected-draw-mobile-drawer")).toBeHidden();
@@ -1156,7 +1156,7 @@ test("timeline route stays responsive across mobile and tablet widths", async ({
       .poll(() =>
         page
           .getByTestId("timeline-scroll-viewport")
-          .evaluate((element) => element.scrollWidth > element.clientWidth),
+          .evaluate((element) => element.scrollWidth > element.clientWidth)
       )
       .toBe(true);
 
@@ -1207,7 +1207,7 @@ test("timeline item context menus delete draws and milestones", async ({
   await page.mouse.click(
     drawBox.x + drawBox.width / 2,
     drawBox.y + drawBox.height / 2,
-    { button: "right" },
+    { button: "right" }
   );
   await expect(page.getByTestId("timeline-item-context-menu")).toBeVisible();
   await expectContextMenuNearBox(page, drawBox);
@@ -1215,13 +1215,13 @@ test("timeline item context menus delete draws and milestones", async ({
 
   await expect(framingDraw).toBeHidden();
   await expect(page.getByTestId("timeline-final-draw-fees")).toHaveText(
-    "$3,000",
+    "$3,000"
   );
   await expect(
-    page.getByTestId("timeline-cashflow-risk-summary"),
+    page.getByTestId("timeline-cashflow-risk-summary")
   ).toContainText("1 flagged");
   await expect(page.getByTestId("timeline-cash-shortfall-point")).toContainText(
-    "needs $5,000 before Rough-in mechanical",
+    "needs $5,000 before Rough-in mechanical"
   );
 
   const afterDrawDelete = await getTimelineGeometry(page, [
@@ -1274,16 +1274,16 @@ test("timeline insertion rail context menu adds draws without delete actions", a
   await openTimelineInsertMenu(page, { x: 620, y: 48 });
   await expect(page.getByTestId("timeline-insert-menu")).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: ADD_DRAW_LABEL }),
+    page.getByRole("menuitem", { name: ADD_DRAW_LABEL })
   ).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: ADD_CAPITAL_SPIKE_LABEL }),
+    page.getByRole("menuitem", { name: ADD_CAPITAL_SPIKE_LABEL })
   ).toBeVisible();
   await expect(
-    page.getByRole("menuitem", { name: REMOVE_DRAW_LABEL }),
+    page.getByRole("menuitem", { name: REMOVE_DRAW_LABEL })
   ).toBeHidden();
   await expect(
-    page.getByRole("menuitem", { name: REMOVE_MILESTONE_LABEL }),
+    page.getByRole("menuitem", { name: REMOVE_MILESTONE_LABEL })
   ).toBeHidden();
   await page.getByRole("menuitem", { name: ADD_DRAW_LABEL }).click();
 
@@ -1292,7 +1292,7 @@ test("timeline insertion rail context menu adds draws without delete actions", a
     .first();
   await expect(manualDrawMarker).toBeVisible();
   await expect(page.getByTestId("timeline-final-draw-fees")).toHaveText(
-    "$4,000",
+    "$4,000"
   );
 });
 
@@ -1307,10 +1307,10 @@ test("timeline planning controls edit starting cash and capital spikes", async (
   await expect(sitePrepCard).toContainText("Start date");
   await expect(sitePrepCard).toContainText("Duration");
   await expect(
-    page.getByTestId("timeline-card-start-date-site-prep"),
+    page.getByTestId("timeline-card-start-date-site-prep")
   ).toHaveText("Day 0");
   await expect(page.getByTestId("timeline-card-duration-site-prep")).toHaveText(
-    "14 days",
+    "14 days"
   );
   await expect(sitePrepCard).not.toContainText("Policy");
   await expect(sitePrepCard).not.toContainText("Evidence");
@@ -1318,7 +1318,7 @@ test("timeline planning controls edit starting cash and capital spikes", async (
 
   await page.getByTestId("timeline-starting-cash-input").fill("450000");
   await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
-    "$450,000",
+    "$450,000"
   );
 
   await openTimelineInsertMenu(page, { x: 520, y: 48 });
@@ -1329,7 +1329,7 @@ test("timeline planning controls edit starting cash and capital spikes", async (
     .first();
   await expect(capitalSpikeMarker).toBeVisible();
   await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
-    "$415,000",
+    "$415,000"
   );
 
   await capitalSpikeMarker.click();
@@ -1347,7 +1347,7 @@ test("timeline planning controls edit starting cash and capital spikes", async (
   await expect(capitalSpikeMarker).toContainText("$25,000");
   await expect(capitalSpikeMarker).toContainText("Day 40");
   await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
-    "$425,000",
+    "$425,000"
   );
 
   await capitalSpikeMarker.click({ button: "right" });
@@ -1364,7 +1364,7 @@ test("timeline planning controls edit starting cash and capital spikes", async (
 
   await expect(capitalSpikeMarker).toBeHidden();
   await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
-    "$450,000",
+    "$450,000"
   );
 });
 
@@ -1381,16 +1381,16 @@ test("timeline path affordances stay aligned with rendered geometry", async ({
 
   const maxConnectorDelta = await page.evaluate(() => {
     const timeline = document.querySelector(
-      "[data-testid=animated-curved-timeline]",
+      "[data-testid=animated-curved-timeline]"
     );
     const viewport = timeline?.querySelector(
-      "[data-testid=timeline-scroll-viewport]",
+      "[data-testid=timeline-scroll-viewport]"
     );
     const content = viewport?.firstElementChild;
     const path = timeline?.querySelector("svg path.text-zinc-300\\/80");
     const connectorLines = [
       ...(timeline?.querySelectorAll(
-        "[data-testid^=timeline-marker-connector-]",
+        "[data-testid^=timeline-marker-connector-]"
       ) ?? []),
     ];
 
@@ -1453,7 +1453,7 @@ test("timeline path affordances stay aligned with rendered geometry", async ({
 
   await page.getByTestId("timeline-scroll-viewport").evaluate((viewport) => {
     const connector = document.querySelector(
-      "[data-testid=timeline-marker-connector-today]",
+      "[data-testid=timeline-marker-connector-today]"
     );
 
     if (!(connector instanceof HTMLElement)) {
@@ -1471,14 +1471,14 @@ test("timeline path affordances stay aligned with rendered geometry", async ({
 
   const todayPathPoint = await page.evaluate(() => {
     const timeline = document.querySelector(
-      "[data-testid=animated-curved-timeline]",
+      "[data-testid=animated-curved-timeline]"
     );
     const content = timeline?.querySelector(
-      "[data-testid=timeline-scroll-viewport]",
+      "[data-testid=timeline-scroll-viewport]"
     )?.firstElementChild;
     const path = timeline?.querySelector("svg path.text-zinc-300\\/80");
     const connector = timeline?.querySelector(
-      "[data-testid=timeline-marker-connector-today]",
+      "[data-testid=timeline-marker-connector-today]"
     );
 
     if (
@@ -1526,10 +1526,10 @@ test("timeline path affordances stay aligned with rendered geometry", async ({
   await expect.poll(() => hoverDotOpacity(page)).toBeGreaterThan(0.8);
 
   await expect(page.getByTestId("timeline-marker-connector-today")).toHaveClass(
-    ACTIVE_CONNECTOR_CLASS,
+    ACTIVE_CONNECTOR_CLASS
   );
   await expect(
-    page.getByTestId("timeline-marker-connector-policy-limit"),
+    page.getByTestId("timeline-marker-connector-policy-limit")
   ).not.toHaveClass(ACTIVE_CONNECTOR_CLASS);
 });
 
@@ -1579,16 +1579,16 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
 
   const chart = page.getByTestId("timeline-cashflow-chart");
   const drawAvailabilityChart = page.getByTestId(
-    "timeline-draw-availability-chart",
+    "timeline-draw-availability-chart"
   );
   const timeline = page.getByTestId("animated-curved-timeline");
 
   await expect(chart).toBeVisible();
   await expect(
-    chart.getByTestId("timeline-cashflow-series-milestone-cost"),
+    chart.getByTestId("timeline-cashflow-series-milestone-cost")
   ).toBeVisible();
   await expect(
-    chart.getByTestId("timeline-cashflow-series-cash-on-hand"),
+    chart.getByTestId("timeline-cashflow-series-cash-on-hand")
   ).toBeVisible();
   await expect
     .poll(() =>
@@ -1596,16 +1596,16 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
         bars: element.querySelectorAll(".recharts-bar").length,
         referenceAreas: element.querySelectorAll(".recharts-reference-area")
           .length,
-      })),
+      }))
     )
     .toEqual({ bars: 2, referenceAreas: 0 });
   await expect(
-    drawAvailabilityChart.getByTestId("timeline-draw-series-interest-bearing"),
+    drawAvailabilityChart.getByTestId("timeline-draw-series-interest-bearing")
   ).toBeVisible();
   await expect(
     drawAvailabilityChart.getByTestId(
-      "timeline-draw-series-additional-available",
-    ),
+      "timeline-draw-series-additional-available"
+    )
   ).toBeVisible();
 
   const chartBox = await chart.boundingBox();
@@ -1645,17 +1645,17 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
 
         return {
           capturedByTrack: Boolean(
-            element?.closest?.("[data-testid=timeline-track-hit-area]"),
+            element?.closest?.("[data-testid=timeline-track-hit-area]")
           ),
           capturedByViewport: Boolean(
-            element?.closest?.("[data-testid=timeline-scroll-viewport]"),
+            element?.closest?.("[data-testid=timeline-scroll-viewport]")
           ),
           testId:
             element instanceof HTMLElement
               ? element.getAttribute("data-testid")
               : null,
         };
-      }, railHoverPoint),
+      }, railHoverPoint)
     )
     .toMatchObject({
       capturedByTrack: true,
@@ -1666,13 +1666,13 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
   await page.mouse.move(railHoverPoint.x, railHoverPoint.y);
   await expect(page.getByTestId("timeline-hover-marker")).toBeVisible();
   await expect(chart.getByTestId("timeline-cashflow-probe-day")).toHaveText(
-    DAY_LABEL,
+    DAY_LABEL
   );
   await expect(chart.getByTestId("timeline-cashflow-probe-day")).not.toHaveText(
-    "Hover chart",
+    "Hover chart"
   );
   await expect(chart.getByTestId("timeline-cashflow-probe-cash")).toHaveText(
-    CASH_TEXT,
+    CASH_TEXT
   );
 
   const sitePrepCard = page.getByTestId("timeline-card-site-prep");
@@ -1683,19 +1683,19 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
   }
   await page.mouse.move(
     sitePrepCardBox.x + sitePrepCardBox.width / 2,
-    sitePrepCardBox.y + sitePrepCardBox.height / 2,
+    sitePrepCardBox.y + sitePrepCardBox.height / 2
   );
   await expect(chart.getByTestId("timeline-cashflow-probe-day")).toHaveText(
-    DAY_LABEL,
+    DAY_LABEL
   );
   await expect(page.getByTestId("timeline-hover-marker")).toBeVisible();
 
   const overflowHitTarget = await page.evaluate(() => {
     const timelineElement = document.querySelector(
-      "[data-testid=animated-curved-timeline]",
+      "[data-testid=animated-curved-timeline]"
     );
     const viewportElement = document.querySelector(
-      "[data-testid=timeline-scroll-viewport]",
+      "[data-testid=timeline-scroll-viewport]"
     );
 
     if (!(timelineElement && viewportElement)) {
@@ -1708,16 +1708,16 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
     const y = Math.min(
       viewportRect.bottom - 8,
       timelineRect.bottom +
-        Math.max(8, (viewportRect.bottom - timelineRect.bottom) / 2),
+        Math.max(8, (viewportRect.bottom - timelineRect.bottom) / 2)
     );
     const element = document.elementFromPoint(x, y);
 
     return {
       capturedByRoadmap: Boolean(
-        element?.closest?.("[data-testid=animated-curved-timeline]"),
+        element?.closest?.("[data-testid=animated-curved-timeline]")
       ),
       capturedByViewport: Boolean(
-        element?.closest?.("[data-testid=timeline-scroll-viewport]"),
+        element?.closest?.("[data-testid=timeline-scroll-viewport]")
       ),
       className:
         element instanceof HTMLElement ? String(element.className) : null,
@@ -1742,16 +1742,16 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
 
   await page.mouse.move(
     framingBox.x + framingBox.width / 2,
-    framingBox.y + framingBox.height / 2,
+    framingBox.y + framingBox.height / 2
   );
   await expect(chart.getByTestId("timeline-cashflow-probe-day")).toHaveText(
-    "Day 24",
+    "Day 24"
   );
   await expect(page.getByTestId("timeline-draw-delta-readout")).toContainText(
-    "$0",
+    "$0"
   );
   await expect(
-    chart.locator("text").filter({ hasText: "Day 24" }).first(),
+    chart.locator("text").filter({ hasText: "Day 24" }).first()
   ).toBeVisible();
   const probeCashOnHand = await chart
     .getByTestId("timeline-cashflow-probe-cash")
@@ -1761,7 +1761,7 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
     chart
       .locator("text")
       .filter({ hasText: `Cash on hand ${probeCashOnHand}` })
-      .first(),
+      .first()
   ).toBeVisible();
 
   const framingCard = page.getByTestId("timeline-card-framing");
@@ -1780,10 +1780,10 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
 
   await page.mouse.move(
     chartSurfaceBox.x + chartSurfaceBox.width * 0.45,
-    chartSurfaceBox.y + chartSurfaceBox.height * 0.48,
+    chartSurfaceBox.y + chartSurfaceBox.height * 0.48
   );
   await expect(chart.getByTestId("timeline-cashflow-probe-day")).toHaveText(
-    DAY_LABEL,
+    DAY_LABEL
   );
 
   const chartProbeDay = await chart
@@ -1791,7 +1791,7 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
     .textContent();
   expect(chartProbeDay).toMatch(DAY_LABEL);
   await expect(page.getByTestId("timeline-hover-marker")).toContainText(
-    chartProbeDay ?? "",
+    chartProbeDay ?? ""
   );
 
   await drawAvailabilityChart.scrollIntoViewIfNeeded();
@@ -1806,7 +1806,7 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
 
   await page.mouse.move(
     drawAvailabilitySurfaceBox.x + drawAvailabilitySurfaceBox.width * 0.56,
-    drawAvailabilitySurfaceBox.y + drawAvailabilitySurfaceBox.height * 0.42,
+    drawAvailabilitySurfaceBox.y + drawAvailabilitySurfaceBox.height * 0.42
   );
   await expect
     .poll(() =>
@@ -1814,7 +1814,7 @@ test("cashflow chart stays controlled by the shared timeline probe", async ({
         .locator(".shadow-xl")
         .last()
         .getByText("Interest-bearing draw", { exact: true })
-        .count(),
+        .count()
     )
     .toBeLessThanOrEqual(2);
 });
@@ -1832,10 +1832,10 @@ test("draw markers display editable dates and amounts", async ({ page }) => {
   await drawMarker.click();
   await expect(page.getByRole("heading", { name: "Draw 3" })).toBeVisible();
   await expect(
-    page.getByTestId("selected-draw-request-form-rough-in"),
+    page.getByTestId("selected-draw-request-form-rough-in")
   ).toBeVisible();
   await expect(
-    page.getByTestId("selected-draw-available-limit-rough-in"),
+    page.getByTestId("selected-draw-available-limit-rough-in")
   ).toHaveText("$245,000");
   await page
     .getByTestId("selected-draw-request-amount-input-rough-in")
@@ -1843,7 +1843,7 @@ test("draw markers display editable dates and amounts", async ({ page }) => {
   await page.getByTestId("selected-draw-submit-request-rough-in").click();
   await expect(drawMarker).toContainText("$200,000");
   await expect(
-    page.getByTestId("selected-draw-remaining-limit-rough-in"),
+    page.getByTestId("selected-draw-remaining-limit-rough-in")
   ).toHaveText("$45,000");
   const editor = page.getByTestId("timeline-draw-editor-rough-in");
   await expect(editor).toBeVisible();
@@ -1855,13 +1855,13 @@ test("draw markers display editable dates and amounts", async ({ page }) => {
   await expect(drawMarker).toContainText("Day 108");
   await expect(drawMarker).toContainText("$255,000");
   await expect(page.getByTestId("timeline-cashflow-ending-cash")).toHaveText(
-    "$410,000",
+    "$410,000"
   );
   await expect(page.getByTestId("timeline-draw-interest-bearing")).toHaveText(
-    "$1,260,000",
+    "$1,260,000"
   );
   await expect(page.getByTestId("timeline-draw-total-available")).toHaveText(
-    "$1,260,000",
+    "$1,260,000"
   );
 });
 
@@ -1894,7 +1894,7 @@ test("selected draw panel collapses on milestone double click", async ({
   await expect(
     page.getByTestId("selected-draw-details").getByRole("heading", {
       name: "Framing & structure",
-    }),
+    })
   ).toBeVisible();
   await expect
     .poll(async () => {
@@ -1915,7 +1915,7 @@ test("selected draw rail supports builder completion claims and evidence package
   const chart = page.getByTestId("timeline-cashflow-chart");
   const timeline = page.getByTestId("animated-curved-timeline");
   const drawAvailabilityChart = page.getByTestId(
-    "timeline-draw-availability-chart",
+    "timeline-draw-availability-chart"
   );
 
   await expect(panel).toBeVisible();
@@ -1931,7 +1931,7 @@ test("selected draw rail supports builder completion claims and evidence package
   });
   expect(panelGeometry.position).toBe("sticky");
   expect(panelGeometry.height).toBeGreaterThan(
-    panelGeometry.viewportHeight - 80,
+    panelGeometry.viewportHeight - 80
   );
 
   const openChartBox = await chart.boundingBox();
@@ -1957,19 +1957,19 @@ test("selected draw rail supports builder completion claims and evidence package
   const expandedTimelineBox = await timeline.boundingBox();
   const expandedAvailabilityBox = await drawAvailabilityChart.boundingBox();
   expect(
-    (expandedTimelineBox?.width ?? 0) - openTimelineBox.width,
+    (expandedTimelineBox?.width ?? 0) - openTimelineBox.width
   ).toBeGreaterThan(250);
   expect(
-    (expandedAvailabilityBox?.width ?? 0) - openAvailabilityBox.width,
+    (expandedAvailabilityBox?.width ?? 0) - openAvailabilityBox.width
   ).toBeGreaterThan(250);
 
   await page.getByTestId("demo-timeline-end-node-rough-in").click();
   await expect(page.getByTestId("selected-draw-panel")).toBeVisible();
   await expect(
-    page.getByTestId("demo-timeline-end-node-rough-in"),
+    page.getByTestId("demo-timeline-end-node-rough-in")
   ).not.toHaveClass(COMPLETED_NODE_BORDER_CLASS);
   await expect(
-    page.getByTestId("selected-draw-completion-warning-rough-in"),
+    page.getByTestId("selected-draw-completion-warning-rough-in")
   ).toBeVisible();
 
   await page
@@ -1983,16 +1983,16 @@ test("selected draw rail supports builder completion claims and evidence package
     .fill("Rough-in completed before the site visit.");
   await page.getByTestId("selected-draw-submit-completion-rough-in").click();
   await expect(page.getByTestId("demo-timeline-end-node-rough-in")).toHaveClass(
-    COMPLETED_NODE_BORDER_CLASS,
+    COMPLETED_NODE_BORDER_CLASS
   );
   await expect(page.getByTestId("timeline-card-status-rough-in")).toHaveText(
-    "Complete",
+    "Complete"
   );
   await expect(
-    page.getByTestId("selected-draw-completed-day-rough-in"),
+    page.getByTestId("selected-draw-completed-day-rough-in")
   ).toHaveText("Day 62");
   await expect(
-    page.getByTestId("selected-draw-actual-cost-rough-in"),
+    page.getByTestId("selected-draw-actual-cost-rough-in")
   ).toHaveText("$238,000");
 
   await page
@@ -2002,13 +2002,13 @@ test("selected draw rail supports builder completion claims and evidence package
       "public/milestone-icons/roughIn.png",
     ]);
   await expect(
-    page.getByTestId("selected-draw-evidence-count-rough-in"),
+    page.getByTestId("selected-draw-evidence-count-rough-in")
   ).toHaveText("2 images");
   const firstEvidenceAsset = page
     .locator('[data-testid^="selected-draw-evidence-asset-"]')
     .first();
   const firstEvidenceLabel = firstEvidenceAsset.locator(
-    '[data-testid^="selected-draw-evidence-label-"]',
+    '[data-testid^="selected-draw-evidence-label-"]'
   );
   await firstEvidenceLabel.fill("Mechanical rough-in photo");
   await firstEvidenceAsset
@@ -2021,7 +2021,7 @@ test("selected draw rail supports builder completion claims and evidence package
     .last()
     .click();
   await expect(
-    page.getByTestId("selected-draw-evidence-count-rough-in"),
+    page.getByTestId("selected-draw-evidence-count-rough-in")
   ).toHaveText("1 images");
 
   await page.getByTestId("timeline-share-button").click();
@@ -2034,21 +2034,19 @@ test("selected draw rail supports builder completion claims and evidence package
 
   await sharedPage.goto(shareUrl);
   await expect(
-    sharedPage.getByTestId("animated-curved-timeline"),
+    sharedPage.getByTestId("animated-curved-timeline")
   ).toBeVisible();
   await expect(
-    sharedPage.getByTestId("selected-draw-completed-day-rough-in"),
+    sharedPage.getByTestId("selected-draw-completed-day-rough-in")
   ).toHaveText("Day 62");
   await expect(
-    sharedPage.getByTestId("selected-draw-actual-cost-rough-in"),
+    sharedPage.getByTestId("selected-draw-actual-cost-rough-in")
   ).toHaveText("$238,000");
   await expect(
-    sharedPage.getByTestId("selected-draw-evidence-count-rough-in"),
+    sharedPage.getByTestId("selected-draw-evidence-count-rough-in")
   ).toHaveText("1 images");
   await expect(
-    sharedPage
-      .locator('[data-testid^="selected-draw-evidence-label-"]')
-      .first(),
+    sharedPage.locator('[data-testid^="selected-draw-evidence-label-"]').first()
   ).toHaveValue("Mechanical rough-in photo");
 });
 
@@ -2060,25 +2058,25 @@ test("timeline role switcher swaps milestone and draw aside workflows", async ({
 
   await expect(page.getByTestId("timeline-role-builder")).toHaveAttribute(
     "aria-pressed",
-    "true",
+    "true"
   );
   await expect(
-    page.getByTestId("selected-draw-completion-form-rough-in"),
+    page.getByTestId("selected-draw-completion-form-rough-in")
   ).toBeVisible();
   await expect(
-    page.getByTestId("lender-milestone-review-panel-rough-in"),
+    page.getByTestId("lender-milestone-review-panel-rough-in")
   ).toHaveCount(0);
 
   await page.getByTestId("timeline-role-lender").click();
   await expect(page.getByTestId("timeline-role-lender")).toHaveAttribute(
     "aria-pressed",
-    "true",
+    "true"
   );
   await expect(
-    page.getByTestId("lender-milestone-review-panel-rough-in"),
+    page.getByTestId("lender-milestone-review-panel-rough-in")
   ).toBeVisible();
   await expect(
-    page.getByTestId("selected-draw-completion-form-rough-in"),
+    page.getByTestId("selected-draw-completion-form-rough-in")
   ).toHaveCount(0);
   await page.getByTestId("lender-site-visit-day-rough-in").fill("72");
   await page
@@ -2086,13 +2084,13 @@ test("timeline role switcher swaps milestone and draw aside workflows", async ({
     .fill("Verify MEP rough-in before approval.");
   await page.getByTestId("lender-site-visit-submit-rough-in").click();
   await expect(
-    page.getByTestId("lender-milestone-review-panel-rough-in"),
+    page.getByTestId("lender-milestone-review-panel-rough-in")
   ).toContainText("Shareable site visit link");
 
   await page.getByTestId("timeline-role-builder").click();
   await page.getByTestId("timeline-draw-marker-rough-in").click();
   await expect(
-    page.getByTestId("selected-draw-request-form-rough-in"),
+    page.getByTestId("selected-draw-request-form-rough-in")
   ).toBeVisible();
   await page
     .getByTestId("selected-draw-request-amount-input-rough-in")
@@ -2102,25 +2100,25 @@ test("timeline role switcher swaps milestone and draw aside workflows", async ({
     .fill("MEP rough-in reimbursement request.");
   await page.getByTestId("selected-draw-submit-request-rough-in").click();
   await expect(page.getByTestId("timeline-draw-marker-rough-in")).toContainText(
-    "$200,000",
+    "$200,000"
   );
 
   await page.getByTestId("timeline-role-lender").click();
   await expect(
-    page.getByTestId("lender-draw-review-panel-rough-in"),
+    page.getByTestId("lender-draw-review-panel-rough-in")
   ).toBeVisible();
   await expect(
-    page.getByTestId("selected-draw-request-form-rough-in"),
+    page.getByTestId("selected-draw-request-form-rough-in")
   ).toHaveCount(0);
   await expect(
-    page.getByTestId("lender-draw-available-limit-rough-in"),
+    page.getByTestId("lender-draw-available-limit-rough-in")
   ).toHaveText("$245,000");
   await page
     .getByTestId("lender-draw-review-note-rough-in")
     .fill("Capacity verified, release approved.");
   await page.getByTestId("lender-draw-approve-rough-in").click();
   await expect(
-    page.getByTestId("lender-draw-review-panel-rough-in"),
+    page.getByTestId("lender-draw-review-panel-rough-in")
   ).toContainText("Draw approved");
 });
 
@@ -2139,7 +2137,7 @@ test("completed demo nodes keep the draw icon with completed styling", async ({
   await expect(completedNode).toHaveClass(COMPLETED_NODE_TEXT_CLASS);
   await expect(completedNode).toHaveClass(COMPLETED_NODE_BORDER_CLASS);
   await expect(
-    page.getByTestId("demo-timeline-node-icon-framing"),
+    page.getByTestId("demo-timeline-node-icon-framing")
   ).toBeVisible();
 });
 
@@ -2165,7 +2163,7 @@ interface TimelineSpacingItem {
 
 async function expectContextMenuNearBox(
   page: Page,
-  targetBox: { height: number; width: number; x: number; y: number },
+  targetBox: { height: number; width: number; x: number; y: number }
 ) {
   const menuBox = await page
     .getByTestId("timeline-item-context-menu")
@@ -2185,7 +2183,7 @@ async function expectContextMenuNearBox(
 
 async function openTimelineInsertMenu(
   page: Page,
-  position: { x: number; y: number },
+  position: { x: number; y: number }
 ) {
   await page
     .getByTestId("timeline-track-hit-area")
@@ -2199,7 +2197,7 @@ async function openTimelineInsertMenu(
           cancelable: true,
           clientX: rect.left + offset.x,
           clientY: rect.top + offset.y,
-        }),
+        })
       );
     }, position);
 }
@@ -2230,19 +2228,19 @@ function getBudgetRowOrder(page: Page) {
       rows.map((row) =>
         (row.getAttribute("data-testid") ?? "").replace(
           "timeline-setup-budget-row-",
-          "",
-        ),
-      ),
+          ""
+        )
+      )
     );
 }
 
 async function expectExpandedSubMilestonesAttached(
   page: Page,
-  options: { rowKey: string; text: string },
+  options: { rowKey: string; text: string }
 ) {
   const attachment = await page.evaluate(({ rowKey }) => {
     const row = document.querySelector(
-      `[data-testid="timeline-setup-budget-row-${rowKey}"]`,
+      `[data-testid="timeline-setup-budget-row-${rowKey}"]`
     );
     const nextRow = row?.nextElementSibling;
 
@@ -2263,8 +2261,8 @@ async function expectNoPageHorizontalOverflow(page: Page) {
       page.evaluate(
         () =>
           document.documentElement.scrollWidth -
-          document.documentElement.clientWidth,
-      ),
+          document.documentElement.clientWidth
+      )
     )
     .toBeLessThanOrEqual(2);
 }
@@ -2272,7 +2270,7 @@ async function expectNoPageHorizontalOverflow(page: Page) {
 async function expectBoxWithinViewport(
   page: Page,
   testId: string,
-  viewportWidth: number,
+  viewportWidth: number
 ) {
   const box = await page.getByTestId(testId).boundingBox();
 
@@ -2283,18 +2281,18 @@ async function expectBoxWithinViewport(
 
   expect(
     box.x,
-    `${testId} should not overflow left on mobile`,
+    `${testId} should not overflow left on mobile`
   ).toBeGreaterThanOrEqual(-1);
   expect(
     box.x + box.width,
-    `${testId} should not overflow right on mobile`,
+    `${testId} should not overflow right on mobile`
   ).toBeLessThanOrEqual(viewportWidth + 1);
 }
 
 async function expectOverlayWithinViewport(
   page: Page,
   testId: string,
-  viewport: { height: number; width: number },
+  viewport: { height: number; width: number }
 ) {
   await expectBoxWithinViewport(page, testId, viewport.width);
 
@@ -2307,20 +2305,20 @@ async function expectOverlayWithinViewport(
   expect(box.y, `${testId} should not overflow top`).toBeGreaterThanOrEqual(-1);
   expect(
     box.y + box.height,
-    `${testId} should not overflow bottom`,
+    `${testId} should not overflow bottom`
   ).toBeLessThanOrEqual(viewport.height + 1);
 }
 
 function getTimelineGeometry(
   page: Page,
-  itemIds: string[],
+  itemIds: string[]
 ): Promise<TimelineGeometrySnapshot> {
   return page.evaluate((ids) => {
     const timeline = document.querySelector(
-      "[data-testid=animated-curved-timeline]",
+      "[data-testid=animated-curved-timeline]"
     );
     const viewport = timeline?.querySelector(
-      "[data-testid=timeline-scroll-viewport]",
+      "[data-testid=timeline-scroll-viewport]"
     );
     const content = viewport?.firstElementChild;
     const path = timeline?.querySelector("svg path");
@@ -2335,13 +2333,13 @@ function getTimelineGeometry(
     const contentRect = content.getBoundingClientRect();
     const itemEntries = ids.map((id) => {
       const node = timeline.querySelector(
-        `[data-testid="demo-timeline-node-${id}"]`,
+        `[data-testid="demo-timeline-node-${id}"]`
       );
       const card = timeline.querySelector(
-        `[data-testid="timeline-card-${id}"]`,
+        `[data-testid="timeline-card-${id}"]`
       );
       const connector = timeline.querySelector(
-        `[data-testid="timeline-card-connector-${id}"]`,
+        `[data-testid="timeline-card-connector-${id}"]`
       );
 
       if (!(node && card && connector)) {
@@ -2383,7 +2381,7 @@ async function waitForTimelineGeometryStable(page: Page, itemIds: string[]) {
 
         return getTimelineGeometryMaxDelta(before, after, itemIds);
       },
-      { timeout: 5000 },
+      { timeout: 5000 }
     )
     .toBeLessThan(0.75);
 }
@@ -2391,7 +2389,7 @@ async function waitForTimelineGeometryStable(page: Page, itemIds: string[]) {
 function getTimelineGeometryMaxDelta(
   before: TimelineGeometrySnapshot,
   after: TimelineGeometrySnapshot,
-  itemIds: string[],
+  itemIds: string[]
 ) {
   let maxDelta = 0;
 
@@ -2408,7 +2406,7 @@ function getTimelineGeometryMaxDelta(
       Math.abs(afterItem.nodeCenterX - beforeItem.nodeCenterX),
       Math.abs(afterItem.nodeCenterY - beforeItem.nodeCenterY),
       Math.abs(afterItem.cardCenterX - beforeItem.cardCenterX),
-      Math.abs(afterItem.connectorCenterX - beforeItem.connectorCenterX),
+      Math.abs(afterItem.connectorCenterX - beforeItem.connectorCenterX)
     );
   }
 
@@ -2417,14 +2415,14 @@ function getTimelineGeometryMaxDelta(
 
 function getTimelineSpacing(
   page: Page,
-  itemIds: string[],
+  itemIds: string[]
 ): Promise<Record<string, TimelineSpacingItem> | null> {
   return page.evaluate((ids) => {
     const timeline = document.querySelector(
-      "[data-testid=animated-curved-timeline]",
+      "[data-testid=animated-curved-timeline]"
     );
     const viewport = timeline?.querySelector(
-      "[data-testid=timeline-scroll-viewport]",
+      "[data-testid=timeline-scroll-viewport]"
     );
     const content = viewport?.firstElementChild;
 
@@ -2435,10 +2433,10 @@ function getTimelineSpacing(
     const contentRect = content.getBoundingClientRect();
     const entries = ids.map((id) => {
       const node = timeline.querySelector(
-        `[data-testid="demo-timeline-node-${id}"]`,
+        `[data-testid="demo-timeline-node-${id}"]`
       );
       const card = timeline.querySelector(
-        `[data-testid="timeline-card-${id}"]`,
+        `[data-testid="timeline-card-${id}"]`
       );
 
       if (!(node && card)) {
@@ -2469,7 +2467,7 @@ function getTimelineSpacing(
 function expectTimelineGeometryStable(
   before: TimelineGeometrySnapshot,
   after: TimelineGeometrySnapshot,
-  itemIds: string[],
+  itemIds: string[]
 ) {
   for (const id of itemIds) {
     const beforeItem = before.items[id];
@@ -2482,23 +2480,23 @@ function expectTimelineGeometryStable(
     }
 
     expect(
-      Math.abs(afterItem.nodeCenterX - beforeItem.nodeCenterX),
+      Math.abs(afterItem.nodeCenterX - beforeItem.nodeCenterX)
     ).toBeLessThan(2);
     expect(
-      Math.abs(afterItem.nodeCenterY - beforeItem.nodeCenterY),
+      Math.abs(afterItem.nodeCenterY - beforeItem.nodeCenterY)
     ).toBeLessThan(3);
     expect(
-      Math.abs(afterItem.cardCenterX - beforeItem.cardCenterX),
+      Math.abs(afterItem.cardCenterX - beforeItem.cardCenterX)
     ).toBeLessThan(2);
     expect(
-      Math.abs(afterItem.connectorCenterX - beforeItem.connectorCenterX),
+      Math.abs(afterItem.connectorCenterX - beforeItem.connectorCenterX)
     ).toBeLessThan(2);
   }
 }
 
 function expectTimelineItemCentered(
   snapshot: TimelineGeometrySnapshot,
-  itemId: string,
+  itemId: string
 ) {
   const item = snapshot.items[itemId];
 
@@ -2515,16 +2513,16 @@ function expectTimelineItemCentered(
 async function expectTimelineConnectorsAligned(page: Page) {
   const maxConnectorDelta = await page.evaluate(() => {
     const timeline = document.querySelector(
-      "[data-testid=animated-curved-timeline]",
+      "[data-testid=animated-curved-timeline]"
     );
     const viewport = timeline?.querySelector(
-      "[data-testid=timeline-scroll-viewport]",
+      "[data-testid=timeline-scroll-viewport]"
     );
     const content = viewport?.firstElementChild;
     const path = timeline?.querySelector("svg path");
     const connectorLines = [
       ...(timeline?.querySelectorAll(
-        "[data-testid^=timeline-marker-connector-]",
+        "[data-testid^=timeline-marker-connector-]"
       ) ?? []),
     ];
 
@@ -2565,15 +2563,15 @@ async function expectTimelineConnectorsAligned(page: Page) {
 function selectedProgressDeltaX(page: Page, nodeId: string) {
   return page.evaluate((id) => {
     const timeline = document.querySelector(
-      "[data-testid=animated-curved-timeline]",
+      "[data-testid=animated-curved-timeline]"
     );
     const viewport = timeline?.querySelector(
-      "[data-testid=timeline-scroll-viewport]",
+      "[data-testid=timeline-scroll-viewport]"
     );
     const content = viewport?.firstElementChild;
     const progressPath = timeline?.querySelector("svg path.text-rose-500");
     const node = timeline?.querySelector(
-      `[data-testid=demo-timeline-node-${id}]`,
+      `[data-testid=demo-timeline-node-${id}]`
     );
 
     if (!(content && progressPath instanceof SVGPathElement && node)) {
@@ -2585,7 +2583,7 @@ function selectedProgressDeltaX(page: Page, nodeId: string) {
     const nodeCenterX = nodeRect.left + nodeRect.width / 2 - contentRect.left;
     const totalLength = progressPath.getTotalLength();
     const dashOffset = Number.parseFloat(
-      getComputedStyle(progressPath).strokeDashoffset,
+      getComputedStyle(progressPath).strokeDashoffset
     );
     const progressLength = totalLength - dashOffset;
     const progressPoint = progressPath.getPointAtLength(progressLength);
@@ -2604,25 +2602,22 @@ async function getNodeBox(page: Page, nodeId: string) {
 
 function getTimelineHandoffGap(
   page: Page,
-  {
-    endNodeId,
-    nextStartNodeId,
-  }: { endNodeId: string; nextStartNodeId: string },
+  { endNodeId, nextStartNodeId }: { endNodeId: string; nextStartNodeId: string }
 ): Promise<number | null> {
   return page.evaluate(
     ({ endId, startId }) => {
       const timeline = document.querySelector(
-        "[data-testid=animated-curved-timeline]",
+        "[data-testid=animated-curved-timeline]"
       );
       const viewport = timeline?.querySelector(
-        "[data-testid=timeline-scroll-viewport]",
+        "[data-testid=timeline-scroll-viewport]"
       );
       const content = viewport?.firstElementChild;
       const endNode = timeline?.querySelector(
-        `[data-testid="demo-timeline-end-node-${endId}"]`,
+        `[data-testid="demo-timeline-end-node-${endId}"]`
       );
       const nextStartNode = timeline?.querySelector(
-        `[data-testid="demo-timeline-node-${startId}"]`,
+        `[data-testid="demo-timeline-node-${startId}"]`
       );
 
       if (!(content && endNode && nextStartNode)) {
@@ -2637,7 +2632,7 @@ function getTimelineHandoffGap(
         startRect.left - contentRect.left - (endRect.right - contentRect.left)
       );
     },
-    { endId: endNodeId, startId: nextStartNodeId },
+    { endId: endNodeId, startId: nextStartNodeId }
   );
 }
 
@@ -2668,6 +2663,6 @@ function hoverDotOpacity(page: Page) {
   return page
     .getByTestId("timeline-hover-dot")
     .evaluate((element) =>
-      Number.parseFloat(getComputedStyle(element).opacity),
+      Number.parseFloat(getComputedStyle(element).opacity)
     );
 }

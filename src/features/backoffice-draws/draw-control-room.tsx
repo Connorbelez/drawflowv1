@@ -50,8 +50,11 @@ import {
 } from "#/components/ui/table.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { ToggleGroup, ToggleGroupItem } from "#/components/ui/toggle-group.tsx";
-import { formatCompactCurrency, formatCurrency } from "#/routes/backoffice/builders/-builder-roster-types.ts";
 import { cn } from "#/lib/utils.ts";
+import {
+  formatCompactCurrency,
+  formatCurrency,
+} from "#/routes/backoffice/builders/-builder-roster-types.ts";
 
 import {
   drawBadgeVariant,
@@ -108,6 +111,12 @@ const exposureChartConfig = {
 } satisfies ChartConfig;
 
 export interface DrawControlRoomHandlers {
+  onAdvanceDraw?: (input: {
+    buildId: string;
+    drawKey: string;
+    note: string;
+    status: "requested" | "in_review";
+  }) => Promise<void>;
   onApproveDraw?: (input: {
     buildId: string;
     drawKey: string;
@@ -128,6 +137,13 @@ interface DrawControlRoomProps extends DrawControlRoomHandlers {
 function matchesPulseFilter(draw: BrokerageDrawRow, filter: DrawPulseFilter) {
   if (filter === "all") {
     return true;
+  }
+  if (filter === "requested") {
+    return (
+      draw.status === "requested" ||
+      draw.status === "in_review" ||
+      draw.status === "ready_for_admin"
+    );
   }
   return draw.status === filter;
 }
@@ -154,15 +170,17 @@ function matchesSearch(draw: BrokerageDrawRow, query: string) {
 function filterDraws(
   draws: BrokerageDrawRow[],
   pulseFilter: DrawPulseFilter,
-  search: string,
+  search: string
 ) {
   return draws.filter(
-    (draw) => matchesPulseFilter(draw, pulseFilter) && matchesSearch(draw, search),
+    (draw) =>
+      matchesPulseFilter(draw, pulseFilter) && matchesSearch(draw, search)
   );
 }
 
 export function DrawControlRoom({
   data,
+  onAdvanceDraw,
   onApproveDraw,
   onRejectDraw,
   pending,
@@ -177,11 +195,17 @@ export function DrawControlRoom({
   const draws = data?.draws ?? [];
   const filteredDraws = useMemo(
     () => filterDraws(draws, pulseFilter, search),
-    [draws, pulseFilter, search],
+    [draws, pulseFilter, search]
   );
   const requestQueue = useMemo(
-    () => draws.filter((draw) => draw.status === "requested"),
-    [draws],
+    () =>
+      draws.filter(
+        (draw) =>
+          draw.status === "requested" ||
+          draw.status === "in_review" ||
+          draw.status === "ready_for_admin"
+      ),
+    [draws]
   );
 
   const filteredBuilds = useMemo(() => {
@@ -196,7 +220,7 @@ export function DrawControlRoom({
 
   const selectedDraw = useMemo(
     () => draws.find((draw) => String(draw.drawId) === selectedDrawId) ?? null,
-    [draws, selectedDrawId],
+    [draws, selectedDrawId]
   );
 
   const summary = data?.summary;
@@ -209,7 +233,7 @@ export function DrawControlRoom({
         released: row.releasedCents / 100,
         requested: row.requestedCents / 100,
       })),
-    [data?.chartSeries],
+    [data?.chartSeries]
   );
   const exposureChartData = useMemo(
     () =>
@@ -219,7 +243,7 @@ export function DrawControlRoom({
           amount: row.amountCents / 100,
           status: row.label,
         })),
-    [data?.exposureSnapshot],
+    [data?.exposureSnapshot]
   );
 
   const currentExposureCents =
@@ -227,17 +251,37 @@ export function DrawControlRoom({
     (summary?.exposureRequestedCents ?? 0);
 
   async function handleApprove() {
-    if (!selectedDraw || !onApproveDraw || reviewNote.trim().length < 3) {
+    if (!selectedDraw || reviewNote.trim().length < 3) {
       return;
     }
     setReviewPending(true);
     try {
-      await onApproveDraw({
-        buildId: String(selectedDraw.buildId),
-        drawKey: selectedDraw.drawKey,
-        note: reviewNote.trim(),
-      });
-      toast.success("Draw approved");
+      if (
+        (selectedDraw.status === "requested" ||
+          selectedDraw.status === "in_review") &&
+        onAdvanceDraw
+      ) {
+        await onAdvanceDraw({
+          buildId: String(selectedDraw.buildId),
+          drawKey: selectedDraw.drawKey,
+          note: reviewNote.trim(),
+          status: selectedDraw.status,
+        });
+        toast.success(
+          selectedDraw.status === "requested"
+            ? "Draw review started"
+            : "Draw sent to admin"
+        );
+      } else if (selectedDraw.status === "ready_for_admin" && onApproveDraw) {
+        await onApproveDraw({
+          buildId: String(selectedDraw.buildId),
+          drawKey: selectedDraw.drawKey,
+          note: reviewNote.trim(),
+        });
+        toast.success("Draw approved for release");
+      } else {
+        return;
+      }
       setSelectedDrawId(null);
       setReviewNote("");
     } catch (error) {
@@ -248,7 +292,7 @@ export function DrawControlRoom({
   }
 
   async function handleReject() {
-    if (!selectedDraw || !onRejectDraw || reviewNote.trim().length < 3) {
+    if (!(selectedDraw && onRejectDraw) || reviewNote.trim().length < 3) {
       return;
     }
     setReviewPending(true);
@@ -282,12 +326,13 @@ export function DrawControlRoom({
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-1">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">
+        <h1 className="font-display font-semibold text-2xl tracking-tight">
           Draws
         </h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
+        <p className="max-w-2xl text-muted-foreground text-sm">
           Org-wide reimbursement pipeline: review requests, track approved
-          exposure, and scan upcoming planned releases across every active build.
+          exposure, and scan upcoming planned releases across every active
+          build.
         </p>
       </header>
 
@@ -319,20 +364,23 @@ export function DrawControlRoom({
                 barRadius={5}
                 barSize={22}
                 barVariant="duotone"
-                chartProps={{ margin: { top: 8, right: 8, bottom: 0, left: 0 } }}
+                chartProps={{
+                  margin: { top: 8, right: 8, bottom: 0, left: 0 },
+                }}
                 className="min-h-[240px] flex-1"
                 data={pipelineChartData}
                 enableHoverHighlight
                 lineConfig={{}}
                 tooltipRoundness="lg"
                 tooltipVariant="frosted-glass"
-                xDataKey="period"
                 xAxisProps={{
                   tickLine: false,
                   axisLine: false,
                 }}
+                xDataKey="period"
                 yAxisProps={{
-                  tickFormatter: (value) => formatCompactCurrency(Number(value) * 100),
+                  tickFormatter: (value) =>
+                    formatCompactCurrency(Number(value) * 100),
                   width: 56,
                 }}
               />
@@ -353,21 +401,24 @@ export function DrawControlRoom({
                 barRadius={6}
                 barSize={36}
                 barVariant="gradient"
-                chartProps={{ margin: { top: 8, right: 8, bottom: 0, left: 0 } }}
+                chartProps={{
+                  margin: { top: 8, right: 8, bottom: 0, left: 0 },
+                }}
                 className="min-h-[240px] flex-1"
                 data={exposureChartData}
                 enableHoverHighlight
                 lineConfig={{}}
                 tooltipRoundness="lg"
                 tooltipVariant="frosted-glass"
-                xDataKey="status"
                 xAxisProps={{
                   interval: 0,
                   tickLine: false,
                   axisLine: false,
                 }}
+                xDataKey="status"
                 yAxisProps={{
-                  tickFormatter: (value) => formatCompactCurrency(Number(value) * 100),
+                  tickFormatter: (value) =>
+                    formatCompactCurrency(Number(value) * 100),
                   width: 56,
                 }}
               />
@@ -454,9 +505,13 @@ export function DrawControlRoom({
 
       <DrawDetailSheet
         canReview={
-          selectedDraw?.status === "requested" &&
-          Boolean(onApproveDraw && onRejectDraw)
+          ((selectedDraw?.status === "requested" ||
+            selectedDraw?.status === "in_review") &&
+            Boolean(onAdvanceDraw)) ||
+          (selectedDraw?.status === "ready_for_admin" &&
+            Boolean(onApproveDraw && onRejectDraw))
         }
+        draw={selectedDraw}
         onApprove={() => void handleApprove()}
         onClose={() => {
           setSelectedDrawId(null);
@@ -467,7 +522,6 @@ export function DrawControlRoom({
         open={selectedDraw !== null}
         reviewNote={reviewNote}
         reviewPending={reviewPending}
-        draw={selectedDraw}
       />
     </div>
   );
@@ -514,11 +568,11 @@ function InstrumentStrip({
   return (
     <Frame>
       <FramePanel className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="sm:col-span-2 xl:col-span-4 flex flex-col gap-1 border-b border-border/80 pb-3">
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+        <div className="flex flex-col gap-1 border-border/80 border-b pb-3 sm:col-span-2 xl:col-span-4">
+          <p className="font-medium text-[11px] text-muted-foreground uppercase tracking-[0.14em]">
             Current capital exposure
           </p>
-          <p className="font-display text-3xl font-semibold tabular-nums tracking-tight">
+          <p className="font-display font-semibold text-3xl tabular-nums tracking-tight">
             {formatCurrency(currentExposureCents)}
           </p>
           <p className="text-muted-foreground text-xs">
@@ -532,7 +586,7 @@ function InstrumentStrip({
           >
             <div className="flex items-center gap-2 text-muted-foreground">
               <tile.icon className="size-3.5" />
-              <span className="text-[11px] font-medium uppercase tracking-wide">
+              <span className="font-medium text-[11px] uppercase tracking-wide">
                 {tile.label}
               </span>
             </div>
@@ -602,7 +656,7 @@ function RequestQueue({
                     <p className="font-semibold text-sm tabular-nums">
                       {formatCurrency(draw.amountCents)}
                     </p>
-                    <p className="text-muted-foreground text-[11px]">
+                    <p className="text-[11px] text-muted-foreground">
                       {draw.scheduledDateLabel}
                     </p>
                   </div>
@@ -639,8 +693,8 @@ function PulseStrip({
       value: summary.requested,
     },
     {
-      filter: "approved",
-      label: "Approved",
+      filter: "approved_for_release",
+      label: "Approved to release",
       tone: summary.approved > 0 ? "default" : "default",
       value: summary.approved,
     },
@@ -663,7 +717,7 @@ function PulseStrip({
             "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
             active === chip.filter
               ? "border-primary/40 bg-primary/10"
-              : "border-border bg-background hover:bg-muted/60",
+              : "border-border bg-background hover:bg-muted/60"
           )}
           key={chip.filter}
           onClick={() => onChange(chip.filter)}
@@ -674,7 +728,7 @@ function PulseStrip({
             className={cn(
               "tabular-nums",
               chip.tone === "destructive" && "text-destructive",
-              chip.tone === "warning" && "text-warning",
+              chip.tone === "warning" && "text-warning"
             )}
           >
             {chip.value}
@@ -713,7 +767,9 @@ function DrawsTable({
           >
             <TableCell>
               <div className="font-medium">{draw.label}</div>
-              <div className="text-muted-foreground text-xs">{draw.drawKey}</div>
+              <div className="text-muted-foreground text-xs">
+                {draw.drawKey}
+              </div>
             </TableCell>
             <TableCell>
               <div>{draw.buildName}</div>
@@ -753,7 +809,7 @@ function BuildDrawGroup({
 }) {
   return (
     <div className="rounded-xl border border-border/80 bg-background/60">
-      <div className="flex flex-col gap-2 border-b border-border/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 border-border/70 border-b px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Building2 className="size-4 text-muted-foreground" />
@@ -768,7 +824,13 @@ function BuildDrawGroup({
         </div>
         <Button
           nativeButton={false}
-          render={<Link params={{ buildId: String(group.buildId) }} to="/backoffice/builds/$buildId" search={{ tab: "timeline" }} />}
+          render={
+            <Link
+              params={{ buildId: String(group.buildId) }}
+              search={{ tab: "details" }}
+              to="/backoffice/builds/$buildId"
+            />
+          }
           size="sm"
           variant="outline"
         >
@@ -859,7 +921,30 @@ function DrawDetailSheet({
               {draw.requestReviewNote ? (
                 <DetailRow label="Review note" value={draw.requestReviewNote} />
               ) : null}
+              {draw.workOrderKey ? (
+                <DetailRow label="Work order" value={draw.workOrderKey} />
+              ) : null}
             </dl>
+            {draw.sourceAllocations?.length ? (
+              <div className="border-t pt-3 text-sm">
+                <p className="font-medium">Attributed reimbursement sources</p>
+                <ul className="mt-2 grid gap-1 text-muted-foreground text-xs">
+                  {draw.sourceAllocations.map((allocation) => (
+                    <li
+                      className="flex items-start justify-between gap-3"
+                      key={`${allocation.drawGroupKey}:${allocation.milestoneKey}`}
+                    >
+                      <span>
+                        {allocation.milestoneName} · {allocation.drawGroupKey}
+                      </span>
+                      <span className="shrink-0 tabular-nums">
+                        {formatCurrency(allocation.amountCents)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {canReview ? (
               <div className="grid gap-2">
                 <Label htmlFor="draw-review-note">Review note</Label>
@@ -879,7 +964,11 @@ function DrawDetailSheet({
             nativeButton={false}
             render={
               draw ? (
-                <Link search={{ tab: "timeline" }} params={{ buildId: String(draw.buildId) }} to="/backoffice/builds/$buildId" />
+                <Link
+                  params={{ buildId: String(draw.buildId) }}
+                  search={{ tab: "details" }}
+                  to="/backoffice/builds/$buildId"
+                />
               ) : (
                 <span />
               )
@@ -890,14 +979,16 @@ function DrawDetailSheet({
           </Button>
           {canReview ? (
             <div className="flex w-full gap-2">
-              <Button
-                className="flex-1"
-                disabled={reviewNote.trim().length < 3 || reviewPending}
-                onClick={onReject}
-                variant="outline"
-              >
-                Reject
-              </Button>
+              {draw?.status === "ready_for_admin" ? (
+                <Button
+                  className="flex-1"
+                  disabled={reviewNote.trim().length < 3 || reviewPending}
+                  onClick={onReject}
+                  variant="outline"
+                >
+                  Reject
+                </Button>
+              ) : null}
               <Button
                 className="flex-1"
                 disabled={reviewNote.trim().length < 3 || reviewPending}
@@ -906,7 +997,7 @@ function DrawDetailSheet({
                 {reviewPending ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (
-                  "Approve"
+                  drawPrimaryActionLabel(draw?.status)
                 )}
               </Button>
             </div>
@@ -920,10 +1011,23 @@ function DrawDetailSheet({
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid gap-0.5">
-      <dt className="text-muted-foreground text-[11px] uppercase tracking-wide">
+      <dt className="text-[11px] text-muted-foreground uppercase tracking-wide">
         {label}
       </dt>
       <dd>{value}</dd>
     </div>
   );
+}
+
+function drawPrimaryActionLabel(status?: BrokerageDrawRow["status"]) {
+  if (status === "requested") {
+    return "Start review";
+  }
+  if (status === "in_review") {
+    return "Send to admin";
+  }
+  if (status === "ready_for_admin") {
+    return "Approve for release";
+  }
+  return "Continue";
 }

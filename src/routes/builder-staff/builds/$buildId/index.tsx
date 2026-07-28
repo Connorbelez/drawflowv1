@@ -1,16 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-
+import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   type BuilderBuildSearch,
   BuilderBuildWorkspaceRoute,
 } from "#/routes/builder/builds/$buildId/index.tsx";
-import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 
 export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
     const tab =
       search.tab === "timeline" ||
       search.tab === "evidence" ||
+      search.tab === "contractors" ||
+      search.tab === "milestones" ||
       search.tab === "materials" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||

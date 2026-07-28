@@ -4,30 +4,98 @@
   "title": "Design System: DrawFlow",
   "extensions": {
     "colorMeta": {
-      "primary": { "role": "primary", "displayName": "Charged Chartreuse", "canonical": "oklch(0.841 0.238 128.85)" },
-      "primary-foreground": { "role": "primary", "displayName": "Deep Olive", "canonical": "oklch(0.405 0.101 131.063)" },
-      "background": { "role": "neutral", "displayName": "Paper", "canonical": "oklch(1 0 0)" },
-      "foreground": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(0.141 0.005 285.823)" },
-      "muted": { "role": "neutral", "displayName": "Muted Tray", "canonical": "oklch(0.967 0.001 286.375)" },
-      "muted-foreground": { "role": "neutral", "displayName": "Muted Ink", "canonical": "oklch(0.552 0.016 285.938)" },
-      "border": { "role": "neutral", "displayName": "Hairline", "canonical": "oklch(0.92 0.004 286.32)" },
-      "success": { "role": "tertiary", "displayName": "Verified Green", "canonical": "oklch(0.58 0.16 145)" },
-      "warning": { "role": "tertiary", "displayName": "Attention Amber", "canonical": "oklch(0.62 0.14 85)" },
-      "info": { "role": "tertiary", "displayName": "Review Blue", "canonical": "oklch(0.54 0.14 240)" },
-      "destructive": { "role": "tertiary", "displayName": "Reject Red", "canonical": "oklch(0.577 0.245 27.325)" }
+      "primary": {
+        "role": "primary",
+        "displayName": "Charged Chartreuse",
+        "canonical": "oklch(0.841 0.238 128.85)"
+      },
+      "primary-foreground": {
+        "role": "primary",
+        "displayName": "Deep Olive",
+        "canonical": "oklch(0.405 0.101 131.063)"
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "oklch(1 0 0)"
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(0.141 0.005 285.823)"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Tray",
+        "canonical": "oklch(0.967 0.001 286.375)"
+      },
+      "muted-foreground": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "oklch(0.552 0.016 285.938)"
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(0.92 0.004 286.32)"
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "Verified Green",
+        "canonical": "oklch(0.58 0.16 145)"
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "Attention Amber",
+        "canonical": "oklch(0.62 0.14 85)"
+      },
+      "info": {
+        "role": "tertiary",
+        "displayName": "Review Blue",
+        "canonical": "oklch(0.54 0.14 240)"
+      },
+      "destructive": {
+        "role": "tertiary",
+        "displayName": "Reject Red",
+        "canonical": "oklch(0.577 0.245 27.325)"
+      }
     },
     "typographyMeta": {
-      "display": { "displayName": "Display", "purpose": "Page and flow titles." },
-      "title": { "displayName": "Title", "purpose": "Panel and section titles." },
-      "body": { "displayName": "Body", "purpose": "Default operator text, 65-75ch measure." },
-      "label": { "displayName": "Label", "purpose": "Field labels, badges, step indicators." }
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page and flow titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Panel and section titles."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default operator text, 65-75ch measure."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, badges, step indicators."
+      }
     },
     "shadows": [
-      { "name": "seat-highlight", "value": "inset 0 1px oklch(0 0 0 / 4%)", "purpose": "Hairline that seats a FramePanel in its tray." },
-      { "name": "resting-xs", "value": "var(--shadow-xs)", "purpose": "Only ambient elevation on panels and buttons." }
+      {
+        "name": "seat-highlight",
+        "value": "inset 0 1px oklch(0 0 0 / 4%)",
+        "purpose": "Hairline that seats a FramePanel in its tray."
+      },
+      {
+        "name": "resting-xs",
+        "value": "var(--shadow-xs)",
+        "purpose": "Only ambient elevation on panels and buttons."
+      }
     ],
     "motion": [
-      { "name": "ease-instrument", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Default easing; matches route view-transitions." }
+      {
+        "name": "ease-instrument",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Default easing; matches route view-transitions."
+      }
     ],
     "breakpoints": [
       { "name": "sm", "value": "640px" },
@@ -63,9 +131,21 @@
       "Light theme chosen from the real scene"
     ],
     "rules": [
-      { "name": "The One Voltage Rule", "body": "Chartreuse is the only high-chroma color; one charged element per view.", "section": "colors" },
-      { "name": "The Single Family Rule", "body": "Never add a second typeface; contrast via weight and scale.", "section": "typography" },
-      { "name": "The Chassis Rule", "body": "Frame+FramePanel for structure, Card for content; never hand-roll wrapper cards or nest cards.", "section": "elevation" }
+      {
+        "name": "The One Voltage Rule",
+        "body": "Chartreuse is the only high-chroma color; one charged element per view.",
+        "section": "colors"
+      },
+      {
+        "name": "The Single Family Rule",
+        "body": "Never add a second typeface; contrast via weight and scale.",
+        "section": "typography"
+      },
+      {
+        "name": "The Chassis Rule",
+        "body": "Frame+FramePanel for structure, Card for content; never hand-roll wrapper cards or nest cards.",
+        "section": "elevation"
+      }
     ],
     "dos": [
       "Do compose existing Frame/FramePanel/Card/Button/Field primitives",

@@ -9,51 +9,29 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as RoadmapRouteImport } from './routes/roadmap'
 import { Route as ProtectedAccessRouteImport } from './routes/protected-access'
 import { Route as ProposalPreviewRouteImport } from './routes/proposal-preview'
-import { Route as PressRouteImport } from './routes/press'
-import { Route as MultiplexFinancingGtaRouteImport } from './routes/multiplex-financing-gta'
-import { Route as MarketingRouteImport } from './routes/marketing'
-import { Route as InvestorsRouteImport } from './routes/investors'
-import { Route as GardenSuiteFinancingGtaRouteImport } from './routes/garden-suite-financing-gta'
-import { Route as ContactRouteImport } from './routes/contact'
-import { Route as ConstructionDrawFinancingRouteImport } from './routes/construction-draw-financing'
-import { Route as CmhcMliSelectMultiplexFinancingRouteImport } from './routes/cmhc-mli-select-multiplex-financing'
 import { Route as CallbackRouteImport } from './routes/callback'
-import { Route as AffordableSustainableRentalHousingRouteImport } from './routes/affordable-sustainable-rental-housing'
-import { Route as AboutRouteImport } from './routes/about'
-import { Route as StartRouteRouteImport } from './routes/start/route'
-import { Route as ResourcesRouteRouteImport } from './routes/resources/route'
 import { Route as DemoRouteRouteImport } from './routes/demo/route'
+import { Route as ContractorRouteRouteImport } from './routes/contractor/route'
 import { Route as BuilderStaffRouteRouteImport } from './routes/builder-staff/route'
 import { Route as BuilderRouteRouteImport } from './routes/builder/route'
 import { Route as BackofficeRouteRouteImport } from './routes/backoffice/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as StartIndexRouteImport } from './routes/start/index'
-import { Route as ResourcesIndexRouteImport } from './routes/resources/index'
-import { Route as IntakeIndexRouteImport } from './routes/intake/index'
+import { Route as ContractorIndexRouteImport } from './routes/contractor/index'
 import { Route as BuilderIndexRouteImport } from './routes/builder/index'
 import { Route as BuilderStaffIndexRouteImport } from './routes/builder-staff/index'
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
-import { Route as StartMultiplexRouteImport } from './routes/start/multiplex'
-import { Route as StartMediaRouteImport } from './routes/start/media'
-import { Route as StartInvestorRouteImport } from './routes/start/investor'
-import { Route as StartGardenSuiteRouteImport } from './routes/start/garden-suite'
-import { Route as StartBuilderRouteImport } from './routes/start/builder'
-import { Route as StartBrokerRouteImport } from './routes/start/broker'
-import { Route as ResourcesSustainableRentalHousingInvestorReturnsRouteImport } from './routes/resources/sustainable-rental-housing-investor-returns'
-import { Route as ResourcesPrivateCapitalAffordableHousingRouteImport } from './routes/resources/private-capital-affordable-housing'
-import { Route as ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRouteImport } from './routes/resources/multiplex-vs-garden-suite-vs-laneway-suite'
-import { Route as ResourcesGardenSuitesFamilySuitableRentalSupplyRouteImport } from './routes/resources/garden-suites-family-suitable-rental-supply'
-import { Route as ResourcesFinancingGapGtaMultiplexBuildsRouteImport } from './routes/resources/financing-gap-gta-multiplex-builds'
-import { Route as ResourcesConstructionDrawsSmallBuildersRouteImport } from './routes/resources/construction-draws-small-builders'
-import { Route as ResourcesCmhcMliSelectGuideForMultiplexBuildsRouteImport } from './routes/resources/cmhc-mli-select-guide-for-multiplex-builds'
+import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
-import { Route as LeadershipElieSoberanoRouteImport } from './routes/leadership/elie-soberano'
 import { Route as DemoWorkosRouteImport } from './routes/demo/workos'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
 import { Route as DemoConvexRouteImport } from './routes/demo/convex'
+import { Route as ContractorWorkRouteImport } from './routes/contractor/work'
+import { Route as ContractorScheduleRouteImport } from './routes/contractor/schedule'
+import { Route as ContractorProfileRouteImport } from './routes/contractor/profile'
+import { Route as ContractorOnboardingRouteImport } from './routes/contractor/onboarding'
+import { Route as ContractorEvidenceRouteImport } from './routes/contractor/evidence'
 import { Route as BackofficeUserManagementRouteImport } from './routes/backoffice/user-management'
 import { Route as BackofficeOnboardContractorRouteImport } from './routes/backoffice/onboard-contractor'
 import { Route as BackofficeOnboardBuilderRouteImport } from './routes/backoffice/onboard-builder'
@@ -71,6 +49,8 @@ import { Route as BackofficeBuildersRouteRouteImport } from './routes/backoffice
 import { Route as DemoTimelineIndexRouteImport } from './routes/demo/timeline/index'
 import { Route as DemoEvilChartsIndexRouteImport } from './routes/demo/evil-charts/index'
 import { Route as DemoDrawflowIndexRouteImport } from './routes/demo/drawflow/index'
+import { Route as ContractorProposalsIndexRouteImport } from './routes/contractor/proposals/index'
+import { Route as ContractorBuildsIndexRouteImport } from './routes/contractor/builds/index'
 import { Route as BuilderProposalsIndexRouteImport } from './routes/builder/proposals/index'
 import { Route as BuilderStaffProposalsIndexRouteImport } from './routes/builder-staff/proposals/index'
 import { Route as BuilderStaffBuildsIndexRouteImport } from './routes/builder-staff/builds/index'
@@ -86,11 +66,14 @@ import { Route as DemoDrawflowNewProposalRouteImport } from './routes/demo/drawf
 import { Route as DemoDrawflowBuilderDashboardRouteImport } from './routes/demo/drawflow/builder-dashboard'
 import { Route as DemoDrawflowAdminBuildDashboardRouteImport } from './routes/demo/drawflow/admin-build-dashboard'
 import { Route as DemoDrawflowActiveRouteImport } from './routes/demo/drawflow/active'
+import { Route as ContractorProposalsProposalIdRouteImport } from './routes/contractor/proposals/$proposalId'
+import { Route as ContractorBuildsBuildIdRouteImport } from './routes/contractor/builds/$buildId'
 import { Route as BuilderProposalsNewRouteImport } from './routes/builder/proposals/new'
 import { Route as BuilderContractorsContractorIdRouteImport } from './routes/builder/contractors/$contractorId'
 import { Route as BackofficeProposalsUnassignedRouteImport } from './routes/backoffice/proposals/unassigned'
 import { Route as BackofficeProposalsNewRouteImport } from './routes/backoffice/proposals/new'
 import { Route as BackofficeProposalsPlanIdRouteImport } from './routes/backoffice/proposals.$planId'
+import { Route as BackofficeContractorsOnboardingRouteImport } from './routes/backoffice/contractors/onboarding'
 import { Route as BackofficeContractorsContractorIdRouteImport } from './routes/backoffice/contractors/$contractorId'
 import { Route as BackofficeBuildersBuilderIdRouteImport } from './routes/backoffice/builders/builderId'
 import { Route as ApiAuthSignUpRouteImport } from './routes/api/auth/sign-up'
@@ -105,7 +88,6 @@ import { Route as BuilderBuildsBuildIdIndexRouteImport } from './routes/builder/
 import { Route as BuilderStaffProposalsProposalIdIndexRouteImport } from './routes/builder-staff/proposals/$proposalId/index'
 import { Route as BuilderStaffBuildsBuildIdIndexRouteImport } from './routes/builder-staff/builds/$buildId/index'
 import { Route as BackofficeBuildsBuildIdIndexRouteImport } from './routes/backoffice/builds/$buildId/index'
-import { Route as BuilderProposalsProposalIdRoadmapRouteImport } from './routes/builder/proposals/$proposalId/roadmap'
 import { Route as BuilderDemoDashboardProposalsRouteRouteImport } from './routes/builder/demo/dashboard/proposals/route'
 import { Route as BuilderDemoDashboardBuildsRouteRouteImport } from './routes/builder/demo/dashboard/builds/route'
 import { Route as BuilderDemoDashboardProposalsIndexRouteImport } from './routes/builder/demo/dashboard/proposals/index'
@@ -113,11 +95,6 @@ import { Route as BuilderDemoDashboardBuildsIndexRouteImport } from './routes/bu
 import { Route as BuilderDemoDashboardProposalsDraftIdRouteImport } from './routes/builder/demo/dashboard/proposals/$draftId'
 import { Route as BuilderDemoDashboardBuildsBuildIdRouteImport } from './routes/builder/demo/dashboard/builds/$buildId'
 
-const RoadmapRoute = RoadmapRouteImport.update({
-  id: '/roadmap',
-  path: '/roadmap',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ProtectedAccessRoute = ProtectedAccessRouteImport.update({
   id: '/protected-access',
   path: '/protected-access',
@@ -128,77 +105,19 @@ const ProposalPreviewRoute = ProposalPreviewRouteImport.update({
   path: '/proposal-preview',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PressRoute = PressRouteImport.update({
-  id: '/press',
-  path: '/press',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MultiplexFinancingGtaRoute = MultiplexFinancingGtaRouteImport.update({
-  id: '/multiplex-financing-gta',
-  path: '/multiplex-financing-gta',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MarketingRoute = MarketingRouteImport.update({
-  id: '/marketing',
-  path: '/marketing',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const InvestorsRoute = InvestorsRouteImport.update({
-  id: '/investors',
-  path: '/investors',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GardenSuiteFinancingGtaRoute = GardenSuiteFinancingGtaRouteImport.update({
-  id: '/garden-suite-financing-gta',
-  path: '/garden-suite-financing-gta',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ContactRoute = ContactRouteImport.update({
-  id: '/contact',
-  path: '/contact',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ConstructionDrawFinancingRoute =
-  ConstructionDrawFinancingRouteImport.update({
-    id: '/construction-draw-financing',
-    path: '/construction-draw-financing',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const CmhcMliSelectMultiplexFinancingRoute =
-  CmhcMliSelectMultiplexFinancingRouteImport.update({
-    id: '/cmhc-mli-select-multiplex-financing',
-    path: '/cmhc-mli-select-multiplex-financing',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const CallbackRoute = CallbackRouteImport.update({
   id: '/callback',
   path: '/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AffordableSustainableRentalHousingRoute =
-  AffordableSustainableRentalHousingRouteImport.update({
-    id: '/affordable-sustainable-rental-housing',
-    path: '/affordable-sustainable-rental-housing',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const AboutRoute = AboutRouteImport.update({
-  id: '/about',
-  path: '/about',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const StartRouteRoute = StartRouteRouteImport.update({
-  id: '/start',
-  path: '/start',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ResourcesRouteRoute = ResourcesRouteRouteImport.update({
-  id: '/resources',
-  path: '/resources',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const DemoRouteRoute = DemoRouteRouteImport.update({
   id: '/demo',
   path: '/demo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContractorRouteRoute = ContractorRouteRouteImport.update({
+  id: '/contractor',
+  path: '/contractor',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BuilderStaffRouteRoute = BuilderStaffRouteRouteImport.update({
@@ -221,20 +140,10 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const StartIndexRoute = StartIndexRouteImport.update({
+const ContractorIndexRoute = ContractorIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => StartRouteRoute,
-} as any)
-const ResourcesIndexRoute = ResourcesIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ResourcesRouteRoute,
-} as any)
-const IntakeIndexRoute = IntakeIndexRouteImport.update({
-  id: '/intake/',
-  path: '/intake/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => ContractorRouteRoute,
 } as any)
 const BuilderIndexRoute = BuilderIndexRouteImport.update({
   id: '/',
@@ -251,86 +160,15 @@ const BackofficeIndexRoute = BackofficeIndexRouteImport.update({
   path: '/',
   getParentRoute: () => BackofficeRouteRoute,
 } as any)
-const StartMultiplexRoute = StartMultiplexRouteImport.update({
-  id: '/multiplex',
-  path: '/multiplex',
-  getParentRoute: () => StartRouteRoute,
-} as any)
-const StartMediaRoute = StartMediaRouteImport.update({
-  id: '/media',
-  path: '/media',
-  getParentRoute: () => StartRouteRoute,
-} as any)
-const StartInvestorRoute = StartInvestorRouteImport.update({
-  id: '/investor',
-  path: '/investor',
-  getParentRoute: () => StartRouteRoute,
-} as any)
-const StartGardenSuiteRoute = StartGardenSuiteRouteImport.update({
-  id: '/garden-suite',
-  path: '/garden-suite',
-  getParentRoute: () => StartRouteRoute,
-} as any)
-const StartBuilderRoute = StartBuilderRouteImport.update({
-  id: '/builder',
-  path: '/builder',
-  getParentRoute: () => StartRouteRoute,
-} as any)
-const StartBrokerRoute = StartBrokerRouteImport.update({
-  id: '/broker',
-  path: '/broker',
-  getParentRoute: () => StartRouteRoute,
-} as any)
-const ResourcesSustainableRentalHousingInvestorReturnsRoute =
-  ResourcesSustainableRentalHousingInvestorReturnsRouteImport.update({
-    id: '/sustainable-rental-housing-investor-returns',
-    path: '/sustainable-rental-housing-investor-returns',
-    getParentRoute: () => ResourcesRouteRoute,
-  } as any)
-const ResourcesPrivateCapitalAffordableHousingRoute =
-  ResourcesPrivateCapitalAffordableHousingRouteImport.update({
-    id: '/private-capital-affordable-housing',
-    path: '/private-capital-affordable-housing',
-    getParentRoute: () => ResourcesRouteRoute,
-  } as any)
-const ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRoute =
-  ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRouteImport.update({
-    id: '/multiplex-vs-garden-suite-vs-laneway-suite',
-    path: '/multiplex-vs-garden-suite-vs-laneway-suite',
-    getParentRoute: () => ResourcesRouteRoute,
-  } as any)
-const ResourcesGardenSuitesFamilySuitableRentalSupplyRoute =
-  ResourcesGardenSuitesFamilySuitableRentalSupplyRouteImport.update({
-    id: '/garden-suites-family-suitable-rental-supply',
-    path: '/garden-suites-family-suitable-rental-supply',
-    getParentRoute: () => ResourcesRouteRoute,
-  } as any)
-const ResourcesFinancingGapGtaMultiplexBuildsRoute =
-  ResourcesFinancingGapGtaMultiplexBuildsRouteImport.update({
-    id: '/financing-gap-gta-multiplex-builds',
-    path: '/financing-gap-gta-multiplex-builds',
-    getParentRoute: () => ResourcesRouteRoute,
-  } as any)
-const ResourcesConstructionDrawsSmallBuildersRoute =
-  ResourcesConstructionDrawsSmallBuildersRouteImport.update({
-    id: '/construction-draws-small-builders',
-    path: '/construction-draws-small-builders',
-    getParentRoute: () => ResourcesRouteRoute,
-  } as any)
-const ResourcesCmhcMliSelectGuideForMultiplexBuildsRoute =
-  ResourcesCmhcMliSelectGuideForMultiplexBuildsRouteImport.update({
-    id: '/cmhc-mli-select-guide-for-multiplex-builds',
-    path: '/cmhc-mli-select-guide-for-multiplex-builds',
-    getParentRoute: () => ResourcesRouteRoute,
+const PrototypeBuildCollaborationRoute =
+  PrototypeBuildCollaborationRouteImport.update({
+    id: '/prototype/build-collaboration',
+    path: '/prototype/build-collaboration',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const ProposalClaimClaimTokenRoute = ProposalClaimClaimTokenRouteImport.update({
   id: '/proposal-claim/$claimToken',
   path: '/proposal-claim/$claimToken',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LeadershipElieSoberanoRoute = LeadershipElieSoberanoRouteImport.update({
-  id: '/leadership/elie-soberano',
-  path: '/leadership/elie-soberano',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DemoWorkosRoute = DemoWorkosRouteImport.update({
@@ -347,6 +185,31 @@ const DemoConvexRoute = DemoConvexRouteImport.update({
   id: '/convex',
   path: '/convex',
   getParentRoute: () => DemoRouteRoute,
+} as any)
+const ContractorWorkRoute = ContractorWorkRouteImport.update({
+  id: '/work',
+  path: '/work',
+  getParentRoute: () => ContractorRouteRoute,
+} as any)
+const ContractorScheduleRoute = ContractorScheduleRouteImport.update({
+  id: '/schedule',
+  path: '/schedule',
+  getParentRoute: () => ContractorRouteRoute,
+} as any)
+const ContractorProfileRoute = ContractorProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => ContractorRouteRoute,
+} as any)
+const ContractorOnboardingRoute = ContractorOnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => ContractorRouteRoute,
+} as any)
+const ContractorEvidenceRoute = ContractorEvidenceRouteImport.update({
+  id: '/evidence',
+  path: '/evidence',
+  getParentRoute: () => ContractorRouteRoute,
 } as any)
 const BackofficeUserManagementRoute =
   BackofficeUserManagementRouteImport.update({
@@ -440,6 +303,17 @@ const DemoDrawflowIndexRoute = DemoDrawflowIndexRouteImport.update({
   path: '/drawflow/',
   getParentRoute: () => DemoRouteRoute,
 } as any)
+const ContractorProposalsIndexRoute =
+  ContractorProposalsIndexRouteImport.update({
+    id: '/proposals/',
+    path: '/proposals/',
+    getParentRoute: () => ContractorRouteRoute,
+  } as any)
+const ContractorBuildsIndexRoute = ContractorBuildsIndexRouteImport.update({
+  id: '/builds/',
+  path: '/builds/',
+  getParentRoute: () => ContractorRouteRoute,
+} as any)
 const BuilderProposalsIndexRoute = BuilderProposalsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -521,6 +395,17 @@ const DemoDrawflowActiveRoute = DemoDrawflowActiveRouteImport.update({
   path: '/drawflow/active',
   getParentRoute: () => DemoRouteRoute,
 } as any)
+const ContractorProposalsProposalIdRoute =
+  ContractorProposalsProposalIdRouteImport.update({
+    id: '/proposals/$proposalId',
+    path: '/proposals/$proposalId',
+    getParentRoute: () => ContractorRouteRoute,
+  } as any)
+const ContractorBuildsBuildIdRoute = ContractorBuildsBuildIdRouteImport.update({
+  id: '/builds/$buildId',
+  path: '/builds/$buildId',
+  getParentRoute: () => ContractorRouteRoute,
+} as any)
 const BuilderProposalsNewRoute = BuilderProposalsNewRouteImport.update({
   id: '/new',
   path: '/new',
@@ -548,6 +433,12 @@ const BackofficeProposalsPlanIdRoute =
     id: '/$planId',
     path: '/$planId',
     getParentRoute: () => BackofficeProposalsRouteRoute,
+  } as any)
+const BackofficeContractorsOnboardingRoute =
+  BackofficeContractorsOnboardingRouteImport.update({
+    id: '/onboarding',
+    path: '/onboarding',
+    getParentRoute: () => BackofficeContractorsRouteRoute,
   } as any)
 const BackofficeContractorsContractorIdRoute =
   BackofficeContractorsContractorIdRouteImport.update({
@@ -631,12 +522,6 @@ const BackofficeBuildsBuildIdIndexRoute =
     path: '/',
     getParentRoute: () => BackofficeBuildsBuildIdRouteRoute,
   } as any)
-const BuilderProposalsProposalIdRoadmapRoute =
-  BuilderProposalsProposalIdRoadmapRouteImport.update({
-    id: '/roadmap',
-    path: '/roadmap',
-    getParentRoute: () => BuilderProposalsProposalIdRouteRoute,
-  } as any)
 const BuilderDemoDashboardProposalsRouteRoute =
   BuilderDemoDashboardProposalsRouteRouteImport.update({
     id: '/proposals',
@@ -679,23 +564,11 @@ export interface FileRoutesByFullPath {
   '/backoffice': typeof BackofficeRouteRouteWithChildren
   '/builder': typeof BuilderRouteRouteWithChildren
   '/builder-staff': typeof BuilderStaffRouteRouteWithChildren
+  '/contractor': typeof ContractorRouteRouteWithChildren
   '/demo': typeof DemoRouteRouteWithChildren
-  '/resources': typeof ResourcesRouteRouteWithChildren
-  '/start': typeof StartRouteRouteWithChildren
-  '/about': typeof AboutRoute
-  '/affordable-sustainable-rental-housing': typeof AffordableSustainableRentalHousingRoute
   '/callback': typeof CallbackRoute
-  '/cmhc-mli-select-multiplex-financing': typeof CmhcMliSelectMultiplexFinancingRoute
-  '/construction-draw-financing': typeof ConstructionDrawFinancingRoute
-  '/contact': typeof ContactRoute
-  '/garden-suite-financing-gta': typeof GardenSuiteFinancingGtaRoute
-  '/investors': typeof InvestorsRoute
-  '/marketing': typeof MarketingRoute
-  '/multiplex-financing-gta': typeof MultiplexFinancingGtaRoute
-  '/press': typeof PressRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
-  '/roadmap': typeof RoadmapRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
@@ -710,30 +583,20 @@ export interface FileRoutesByFullPath {
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
+  '/contractor/evidence': typeof ContractorEvidenceRoute
+  '/contractor/onboarding': typeof ContractorOnboardingRoute
+  '/contractor/profile': typeof ContractorProfileRoute
+  '/contractor/schedule': typeof ContractorScheduleRoute
+  '/contractor/work': typeof ContractorWorkRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
-  '/leadership/elie-soberano': typeof LeadershipElieSoberanoRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
-  '/resources/cmhc-mli-select-guide-for-multiplex-builds': typeof ResourcesCmhcMliSelectGuideForMultiplexBuildsRoute
-  '/resources/construction-draws-small-builders': typeof ResourcesConstructionDrawsSmallBuildersRoute
-  '/resources/financing-gap-gta-multiplex-builds': typeof ResourcesFinancingGapGtaMultiplexBuildsRoute
-  '/resources/garden-suites-family-suitable-rental-supply': typeof ResourcesGardenSuitesFamilySuitableRentalSupplyRoute
-  '/resources/multiplex-vs-garden-suite-vs-laneway-suite': typeof ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRoute
-  '/resources/private-capital-affordable-housing': typeof ResourcesPrivateCapitalAffordableHousingRoute
-  '/resources/sustainable-rental-housing-investor-returns': typeof ResourcesSustainableRentalHousingInvestorReturnsRoute
-  '/start/broker': typeof StartBrokerRoute
-  '/start/builder': typeof StartBuilderRoute
-  '/start/garden-suite': typeof StartGardenSuiteRoute
-  '/start/investor': typeof StartInvestorRoute
-  '/start/media': typeof StartMediaRoute
-  '/start/multiplex': typeof StartMultiplexRoute
+  '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
   '/builder/': typeof BuilderIndexRoute
-  '/intake/': typeof IntakeIndexRoute
-  '/resources/': typeof ResourcesIndexRoute
-  '/start/': typeof StartIndexRoute
+  '/contractor/': typeof ContractorIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
   '/builder-staff/proposals/$proposalId': typeof BuilderStaffProposalsProposalIdRouteRouteWithChildren
   '/builder/demo/dashboard': typeof BuilderDemoDashboardRouteRouteWithChildren
@@ -742,11 +605,14 @@ export interface FileRoutesByFullPath {
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
   '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
   '/backoffice/contractors/$contractorId': typeof BackofficeContractorsContractorIdRoute
+  '/backoffice/contractors/onboarding': typeof BackofficeContractorsOnboardingRoute
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
   '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
+  '/contractor/builds/$buildId': typeof ContractorBuildsBuildIdRoute
+  '/contractor/proposals/$proposalId': typeof ContractorProposalsProposalIdRoute
   '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
   '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
   '/demo/drawflow/builder-dashboard': typeof DemoDrawflowBuilderDashboardRoute
@@ -762,12 +628,13 @@ export interface FileRoutesByFullPath {
   '/builder-staff/builds/': typeof BuilderStaffBuildsIndexRoute
   '/builder-staff/proposals/': typeof BuilderStaffProposalsIndexRoute
   '/builder/proposals/': typeof BuilderProposalsIndexRoute
+  '/contractor/builds/': typeof ContractorBuildsIndexRoute
+  '/contractor/proposals/': typeof ContractorProposalsIndexRoute
   '/demo/drawflow/': typeof DemoDrawflowIndexRoute
   '/demo/evil-charts/': typeof DemoEvilChartsIndexRoute
   '/demo/timeline/': typeof DemoTimelineIndexRoute
   '/builder/demo/dashboard/builds': typeof BuilderDemoDashboardBuildsRouteRouteWithChildren
   '/builder/demo/dashboard/proposals': typeof BuilderDemoDashboardProposalsRouteRouteWithChildren
-  '/builder/proposals/$proposalId/roadmap': typeof BuilderProposalsProposalIdRoadmapRoute
   '/backoffice/builds/$buildId/': typeof BackofficeBuildsBuildIdIndexRoute
   '/builder-staff/builds/$buildId/': typeof BuilderStaffBuildsBuildIdIndexRoute
   '/builder-staff/proposals/$proposalId/': typeof BuilderStaffProposalsProposalIdIndexRoute
@@ -782,59 +649,41 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/demo': typeof DemoRouteRouteWithChildren
-  '/about': typeof AboutRoute
-  '/affordable-sustainable-rental-housing': typeof AffordableSustainableRentalHousingRoute
   '/callback': typeof CallbackRoute
-  '/cmhc-mli-select-multiplex-financing': typeof CmhcMliSelectMultiplexFinancingRoute
-  '/construction-draw-financing': typeof ConstructionDrawFinancingRoute
-  '/contact': typeof ContactRoute
-  '/garden-suite-financing-gta': typeof GardenSuiteFinancingGtaRoute
-  '/investors': typeof InvestorsRoute
-  '/marketing': typeof MarketingRoute
-  '/multiplex-financing-gta': typeof MultiplexFinancingGtaRoute
-  '/press': typeof PressRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
-  '/roadmap': typeof RoadmapRoute
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
+  '/contractor/evidence': typeof ContractorEvidenceRoute
+  '/contractor/onboarding': typeof ContractorOnboardingRoute
+  '/contractor/profile': typeof ContractorProfileRoute
+  '/contractor/schedule': typeof ContractorScheduleRoute
+  '/contractor/work': typeof ContractorWorkRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
-  '/leadership/elie-soberano': typeof LeadershipElieSoberanoRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
-  '/resources/cmhc-mli-select-guide-for-multiplex-builds': typeof ResourcesCmhcMliSelectGuideForMultiplexBuildsRoute
-  '/resources/construction-draws-small-builders': typeof ResourcesConstructionDrawsSmallBuildersRoute
-  '/resources/financing-gap-gta-multiplex-builds': typeof ResourcesFinancingGapGtaMultiplexBuildsRoute
-  '/resources/garden-suites-family-suitable-rental-supply': typeof ResourcesGardenSuitesFamilySuitableRentalSupplyRoute
-  '/resources/multiplex-vs-garden-suite-vs-laneway-suite': typeof ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRoute
-  '/resources/private-capital-affordable-housing': typeof ResourcesPrivateCapitalAffordableHousingRoute
-  '/resources/sustainable-rental-housing-investor-returns': typeof ResourcesSustainableRentalHousingInvestorReturnsRoute
-  '/start/broker': typeof StartBrokerRoute
-  '/start/builder': typeof StartBuilderRoute
-  '/start/garden-suite': typeof StartGardenSuiteRoute
-  '/start/investor': typeof StartInvestorRoute
-  '/start/media': typeof StartMediaRoute
-  '/start/multiplex': typeof StartMultiplexRoute
+  '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/backoffice': typeof BackofficeIndexRoute
   '/builder-staff': typeof BuilderStaffIndexRoute
   '/builder': typeof BuilderIndexRoute
-  '/intake': typeof IntakeIndexRoute
-  '/resources': typeof ResourcesIndexRoute
-  '/start': typeof StartIndexRoute
+  '/contractor': typeof ContractorIndexRoute
   '/api/auth/sign-in': typeof ApiAuthSignInRoute
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
   '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
   '/backoffice/contractors/$contractorId': typeof BackofficeContractorsContractorIdRoute
+  '/backoffice/contractors/onboarding': typeof BackofficeContractorsOnboardingRoute
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
   '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
+  '/contractor/builds/$buildId': typeof ContractorBuildsBuildIdRoute
+  '/contractor/proposals/$proposalId': typeof ContractorProposalsProposalIdRoute
   '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
   '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
   '/demo/drawflow/builder-dashboard': typeof DemoDrawflowBuilderDashboardRoute
@@ -850,10 +699,11 @@ export interface FileRoutesByTo {
   '/builder-staff/builds': typeof BuilderStaffBuildsIndexRoute
   '/builder-staff/proposals': typeof BuilderStaffProposalsIndexRoute
   '/builder/proposals': typeof BuilderProposalsIndexRoute
+  '/contractor/builds': typeof ContractorBuildsIndexRoute
+  '/contractor/proposals': typeof ContractorProposalsIndexRoute
   '/demo/drawflow': typeof DemoDrawflowIndexRoute
   '/demo/evil-charts': typeof DemoEvilChartsIndexRoute
   '/demo/timeline': typeof DemoTimelineIndexRoute
-  '/builder/proposals/$proposalId/roadmap': typeof BuilderProposalsProposalIdRoadmapRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdIndexRoute
   '/builder-staff/builds/$buildId': typeof BuilderStaffBuildsBuildIdIndexRoute
   '/builder-staff/proposals/$proposalId': typeof BuilderStaffProposalsProposalIdIndexRoute
@@ -871,23 +721,11 @@ export interface FileRoutesById {
   '/backoffice': typeof BackofficeRouteRouteWithChildren
   '/builder': typeof BuilderRouteRouteWithChildren
   '/builder-staff': typeof BuilderStaffRouteRouteWithChildren
+  '/contractor': typeof ContractorRouteRouteWithChildren
   '/demo': typeof DemoRouteRouteWithChildren
-  '/resources': typeof ResourcesRouteRouteWithChildren
-  '/start': typeof StartRouteRouteWithChildren
-  '/about': typeof AboutRoute
-  '/affordable-sustainable-rental-housing': typeof AffordableSustainableRentalHousingRoute
   '/callback': typeof CallbackRoute
-  '/cmhc-mli-select-multiplex-financing': typeof CmhcMliSelectMultiplexFinancingRoute
-  '/construction-draw-financing': typeof ConstructionDrawFinancingRoute
-  '/contact': typeof ContactRoute
-  '/garden-suite-financing-gta': typeof GardenSuiteFinancingGtaRoute
-  '/investors': typeof InvestorsRoute
-  '/marketing': typeof MarketingRoute
-  '/multiplex-financing-gta': typeof MultiplexFinancingGtaRoute
-  '/press': typeof PressRoute
   '/proposal-preview': typeof ProposalPreviewRoute
   '/protected-access': typeof ProtectedAccessRoute
-  '/roadmap': typeof RoadmapRoute
   '/backoffice/builders': typeof BackofficeBuildersRouteRouteWithChildren
   '/backoffice/builds': typeof BackofficeBuildsRouteRouteWithChildren
   '/backoffice/contractors': typeof BackofficeContractorsRouteRouteWithChildren
@@ -902,30 +740,20 @@ export interface FileRoutesById {
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
+  '/contractor/evidence': typeof ContractorEvidenceRoute
+  '/contractor/onboarding': typeof ContractorOnboardingRoute
+  '/contractor/profile': typeof ContractorProfileRoute
+  '/contractor/schedule': typeof ContractorScheduleRoute
+  '/contractor/work': typeof ContractorWorkRoute
   '/demo/convex': typeof DemoConvexRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
-  '/leadership/elie-soberano': typeof LeadershipElieSoberanoRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
-  '/resources/cmhc-mli-select-guide-for-multiplex-builds': typeof ResourcesCmhcMliSelectGuideForMultiplexBuildsRoute
-  '/resources/construction-draws-small-builders': typeof ResourcesConstructionDrawsSmallBuildersRoute
-  '/resources/financing-gap-gta-multiplex-builds': typeof ResourcesFinancingGapGtaMultiplexBuildsRoute
-  '/resources/garden-suites-family-suitable-rental-supply': typeof ResourcesGardenSuitesFamilySuitableRentalSupplyRoute
-  '/resources/multiplex-vs-garden-suite-vs-laneway-suite': typeof ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRoute
-  '/resources/private-capital-affordable-housing': typeof ResourcesPrivateCapitalAffordableHousingRoute
-  '/resources/sustainable-rental-housing-investor-returns': typeof ResourcesSustainableRentalHousingInvestorReturnsRoute
-  '/start/broker': typeof StartBrokerRoute
-  '/start/builder': typeof StartBuilderRoute
-  '/start/garden-suite': typeof StartGardenSuiteRoute
-  '/start/investor': typeof StartInvestorRoute
-  '/start/media': typeof StartMediaRoute
-  '/start/multiplex': typeof StartMultiplexRoute
+  '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
   '/builder/': typeof BuilderIndexRoute
-  '/intake/': typeof IntakeIndexRoute
-  '/resources/': typeof ResourcesIndexRoute
-  '/start/': typeof StartIndexRoute
+  '/contractor/': typeof ContractorIndexRoute
   '/backoffice/builds/$buildId': typeof BackofficeBuildsBuildIdRouteRouteWithChildren
   '/builder-staff/proposals/$proposalId': typeof BuilderStaffProposalsProposalIdRouteRouteWithChildren
   '/builder/demo/dashboard': typeof BuilderDemoDashboardRouteRouteWithChildren
@@ -934,11 +762,14 @@ export interface FileRoutesById {
   '/api/auth/sign-up': typeof ApiAuthSignUpRoute
   '/backoffice/builders/builderId': typeof BackofficeBuildersBuilderIdRoute
   '/backoffice/contractors/$contractorId': typeof BackofficeContractorsContractorIdRoute
+  '/backoffice/contractors/onboarding': typeof BackofficeContractorsOnboardingRoute
   '/backoffice/proposals/$planId': typeof BackofficeProposalsPlanIdRoute
   '/backoffice/proposals/new': typeof BackofficeProposalsNewRoute
   '/backoffice/proposals/unassigned': typeof BackofficeProposalsUnassignedRoute
   '/builder/contractors/$contractorId': typeof BuilderContractorsContractorIdRoute
   '/builder/proposals/new': typeof BuilderProposalsNewRoute
+  '/contractor/builds/$buildId': typeof ContractorBuildsBuildIdRoute
+  '/contractor/proposals/$proposalId': typeof ContractorProposalsProposalIdRoute
   '/demo/drawflow/active': typeof DemoDrawflowActiveRoute
   '/demo/drawflow/admin-build-dashboard': typeof DemoDrawflowAdminBuildDashboardRoute
   '/demo/drawflow/builder-dashboard': typeof DemoDrawflowBuilderDashboardRoute
@@ -954,12 +785,13 @@ export interface FileRoutesById {
   '/builder-staff/builds/': typeof BuilderStaffBuildsIndexRoute
   '/builder-staff/proposals/': typeof BuilderStaffProposalsIndexRoute
   '/builder/proposals/': typeof BuilderProposalsIndexRoute
+  '/contractor/builds/': typeof ContractorBuildsIndexRoute
+  '/contractor/proposals/': typeof ContractorProposalsIndexRoute
   '/demo/drawflow/': typeof DemoDrawflowIndexRoute
   '/demo/evil-charts/': typeof DemoEvilChartsIndexRoute
   '/demo/timeline/': typeof DemoTimelineIndexRoute
   '/builder/demo/dashboard/builds': typeof BuilderDemoDashboardBuildsRouteRouteWithChildren
   '/builder/demo/dashboard/proposals': typeof BuilderDemoDashboardProposalsRouteRouteWithChildren
-  '/builder/proposals/$proposalId/roadmap': typeof BuilderProposalsProposalIdRoadmapRoute
   '/backoffice/builds/$buildId/': typeof BackofficeBuildsBuildIdIndexRoute
   '/builder-staff/builds/$buildId/': typeof BuilderStaffBuildsBuildIdIndexRoute
   '/builder-staff/proposals/$proposalId/': typeof BuilderStaffProposalsProposalIdIndexRoute
@@ -978,23 +810,11 @@ export interface FileRouteTypes {
     | '/backoffice'
     | '/builder'
     | '/builder-staff'
+    | '/contractor'
     | '/demo'
-    | '/resources'
-    | '/start'
-    | '/about'
-    | '/affordable-sustainable-rental-housing'
     | '/callback'
-    | '/cmhc-mli-select-multiplex-financing'
-    | '/construction-draw-financing'
-    | '/contact'
-    | '/garden-suite-financing-gta'
-    | '/investors'
-    | '/marketing'
-    | '/multiplex-financing-gta'
-    | '/press'
     | '/proposal-preview'
     | '/protected-access'
-    | '/roadmap'
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
@@ -1009,30 +829,20 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
+    | '/contractor/evidence'
+    | '/contractor/onboarding'
+    | '/contractor/profile'
+    | '/contractor/schedule'
+    | '/contractor/work'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
-    | '/leadership/elie-soberano'
     | '/proposal-claim/$claimToken'
-    | '/resources/cmhc-mli-select-guide-for-multiplex-builds'
-    | '/resources/construction-draws-small-builders'
-    | '/resources/financing-gap-gta-multiplex-builds'
-    | '/resources/garden-suites-family-suitable-rental-supply'
-    | '/resources/multiplex-vs-garden-suite-vs-laneway-suite'
-    | '/resources/private-capital-affordable-housing'
-    | '/resources/sustainable-rental-housing-investor-returns'
-    | '/start/broker'
-    | '/start/builder'
-    | '/start/garden-suite'
-    | '/start/investor'
-    | '/start/media'
-    | '/start/multiplex'
+    | '/prototype/build-collaboration'
     | '/backoffice/'
     | '/builder-staff/'
     | '/builder/'
-    | '/intake/'
-    | '/resources/'
-    | '/start/'
+    | '/contractor/'
     | '/backoffice/builds/$buildId'
     | '/builder-staff/proposals/$proposalId'
     | '/builder/demo/dashboard'
@@ -1041,11 +851,14 @@ export interface FileRouteTypes {
     | '/api/auth/sign-up'
     | '/backoffice/builders/builderId'
     | '/backoffice/contractors/$contractorId'
+    | '/backoffice/contractors/onboarding'
     | '/backoffice/proposals/$planId'
     | '/backoffice/proposals/new'
     | '/backoffice/proposals/unassigned'
     | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
+    | '/contractor/builds/$buildId'
+    | '/contractor/proposals/$proposalId'
     | '/demo/drawflow/active'
     | '/demo/drawflow/admin-build-dashboard'
     | '/demo/drawflow/builder-dashboard'
@@ -1061,12 +874,13 @@ export interface FileRouteTypes {
     | '/builder-staff/builds/'
     | '/builder-staff/proposals/'
     | '/builder/proposals/'
+    | '/contractor/builds/'
+    | '/contractor/proposals/'
     | '/demo/drawflow/'
     | '/demo/evil-charts/'
     | '/demo/timeline/'
     | '/builder/demo/dashboard/builds'
     | '/builder/demo/dashboard/proposals'
-    | '/builder/proposals/$proposalId/roadmap'
     | '/backoffice/builds/$buildId/'
     | '/builder-staff/builds/$buildId/'
     | '/builder-staff/proposals/$proposalId/'
@@ -1081,59 +895,41 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/demo'
-    | '/about'
-    | '/affordable-sustainable-rental-housing'
     | '/callback'
-    | '/cmhc-mli-select-multiplex-financing'
-    | '/construction-draw-financing'
-    | '/contact'
-    | '/garden-suite-financing-gta'
-    | '/investors'
-    | '/marketing'
-    | '/multiplex-financing-gta'
-    | '/press'
     | '/proposal-preview'
     | '/protected-access'
-    | '/roadmap'
     | '/backoffice/draws'
     | '/backoffice/site-visits'
     | '/builder/demo'
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
+    | '/contractor/evidence'
+    | '/contractor/onboarding'
+    | '/contractor/profile'
+    | '/contractor/schedule'
+    | '/contractor/work'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
-    | '/leadership/elie-soberano'
     | '/proposal-claim/$claimToken'
-    | '/resources/cmhc-mli-select-guide-for-multiplex-builds'
-    | '/resources/construction-draws-small-builders'
-    | '/resources/financing-gap-gta-multiplex-builds'
-    | '/resources/garden-suites-family-suitable-rental-supply'
-    | '/resources/multiplex-vs-garden-suite-vs-laneway-suite'
-    | '/resources/private-capital-affordable-housing'
-    | '/resources/sustainable-rental-housing-investor-returns'
-    | '/start/broker'
-    | '/start/builder'
-    | '/start/garden-suite'
-    | '/start/investor'
-    | '/start/media'
-    | '/start/multiplex'
+    | '/prototype/build-collaboration'
     | '/backoffice'
     | '/builder-staff'
     | '/builder'
-    | '/intake'
-    | '/resources'
-    | '/start'
+    | '/contractor'
     | '/api/auth/sign-in'
     | '/api/auth/sign-up'
     | '/backoffice/builders/builderId'
     | '/backoffice/contractors/$contractorId'
+    | '/backoffice/contractors/onboarding'
     | '/backoffice/proposals/$planId'
     | '/backoffice/proposals/new'
     | '/backoffice/proposals/unassigned'
     | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
+    | '/contractor/builds/$buildId'
+    | '/contractor/proposals/$proposalId'
     | '/demo/drawflow/active'
     | '/demo/drawflow/admin-build-dashboard'
     | '/demo/drawflow/builder-dashboard'
@@ -1149,10 +945,11 @@ export interface FileRouteTypes {
     | '/builder-staff/builds'
     | '/builder-staff/proposals'
     | '/builder/proposals'
+    | '/contractor/builds'
+    | '/contractor/proposals'
     | '/demo/drawflow'
     | '/demo/evil-charts'
     | '/demo/timeline'
-    | '/builder/proposals/$proposalId/roadmap'
     | '/backoffice/builds/$buildId'
     | '/builder-staff/builds/$buildId'
     | '/builder-staff/proposals/$proposalId'
@@ -1169,23 +966,11 @@ export interface FileRouteTypes {
     | '/backoffice'
     | '/builder'
     | '/builder-staff'
+    | '/contractor'
     | '/demo'
-    | '/resources'
-    | '/start'
-    | '/about'
-    | '/affordable-sustainable-rental-housing'
     | '/callback'
-    | '/cmhc-mli-select-multiplex-financing'
-    | '/construction-draw-financing'
-    | '/contact'
-    | '/garden-suite-financing-gta'
-    | '/investors'
-    | '/marketing'
-    | '/multiplex-financing-gta'
-    | '/press'
     | '/proposal-preview'
     | '/protected-access'
-    | '/roadmap'
     | '/backoffice/builders'
     | '/backoffice/builds'
     | '/backoffice/contractors'
@@ -1200,30 +985,20 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
+    | '/contractor/evidence'
+    | '/contractor/onboarding'
+    | '/contractor/profile'
+    | '/contractor/schedule'
+    | '/contractor/work'
     | '/demo/convex'
     | '/demo/tanstack-query'
     | '/demo/workos'
-    | '/leadership/elie-soberano'
     | '/proposal-claim/$claimToken'
-    | '/resources/cmhc-mli-select-guide-for-multiplex-builds'
-    | '/resources/construction-draws-small-builders'
-    | '/resources/financing-gap-gta-multiplex-builds'
-    | '/resources/garden-suites-family-suitable-rental-supply'
-    | '/resources/multiplex-vs-garden-suite-vs-laneway-suite'
-    | '/resources/private-capital-affordable-housing'
-    | '/resources/sustainable-rental-housing-investor-returns'
-    | '/start/broker'
-    | '/start/builder'
-    | '/start/garden-suite'
-    | '/start/investor'
-    | '/start/media'
-    | '/start/multiplex'
+    | '/prototype/build-collaboration'
     | '/backoffice/'
     | '/builder-staff/'
     | '/builder/'
-    | '/intake/'
-    | '/resources/'
-    | '/start/'
+    | '/contractor/'
     | '/backoffice/builds/$buildId'
     | '/builder-staff/proposals/$proposalId'
     | '/builder/demo/dashboard'
@@ -1232,11 +1007,14 @@ export interface FileRouteTypes {
     | '/api/auth/sign-up'
     | '/backoffice/builders/builderId'
     | '/backoffice/contractors/$contractorId'
+    | '/backoffice/contractors/onboarding'
     | '/backoffice/proposals/$planId'
     | '/backoffice/proposals/new'
     | '/backoffice/proposals/unassigned'
     | '/builder/contractors/$contractorId'
     | '/builder/proposals/new'
+    | '/contractor/builds/$buildId'
+    | '/contractor/proposals/$proposalId'
     | '/demo/drawflow/active'
     | '/demo/drawflow/admin-build-dashboard'
     | '/demo/drawflow/builder-dashboard'
@@ -1252,12 +1030,13 @@ export interface FileRouteTypes {
     | '/builder-staff/builds/'
     | '/builder-staff/proposals/'
     | '/builder/proposals/'
+    | '/contractor/builds/'
+    | '/contractor/proposals/'
     | '/demo/drawflow/'
     | '/demo/evil-charts/'
     | '/demo/timeline/'
     | '/builder/demo/dashboard/builds'
     | '/builder/demo/dashboard/proposals'
-    | '/builder/proposals/$proposalId/roadmap'
     | '/backoffice/builds/$buildId/'
     | '/builder-staff/builds/$buildId/'
     | '/builder-staff/proposals/$proposalId/'
@@ -1275,26 +1054,13 @@ export interface RootRouteChildren {
   BackofficeRouteRoute: typeof BackofficeRouteRouteWithChildren
   BuilderRouteRoute: typeof BuilderRouteRouteWithChildren
   BuilderStaffRouteRoute: typeof BuilderStaffRouteRouteWithChildren
+  ContractorRouteRoute: typeof ContractorRouteRouteWithChildren
   DemoRouteRoute: typeof DemoRouteRouteWithChildren
-  ResourcesRouteRoute: typeof ResourcesRouteRouteWithChildren
-  StartRouteRoute: typeof StartRouteRouteWithChildren
-  AboutRoute: typeof AboutRoute
-  AffordableSustainableRentalHousingRoute: typeof AffordableSustainableRentalHousingRoute
   CallbackRoute: typeof CallbackRoute
-  CmhcMliSelectMultiplexFinancingRoute: typeof CmhcMliSelectMultiplexFinancingRoute
-  ConstructionDrawFinancingRoute: typeof ConstructionDrawFinancingRoute
-  ContactRoute: typeof ContactRoute
-  GardenSuiteFinancingGtaRoute: typeof GardenSuiteFinancingGtaRoute
-  InvestorsRoute: typeof InvestorsRoute
-  MarketingRoute: typeof MarketingRoute
-  MultiplexFinancingGtaRoute: typeof MultiplexFinancingGtaRoute
-  PressRoute: typeof PressRoute
   ProposalPreviewRoute: typeof ProposalPreviewRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
-  RoadmapRoute: typeof RoadmapRoute
-  LeadershipElieSoberanoRoute: typeof LeadershipElieSoberanoRoute
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
-  IntakeIndexRoute: typeof IntakeIndexRoute
+  PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
   NewsitevisitBuildIdSiteVisitTokenRoute: typeof NewsitevisitBuildIdSiteVisitTokenRoute
@@ -1302,13 +1068,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/roadmap': {
-      id: '/roadmap'
-      path: '/roadmap'
-      fullPath: '/roadmap'
-      preLoaderRoute: typeof RoadmapRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/protected-access': {
       id: '/protected-access'
       path: '/protected-access'
@@ -1323,62 +1082,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProposalPreviewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/press': {
-      id: '/press'
-      path: '/press'
-      fullPath: '/press'
-      preLoaderRoute: typeof PressRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/multiplex-financing-gta': {
-      id: '/multiplex-financing-gta'
-      path: '/multiplex-financing-gta'
-      fullPath: '/multiplex-financing-gta'
-      preLoaderRoute: typeof MultiplexFinancingGtaRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/marketing': {
-      id: '/marketing'
-      path: '/marketing'
-      fullPath: '/marketing'
-      preLoaderRoute: typeof MarketingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/investors': {
-      id: '/investors'
-      path: '/investors'
-      fullPath: '/investors'
-      preLoaderRoute: typeof InvestorsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/garden-suite-financing-gta': {
-      id: '/garden-suite-financing-gta'
-      path: '/garden-suite-financing-gta'
-      fullPath: '/garden-suite-financing-gta'
-      preLoaderRoute: typeof GardenSuiteFinancingGtaRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/contact': {
-      id: '/contact'
-      path: '/contact'
-      fullPath: '/contact'
-      preLoaderRoute: typeof ContactRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/construction-draw-financing': {
-      id: '/construction-draw-financing'
-      path: '/construction-draw-financing'
-      fullPath: '/construction-draw-financing'
-      preLoaderRoute: typeof ConstructionDrawFinancingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cmhc-mli-select-multiplex-financing': {
-      id: '/cmhc-mli-select-multiplex-financing'
-      path: '/cmhc-mli-select-multiplex-financing'
-      fullPath: '/cmhc-mli-select-multiplex-financing'
-      preLoaderRoute: typeof CmhcMliSelectMultiplexFinancingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/callback': {
       id: '/callback'
       path: '/callback'
@@ -1386,39 +1089,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/affordable-sustainable-rental-housing': {
-      id: '/affordable-sustainable-rental-housing'
-      path: '/affordable-sustainable-rental-housing'
-      fullPath: '/affordable-sustainable-rental-housing'
-      preLoaderRoute: typeof AffordableSustainableRentalHousingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/start': {
-      id: '/start'
-      path: '/start'
-      fullPath: '/start'
-      preLoaderRoute: typeof StartRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/resources': {
-      id: '/resources'
-      path: '/resources'
-      fullPath: '/resources'
-      preLoaderRoute: typeof ResourcesRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/demo': {
       id: '/demo'
       path: '/demo'
       fullPath: '/demo'
       preLoaderRoute: typeof DemoRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contractor': {
+      id: '/contractor'
+      path: '/contractor'
+      fullPath: '/contractor'
+      preLoaderRoute: typeof ContractorRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/builder-staff': {
@@ -1449,26 +1131,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/start/': {
-      id: '/start/'
+    '/contractor/': {
+      id: '/contractor/'
       path: '/'
-      fullPath: '/start/'
-      preLoaderRoute: typeof StartIndexRouteImport
-      parentRoute: typeof StartRouteRoute
-    }
-    '/resources/': {
-      id: '/resources/'
-      path: '/'
-      fullPath: '/resources/'
-      preLoaderRoute: typeof ResourcesIndexRouteImport
-      parentRoute: typeof ResourcesRouteRoute
-    }
-    '/intake/': {
-      id: '/intake/'
-      path: '/intake'
-      fullPath: '/intake/'
-      preLoaderRoute: typeof IntakeIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: '/contractor/'
+      preLoaderRoute: typeof ContractorIndexRouteImport
+      parentRoute: typeof ContractorRouteRoute
     }
     '/builder/': {
       id: '/builder/'
@@ -1491,109 +1159,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeIndexRouteImport
       parentRoute: typeof BackofficeRouteRoute
     }
-    '/start/multiplex': {
-      id: '/start/multiplex'
-      path: '/multiplex'
-      fullPath: '/start/multiplex'
-      preLoaderRoute: typeof StartMultiplexRouteImport
-      parentRoute: typeof StartRouteRoute
-    }
-    '/start/media': {
-      id: '/start/media'
-      path: '/media'
-      fullPath: '/start/media'
-      preLoaderRoute: typeof StartMediaRouteImport
-      parentRoute: typeof StartRouteRoute
-    }
-    '/start/investor': {
-      id: '/start/investor'
-      path: '/investor'
-      fullPath: '/start/investor'
-      preLoaderRoute: typeof StartInvestorRouteImport
-      parentRoute: typeof StartRouteRoute
-    }
-    '/start/garden-suite': {
-      id: '/start/garden-suite'
-      path: '/garden-suite'
-      fullPath: '/start/garden-suite'
-      preLoaderRoute: typeof StartGardenSuiteRouteImport
-      parentRoute: typeof StartRouteRoute
-    }
-    '/start/builder': {
-      id: '/start/builder'
-      path: '/builder'
-      fullPath: '/start/builder'
-      preLoaderRoute: typeof StartBuilderRouteImport
-      parentRoute: typeof StartRouteRoute
-    }
-    '/start/broker': {
-      id: '/start/broker'
-      path: '/broker'
-      fullPath: '/start/broker'
-      preLoaderRoute: typeof StartBrokerRouteImport
-      parentRoute: typeof StartRouteRoute
-    }
-    '/resources/sustainable-rental-housing-investor-returns': {
-      id: '/resources/sustainable-rental-housing-investor-returns'
-      path: '/sustainable-rental-housing-investor-returns'
-      fullPath: '/resources/sustainable-rental-housing-investor-returns'
-      preLoaderRoute: typeof ResourcesSustainableRentalHousingInvestorReturnsRouteImport
-      parentRoute: typeof ResourcesRouteRoute
-    }
-    '/resources/private-capital-affordable-housing': {
-      id: '/resources/private-capital-affordable-housing'
-      path: '/private-capital-affordable-housing'
-      fullPath: '/resources/private-capital-affordable-housing'
-      preLoaderRoute: typeof ResourcesPrivateCapitalAffordableHousingRouteImport
-      parentRoute: typeof ResourcesRouteRoute
-    }
-    '/resources/multiplex-vs-garden-suite-vs-laneway-suite': {
-      id: '/resources/multiplex-vs-garden-suite-vs-laneway-suite'
-      path: '/multiplex-vs-garden-suite-vs-laneway-suite'
-      fullPath: '/resources/multiplex-vs-garden-suite-vs-laneway-suite'
-      preLoaderRoute: typeof ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRouteImport
-      parentRoute: typeof ResourcesRouteRoute
-    }
-    '/resources/garden-suites-family-suitable-rental-supply': {
-      id: '/resources/garden-suites-family-suitable-rental-supply'
-      path: '/garden-suites-family-suitable-rental-supply'
-      fullPath: '/resources/garden-suites-family-suitable-rental-supply'
-      preLoaderRoute: typeof ResourcesGardenSuitesFamilySuitableRentalSupplyRouteImport
-      parentRoute: typeof ResourcesRouteRoute
-    }
-    '/resources/financing-gap-gta-multiplex-builds': {
-      id: '/resources/financing-gap-gta-multiplex-builds'
-      path: '/financing-gap-gta-multiplex-builds'
-      fullPath: '/resources/financing-gap-gta-multiplex-builds'
-      preLoaderRoute: typeof ResourcesFinancingGapGtaMultiplexBuildsRouteImport
-      parentRoute: typeof ResourcesRouteRoute
-    }
-    '/resources/construction-draws-small-builders': {
-      id: '/resources/construction-draws-small-builders'
-      path: '/construction-draws-small-builders'
-      fullPath: '/resources/construction-draws-small-builders'
-      preLoaderRoute: typeof ResourcesConstructionDrawsSmallBuildersRouteImport
-      parentRoute: typeof ResourcesRouteRoute
-    }
-    '/resources/cmhc-mli-select-guide-for-multiplex-builds': {
-      id: '/resources/cmhc-mli-select-guide-for-multiplex-builds'
-      path: '/cmhc-mli-select-guide-for-multiplex-builds'
-      fullPath: '/resources/cmhc-mli-select-guide-for-multiplex-builds'
-      preLoaderRoute: typeof ResourcesCmhcMliSelectGuideForMultiplexBuildsRouteImport
-      parentRoute: typeof ResourcesRouteRoute
+    '/prototype/build-collaboration': {
+      id: '/prototype/build-collaboration'
+      path: '/prototype/build-collaboration'
+      fullPath: '/prototype/build-collaboration'
+      preLoaderRoute: typeof PrototypeBuildCollaborationRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/proposal-claim/$claimToken': {
       id: '/proposal-claim/$claimToken'
       path: '/proposal-claim/$claimToken'
       fullPath: '/proposal-claim/$claimToken'
       preLoaderRoute: typeof ProposalClaimClaimTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/leadership/elie-soberano': {
-      id: '/leadership/elie-soberano'
-      path: '/leadership/elie-soberano'
-      fullPath: '/leadership/elie-soberano'
-      preLoaderRoute: typeof LeadershipElieSoberanoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/demo/workos': {
@@ -1616,6 +1193,41 @@ declare module '@tanstack/react-router' {
       fullPath: '/demo/convex'
       preLoaderRoute: typeof DemoConvexRouteImport
       parentRoute: typeof DemoRouteRoute
+    }
+    '/contractor/work': {
+      id: '/contractor/work'
+      path: '/work'
+      fullPath: '/contractor/work'
+      preLoaderRoute: typeof ContractorWorkRouteImport
+      parentRoute: typeof ContractorRouteRoute
+    }
+    '/contractor/schedule': {
+      id: '/contractor/schedule'
+      path: '/schedule'
+      fullPath: '/contractor/schedule'
+      preLoaderRoute: typeof ContractorScheduleRouteImport
+      parentRoute: typeof ContractorRouteRoute
+    }
+    '/contractor/profile': {
+      id: '/contractor/profile'
+      path: '/profile'
+      fullPath: '/contractor/profile'
+      preLoaderRoute: typeof ContractorProfileRouteImport
+      parentRoute: typeof ContractorRouteRoute
+    }
+    '/contractor/onboarding': {
+      id: '/contractor/onboarding'
+      path: '/onboarding'
+      fullPath: '/contractor/onboarding'
+      preLoaderRoute: typeof ContractorOnboardingRouteImport
+      parentRoute: typeof ContractorRouteRoute
+    }
+    '/contractor/evidence': {
+      id: '/contractor/evidence'
+      path: '/evidence'
+      fullPath: '/contractor/evidence'
+      preLoaderRoute: typeof ContractorEvidenceRouteImport
+      parentRoute: typeof ContractorRouteRoute
     }
     '/backoffice/user-management': {
       id: '/backoffice/user-management'
@@ -1736,6 +1348,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemoDrawflowIndexRouteImport
       parentRoute: typeof DemoRouteRoute
     }
+    '/contractor/proposals/': {
+      id: '/contractor/proposals/'
+      path: '/proposals'
+      fullPath: '/contractor/proposals/'
+      preLoaderRoute: typeof ContractorProposalsIndexRouteImport
+      parentRoute: typeof ContractorRouteRoute
+    }
+    '/contractor/builds/': {
+      id: '/contractor/builds/'
+      path: '/builds'
+      fullPath: '/contractor/builds/'
+      preLoaderRoute: typeof ContractorBuildsIndexRouteImport
+      parentRoute: typeof ContractorRouteRoute
+    }
     '/builder/proposals/': {
       id: '/builder/proposals/'
       path: '/'
@@ -1841,6 +1467,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemoDrawflowActiveRouteImport
       parentRoute: typeof DemoRouteRoute
     }
+    '/contractor/proposals/$proposalId': {
+      id: '/contractor/proposals/$proposalId'
+      path: '/proposals/$proposalId'
+      fullPath: '/contractor/proposals/$proposalId'
+      preLoaderRoute: typeof ContractorProposalsProposalIdRouteImport
+      parentRoute: typeof ContractorRouteRoute
+    }
+    '/contractor/builds/$buildId': {
+      id: '/contractor/builds/$buildId'
+      path: '/builds/$buildId'
+      fullPath: '/contractor/builds/$buildId'
+      preLoaderRoute: typeof ContractorBuildsBuildIdRouteImport
+      parentRoute: typeof ContractorRouteRoute
+    }
     '/builder/proposals/new': {
       id: '/builder/proposals/new'
       path: '/new'
@@ -1875,6 +1515,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/backoffice/proposals/$planId'
       preLoaderRoute: typeof BackofficeProposalsPlanIdRouteImport
       parentRoute: typeof BackofficeProposalsRouteRoute
+    }
+    '/backoffice/contractors/onboarding': {
+      id: '/backoffice/contractors/onboarding'
+      path: '/onboarding'
+      fullPath: '/backoffice/contractors/onboarding'
+      preLoaderRoute: typeof BackofficeContractorsOnboardingRouteImport
+      parentRoute: typeof BackofficeContractorsRouteRoute
     }
     '/backoffice/contractors/$contractorId': {
       id: '/backoffice/contractors/$contractorId'
@@ -1974,13 +1621,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeBuildsBuildIdIndexRouteImport
       parentRoute: typeof BackofficeBuildsBuildIdRouteRoute
     }
-    '/builder/proposals/$proposalId/roadmap': {
-      id: '/builder/proposals/$proposalId/roadmap'
-      path: '/roadmap'
-      fullPath: '/builder/proposals/$proposalId/roadmap'
-      preLoaderRoute: typeof BuilderProposalsProposalIdRoadmapRouteImport
-      parentRoute: typeof BuilderProposalsProposalIdRouteRoute
-    }
     '/builder/demo/dashboard/proposals': {
       id: '/builder/demo/dashboard/proposals'
       path: '/proposals'
@@ -2074,6 +1714,7 @@ const BackofficeBuildsRouteRouteWithChildren =
 
 interface BackofficeContractorsRouteRouteChildren {
   BackofficeContractorsContractorIdRoute: typeof BackofficeContractorsContractorIdRoute
+  BackofficeContractorsOnboardingRoute: typeof BackofficeContractorsOnboardingRoute
   BackofficeContractorsIndexRoute: typeof BackofficeContractorsIndexRoute
 }
 
@@ -2081,6 +1722,7 @@ const BackofficeContractorsRouteRouteChildren: BackofficeContractorsRouteRouteCh
   {
     BackofficeContractorsContractorIdRoute:
       BackofficeContractorsContractorIdRoute,
+    BackofficeContractorsOnboardingRoute: BackofficeContractorsOnboardingRoute,
     BackofficeContractorsIndexRoute: BackofficeContractorsIndexRoute,
   }
 
@@ -2222,14 +1864,11 @@ const BuilderDemoRouteRouteWithChildren =
   BuilderDemoRouteRoute._addFileChildren(BuilderDemoRouteRouteChildren)
 
 interface BuilderProposalsProposalIdRouteRouteChildren {
-  BuilderProposalsProposalIdRoadmapRoute: typeof BuilderProposalsProposalIdRoadmapRoute
   BuilderProposalsProposalIdIndexRoute: typeof BuilderProposalsProposalIdIndexRoute
 }
 
 const BuilderProposalsProposalIdRouteRouteChildren: BuilderProposalsProposalIdRouteRouteChildren =
   {
-    BuilderProposalsProposalIdRoadmapRoute:
-      BuilderProposalsProposalIdRoadmapRoute,
     BuilderProposalsProposalIdIndexRoute: BuilderProposalsProposalIdIndexRoute,
   }
 
@@ -2339,6 +1978,36 @@ const BuilderStaffRouteRouteChildren: BuilderStaffRouteRouteChildren = {
 const BuilderStaffRouteRouteWithChildren =
   BuilderStaffRouteRoute._addFileChildren(BuilderStaffRouteRouteChildren)
 
+interface ContractorRouteRouteChildren {
+  ContractorEvidenceRoute: typeof ContractorEvidenceRoute
+  ContractorOnboardingRoute: typeof ContractorOnboardingRoute
+  ContractorProfileRoute: typeof ContractorProfileRoute
+  ContractorScheduleRoute: typeof ContractorScheduleRoute
+  ContractorWorkRoute: typeof ContractorWorkRoute
+  ContractorIndexRoute: typeof ContractorIndexRoute
+  ContractorBuildsBuildIdRoute: typeof ContractorBuildsBuildIdRoute
+  ContractorProposalsProposalIdRoute: typeof ContractorProposalsProposalIdRoute
+  ContractorBuildsIndexRoute: typeof ContractorBuildsIndexRoute
+  ContractorProposalsIndexRoute: typeof ContractorProposalsIndexRoute
+}
+
+const ContractorRouteRouteChildren: ContractorRouteRouteChildren = {
+  ContractorEvidenceRoute: ContractorEvidenceRoute,
+  ContractorOnboardingRoute: ContractorOnboardingRoute,
+  ContractorProfileRoute: ContractorProfileRoute,
+  ContractorScheduleRoute: ContractorScheduleRoute,
+  ContractorWorkRoute: ContractorWorkRoute,
+  ContractorIndexRoute: ContractorIndexRoute,
+  ContractorBuildsBuildIdRoute: ContractorBuildsBuildIdRoute,
+  ContractorProposalsProposalIdRoute: ContractorProposalsProposalIdRoute,
+  ContractorBuildsIndexRoute: ContractorBuildsIndexRoute,
+  ContractorProposalsIndexRoute: ContractorProposalsIndexRoute,
+}
+
+const ContractorRouteRouteWithChildren = ContractorRouteRoute._addFileChildren(
+  ContractorRouteRouteChildren,
+)
+
 interface DemoRouteRouteChildren {
   DemoConvexRoute: typeof DemoConvexRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
@@ -2373,89 +2042,18 @@ const DemoRouteRouteWithChildren = DemoRouteRoute._addFileChildren(
   DemoRouteRouteChildren,
 )
 
-interface ResourcesRouteRouteChildren {
-  ResourcesCmhcMliSelectGuideForMultiplexBuildsRoute: typeof ResourcesCmhcMliSelectGuideForMultiplexBuildsRoute
-  ResourcesConstructionDrawsSmallBuildersRoute: typeof ResourcesConstructionDrawsSmallBuildersRoute
-  ResourcesFinancingGapGtaMultiplexBuildsRoute: typeof ResourcesFinancingGapGtaMultiplexBuildsRoute
-  ResourcesGardenSuitesFamilySuitableRentalSupplyRoute: typeof ResourcesGardenSuitesFamilySuitableRentalSupplyRoute
-  ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRoute: typeof ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRoute
-  ResourcesPrivateCapitalAffordableHousingRoute: typeof ResourcesPrivateCapitalAffordableHousingRoute
-  ResourcesSustainableRentalHousingInvestorReturnsRoute: typeof ResourcesSustainableRentalHousingInvestorReturnsRoute
-  ResourcesIndexRoute: typeof ResourcesIndexRoute
-}
-
-const ResourcesRouteRouteChildren: ResourcesRouteRouteChildren = {
-  ResourcesCmhcMliSelectGuideForMultiplexBuildsRoute:
-    ResourcesCmhcMliSelectGuideForMultiplexBuildsRoute,
-  ResourcesConstructionDrawsSmallBuildersRoute:
-    ResourcesConstructionDrawsSmallBuildersRoute,
-  ResourcesFinancingGapGtaMultiplexBuildsRoute:
-    ResourcesFinancingGapGtaMultiplexBuildsRoute,
-  ResourcesGardenSuitesFamilySuitableRentalSupplyRoute:
-    ResourcesGardenSuitesFamilySuitableRentalSupplyRoute,
-  ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRoute:
-    ResourcesMultiplexVsGardenSuiteVsLanewaySuiteRoute,
-  ResourcesPrivateCapitalAffordableHousingRoute:
-    ResourcesPrivateCapitalAffordableHousingRoute,
-  ResourcesSustainableRentalHousingInvestorReturnsRoute:
-    ResourcesSustainableRentalHousingInvestorReturnsRoute,
-  ResourcesIndexRoute: ResourcesIndexRoute,
-}
-
-const ResourcesRouteRouteWithChildren = ResourcesRouteRoute._addFileChildren(
-  ResourcesRouteRouteChildren,
-)
-
-interface StartRouteRouteChildren {
-  StartBrokerRoute: typeof StartBrokerRoute
-  StartBuilderRoute: typeof StartBuilderRoute
-  StartGardenSuiteRoute: typeof StartGardenSuiteRoute
-  StartInvestorRoute: typeof StartInvestorRoute
-  StartMediaRoute: typeof StartMediaRoute
-  StartMultiplexRoute: typeof StartMultiplexRoute
-  StartIndexRoute: typeof StartIndexRoute
-}
-
-const StartRouteRouteChildren: StartRouteRouteChildren = {
-  StartBrokerRoute: StartBrokerRoute,
-  StartBuilderRoute: StartBuilderRoute,
-  StartGardenSuiteRoute: StartGardenSuiteRoute,
-  StartInvestorRoute: StartInvestorRoute,
-  StartMediaRoute: StartMediaRoute,
-  StartMultiplexRoute: StartMultiplexRoute,
-  StartIndexRoute: StartIndexRoute,
-}
-
-const StartRouteRouteWithChildren = StartRouteRoute._addFileChildren(
-  StartRouteRouteChildren,
-)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BackofficeRouteRoute: BackofficeRouteRouteWithChildren,
   BuilderRouteRoute: BuilderRouteRouteWithChildren,
   BuilderStaffRouteRoute: BuilderStaffRouteRouteWithChildren,
+  ContractorRouteRoute: ContractorRouteRouteWithChildren,
   DemoRouteRoute: DemoRouteRouteWithChildren,
-  ResourcesRouteRoute: ResourcesRouteRouteWithChildren,
-  StartRouteRoute: StartRouteRouteWithChildren,
-  AboutRoute: AboutRoute,
-  AffordableSustainableRentalHousingRoute:
-    AffordableSustainableRentalHousingRoute,
   CallbackRoute: CallbackRoute,
-  CmhcMliSelectMultiplexFinancingRoute: CmhcMliSelectMultiplexFinancingRoute,
-  ConstructionDrawFinancingRoute: ConstructionDrawFinancingRoute,
-  ContactRoute: ContactRoute,
-  GardenSuiteFinancingGtaRoute: GardenSuiteFinancingGtaRoute,
-  InvestorsRoute: InvestorsRoute,
-  MarketingRoute: MarketingRoute,
-  MultiplexFinancingGtaRoute: MultiplexFinancingGtaRoute,
-  PressRoute: PressRoute,
   ProposalPreviewRoute: ProposalPreviewRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
-  RoadmapRoute: RoadmapRoute,
-  LeadershipElieSoberanoRoute: LeadershipElieSoberanoRoute,
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
-  IntakeIndexRoute: IntakeIndexRoute,
+  PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
   NewsitevisitBuildIdSiteVisitTokenRoute:

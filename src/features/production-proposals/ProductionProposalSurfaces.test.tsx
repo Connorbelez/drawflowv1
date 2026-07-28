@@ -558,10 +558,12 @@ describe("ProductionProposalReviewSurface", () => {
       />,
     );
 
-    expect(screen.getByText("Permit PDF linked: permit.pdf")).toBeTruthy();
     expect(
-      screen.getByTestId("proposal-review-permit-viewer-trigger"),
-    ).toBeTruthy();
+      screen.getAllByText("Permit PDF linked: permit.pdf").length
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByTestId("proposal-review-permit-viewer-trigger").length
+    ).toBeGreaterThan(0);
   });
 
   test("records a permit waiver reason from review readiness on approval", async () => {
@@ -592,10 +594,12 @@ describe("ProductionProposalReviewSurface", () => {
     });
 
     expect(
-      screen.getByText("Permit waiver reason ready to record on approval."),
-    ).toBeTruthy();
+      screen.getAllByText(
+        "Permit waiver reason ready to record on approval.",
+      ).length,
+    ).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByTestId("production-review-tab-approve-proposal"));
 
     await waitFor(() =>
       expect(onApprove).toHaveBeenCalledWith(
@@ -899,7 +903,7 @@ describe("ProductionProposalReviewSurface", () => {
     ).toBeTruthy();
     expect(screen.getByTestId("timeline-setup-budget-screen")).toBeTruthy();
     expect(screen.getAllByText("Forms and pour").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("$12,500").length).toBeGreaterThan(0);
+    expect(screen.getAllByDisplayValue("$12,500").length).toBeGreaterThan(0);
   });
 
   test("allows editing submilestone budget and duration in the milestones tab", () => {
@@ -942,7 +946,7 @@ describe("ProductionProposalReviewSurface", () => {
     fireEvent.change(durationInput, { target: { value: "T4" } });
 
     expect((budgetInput as HTMLInputElement).value).toBe("$15,000");
-    expect((durationInput as HTMLInputElement).value).toBe("T4");
+    expect((durationInput as HTMLInputElement).value).toBe("4");
   });
 
   test("renders packet satellite context, closing financials, and grouped submilestones", () => {
@@ -1386,7 +1390,7 @@ describe("ProductionProposalReviewSurface", () => {
     );
 
     fireEvent.click(screen.getByRole("tab", { name: "Review" }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByTestId("production-review-tab-approve-proposal"));
 
     expect(onApprove).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith(
@@ -1422,7 +1426,7 @@ describe("ProductionProposalReviewSurface", () => {
     fireEvent.change(screen.getByLabelText("Decision reason"), {
       target: { value: "Meets policy." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByTestId("production-review-tab-approve-proposal"));
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith("A reason is required.");

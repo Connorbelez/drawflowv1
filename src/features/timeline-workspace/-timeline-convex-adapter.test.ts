@@ -75,6 +75,7 @@ describe("convexWorkspaceToTimelineState", () => {
         startingCashCents: 40_000_000,
       },
       proposal: {
+        interestAnnualBps: 1_050,
         lenderDrawPolicyLimitCents: 14_000_000,
       },
     });
@@ -109,6 +110,7 @@ describe("convexWorkspaceToTimelineState", () => {
     expect(state.capitalSpikes[0].amount).toBe(50_000);
     expect(state.startingCash).toBe(400_000);
     expect(state.approvedDrawLimit).toBe(140_000);
+    expect(state.interestAnnualBps).toBe(1_050);
     expect(state.activeSelection.itemId).toBe("foundation");
   });
 });

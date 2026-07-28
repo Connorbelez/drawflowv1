@@ -236,10 +236,9 @@ function LeadershipSemanticCopy(): ReactElement {
           housing projects.
         </p>
         <p>
-          His focus is helping property owners, builders, brokers, and
-          investors structure financing for multiplexes, garden suites, and
-          rental housing projects with greater transparency and practical
-          underwriting.
+          His focus is helping property owners, builders, brokers, and investors
+          structure financing for multiplexes, garden suites, and rental housing
+          projects with greater transparency and practical underwriting.
         </p>
       </section>
 

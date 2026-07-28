@@ -60,9 +60,9 @@ import { ToggleGroup, ToggleGroupItem } from "#/components/ui/toggle-group.tsx";
 import { cn } from "#/lib/utils.ts";
 
 import {
+  type BackofficeBuildRosterResult,
   BUILD_PHASE_META,
   BUILD_PHASE_ORDER,
-  type BackofficeBuildRosterResult,
   type BuildRosterPhase,
   type BuildRosterRow,
   formatBuildCompactCurrency,
@@ -125,10 +125,13 @@ export function BuildRosterSurface({
         }
         return true;
       }),
-    [rows, phaseFilter],
+    [rows, phaseFilter]
   );
 
-  const columns = useMemo<ColumnDef<BuildRosterRow>[]>(() => buildColumns(), []);
+  const columns = useMemo<ColumnDef<BuildRosterRow>[]>(
+    () => buildColumns(),
+    []
+  );
 
   const table = useReactTable({
     columns,
@@ -283,7 +286,10 @@ export function BuildRosterSurface({
             >
               <TableHeader className="text-muted-foreground text-xs uppercase">
                 {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow className="hover:bg-transparent" key={headerGroup.id}>
+                  <TableRow
+                    className="hover:bg-transparent"
+                    key={headerGroup.id}
+                  >
                     {headerGroup.headers.map((header) => (
                       <TableHead
                         className={cn(
@@ -292,7 +298,7 @@ export function BuildRosterSurface({
                             "sticky left-0 z-10 bg-background",
                           (header.column.id === "budget" ||
                             header.column.id === "actions") &&
-                            "text-right",
+                            "text-right"
                         )}
                         key={header.id}
                         style={{ width: header.getSize() }}
@@ -301,7 +307,7 @@ export function BuildRosterSurface({
                           ? null
                           : flexRender(
                               header.column.columnDef.header,
-                              header.getContext(),
+                              header.getContext()
                             )}
                       </TableHead>
                     ))}
@@ -344,13 +350,13 @@ export function BuildRosterSurface({
                               "sticky left-0 z-10 bg-background group-hover:bg-muted/30",
                             (cell.column.id === "budget" ||
                               cell.column.id === "actions") &&
-                              "text-right",
+                              "text-right"
                           )}
                           key={cell.id}
                         >
                           {flexRender(
                             cell.column.columnDef.cell,
-                            cell.getContext(),
+                            cell.getContext()
                           )}
                         </TableCell>
                       ))}
@@ -410,7 +416,11 @@ function StatStrip({
 }): ReactElement {
   const items = [
     { label: "Total builds", value: summary?.total },
-    { label: "Needs attention", tone: "warning" as const, value: summary?.attention },
+    {
+      label: "Needs attention",
+      tone: "warning" as const,
+      value: summary?.attention,
+    },
     { label: "Active", value: summary?.active },
     { label: "Scheduled", value: summary?.scheduled },
     { label: "Completed", value: summary?.completed },
@@ -431,7 +441,7 @@ function StatStrip({
                   item.tone === "warning" &&
                     item.value &&
                     item.value > 0 &&
-                    "text-warning-foreground",
+                    "text-warning-foreground"
                 )}
               >
                 {item.value ?? 0}
@@ -700,7 +710,7 @@ function SortHeader({
     <button
       className={cn(
         "-mx-1.5 flex items-center gap-1 rounded-md px-1.5 py-1 font-medium hover:text-foreground",
-        align === "right" && "ml-auto flex-row-reverse",
+        align === "right" && "ml-auto flex-row-reverse"
       )}
       onClick={(event) => {
         event.stopPropagation();

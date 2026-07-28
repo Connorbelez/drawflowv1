@@ -15,11 +15,7 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import {
-  Field,
-  FieldDescription,
-  FieldLabel,
-} from "#/components/ui/field.tsx";
+import { Field, FieldDescription, FieldLabel } from "#/components/ui/field.tsx";
 import {
   Frame,
   FrameDescription,
@@ -65,7 +61,7 @@ function isValidEmail(value: string): boolean {
 
 export function ProvisionBuilderWizard(): React.ReactElement {
   const provisionNewBuilder = useAction(
-    api.brokerageProvisioning.provisionNewBuilder,
+    api.brokerageProvisioning.provisionNewBuilder
   );
   const { copyToClipboard, isCopied } = useCopyToClipboard();
 
@@ -117,7 +113,7 @@ export function ProvisionBuilderWizard(): React.ReactElement {
       setError(
         caught instanceof Error
           ? caught.message.replace(/^\[.*?\]\s*/, "")
-          : "Could not provision the builder. Try again.",
+          : "Could not provision the builder. Try again."
       );
     } finally {
       setSubmitting(false);
@@ -177,8 +173,8 @@ export function ProvisionBuilderWizard(): React.ReactElement {
                     value={displayName}
                   />
                   <FieldDescription>
-                    Shown across the builder&rsquo;s workspace and on every Build
-                    Proposal.
+                    Shown across the builder&rsquo;s workspace and on every
+                    Build Proposal.
                   </FieldDescription>
                 </Field>
 
@@ -257,10 +253,10 @@ export function ProvisionBuilderWizard(): React.ReactElement {
                   }
                 />
                 <SummaryRow
+                  hint={FAIRLEND_WORKOS_ORGANIZATION_ID}
                   icon={<ShieldCheck className="size-4" />}
                   label="Brokerage organization"
                   value={`${FAIRLEND_BROKERAGE_NAME}`}
-                  hint={FAIRLEND_WORKOS_ORGANIZATION_ID}
                 />
               </dl>
 
@@ -372,7 +368,7 @@ export function ProvisionBuilderWizard(): React.ReactElement {
 
 function StepRail({ current }: { current: WizardStep }): React.ReactElement {
   return (
-    <ol className="flex items-center gap-2" aria-label="Onboarding progress">
+    <ol aria-label="Onboarding progress" className="flex items-center gap-2">
       {STEPS.map((s, index) => {
         const state =
           index < current ? "done" : index === current ? "active" : "upcoming";
@@ -380,6 +376,7 @@ function StepRail({ current }: { current: WizardStep }): React.ReactElement {
           <li className="flex flex-1 items-center gap-2" key={s.key}>
             <div className="flex min-w-0 items-center gap-2.5">
               <span
+                aria-current={state === "active" ? "step" : undefined}
                 className={cn(
                   "grid size-7 shrink-0 place-items-center rounded-full border font-medium text-xs tabular-nums transition-colors",
                   state === "done" &&
@@ -387,9 +384,8 @@ function StepRail({ current }: { current: WizardStep }): React.ReactElement {
                   state === "active" &&
                     "border-primary bg-primary text-[color:var(--primary-foreground)]",
                   state === "upcoming" &&
-                    "border-border bg-muted text-muted-foreground",
+                    "border-border bg-muted text-muted-foreground"
                 )}
-                aria-current={state === "active" ? "step" : undefined}
               >
                 {state === "done" ? <Check className="size-3.5" /> : index + 1}
               </span>
@@ -397,7 +393,7 @@ function StepRail({ current }: { current: WizardStep }): React.ReactElement {
                 <span
                   className={cn(
                     "truncate font-medium text-sm",
-                    state === "upcoming" && "text-muted-foreground",
+                    state === "upcoming" && "text-muted-foreground"
                   )}
                 >
                   {s.label}
@@ -412,7 +408,7 @@ function StepRail({ current }: { current: WizardStep }): React.ReactElement {
                 aria-hidden
                 className={cn(
                   "h-px flex-1 transition-colors",
-                  index < current ? "bg-success/40" : "bg-border",
+                  index < current ? "bg-success/40" : "bg-border"
                 )}
               />
             ) : null}
@@ -441,7 +437,9 @@ function SummaryRow({
         {label}
       </dt>
       <dd className="flex min-w-0 flex-col items-end text-right">
-        <span className="truncate font-medium text-sm">{value || "\u2014"}</span>
+        <span className="truncate font-medium text-sm">
+          {value || "\u2014"}
+        </span>
         {hint ? (
           <span className="truncate text-muted-foreground text-xs">{hint}</span>
         ) : null}

@@ -1,6 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useAction, useQuery } from "convex/react";
-import { ArrowRight, Building2, CheckCircle2, Loader2, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  Building2,
+  CheckCircle2,
+  Loader2,
+  ShieldCheck,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -132,9 +138,12 @@ function ProposalClaimRoute() {
       <ClaimShell>
         <FramePanel>
           <Badge variant="outline">Claim link</Badge>
-          <FrameTitle className="mt-3 text-xl">Claim link unavailable</FrameTitle>
+          <FrameTitle className="mt-3 text-xl">
+            Claim link unavailable
+          </FrameTitle>
           <FrameDescription className="mt-2">
-            This proposal link is invalid or no longer points to an active draft.
+            This proposal link is invalid or no longer points to an active
+            draft.
           </FrameDescription>
           <div className="mt-5">
             <Button render={<a href="/" />}>Return home</Button>
@@ -204,13 +213,17 @@ function ProposalClaimRoute() {
           ) : (
             <div className="flex shrink-0 flex-wrap gap-2">
               <Button
-                render={<a href={signUpHref} onClick={rememberClaimReturnPath} />}
+                render={
+                  <a href={signUpHref} onClick={rememberClaimReturnPath} />
+                }
               >
                 Create account
                 <ArrowRight aria-hidden />
               </Button>
               <Button
-                render={<a href={signInHref} onClick={rememberClaimReturnPath} />}
+                render={
+                  <a href={signInHref} onClick={rememberClaimReturnPath} />
+                }
                 variant="outline"
               >
                 Sign in

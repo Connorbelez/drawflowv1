@@ -264,8 +264,8 @@ describe("TimelineSettingsWorkspace", () => {
     });
   });
 
-  test("lists draw timing conflicts with milestones and nearest valid days", async () => {
-    const invalidScenario: TimelineSettingsScenarioDraft = {
+  test("allows scenario draws inside milestone windows", async () => {
+    const inMilestoneScenario: TimelineSettingsScenarioDraft = {
       ...scenario,
       draws: [
         {
@@ -288,7 +288,7 @@ describe("TimelineSettingsWorkspace", () => {
     };
     const productionTemplate: TimelineSettingsTemplateDraft = {
       ...template,
-      scenarios: [invalidScenario],
+      scenarios: [inMilestoneScenario],
     };
 
     render(
@@ -316,21 +316,14 @@ describe("TimelineSettingsWorkspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Draw scenarios" }));
 
+    expect(await screen.findByDisplayValue("Draw 01")).toBeTruthy();
+    expect(screen.queryByText(/conflicts with Foundation/)).toBeNull();
+    expect(screen.queryByText(/conflicts with Framing/)).toBeNull();
     expect(
-      await screen.findByText(
-        "Draw 01, day 9: conflicts with Foundation (ends day 10) and Framing (starts day 15). Valid window: days 11-14. Nearest valid day: 11.",
-      ),
-    ).toBeTruthy();
+      screen.getByLabelText("Draw 01 timing day").getAttribute("aria-invalid"),
+    ).toBeNull();
     expect(
-      screen.getByText(
-        "Draw 02, day 27: conflicts with Framing (ends day 27). Valid final draw window: days 28-31. Nearest valid day: 28.",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByLabelText("Draw 01 timing day").getAttribute("aria-invalid")).toBe(
-      "true",
-    );
-    expect(screen.getByLabelText("Draw 02 timing day").getAttribute("aria-invalid")).toBe(
-      "true",
-    );
+      screen.getByLabelText("Draw 02 timing day").getAttribute("aria-invalid"),
+    ).toBeNull();
   });
 });

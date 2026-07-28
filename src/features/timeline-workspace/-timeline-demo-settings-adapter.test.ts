@@ -168,22 +168,17 @@ describe("timeline demo settings adapter", () => {
     expect(validateScenarioDrafts([invalidScenario]).ok).toBe(false);
   });
 
-  test("blocks draws outside the gap between adjacent milestones", () => {
+  test("allows draws inside milestone windows", () => {
     const [template] = normalizeTimelineSettingsProjection(projection);
-    const invalidScenario = {
+    const inMilestoneScenario = {
       ...template.scenarios[0],
       draws: template.scenarios[0].draws.map((row, index) =>
         index === 0 ? { ...row, timingDay: 9 } : row,
       ),
     };
 
-    expect(validateScenarioDrafts([invalidScenario], template).ok).toBe(false);
-    expect(
-      validateScenarioDrafts([invalidScenario], template).errors[
-        "scenario:standard:draw:draw-01:timingDayWindow"
-      ],
-    ).toBe(
-      "Draw 01, day 9: conflicts with Foundation (ends day 10) and Framing (starts day 15). Valid window: days 11-14. Nearest valid day: 11.",
+    expect(validateScenarioDrafts([inMilestoneScenario], template).ok).toBe(
+      true,
     );
   });
 

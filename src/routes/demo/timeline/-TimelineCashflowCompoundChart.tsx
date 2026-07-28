@@ -6,8 +6,8 @@ const CASHFLOW_MIN_EDGE_BAR_PADDING_DAYS = 2;
 
 export interface TimelineCashflowCompoundDatum {
   budget: number;
-  cashInfusionAmount?: number;
   capitalSpikeAmount: number;
+  cashInfusionAmount?: number;
   cashOnHand: number;
   day: number;
   event: "capitalSpike" | "cashInfusion" | "draw" | "milestone" | "start";
@@ -83,7 +83,7 @@ export function resolveMilestoneEndDay(row: TimelineCashflowCompoundDatum) {
 }
 
 export function buildMilestoneEndReferenceLines(
-  data: TimelineCashflowCompoundDatum[],
+  data: TimelineCashflowCompoundDatum[]
 ): TimelineCashflowReferenceLine[] {
   return data.filter(isMilestoneEndDatum).map((row) => {
     const endDay = resolveMilestoneEndDay(row);
@@ -183,10 +183,7 @@ export function TimelineCashflowCompoundChart({
         if (milestoneEnd && activeDay !== null) {
           const endDay = resolveMilestoneEndDay(milestoneEnd);
           if (Math.round(activeDay) === Math.round(endDay)) {
-            return [
-              `${milestoneEnd.name} ends`,
-              formatTimelineDay(endDay),
-            ];
+            return [`${milestoneEnd.name} ends`, formatTimelineDay(endDay)];
           }
 
           if (
@@ -225,7 +222,7 @@ export function TimelineCashflowCompoundChart({
 }
 
 export function buildCashflowBarSafeXDomain(
-  domain: [number, number],
+  domain: [number, number]
 ): [number, number] {
   const [min, max] = domain;
   if (!(Number.isFinite(min) && Number.isFinite(max) && max > min)) {
@@ -234,14 +231,14 @@ export function buildCashflowBarSafeXDomain(
 
   const padding = Math.max(
     CASHFLOW_MIN_EDGE_BAR_PADDING_DAYS,
-    (max - min) * CASHFLOW_EDGE_BAR_PADDING_RATIO,
+    (max - min) * CASHFLOW_EDGE_BAR_PADDING_RATIO
   );
 
   return [min - padding, max + padding];
 }
 
 export function getCashflowCompoundExtent(
-  data: TimelineCashflowCompoundDatum[],
+  data: TimelineCashflowCompoundDatum[]
 ) {
   const values = data.flatMap((row) => [
     row.budget,
@@ -273,7 +270,7 @@ function getChartProbeValue(state: unknown): number | null {
 }
 
 function readMilestoneEndFromPayload(
-  activePayload: unknown,
+  activePayload: unknown
 ): TimelineCashflowCompoundDatum | null {
   if (!Array.isArray(activePayload)) {
     return null;
@@ -341,8 +338,8 @@ function formatCompactMoney(value: number) {
     return `${sign}$${(absolute / 1_000_000).toFixed(1)}M`;
   }
 
-  if (absolute >= 1_000) {
-    return `${sign}$${Math.round(absolute / 1_000)}K`;
+  if (absolute >= 1000) {
+    return `${sign}$${Math.round(absolute / 1000)}K`;
   }
 
   return `${sign}$${Math.round(absolute)}`;

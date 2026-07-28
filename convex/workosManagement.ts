@@ -95,10 +95,7 @@ interface WorkosProvisionClient {
       email: string;
       emailVerified: boolean;
     }): Promise<WorkosProvisionUser>;
-    listInvitations(args: {
-      email: string;
-      organizationId: string;
-    }): Promise<{
+    listInvitations(args: { email: string; organizationId: string }): Promise<{
       autoPagination(): Promise<WorkosProvisionInvitation[]>;
     }>;
     listOrganizationMemberships(args: {
@@ -108,9 +105,7 @@ interface WorkosProvisionClient {
     }): Promise<{
       autoPagination(): Promise<WorkosProvisionMembership[]>;
     }>;
-    listUsers(args: {
-      email: string;
-    }): Promise<{
+    listUsers(args: { email: string }): Promise<{
       autoPagination(): Promise<WorkosProvisionUser[]>;
     }>;
     reactivateOrganizationMembership(
@@ -185,6 +180,27 @@ export const inviteBuilderStaffUser = publicAction
       email: args.email,
       organizationId: args.organizationId,
       roleSlug: "builder-staff",
+    })
+  )
+  .internal();
+
+/**
+ * Send a WorkOS organization invitation with the `contractor` role for an
+ * invited contractor claim (PRD §7.3, §7.5, §11.3). WorkOS owns the
+ * organization membership and role projection; DrawFlow stores only app-level
+ * claim intent elsewhere. Fake-backed in tests, live-backed in production.
+ */
+export const inviteContractorUser = publicAction
+  .input({
+    email: v.string(),
+    organizationId: v.string(),
+  })
+  .returns(acceptedReturn)
+  .handler((_ctx, args) =>
+    getWorkosManagementAdapter().inviteUser({
+      email: args.email,
+      organizationId: args.organizationId,
+      roleSlug: "contractor",
     })
   )
   .internal();
@@ -805,9 +821,8 @@ async function findWorkosUserByEmail(
     await workos.userManagement.listUsers({ email })
   ).autoPagination();
   return (
-    existingUsers.find(
-      (user) => user.email.trim().toLowerCase() === email
-    ) ?? null
+    existingUsers.find((user) => user.email.trim().toLowerCase() === email) ??
+    null
   );
 }
 
@@ -840,10 +855,7 @@ async function ensureWorkosMembershipRole(
   }
 
   const roleSlugs = [
-    ...new Set([
-      ...workosMembershipRoleSlugs(existing),
-      args.roleSlug,
-    ]),
+    ...new Set([...workosMembershipRoleSlugs(existing), args.roleSlug]),
   ];
   return await workos.userManagement.updateOrganizationMembership(existing.id, {
     roleSlugs,
@@ -891,7 +903,7 @@ async function resendLatestPendingBuilderStaffInvitation(
     );
   const latest = pending[0];
   if (!latest) {
-    return undefined;
+    return;
   }
   const invitation = await workos.userManagement.resendInvitation(latest.id);
   return invitation.id || latest.id;

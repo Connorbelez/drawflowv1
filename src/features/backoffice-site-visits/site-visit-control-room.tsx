@@ -98,7 +98,7 @@ interface SiteVisitControlRoomProps extends SiteVisitControlRoomHandlers {
 
 function matchesPulseFilter(
   visit: BrokerageSiteVisitRow,
-  filter: SiteVisitPulseFilter,
+  filter: SiteVisitPulseFilter
 ) {
   if (filter === "all") {
     return true;
@@ -140,11 +140,11 @@ function matchesSearch(visit: BrokerageSiteVisitRow, query: string) {
 function filterVisits(
   visits: BrokerageSiteVisitRow[],
   pulseFilter: SiteVisitPulseFilter,
-  search: string,
+  search: string
 ) {
   return visits.filter(
     (visit) =>
-      matchesPulseFilter(visit, pulseFilter) && matchesSearch(visit, search),
+      matchesPulseFilter(visit, pulseFilter) && matchesSearch(visit, search)
   );
 }
 
@@ -171,7 +171,7 @@ export function SiteVisitControlRoom({
   const visits = data?.visits ?? [];
   const filteredVisits = useMemo(
     () => filterVisits(visits, pulseFilter, search),
-    [visits, pulseFilter, search],
+    [visits, pulseFilter, search]
   );
 
   const filteredBuilds = useMemo(() => {
@@ -186,7 +186,7 @@ export function SiteVisitControlRoom({
 
   const selectedVisit = useMemo(
     () => visits.find((visit) => visit.visitId === selectedVisitId) ?? null,
-    [selectedVisitId, visits],
+    [selectedVisitId, visits]
   );
 
   const summary = data?.summary;
@@ -238,10 +238,10 @@ export function SiteVisitControlRoom({
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-1">
-        <h1 className="font-display text-2xl font-semibold tracking-tight">
+        <h1 className="font-display font-semibold text-2xl tracking-tight">
           Site visits
         </h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
+        <p className="max-w-2xl text-muted-foreground text-sm">
           Org-wide verification pipeline: open tokens, field capture, and
           completed visits across every active build.
         </p>
@@ -301,8 +301,8 @@ export function SiteVisitControlRoom({
           ) : viewMode === "table" ? (
             <VisitsTable
               now={now}
-              onOpen={setSelectedVisitId}
               onCopyLink={handleCopyLink}
+              onOpen={setSelectedVisitId}
               visits={filteredVisits}
             />
           ) : (
@@ -430,7 +430,7 @@ function PulseStrip({
             "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
             active === chip.filter
               ? "border-primary/40 bg-primary/10"
-              : "border-border bg-background hover:bg-muted/60",
+              : "border-border bg-background hover:bg-muted/60"
           )}
           key={chip.filter}
           onClick={() => onChange(chip.filter)}
@@ -441,7 +441,7 @@ function PulseStrip({
             className={cn(
               "tabular-nums",
               chip.tone === "destructive" && "text-destructive",
-              chip.tone === "warning" && "text-warning",
+              chip.tone === "warning" && "text-warning"
             )}
           >
             {chip.value}
@@ -483,8 +483,8 @@ function BuildVisitGroup({
                 <Badge variant="warning">{group.activeVisitCount} active</Badge>
               ) : null}
             </div>
-            <p className="text-sm text-muted-foreground">{group.builderName}</p>
-            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-sm">{group.builderName}</p>
+            <p className="flex items-center gap-1 text-muted-foreground text-xs">
               <MapPin className="size-3 shrink-0" />
               {group.location || "No address on file"}
             </p>
@@ -557,7 +557,7 @@ function VisitRowCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-medium">{visit.milestoneName}</p>
-          <p className="text-xs text-muted-foreground">{visit.milestoneKey}</p>
+          <p className="text-muted-foreground text-xs">{visit.milestoneKey}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge
@@ -570,7 +570,7 @@ function VisitRowCard({
           ) : null}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-3 text-muted-foreground text-xs">
         <span className="inline-flex items-center gap-1">
           <CalendarDays className="size-3.5" />
           {visit.scheduledDateLabel}
@@ -583,7 +583,7 @@ function VisitRowCard({
           <span
             className={cn(
               "inline-flex items-center gap-1 font-medium tabular-nums",
-              msRemaining <= 15 * 60 * 1000 && "text-destructive",
+              msRemaining <= 15 * 60 * 1000 && "text-destructive"
             )}
           >
             <Timer className="size-3.5" />
@@ -592,7 +592,7 @@ function VisitRowCard({
         ) : null}
       </div>
       {visit.note ? (
-        <p className="line-clamp-2 text-xs text-muted-foreground">
+        <p className="line-clamp-2 text-muted-foreground text-xs">
           {visit.note}
         </p>
       ) : null}
@@ -649,13 +649,13 @@ function VisitsTable({
               >
                 <TableCell>
                   <div className="font-medium">{visit.buildName}</div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-muted-foreground text-xs">
                     {visit.buildDisplayId} · {visit.builderName}
                   </div>
                 </TableCell>
                 <TableCell>
                   <div>{visit.milestoneName}</div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-muted-foreground text-xs">
                     {visit.milestoneKey}
                   </div>
                 </TableCell>
@@ -664,7 +664,7 @@ function VisitsTable({
                   <div className="flex flex-wrap gap-1">
                     <Badge
                       variant={operationalStatusBadgeVariant(
-                        visit.operationalStatus,
+                        visit.operationalStatus
                       )}
                     >
                       {operationalStatusLabel(visit.operationalStatus)}
@@ -678,7 +678,7 @@ function VisitsTable({
                   <div>{tokenStateLabel(visit.tokenState)}</div>
                   {(visit.operationalStatus === "open" ||
                     visit.operationalStatus === "in_field") && (
-                    <div className="text-xs tabular-nums text-muted-foreground">
+                    <div className="text-muted-foreground text-xs tabular-nums">
                       {formatTokenCountdown(msRemaining)}
                     </div>
                   )}

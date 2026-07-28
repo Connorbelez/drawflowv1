@@ -43,7 +43,39 @@ export const DESTRUCTIVE_WRITE_ROLE_SLUGS = [
   "principle-broker",
 ] as const satisfies readonly RoleSlug[];
 
-export type Workspace = "backoffice" | "builder";
+export const ACTIVE_BUILD_FINAL_DECISION_ROLE_SLUGS = [
+  "admin",
+  "principle-broker",
+] as const satisfies readonly RoleSlug[];
+
+export function canMakeActiveBuildFinalDecision(
+  roles: readonly (string | null | undefined)[]
+): boolean {
+  return hasAnyRole(
+    normalizeRoleSlugs(roles),
+    ACTIVE_BUILD_FINAL_DECISION_ROLE_SLUGS
+  );
+}
+
+/**
+ * Contractor Workspace is a first-class workspace with its own access policy
+ * (PRD §11.1). The contractor role is the only role granted full workspace
+ * access. The onboarding bridge has a looser policy — `member` or `contractor`
+ * can reach `/contractor/onboarding` until the role + profile link resolve
+ * (PRD §5.2, §11.1 onboarding bridge). The linked-profile requirement is
+ * enforced by the backend (`requireContractorLinkedProfile`), so this RBAC
+ * layer gates role + organization only.
+ */
+export const CONTRACTOR_WORKSPACE_ROLE_SLUGS = [
+  "contractor",
+] as const satisfies readonly RoleSlug[];
+
+export const CONTRACTOR_ONBOARDING_ROLE_SLUGS = [
+  "member",
+  "contractor",
+] as const satisfies readonly RoleSlug[];
+
+export type Workspace = "backoffice" | "builder" | "contractor";
 
 export type WorkspaceAccessDecision =
   | { reason?: "demo-exception"; status: "allowed" }
@@ -52,7 +84,8 @@ export type WorkspaceAccessDecision =
       reason:
         | "missing-organization"
         | "no-workspace-access"
-        | "onboarding-required";
+        | "onboarding-required"
+        | "profile-link-required";
       status: "forbidden";
     };
 
@@ -74,6 +107,14 @@ export interface AuthAccessInput {
   isAuthenticated: boolean;
   organizationId?: string | null;
   pathname: string;
+  /**
+   * Whether the authenticated contractor role has a linked canonical profile.
+   * Only meaningful for the contractor workspace; defaults to true so legacy
+   * call sites (which never set it) behave as before. When false, a
+   * contractor-role caller is routed to the profile-link resolution state
+   * instead of the full workspace (PRD §11.1, §5.2).
+   */
+  profileLinked?: boolean;
   roles: readonly (string | null | undefined)[];
   workspace: Workspace;
 }
@@ -121,7 +162,32 @@ export function getWorkspaceAccessDecision(
   }
 
   const roles = normalizeRoleSlugs(input.roles);
-  if (roles.includes("member")) {
+
+  // Contractor Workspace has a two-tier policy (PRD §11.1). The onboarding
+  // bridge at /contractor/onboarding is reachable by member OR contractor
+  // roles; the rest of /contractor requires the contractor role. The
+  // linked-profile requirement is enforced by the backend, surfaced here as a
+  // profile-link-required forbidden reason when the contractor role is present
+  // but the caller opts out via the `profileLinked` input (default true so
+  // existing call sites are unaffected).
+  if (input.workspace === "contractor") {
+    if (isContractorOnboardingPath(input.pathname)) {
+      return hasAnyRole(roles, CONTRACTOR_ONBOARDING_ROLE_SLUGS)
+        ? { status: "allowed" }
+        : { reason: "no-workspace-access", status: "forbidden" };
+    }
+    if (!hasAnyRole(roles, CONTRACTOR_WORKSPACE_ROLE_SLUGS)) {
+      // A member without the contractor role belongs on the onboarding bridge.
+      return roles.includes("member")
+        ? { reason: "onboarding-required", status: "forbidden" }
+        : { reason: "no-workspace-access", status: "forbidden" };
+    }
+    return input.profileLinked === false
+      ? { reason: "profile-link-required", status: "forbidden" }
+      : { status: "allowed" };
+  }
+
+  if (roles.length === 1 && roles.includes("member")) {
     return { reason: "onboarding-required", status: "forbidden" };
   }
 
@@ -208,6 +274,17 @@ function throwAccessRedirect(
     });
   }
 
+  // Contractor onboarding-required / profile-link-required states route the
+  // caller to the onboarding bridge rather than the generic protected-access
+  // page, so they can resolve their identity in place (PRD §11.1).
+  if (
+    input.workspace === "contractor" &&
+    (decision.reason === "onboarding-required" ||
+      decision.reason === "profile-link-required")
+  ) {
+    throw redirect({ to: "/contractor/onboarding" });
+  }
+
   throw redirect({
     to: "/protected-access",
     search: {
@@ -219,6 +296,26 @@ function throwAccessRedirect(
 
 export function isBuilderDemoPath(pathname: string): boolean {
   return pathname === "/builder/demo" || pathname.startsWith("/builder/demo/");
+}
+
+/**
+ * The onboarding bridge is the single contractor path a `member` role may
+ * reach (PRD §5.2, §11.1). It is also where a contractor without a linked
+ * profile lands to resolve their identity.
+ */
+export function isContractorOnboardingPath(pathname: string): boolean {
+  return (
+    pathname === "/contractor/onboarding" ||
+    pathname.startsWith("/contractor/onboarding/")
+  );
+}
+
+/**
+ * Any path under the contractor route family. Used to scope the contractor
+ * workspace guard.
+ */
+export function isContractorPath(pathname: string): boolean {
+  return pathname === "/contractor" || pathname.startsWith("/contractor/");
 }
 
 function hasAnyRole(

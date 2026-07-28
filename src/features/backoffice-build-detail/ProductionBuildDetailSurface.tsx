@@ -1,9 +1,10 @@
 "use client";
 
 import {
-  ChevronDown,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
+  Copy,
   ExternalLink,
   FileCheck2,
   FileText,
@@ -11,11 +12,13 @@ import {
   MapPin,
   MessageSquare,
   Pencil,
+  RefreshCw,
   ScrollText,
   UserCheck,
+  XCircle,
 } from "lucide-react";
 import type * as React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
 import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
@@ -23,8 +26,12 @@ import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Card,
+  CardAction,
   CardContent,
+  CardDescription,
+  CardFooter,
   CardHeader,
+  CardPanel,
   CardTitle,
 } from "#/components/ui/card.tsx";
 import { Field, FieldDescription, FieldLabel } from "#/components/ui/field.tsx";
@@ -40,18 +47,27 @@ import {
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import {
+  BuildFundingWorkspace,
+  type DrawRequestReceipt,
+  type FundingRequestRecord,
+  projectBuildFunding,
+} from "#/features/build-funding/BuildFundingWorkspace.tsx";
 import {
   BuildPermitViewerDrawer,
   firstPermitDocument,
 } from "#/features/build-permit-viewer/BuildPermitViewerDrawer.tsx";
-import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
+import { contractorPlanningFromProductionDetail } from "#/features/build-workspace-demo/build-workspace-contractor-planning.ts";
+import type { BuilderStaffAppPermissions } from "#/features/builder-staff/app-permissions.ts";
 import {
+  type ActiveBuildCalendarAdapterActions,
   buildActiveBuildCalendarActions,
   buildActiveBuildCalendarWorkspaceFromDetail,
   createActiveBuildCalendarEditHandler,
-  type ActiveBuildCalendarAdapterActions,
 } from "#/features/calendar-workspace/adapters/activeBuildCalendarAdapter.ts";
+import { CalendarWorkspace } from "#/features/calendar-workspace/CalendarWorkspace.tsx";
 import type {
   CalendarFilters,
   CalendarSyncSubscriptionResult,
@@ -59,49 +75,70 @@ import type {
   DrawFlowCalendarWorkspaceData,
 } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
-  ContractorQuickAddDrawer,
+  type ContractorPlanningMilestone,
+  ContractorPlanningPanel,
+} from "#/features/contractors/ContractorPlanningPanel.tsx";
+import {
   type ContractorAssignmentCostDraft,
   type ContractorProfileDraft,
+  ContractorQuickAddDrawer,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import {
-  MaterialPlanningTab,
   type MaterialPlanningActions,
   type MaterialPlanningItem,
+  MaterialPlanningTab,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
-import type { BuilderStaffAppPermissions } from "#/features/builder-staff/app-permissions.ts";
+import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import {
+  convertHeicEvidenceBlobToJpeg,
   isBrowserPreviewableImageMime,
   isHeicLikeEvidenceImage,
 } from "#/lib/evidence-image-normalization.ts";
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
 import { cn } from "#/lib/utils.ts";
-import { BuildDetailTabBar, type BuildDetailSubTab } from "./BuildDetailTabs";
 import { ActiveBuildGanttWorkspace } from "./ActiveBuildGanttWorkspace";
 import {
   ActiveBuildTimelineWorkspace,
   type ActiveBuildTimelineWorkspaceProps,
 } from "./ActiveBuildTimelineWorkspace";
+import { type BuildDetailSubTab, BuildDetailTabBar } from "./BuildDetailTabs";
 import { ContractorsCard } from "./ContractorsCard";
 import { EventRailSheet } from "./EventRail";
+import {
+  formatCents,
+  formatCentsExact,
+  formatDate,
+  initialsFor,
+} from "./format";
+import {
+  MilestoneDetailSheet,
+  type MilestoneSheetData,
+} from "./MilestoneDetailSheet";
 import {
   type KanbanCardData,
   type KanbanColumn,
   MilestoneKanban,
 } from "./MilestoneKanban";
-import {
-  type MilestoneSheetData,
-  MilestoneDetailSheet,
-} from "./MilestoneDetailSheet";
 import { SitePhotoCarousel } from "./SitePhotoCarousel";
-import { formatCents, formatDate, initialsFor } from "./format";
+import {
+  type SiteVisitGuidance,
+  type SiteVisitGuidanceGenerationInput,
+  type SiteVisitGuidanceGenerationResult,
+  type SiteVisitOrderConfirmation,
+  SiteVisitOrderDialog,
+  type SiteVisitOrderRequest,
+} from "./SiteVisitOrderDialog.tsx";
 
 type ProductionBuildStatus = "active" | "paused" | "completed" | string;
 type ProductionMilestoneStatus = "planned" | "in_progress" | "complete";
 type ProductionDrawStatus =
   | "planned"
   | "requested"
-  | "approved"
+  | "in_review"
+  | "ready_for_admin"
+  | "approved_for_release"
   | "rejected"
+  | "withdrawn"
   | "released";
 
 export interface ProductionBuildDetailActions {
@@ -127,14 +164,18 @@ export interface ProductionBuildDetailActions {
   }) => Promise<unknown> | unknown;
   assignSiteVisit?: (input: {
     milestoneKey: string;
+    note?: string;
+    requestedTime?: string;
+    siteVisitGuidance?: SiteVisitGuidance;
+    submilestoneKeys?: string[];
   }) => Promise<unknown> | unknown;
   attachContractor?: (input: {
     contractorId: string;
     role: string;
   }) => Promise<unknown> | unknown;
-  createAndAttachContractor?: (input: {
-    contractor: ContractorProfileDraft;
-    role: string;
+  cancelSiteVisit?: (input: {
+    reason: string;
+    visitId: string;
   }) => Promise<unknown> | unknown;
   createAndAssignContractor?: (input: {
     assignmentCost?: ContractorAssignmentCostDraft;
@@ -167,16 +208,19 @@ export interface ProductionBuildDetailActions {
     };
     milestoneKey: string;
     role: string;
-  }) => Promise<unknown> | unknown;
-  rejectDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
-  rejectMilestone?: (input: {
-    milestoneKey: string;
-  }) => Promise<unknown> | unknown;
-  releaseDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
-  cancelSiteVisit?: (input: {
-    reason: string;
-    visitId: string;
-  }) => Promise<unknown> | unknown;
+  }) =>
+    | Promise<unknown | string | { contractorId?: string }>
+    | unknown
+    | string
+    | { contractorId?: string };
+  createAndAttachContractor?: (input: {
+    contractor: ContractorProfileDraft;
+    role: string;
+  }) =>
+    | Promise<unknown | string | { contractorId?: string }>
+    | unknown
+    | string
+    | { contractorId?: string };
   createCalendarSyncSubscription?: (input: {
     direction: "bidirectional" | "outbound";
     filters: CalendarFilters;
@@ -186,6 +230,11 @@ export interface ProductionBuildDetailActions {
     | Promise<CalendarSyncSubscriptionResult>
     | CalendarSyncSubscriptionResult
     | void;
+  generateSiteVisitGuidance?: (
+    input: SiteVisitGuidanceGenerationInput
+  ) => Promise<SiteVisitGuidanceGenerationResult>;
+  inviteContractor?: (contractorId: string) => Promise<unknown> | unknown;
+  materialPlanning?: MaterialPlanningActions;
   recordExternalCalendarSyncChange?: (input: {
     changeKey: string;
     externalEventId?: string;
@@ -193,42 +242,53 @@ export interface ProductionBuildDetailActions {
     provider: "google" | "ics" | "outlook";
     subscriptionKey?: string;
   }) => Promise<unknown> | unknown;
-  rescheduleSiteVisit?: (input: {
-    reason: string;
-    requestedDay: number;
-    requestedTime?: string;
-    visitId: string;
-  }) => Promise<unknown> | unknown;
-  reviseMilestoneSchedule?: (input: {
-    dayEnd: number;
-    dayStart: number;
+  rejectDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  rejectMilestone?: (input: {
     milestoneKey: string;
-    reason: string;
   }) => Promise<unknown> | unknown;
+  releaseDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  requestDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
+  requestDrawAmount?: (input: {
+    amountCents: number;
+    clientOperationId: string;
+    drawKey: string;
+    note?: string;
+  }) => Promise<DrawRequestReceipt>;
   requestFacilityChange?: (input: {
     reason?: string;
     requestedPaybackDate?: string;
     requestedPrincipalCents?: number;
     requestType: "principalIncrease" | "paybackExtension";
   }) => Promise<unknown> | unknown;
-  requestDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   requestLoanFacilityDateChange?: (input: {
     reason: string;
     requestedPaybackDate: string;
+  }) => Promise<unknown> | unknown;
+  requestMilestoneInfo?: (input: {
+    milestoneKey: string;
+    note: string;
+  }) => Promise<unknown> | unknown;
+  rescheduleSiteVisit?: (input: {
+    reason: string;
+    requestedDay: number;
+    requestedTime?: string;
+    visitId: string;
+  }) => Promise<unknown> | unknown;
+  reviewEvidence?: (input: {
+    accepted: boolean;
+    milestoneKey: string;
+    note?: string;
   }) => Promise<unknown> | unknown;
   reviewFacilityChangeRequest?: (input: {
     note?: string;
     requestId: string;
     status: "approved" | "rejected";
   }) => Promise<unknown> | unknown;
-  requestMilestoneInfo?: (input: {
+  reviseMilestoneSchedule?: (input: {
+    dayEnd: number;
+    dayStart: number;
     milestoneKey: string;
-    note: string;
-  }) => Promise<unknown> | unknown;
-  reviewEvidence?: (input: {
-    accepted: boolean;
-    milestoneKey: string;
-    note?: string;
+    reason: string;
   }) => Promise<unknown> | unknown;
   saveCalendarView?: (input: {
     filters: CalendarFilters;
@@ -242,6 +302,8 @@ export interface ProductionBuildDetailActions {
     note?: string;
     requestedDay: number;
     requestedTime?: string;
+    siteVisitGuidance?: SiteVisitGuidance;
+    submilestoneKeys?: string[];
   }) => Promise<unknown> | unknown;
   setAdminDecisionTargetDate?: (input: {
     drawKey?: string;
@@ -271,10 +333,12 @@ export interface ProductionBuildDetailActions {
     targetDate: string;
     targetTime?: string;
   }) => Promise<unknown> | unknown;
+  startDrawReview?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   startMilestoneWork?: (input: {
     milestoneKey: string;
     note?: string;
   }) => Promise<unknown> | unknown;
+  submitDrawForAdmin?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   updateNonFinancialDetails?: (input: {
     buildName: string;
     location: string;
@@ -284,11 +348,13 @@ export interface ProductionBuildDetailActions {
     reason: string;
     startDate: string;
   }) => Promise<unknown> | unknown;
-  materialPlanning?: MaterialPlanningActions;
+  withdrawDraw?: (drawKey: string) => Promise<unknown> | unknown;
 }
 
 export interface ProductionBuildDetail {
   appPermissions?: BuilderStaffAppPermissions | null;
+  auditEvents?: ProductionAuditEvent[];
+  availableContractors?: ProductionAvailableContractor[];
   build: {
     _id: string;
     buildName: string;
@@ -309,7 +375,20 @@ export interface ProductionBuildDetail {
     lenderDrawPolicyLimitCents: number;
     version: number;
   } | null;
+  contractors?: ProductionAttachedContractor[];
+  costItems?: MaterialPlanningItem[];
+  displayId?: string;
+  documents?: ProductionDocument[];
+  drawFunding?: {
+    approvedMilestoneCents: number;
+    availableCents: number;
+    facilityCents: number;
+    reservedCents: number;
+    unlockedCents: number;
+  };
   draws: ProductionDraw[];
+  evidenceAssets?: ProductionEvidenceAsset[];
+  facilityChangeRequests?: ProductionFacilityChangeRequest[];
   loanFacility?: {
     principalCents: number;
     interestAnnualBps: number;
@@ -317,20 +396,13 @@ export interface ProductionBuildDetail {
     paybackDate?: string;
     status: "active" | "closed";
   } | null;
-  facilityChangeRequests?: ProductionFacilityChangeRequest[];
-  auditEvents?: ProductionAuditEvent[];
-  availableContractors?: ProductionAvailableContractor[];
-  contractors?: ProductionAttachedContractor[];
   milestoneContractorAssignments?: ProductionMilestoneContractorAssignment[];
-  costItems?: MaterialPlanningItem[];
-  displayId?: string;
-  documents?: ProductionDocument[];
-  evidenceAssets?: ProductionEvidenceAsset[];
   milestones: ProductionMilestone[];
   notes?: {
     internal: ProductionNote[];
     public: ProductionNote[];
   };
+  plannedDraws?: ProductionPlannedDraw[];
   quickActionEvents?: ProductionRailEvent[];
   sitePhotos?: ProductionSitePhoto[];
   siteVisits?: ProductionSiteVisit[];
@@ -339,21 +411,22 @@ export interface ProductionBuildDetail {
 
 interface ProductionMilestone {
   _id: string;
+  budgetCents: number;
+  completionClaim?: Record<string, unknown>;
+  completionReview?: Record<string, any>;
+  dayEnd: number;
+  dayStart: number;
+  dependencyKeys: string[];
+  drawAvailabilityCents: number;
+  durationDays: number;
+  evidenceState?: string;
+  isDragLocked?: boolean;
   key: string;
   name: string;
   order: number;
-  budgetCents: number;
-  drawAvailabilityCents: number;
-  dayStart: number;
-  dayEnd: number;
-  durationDays: number;
-  dependencyKeys: string[];
-  completionClaim?: Record<string, unknown>;
-  completionReview?: Record<string, any>;
-  evidenceState?: string;
-  isDragLocked?: boolean;
   policyState?: string;
   progressPercent?: number;
+  siteVisitGuidance?: SiteVisitGuidance;
   startedAt?: number;
   status: ProductionMilestoneStatus;
   updatedAt?: number;
@@ -361,32 +434,50 @@ interface ProductionMilestone {
 
 interface ProductionSubmilestone {
   _id: string;
-  milestoneKey: string;
-  key: string;
-  name: string;
-  order: number;
   budgetCents?: number;
   durationDays?: number;
+  key: string;
+  milestoneKey: string;
+  name: string;
+  order: number;
   startDay?: number;
   status: ProductionMilestoneStatus;
 }
 
 interface ProductionDraw {
   _id: string;
+  amountCents: number;
+  drawKey: string;
+  label: string;
+  milestoneKey?: string;
+  order: number;
+  releaseDate?: string;
+  releasedAt?: string;
+  releaseNote?: string;
+  requestedAt?: string;
+  requestNote?: string;
+  requestReviewNote?: string;
+  reviewedAt?: string;
+  sourceAllocations?: Array<{
+    amountCents: number;
+    drawGroupKey: string;
+    milestoneKey: string;
+    milestoneName: string;
+    sourceOrder: number;
+  }>;
+  status: ProductionDrawStatus;
+  timingDay: number;
+  withdrawalNote?: string;
+  withdrawnAt?: string;
+  workOrderKey?: string;
+}
+
+interface ProductionPlannedDraw {
+  amountCents: number;
   drawKey: string;
   label: string;
   order: number;
   timingDay: number;
-  amountCents: number;
-  milestoneKey?: string;
-  requestNote?: string;
-  requestReviewNote?: string;
-  requestedAt?: string;
-  reviewedAt?: string;
-  releaseDate?: string;
-  releaseNote?: string;
-  releasedAt?: string;
-  status: ProductionDrawStatus;
 }
 
 interface ProductionFacilityChangeRequest {
@@ -403,9 +494,9 @@ interface ProductionFacilityChangeRequest {
     requestedPrincipalCents?: number;
   };
   requestType: "principalIncrease" | "paybackExtension";
-  reviewNote?: string;
   reviewedAt?: number;
   reviewerWorkosUserId?: string;
+  reviewNote?: string;
   status: "requested" | "approved" | "rejected";
   updatedAt?: number;
 }
@@ -477,15 +568,16 @@ interface ProductionAuditEvent {
 
 interface ProductionAttachedContractor {
   _id: string;
-  contractorId?: string;
   agreedRateCents?: number;
   agreedRateUnit?: "hour" | "day" | "fixed";
   city?: string;
+  contractorId?: string;
   defaultPayRateCents?: number;
   defaultPayRateUnit?: "hour" | "day" | "fixed";
   email?: string;
   hourlyRateCents?: number;
   name: string;
+  onboardingStatus?: "profile_only" | "invited" | "account_linked";
   payRateCents?: number;
   payRateUnit?: "hour" | "day" | "fixed";
   role: string;
@@ -497,7 +589,9 @@ interface ProductionAvailableContractor {
   city?: string;
   defaultPayRateCents?: number;
   defaultPayRateUnit?: "hour" | "day" | "fixed";
+  email?: string;
   name: string;
+  onboardingStatus?: "profile_only" | "invited" | "account_linked";
   skills?: string[];
   trades?: string[];
 }
@@ -527,14 +621,20 @@ interface ProductionMilestoneContractorAssignment {
 interface ProductionSiteVisit {
   _id?: string;
   completedAt?: string;
+  createdAt?: number;
   milestoneKey: string;
   note?: string;
-  recordNoteFormat?: "plain_text" | "html";
   recordNote?: string;
+  recordNoteFormat?: "plain_text" | "html";
   requestedAt: string;
   requestedDay: number;
+  requestedTime?: string;
   status: string;
+  tokenConsumedAt?: number;
   tokenExpiresAt?: number;
+  tokenOpenedAt?: number;
+  updatedAt?: number;
+  url?: string;
   visitId: string;
 }
 
@@ -575,6 +675,7 @@ export function ProductionBuildDetailSurface({
   breadcrumbSectionHref = "/backoffice/builds",
   breadcrumbSectionLabel = "Builds",
   detail,
+  fundingWorkspaceEnabled = false,
   milestoneKey,
   onChangeMilestone,
   onChangeCalendarTimeframe,
@@ -594,6 +695,7 @@ export function ProductionBuildDetailSurface({
   calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   contractorDetailHrefFor?: (contractorId: string) => string;
   detail: ProductionBuildDetail;
+  fundingWorkspaceEnabled?: boolean;
   breadcrumbRootHref?: string;
   breadcrumbRootLabel?: string;
   breadcrumbSectionHref?: string;
@@ -612,7 +714,7 @@ export function ProductionBuildDetailSurface({
 }) {
   const projection = useMemo(
     () => buildProductionBuildProjection(detail),
-    [detail],
+    [detail]
   );
   const currentDay = resolveProductionCurrentDay(detail, timelineWorkspace);
   const eventsOpen = rail === "open";
@@ -624,7 +726,14 @@ export function ProductionBuildDetailSurface({
   >(milestoneKey ?? null);
   const [assignContractorMilestoneKey, setAssignContractorMilestoneKey] =
     useState<string | null>(null);
+  const [siteVisitOrderRequest, setSiteVisitOrderRequest] =
+    useState<SiteVisitOrderRequest | null>(null);
   const activeMilestoneKey = milestoneKey ?? localActiveMilestoneKey;
+  const activeMilestone = activeMilestoneKey
+    ? (projection.milestones.find(
+        (milestone) => milestone.key === activeMilestoneKey
+      ) ?? null)
+    : null;
   const setActiveMilestoneKey = (next: string | null) => {
     setLocalActiveMilestoneKey(next);
     onChangeMilestone?.(next ?? undefined);
@@ -636,11 +745,46 @@ export function ProductionBuildDetailSurface({
             detail,
             projection,
             activeMilestoneKey,
-            currentDay,
+            currentDay
           )
         : null,
-    [activeMilestoneKey, currentDay, detail, projection],
+    [activeMilestoneKey, currentDay, detail, projection]
   );
+  const siteVisitOrderMilestone = siteVisitOrderRequest
+    ? (detail.milestones.find(
+        (milestone) => milestone.key === siteVisitOrderRequest.milestoneKey
+      ) ?? null)
+    : null;
+  const siteVisitOrderSubmilestones = siteVisitOrderRequest
+    ? detail.submilestones
+        .filter(
+          (submilestone) =>
+            submilestone.milestoneKey === siteVisitOrderRequest.milestoneKey
+        )
+        .sort((left, right) => left.order - right.order)
+    : [];
+  const requestSiteVisit = (request: SiteVisitOrderRequest) => {
+    setSiteVisitOrderRequest(request);
+  };
+  const confirmSiteVisitOrder = async (input: SiteVisitOrderConfirmation) => {
+    if (input.requestedDay !== undefined && actions?.scheduleSiteVisit) {
+      return await actions.scheduleSiteVisit({
+        milestoneKey: input.milestoneKey,
+        ...(input.note ? { note: input.note } : {}),
+        requestedDay: input.requestedDay,
+        ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
+        siteVisitGuidance: input.siteVisitGuidance,
+        submilestoneKeys: input.submilestoneKeys,
+      });
+    }
+    return await actions?.assignSiteVisit?.({
+      milestoneKey: input.milestoneKey,
+      ...(input.note ? { note: input.note } : {}),
+      ...(input.requestedTime ? { requestedTime: input.requestedTime } : {}),
+      siteVisitGuidance: input.siteVisitGuidance,
+      submilestoneKeys: input.submilestoneKeys,
+    });
+  };
 
   return (
     <main
@@ -669,6 +813,24 @@ export function ProductionBuildDetailSurface({
             contractorDetailHrefFor={contractorDetailHrefFor}
             currentDay={currentDay}
             detail={detail}
+            fundingWorkspaceEnabled={fundingWorkspaceEnabled}
+            onAssignContractor={
+              actions?.assignContractorToMilestone ||
+              actions?.createAndAssignContractor
+                ? (card) => setAssignContractorMilestoneKey(card.milestoneKey)
+                : undefined
+            }
+            onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
+            onOpenMilestone={setActiveMilestoneKey}
+            projection={projection}
+            viewerRole={viewerRole}
+          />
+        ) : null}
+        {activeTab === "milestones" ? (
+          <ProductionMilestonesTab
+            actions={actions}
+            currentDay={currentDay}
+            detail={detail}
             onAssignContractor={
               actions?.assignContractorToMilestone ||
               actions?.createAndAssignContractor
@@ -677,12 +839,23 @@ export function ProductionBuildDetailSurface({
             }
             onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
             projection={projection}
+            viewerRole={viewerRole}
+          />
+        ) : null}
+        {activeTab === "contractors" ? (
+          <ProductionContractorsTab
+            actions={actions}
+            contractorDetailHrefFor={contractorDetailHrefFor}
+            detail={detail}
+            viewerRole={viewerRole}
           />
         ) : null}
         {activeTab === "timeline" ? (
           <ProductionTimelineTab
+            actions={actions}
             activeBuildId={activeBuildId}
             detail={detail}
+            onRequestSiteVisit={requestSiteVisit}
             timelineWorkspace={timelineWorkspace}
             viewerRole={viewerRole}
             workosOrganizationId={workosOrganizationId}
@@ -713,14 +886,18 @@ export function ProductionBuildDetailSurface({
             detail={detail}
             onChangeCalendarTimeframe={onChangeCalendarTimeframe}
             onChangeTab={onChangeTab}
+            onRequestSiteVisit={requestSiteVisit}
             workosOrganizationId={workosOrganizationId}
           />
         ) : null}
         {activeTab === "gantt" ? (
           <ProductionGanttTab
+            actions={actions}
             activeBuildId={activeBuildId}
             detail={detail}
+            onRequestSiteVisit={requestSiteVisit}
             timelineWorkspace={timelineWorkspace}
+            viewerRole={viewerRole}
             workosOrganizationId={workosOrganizationId}
           />
         ) : null}
@@ -733,39 +910,66 @@ export function ProductionBuildDetailSurface({
         open={eventsOpen}
         quickActionEvents={detail.quickActionEvents ?? []}
       />
-      <MilestoneDetailSheet
-        assignmentsSourceLabel="buildContractorAssignments"
-        data={sheetData}
-        eventsSourceLabel="activeBuildAuditEvents"
-        onApprove={async (milestoneKey, note) => {
-          await actions?.approveMilestone?.({ milestoneKey, note });
+      {viewerRole === "lender" && activeMilestone ? (
+        <MilestoneCompletionReviewSheet
+          actions={actions}
+          detail={detail}
+          milestone={activeMilestone}
+          onOpenChange={(open) => {
+            if (!open) {
+              setActiveMilestoneKey(null);
+            }
+          }}
+          onRequestSiteVisit={requestSiteVisit}
+          open
+          projection={projection}
+        />
+      ) : (
+        <MilestoneDetailSheet
+          assignmentsSourceLabel="buildContractorAssignments"
+          data={sheetData}
+          eventsSourceLabel="activeBuildAuditEvents"
+          onAssignContractor={
+            actions?.assignContractorToMilestone ||
+            actions?.createAndAssignContractor
+              ? (milestoneKey) => setAssignContractorMilestoneKey(milestoneKey)
+              : undefined
+          }
+          onClose={() => setActiveMilestoneKey(null)}
+          onStartWork={
+            actions?.startMilestoneWork
+              ? (milestoneKey, note) => {
+                  void actions.startMilestoneWork?.({ milestoneKey, note });
+                }
+              : undefined
+          }
+        />
+      )}
+      <SiteVisitOrderDialog
+        build={{
+          location: detail.build.location,
+          name: detail.build.buildName,
         }}
-        onAssignContractor={
-          actions?.assignContractorToMilestone ||
-          actions?.createAndAssignContractor
-            ? (milestoneKey) => setAssignContractorMilestoneKey(milestoneKey)
-            : undefined
-        }
-        onAssignVisit={(milestoneKey) =>
-          void actions?.assignSiteVisit?.({ milestoneKey })
-        }
-        onClose={() => setActiveMilestoneKey(null)}
-        onReject={(milestoneKey) =>
-          void actions?.rejectMilestone?.({ milestoneKey })
-        }
-        onRequestInfo={(milestoneKey, note) =>
-          void actions?.requestMilestoneInfo?.({ milestoneKey, note })
-        }
-        onStartWork={(milestoneKey, note) => {
-          void actions?.startMilestoneWork?.({ milestoneKey, note });
+        milestone={siteVisitOrderMilestone}
+        onConfirm={confirmSiteVisitOrder}
+        onGenerate={actions?.generateSiteVisitGuidance}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSiteVisitOrderRequest(null);
+          }
         }}
+        open={Boolean(siteVisitOrderRequest && siteVisitOrderMilestone)}
+        request={siteVisitOrderRequest}
+        submilestones={siteVisitOrderSubmilestones}
       />
       <ContractorQuickAddDrawer
         availableContractors={contractorAssignmentOptions(detail)}
         createLabel="Create and assign"
         description="Assign an existing build contractor or create a profile and attach it to this milestone scope."
         onAttachExisting={async ({ assignmentCost, contractorId, role }) => {
-          if (!assignContractorMilestoneKey) return;
+          if (!assignContractorMilestoneKey) {
+            return;
+          }
           await actions?.assignContractorToMilestone?.({
             assignmentCost,
             contractorId,
@@ -774,16 +978,25 @@ export function ProductionBuildDetailSurface({
           });
         }}
         onCreate={async ({ assignmentCost, contractor, role }) => {
-          if (!assignContractorMilestoneKey) return;
-          await actions?.createAndAssignContractor?.({
+          if (!assignContractorMilestoneKey) {
+            return;
+          }
+          return await actions?.createAndAssignContractor?.({
             assignmentCost,
             contractor,
             milestoneKey: assignContractorMilestoneKey,
             role: role ?? "Contractor",
           });
         }}
+        onInviteCreatedContractor={
+          actions?.inviteContractor
+            ? (contractorId) => actions.inviteContractor?.(contractorId)
+            : undefined
+        }
         onOpenChange={(open) => {
-          if (!open) setAssignContractorMilestoneKey(null);
+          if (!open) {
+            setAssignContractorMilestoneKey(null);
+          }
         }}
         open={Boolean(assignContractorMilestoneKey)}
         requireRole
@@ -904,46 +1117,70 @@ function ProductionDetailsTab({
   contractorDetailHrefFor,
   currentDay,
   detail,
+  fundingWorkspaceEnabled,
   onAssignContractor,
   onCardClick,
+  onOpenMilestone,
   projection,
+  viewerRole,
 }: {
   actions?: ProductionBuildDetailActions;
   contractorDetailHrefFor?: (contractorId: string) => string;
   currentDay: number;
   detail: ProductionBuildDetail;
+  fundingWorkspaceEnabled: boolean;
   onAssignContractor?: (card: KanbanCardData) => void;
   onCardClick: (card: KanbanCardData) => void;
+  onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
+  viewerRole: "builder" | "lender";
 }) {
   const [showCompletedKanban, setShowCompletedKanban] = useState(false);
+  const [activeOverviewSection, setActiveOverviewSection] =
+    useState<BuildOverviewSection>("current");
   const kanbanCards = useMemo(
     () => buildProductionKanbanCards(detail, projection, currentDay),
-    [currentDay, detail, projection],
+    [currentDay, detail, projection]
   );
 
   return (
     <div className="flex flex-col gap-4" data-testid="production-build-details">
-      <section className="grid items-stretch gap-3 sm:gap-4 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.6fr)]">
+      <section
+        className={cn(
+          "grid items-stretch gap-3 sm:gap-4",
+          activeOverviewSection !== "draws" &&
+            "xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.6fr)]"
+        )}
+      >
         <ProductionBuildDetailsCard
+          actions={actions}
+          activeSection={activeOverviewSection}
+          detail={detail}
+          fundingWorkspaceEnabled={fundingWorkspaceEnabled}
+          onOpenMilestone={onOpenMilestone}
+          onSectionChange={setActiveOverviewSection}
+          projection={projection}
+          viewerRole={viewerRole}
+        />
+        {activeOverviewSection === "draws" ? null : (
+          <SitePhotoCarousel
+            buildName={detail.build.buildName}
+            photos={detail.sitePhotos ?? []}
+            siteAddress={detail.build.location}
+            siteLatitude={detail.build.locationLatitude}
+            siteLongitude={detail.build.locationLongitude}
+          />
+        )}
+      </section>
+
+      {viewerRole === "lender" && !fundingWorkspaceEnabled ? (
+        <ProductionDrawsTable
           actions={actions}
           detail={detail}
           projection={projection}
+          viewerRole={viewerRole}
         />
-        <SitePhotoCarousel
-          buildName={detail.build.buildName}
-          photos={detail.sitePhotos ?? []}
-          siteAddress={detail.build.location}
-          siteLatitude={detail.build.locationLatitude}
-          siteLongitude={detail.build.locationLongitude}
-        />
-      </section>
-
-      <ProductionDrawsTable
-        actions={actions}
-        detail={detail}
-        projection={projection}
-      />
+      ) : null}
 
       <FacilityChangeRequestsCard actions={actions} detail={detail} />
 
@@ -953,23 +1190,12 @@ function ProductionDetailsTab({
         onCardClick={onCardClick}
         onToggleShowCompleted={() => setShowCompletedKanban((prev) => !prev)}
         showCompleted={showCompletedKanban}
+        viewerRole={viewerRole}
       />
 
       <section className="grid gap-3 sm:gap-4 xl:grid-cols-2">
         <ContractorsCard
-          actions={{
-            onAttachExisting: actions?.attachContractor
-              ? (input) => {
-                  void actions.attachContractor?.(input);
-                }
-              : undefined,
-            onCreateAndAttach: actions?.createAndAttachContractor
-              ? (input) => {
-                  void actions.createAndAttachContractor?.(input);
-                }
-              : undefined,
-            sourceLabel: "production_contractors",
-          }}
+          actions={contractorsCardActions(actions)}
           availableContractors={detail.availableContractors ?? []}
           buildId={detail.build._id}
           contractorDetailHrefFor={contractorDetailHrefFor}
@@ -1001,28 +1227,46 @@ function ProductionDetailsTab({
   );
 }
 
+type BuildOverviewSection = "current" | "draws" | "build" | "loan";
+
+function fundingRequestAction(
+  draws: ProductionDraw[],
+  action?: (draw: ProductionDraw) => Promise<unknown> | unknown
+) {
+  if (!action) {
+    return;
+  }
+  return (request: FundingRequestRecord) => {
+    const draw = draws.find((row) => row.drawKey === request.drawKey);
+    if (!draw) {
+      throw new Error("This draw request is no longer available.");
+    }
+    return action(draw);
+  };
+}
+
 function ProductionBuildDetailsCard({
+  activeSection,
   actions,
   detail,
+  fundingWorkspaceEnabled,
+  onOpenMilestone,
+  onSectionChange,
   projection,
+  viewerRole,
 }: {
+  activeSection: BuildOverviewSection;
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
+  fundingWorkspaceEnabled: boolean;
+  onOpenMilestone: (milestoneKey: string) => void;
+  onSectionChange: (section: BuildOverviewSection) => void;
   projection: ProductionBuildProjection;
+  viewerRole: "builder" | "lender";
 }) {
-  const completed = projection.milestones.filter(
-    (milestone) => milestone.status === "complete",
-  ).length;
-  const percentComplete =
-    projection.milestones.length > 0
-      ? Math.round((completed / projection.milestones.length) * 100)
-      : 0;
-  const drawnCents = projection.draws
-    .filter((draw) => draw.status === "released")
-    .reduce((sum, draw) => sum + draw.amountCents, 0);
-  const drawAvailableCents = projection.milestones.reduce(
-    (sum, milestone) => sum + milestone.drawAvailabilityCents,
-    0,
+  const currentOverview = useMemo(
+    () => buildCurrentBuildOverview(detail, projection),
+    [detail, projection]
   );
   const siteVisitsOpen =
     detail.siteVisits?.filter((visit) => visit.status === "requested").length ??
@@ -1032,16 +1276,13 @@ function ProductionBuildDetailsCard({
     (detail.sitePhotos?.filter((photo) => photo.locationVerified === false)
       .length ?? 0);
   const [editOpen, setEditOpen] = useState(false);
-
   return (
     <>
       <Card data-testid="production-build-details-card" id="ui-build-details">
         <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 pb-2 sm:p-5 sm:pb-3">
-          <CardTitle className="text-sm">Build Details</CardTitle>
+          <CardTitle className="text-sm">Build Overview</CardTitle>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="text-[11px] text-muted-foreground">
-              active_builds
-            </span>
+            <span className="text-muted-foreground text-xs">active_builds</span>
             {actions?.updateNonFinancialDetails ? (
               <Button
                 aria-label="Edit build details"
@@ -1057,95 +1298,119 @@ function ProductionBuildDetailsCard({
           </div>
         </CardHeader>
         <CardContent className="p-3 pt-0 sm:p-5 sm:pt-0">
-          <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_minmax(0,1fr)]">
-            <Label>Loan number</Label>
-            <dd className="min-w-0 break-words tabular-nums">
-              FL-{detail.displayId ?? detail.build._id}
-            </dd>
-            <Label>Address</Label>
-            <dd className="min-w-0 break-words">{detail.build.location}</dd>
-            <Label>Latitude</Label>
-            <dd className="min-w-0 break-words tabular-nums">
-              {formatCoordinate(detail.build.locationLatitude)}
-            </dd>
-            <Label>Longitude</Label>
-            <dd className="min-w-0 break-words tabular-nums">
-              {formatCoordinate(detail.build.locationLongitude)}
-            </dd>
-            <Label>Project start</Label>
-            <dd className="min-w-0 break-words">
-              {formatDate(detail.build.startDate)}
-            </dd>
-            <Label>Roadmap end</Label>
-            <dd className="min-w-0 break-words">
-              {formatDate(
-                addDaysSafe(detail.build.startDate, projection.maxDay),
-              )}
-            </dd>
-            <Label>% complete</Label>
-            <dd className="flex min-w-0 items-center gap-2">
-              <span className="tabular-nums">{percentComplete}%</span>
-              <span
-                aria-hidden
-                className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted sm:w-24 sm:flex-none"
-              >
-                <span
-                  className="block h-full bg-primary"
-                  style={{ width: `${Math.min(100, percentComplete)}%` }}
-                />
-              </span>
-            </dd>
-            <Label>Open warnings</Label>
-            <dd className={openWarnings > 0 ? "text-amber-400" : undefined}>
-              {openWarnings}
-            </dd>
-            <Label>Site visits open</Label>
-            <dd>{siteVisitsOpen}</dd>
-          </dl>
-          <hr className="my-4 border-border" />
-          <h3 className="mb-2 font-semibold text-sm">Loan Details</h3>
-          <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_1fr]">
-            <Label>Working capital limit</Label>
-            <span className="min-w-0 break-words">
-              {formatCents(
-                detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0,
-              )}
-            </span>
-            <Label>Lender policy limit</Label>
-            <span className="min-w-0 break-words">
-              {formatCents(detail.capitalPlan?.lenderDrawPolicyLimitCents ?? 0)}
-            </span>
-            <Label>Approved principal</Label>
-            <span className="min-w-0 break-words">
-              {formatCents(detail.loanFacility?.principalCents ?? 0)}
-            </span>
-            <Label>Payback date</Label>
-            <span className="min-w-0 break-words">
-              {detail.loanFacility?.paybackDate
-                ? formatDate(detail.loanFacility.paybackDate)
-                : formatDate(
-                    addDaysSafe(detail.build.startDate, projection.maxDay),
+          <Tabs
+            onValueChange={(value) =>
+              onSectionChange(value as BuildOverviewSection)
+            }
+            value={activeSection}
+          >
+            <TabsList
+              aria-label="Build overview sections"
+              className="mb-4"
+              variant="underline"
+            >
+              <TabsTab data-testid="build-overview-tab-current" value="current">
+                Current
+              </TabsTab>
+              <TabsTab data-testid="build-overview-tab-draws" value="draws">
+                Draws
+              </TabsTab>
+              <TabsTab data-testid="build-overview-tab-build" value="build">
+                Build
+              </TabsTab>
+              <TabsTab data-testid="build-overview-tab-loan" value="loan">
+                Loan
+              </TabsTab>
+            </TabsList>
+
+            <TabsPanel value="current">
+              <CurrentBuildOverviewPanel
+                currentOverview={currentOverview}
+                detail={detail}
+                onReviewMilestone={(milestone) =>
+                  onOpenMilestone(milestone.key)
+                }
+                projection={projection}
+                viewerRole={viewerRole}
+              />
+            </TabsPanel>
+
+            <TabsPanel value="draws">
+              {fundingWorkspaceEnabled ||
+              (viewerRole === "builder" &&
+                (actions?.requestDrawAmount ||
+                  detail.plannedDraws !== undefined)) ? (
+                <BuildFundingWorkspace
+                  model={projectBuildFunding({
+                    availability: detail.drawFunding,
+                    canRequest: Boolean(actions?.requestDrawAmount),
+                    facilityCents: detail.loanFacility?.principalCents,
+                    milestones: detail.milestones,
+                    plannedDraws:
+                      detail.plannedDraws ??
+                      detail.draws.filter((draw) => draw.status === "planned"),
+                    requests: detail.draws.filter(
+                      (
+                        draw
+                      ): draw is ProductionDraw & {
+                        status: Exclude<ProductionDrawStatus, "planned">;
+                      } => draw.status !== "planned"
+                    ),
+                    startDate: detail.build.startDate,
+                  })}
+                  onApproveDraw={fundingRequestAction(
+                    detail.draws,
+                    actions?.approveDraw
                   )}
-            </span>
-            <Label>Draw availability</Label>
-            <span className="min-w-0 break-words">
-              {formatCents(drawAvailableCents)} of{" "}
-              {formatCents(detail.build.totalBudgetCents)}
-            </span>
-            <Label>Drawn to date</Label>
-            <span className="min-w-0 break-words">
-              {formatCents(drawnCents)}
-            </span>
-            <Label>Interest (annual)</Label>
-            <span className="tabular-nums">
-              {((detail.loanFacility?.interestAnnualBps ?? 0) / 100).toFixed(
-                2,
+                  onOpenMilestone={onOpenMilestone}
+                  onRejectDraw={fundingRequestAction(
+                    detail.draws,
+                    actions?.rejectDraw
+                  )}
+                  onReleaseDraw={fundingRequestAction(
+                    detail.draws,
+                    actions?.releaseDraw
+                  )}
+                  onRequestDraw={actions?.requestDrawAmount}
+                  onStartDrawReview={fundingRequestAction(
+                    detail.draws,
+                    actions?.startDrawReview
+                  )}
+                  onSubmitDrawForAdmin={fundingRequestAction(
+                    detail.draws,
+                    actions?.submitDrawForAdmin
+                  )}
+                  onWithdrawDraw={actions?.withdrawDraw}
+                  viewerRole={viewerRole}
+                />
+              ) : (
+                <DrawOverviewPanel
+                  actions={actions}
+                  currentOverview={currentOverview}
+                  detail={detail}
+                  projection={projection}
+                  viewerRole={viewerRole}
+                />
               )}
-              %
-            </span>
-            <Label>Interest starts</Label>
-            <span>Funds released</span>
-          </dl>
+            </TabsPanel>
+
+            <TabsPanel value="build">
+              <BuildMetadataPanel
+                detail={detail}
+                openWarnings={openWarnings}
+                projection={projection}
+                siteVisitsOpen={siteVisitsOpen}
+              />
+            </TabsPanel>
+
+            <TabsPanel value="loan">
+              <LoanMetadataPanel
+                currentOverview={currentOverview}
+                detail={detail}
+                projection={projection}
+              />
+            </TabsPanel>
+          </Tabs>
         </CardContent>
       </Card>
       {actions?.updateNonFinancialDetails ? (
@@ -1160,6 +1425,1631 @@ function ProductionBuildDetailsCard({
   );
 }
 
+interface CurrentBuildOverview {
+  activeMilestones: ProductionMilestone[];
+  committedDrawCents: number;
+  currentAvailabilityCents: number;
+  drawnCents: number;
+  nextMilestone: ProductionMilestone | null;
+  percentComplete: number;
+  requestableAmountCents: number;
+  totalApprovedCents: number;
+  upcomingDraw: ProductionDraw | null;
+}
+
+function CurrentBuildOverviewPanel({
+  currentOverview,
+  detail,
+  onReviewMilestone,
+  projection,
+  viewerRole,
+}: {
+  currentOverview: CurrentBuildOverview;
+  detail: ProductionBuildDetail;
+  onReviewMilestone: (milestone: ProductionMilestone) => void;
+  projection: ProductionBuildProjection;
+  viewerRole: "builder" | "lender";
+}) {
+  return (
+    <div className="grid gap-4" data-testid="build-overview-current-panel">
+      <section className="grid gap-3">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="font-semibold text-sm">Current milestone</h3>
+            <p className="text-muted-foreground text-xs">
+              Active work, assignments, and completion authority.
+            </p>
+          </div>
+          <Badge size="sm" variant="info">
+            {currentOverview.percentComplete}% complete
+          </Badge>
+        </div>
+
+        {currentOverview.activeMilestones.length > 0 ? (
+          <div className="grid gap-3" data-testid="current-milestones">
+            {currentOverview.activeMilestones.map((milestone) => {
+              const contractors = contractorAssignmentsForMilestone(
+                detail,
+                milestone.key
+              );
+              const submilestones =
+                projection.submilestonesByMilestone.get(milestone.key) ?? [];
+              const progressPercent = milestoneProgressPercent(
+                milestone,
+                submilestones
+              );
+              const actionLabel =
+                viewerRole === "lender"
+                  ? "Review milestone completion"
+                  : "Complete Milestone";
+              return (
+                <article
+                  className="grid gap-3 border-border border-t pt-3 first:border-t-0 first:pt-0"
+                  data-testid={`current-milestone-${milestone.key}`}
+                  key={milestone.key}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="break-words font-semibold text-base">
+                          {milestone.name}
+                        </h4>
+                        <Badge
+                          size="sm"
+                          variant={
+                            milestoneHasPendingCompletionClaim(milestone)
+                              ? "warning"
+                              : "info"
+                          }
+                        >
+                          {milestoneHasPendingCompletionClaim(milestone)
+                            ? "Completion submitted"
+                            : "In progress"}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-muted-foreground text-xs">
+                        {formatDate(
+                          addDaysSafe(
+                            detail.build.startDate,
+                            milestone.dayStart
+                          )
+                        )}{" "}
+                        to{" "}
+                        {formatDate(
+                          addDaysSafe(detail.build.startDate, milestone.dayEnd)
+                        )}
+                      </p>
+                    </div>
+                    <Button
+                      className="shrink-0"
+                      data-testid={`current-milestone-review-${milestone.key}`}
+                      onClick={() => onReviewMilestone(milestone)}
+                      size="sm"
+                      type="button"
+                    >
+                      <CheckCircle2 aria-hidden="true" />
+                      {actionLabel}
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <OverviewMetric
+                      label="Budget"
+                      value={formatCents(milestone.budgetCents)}
+                    />
+                    <OverviewMetric
+                      label="Draw unlock"
+                      value={formatCents(milestone.drawAvailabilityCents)}
+                    />
+                    <OverviewMetric
+                      label="Progress"
+                      value={`${progressPercent}%`}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="text-muted-foreground">Progress</span>
+                      <span className="tabular-nums">{progressPercent}%</span>
+                    </div>
+                    <span
+                      aria-hidden="true"
+                      className="mt-1 block h-1.5 overflow-hidden rounded-full bg-muted"
+                    >
+                      <span
+                        className="block h-full bg-primary"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </span>
+                  </div>
+
+                  <div>
+                    <p className="mb-2 text-muted-foreground text-xs uppercase">
+                      Assigned contractors
+                    </p>
+                    {contractors.length > 0 ? (
+                      <ul className="grid gap-2">
+                        {contractors.map((contractor) => (
+                          <li
+                            className="flex min-w-0 items-center gap-2 text-sm"
+                            data-testid={`current-milestone-contractor-${milestone.key}`}
+                            key={`${milestone.key}-${contractor.name}-${contractor.role ?? ""}`}
+                          >
+                            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary/15 font-semibold text-primary text-xs">
+                              {initialsFor(contractor.name)}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="break-words font-medium">
+                                {contractor.name}
+                              </span>
+                              {contractor.role ? (
+                                <span className="ml-2 text-muted-foreground text-xs">
+                                  {contractor.role}
+                                </span>
+                              ) : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-muted-foreground text-sm">
+                        No contractors assigned.
+                      </p>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div
+            className="border-border border-t pt-3"
+            data-testid="current-milestones-empty"
+          >
+            <p className="font-medium text-sm">No active milestone.</p>
+            {currentOverview.nextMilestone ? (
+              <p className="mt-1 text-muted-foreground text-xs">
+                Next scheduled: {currentOverview.nextMilestone.name} on{" "}
+                {formatDate(
+                  addDaysSafe(
+                    detail.build.startDate,
+                    currentOverview.nextMilestone.dayStart
+                  )
+                )}
+                .
+              </p>
+            ) : (
+              <p className="mt-1 text-muted-foreground text-xs">
+                All milestones are complete.
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function DrawOverviewPanel({
+  actions,
+  currentOverview,
+  detail,
+  projection,
+  viewerRole,
+}: {
+  actions?: ProductionBuildDetailActions;
+  currentOverview: CurrentBuildOverview;
+  detail: ProductionBuildDetail;
+  projection: ProductionBuildProjection;
+  viewerRole: "builder" | "lender";
+}) {
+  const [pendingDrawAction, setPendingDrawAction] = useState<string | null>(
+    null
+  );
+  const [drawActionError, setDrawActionError] = useState("");
+  const canRequestDraw =
+    Boolean(actions?.requestDraw) &&
+    Boolean(currentOverview.upcomingDraw) &&
+    isRequestableDrawStatus(currentOverview.upcomingDraw?.status) &&
+    currentOverview.requestableAmountCents > 0 &&
+    !pendingDrawAction;
+  const inFlightDraws = projection.draws
+    .filter(
+      (draw) =>
+        draw.status === "requested" ||
+        draw.status === "in_review" ||
+        draw.status === "ready_for_admin" ||
+        draw.status === "approved_for_release"
+    )
+    .slice()
+    .sort(compareDrawsMostRecentFirst);
+  const approvalQueueDraws = inFlightDraws.filter(
+    (draw) =>
+      draw.status === "requested" ||
+      draw.status === "in_review" ||
+      draw.status === "ready_for_admin" ||
+      draw.status === "approved_for_release"
+  );
+  const pastDraws = projection.draws
+    .filter((draw) => draw.status === "released")
+    .slice()
+    .sort(compareDrawsMostRecentFirst);
+  const scheduledDraws = projection.draws
+    .filter((draw) => isRequestableDrawStatus(draw.status))
+    .slice()
+    .sort(compareDrawsScheduleFirst);
+  const remainingFacilityCents = Math.max(
+    0,
+    currentOverview.totalApprovedCents - currentOverview.committedDrawCents
+  );
+  const runDrawAction = async (
+    actionKey: string,
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  ) => {
+    if (!fn || pendingDrawAction) {
+      return;
+    }
+    setPendingDrawAction(`${actionKey}:${draw.drawKey}`);
+    setDrawActionError("");
+    try {
+      await fn(draw);
+    } catch (cause) {
+      setDrawActionError(
+        cause instanceof Error ? cause.message : "Unable to update draw."
+      );
+    } finally {
+      setPendingDrawAction(null);
+    }
+  };
+  const requestDrawNow = async () => {
+    const requestDraw = actions?.requestDraw;
+    const upcomingDraw = currentOverview.upcomingDraw;
+    if (
+      !(requestDraw && upcomingDraw) ||
+      currentOverview.requestableAmountCents <= 0 ||
+      pendingDrawAction
+    ) {
+      return;
+    }
+    await runDrawAction(
+      "request",
+      {
+        ...upcomingDraw,
+        amountCents: currentOverview.requestableAmountCents,
+      },
+      requestDraw
+    );
+  };
+
+  return (
+    <div className="grid gap-4" data-testid="draw-overview-panel">
+      <section className="grid gap-3">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="font-semibold text-sm">Draw overview</h3>
+            <p className="text-muted-foreground text-xs">
+              Availability, requests, approvals, releases, and scheduled draws.
+            </p>
+          </div>
+          {currentOverview.upcomingDraw ? (
+            <StatusChip status={currentOverview.upcomingDraw.status} />
+          ) : null}
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-3">
+          <OverviewMetric
+            label="Available now"
+            testId="draw-overview-availability"
+            value={formatCents(currentOverview.currentAvailabilityCents)}
+          />
+          <OverviewMetric
+            label="Total approved"
+            testId="draw-overview-total-approved"
+            value={formatCents(currentOverview.totalApprovedCents)}
+          />
+          <OverviewMetric
+            label="Committed draws"
+            testId="draw-overview-committed-draws"
+            value={formatCents(currentOverview.committedDrawCents)}
+          />
+          <OverviewMetric
+            label="Drawn to date"
+            testId="draw-overview-drawn-to-date"
+            value={formatCents(currentOverview.drawnCents)}
+          />
+          <OverviewMetric
+            label="Remaining facility"
+            testId="draw-overview-remaining-facility"
+            value={formatCents(remainingFacilityCents)}
+          />
+          <OverviewMetric
+            label="Requestable now"
+            testId="draw-overview-requestable-now"
+            value={formatCents(currentOverview.requestableAmountCents)}
+          />
+        </div>
+      </section>
+
+      {viewerRole === "builder" ? (
+        <section className="grid gap-3 border-border border-t pt-4">
+          {currentOverview.upcomingDraw ? (
+            <div
+              className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+              data-testid="draw-overview-upcoming-draw"
+            >
+              <div className="min-w-0">
+                <p className="text-muted-foreground text-xs uppercase">
+                  Upcoming draw
+                </p>
+                <p className="break-words font-medium text-sm">
+                  {currentOverview.upcomingDraw.label}
+                </p>
+                <p className="mt-1 text-muted-foreground text-xs">
+                  Planned{" "}
+                  {formatDate(
+                    addDaysSafe(
+                      detail.build.startDate,
+                      currentOverview.upcomingDraw.timingDay
+                    )
+                  )}{" "}
+                  · planned amount{" "}
+                  {formatCents(currentOverview.upcomingDraw.amountCents)}
+                </p>
+                <p className="mt-1 text-muted-foreground text-xs">
+                  Requestable now:{" "}
+                  {formatCents(currentOverview.requestableAmountCents)}
+                </p>
+              </div>
+              <Button
+                className="self-start"
+                data-testid="draw-overview-request-now"
+                disabled={!canRequestDraw}
+                loading={pendingDrawAction?.startsWith("request:") ?? false}
+                onClick={requestDrawNow}
+                size="sm"
+                type="button"
+              >
+                Request draw now
+              </Button>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No upcoming draw remains.
+            </p>
+          )}
+        </section>
+      ) : (
+        <section
+          className="grid gap-3 border-border border-t pt-4"
+          data-testid="draw-overview-approval-queue"
+        >
+          <div>
+            <h3 className="font-semibold text-sm">Draw approval queue</h3>
+            <p className="text-muted-foreground text-xs">
+              Review requested reimbursements, reject missing support, and
+              release approved funds.
+            </p>
+          </div>
+          {approvalQueueDraws.length > 0 ? (
+            <div className="grid gap-2">
+              {approvalQueueDraws.map((draw) => (
+                <DrawSummaryItem
+                  actions={actions}
+                  detail={detail}
+                  draw={draw}
+                  key={draw.drawKey}
+                  onRunAction={runDrawAction}
+                  pendingActionKey={pendingDrawAction}
+                  viewerRole={viewerRole}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-md border border-dashed p-3 text-muted-foreground text-sm">
+              No draw requests are waiting for lender action.
+            </p>
+          )}
+        </section>
+      )}
+
+      {drawActionError ? (
+        <p className="text-destructive text-xs" role="alert">
+          {drawActionError}
+        </p>
+      ) : null}
+
+      <DrawSummaryList
+        detail={detail}
+        draws={inFlightDraws}
+        emptyLabel="No draw requests are currently awaiting approval or release."
+        testId="draw-overview-in-flight-draws"
+        title="In-flight draws"
+      />
+      <DrawSummaryList
+        detail={detail}
+        draws={pastDraws}
+        emptyLabel="No released draws yet."
+        testId="draw-overview-past-draws"
+        title="Past draws"
+      />
+      <DrawSummaryList
+        detail={detail}
+        draws={scheduledDraws}
+        emptyLabel="No scheduled draws remain."
+        testId="draw-overview-scheduled-draws"
+        title="Upcoming schedule"
+      />
+    </div>
+  );
+}
+
+function DrawSummaryList({
+  actions,
+  detail,
+  draws,
+  emptyLabel,
+  onRunAction,
+  pendingActionKey,
+  testId,
+  title,
+  viewerRole,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+  draws: ProductionDraw[];
+  emptyLabel: string;
+  onRunAction?: (
+    actionKey: string,
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  ) => Promise<void>;
+  pendingActionKey?: string | null;
+  testId: string;
+  title: string;
+  viewerRole?: "builder" | "lender";
+}) {
+  return (
+    <section
+      className="grid gap-3 border-border border-t pt-4"
+      data-testid={testId}
+    >
+      <div>
+        <h3 className="font-semibold text-sm">{title}</h3>
+        <p className="text-muted-foreground text-xs">
+          {draws.length} draw{draws.length === 1 ? "" : "s"}
+        </p>
+      </div>
+      {draws.length > 0 ? (
+        <div className="grid gap-2">
+          {draws.map((draw) => (
+            <DrawSummaryItem
+              actions={actions}
+              detail={detail}
+              draw={draw}
+              key={draw.drawKey}
+              onRunAction={onRunAction}
+              pendingActionKey={pendingActionKey}
+              viewerRole={viewerRole}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="rounded-md border border-dashed p-3 text-muted-foreground text-sm">
+          {emptyLabel}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function DrawSummaryItem({
+  actions,
+  detail,
+  draw,
+  onRunAction,
+  pendingActionKey,
+  viewerRole,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+  draw: ProductionDraw;
+  onRunAction?: (
+    actionKey: string,
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  ) => Promise<void>;
+  pendingActionKey?: string | null;
+  viewerRole?: "builder" | "lender";
+}) {
+  const milestoneName =
+    draw.milestoneKey === undefined
+      ? null
+      : (detail.milestones.find(
+          (milestone) => milestone.key === draw.milestoneKey
+        )?.name ?? null);
+  const plannedDate = addDaysSafe(detail.build.startDate, draw.timingDay);
+  const releasedAt = draw.releasedAt ?? draw.releaseDate;
+
+  return (
+    <div
+      className="grid gap-2 rounded-md border bg-background/60 p-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+      data-testid={`draw-overview-draw-${draw.drawKey}`}
+    >
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="break-words font-medium text-sm">{draw.label}</p>
+          <StatusChip status={draw.status} />
+        </div>
+        <p className="mt-1 text-muted-foreground text-xs">
+          {milestoneName ? `${milestoneName} · ` : ""}
+          Planned {formatDate(plannedDate)}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground text-xs">
+          {draw.requestedAt ? (
+            <span>Requested {formatDate(draw.requestedAt)}</span>
+          ) : null}
+          {draw.reviewedAt ? (
+            <span>Reviewed {formatDate(draw.reviewedAt)}</span>
+          ) : null}
+          {releasedAt ? <span>Released {formatDate(releasedAt)}</span> : null}
+        </div>
+        {draw.requestNote ? (
+          <p className="mt-2 text-muted-foreground text-xs">
+            {draw.requestNote}
+          </p>
+        ) : null}
+      </div>
+      <div className="grid gap-2 text-left sm:justify-items-end sm:text-right">
+        <p className="text-muted-foreground text-xs uppercase">Amount</p>
+        <p className="font-semibold text-sm tabular-nums">
+          {formatCents(draw.amountCents)}
+        </p>
+        {viewerRole === "lender" && onRunAction ? (
+          <DrawActionGroup
+            actions={actions}
+            draw={draw}
+            onRunAction={onRunAction}
+            pendingActionKey={pendingActionKey}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function DrawActionGroup({
+  actions,
+  draw,
+  onRunAction,
+  pendingActionKey,
+}: {
+  actions?: ProductionBuildDetailActions;
+  draw: ProductionDraw;
+  onRunAction: (
+    actionKey: string,
+    draw: ProductionDraw,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
+  ) => Promise<void>;
+  pendingActionKey?: string | null;
+}) {
+  const isPending = (actionKey: string) =>
+    pendingActionKey === `${actionKey}:${draw.drawKey}`;
+
+  if (draw.status === "requested") {
+    return (
+      <DrawActionButton
+        disabled={!actions?.startDrawReview || Boolean(pendingActionKey)}
+        label={isPending("start") ? "Starting..." : "Start review"}
+        onClick={() => onRunAction("start", draw, actions?.startDrawReview)}
+        testId={`draw-overview-start-${draw.drawKey}`}
+      />
+    );
+  }
+
+  if (draw.status === "in_review") {
+    return (
+      <DrawActionButton
+        disabled={!actions?.submitDrawForAdmin || Boolean(pendingActionKey)}
+        label={isPending("submit") ? "Sending..." : "Send to admin"}
+        onClick={() => onRunAction("submit", draw, actions?.submitDrawForAdmin)}
+        testId={`draw-overview-submit-${draw.drawKey}`}
+      />
+    );
+  }
+
+  if (draw.status === "ready_for_admin") {
+    return (
+      <div className="flex flex-wrap gap-1 sm:justify-end">
+        <DrawActionButton
+          disabled={!actions?.approveDraw || Boolean(pendingActionKey)}
+          label={isPending("approve") ? "Approving..." : "Approve for release"}
+          onClick={() => onRunAction("approve", draw, actions?.approveDraw)}
+          testId={`draw-overview-approve-${draw.drawKey}`}
+        />
+        <DrawActionButton
+          disabled={!actions?.rejectDraw || Boolean(pendingActionKey)}
+          label={isPending("reject") ? "Rejecting..." : "Reject"}
+          onClick={() => onRunAction("reject", draw, actions?.rejectDraw)}
+          testId={`draw-overview-reject-${draw.drawKey}`}
+        />
+      </div>
+    );
+  }
+
+  if (draw.status === "approved_for_release") {
+    return (
+      <DrawActionButton
+        disabled={!actions?.releaseDraw || Boolean(pendingActionKey)}
+        label={isPending("release") ? "Releasing..." : "Release"}
+        onClick={() => onRunAction("release", draw, actions?.releaseDraw)}
+        testId={`draw-overview-release-${draw.drawKey}`}
+      />
+    );
+  }
+
+  return null;
+}
+
+function BuildMetadataPanel({
+  detail,
+  openWarnings,
+  projection,
+  siteVisitsOpen,
+}: {
+  detail: ProductionBuildDetail;
+  openWarnings: number;
+  projection: ProductionBuildProjection;
+  siteVisitsOpen: number;
+}) {
+  const percentComplete = buildPercentComplete(projection.milestones);
+  return (
+    <div data-testid="build-overview-build-panel">
+      <h3 className="mb-3 font-semibold text-sm">Build Details</h3>
+      <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_minmax(0,1fr)]">
+        <Label>Loan number</Label>
+        <dd className="min-w-0 break-words tabular-nums">
+          FL-{detail.displayId ?? detail.build._id}
+        </dd>
+        <Label>Address</Label>
+        <dd className="min-w-0 break-words">{detail.build.location}</dd>
+        <Label>Latitude</Label>
+        <dd className="min-w-0 break-words tabular-nums">
+          {formatCoordinate(detail.build.locationLatitude)}
+        </dd>
+        <Label>Longitude</Label>
+        <dd className="min-w-0 break-words tabular-nums">
+          {formatCoordinate(detail.build.locationLongitude)}
+        </dd>
+        <Label>Project start</Label>
+        <dd className="min-w-0 break-words">
+          {formatDate(detail.build.startDate)}
+        </dd>
+        <Label>Roadmap end</Label>
+        <dd className="min-w-0 break-words">
+          {formatDate(addDaysSafe(detail.build.startDate, projection.maxDay))}
+        </dd>
+        <Label>% complete</Label>
+        <dd className="flex min-w-0 items-center gap-2">
+          <span className="tabular-nums">{percentComplete}%</span>
+          <span
+            aria-hidden="true"
+            className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted sm:w-24 sm:flex-none"
+          >
+            <span
+              className="block h-full bg-primary"
+              style={{ width: `${Math.min(100, percentComplete)}%` }}
+            />
+          </span>
+        </dd>
+        <Label>Open warnings</Label>
+        <dd className={openWarnings > 0 ? "text-amber-400" : undefined}>
+          {openWarnings}
+        </dd>
+        <Label>Site visits open</Label>
+        <dd>{siteVisitsOpen}</dd>
+      </dl>
+    </div>
+  );
+}
+
+function LoanMetadataPanel({
+  currentOverview,
+  detail,
+  projection,
+}: {
+  currentOverview: CurrentBuildOverview;
+  detail: ProductionBuildDetail;
+  projection: ProductionBuildProjection;
+}) {
+  return (
+    <div data-testid="build-overview-loan-panel">
+      <h3 className="mb-3 font-semibold text-sm">Loan Details</h3>
+      <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_1fr]">
+        <Label>Working capital limit</Label>
+        <span className="min-w-0 break-words">
+          {formatCents(
+            detail.capitalPlan?.borrowerWorkingCapitalLimitCents ?? 0
+          )}
+        </span>
+        <Label>Lender policy limit</Label>
+        <span className="min-w-0 break-words">
+          {formatCents(detail.capitalPlan?.lenderDrawPolicyLimitCents ?? 0)}
+        </span>
+        <Label>Approved principal</Label>
+        <span className="min-w-0 break-words">
+          {formatCents(detail.loanFacility?.principalCents ?? 0)}
+        </span>
+        <Label>Payback date</Label>
+        <span className="min-w-0 break-words">
+          {detail.loanFacility?.paybackDate
+            ? formatDate(detail.loanFacility.paybackDate)
+            : formatDate(
+                addDaysSafe(detail.build.startDate, projection.maxDay)
+              )}
+        </span>
+        <Label>Draw availability</Label>
+        <span className="min-w-0 break-words">
+          {formatCents(currentOverview.currentAvailabilityCents)} of{" "}
+          {formatCents(currentOverview.totalApprovedCents)}
+        </span>
+        <Label>Drawn to date</Label>
+        <span className="min-w-0 break-words">
+          {formatCents(currentOverview.drawnCents)}
+        </span>
+        <Label>Interest (annual)</Label>
+        <span className="tabular-nums">
+          {((detail.loanFacility?.interestAnnualBps ?? 0) / 100).toFixed(2)}%
+        </span>
+        <Label>Interest starts</Label>
+        <span>Funds released</span>
+      </dl>
+    </div>
+  );
+}
+
+function OverviewMetric({
+  label,
+  testId,
+  value,
+}: {
+  label: string;
+  testId?: string;
+  value: string;
+}) {
+  return (
+    <div
+      className="min-w-0 rounded-md bg-muted/50 px-3 py-2"
+      data-testid={testId}
+    >
+      <p className="text-muted-foreground text-xs uppercase">{label}</p>
+      <p className="truncate font-semibold text-sm tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function MilestoneCompletionReviewSheet({
+  actions,
+  detail,
+  milestone,
+  onOpenChange,
+  onRequestSiteVisit,
+  open,
+  projection,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+  milestone: ProductionMilestone;
+  onOpenChange: (open: boolean) => void;
+  onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
+  open: boolean;
+  projection: ProductionBuildProjection;
+}) {
+  const [note, setNote] = useState("");
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [locallyCancelledVisitIds, setLocallyCancelledVisitIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const builderRows = useMemo(
+    () =>
+      buildBuilderEvidenceRows(detail, projection).filter(
+        (row) => row.milestoneKey === milestone.key
+      ),
+    [detail, milestone.key, projection]
+  );
+  const siteVisitRows = useMemo(
+    () =>
+      buildCompletedSiteVisitRows(detail, projection).filter(
+        (row) => row.milestoneKey === milestone.key
+      ),
+    [detail, milestone.key, projection]
+  );
+  const siteVisits = useMemo(
+    () =>
+      siteVisitsForMilestone(detail, milestone).filter(
+        (visit) => !locallyCancelledVisitIds.has(siteVisitIdentity(visit))
+      ),
+    [detail, locallyCancelledVisitIds, milestone]
+  );
+  const latestVisit = siteVisits[0] ?? null;
+  const scopeRows = useMemo(
+    () =>
+      detail.submilestones
+        .filter((row) => row.milestoneKey === milestone.key)
+        .sort((a, b) => a.order - b.order),
+    [detail.submilestones, milestone.key]
+  );
+  const contractorRows = useMemo(
+    () => contractorAssignmentsForMilestone(detail, milestone.key),
+    [detail, milestone.key]
+  );
+  const materialRows = useMemo(
+    () =>
+      (detail.costItems ?? []).filter(
+        (item) => item.milestoneKey === milestone.key
+      ),
+    [detail.costItems, milestone.key]
+  );
+  const completedScopeCount = scopeRows.filter(
+    (row) => row.status === "complete"
+  ).length;
+  const claimSubmittedAt = stringFromRecord(
+    milestone.completionClaim,
+    "submittedAt"
+  );
+  const completedDay = numberFromRecord(
+    milestone.completionClaim,
+    "completedDay"
+  );
+  const completionDate =
+    completedDay === undefined
+      ? undefined
+      : addDaysSafe(detail.build.startDate, completedDay);
+  const claimNote = stringFromRecord(milestone.completionClaim, "note");
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setNote("");
+    setPendingAction(null);
+    setError("");
+  }, [milestone.key, open]);
+
+  useEffect(() => {
+    setLocallyCancelledVisitIds(new Set());
+  }, [milestone.key]);
+
+  async function runReviewAction(
+    actionKey: string,
+    fallbackError: string,
+    action: () => Promise<unknown> | unknown
+  ) {
+    if (pendingAction) {
+      return false;
+    }
+    setPendingAction(actionKey);
+    setError("");
+    try {
+      await action();
+      if (actionKey === "approve-completion") {
+        onOpenChange(false);
+      }
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : fallbackError);
+      return false;
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  const approveCompletion = () =>
+    runReviewAction(
+      "approve-completion",
+      "Unable to approve milestone completion.",
+      () =>
+        actions?.approveMilestone?.({
+          milestoneKey: milestone.key,
+          note: note.trim() || "Approved from milestone completion review.",
+        })
+    );
+  const requestInfo = () =>
+    runReviewAction(
+      "request-info",
+      "Unable to request more information.",
+      () =>
+        actions?.requestMilestoneInfo
+          ? actions.requestMilestoneInfo({
+              milestoneKey: milestone.key,
+              note:
+                note.trim() ||
+                "More information requested from milestone completion review.",
+            })
+          : actions?.reviewEvidence?.({
+              accepted: false,
+              milestoneKey: milestone.key,
+              note:
+                note.trim() ||
+                "More information requested from milestone completion review.",
+            })
+    );
+  const approveBuilderEvidence = () =>
+    runReviewAction(
+      "approve-evidence",
+      "Unable to approve builder evidence.",
+      () =>
+        actions?.reviewEvidence?.({
+          accepted: true,
+          milestoneKey: milestone.key,
+          note:
+            note.trim() ||
+            "Builder evidence approved from milestone completion review.",
+        })
+    );
+  const regenerateSiteVisitToken = () =>
+    runReviewAction(
+      "regenerate-site-visit-token",
+      "Unable to regenerate site visit token.",
+      () => actions?.assignSiteVisit?.({ milestoneKey: milestone.key })
+    );
+  const cancelSiteVisit = async (visit: ProductionSiteVisit) => {
+    const cancelled = await runReviewAction(
+      "cancel-site-visit",
+      "Unable to cancel site visit.",
+      () =>
+        actions?.cancelSiteVisit?.({
+          reason: note.trim() || "Cancelled from milestone completion review.",
+          visitId: visit.visitId,
+        })
+    );
+    if (cancelled) {
+      setLocallyCancelledVisitIds((current) => {
+        const next = new Set(current);
+        next.add(siteVisitIdentity(visit));
+        return next;
+      });
+    }
+  };
+
+  return (
+    <Sheet onOpenChange={onOpenChange} open={open}>
+      <SheetPopup className="sm:max-w-4xl" side="right" variant="inset">
+        <SheetHeader>
+          <SheetTitle>Review milestone completion</SheetTitle>
+          <SheetDescription>
+            Reconcile the builder claim, assigned scope, evidence, and field
+            verification before releasing {milestone.name} funding.
+          </SheetDescription>
+        </SheetHeader>
+
+        <SheetPanel className="flex flex-col gap-4">
+          <Card
+            className="rounded-xl shadow-none"
+            data-testid="milestone-completion-review-summary"
+            render={<section />}
+          >
+            <CardHeader className="gap-1 p-4 pb-3">
+              <p className="text-muted-foreground text-xs uppercase tracking-wide">
+                Builder completion claim
+              </p>
+              <CardTitle className="text-lg">{milestone.name}</CardTitle>
+              <CardDescription className="text-xs">
+                {claimNote ??
+                  "No builder note was supplied with this completion claim."}
+              </CardDescription>
+              <CardAction>
+                <Badge
+                  variant={
+                    milestoneHasPendingCompletionClaim(milestone)
+                      ? "warning"
+                      : "info"
+                  }
+                >
+                  {milestoneHasPendingCompletionClaim(milestone)
+                    ? "Completion submitted"
+                    : "In progress"}
+                </Badge>
+              </CardAction>
+            </CardHeader>
+            <CardPanel className="px-4 pt-0 pb-4">
+              <dl className="grid divide-y border-y text-sm sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                <ReviewFact
+                  label="Submitted"
+                  value={claimSubmittedAt ? formatDate(claimSubmittedAt) : "-"}
+                />
+                <ReviewFact
+                  label="Completed"
+                  value={completionDate ? formatDate(completionDate) : "-"}
+                />
+                <ReviewFact
+                  label="Draw unlock"
+                  value={formatCentsExact(milestone.drawAvailabilityCents)}
+                />
+              </dl>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge
+                  variant={
+                    completedScopeCount === scopeRows.length
+                      ? "success"
+                      : "warning"
+                  }
+                >
+                  {completedScopeCount}/{scopeRows.length} scope items complete
+                </Badge>
+                <Badge variant={builderRows.length > 0 ? "info" : "error"}>
+                  {builderRows.length} evidence{" "}
+                  {builderRows.length === 1 ? "package" : "packages"}
+                </Badge>
+                <Badge
+                  variant={
+                    latestVisit?.status === "complete" ? "success" : "secondary"
+                  }
+                >
+                  {latestVisit
+                    ? siteVisitStateLabel(latestVisit)
+                    : "No field review"}
+                </Badge>
+              </div>
+            </CardPanel>
+          </Card>
+
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(18rem,0.75fr)]">
+            <div className="grid gap-4">
+              <Card
+                className="rounded-xl shadow-none"
+                data-testid="milestone-review-scope"
+                render={<section />}
+              >
+                <CardHeader className="p-4 pb-3">
+                  <CardTitle className="text-sm">Claimed scope</CardTitle>
+                  <CardDescription className="text-xs">
+                    Submilestones the builder says are complete for this unlock.
+                  </CardDescription>
+                  <CardAction>
+                    <Badge
+                      variant={
+                        completedScopeCount === scopeRows.length
+                          ? "success"
+                          : "warning"
+                      }
+                    >
+                      {completedScopeCount}/{scopeRows.length}
+                    </Badge>
+                  </CardAction>
+                </CardHeader>
+                <CardPanel className="px-4 pt-0 pb-4">
+                  {scopeRows.length > 0 ? (
+                    <ul className="divide-y border-y">
+                      {scopeRows.map((row) => (
+                        <li
+                          className="flex items-center justify-between gap-3 py-2.5"
+                          key={row.key}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-sm">
+                              {row.name}
+                            </p>
+                            <p className="text-muted-foreground text-xs">
+                              {row.budgetCents
+                                ? formatCentsExact(row.budgetCents)
+                                : "No separate budget"}
+                            </p>
+                          </div>
+                          <Badge
+                            variant={
+                              row.status === "complete"
+                                ? "success"
+                                : row.status === "in_progress"
+                                  ? "warning"
+                                  : "secondary"
+                            }
+                          >
+                            {submilestoneReviewStatus(row.status)}
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="border-y py-3 text-muted-foreground text-sm">
+                      No submilestones are attached to this milestone.
+                    </p>
+                  )}
+                </CardPanel>
+              </Card>
+
+              <Card
+                className="rounded-xl shadow-none"
+                data-testid="milestone-completion-builder-evidence"
+                render={<section />}
+              >
+                <CardHeader className="p-4 pb-3">
+                  <CardTitle className="text-sm">
+                    Builder submitted evidence
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Verify the claimed work, location, and file dates before
+                    approval.
+                  </CardDescription>
+                  <CardAction>
+                    <Badge variant={builderRows.length > 0 ? "info" : "error"}>
+                      {builderRows.length}{" "}
+                      {builderRows.length === 1 ? "package" : "packages"}
+                    </Badge>
+                  </CardAction>
+                </CardHeader>
+                <CardPanel className="grid gap-3 px-4 pt-0 pb-3">
+                  {builderRows.length > 0 ? (
+                    builderRows.map((row) => (
+                      <div
+                        className="border-t pt-3 first:border-t-0 first:pt-0"
+                        data-testid={`milestone-review-builder-evidence-${row.id}`}
+                        key={row.id}
+                      >
+                        <EvidenceReviewSummary row={row} />
+                        <EvidenceAssetPackage row={row} />
+                      </div>
+                    ))
+                  ) : (
+                    <p className="border-y py-3 text-muted-foreground text-sm">
+                      No builder evidence files are attached to this completion
+                      request.
+                    </p>
+                  )}
+                </CardPanel>
+                <CardFooter className="border-t px-4 py-2.5">
+                  <Button
+                    disabled={
+                      !actions?.reviewEvidence || pendingAction !== null
+                    }
+                    loading={pendingAction === "approve-evidence"}
+                    onClick={() => approveBuilderEvidence()}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <FileCheck2 aria-hidden="true" />
+                    Approve evidence
+                  </Button>
+                </CardFooter>
+              </Card>
+            </div>
+
+            <div className="grid gap-4">
+              <Card
+                className="rounded-xl shadow-none"
+                data-testid="milestone-review-contractors"
+                render={<section />}
+              >
+                <CardHeader className="p-4 pb-3">
+                  <CardTitle className="text-sm">Responsible parties</CardTitle>
+                  <CardDescription className="text-xs">
+                    Contractors assigned to deliver or verify this scope.
+                  </CardDescription>
+                </CardHeader>
+                <CardPanel className="px-4 pt-0 pb-4">
+                  {contractorRows.length > 0 ? (
+                    <ul className="divide-y border-y">
+                      {contractorRows.map((row) => (
+                        <li className="py-2.5" key={`${row.name}-${row.role}`}>
+                          <p className="font-medium text-sm">{row.name}</p>
+                          <p className="text-muted-foreground text-xs">
+                            {row.role}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="border-y py-3 text-muted-foreground text-sm">
+                      No contractors assigned.
+                    </p>
+                  )}
+                </CardPanel>
+              </Card>
+
+              <Card
+                className="rounded-xl shadow-none"
+                data-testid="milestone-review-materials"
+                render={<section />}
+              >
+                <CardHeader className="p-4 pb-3">
+                  <CardTitle className="text-sm">
+                    Materials and equipment
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Cost items attached to this milestone and its submilestones.
+                  </CardDescription>
+                </CardHeader>
+                <CardPanel className="px-4 pt-0 pb-4">
+                  {materialRows.length > 0 ? (
+                    <ul className="divide-y border-y">
+                      {materialRows.map((item) => (
+                        <li
+                          className="flex items-start justify-between gap-3 py-2.5"
+                          key={item._id}
+                        >
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm">{item.title}</p>
+                            <p className="text-muted-foreground text-xs">
+                              {item.supplier ?? "Supplier not recorded"}
+                            </p>
+                          </div>
+                          <p className="shrink-0 font-medium text-sm tabular-nums">
+                            {formatCentsExact(materialPlanningItemTotal(item))}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="border-y py-3 text-muted-foreground text-sm">
+                      No materials or equipment attached.
+                    </p>
+                  )}
+                </CardPanel>
+              </Card>
+
+              <Card
+                className="rounded-xl shadow-none"
+                data-testid="milestone-completion-site-visit"
+                render={<section />}
+              >
+                <CardHeader className="p-4 pb-3">
+                  <CardTitle className="text-sm">Site visit</CardTitle>
+                  <CardDescription className="text-xs">
+                    Order a site visit or review the completed field report.
+                  </CardDescription>
+                  {latestVisit ? (
+                    <CardAction>
+                      <Badge variant={siteVisitBadgeVariant(latestVisit)}>
+                        {siteVisitStateLabel(latestVisit)}
+                      </Badge>
+                    </CardAction>
+                  ) : null}
+                </CardHeader>
+                <CardPanel className="px-4 pt-0 pb-3">
+                  {latestVisit ? (
+                    <SiteVisitReviewState
+                      canCancel={Boolean(actions?.cancelSiteVisit)}
+                      canRegenerate={Boolean(actions?.assignSiteVisit)}
+                      onCancel={() => cancelSiteVisit(latestVisit)}
+                      onRegenerate={regenerateSiteVisitToken}
+                      pendingAction={pendingAction}
+                      visit={latestVisit}
+                    />
+                  ) : (
+                    <p className="border-y py-3 text-muted-foreground text-sm">
+                      No site visit has been ordered for this milestone.
+                    </p>
+                  )}
+                  {latestVisit?.status === "complete" ? (
+                    <CompletedSiteVisitReview
+                      rows={siteVisitRows}
+                      visit={latestVisit}
+                    />
+                  ) : null}
+                </CardPanel>
+                {latestVisit?.status !== "requested" &&
+                latestVisit?.status !== "complete" ? (
+                  <CardFooter className="border-t px-4 py-2.5">
+                    <Button
+                      disabled={
+                        !actions?.assignSiteVisit || pendingAction !== null
+                      }
+                      onClick={() => {
+                        onRequestSiteVisit({
+                          milestoneKey: milestone.key,
+                          ...(note.trim() ? { note: note.trim() } : {}),
+                        });
+                      }}
+                      size="sm"
+                      type="button"
+                    >
+                      <ClipboardCheck aria-hidden="true" />
+                      Order site visit
+                    </Button>
+                  </CardFooter>
+                ) : null}
+              </Card>
+            </div>
+          </div>
+
+          <Card className="rounded-xl shadow-none" render={<section />}>
+            <CardHeader className="p-4 pb-3">
+              <CardTitle className="text-sm">Reviewer decision</CardTitle>
+              <CardDescription className="text-xs">
+                Record the rationale that will accompany approval or a request
+                for more information.
+              </CardDescription>
+            </CardHeader>
+            <CardPanel className="px-4 pt-0 pb-4">
+              <label
+                className="sr-only"
+                htmlFor="milestone-completion-review-note"
+              >
+                Review note
+              </label>
+              <Textarea
+                id="milestone-completion-review-note"
+                onChange={(event) => setNote(event.currentTarget.value)}
+                placeholder="State what was verified, or what the builder must clarify."
+                value={note}
+              />
+              {error ? (
+                <p className="mt-2 text-destructive text-sm" role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </CardPanel>
+          </Card>
+        </SheetPanel>
+
+        <SheetFooter>
+          <SheetClose render={<Button type="button" variant="ghost" />}>
+            Close
+          </SheetClose>
+          <Button
+            disabled={
+              !(actions?.requestMilestoneInfo || actions?.reviewEvidence) ||
+              pendingAction !== null
+            }
+            loading={pendingAction === "request-info"}
+            onClick={() => {
+              requestInfo();
+            }}
+            type="button"
+            variant="outline"
+          >
+            <MessageSquare aria-hidden="true" />
+            Request more info
+          </Button>
+          <Button
+            disabled={!actions?.approveMilestone || pendingAction !== null}
+            loading={pendingAction === "approve-completion"}
+            onClick={() => {
+              approveCompletion();
+            }}
+            type="button"
+          >
+            <CheckCircle2 aria-hidden="true" />
+            Approve completion
+          </Button>
+        </SheetFooter>
+      </SheetPopup>
+    </Sheet>
+  );
+}
+
+function ReviewFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 px-3 py-2.5 first:pl-0 last:pr-0 sm:last:pr-3 sm:first:pl-3">
+      <dt className="text-muted-foreground text-xs uppercase">{label}</dt>
+      <dd className="truncate font-medium tabular-nums">{value}</dd>
+    </div>
+  );
+}
+
+function submilestoneReviewStatus(status: ProductionMilestoneStatus) {
+  if (status === "complete") {
+    return "Complete";
+  }
+  if (status === "in_progress") {
+    return "In progress";
+  }
+  return "Not started";
+}
+
+function materialPlanningItemTotal(item: MaterialPlanningItem) {
+  return item.totalCents ?? item.costCents * item.quantity;
+}
+
+function EvidenceReviewSummary({ row }: { row: ProductionEvidenceRow }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <Badge variant={evidenceStatusVariant(row.status)}>
+        {evidenceStatusLabel(row.status)}
+      </Badge>
+      <Badge variant={row.locationState === "verified" ? "success" : "warning"}>
+        {row.locationState === "verified"
+          ? "Location verified"
+          : "Location unverified"}
+      </Badge>
+      <Badge size="sm" variant="outline">
+        {row.submittedAt ? formatDate(row.submittedAt) : "Not dated"}
+      </Badge>
+    </div>
+  );
+}
+
+function SiteVisitReviewState({
+  canCancel,
+  canRegenerate,
+  onCancel,
+  onRegenerate,
+  pendingAction,
+  visit,
+}: {
+  canCancel: boolean;
+  canRegenerate: boolean;
+  onCancel: () => void;
+  onRegenerate: () => void;
+  pendingAction: string | null;
+  visit: ProductionSiteVisit;
+}) {
+  const { copyToClipboard, isCopied } = useCopyToClipboard();
+  const tokenUrl = visit.url;
+  const tokenValue = visit.visitId;
+  const canOperateOnToken =
+    visit.status !== "complete" &&
+    visit.status !== "cancelled" &&
+    !visit.tokenConsumedAt;
+
+  return (
+    <div className="grid gap-3" data-testid="site-visit-token-panel">
+      <dl className="grid gap-2 text-sm sm:grid-cols-3">
+        <ReviewFact label="State" value={siteVisitStateLabel(visit)} />
+        <ReviewFact
+          label="Ordered"
+          value={formatSiteVisitDateTime(visit.requestedAt)}
+        />
+        <ReviewFact
+          label="Opened"
+          value={formatSiteVisitDateTime(visit.tokenOpenedAt)}
+        />
+        <ReviewFact
+          label="Token state"
+          value={siteVisitTokenStateLabel(visit)}
+        />
+        <ReviewFact
+          label="Token expires"
+          value={formatSiteVisitDateTime(visit.tokenExpiresAt)}
+        />
+        <ReviewFact
+          label="Completed"
+          value={formatSiteVisitDateTime(visit.completedAt)}
+        />
+      </dl>
+
+      <div className="grid gap-3 rounded-md border bg-card p-3">
+        <div className="grid gap-1">
+          <p className="text-muted-foreground text-xs uppercase">Token</p>
+          <code
+            className="min-w-0 break-all rounded-sm bg-muted px-2 py-1 text-xs"
+            data-testid="site-visit-token-value"
+          >
+            {tokenValue}
+          </code>
+        </div>
+        {tokenUrl ? (
+          <div className="grid gap-1">
+            <p className="text-muted-foreground text-xs uppercase">
+              Token link
+            </p>
+            <code
+              className="min-w-0 break-all rounded-sm bg-muted px-2 py-1 text-xs"
+              data-testid="site-visit-token-url"
+            >
+              {tokenUrl}
+            </code>
+          </div>
+        ) : null}
+        {visit.requestedTime ? (
+          <p className="text-muted-foreground text-xs">
+            Requested time: {visit.requestedTime}
+          </p>
+        ) : null}
+        {visit.tokenConsumedAt ? (
+          <p className="text-muted-foreground text-xs">
+            Token consumed {formatSiteVisitDateTime(visit.tokenConsumedAt)}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {tokenUrl ? (
+          <Button
+            render={<a href={tokenUrl} rel="noreferrer" target="_blank" />}
+            size="sm"
+            variant="outline"
+          >
+            <ExternalLink aria-hidden="true" />
+            Open token link
+          </Button>
+        ) : null}
+        <Button
+          onClick={() => copyToClipboard(tokenValue)}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          <Copy aria-hidden="true" />
+          {isCopied ? "Copied" : "Copy token"}
+        </Button>
+        {tokenUrl ? (
+          <Button
+            onClick={() => copyToClipboard(tokenUrl)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Copy aria-hidden="true" />
+            Copy link
+          </Button>
+        ) : null}
+        <Button
+          disabled={!canRegenerate || pendingAction !== null}
+          loading={pendingAction === "regenerate-site-visit-token"}
+          onClick={onRegenerate}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          <RefreshCw aria-hidden="true" />
+          Regenerate token
+        </Button>
+        {canOperateOnToken ? (
+          <Button
+            disabled={!canCancel || pendingAction !== null}
+            loading={pendingAction === "cancel-site-visit"}
+            onClick={onCancel}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <XCircle aria-hidden="true" />
+            Cancel site visit
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CompletedSiteVisitReview({
+  rows,
+  visit,
+}: {
+  rows: ProductionEvidenceRow[];
+  visit: ProductionSiteVisit;
+}) {
+  return (
+    <div className="grid gap-3" data-testid="completed-site-visit-review">
+      {visit.recordNote ? (
+        visit.recordNoteFormat === "html" ? (
+          <FieldRichTextPreview
+            ariaLabel="Completed site visit report"
+            value={visit.recordNote}
+          />
+        ) : (
+          <p className="rounded-md border bg-card p-3 text-sm">
+            {visit.recordNote}
+          </p>
+        )
+      ) : (
+        <p className="rounded-md border border-dashed p-4 text-muted-foreground text-sm">
+          Site visit is complete, but no report note is attached.
+        </p>
+      )}
+      {rows.length > 0 ? (
+        rows.map((row) => (
+          <div
+            className="rounded-md border bg-card p-3"
+            data-testid={`milestone-review-site-visit-${row.id}`}
+            key={row.id}
+          >
+            <EvidenceReviewSummary row={row} />
+            <EvidenceAssetPackage row={row} />
+          </div>
+        ))
+      ) : (
+        <p className="rounded-md border border-dashed p-4 text-muted-foreground text-sm">
+          No site visit files are attached.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function BuildNonFinancialDetailsSheet({
   detail,
   onOpenChange,
@@ -1168,19 +3058,21 @@ function BuildNonFinancialDetailsSheet({
 }: {
   detail: ProductionBuildDetail;
   onOpenChange: (open: boolean) => void;
-  onSubmit: NonNullable<ProductionBuildDetailActions["updateNonFinancialDetails"]>;
+  onSubmit: NonNullable<
+    ProductionBuildDetailActions["updateNonFinancialDetails"]
+  >;
   open: boolean;
 }) {
   const [buildName, setBuildName] = useState(detail.build.buildName);
   const [location, setLocation] = useState(detail.build.location);
   const [locationLatitude, setLocationLatitude] = useState<number | null>(
-    detail.build.locationLatitude ?? null,
+    detail.build.locationLatitude ?? null
   );
   const [locationLongitude, setLocationLongitude] = useState<number | null>(
-    detail.build.locationLongitude ?? null,
+    detail.build.locationLongitude ?? null
   );
   const [locationPlaceId, setLocationPlaceId] = useState<string | null>(
-    detail.build.locationPlaceId ?? null,
+    detail.build.locationPlaceId ?? null
   );
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1218,7 +3110,7 @@ function BuildNonFinancialDetailsSheet({
         size: "640x360",
         zoom: 19,
       }),
-    [location, locationLatitude, locationLongitude],
+    [location, locationLatitude, locationLongitude]
   );
 
   const canSave =
@@ -1250,7 +3142,9 @@ function BuildNonFinancialDetailsSheet({
       });
       onOpenChange(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to save build details.");
+      setError(
+        cause instanceof Error ? cause.message : "Unable to save build details."
+      );
     } finally {
       setSaving(false);
     }
@@ -1290,7 +3184,7 @@ function BuildNonFinancialDetailsSheet({
                 onPlaceSelect={(_suggestion, details) => {
                   if (!details) {
                     setLocationResolutionError(
-                      "Google did not return coordinates for that address.",
+                      "Google did not return coordinates for that address."
                     );
                     return;
                   }
@@ -1416,7 +3310,7 @@ function formatCoordinate(value: number | null | undefined) {
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <dt className="pt-1 text-[11px] text-muted-foreground uppercase sm:pt-0">
+    <dt className="pt-1 text-muted-foreground text-xs uppercase sm:pt-0">
       {children}
     </dt>
   );
@@ -1426,19 +3320,23 @@ function ProductionDrawsTable({
   actions,
   detail,
   projection,
+  viewerRole,
 }: {
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
   projection: ProductionBuildProjection;
+  viewerRole: "builder" | "lender";
 }) {
   const [pendingDraw, setPendingDraw] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const run = async (
     draw: ProductionDraw,
-    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown,
+    fn?: (draw: ProductionDraw) => Promise<unknown> | unknown
   ) => {
-    if (!fn || pendingDraw) return;
+    if (!fn || pendingDraw) {
+      return;
+    }
     setPendingDraw(draw.drawKey);
     setError("");
     try {
@@ -1454,14 +3352,14 @@ function ProductionDrawsTable({
     <Card data-testid="build-detail-draws" id="draws-table">
       <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 sm:p-4">
         <CardTitle className="text-sm">Draws</CardTitle>
-        <span className="shrink-0 text-right text-[11px] text-muted-foreground">
+        <span className="shrink-0 text-right text-muted-foreground text-xs">
           planned_draw_schedule_rows
         </span>
       </CardHeader>
       <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0">
         <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full min-w-[760px] text-sm">
-            <thead className="bg-card/70 text-[10px] text-muted-foreground uppercase">
+            <thead className="bg-card/70 text-muted-foreground text-xs uppercase">
               <tr>
                 <Th>Draw</Th>
                 <Th>Approved</Th>
@@ -1488,14 +3386,16 @@ function ProductionDrawsTable({
                     </Td>
                     <Td className="tabular-nums">
                       {draw.status === "requested" ||
-                      draw.status === "approved" ||
+                      draw.status === "in_review" ||
+                      draw.status === "ready_for_admin" ||
+                      draw.status === "approved_for_release" ||
                       draw.status === "released"
                         ? formatCents(draw.amountCents)
                         : "-"}
                     </Td>
                     <Td>
                       {formatDate(
-                        addDaysSafe(detail.build.startDate, draw.timingDay),
+                        addDaysSafe(detail.build.startDate, draw.timingDay)
                       )}
                     </Td>
                     <Td>
@@ -1506,8 +3406,9 @@ function ProductionDrawsTable({
                     </Td>
                     <Td>
                       <div className="flex flex-wrap justify-end gap-1 sm:justify-start">
-                        {draw.status === "planned" ||
-                        draw.status === "rejected" ? (
+                        {viewerRole === "builder" &&
+                        (draw.status === "planned" ||
+                          draw.status === "rejected") ? (
                           <DrawActionButton
                             disabled={!actions?.requestDraw || pending}
                             label={pending ? "Requesting..." : "Request"}
@@ -1515,11 +3416,34 @@ function ProductionDrawsTable({
                             testId={`build-detail-draw-request-${draw.drawKey}`}
                           />
                         ) : null}
-                        {draw.status === "requested" ? (
+                        {viewerRole === "lender" &&
+                        draw.status === "requested" ? (
+                          <DrawActionButton
+                            disabled={!actions?.startDrawReview || pending}
+                            label={pending ? "Starting..." : "Start review"}
+                            onClick={() => run(draw, actions?.startDrawReview)}
+                            testId={`build-detail-draw-start-${draw.drawKey}`}
+                          />
+                        ) : null}
+                        {viewerRole === "lender" &&
+                        draw.status === "in_review" ? (
+                          <DrawActionButton
+                            disabled={!actions?.submitDrawForAdmin || pending}
+                            label={pending ? "Sending..." : "Send to admin"}
+                            onClick={() =>
+                              run(draw, actions?.submitDrawForAdmin)
+                            }
+                            testId={`build-detail-draw-submit-${draw.drawKey}`}
+                          />
+                        ) : null}
+                        {viewerRole === "lender" &&
+                        draw.status === "ready_for_admin" ? (
                           <>
                             <DrawActionButton
                               disabled={!actions?.approveDraw || pending}
-                              label={pending ? "Approving..." : "Approve"}
+                              label={
+                                pending ? "Approving..." : "Approve for release"
+                              }
                               onClick={() => run(draw, actions?.approveDraw)}
                               testId={`build-detail-draw-approve-${draw.drawKey}`}
                             />
@@ -1531,7 +3455,8 @@ function ProductionDrawsTable({
                             />
                           </>
                         ) : null}
-                        {draw.status === "approved" ? (
+                        {viewerRole === "lender" &&
+                        draw.status === "approved_for_release" ? (
                           <DrawActionButton
                             disabled={!actions?.releaseDraw || pending}
                             label={pending ? "Releasing..." : "Release"}
@@ -1544,6 +3469,27 @@ function ProductionDrawsTable({
                             Released
                           </span>
                         ) : null}
+                        {viewerRole === "lender" &&
+                        (draw.status === "planned" ||
+                          draw.status === "rejected") ? (
+                          <span className="text-muted-foreground text-xs">
+                            Awaiting request
+                          </span>
+                        ) : null}
+                        {viewerRole === "builder" &&
+                        (draw.status === "requested" ||
+                          draw.status === "in_review" ||
+                          draw.status === "ready_for_admin") ? (
+                          <span className="text-muted-foreground text-xs">
+                            In lender review
+                          </span>
+                        ) : null}
+                        {viewerRole === "builder" &&
+                        draw.status === "approved_for_release" ? (
+                          <span className="text-muted-foreground text-xs">
+                            Awaiting release
+                          </span>
+                        ) : null}
                       </div>
                     </Td>
                   </tr>
@@ -1553,7 +3499,7 @@ function ProductionDrawsTable({
           </table>
         </div>
         {error ? (
-          <p className="mt-2 text-[11px] text-destructive" role="alert">
+          <p className="mt-2 text-destructive text-xs" role="alert">
             {error}
           </p>
         ) : null}
@@ -1594,10 +3540,10 @@ function FacilityChangeRequestsCard({
   detail: ProductionBuildDetail;
 }) {
   const [principalText, setPrincipalText] = useState(
-    String(Math.round((detail.loanFacility?.principalCents ?? 0) / 100)),
+    String(Math.round((detail.loanFacility?.principalCents ?? 0) / 100))
   );
   const [paybackDate, setPaybackDate] = useState(
-    detail.loanFacility?.paybackDate ?? detail.build.startDate,
+    detail.loanFacility?.paybackDate ?? detail.build.startDate
   );
   const [reason, setReason] = useState("");
   const [reviewNote, setReviewNote] = useState("");
@@ -1605,11 +3551,13 @@ function FacilityChangeRequestsCard({
   const [error, setError] = useState("");
   const requests = detail.facilityChangeRequests ?? [];
   const pendingRequests = requests.filter(
-    (request) => request.status === "requested",
+    (request) => request.status === "requested"
   );
 
   const run = async (key: string, fn?: () => Promise<unknown> | unknown) => {
-    if (!fn || pending) return;
+    if (!fn || pending) {
+      return;
+    }
     setPending(key);
     setError("");
     try {
@@ -1630,7 +3578,7 @@ function FacilityChangeRequestsCard({
         reason: reason.trim() || undefined,
         requestedPrincipalCents: Math.round(Number(principalText) * 100),
         requestType: "principalIncrease",
-      }),
+      })
     );
   const requestPayback = () =>
     run("request-payback", () =>
@@ -1638,18 +3586,18 @@ function FacilityChangeRequestsCard({
         reason: reason.trim() || undefined,
         requestedPaybackDate: paybackDate,
         requestType: "paybackExtension",
-      }),
+      })
     );
   const review = (
     request: ProductionFacilityChangeRequest,
-    status: "approved" | "rejected",
+    status: "approved" | "rejected"
   ) =>
     run(`${status}-${request._id}`, () =>
       actions?.reviewFacilityChangeRequest?.({
         note: reviewNote.trim() || undefined,
         requestId: request._id,
         status,
-      }),
+      })
     );
 
   return (
@@ -1745,7 +3693,7 @@ function FacilityChangeRequestsCard({
             />
           </div>
           {requests.length === 0 ? (
-            <p className="rounded-md border border-dashed border-border p-3 text-muted-foreground text-xs">
+            <p className="rounded-md border border-border border-dashed p-3 text-muted-foreground text-xs">
               No capital or term requests have been submitted.
             </p>
           ) : (
@@ -1804,7 +3752,7 @@ function FacilityChangeRequestsCard({
             </ul>
           )}
           {error ? (
-            <p className="mt-2 text-[11px] text-destructive" role="alert">
+            <p className="mt-2 text-destructive text-xs" role="alert">
               {error}
             </p>
           ) : null}
@@ -1817,11 +3765,11 @@ function FacilityChangeRequestsCard({
 function facilityRequestLabel(request: ProductionFacilityChangeRequest) {
   if (request.requestType === "principalIncrease") {
     return `Principal increase to ${formatCents(
-      request.requestedPayload.requestedPrincipalCents ?? 0,
+      request.requestedPayload.requestedPrincipalCents ?? 0
     )}`;
   }
   return `Payback extension to ${formatDate(
-    request.requestedPayload.requestedPaybackDate ?? "",
+    request.requestedPayload.requestedPaybackDate ?? ""
   )}`;
 }
 
@@ -1862,13 +3810,15 @@ function ProductionDocumentsCard({
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"permit" | "budget" | "plan" | "supporting">(
-    "supporting",
+    "supporting"
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
   const onAdd = async () => {
-    if (!name.trim() || !actions?.addDocument || pending) return;
+    if (!(name.trim() && actions?.addDocument) || pending) {
+      return;
+    }
     setPending(true);
     setError("");
     try {
@@ -1886,7 +3836,7 @@ function ProductionDocumentsCard({
     <Card data-testid="build-detail-documents" id="documents">
       <CardHeader className="flex flex-row items-center justify-between p-3 sm:p-4">
         <CardTitle className="text-sm">Documents</CardTitle>
-        <span className="text-[11px] text-muted-foreground tabular-nums">
+        <span className="text-muted-foreground text-xs tabular-nums">
           {documents.length}
         </span>
       </CardHeader>
@@ -1919,7 +3869,7 @@ function ProductionDocumentsCard({
           <button
             className="rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground text-sm disabled:opacity-50 md:py-1.5"
             data-testid="documents-add"
-            disabled={!name.trim() || !actions?.addDocument || pending}
+            disabled={!(name.trim() && actions?.addDocument) || pending}
             onClick={onAdd}
             type="button"
           >
@@ -1927,7 +3877,7 @@ function ProductionDocumentsCard({
           </button>
         </div>
         {error ? (
-          <p className="mb-2 text-[11px] text-destructive">{error}</p>
+          <p className="mb-2 text-destructive text-xs">{error}</p>
         ) : null}
         {documents.length === 0 ? (
           <p className="text-muted-foreground text-xs">No documents yet.</p>
@@ -1943,7 +3893,7 @@ function ProductionDocumentsCard({
                   {document.name ?? document.fileName}
                 </span>
                 <div className="flex shrink-0 items-center gap-2 sm:ml-2">
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-muted-foreground text-xs">
                     {document.kind ?? document.documentType}
                     {document.sizeBytes
                       ? ` - ${Math.round(document.sizeBytes / 1024)}KB`
@@ -1997,7 +3947,9 @@ function ProductionNotesCard({
     variant === "internal" ? "border-amber-500/40" : "border-emerald-500/40";
 
   const onSave = async () => {
-    if (!draft.trim() || !actions?.addNote || pending) return;
+    if (!(draft.trim() && actions?.addNote) || pending) {
+      return;
+    }
     setPending(true);
     try {
       await actions.addNote({ body: draft.trim(), visibility: variant });
@@ -2011,7 +3963,7 @@ function ProductionNotesCard({
     <Card className={`border-2 ${accent}`} data-testid={testIdPrefix}>
       <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 sm:p-4">
         <CardTitle className="text-sm">{title}</CardTitle>
-        <span className="shrink-0 text-right text-[11px] text-muted-foreground">
+        <span className="shrink-0 text-right text-muted-foreground text-xs">
           {variant === "internal" ? "Lender-only" : "Borrower-visible"}
         </span>
       </CardHeader>
@@ -2026,7 +3978,7 @@ function ProductionNotesCard({
                   data-testid={`${testIdPrefix}-item-${note._id}`}
                   key={note._id}
                 >
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-muted-foreground text-xs">
                     {formatDate(note.createdAt)} - {note.authorPersona}
                   </p>
                   <p>{note.body}</p>
@@ -2046,7 +3998,7 @@ function ProductionNotesCard({
           <button
             className="rounded-md border border-border bg-card px-3 py-2 text-xs hover:bg-accent disabled:opacity-50 sm:self-start sm:py-1.5"
             data-testid={`${testIdPrefix}-save`}
-            disabled={!draft.trim() || !actions?.addNote || pending}
+            disabled={!(draft.trim() && actions?.addNote) || pending}
             onClick={onSave}
             type="button"
           >
@@ -2058,22 +4010,170 @@ function ProductionNotesCard({
   );
 }
 
+function ProductionMilestonesTab({
+  actions,
+  currentDay,
+  detail,
+  onAssignContractor,
+  onCardClick,
+  projection,
+  viewerRole,
+}: {
+  actions?: ProductionBuildDetailActions;
+  currentDay: number;
+  detail: ProductionBuildDetail;
+  onAssignContractor?: (card: KanbanCardData) => void;
+  onCardClick: (card: KanbanCardData) => void;
+  projection: ProductionBuildProjection;
+  viewerRole: "builder" | "lender";
+}) {
+  const [showCompletedKanban, setShowCompletedKanban] = useState(false);
+  const kanbanCards = useMemo(
+    () => buildProductionKanbanCards(detail, projection, currentDay),
+    [currentDay, detail, projection]
+  );
+
+  return (
+    <div className="grid gap-4" data-testid="production-build-milestones">
+      <MilestoneKanban
+        cards={kanbanCards}
+        onAssignContractor={onAssignContractor}
+        onCardClick={onCardClick}
+        onToggleShowCompleted={() => setShowCompletedKanban((prev) => !prev)}
+        showCompleted={showCompletedKanban}
+        viewerRole={viewerRole}
+      />
+    </div>
+  );
+}
+
+function ProductionContractorsTab({
+  actions,
+  detail,
+  viewerRole,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+  viewerRole: "builder" | "lender";
+}) {
+  const planning = useMemo(
+    () => contractorPlanningFromProductionDetail(detail),
+    [detail]
+  );
+  const milestones = useMemo(
+    () => productionBuildMilestonesForContractors(detail),
+    [detail]
+  );
+
+  return (
+    <div data-testid="production-build-contractors">
+      <ContractorPlanningPanel
+        canMutate={Boolean(
+          actions?.assignContractorToMilestone ||
+            actions?.attachContractor ||
+            actions?.createAndAttachContractor
+        )}
+        milestones={milestones}
+        onAssignToMilestone={
+          actions?.assignContractorToMilestone
+            ? ({
+                assignmentCost,
+                contractorId,
+                milestoneKey,
+                role,
+                submilestoneKeys,
+              }) =>
+                actions.assignContractorToMilestone?.({
+                  assignmentCost,
+                  contractorId,
+                  milestoneKey,
+                  role,
+                  submilestoneKeys,
+                })
+            : undefined
+        }
+        onAttachExisting={
+          actions?.attachContractor
+            ? ({ contractorId, role }) =>
+                actions.attachContractor?.({ contractorId, role })
+            : undefined
+        }
+        onCreateAndAttach={
+          actions?.createAndAttachContractor
+            ? ({ contractor, role }) =>
+                actions.createAndAttachContractor?.({
+                  contractor,
+                  role: role ?? contractor.trades[0] ?? "Contractor",
+                })
+            : undefined
+        }
+        onInviteCreatedContractor={
+          actions?.inviteContractor
+            ? (contractorId) => actions.inviteContractor?.(contractorId)
+            : undefined
+        }
+        planning={planning}
+        roleLabel={viewerRole}
+      />
+    </div>
+  );
+}
+
+function productionBuildMilestonesForContractors(
+  detail: ProductionBuildDetail
+): ContractorPlanningMilestone[] {
+  return [...detail.milestones]
+    .sort((a, b) => a.order - b.order)
+    .map((milestone) => ({
+      milestoneKey: milestone.key,
+      name: milestone.name,
+      submilestoneSnapshot: (detail.submilestones ?? [])
+        .filter((submilestone) => submilestone.milestoneKey === milestone.key)
+        .sort((a, b) => a.order - b.order)
+        .map((submilestone) => ({
+          key: submilestone.key,
+          name: submilestone.name,
+        })),
+    }));
+}
+
+function contractorsCardActions(actions?: ProductionBuildDetailActions) {
+  return {
+    onAttachExisting: actions?.attachContractor
+      ? (input: { contractorId: string; role: string }) => {
+          void actions.attachContractor?.(input);
+        }
+      : undefined,
+    onCreateAndAttach: actions?.createAndAttachContractor
+      ? (input: { contractor: ContractorProfileDraft; role: string }) =>
+          actions.createAndAttachContractor?.(input)
+      : undefined,
+    onInviteCreatedContractor: actions?.inviteContractor
+      ? (contractorId: string) => actions.inviteContractor?.(contractorId)
+      : undefined,
+    sourceLabel: "production_contractors",
+  };
+}
+
 function ProductionTimelineTab({
   activeBuildId,
+  actions,
   detail,
+  onRequestSiteVisit,
   timelineWorkspace,
   viewerRole,
   workosOrganizationId,
 }: {
   activeBuildId?: string;
+  actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
+  onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
   viewerRole: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
   if (
-    !activeBuildId ||
-    !workosOrganizationId ||
+    !(activeBuildId && workosOrganizationId) ||
     timelineWorkspace === undefined
   ) {
     return (
@@ -2100,9 +4200,15 @@ function ProductionTimelineTab({
         backofficeHref="/backoffice"
         buildHref={`/backoffice/builds/${detail.build._id}`}
         buildId={activeBuildId as any}
+        canApproveMilestones={Boolean(actions?.approveMilestone)}
+        canRecordSiteVisits={Boolean(actions?.reviewEvidence)}
+        canRequestMilestoneInfo={Boolean(actions?.requestMilestoneInfo)}
+        canRequestSiteVisits={Boolean(actions?.assignSiteVisit)}
+        canReviewDraws={Boolean(actions?.approveDraw && actions?.rejectDraw)}
         initialRole={viewerRole}
-        workspace={timelineWorkspace}
+        onRequestSiteVisit={onRequestSiteVisit}
         workosOrganizationId={workosOrganizationId}
+        workspace={timelineWorkspace}
       />
     </div>
   );
@@ -2121,14 +4227,14 @@ function ProductionEvidenceTab({
 }) {
   const builderEvidence = useMemo(
     () => buildBuilderEvidenceRows(detail, projection),
-    [detail, projection],
+    [detail, projection]
   );
   const completedSiteVisits = useMemo(
     () => buildCompletedSiteVisitRows(detail, projection),
-    [detail, projection],
+    [detail, projection]
   );
   const locationUnverifiedCount = builderEvidence.filter(
-    (row) => row.locationState === "unverified",
+    (row) => row.locationState === "unverified"
   ).length;
   const totalEvidence = builderEvidence.length + completedSiteVisits.length;
 
@@ -2229,20 +4335,24 @@ function EvidenceSourcePanel({
   title: string;
 }) {
   const [expandedRowId, setExpandedRowId] = useState<string | null>(
-    rows[0]?.id ?? null,
+    rows[0]?.id ?? null
   );
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   useEffect(() => {
-    if (expandedRowId && rows.some((row) => row.id === expandedRowId)) return;
+    if (expandedRowId && rows.some((row) => row.id === expandedRowId)) {
+      return;
+    }
     setExpandedRowId(rows[0]?.id ?? null);
   }, [expandedRowId, rows]);
 
   const reviewEvidence = async (
     row: ProductionEvidenceRow,
-    accepted: boolean,
+    accepted: boolean
   ) => {
-    if (!actions?.reviewEvidence || pendingAction) return;
+    if (!actions?.reviewEvidence || pendingAction) {
+      return;
+    }
     const actionKey = `${accepted ? "approve" : "request-info"}:${row.id}`;
     setPendingAction(actionKey);
     try {
@@ -2282,7 +4392,7 @@ function EvidenceSourcePanel({
                 onReviewEvidence={reviewEvidence}
                 onToggleExpanded={() =>
                   setExpandedRowId((current) =>
-                    current === row.id ? null : row.id,
+                    current === row.id ? null : row.id
                   )
                 }
                 pendingAction={pendingAction}
@@ -2310,7 +4420,7 @@ function EvidenceRowItem({
   onOpenMilestone: (milestoneKey: string) => void;
   onReviewEvidence: (
     row: ProductionEvidenceRow,
-    accepted: boolean,
+    accepted: boolean
   ) => Promise<void>;
   onToggleExpanded: () => void;
   pendingAction: string | null;
@@ -2318,7 +4428,7 @@ function EvidenceRowItem({
 }) {
   const evidenceDate = row.submittedAt ?? row.completedAt;
   const submittedLabel =
-    evidenceDate !== undefined ? formatDate(evidenceDate) : "Not dated";
+    evidenceDate === undefined ? "Not dated" : formatDate(evidenceDate);
   const statusAlreadyReportsLocation = row.status
     .toLowerCase()
     .includes("location");
@@ -2400,7 +4510,7 @@ function EvidenceRowItem({
               aria-hidden="true"
               className={cn(
                 "size-4 transition-transform",
-                expanded && "rotate-180",
+                expanded && "rotate-180"
               )}
             />
             {expanded ? "Hide evidence" : "View evidence"}
@@ -2547,28 +4657,161 @@ function EvidenceAssetPreview({
   asset: ProductionEvidenceAsset;
   canOpenAsset: boolean;
 }) {
-  const [imageFailed, setImageFailed] = useState(false);
   const isImage = asset.mimeType.startsWith("image/");
   const canRenderDirectly = isBrowserPreviewableImageMime(asset.mimeType);
   const needsHeicConversion = isHeicLikeEvidenceImage({
     fileName: asset.fileName,
     mimeType: asset.mimeType,
   });
+  const shouldAutoPrepareHeic = needsHeicConversion && canOpenAsset;
+  const [imageFailed, setImageFailed] = useState(false);
+  const [imageLoading, setImageLoading] = useState(shouldAutoPrepareHeic);
+  const [heicPreviewRequested, setHeicPreviewRequested] = useState(
+    shouldAutoPrepareHeic
+  );
+  const [heicPreviewUrl, setHeicPreviewUrl] = useState<string | null>(null);
+  const heicPreviewAbortRef = useRef<AbortController | null>(null);
+  const heicObjectUrlRef = useRef<string | null>(null);
   const displayUrl =
-    needsHeicConversion && canOpenAsset
-      ? evidenceImagePreviewUrl(asset.previewUrl)
+    needsHeicConversion && canOpenAsset && heicPreviewRequested
+      ? heicPreviewUrl
       : canRenderDirectly && canOpenAsset
         ? asset.previewUrl
         : null;
 
+  useEffect(
+    () => () => {
+      heicPreviewAbortRef.current?.abort();
+      if (heicObjectUrlRef.current) {
+        URL.revokeObjectURL(heicObjectUrlRef.current);
+      }
+    },
+    []
+  );
+
+  const requestHeicPreview = useCallback(async () => {
+    heicPreviewAbortRef.current?.abort();
+    if (heicObjectUrlRef.current) {
+      URL.revokeObjectURL(heicObjectUrlRef.current);
+      heicObjectUrlRef.current = null;
+    }
+    const controller = new AbortController();
+    heicPreviewAbortRef.current = controller;
+    setImageFailed(false);
+    setImageLoading(true);
+    setHeicPreviewRequested(true);
+    setHeicPreviewUrl(null);
+
+    try {
+      const sourceProxyUrl = evidenceImageSourceUrl(asset.previewUrl);
+      if (!sourceProxyUrl) {
+        throw new Error("HEIC source proxy is unavailable.");
+      }
+      const response = await fetch(sourceProxyUrl, {
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error("Unable to download the original HEIC image.");
+      }
+      const jpegBlob = await convertHeicEvidenceBlobToJpeg(
+        await response.blob(),
+        asset.fileName
+      );
+      if (controller.signal.aborted) {
+        return;
+      }
+      const objectUrl = URL.createObjectURL(jpegBlob);
+      heicObjectUrlRef.current = objectUrl;
+      setHeicPreviewUrl(objectUrl);
+    } catch {
+      if (controller.signal.aborted) {
+        return;
+      }
+      const serverFallbackUrl = evidenceImagePreviewUrl(asset.previewUrl);
+      if (serverFallbackUrl) {
+        setHeicPreviewUrl(serverFallbackUrl);
+        return;
+      }
+      setImageFailed(true);
+      setImageLoading(false);
+    }
+  }, [asset.fileName, asset.previewUrl]);
+
+  useEffect(() => {
+    if (shouldAutoPrepareHeic) {
+      void requestHeicPreview();
+    }
+  }, [requestHeicPreview, shouldAutoPrepareHeic]);
+
+  if (needsHeicConversion && canOpenAsset && !heicPreviewRequested) {
+    return (
+      <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 p-4 text-center">
+        <ImageIcon
+          aria-hidden="true"
+          className="size-8 text-muted-foreground"
+        />
+        <div>
+          <p className="font-medium text-sm">HEIC preview converts on demand</p>
+          <p className="mt-1 max-w-52 text-muted-foreground text-xs">
+            The original file is ready. Load the browser preview only when you
+            need to inspect it.
+          </p>
+        </div>
+        <Button
+          onClick={() => {
+            void requestHeicPreview();
+          }}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          <ImageIcon aria-hidden="true" className="size-4" />
+          Load preview
+        </Button>
+      </div>
+    );
+  }
+
+  if (needsHeicConversion && imageLoading && !displayUrl) {
+    return (
+      <div
+        aria-live="polite"
+        className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-muted/40 p-4 text-center text-muted-foreground"
+      >
+        <RefreshCw aria-hidden="true" className="size-5 animate-spin" />
+        <p className="text-xs">Preparing HEIC preview…</p>
+      </div>
+    );
+  }
+
   if (isImage && displayUrl && !imageFailed) {
     return (
-      <img
-        alt={asset.label}
-        className="aspect-[4/3] w-full object-cover"
-        onError={() => setImageFailed(true)}
-        src={displayUrl}
-      />
+      <div className="relative aspect-[4/3]">
+        <img
+          alt={asset.label}
+          className={cn(
+            "h-full w-full object-cover transition-opacity",
+            imageLoading && "opacity-0"
+          )}
+          decoding="async"
+          loading="lazy"
+          onError={() => {
+            setImageFailed(true);
+            setImageLoading(false);
+          }}
+          onLoad={() => setImageLoading(false)}
+          src={displayUrl}
+        />
+        {imageLoading ? (
+          <div
+            aria-live="polite"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/40 p-4 text-center text-muted-foreground"
+          >
+            <RefreshCw aria-hidden="true" className="size-5 animate-spin" />
+            <p className="text-xs">Converting HEIC preview…</p>
+          </div>
+        ) : null}
+      </div>
     );
   }
   return (
@@ -2579,9 +4822,25 @@ function EvidenceAssetPreview({
         <FileText aria-hidden="true" className="size-8" />
       )}
       {needsHeicConversion ? (
-        <div className="max-w-44 text-xs">
-          HEIC preview unavailable. Open the original file.
-        </div>
+        <>
+          <div className="max-w-52 text-xs">
+            The HEIC preview could not be converted. You can retry or open the
+            original file.
+          </div>
+          {canOpenAsset ? (
+            <Button
+              onClick={() => {
+                void requestHeicPreview();
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <RefreshCw aria-hidden="true" className="size-4" />
+              Retry preview
+            </Button>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -2623,8 +4882,8 @@ function ProductionBuildMaterialsTab({
     <MaterialPlanningTab
       actions={actions}
       items={detail.costItems ?? []}
-      panelLayout="stacked"
       milestones={milestones}
+      panelLayout="stacked"
       readOnly={!actions}
       scopeLabel="Active Build"
     />
@@ -2638,6 +4897,7 @@ function ProductionCalendarTab({
   detail,
   onChangeCalendarTimeframe,
   onChangeTab,
+  onRequestSiteVisit,
   workosOrganizationId,
 }: {
   actions?: ProductionBuildDetailActions;
@@ -2646,57 +4906,95 @@ function ProductionCalendarTab({
   detail: ProductionBuildDetail;
   onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeTab: (tab: BuildDetailSubTab) => void;
+  onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   workosOrganizationId?: string;
 }) {
   const drawByKey = useMemo(
     () => new Map(detail.draws.map((draw) => [draw.drawKey, draw])),
-    [detail.draws],
+    [detail.draws]
   );
   const adapterActions = useMemo<ActiveBuildCalendarAdapterActions>(
     () => ({
-      approveDraw: (drawKey) => {
-        const draw = drawByKey.get(drawKey);
-        if (draw) return actions?.approveDraw?.(draw);
-      },
-      approveMilestone: (milestoneKey) =>
-        actions?.approveMilestone?.({ milestoneKey }),
-      assignSiteVisit: (milestoneKey) =>
-        actions?.assignSiteVisit?.({ milestoneKey }),
+      ...(actions?.approveDraw
+        ? {
+            approveDraw: (drawKey: string) => {
+              const draw = drawByKey.get(drawKey);
+              if (draw) {
+                return actions.approveDraw?.(draw);
+              }
+            },
+          }
+        : {}),
+      ...(actions?.approveMilestone
+        ? {
+            approveMilestone: (milestoneKey: string) =>
+              actions.approveMilestone?.({ milestoneKey }),
+          }
+        : {}),
+      ...(actions?.assignSiteVisit
+        ? {
+            assignSiteVisit: (milestoneKey: string) =>
+              onRequestSiteVisit({ milestoneKey }),
+          }
+        : {}),
       cancelSiteVisit: actions?.cancelSiteVisit,
-      releaseDraw: (drawKey) => {
-        const draw = drawByKey.get(drawKey);
-        if (draw) return actions?.releaseDraw?.(draw);
-      },
-      requestDraw: (drawKey) => {
-        const draw = drawByKey.get(drawKey);
-        if (draw) return actions?.requestDraw?.(draw);
-      },
-      requestLoanFacilityDateChange:
-        actions?.requestLoanFacilityDateChange ??
-        ((input) =>
-          actions?.requestFacilityChange?.({
-            reason: input.reason,
-            requestedPaybackDate: input.requestedPaybackDate,
-            requestType: "paybackExtension",
-          })),
+      ...(actions?.releaseDraw
+        ? {
+            releaseDraw: (drawKey: string) => {
+              const draw = drawByKey.get(drawKey);
+              if (draw) {
+                return actions.releaseDraw?.(draw);
+              }
+            },
+          }
+        : {}),
+      ...(actions?.requestDraw
+        ? {
+            requestDraw: (drawKey: string) => {
+              const draw = drawByKey.get(drawKey);
+              if (draw) {
+                return actions.requestDraw?.(draw);
+              }
+            },
+          }
+        : {}),
+      ...(actions?.requestLoanFacilityDateChange ||
+      actions?.requestFacilityChange
+        ? {
+            requestLoanFacilityDateChange:
+              actions?.requestLoanFacilityDateChange ??
+              ((input: { reason: string; requestedPaybackDate: string }) =>
+                actions?.requestFacilityChange?.({
+                  reason: input.reason,
+                  requestedPaybackDate: input.requestedPaybackDate,
+                  requestType: "paybackExtension",
+                })),
+          }
+        : {}),
       requestMilestoneInfo: actions?.requestMilestoneInfo,
       rescheduleSiteVisit: actions?.rescheduleSiteVisit,
       reviseMilestoneSchedule: actions?.reviseMilestoneSchedule,
-      scheduleSiteVisit:
-        actions?.scheduleSiteVisit ??
-        ((input) =>
-          actions?.assignSiteVisit?.({ milestoneKey: input.milestoneKey })),
+      ...(actions?.scheduleSiteVisit || actions?.assignSiteVisit
+        ? {
+            scheduleSiteVisit: (input: SiteVisitOrderRequest) =>
+              onRequestSiteVisit(input),
+          }
+        : {}),
       setAdminDecisionTargetDate: actions?.setAdminDecisionTargetDate,
       setDrawReleaseTargetDate: actions?.setDrawReleaseTargetDate,
       setEvidenceDueDate: actions?.setEvidenceDueDate,
       setReviewTargetDate: actions?.setReviewTargetDate,
-      startMilestoneWork: (milestoneKey) =>
-        actions?.startMilestoneWork?.({
-          milestoneKey,
-          note: "Started from calendar workspace.",
-        }),
+      ...(actions?.startMilestoneWork
+        ? {
+            startMilestoneWork: (milestoneKey: string) =>
+              actions.startMilestoneWork?.({
+                milestoneKey,
+                note: "Started from calendar workspace.",
+              }),
+          }
+        : {}),
     }),
-    [actions, drawByKey],
+    [actions, drawByKey, onRequestSiteVisit]
   );
   const effectiveWorkspace = useMemo(
     () =>
@@ -2704,14 +5002,14 @@ function ProductionCalendarTab({
       buildActiveBuildCalendarWorkspaceFromDetail(detail, {
         organizationId: workosOrganizationId,
       }),
-    [calendarWorkspace, detail, workosOrganizationId],
+    [calendarWorkspace, detail, workosOrganizationId]
   );
   const calendarActions = useMemo(
     () =>
       buildActiveBuildCalendarActions(adapterActions, {
         baseDate: detail.build.startDate,
       }),
-    [adapterActions, detail.build.startDate],
+    [adapterActions, detail.build.startDate]
   );
   const commitEdit = useMemo(
     () =>
@@ -2719,7 +5017,7 @@ function ProductionCalendarTab({
         actions: adapterActions,
         baseDate: detail.build.startDate,
       }),
-    [adapterActions, detail.build.startDate],
+    [adapterActions, detail.build.startDate]
   );
 
   return (
@@ -2750,18 +5048,23 @@ function ProductionCalendarTab({
 
 function ProductionGanttTab({
   activeBuildId,
+  actions,
   detail,
+  onRequestSiteVisit,
   timelineWorkspace,
+  viewerRole,
   workosOrganizationId,
 }: {
   activeBuildId?: string;
+  actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
+  onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
+  viewerRole: "builder" | "lender";
   workosOrganizationId?: string;
 }) {
   if (
-    !activeBuildId ||
-    !workosOrganizationId ||
+    !(activeBuildId && workosOrganizationId) ||
     timelineWorkspace === undefined
   ) {
     return (
@@ -2776,8 +5079,12 @@ function ProductionGanttTab({
     <div className="min-h-[42rem]" data-testid="production-build-gantt">
       <ActiveBuildGanttWorkspace
         buildId={activeBuildId as any}
+        canApproveMilestones={Boolean(actions?.approveMilestone)}
+        canRejectMilestones={Boolean(actions?.rejectMilestone)}
         detail={detail}
+        onRequestSiteVisit={onRequestSiteVisit}
         timelineWorkspace={timelineWorkspace}
+        viewerRole={viewerRole}
         workosOrganizationId={workosOrganizationId}
       />
     </div>
@@ -2787,12 +5094,12 @@ function ProductionGanttTab({
 function buildProductionKanbanCards(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
-  currentDay: number,
+  currentDay: number
 ): KanbanCardData[] {
   const drawByMilestone = new Map(
     projection.draws
       .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw]),
+      .map((draw) => [draw.milestoneKey as string, draw])
   );
   return projection.milestones.map((milestone) => {
     const draw = drawByMilestone.get(milestone.key);
@@ -2805,7 +5112,7 @@ function buildProductionKanbanCards(
           ? Math.round(
               (submilestones.filter((sub) => sub.status === "complete").length /
                 submilestones.length) *
-                100,
+                100
             )
           : milestone.status === "complete"
             ? 100
@@ -2826,14 +5133,14 @@ function buildProductionKanbanCards(
         (contractor) => ({
           initials: initialsFor(contractor.name),
           name: contractor.name,
-        }),
+        })
       ),
       drawGroupKey: draw?.drawKey ?? milestone.key,
       evidenceReviewStatus: milestone.evidenceState,
       forecastEndDate: addDaysSafe(detail.build.startDate, milestone.dayEnd),
       forecastStartDate: addDaysSafe(
         detail.build.startDate,
-        milestone.dayStart,
+        milestone.dayStart
       ),
       milestoneId: milestone._id,
       milestoneKey: milestone.key,
@@ -2841,7 +5148,9 @@ function buildProductionKanbanCards(
       progressPercent,
       requestedAmountCents:
         draw?.status === "requested" ||
-        draw?.status === "approved" ||
+        draw?.status === "in_review" ||
+        draw?.status === "ready_for_admin" ||
+        draw?.status === "approved_for_release" ||
         draw?.status === "released"
           ? draw.amountCents
           : undefined,
@@ -2910,17 +5219,22 @@ function resolveProductionMilestoneKanbanState({
   }
   const dependenciesReady = productionMilestoneDependenciesSatisfied(
     milestone,
-    projection,
+    projection
   );
   const hasStarted = productionMilestoneHasStartedWorkflow(milestone, draw);
   const isPastEnd = currentDay > milestone.dayEnd;
+  if (isPastEnd) {
+    return {
+      canStartWork: false,
+      column: "BehindSchedule",
+      status: "in_progress_behind_schedule",
+    };
+  }
   if (hasStarted) {
     return {
       canStartWork: false,
       column: "InProgress",
-      status: isPastEnd
-        ? "in_progress_behind_schedule"
-        : "in_progress_on_schedule",
+      status: "in_progress_on_schedule",
     };
   }
   if (!dependenciesReady) {
@@ -2934,7 +5248,7 @@ function resolveProductionMilestoneKanbanState({
     return {
       canStartWork: true,
       column: "InProgress",
-      status: isPastEnd ? "in_progress_behind_schedule" : "ready_to_start",
+      status: "ready_to_start",
     };
   }
   return { canStartWork: false, column: "Backlog", status: "planned" };
@@ -2942,23 +5256,29 @@ function resolveProductionMilestoneKanbanState({
 
 function productionMilestoneDependenciesSatisfied(
   milestone: ProductionMilestone,
-  projection: ProductionBuildProjection,
+  projection: ProductionBuildProjection
 ) {
   const byKey = new Map(projection.milestones.map((row) => [row.key, row]));
   return (milestone.dependencyKeys ?? []).every(
-    (key) => byKey.get(key)?.status === "complete",
+    (key) => byKey.get(key)?.status === "complete"
   );
 }
 
 function productionMilestoneHasStartedWorkflow(
   milestone: ProductionMilestone,
-  draw?: ProductionDraw,
+  draw?: ProductionDraw
 ) {
-  if (milestone.status === "in_progress") return true;
-  if ((milestone.progressPercent ?? 0) > 0) return true;
+  if (milestone.status === "in_progress") {
+    return true;
+  }
+  if ((milestone.progressPercent ?? 0) > 0) {
+    return true;
+  }
   if (
     draw?.status === "requested" ||
-    draw?.status === "approved" ||
+    draw?.status === "in_review" ||
+    draw?.status === "ready_for_admin" ||
+    draw?.status === "approved_for_release" ||
     draw?.status === "released"
   ) {
     return true;
@@ -2966,7 +5286,7 @@ function productionMilestoneHasStartedWorkflow(
   const evidenceState = String(milestone.evidenceState ?? "").toLowerCase();
   return Boolean(
     evidenceState &&
-    !["draft package", "not started", "planned"].includes(evidenceState),
+      !["draft package", "not started", "planned"].includes(evidenceState)
   );
 }
 
@@ -2974,14 +5294,16 @@ function buildMilestoneSheetData(
   detail: ProductionBuildDetail,
   projection: ProductionBuildProjection,
   milestoneKey: string,
-  currentDay: number,
+  currentDay: number
 ): MilestoneSheetData | null {
   const milestone = projection.milestones.find(
-    (row) => row.key === milestoneKey,
+    (row) => row.key === milestoneKey
   );
-  if (!milestone) return null;
+  if (!milestone) {
+    return null;
+  }
   const draw = projection.draws.find(
-    (row) => row.milestoneKey === milestoneKey,
+    (row) => row.milestoneKey === milestoneKey
   );
   const state = resolveProductionMilestoneKanbanState({
     currentDay,
@@ -2990,7 +5312,11 @@ function buildMilestoneSheetData(
     projection,
   });
   const events = (detail.auditEvents ?? [])
-    .filter((event) => event.eventType.includes("milestone"))
+    .filter((event) =>
+      ["milestone", "evidence", "site_visit"].some((scope) =>
+        event.eventType.includes(scope)
+      )
+    )
     .slice(0, 6)
     .map((event) => ({
       _id: event._id,
@@ -2998,6 +5324,26 @@ function buildMilestoneSheetData(
       createdAt: event.createdAt,
       title: event.eventType.replace(/[._]/g, " "),
     }));
+  const reviewStatus = stringFromRecord(milestone.completionReview, "status");
+  const reviewNote = stringFromRecord(
+    milestone.completionReview,
+    "note"
+  )?.trim();
+  const reviewRequestedAt = stringFromRecord(
+    milestone.completionReview,
+    "reviewedAt"
+  );
+  const parsedReviewRequestedAt = reviewRequestedAt
+    ? Date.parse(reviewRequestedAt)
+    : Number.NaN;
+  const completionSubmittedAt = stringFromRecord(
+    milestone.completionClaim,
+    "submittedAt"
+  );
+  const submittedAtValue = completionSubmittedAt ?? draw?.requestedAt;
+  const parsedSubmittedAt = submittedAtValue
+    ? Date.parse(submittedAtValue)
+    : Number.NaN;
   return {
     canStartWork: state.canStartWork,
     column: state.column,
@@ -3006,20 +5352,34 @@ function buildMilestoneSheetData(
         initials: initialsFor(contractor.name),
         name: contractor.name,
         role: contractor.role,
-      }),
+      })
     ),
     drawGroupKey: draw?.drawKey ?? milestone.key,
     milestoneKey: milestone.key,
     name: milestone.name,
     recentEvents: events,
-    requestedAmountCents: draw?.amountCents,
-    submittedAt: draw?.requestedAt ? Date.parse(draw.requestedAt) : undefined,
+    reviewRequest:
+      reviewStatus === "revisionRequested" && reviewNote
+        ? {
+            note: reviewNote,
+            ...(Number.isFinite(parsedReviewRequestedAt)
+              ? { requestedAt: parsedReviewRequestedAt }
+              : {}),
+          }
+        : undefined,
+    requestedAmountCents:
+      milestone.drawAvailabilityCents > 0
+        ? milestone.drawAvailabilityCents
+        : draw?.amountCents,
+    submittedAt: Number.isFinite(parsedSubmittedAt)
+      ? parsedSubmittedAt
+      : undefined,
   };
 }
 
 function resolveProductionCurrentDay(
   detail: ProductionBuildDetail,
-  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null,
+  timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null
 ) {
   const timelineDay = timelineWorkspace?.plan?.currentDay;
   if (typeof timelineDay === "number" && Number.isFinite(timelineDay)) {
@@ -3027,7 +5387,7 @@ function resolveProductionCurrentDay(
   }
   return daysBetweenProductionDates(
     detail.build.startDate,
-    new Date().toISOString(),
+    new Date().toISOString()
   );
 }
 
@@ -3039,7 +5399,7 @@ function daysBetweenProductionDates(startIso: string, endIso: string) {
   };
   return Math.max(
     0,
-    Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000),
+    Math.round((parseDay(endIso) - parseDay(startIso)) / 86_400_000)
   );
 }
 
@@ -3048,12 +5408,12 @@ function clampPercent(value: number) {
 }
 
 function buildProductionBuildProjection(
-  detail: ProductionBuildDetail,
+  detail: ProductionBuildDetail
 ): ProductionBuildProjection {
   const milestones = [...detail.milestones].sort((a, b) => a.order - b.order);
   const draws = [...detail.draws].sort((a, b) => a.order - b.order);
   const submilestones = [...detail.submilestones].sort(
-    (a, b) => a.order - b.order,
+    (a, b) => a.order - b.order
   );
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of submilestones) {
@@ -3064,12 +5424,12 @@ function buildProductionBuildProjection(
   const maxDay = Math.max(
     60,
     ...milestones.map((milestone) => milestone.dayEnd + 14),
-    ...draws.map((draw) => draw.timingDay + 14),
+    ...draws.map((draw) => draw.timingDay + 14)
   );
   const calendarIsoDates = new Set<string>();
   for (const milestone of milestones) {
     calendarIsoDates.add(
-      addDaysSafe(detail.build.startDate, milestone.dayStart),
+      addDaysSafe(detail.build.startDate, milestone.dayStart)
     );
     calendarIsoDates.add(addDaysSafe(detail.build.startDate, milestone.dayEnd));
   }
@@ -3086,6 +5446,372 @@ function buildProductionBuildProjection(
   };
 }
 
+function buildCurrentBuildOverview(
+  detail: ProductionBuildDetail,
+  projection: ProductionBuildProjection
+): CurrentBuildOverview {
+  const activeMilestones = projection.milestones
+    .filter(isCurrentActiveMilestone)
+    .sort(compareMilestonesMostRecentFirst);
+  const nextMilestone =
+    projection.milestones.find(
+      (milestone) =>
+        !isCurrentActiveMilestone(milestone) && milestone.status !== "complete"
+    ) ?? null;
+  const approvedMilestoneAvailabilityCents = projection.milestones
+    .filter(isMilestoneApprovedForDrawAvailability)
+    .reduce((sum, milestone) => sum + milestone.drawAvailabilityCents, 0);
+  const committedDrawCents = projection.draws
+    .filter((draw) => isCommittedDrawStatus(draw.status))
+    .reduce((sum, draw) => sum + draw.amountCents, 0);
+  const drawnCents = projection.draws
+    .filter((draw) => draw.status === "released")
+    .reduce((sum, draw) => sum + draw.amountCents, 0);
+  const currentAvailabilityCents = Math.max(
+    0,
+    approvedMilestoneAvailabilityCents - committedDrawCents
+  );
+  const totalApprovedCents =
+    detail.loanFacility?.principalCents ??
+    detail.capitalPlan?.lenderDrawPolicyLimitCents ??
+    detail.build.totalBudgetCents;
+  const upcomingDraw = resolveUpcomingDraw(projection.draws);
+  const requestableAmountCents =
+    upcomingDraw && isRequestableDrawStatus(upcomingDraw.status)
+      ? Math.min(upcomingDraw.amountCents, currentAvailabilityCents)
+      : 0;
+
+  return {
+    activeMilestones,
+    committedDrawCents,
+    currentAvailabilityCents,
+    drawnCents,
+    nextMilestone,
+    percentComplete: buildPercentComplete(projection.milestones),
+    requestableAmountCents,
+    totalApprovedCents,
+    upcomingDraw,
+  };
+}
+
+function compareMilestonesMostRecentFirst(
+  left: ProductionMilestone,
+  right: ProductionMilestone
+): number {
+  const scoreDelta =
+    milestoneRecentActivityScore(right) - milestoneRecentActivityScore(left);
+  if (scoreDelta !== 0) {
+    return scoreDelta;
+  }
+  return right.order - left.order;
+}
+
+function milestoneRecentActivityScore(milestone: ProductionMilestone): number {
+  const submittedAt = stringFromRecord(
+    milestone.completionClaim,
+    "submittedAt"
+  );
+  const reviewedAt = stringFromRecord(milestone.completionReview, "reviewedAt");
+  const parsedDates = [submittedAt, reviewedAt]
+    .map((value) => (value ? Date.parse(value) : Number.NaN))
+    .filter(Number.isFinite);
+  if (parsedDates.length > 0) {
+    return Math.max(...parsedDates);
+  }
+  if (typeof milestone.updatedAt === "number") {
+    return milestone.updatedAt;
+  }
+  return milestone.dayEnd;
+}
+
+function isCurrentActiveMilestone(milestone: ProductionMilestone): boolean {
+  return (
+    milestone.status === "in_progress" ||
+    milestoneHasPendingCompletionClaim(milestone)
+  );
+}
+
+function milestoneHasPendingCompletionClaim(
+  milestone: ProductionMilestone
+): boolean {
+  const reviewStatus = stringFromRecord(milestone.completionReview, "status");
+  return (
+    milestone.status !== "complete" &&
+    Boolean(milestone.completionClaim) &&
+    reviewStatus !== "approved"
+  );
+}
+
+function isMilestoneApprovedForDrawAvailability(
+  milestone: ProductionMilestone
+): boolean {
+  return (
+    milestone.status === "complete" ||
+    stringFromRecord(milestone.completionReview, "status") === "approved"
+  );
+}
+
+function isCommittedDrawStatus(status: ProductionDrawStatus): boolean {
+  return (
+    status === "requested" ||
+    status === "in_review" ||
+    status === "ready_for_admin" ||
+    status === "approved_for_release" ||
+    status === "released"
+  );
+}
+
+function isRequestableDrawStatus(
+  status: ProductionDrawStatus | undefined
+): boolean {
+  return status === "planned" || status === "rejected";
+}
+
+function resolveUpcomingDraw(draws: ProductionDraw[]): ProductionDraw | null {
+  return (
+    draws
+      .filter((draw) => draw.status !== "released")
+      .slice()
+      .sort((a, b) => {
+        const statusDelta =
+          upcomingDrawStatusPriority(a.status) -
+          upcomingDrawStatusPriority(b.status);
+        if (statusDelta !== 0) {
+          return statusDelta;
+        }
+        if (a.order !== b.order) {
+          return a.order - b.order;
+        }
+        return a.timingDay - b.timingDay;
+      })[0] ?? null
+  );
+}
+
+function compareDrawsMostRecentFirst(
+  left: ProductionDraw,
+  right: ProductionDraw
+): number {
+  const scoreDelta =
+    drawRecentActivityScore(right) - drawRecentActivityScore(left);
+  if (scoreDelta !== 0) {
+    return scoreDelta;
+  }
+  return right.order - left.order;
+}
+
+function drawRecentActivityScore(draw: ProductionDraw): number {
+  const activityDates = [
+    draw.releasedAt,
+    draw.releaseDate,
+    draw.reviewedAt,
+    draw.requestedAt,
+  ]
+    .map((value) => (value ? Date.parse(value) : Number.NaN))
+    .filter(Number.isFinite);
+  if (activityDates.length > 0) {
+    return Math.max(...activityDates);
+  }
+  return draw.timingDay;
+}
+
+function compareDrawsScheduleFirst(
+  left: ProductionDraw,
+  right: ProductionDraw
+): number {
+  if (left.order !== right.order) {
+    return left.order - right.order;
+  }
+  return left.timingDay - right.timingDay;
+}
+
+function siteVisitsForMilestone(
+  detail: ProductionBuildDetail,
+  milestone: ProductionMilestone
+): ProductionSiteVisit[] {
+  const visits = (detail.siteVisits ?? []).filter(
+    (visit) => visit.milestoneKey === milestone.key
+  );
+  const reviewedVisit = siteVisitFromCompletionReview(
+    milestone.completionReview
+  );
+  const merged = new Map<string, ProductionSiteVisit>();
+  if (reviewedVisit) {
+    const visitId = reviewedVisit.visitId ?? milestone.key;
+    merged.set(visitId, {
+      milestoneKey: milestone.key,
+      requestedAt: reviewedVisit.requestedAt ?? reviewedVisit.completedAt ?? "",
+      requestedDay: reviewedVisit.requestedDay ?? milestone.dayEnd,
+      status: reviewedVisit.status ?? "requested",
+      visitId,
+      ...(reviewedVisit._id ? { _id: reviewedVisit._id } : {}),
+      ...(reviewedVisit.completedAt
+        ? { completedAt: reviewedVisit.completedAt }
+        : {}),
+      ...(reviewedVisit.note ? { note: reviewedVisit.note } : {}),
+      ...(reviewedVisit.recordNote
+        ? { recordNote: reviewedVisit.recordNote }
+        : {}),
+      ...(reviewedVisit.recordNoteFormat
+        ? { recordNoteFormat: reviewedVisit.recordNoteFormat }
+        : {}),
+      ...(reviewedVisit.requestedTime
+        ? { requestedTime: reviewedVisit.requestedTime }
+        : {}),
+      ...(reviewedVisit.tokenConsumedAt
+        ? { tokenConsumedAt: reviewedVisit.tokenConsumedAt }
+        : {}),
+      ...(reviewedVisit.tokenExpiresAt
+        ? { tokenExpiresAt: reviewedVisit.tokenExpiresAt }
+        : {}),
+      ...(reviewedVisit.tokenOpenedAt
+        ? { tokenOpenedAt: reviewedVisit.tokenOpenedAt }
+        : {}),
+      ...(reviewedVisit.url ? { url: reviewedVisit.url } : {}),
+    });
+  }
+  // Canonical site-visit rows must win over the completion-review snapshot.
+  // Otherwise a stale "requested" snapshot can overwrite a newly cancelled
+  // visit and leave the lender interface looking active after the mutation.
+  for (const visit of visits) {
+    merged.set(siteVisitIdentity(visit), visit);
+  }
+  return [...merged.values()]
+    .filter((visit) => visit.status !== "cancelled")
+    .sort(
+      (a, b) =>
+        siteVisitRecentActivityScore(b) - siteVisitRecentActivityScore(a)
+    );
+}
+
+function siteVisitIdentity(visit: ProductionSiteVisit) {
+  return visit.visitId ?? visit._id ?? `${visit.milestoneKey}-visit`;
+}
+
+function siteVisitRecentActivityScore(visit: ProductionSiteVisit): number {
+  if (visit.completedAt) {
+    const completed = Date.parse(visit.completedAt);
+    if (Number.isFinite(completed)) {
+      return completed;
+    }
+  }
+  if (typeof visit.tokenOpenedAt === "number") {
+    return visit.tokenOpenedAt;
+  }
+  if (typeof visit.updatedAt === "number") {
+    return visit.updatedAt;
+  }
+  const requested = Date.parse(visit.requestedAt);
+  if (Number.isFinite(requested)) {
+    return requested;
+  }
+  return typeof visit.createdAt === "number" ? visit.createdAt : 0;
+}
+
+function siteVisitStateLabel(visit: ProductionSiteVisit): string {
+  if (visit.status === "complete") {
+    return "Site visit completed";
+  }
+  if (visit.status === "cancelled") {
+    return "Site visit cancelled";
+  }
+  if (visit.tokenOpenedAt) {
+    return "Site visit in progress";
+  }
+  return "Site visit ordered";
+}
+
+function siteVisitTokenStateLabel(visit: ProductionSiteVisit): string {
+  if (visit.status === "complete" || visit.tokenConsumedAt) {
+    return "Consumed";
+  }
+  if (visit.status === "cancelled") {
+    return "Cancelled";
+  }
+  if (visit.tokenExpiresAt && visit.tokenExpiresAt <= Date.now()) {
+    return "Expired";
+  }
+  if (visit.tokenOpenedAt) {
+    return "Opened";
+  }
+  return "Active";
+}
+
+function formatSiteVisitDateTime(value?: string | number): string {
+  if (value === undefined || value === null || value === "") {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function siteVisitBadgeVariant(
+  visit: ProductionSiteVisit
+): React.ComponentProps<typeof Badge>["variant"] {
+  if (visit.status === "complete") {
+    return "success";
+  }
+  if (visit.status === "cancelled") {
+    return "destructive";
+  }
+  return visit.tokenOpenedAt ? "warning" : "info";
+}
+
+function upcomingDrawStatusPriority(status: ProductionDrawStatus): number {
+  if (status === "planned" || status === "rejected") {
+    return 0;
+  }
+  if (status === "requested") {
+    return 1;
+  }
+  if (status === "in_review") {
+    return 2;
+  }
+  if (status === "ready_for_admin") {
+    return 3;
+  }
+  if (status === "approved_for_release") {
+    return 4;
+  }
+  return 5;
+}
+
+function buildPercentComplete(milestones: ProductionMilestone[]): number {
+  const completed = milestones.filter(
+    (milestone) => milestone.status === "complete"
+  ).length;
+  return milestones.length > 0
+    ? Math.round((completed / milestones.length) * 100)
+    : 0;
+}
+
+function milestoneProgressPercent(
+  milestone: ProductionMilestone,
+  submilestones: ProductionSubmilestone[]
+): number {
+  if (typeof milestone.progressPercent === "number") {
+    return clampPercent(milestone.progressPercent);
+  }
+  if (submilestones.length > 0) {
+    return clampPercent(
+      (submilestones.filter(
+        (submilestone) => submilestone.status === "complete"
+      ).length /
+        submilestones.length) *
+        100
+    );
+  }
+  if (milestone.status === "complete") {
+    return 100;
+  }
+  return milestone.status === "in_progress" ? 50 : 0;
+}
+
 function addDaysSafe(isoDate: string, days: number): string {
   const base = dateFromIso(isoDate);
   if (Number.isNaN(base.valueOf())) {
@@ -3098,7 +5824,7 @@ function addDaysSafe(isoDate: string, days: number): string {
 
 function dateFromIso(isoDate: string): Date {
   const [year, month, day] = isoDate.split("-").map(Number);
-  if (!year || !month || !day) {
+  if (!(year && month && day)) {
     return new Date(isoDate);
   }
   return new Date(year, month - 1, day);
@@ -3110,8 +5836,12 @@ function statusLabel(status: ProductionBuildStatus): string {
 
 function drawStatusLabel(status: ProductionDrawStatus): string {
   switch (status) {
-    case "approved":
-      return "Approved";
+    case "approved_for_release":
+      return "Approved for release";
+    case "in_review":
+      return "In review";
+    case "ready_for_admin":
+      return "Ready for admin";
     case "rejected":
       return "Rejected";
     case "requested":
@@ -3125,17 +5855,17 @@ function drawStatusLabel(status: ProductionDrawStatus): string {
 
 function buildBuilderEvidenceRows(
   detail: ProductionBuildDetail,
-  projection: ProductionBuildProjection,
+  projection: ProductionBuildProjection
 ): ProductionEvidenceRow[] {
   const drawByMilestone = new Map(
     projection.draws
       .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw]),
+      .map((draw) => [draw.milestoneKey as string, draw])
   );
   return projection.milestones
     .map((milestone) => {
       const assets = evidenceAssetsForMilestone(detail, milestone.key).filter(
-        (asset) => !isSiteVisitEvidenceAsset(asset),
+        (asset) => !isSiteVisitEvidenceAsset(asset)
       );
       if (!hasBuilderSubmittedEvidence(milestone) && assets.length === 0) {
         return null;
@@ -3175,19 +5905,21 @@ function buildBuilderEvidenceRows(
 
 function buildCompletedSiteVisitRows(
   detail: ProductionBuildDetail,
-  projection: ProductionBuildProjection,
+  projection: ProductionBuildProjection
 ): ProductionEvidenceRow[] {
   const milestoneByKey = new Map(
-    projection.milestones.map((milestone) => [milestone.key, milestone]),
+    projection.milestones.map((milestone) => [milestone.key, milestone])
   );
   const drawByMilestone = new Map(
     projection.draws
       .filter((draw) => draw.milestoneKey)
-      .map((draw) => [draw.milestoneKey as string, draw]),
+      .map((draw) => [draw.milestoneKey as string, draw])
   );
   const rows = new Map<string, ProductionEvidenceRow>();
   const addVisit = (visit: ProductionSiteVisit) => {
-    if (visit.status !== "complete") return;
+    if (visit.status !== "complete") {
+      return;
+    }
     const milestone = milestoneByKey.get(visit.milestoneKey);
     const key = visit.visitId || visit._id || visit.milestoneKey;
     const assets = siteVisitEvidenceAssetsForVisit(detail, visit);
@@ -3237,22 +5969,26 @@ function buildCompletedSiteVisitRows(
   }
   return [...rows.values()].sort((a, b) =>
     (b.completedAt ?? b.submittedAt ?? "").localeCompare(
-      a.completedAt ?? a.submittedAt ?? "",
-    ),
+      a.completedAt ?? a.submittedAt ?? ""
+    )
   );
 }
 
 function hasBuilderSubmittedEvidence(milestone: ProductionMilestone) {
-  if (milestone.completionClaim) return true;
+  if (milestone.completionClaim) {
+    return true;
+  }
   const state = String(milestone.evidenceState ?? "").toLowerCase();
-  if (!state) return false;
+  if (!state) {
+    return false;
+  }
   return !["draft package", "not started", "planned"].includes(state);
 }
 
 function evidenceLocationState(
   detail: ProductionBuildDetail,
   milestoneKey: string,
-  scopedAssets = evidenceAssetsForMilestone(detail, milestoneKey),
+  scopedAssets = evidenceAssetsForMilestone(detail, milestoneKey)
 ): ProductionEvidenceRow["locationState"] {
   if (scopedAssets.some((asset) => asset.locationVerified === false)) {
     return "unverified";
@@ -3264,8 +6000,8 @@ function evidenceLocationState(
     [photo.caption, photo.evidenceKey]
       .filter(Boolean)
       .some((value) =>
-        String(value).toLowerCase().includes(milestoneKey.toLowerCase()),
-      ),
+        String(value).toLowerCase().includes(milestoneKey.toLowerCase())
+      )
   );
   if (relatedPhotos.some((photo) => photo.locationVerified === false)) {
     return "unverified";
@@ -3273,25 +6009,25 @@ function evidenceLocationState(
   if (relatedPhotos.some((photo) => photo.locationVerified === true)) {
     return "verified";
   }
-  return undefined;
+  return;
 }
 
 function evidenceAssetsForMilestone(
   detail: ProductionBuildDetail,
-  milestoneKey: string,
+  milestoneKey: string
 ) {
   return (detail.evidenceAssets ?? []).filter(
-    (asset) => asset.milestoneKey === milestoneKey,
+    (asset) => asset.milestoneKey === milestoneKey
   );
 }
 
 function siteVisitEvidenceAssetsForVisit(
   detail: ProductionBuildDetail,
-  visit: ProductionSiteVisit,
+  visit: ProductionSiteVisit
 ) {
   const milestoneAssets = evidenceAssetsForMilestone(
     detail,
-    visit.milestoneKey,
+    visit.milestoneKey
   );
   const visitId = visit.visitId ?? visit._id;
   const visitAssets = milestoneAssets.filter((asset) => {
@@ -3301,7 +6037,9 @@ function siteVisitEvidenceAssetsForVisit(
       (!visitId || source.includes(String(visitId)))
     );
   });
-  if (visitAssets.length > 0) return visitAssets;
+  if (visitAssets.length > 0) {
+    return visitAssets;
+  }
   return milestoneAssets.filter(isSiteVisitEvidenceAsset);
 }
 
@@ -3312,7 +6050,9 @@ function isSiteVisitEvidenceAsset(asset: ProductionEvidenceAsset) {
 }
 
 function isUsableEvidenceUrl(url?: string | null) {
-  if (!url) return false;
+  if (!url) {
+    return false;
+  }
   return !(
     url.startsWith("production-evidence://") ||
     url.startsWith("production-build://")
@@ -3320,25 +6060,44 @@ function isUsableEvidenceUrl(url?: string | null) {
 }
 
 function evidenceImagePreviewUrl(url?: string | null) {
-  if (!url) return null;
+  if (!url) {
+    return null;
+  }
   const siteUrl = import.meta.env.VITE_CONVEX_SITE_URL;
-  if (!siteUrl) return null;
+  if (!siteUrl) {
+    return null;
+  }
   return `${siteUrl}/evidence-image-preview?url=${encodeURIComponent(url)}`;
 }
 
+function evidenceImageSourceUrl(url?: string | null) {
+  if (!url) {
+    return null;
+  }
+  const siteUrl = import.meta.env.VITE_CONVEX_SITE_URL;
+  if (!siteUrl) {
+    return null;
+  }
+  return `${siteUrl}/evidence-image-source?url=${encodeURIComponent(url)}`;
+}
+
 function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
   const units = ["B", "KB", "MB", "GB"] as const;
   const exponent = Math.min(
     Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
+    units.length - 1
   );
   const value = bytes / 1024 ** exponent;
   return `${value >= 10 || exponent === 0 ? Math.round(value) : value.toFixed(1)} ${units[exponent]}`;
 }
 
 function evidenceStatusLabel(status: string): string {
-  if (!status) return "Submitted";
+  if (!status) {
+    return "Submitted";
+  }
   return status
     .replace(/_/g, " ")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -3346,7 +6105,7 @@ function evidenceStatusLabel(status: string): string {
 }
 
 function evidenceStatusVariant(
-  status: string,
+  status: string
 ): React.ComponentProps<typeof Badge>["variant"] {
   const normalized = status.toLowerCase();
   if (
@@ -3379,7 +6138,7 @@ function evidenceStatusVariant(
 
 function stringFromRecord(
   value: Record<string, unknown> | undefined,
-  key: string,
+  key: string
 ) {
   const raw = value?.[key];
   return typeof raw === "string" && raw.trim() ? raw : undefined;
@@ -3387,40 +6146,55 @@ function stringFromRecord(
 
 function numberFromRecord(
   value: Record<string, unknown> | undefined,
-  key: string,
+  key: string
 ) {
   const raw = value?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
 }
 
 function siteVisitFromCompletionReview(
-  review: Record<string, any> | undefined,
+  review: Record<string, any> | undefined
 ): Partial<ProductionSiteVisit> | null {
   const raw = review?.siteVisit;
   return raw && typeof raw === "object" ? raw : null;
 }
 
 function statusBadgeVariant(
-  status: ProductionBuildStatus,
+  status: ProductionBuildStatus
 ): React.ComponentProps<typeof Badge>["variant"] {
-  if (status === "completed") return "success";
-  if (status === "paused") return "warning";
+  if (status === "completed") {
+    return "success";
+  }
+  if (status === "paused") {
+    return "warning";
+  }
   return "info";
 }
 
 function drawBadgeVariant(
-  status: ProductionDrawStatus,
+  status: ProductionDrawStatus
 ): React.ComponentProps<typeof Badge>["variant"] {
-  if (status === "released") return "success";
-  if (status === "requested") return "warning";
-  if (status === "approved") return "info";
-  if (status === "rejected") return "destructive";
+  if (status === "released") {
+    return "success";
+  }
+  if (status === "requested") {
+    return "warning";
+  }
+  if (status === "in_review") {
+    return "info";
+  }
+  if (status === "ready_for_admin" || status === "approved_for_release") {
+    return "info";
+  }
+  if (status === "rejected") {
+    return "destructive";
+  }
   return "outline";
 }
 
 function contractorAssignmentsForMilestone(
   detail: ProductionBuildDetail,
-  milestoneKey: string,
+  milestoneKey: string
 ) {
   const profileById = new Map<string, { name: string; trades?: string[] }>();
   for (const contractor of detail.contractors ?? []) {
@@ -3451,13 +6225,13 @@ function contractorAssignmentsForMilestone(
 function submilestoneNameFor(
   detail: ProductionBuildDetail,
   milestoneKey: string,
-  submilestoneKey: string,
+  submilestoneKey: string
 ) {
   return (
     detail.submilestones.find(
       (submilestone) =>
         submilestone.milestoneKey === milestoneKey &&
-        submilestone.key === submilestoneKey,
+        submilestone.key === submilestoneKey
     )?.name ?? submilestoneKey
   );
 }
@@ -3470,7 +6244,9 @@ function contractorAssignmentOptions(detail: ProductionBuildDetail) {
       city?: string;
       defaultPayRateCents?: number;
       defaultPayRateUnit?: "hour" | "day" | "fixed";
+      email?: string;
       name: string;
+      onboardingStatus?: "profile_only" | "invited" | "account_linked";
       trades?: string[];
     }
   >();
@@ -3488,7 +6264,9 @@ function contractorAssignmentOptions(detail: ProductionBuildDetail) {
         contractor.payRateUnit ??
         contractor.agreedRateUnit ??
         contractor.defaultPayRateUnit,
+      email: contractor.email,
       name: contractor.name,
+      onboardingStatus: contractor.onboardingStatus,
       trades: contractor.trades,
     });
   }
@@ -3498,7 +6276,9 @@ function contractorAssignmentOptions(detail: ProductionBuildDetail) {
       city: contractor.city,
       defaultPayRateCents: contractor.defaultPayRateCents,
       defaultPayRateUnit: contractor.defaultPayRateUnit,
+      email: contractor.email,
       name: contractor.name,
+      onboardingStatus: contractor.onboardingStatus,
       trades: contractor.trades,
     });
   }

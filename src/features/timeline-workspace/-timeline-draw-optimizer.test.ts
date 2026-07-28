@@ -60,6 +60,31 @@ describe("optimizeTimelineDrawSchedule", () => {
     expect(result.drawFees).toBe(500);
   });
 
+  test("uses configured interest rate for optimization costs", () => {
+    const input = {
+      capitalSpikes: [capitalCost("late-carry-cost", 90, 20)],
+      items: [milestone("foundation", 0, 5, 100, 100)],
+      minimumCashReserve: 0,
+      range: { max: 40, min: 0, unit: "days" },
+      startingCash: 110,
+    };
+
+    const zeroRate = optimizeTimelineDrawSchedule({
+      ...input,
+      interestAnnualBps: 0,
+    });
+    const higherRate = optimizeTimelineDrawSchedule({
+      ...input,
+      interestAnnualBps: 1_200,
+    });
+
+    expect(zeroRate.status).toBe("optimized");
+    expect(higherRate.status).toBe("optimized");
+    expect(zeroRate.interestCost).toBe(0);
+    expect(higherRate.interestCost).toBeGreaterThan(zeroRate.interestCost);
+    expect(higherRate.totalCost).toBeGreaterThan(zeroRate.totalCost);
+  });
+
   test("splits distant reserve needs when late interest savings beat another draw fee", () => {
     const result = optimizeTimelineDrawSchedule({
       capitalSpikes: [
@@ -103,10 +128,10 @@ describe("optimizeTimelineDrawSchedule", () => {
         cashInfusion("sponsor-injection", 30, 8),
         capitalCost("large-site-cost", 120, 10),
       ],
-      items: [milestone("availability-unlock", 0, 5, 0, 100)],
+      items: [milestone("availability-unlock", 0, 5, 100, 100)],
       minimumCashReserve: 0,
       range: { max: 40, min: 0, unit: "days" },
-      startingCash: 0,
+      startingCash: 100,
     });
 
     expect(result.status).toBe("optimized");
@@ -148,18 +173,30 @@ describe("optimizeTimelineDrawSchedule", () => {
     ).toBeGreaterThanOrEqual(0);
   });
 
-  test("reports infeasible distributed spend before reimbursement capacity unlocks", () => {
+  test("draws during distributed milestone spend after reimbursement capacity accrues", () => {
+    const items = [milestone("long-running-work", 10, 10, 100, 100)];
+    const range = { max: 30, min: 0, unit: "days" } as const;
     const result = optimizeTimelineDrawSchedule({
       capitalSpikes: [],
-      items: [milestone("long-running-work", 10, 10, 100, 100)],
+      items,
       minimumCashReserve: 0,
-      range: { max: 30, min: 0, unit: "days" },
+      range,
       startingCash: 50,
     });
 
-    expect(result.status).toBe("infeasible");
-    expect(result.infeasibleReason).toContain("long-running-work daily spend");
-    expect(result.infeasibleReason).toContain("$60 milestone spend");
+    expect(result.status).toBe("optimized");
+    expect(result.draws).toHaveLength(1);
+    expect(result.draws[0]).toMatchObject({
+      amount: 50,
+      itemId: "long-running-work",
+      x: 14,
+    });
+    expect(
+      buildCashShortfallPoints(
+        buildTimelineCashflowData(items, result.draws, [], range, 50),
+        0,
+      ),
+    ).toEqual([]);
   });
 
   test("reports cash infusions and capital spikes in availability infeasible reasons", () => {

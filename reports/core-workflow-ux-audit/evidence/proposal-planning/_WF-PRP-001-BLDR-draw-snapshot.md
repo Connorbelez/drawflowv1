@@ -1,0 +1,106 @@
+- link "DrawFlow DrawFlow Builder":
+  - /url: /builder
+  - img "DrawFlow"
+  - generic: DrawFlow Builder
+- generic: Builder
+- list:
+  - link "Dashboard":
+    - /url: /builder
+    - generic: Dashboard
+  - link "Proposals":
+    - /url: /builder/proposals
+    - generic: Proposals
+  - link "Live Builds":
+    - /url: /builder/proposals
+    - generic: Live Builds
+- generic: Demos
+- list:
+  - link "Timeline Setup":
+    - /url: /demo/timeline
+    - generic: Timeline Setup
+- generic: CHANGELOG
+- paragraph: Product update
+- generic: Performance boosts and UI polish.
+- link "Learn more":
+  - /url: "#"
+- button:
+- list:
+  - link "About":
+    - /url: /about
+    - generic: About
+  - link "Docs":
+    - /url: /demo
+    - generic: Docs
+- paragraph: © 2026 DrawFlow
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - link "Builder":
+        - /url: /builder
+      - generic: Proposals
+  - 'button "Theme mode: dark. Click to switch mode."':
+  - button "Notifications":
+  - separator
+  - list:
+    - button "Connor Beleznay Connor Beleznay c.beleznay@humanfeedback.com":
+      - img "Connor Beleznay"
+      - generic: Connor Beleznay
+      - generic: c.beleznay@humanfeedback.com
+  - tablist "Proposal workspace sections":
+    - tab "Packet"
+    - tab "Timeline"
+    - tab "Gantt"
+    - tab "Milestones"
+    - tab "Calendar"
+    - tab "Contractors"
+    - tab "Review"
+    - tab "Draw schedule" [active] [selected]
+    - tab "Materials"
+    - tab "Staff"
+  - generic: Draft
+  - generic: Seed Scenario - Draft
+  - generic: ·
+  - generic: Draft Site, Toronto, ON
+  - generic: Total budget
+  - strong: $650,250
+  - generic: Total approved
+  - strong: $550,000
+  - generic: Interest rate
+  - strong: 9.25%
+  - tabpanel "Draw schedule":
+    - generic: Backoffice draw schedule
+    - group "draw-01":
+      - generic: draw-01
+      - generic: draw-01 label
+      - textbox "draw-01 label": Foundation reimbursement draw
+      - generic: Amount dollars
+      - textbox "Amount dollars":
+        - /placeholder: $0
+        - text: "160200"
+      - generic: Timing day
+      - textbox "Timing day": "30"
+      - button "Save draw row" [disabled]
+    - group "draw-02":
+      - generic: draw-02
+      - generic: draw-02 label
+      - textbox "draw-02 label": Shell and Dry-In reimbursement draw
+      - generic: Amount dollars
+      - textbox "Amount dollars":
+        - /placeholder: $0
+        - text: "360000"
+      - generic: Timing day
+      - textbox "Timing day": "75"
+      - button "Save draw row" [disabled]
+    - generic: Draw edit reason
+    - generic: Change reason
+    - textbox "Change reason":
+      - /placeholder: Required before saving draw rows
+    - paragraph: Draw schedule edits are audited with this reason.
+  - button "Open DrawFlow AI assistant":
+- region "Notifications alt+T"
+- button "Open TanStack Devtools":
+  - img "TanStack Devtools"
+- generic: $200K

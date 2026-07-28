@@ -13,6 +13,7 @@ import {
   ChevronRight,
   GripVertical,
   MoveRight,
+  PanelRightOpen,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
   useCallback,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -53,6 +55,14 @@ import {
   ContextMenuTrigger,
 } from "#/components/ui/context-menu.tsx";
 import { Group, GroupText } from "#/components/ui/group.tsx";
+import {
+  Sheet,
+  SheetDescription,
+  SheetHeader,
+  SheetPanel,
+  SheetPopup,
+  SheetTitle,
+} from "#/components/ui/sheet.tsx";
 import { Switch } from "#/components/ui/switch.tsx";
 import {
   Table,
@@ -65,6 +75,11 @@ import {
 } from "#/components/ui/table.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Toggle } from "#/components/ui/toggle.tsx";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "#/components/ui/tooltip.tsx";
 import {
   formatCurrency,
   parseCurrencyToCents,
@@ -232,7 +247,20 @@ export interface TimelineMilestoneWorksheetRow {
 
 type WorksheetMode = "settings" | "setup";
 export type TimelineScheduleDisplayMode = "dates" | "tOffsets";
+type TimelineWorksheetView = "editor" | "table";
+type TimelineDetailsSheetTarget =
+  | { kind: "milestone"; rowKey: string }
+  | { kind: "subMilestone"; rowKey: string; subMilestoneId: string };
+type TimelineSummaryDragItem =
+  | { id: string; kind: "group"; rowKey: string }
+  | {
+      id: string;
+      kind: "subMilestone";
+      rowKey: string;
+      subMilestoneId: string;
+    };
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Existing shared worksheet orchestrator owns row editing, drag/drop, scheduling, planning tabs, and setup persistence.
 export function TimelineMilestoneWorksheetTable({
   cascadeBudgetEdits = false,
   cashText,
@@ -240,6 +268,7 @@ export function TimelineMilestoneWorksheetTable({
   contractorOptions = [],
   error,
   footerExtra,
+  initialWorksheetView,
   leadingContent,
   mode,
   onBack,
@@ -262,6 +291,7 @@ export function TimelineMilestoneWorksheetTable({
   contractorOptions?: TimelineMilestoneWorksheetContractorOption[];
   error?: string;
   footerExtra?: ReactNode;
+  initialWorksheetView?: TimelineWorksheetView;
   leadingContent?: ReactNode;
   mode: WorksheetMode;
   onBack?: () => void;
@@ -292,6 +322,11 @@ export function TimelineMilestoneWorksheetTable({
       : {}
   );
   const [customMilestoneName, setCustomMilestoneName] = useState("");
+  const [worksheetView, setWorksheetView] = useState<TimelineWorksheetView>(
+    () => initialWorksheetView ?? (mode === "setup" ? "table" : "editor")
+  );
+  const [detailsSheetTarget, setDetailsSheetTarget] =
+    useState<TimelineDetailsSheetTarget | null>(null);
   const keyboardInstructionsId = useId();
   const rowsRef = useRef(rows);
   const onRowsChangeRef = useRef(onRowsChange);
@@ -362,6 +397,25 @@ export function TimelineMilestoneWorksheetTable({
   const commitRows = useCallback(() => {
     updateRows(rowsRef.current, { commit: true });
   }, [updateRows]);
+
+  const openDetailsSheet = useCallback(
+    (rowKey: string, subMilestoneId?: string) => {
+      if (subMilestoneId) {
+        setActiveSubMilestoneByRow((current) => ({
+          ...current,
+          [rowKey]: subMilestoneId,
+        }));
+        setDetailsSheetTarget({
+          kind: "subMilestone",
+          rowKey,
+          subMilestoneId,
+        });
+        return;
+      }
+      setDetailsSheetTarget({ kind: "milestone", rowKey });
+    },
+    []
+  );
 
   const addSubMilestone = (rowKey: string, item?: SubMilestoneBankItem) => {
     const row = rows.find((candidate) => candidate.key === rowKey);
@@ -503,6 +557,21 @@ export function TimelineMilestoneWorksheetTable({
       [targetRowKey]: subMilestoneId,
     }));
   };
+
+  const moveSummarySubMilestone = useCallback(
+    (activeIndex: number, overIndex: number) => {
+      const nextRows = moveSubMilestoneWithinSummaryRows(
+        rowsRef.current,
+        activeIndex,
+        overIndex,
+        { includeBudget: mode === "setup" }
+      );
+      if (nextRows) {
+        updateRows(nextRows);
+      }
+    },
+    [mode, updateRows]
+  );
 
   const addContractorAssignment = (
     rowKey: string,
@@ -709,6 +778,111 @@ export function TimelineMilestoneWorksheetTable({
     0
   );
   const showSetupActions = mode === "setup" && Boolean(onBack || onComplete);
+  const detailsSheetRow =
+    rows.find((row) => row.key === detailsSheetTarget?.rowKey) ?? null;
+  const detailsSheetSubMilestone =
+    detailsSheetTarget?.kind === "subMilestone"
+      ? (detailsSheetRow?.subMilestoneDetails.find(
+          (subMilestone) =>
+            subMilestone.id === detailsSheetTarget.subMilestoneId
+        ) ?? null)
+      : null;
+  const detailsSheetSummary = detailsSheetRow
+    ? milestoneSummaryWindow(detailsSheetRow, {
+        proposedStartDate,
+        scheduleDisplayMode,
+      })
+    : null;
+  const detailsSheetSubMilestoneSummary =
+    detailsSheetRow && detailsSheetSubMilestone
+      ? subMilestoneSummaryWindow(detailsSheetRow, detailsSheetSubMilestone, {
+          proposedStartDate,
+          scheduleDisplayMode,
+        })
+      : null;
+  const detailsSheetOpen = Boolean(
+    detailsSheetRow &&
+      (detailsSheetTarget?.kind === "milestone" || detailsSheetSubMilestone)
+  );
+  const detailsSheetTitle =
+    detailsSheetTarget?.kind === "subMilestone" && detailsSheetSubMilestone
+      ? sanitizeSubMilestoneName(detailsSheetSubMilestone.name)
+      : (detailsSheetRow?.name ?? "Milestone details");
+  const detailsSheetDescription =
+    detailsSheetTarget?.kind === "subMilestone" &&
+    detailsSheetRow &&
+    detailsSheetSubMilestone &&
+    detailsSheetSubMilestoneSummary
+      ? `${detailsSheetRow.name} / ${detailsSheetSubMilestoneSummary.primary} / ${
+          mode === "settings"
+            ? (detailsSheetSubMilestone.percentageText ??
+              formatBps(detailsSheetSubMilestone.percentageBps ?? 0))
+            : detailsSheetSubMilestone.budgetText
+        }`
+      : detailsSheetRow && detailsSheetSummary
+        ? `${detailsSheetSummary.primary} / ${summaryValueText(
+            mode,
+            detailsSheetRow
+          )} / ${detailsSheetRow.subMilestoneDetails.length} sub-milestone${
+            detailsSheetRow.subMilestoneDetails.length === 1 ? "" : "s"
+          }`
+        : "Milestone details";
+  const detailsSheetTestId =
+    detailsSheetTarget?.kind === "subMilestone" && detailsSheetSubMilestone
+      ? `timeline-setup-submilestone-details-sheet-${detailsSheetSubMilestone.id}`
+      : detailsSheetRow
+        ? `timeline-setup-details-sheet-${detailsSheetRow.key}`
+        : undefined;
+
+  const renderMilestoneDetailTabs = (
+    row: TimelineMilestoneWorksheetRow,
+    placement: "expanded" | "sheet" = "expanded"
+  ) => (
+    <MilestoneExpandedTabs
+      activeSubMilestoneId={activeSubMilestoneByRow[row.key]}
+      contractorOptions={contractorOptions}
+      mode={mode}
+      moveTargetRows={rows.map(({ key, name }) => ({
+        key,
+        name,
+      }))}
+      onActiveSubMilestoneChange={(subMilestoneId) =>
+        setActiveSubMilestoneByRow((current) => ({
+          ...current,
+          [row.key]: subMilestoneId,
+        }))
+      }
+      onAddContractorAssignment={(assignment) =>
+        addContractorAssignment(row.key, assignment)
+      }
+      onAddSubMilestone={(item) => addSubMilestone(row.key, item)}
+      onCommitField={commitRows}
+      onCreateCostItem={(payload) => createCostItem(row.key, payload)}
+      onDeleteCostItem={(itemId) => deleteCostItem(row.key, itemId)}
+      onMoveSubMilestone={(subMilestoneId, targetRowKey) =>
+        moveSubMilestone(row.key, subMilestoneId, targetRowKey)
+      }
+      onRemoveContractorAssignment={(assignmentId) =>
+        removeContractorAssignment(row.key, assignmentId)
+      }
+      onRemoveSubMilestone={(subMilestoneId) =>
+        removeSubMilestone(row.key, subMilestoneId)
+      }
+      onUpdateCostItem={(itemId, payload) =>
+        updateCostItem(row.key, itemId, payload)
+      }
+      onUpdateFieldGuidance={(siteVisitGuidance) =>
+        updateRow(row.key, { siteVisitGuidance })
+      }
+      onUpdateSubMilestone={(subMilestoneId, patch, meta) =>
+        updateSubMilestone(row.key, subMilestoneId, patch, meta)
+      }
+      placement={placement}
+      proposedStartDate={proposedStartDate}
+      row={row}
+      scheduleDisplayMode={scheduleDisplayMode}
+    />
+  );
 
   return (
     <div
@@ -847,166 +1021,150 @@ export function TimelineMilestoneWorksheetTable({
         </div>
       </div>
 
-      <div
-        className="timeline-blueprint-table-wrap"
-        data-testid="timeline-setup-budget-table"
+      <Tabs
+        className="timeline-blueprint-view-tabs"
+        data-testid="timeline-setup-worksheet-view-tabs"
+        onValueChange={(value) => {
+          if (value === "editor" || value === "table") {
+            setWorksheetView(value);
+          }
+        }}
+        value={worksheetView}
       >
-        <p className="sr-only" id={keyboardInstructionsId}>
-          Use Tab to move through controls. In editable worksheet cells, press
-          Enter or Arrow Down to move to the next control, and Shift Enter or
-          Arrow Up to move to the previous control. Drag handles can be moved
-          with Arrow Up and Arrow Down.
-        </p>
-        {(
-          ["top-left", "top-right", "bottom-left", "bottom-right"] as const
-        ).map((position) => (
-          <span
-            aria-hidden="true"
-            className={`timeline-blueprint-table-corner is-${position}`}
-            data-testid={`timeline-setup-budget-table-corner-${position}`}
-            key={position}
-          />
-        ))}
-        <Table
-          aria-describedby={keyboardInstructionsId}
-          aria-label={`${templateTitle} milestone worksheet`}
-          className="timeline-blueprint-table"
-        >
-          <TableCaption className="sr-only">
-            {mode === "settings"
-              ? "Edit the milestone template names, types, percentages, durations, inclusion state, and sub-milestones."
-              : "Edit milestone budgets, durations, exclusion state, order, and sub-milestones."}
-          </TableCaption>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    scope="col"
-                    style={{ width: header.getSize() }}
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <Sortable
-            aria-label="Milestone budget order"
-            getItemValue={(row) => row.key}
-            modifiers={[restrictToVerticalAxis]}
-            onMove={({ activeIndex, overIndex }) =>
-              reorderRows(activeIndex, overIndex)
-            }
-            render={<TableBody />}
-            strategy="vertical"
-            value={rows}
+        <div className="timeline-blueprint-view-tabs-header">
+          <TabsList
+            aria-label="Milestone worksheet views"
+            className="timeline-blueprint-view-tabs-list"
+            variant="underline"
           >
-            {table.getRowModel().rows.flatMap((row) => {
-              const expandedRowId = getExpandedRowId(row.original.key);
-              const budgetRow = (
-                <SortableItem
-                  className={cn(row.original.excluded && "is-excluded")}
-                  data-testid={`timeline-setup-budget-row-${row.original.key}`}
-                  key={row.id}
-                  render={<TableRow />}
-                  value={row.original.key}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </SortableItem>
-              );
-              const expandedRow = row.getIsExpanded() ? (
-                <TableRow
-                  className="timeline-blueprint-expanded-row"
-                  id={expandedRowId}
-                  key={`${row.id}:expanded`}
-                >
-                  <TableCell colSpan={row.getVisibleCells().length}>
-                    <MilestoneExpandedTabs
-                      activeSubMilestoneId={
-                        activeSubMilestoneByRow[row.original.key]
-                      }
-                      contractorOptions={contractorOptions}
-                      mode={mode}
-                      moveTargetRows={rows.map(({ key, name }) => ({
-                        key,
-                        name,
-                      }))}
-                      onActiveSubMilestoneChange={(subMilestoneId) =>
-                        setActiveSubMilestoneByRow((current) => ({
-                          ...current,
-                          [row.original.key]: subMilestoneId,
-                        }))
-                      }
-                      onAddContractorAssignment={(assignment) =>
-                        addContractorAssignment(row.original.key, assignment)
-                      }
-                      onAddSubMilestone={(item) =>
-                        addSubMilestone(row.original.key, item)
-                      }
-                      onCommitField={commitRows}
-                      onCreateCostItem={(payload) =>
-                        createCostItem(row.original.key, payload)
-                      }
-                      onDeleteCostItem={(itemId) =>
-                        deleteCostItem(row.original.key, itemId)
-                      }
-                      onMoveSubMilestone={(subMilestoneId, targetRowKey) =>
-                        moveSubMilestone(
-                          row.original.key,
-                          subMilestoneId,
-                          targetRowKey
-                        )
-                      }
-                      onRemoveContractorAssignment={(assignmentId) =>
-                        removeContractorAssignment(
-                          row.original.key,
-                          assignmentId
-                        )
-                      }
-                      onRemoveSubMilestone={(subMilestoneId) =>
-                        removeSubMilestone(row.original.key, subMilestoneId)
-                      }
-                      onUpdateCostItem={(itemId, payload) =>
-                        updateCostItem(row.original.key, itemId, payload)
-                      }
-                      onUpdateFieldGuidance={(siteVisitGuidance) =>
-                        updateRow(row.original.key, { siteVisitGuidance })
-                      }
-                      onUpdateSubMilestone={(subMilestoneId, patch, meta) =>
-                        updateSubMilestone(
-                          row.original.key,
-                          subMilestoneId,
-                          patch,
-                          meta
-                        )
-                      }
-                      proposedStartDate={proposedStartDate}
-                      row={row.original}
-                      scheduleDisplayMode={scheduleDisplayMode}
-                    />
-                  </TableCell>
-                </TableRow>
-              ) : null;
+            <TabsTab value="editor">Worksheet</TabsTab>
+            <TabsTab value="table">Table view</TabsTab>
+          </TabsList>
+        </div>
+        <TabsPanel className="timeline-blueprint-view-panel" value="editor">
+          <div
+            className="timeline-blueprint-table-wrap"
+            data-testid="timeline-setup-budget-table"
+          >
+            <p className="sr-only" id={keyboardInstructionsId}>
+              Use Tab to move through controls. In editable worksheet cells,
+              press Enter or Arrow Down to move to the next control, and Shift
+              Enter or Arrow Up to move to the previous control. Drag handles
+              can be moved with Arrow Up and Arrow Down.
+            </p>
+            {(
+              ["top-left", "top-right", "bottom-left", "bottom-right"] as const
+            ).map((position) => (
+              <span
+                aria-hidden="true"
+                className={`timeline-blueprint-table-corner is-${position}`}
+                data-testid={`timeline-setup-budget-table-corner-${position}`}
+                key={position}
+              />
+            ))}
+            <Table
+              aria-describedby={keyboardInstructionsId}
+              aria-label={`${templateTitle} milestone worksheet`}
+              className="timeline-blueprint-table"
+            >
+              <TableCaption className="sr-only">
+                {mode === "settings"
+                  ? "Edit the milestone template names, types, percentages, durations, inclusion state, and sub-milestones."
+                  : "Edit milestone budgets, durations, exclusion state, order, and sub-milestones."}
+              </TableCaption>
+              <TableHeader>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <TableHead
+                        key={header.id}
+                        scope="col"
+                        style={{ width: header.getSize() }}
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <Sortable
+                aria-label="Milestone budget order"
+                getItemValue={(row) => row.key}
+                modifiers={[restrictToVerticalAxis]}
+                onMove={({ activeIndex, overIndex }) =>
+                  reorderRows(activeIndex, overIndex)
+                }
+                render={<TableBody />}
+                strategy="vertical"
+                value={rows}
+              >
+                {table.getRowModel().rows.flatMap((row) => {
+                  const expandedRowId = getExpandedRowId(row.original.key);
+                  const budgetRow = (
+                    <SortableItem
+                      className={cn(row.original.excluded && "is-excluded")}
+                      data-testid={`timeline-setup-budget-row-${row.original.key}`}
+                      key={row.id}
+                      render={<TableRow />}
+                      value={row.original.key}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      ))}
+                    </SortableItem>
+                  );
+                  const expandedRow = row.getIsExpanded() ? (
+                    <TableRow
+                      className="timeline-blueprint-expanded-row"
+                      id={expandedRowId}
+                      key={`${row.id}:expanded`}
+                    >
+                      <TableCell colSpan={row.getVisibleCells().length}>
+                        {renderMilestoneDetailTabs(row.original)}
+                      </TableCell>
+                    </TableRow>
+                  ) : null;
 
-              return expandedRow ? [budgetRow, expandedRow] : [budgetRow];
-            })}
-          </Sortable>
-        </Table>
-      </div>
+                  return expandedRow ? [budgetRow, expandedRow] : [budgetRow];
+                })}
+              </Sortable>
+            </Table>
+          </div>
+        </TabsPanel>
+        <TabsPanel
+          className="timeline-blueprint-view-panel"
+          data-testid="timeline-setup-table-view-panel"
+          value="table"
+        >
+          <MilestoneSummaryTable
+            customMilestoneName={customMilestoneName}
+            mode={mode}
+            onAddCustomMilestone={addCustomMilestone}
+            onAddSubMilestone={(rowKey) => addSubMilestone(rowKey)}
+            onCommitBudgetEdit={commitBudgetEdit}
+            onCommitField={commitRows}
+            onCustomMilestoneNameChange={setCustomMilestoneName}
+            onMoveSubMilestone={moveSummarySubMilestone}
+            onOpenDetails={openDetailsSheet}
+            onUpdateRow={updateRow}
+            onUpdateSubMilestone={updateSubMilestone}
+            proposedStartDate={proposedStartDate}
+            rows={rows}
+            scheduleDisplayMode={scheduleDisplayMode}
+            templateTitle={templateTitle}
+          />
+        </TabsPanel>
+      </Tabs>
 
       <div className="timeline-blueprint-footer">
         <div className="timeline-blueprint-summary">
@@ -1063,8 +1221,1335 @@ export function TimelineMilestoneWorksheetTable({
           ) : null}
         </div>
       </div>
+      <Sheet
+        onOpenChange={(open) => {
+          if (!open) {
+            setDetailsSheetTarget(null);
+          }
+        }}
+        open={detailsSheetOpen}
+      >
+        <SheetPopup
+          backdropClassName="timeline-blueprint-details-sheet-backdrop"
+          className={`timeline-blueprint-details-sheet ${
+            detailsSheetTarget?.kind === "subMilestone"
+              ? "is-submilestone-detail"
+              : "is-milestone-detail"
+          }`}
+          side="right"
+          variant="inset"
+        >
+          <SheetHeader className="timeline-blueprint-details-sheet-header">
+            <SheetTitle className="pr-8">{detailsSheetTitle}</SheetTitle>
+            <SheetDescription>{detailsSheetDescription}</SheetDescription>
+          </SheetHeader>
+          <SheetPanel
+            className="timeline-blueprint-details-sheet-panel"
+            data-testid={detailsSheetTestId}
+          >
+            {detailsSheetTarget?.kind === "subMilestone" &&
+            detailsSheetRow &&
+            detailsSheetSubMilestone ? (
+              <SubMilestoneFocusedTabs
+                contractorOptions={contractorOptions}
+                mode={mode}
+                onAddContractorAssignment={(assignment) =>
+                  addContractorAssignment(detailsSheetRow.key, assignment)
+                }
+                onCommitField={commitRows}
+                onCreateCostItem={(payload) =>
+                  createCostItem(detailsSheetRow.key, payload)
+                }
+                onDeleteCostItem={(itemId) =>
+                  deleteCostItem(detailsSheetRow.key, itemId)
+                }
+                onRemoveContractorAssignment={(assignmentId) =>
+                  removeContractorAssignment(detailsSheetRow.key, assignmentId)
+                }
+                onRemoveSubMilestone={(subMilestoneId) =>
+                  removeSubMilestone(detailsSheetRow.key, subMilestoneId)
+                }
+                onUpdateCostItem={(itemId, payload) =>
+                  updateCostItem(detailsSheetRow.key, itemId, payload)
+                }
+                onUpdateSubMilestone={(subMilestoneId, patch, meta) =>
+                  updateSubMilestone(
+                    detailsSheetRow.key,
+                    subMilestoneId,
+                    patch,
+                    meta
+                  )
+                }
+                proposedStartDate={proposedStartDate}
+                row={detailsSheetRow}
+                scheduleDisplayMode={scheduleDisplayMode}
+                subMilestone={detailsSheetSubMilestone}
+              />
+            ) : detailsSheetRow ? (
+              renderMilestoneDetailTabs(detailsSheetRow, "sheet")
+            ) : null}
+          </SheetPanel>
+        </SheetPopup>
+      </Sheet>
     </div>
   );
+}
+
+function MilestoneSummaryTable({
+  customMilestoneName,
+  mode,
+  onAddCustomMilestone,
+  onAddSubMilestone,
+  onCommitBudgetEdit,
+  onCommitField,
+  onCustomMilestoneNameChange,
+  onMoveSubMilestone,
+  onOpenDetails,
+  onUpdateRow,
+  onUpdateSubMilestone,
+  proposedStartDate,
+  rows,
+  scheduleDisplayMode,
+  templateTitle,
+}: {
+  customMilestoneName: string;
+  mode: WorksheetMode;
+  onAddCustomMilestone: () => void;
+  onAddSubMilestone: (rowKey: string) => void;
+  onCommitBudgetEdit: (rowKey: string) => void;
+  onCommitField: () => void;
+  onCustomMilestoneNameChange: (value: string) => void;
+  onMoveSubMilestone: (activeIndex: number, overIndex: number) => void;
+  onOpenDetails: (rowKey: string, subMilestoneId?: string) => void;
+  onUpdateRow: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  onUpdateSubMilestone: (
+    rowKey: string,
+    subMilestoneId: string,
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  proposedStartDate?: string;
+  rows: TimelineMilestoneWorksheetRow[];
+  scheduleDisplayMode: TimelineScheduleDisplayMode;
+  templateTitle: string;
+}) {
+  const valueHeader = mode === "settings" ? "PoC" : "Budget";
+  const dragItems = timelineSummaryDragItems(rows);
+
+  return (
+    <div className="timeline-blueprint-summary-table-wrap">
+      <div className="timeline-blueprint-summary-table-heading">
+        <div>
+          <span>Milestone and submilestone worksheet</span>
+          <strong>{templateTitle}</strong>
+        </div>
+        <div className="timeline-blueprint-summary-add-milestone">
+          <input
+            aria-label="Table view milestone name"
+            data-testid="timeline-setup-table-add-milestone-name"
+            onChange={(event) =>
+              onCustomMilestoneNameChange(event.currentTarget.value)
+            }
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onAddCustomMilestone();
+              }
+            }}
+            placeholder="Milestone name..."
+            value={customMilestoneName}
+          />
+          <Button
+            className="timeline-blueprint-summary-add-button"
+            data-testid="timeline-setup-table-add-milestone"
+            onClick={onAddCustomMilestone}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Plus aria-hidden="true" />
+            Add milestone
+          </Button>
+        </div>
+      </div>
+      <Table
+        aria-label={`${templateTitle} table view`}
+        className="timeline-blueprint-summary-table"
+      >
+        <TableCaption className="sr-only">
+          Review milestone and sub-milestone scope, schedule window, budget, and
+          details actions.
+        </TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead scope="col">Scope</TableHead>
+            <TableHead scope="col">Window</TableHead>
+            <TableHead scope="col">Duration</TableHead>
+            <TableHead scope="col">End</TableHead>
+            <TableHead className="text-right" scope="col">
+              {valueHeader}
+            </TableHead>
+            <TableHead scope="col">Status</TableHead>
+            <TableHead className="text-right" scope="col">
+              Details
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <Sortable
+          aria-label="Sub-milestone table order"
+          getItemValue={(item) => item.id}
+          modifiers={[restrictToVerticalAxis]}
+          onMove={({ activeIndex, overIndex }) =>
+            onMoveSubMilestone(activeIndex, overIndex)
+          }
+          render={<TableBody />}
+          strategy="vertical"
+          value={dragItems}
+        >
+          {rows.flatMap((row) => {
+            const rowWindow = milestoneSummaryWindow(row, {
+              proposedStartDate,
+              scheduleDisplayMode,
+            });
+            const milestoneRow = (
+              <SortableItem
+                className={cn(
+                  "timeline-blueprint-summary-row is-milestone",
+                  row.excluded && "is-excluded"
+                )}
+                data-testid={`timeline-setup-table-row-${row.key}`}
+                key={row.key}
+                render={<TableRow />}
+                value={summaryGroupItemId(row.key)}
+              >
+                <TableCell>
+                  <div className="timeline-blueprint-summary-scope">
+                    <strong>{row.name}</strong>
+                    <small>
+                      {row.subMilestoneDetails.length} sub-milestone
+                      {row.subMilestoneDetails.length === 1 ? "" : "s"}
+                    </small>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <SummaryWindowCell window={rowWindow} />
+                </TableCell>
+                <TableCell>
+                  <SummaryMilestoneDurationCell
+                    mode={mode}
+                    onCommitField={onCommitField}
+                    onUpdateRow={onUpdateRow}
+                    row={row}
+                  />
+                </TableCell>
+                <TableCell>
+                  <SummaryMilestoneEndCell
+                    onCommitField={onCommitField}
+                    onUpdateRow={onUpdateRow}
+                    proposedStartDate={proposedStartDate}
+                    row={row}
+                    scheduleDisplayMode={scheduleDisplayMode}
+                  />
+                </TableCell>
+                <TableCell className="text-right">
+                  <SummaryMilestoneValueCell
+                    mode={mode}
+                    onCommitBudgetEdit={onCommitBudgetEdit}
+                    onUpdateRow={onUpdateRow}
+                    row={row}
+                  />
+                </TableCell>
+                <TableCell>
+                  <SummaryStatusSignals row={row} />
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="timeline-blueprint-summary-row-actions">
+                    <Button
+                      aria-label={`Add sub-milestone to ${row.name}`}
+                      className="timeline-blueprint-summary-details-button"
+                      data-testid={`timeline-setup-table-add-submilestone-${row.key}`}
+                      onClick={() => onAddSubMilestone(row.key)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      <Plus aria-hidden="true" />
+                      Sub-milestone
+                    </Button>
+                    <Button
+                      aria-label={`Open details for ${row.name}`}
+                      className="timeline-blueprint-summary-details-button"
+                      data-testid={`timeline-setup-table-row-details-${row.key}`}
+                      onClick={() => onOpenDetails(row.key)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <PanelRightOpen aria-hidden="true" />
+                      Details
+                    </Button>
+                  </div>
+                </TableCell>
+              </SortableItem>
+            );
+            const subMilestoneRows = row.subMilestoneDetails.map(
+              (subMilestone) => {
+                const subMilestoneName = sanitizeSubMilestoneName(
+                  subMilestone.name
+                );
+                return (
+                  <SortableItem
+                    className={cn(
+                      "timeline-blueprint-summary-row is-submilestone",
+                      row.excluded && "is-excluded"
+                    )}
+                    data-testid={`timeline-setup-table-subrow-${subMilestone.id}`}
+                    key={`${row.key}:${subMilestone.id}`}
+                    render={<TableRow />}
+                    value={summarySubMilestoneItemId(subMilestone.id)}
+                  >
+                    <TableCell>
+                      <div className="timeline-blueprint-summary-scope is-submilestone">
+                        <SortableItemHandle
+                          aria-label={`Drag ${subMilestoneName}`}
+                          className="timeline-blueprint-summary-drag-handle"
+                          render={<button type="button" />}
+                        >
+                          <GripVertical aria-hidden="true" />
+                        </SortableItemHandle>
+                        <span>
+                          <strong>{subMilestoneName}</strong>
+                          <small>{subMilestone.description}</small>
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <SummaryWindowCell
+                        window={subMilestoneSummaryWindow(row, subMilestone, {
+                          proposedStartDate,
+                          scheduleDisplayMode,
+                        })}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <SummarySubMilestoneDurationCell
+                        mode={mode}
+                        onCommitField={onCommitField}
+                        onUpdateSubMilestone={(patch, meta) =>
+                          onUpdateSubMilestone(
+                            row.key,
+                            subMilestone.id,
+                            patch,
+                            meta
+                          )
+                        }
+                        subMilestone={subMilestone}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <SummarySubMilestoneEndCell
+                        onCommitField={onCommitField}
+                        onUpdateSubMilestone={(patch, meta) =>
+                          onUpdateSubMilestone(
+                            row.key,
+                            subMilestone.id,
+                            patch,
+                            meta
+                          )
+                        }
+                        proposedStartDate={proposedStartDate}
+                        row={row}
+                        scheduleDisplayMode={scheduleDisplayMode}
+                        subMilestone={subMilestone}
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <SummarySubMilestoneValueCell
+                        mode={mode}
+                        onUpdateSubMilestone={(patch, meta) =>
+                          onUpdateSubMilestone(
+                            row.key,
+                            subMilestone.id,
+                            patch,
+                            meta
+                          )
+                        }
+                        subMilestone={subMilestone}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <SummaryStatusSignals
+                        row={row}
+                        subMilestone={subMilestone}
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        aria-label={`Open details for ${subMilestoneName}`}
+                        className="timeline-blueprint-summary-details-button"
+                        data-testid={`timeline-setup-table-subrow-details-${subMilestone.id}`}
+                        onClick={() => onOpenDetails(row.key, subMilestone.id)}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <PanelRightOpen aria-hidden="true" />
+                        Details
+                      </Button>
+                    </TableCell>
+                  </SortableItem>
+                );
+              }
+            );
+
+            return [milestoneRow, ...subMilestoneRows];
+          })}
+        </Sortable>
+      </Table>
+    </div>
+  );
+}
+
+function SummaryWindowCell({
+  window,
+}: {
+  window: { duration: string; primary: string };
+}) {
+  return (
+    <span className="timeline-blueprint-summary-window">
+      <strong>{window.primary}</strong>
+      <small>{window.duration}</small>
+    </span>
+  );
+}
+
+function SummaryMilestoneDurationCell({
+  mode,
+  onCommitField,
+  onUpdateRow,
+  row,
+}: {
+  mode: WorksheetMode;
+  onCommitField: () => void;
+  onUpdateRow: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  row: TimelineMilestoneWorksheetRow;
+}) {
+  if (row.subMilestoneDetails.length > 0) {
+    return (
+      <span className="timeline-blueprint-summary-readout">
+        {rowDurationDays(row)}d
+      </span>
+    );
+  }
+
+  return (
+    <BlueprintInput
+      align="center"
+      aliasTestIds={[`timeline-setup-row-duration-${row.key}`]}
+      className="timeline-blueprint-summary-input"
+      label={`${row.name} table duration`}
+      onBlur={() =>
+        onUpdateRow(row.key, {
+          durationDays: parseDurationDays(row.durationText),
+          durationText: normalizeDurationText(row.durationText),
+        })
+      }
+      onChange={(durationText) =>
+        onUpdateRow(
+          row.key,
+          {
+            durationDays: parseDurationDays(durationText),
+            durationText: durationText
+              .replace(DURATION_PREFIX_REGEX, "")
+              .replace(NON_DIGIT_REGEX, ""),
+          },
+          { commit: false }
+        )
+      }
+      onCommit={onCommitField}
+      testId={`timeline-setup-table-row-duration-${row.key}`}
+      value={mode === "settings" ? row.durationText : row.durationText}
+    />
+  );
+}
+
+function SummaryMilestoneEndCell({
+  onCommitField,
+  onUpdateRow,
+  proposedStartDate,
+  row,
+  scheduleDisplayMode,
+}: {
+  onCommitField: () => void;
+  onUpdateRow: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  proposedStartDate?: string;
+  row: TimelineMilestoneWorksheetRow;
+  scheduleDisplayMode: TimelineScheduleDisplayMode;
+}) {
+  const startDay = rowStartDay(row);
+  const durationDays = rowDurationDays(row);
+  const endDate =
+    scheduleDisplayMode === "dates" && proposedStartDate
+      ? inclusiveEndDateFromProposalSchedule(
+          proposedStartDate,
+          startDay,
+          durationDays
+        )
+      : undefined;
+  const readout = endDate
+    ? formatDisplayDateWithoutYear(endDate)
+    : formatInclusiveEndTOffset(startDay, durationDays);
+  const inputValue = endDate ?? readout;
+
+  if (row.subMilestoneDetails.length > 0) {
+    return (
+      <span className="timeline-blueprint-summary-readout">{readout}</span>
+    );
+  }
+
+  return (
+    <BlueprintInput
+      align="center"
+      className="timeline-blueprint-summary-input"
+      label={`${row.name} table end`}
+      onBlur={onCommitField}
+      onChange={(endValue) => {
+        const nextDurationDays =
+          scheduleDisplayMode === "dates" && proposedStartDate
+            ? proposalDurationDaysFromInclusiveDates(
+                dateFromProposalDayOffset(proposedStartDate, startDay),
+                endValue
+              )
+            : Math.max(1, parseTOffsetDay(endValue) - startDay + 1);
+        onUpdateRow(
+          row.key,
+          {
+            durationDays: nextDurationDays,
+            durationText: String(nextDurationDays),
+          },
+          { commit: false }
+        );
+      }}
+      onCommit={onCommitField}
+      testId={
+        scheduleDisplayMode === "dates" && proposedStartDate
+          ? `timeline-setup-table-row-end-date-${row.key}`
+          : `timeline-setup-table-row-end-offset-${row.key}`
+      }
+      type={
+        scheduleDisplayMode === "dates" && proposedStartDate ? "date" : "text"
+      }
+      value={inputValue}
+    />
+  );
+}
+
+function SummaryMilestoneValueCell({
+  mode,
+  onCommitBudgetEdit,
+  onUpdateRow,
+  row,
+}: {
+  mode: WorksheetMode;
+  onCommitBudgetEdit: (rowKey: string) => void;
+  onUpdateRow: (
+    rowKey: string,
+    patch: Partial<TimelineMilestoneWorksheetRow>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  row: TimelineMilestoneWorksheetRow;
+}) {
+  if (row.subMilestoneDetails.length > 0) {
+    return (
+      <span className="timeline-blueprint-summary-readout">
+        {summaryValueText(mode, row)}
+      </span>
+    );
+  }
+
+  if (mode === "settings") {
+    return (
+      <BlueprintInput
+        align="right"
+        aliasTestIds={[`timeline-setup-row-budget-${row.key}`]}
+        className="timeline-blueprint-summary-input"
+        label={`${row.name} table percentage`}
+        onBlur={() =>
+          onUpdateRow(row.key, {
+            percentageBps: parsePercentToBps(row.percentageText ?? ""),
+            percentageText: normalizePercentText(row.percentageText ?? ""),
+          })
+        }
+        onChange={(percentageText) =>
+          onUpdateRow(
+            row.key,
+            {
+              percentageBps: parsePercentToBps(percentageText),
+              percentageText,
+            },
+            { commit: false }
+          )
+        }
+        testId={`timeline-setup-table-row-budget-${row.key}`}
+        value={row.percentageText ?? formatBps(row.percentageBps)}
+      />
+    );
+  }
+
+  return (
+    <BlueprintInput
+      align="right"
+      aliasTestIds={[`timeline-setup-row-budget-${row.key}`]}
+      className="timeline-blueprint-summary-input"
+      label={`${row.name} table budget`}
+      onBlur={() => onCommitBudgetEdit(row.key)}
+      onChange={(budgetText) =>
+        onUpdateRow(row.key, { budgetText }, { commit: false })
+      }
+      testId={`timeline-setup-table-row-budget-${row.key}`}
+      value={row.budgetText}
+    />
+  );
+}
+
+function SummarySubMilestoneDurationCell({
+  onCommitField,
+  onUpdateSubMilestone,
+  subMilestone,
+}: {
+  mode: WorksheetMode;
+  onCommitField: () => void;
+  onUpdateSubMilestone: (
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  subMilestone: TimelineMilestoneWorksheetSubMilestone;
+}) {
+  return (
+    <BlueprintInput
+      align="center"
+      aliasTestIds={[`timeline-setup-submilestone-duration-${subMilestone.id}`]}
+      className="timeline-blueprint-summary-input"
+      label={`${subMilestone.name} table duration`}
+      onBlur={() =>
+        onUpdateSubMilestone(
+          {
+            durationText: normalizeDurationText(subMilestone.durationText),
+          },
+          { commit: true }
+        )
+      }
+      onChange={(durationText) =>
+        onUpdateSubMilestone(
+          {
+            durationText: durationText
+              .replace(DURATION_PREFIX_REGEX, "")
+              .replace(NON_DIGIT_REGEX, ""),
+          },
+          { commit: false }
+        )
+      }
+      onCommit={onCommitField}
+      testId={`timeline-setup-table-subrow-duration-${subMilestone.id}`}
+      value={subMilestone.durationText}
+    />
+  );
+}
+
+function SummarySubMilestoneEndCell({
+  onCommitField,
+  onUpdateSubMilestone,
+  proposedStartDate,
+  row,
+  scheduleDisplayMode,
+  subMilestone,
+}: {
+  onCommitField: () => void;
+  onUpdateSubMilestone: (
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  proposedStartDate?: string;
+  row: TimelineMilestoneWorksheetRow;
+  scheduleDisplayMode: TimelineScheduleDisplayMode;
+  subMilestone: TimelineMilestoneWorksheetSubMilestone;
+}) {
+  const startDay = subMilestoneStartDay(row, subMilestone);
+  const durationDays = parseDurationDays(subMilestone.durationText);
+  const value =
+    scheduleDisplayMode === "dates" && proposedStartDate
+      ? inclusiveEndDateFromProposalSchedule(
+          proposedStartDate,
+          startDay,
+          durationDays
+        )
+      : formatInclusiveEndTOffset(startDay, durationDays);
+
+  return (
+    <BlueprintInput
+      align="center"
+      className="timeline-blueprint-summary-input"
+      label={`${subMilestone.name} table end`}
+      onBlur={onCommitField}
+      onChange={(endValue) => {
+        const nextDurationDays =
+          scheduleDisplayMode === "dates" && proposedStartDate
+            ? proposalDurationDaysFromInclusiveDates(
+                dateFromProposalDayOffset(proposedStartDate, startDay),
+                endValue
+              )
+            : Math.max(1, parseTOffsetDay(endValue) - startDay + 1);
+        onUpdateSubMilestone(
+          {
+            durationText: String(nextDurationDays),
+          },
+          { commit: false }
+        );
+      }}
+      onCommit={onCommitField}
+      testId={
+        scheduleDisplayMode === "dates" && proposedStartDate
+          ? `timeline-setup-table-subrow-end-date-${subMilestone.id}`
+          : `timeline-setup-table-subrow-end-offset-${subMilestone.id}`
+      }
+      type={
+        scheduleDisplayMode === "dates" && proposedStartDate ? "date" : "text"
+      }
+      value={value}
+    />
+  );
+}
+
+function SummarySubMilestoneValueCell({
+  mode,
+  onUpdateSubMilestone,
+  subMilestone,
+}: {
+  mode: WorksheetMode;
+  onUpdateSubMilestone: (
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  subMilestone: TimelineMilestoneWorksheetSubMilestone;
+}) {
+  if (mode === "settings") {
+    return (
+      <BlueprintInput
+        align="right"
+        aliasTestIds={[
+          `timeline-setup-submilestone-budget-${subMilestone.id}`,
+        ]}
+        className="timeline-blueprint-summary-input"
+        label={`${subMilestone.name} table percentage`}
+        onBlur={() =>
+          onUpdateSubMilestone(
+            {
+              percentageBps: parsePercentToBps(
+                subMilestone.percentageText ?? ""
+              ),
+              percentageText: normalizePercentText(
+                subMilestone.percentageText ?? ""
+              ),
+            },
+            { commit: true }
+          )
+        }
+        onChange={(percentageText) =>
+          onUpdateSubMilestone(
+            {
+              percentageBps: parsePercentToBps(percentageText),
+              percentageText,
+            },
+            { commit: false }
+          )
+        }
+        testId={`timeline-setup-table-subrow-budget-${subMilestone.id}`}
+        value={
+          subMilestone.percentageText ??
+          formatBps(subMilestone.percentageBps ?? 0)
+        }
+      />
+    );
+  }
+
+  return (
+    <BlueprintInput
+      align="right"
+      aliasTestIds={[`timeline-setup-submilestone-budget-${subMilestone.id}`]}
+      className="timeline-blueprint-summary-input"
+      label={`${subMilestone.name} table budget`}
+      onBlur={() =>
+        onUpdateSubMilestone(
+          {
+            budgetText: normalizeCurrencyText(subMilestone.budgetText),
+          },
+          { commit: true }
+        )
+      }
+      onChange={(budgetText) =>
+        onUpdateSubMilestone({ budgetText }, { commit: false })
+      }
+      testId={`timeline-setup-table-subrow-budget-${subMilestone.id}`}
+      value={subMilestone.budgetText}
+    />
+  );
+}
+
+function SummaryStatusSignals({
+  row,
+  subMilestone,
+}: {
+  row: TimelineMilestoneWorksheetRow;
+  subMilestone?: TimelineMilestoneWorksheetSubMilestone;
+}) {
+  const statusScopeKey = subMilestone?.id ?? row.key;
+  const contractorAssignments = scopedContractorAssignments(row, subMilestone);
+  const materialItems = scopedCostItems(row, subMilestone);
+  const guidanceDetails = summaryGuidanceDetails(row, subMilestone);
+
+  return (
+    <div className="timeline-blueprint-summary-status">
+      <SummaryStatusChip
+        count={contractorAssignments.length}
+        details={
+          <SummaryStatusContractorDetails
+            assignments={contractorAssignments}
+            row={row}
+          />
+        }
+        kind="contractor"
+        label="Contractor"
+        scopeKey={statusScopeKey}
+        summary={summaryContractorStatusText(contractorAssignments, row)}
+      />
+      <SummaryStatusChip
+        active={guidanceDetails.active}
+        details={<SummaryStatusGuidanceDetails details={guidanceDetails} />}
+        kind="guidance"
+        label="Guidance"
+        scopeKey={statusScopeKey}
+        summary={guidanceDetails.summary}
+      />
+      <SummaryStatusChip
+        count={materialItems.length}
+        details={
+          <SummaryStatusMaterialDetails items={materialItems} row={row} />
+        }
+        kind="materials"
+        label="Materials"
+        scopeKey={statusScopeKey}
+        summary={summaryMaterialStatusText(materialItems)}
+      />
+    </div>
+  );
+}
+
+function SummaryStatusChip({
+  active,
+  count,
+  details,
+  kind,
+  label,
+  scopeKey,
+  summary,
+}: {
+  active?: boolean;
+  count?: number;
+  details: ReactNode;
+  kind: "contractor" | "guidance" | "materials";
+  label: string;
+  scopeKey: string;
+  summary: string;
+}) {
+  const isActive = active ?? Boolean(count && count > 0);
+  const displayLabel =
+    typeof count === "number" && count > 0 ? `${label} ${count}` : label;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            aria-label={`${label}: ${summary}`}
+            className="timeline-blueprint-summary-status-chip"
+            data-state={isActive ? "set" : "missing"}
+            data-testid={`timeline-setup-status-${scopeKey}-${kind}`}
+            type="button"
+          />
+        }
+      >
+        {displayLabel}
+      </TooltipTrigger>
+      <TooltipContent
+        className="timeline-blueprint-summary-status-tooltip"
+        side="top"
+        sideOffset={8}
+      >
+        <div className="timeline-blueprint-summary-status-tooltip-card">
+          <div className="timeline-blueprint-summary-status-tooltip-heading">
+            <span>{label}</span>
+            <strong>{displayLabel}</strong>
+          </div>
+          <p>{summary}</p>
+          {details}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function SummaryStatusContractorDetails({
+  assignments,
+  row,
+}: {
+  assignments: TimelineMilestoneWorksheetContractorAssignment[];
+  row: TimelineMilestoneWorksheetRow;
+}) {
+  if (assignments.length === 0) {
+    return (
+      <p className="timeline-blueprint-summary-status-tooltip-empty">
+        No designated contractors are assigned yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="timeline-blueprint-summary-status-tooltip-list">
+      {assignments.slice(0, 3).map((assignment) => (
+        <article key={assignment.id}>
+          <strong>{assignment.contractorName}</strong>
+          <span>{assignment.role || "Role not set"}</span>
+          <small>{contractorScopeLabel(row, assignment)}</small>
+          <small>{contractorEstimateLabel(assignment)}</small>
+        </article>
+      ))}
+      {assignments.length > 3 ? (
+        <p className="timeline-blueprint-summary-status-tooltip-more">
+          +{assignments.length - 3} more contractor
+          {assignments.length - 3 === 1 ? "" : "s"}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function SummaryStatusGuidanceDetails({
+  details,
+}: {
+  details: SummaryGuidanceDetails;
+}) {
+  if (!details.active) {
+    return (
+      <p className="timeline-blueprint-summary-status-tooltip-empty">
+        Add field guidance from the detail sheet before lender review.
+      </p>
+    );
+  }
+
+  return (
+    <div className="timeline-blueprint-summary-status-tooltip-list">
+      {details.items.map((item) => (
+        <article key={item.label}>
+          <strong>{item.label}</strong>
+          <span>{item.value}</span>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SummaryStatusMaterialDetails({
+  items,
+  row,
+}: {
+  items: TimelineMilestoneWorksheetCostItem[];
+  row: TimelineMilestoneWorksheetRow;
+}) {
+  if (items.length === 0) {
+    return (
+      <p className="timeline-blueprint-summary-status-tooltip-empty">
+        No material or equipment costs are defined yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="timeline-blueprint-summary-status-tooltip-list">
+      {items.slice(0, 3).map((item) => (
+        <article key={item.id}>
+          <strong>{item.title}</strong>
+          <span>
+            {item.itemType === "equipment" ? "Equipment" : "Material"} ·{" "}
+            {formatMaterialCost(item)}
+          </span>
+          <small>{item.supplier || "Supplier not set"}</small>
+          <small>{materialScopeLabel(row, item)}</small>
+        </article>
+      ))}
+      {items.length > 3 ? (
+        <p className="timeline-blueprint-summary-status-tooltip-more">
+          +{items.length - 3} more material item
+          {items.length - 3 === 1 ? "" : "s"}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+interface SummaryGuidanceDetails {
+  active: boolean;
+  items: { label: string; value: string }[];
+  summary: string;
+}
+
+function scopedContractorAssignments(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone?: TimelineMilestoneWorksheetSubMilestone
+) {
+  const assignments = row.contractorAssignments ?? [];
+  if (!subMilestone) {
+    return assignments;
+  }
+  return assignments.filter((assignment) =>
+    assignment.subMilestoneIds.includes(subMilestone.id)
+  );
+}
+
+function scopedCostItems(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone?: TimelineMilestoneWorksheetSubMilestone
+) {
+  const items = row.costItems ?? [];
+  if (!subMilestone) {
+    return items;
+  }
+  return items.filter((item) =>
+    item.relevantSubMilestoneIds.includes(subMilestone.id)
+  );
+}
+
+function summaryContractorStatusText(
+  assignments: TimelineMilestoneWorksheetContractorAssignment[],
+  row: TimelineMilestoneWorksheetRow
+) {
+  if (assignments.length === 0) {
+    return "No designated contractors assigned.";
+  }
+  return assignments
+    .slice(0, 3)
+    .map(
+      (assignment) =>
+        `${assignment.contractorName}, ${assignment.role || "role not set"}, ${contractorScopeLabel(row, assignment)}`
+    )
+    .join("; ");
+}
+
+function summaryMaterialStatusText(
+  items: TimelineMilestoneWorksheetCostItem[]
+) {
+  if (items.length === 0) {
+    return "No materials or equipment defined.";
+  }
+  return items
+    .slice(0, 3)
+    .map((item) => `${item.title}, ${formatMaterialCost(item)}`)
+    .join("; ");
+}
+
+function summaryGuidanceDetails(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone?: TimelineMilestoneWorksheetSubMilestone
+): SummaryGuidanceDetails {
+  if (subMilestone) {
+    const scopeNote = subMilestone.description.trim();
+    return {
+      active: Boolean(scopeNote),
+      items: scopeNote ? [{ label: "Scope note", value: scopeNote }] : [],
+      summary: scopeNote || "No field guidance set.",
+    };
+  }
+
+  const guidance = coerceSiteVisitGuidance(row.siteVisitGuidance);
+  const verify = plainTextFromHtml(guidance.whatToVerify);
+  const camera = plainTextFromHtml(guidance.cameraAngles);
+  const items = [
+    verify ? { label: "What to verify", value: verify } : null,
+    camera ? { label: "Required photo angles", value: camera } : null,
+  ].filter((item): item is { label: string; value: string } => Boolean(item));
+
+  return {
+    active: items.length > 0,
+    items,
+    summary:
+      items.length > 0
+        ? items.map((item) => `${item.label}: ${item.value}`).join("; ")
+        : "No field guidance set.",
+  };
+}
+
+function contractorScopeLabel(
+  row: TimelineMilestoneWorksheetRow,
+  assignment: TimelineMilestoneWorksheetContractorAssignment
+) {
+  if (assignment.subMilestoneIds.length === 0) {
+    return "Milestone-level";
+  }
+  return assignment.subMilestoneIds
+    .map((id) => subMilestoneNameById(row, id))
+    .join(", ");
+}
+
+function contractorEstimateLabel(
+  assignment: TimelineMilestoneWorksheetContractorAssignment
+) {
+  const parts = [
+    assignment.estimatedCostCents
+      ? formatCurrency(assignment.estimatedCostCents)
+      : null,
+    assignment.estimatedHours
+      ? `${assignment.estimatedHours} hr${assignment.estimatedHours === 1 ? "" : "s"}`
+      : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : "Estimate not set";
+}
+
+function materialScopeLabel(
+  row: TimelineMilestoneWorksheetRow,
+  item: TimelineMilestoneWorksheetCostItem
+) {
+  if (item.relevantSubMilestoneIds.length === 0) {
+    return "Milestone-level";
+  }
+  return item.relevantSubMilestoneIds
+    .map((id) => subMilestoneNameById(row, id))
+    .join(", ");
+}
+
+function formatMaterialCost(item: TimelineMilestoneWorksheetCostItem) {
+  return `${item.quantity} x ${formatCurrency(item.costCents)}`;
+}
+
+function plainTextFromHtml(value: string) {
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replaceAll("&nbsp;", " ")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function summaryValueText(
+  mode: WorksheetMode,
+  row: TimelineMilestoneWorksheetRow
+) {
+  if (mode === "settings") {
+    return formatBps(row.percentageBps);
+  }
+  const budgetCents = rowBudgetCents(row);
+  return Number.isFinite(budgetCents)
+    ? formatCurrency(budgetCents)
+    : row.budgetText;
+}
+
+function milestoneSummaryWindow(
+  row: TimelineMilestoneWorksheetRow,
+  {
+    proposedStartDate,
+    scheduleDisplayMode,
+  }: {
+    proposedStartDate?: string;
+    scheduleDisplayMode: TimelineScheduleDisplayMode;
+  }
+) {
+  const startDay = rowStartDay(row);
+  const durationDays = rowDurationDays(row);
+  return summaryWindowLabel({
+    durationDays,
+    proposedStartDate,
+    scheduleDisplayMode,
+    startDay,
+  });
+}
+
+function subMilestoneSummaryWindow(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone: TimelineMilestoneWorksheetSubMilestone,
+  {
+    proposedStartDate,
+    scheduleDisplayMode,
+  }: {
+    proposedStartDate?: string;
+    scheduleDisplayMode: TimelineScheduleDisplayMode;
+  }
+) {
+  const startDay = subMilestoneStartDay(row, subMilestone);
+  const durationDays = parseDurationDays(subMilestone.durationText);
+  return summaryWindowLabel({
+    durationDays,
+    proposedStartDate,
+    scheduleDisplayMode,
+    startDay,
+  });
+}
+
+function summaryWindowLabel({
+  durationDays,
+  proposedStartDate,
+  scheduleDisplayMode,
+  startDay,
+}: {
+  durationDays: number;
+  proposedStartDate?: string;
+  scheduleDisplayMode: TimelineScheduleDisplayMode;
+  startDay: number;
+}) {
+  const roundedStartDay = Math.round(startDay);
+  const roundedDurationDays = Math.max(1, Math.round(durationDays));
+  const endDay = roundedStartDay + roundedDurationDays;
+  const duration = `${roundedDurationDays}d`;
+
+  if (scheduleDisplayMode === "dates" && proposedStartDate) {
+    return {
+      duration,
+      primary: [
+        formatDisplayDateWithoutYear(
+          dateFromProposalDayOffset(proposedStartDate, roundedStartDay)
+        ),
+        formatDisplayDateWithoutYear(
+          dateFromProposalDayOffset(proposedStartDate, endDay)
+        ),
+      ].join(" to "),
+    };
+  }
+
+  return {
+    duration,
+    primary: `Day ${roundedStartDay} to ${endDay}`,
+  };
+}
+
+function timelineSummaryDragItems(
+  rows: TimelineMilestoneWorksheetRow[]
+): TimelineSummaryDragItem[] {
+  return rows.flatMap((row) => [
+    {
+      id: summaryGroupItemId(row.key),
+      kind: "group" as const,
+      rowKey: row.key,
+    },
+    ...row.subMilestoneDetails.map((subMilestone) => ({
+      id: summarySubMilestoneItemId(subMilestone.id),
+      kind: "subMilestone" as const,
+      rowKey: row.key,
+      subMilestoneId: subMilestone.id,
+    })),
+  ]);
+}
+
+function summaryGroupItemId(rowKey: string) {
+  return `summary-group:${rowKey}`;
+}
+
+function summarySubMilestoneItemId(subMilestoneId: string) {
+  return `summary-submilestone:${subMilestoneId}`;
+}
+
+export function moveSubMilestoneWithinSummaryRows(
+  rows: TimelineMilestoneWorksheetRow[],
+  activeIndex: number,
+  overIndex: number,
+  { includeBudget }: { includeBudget: boolean }
+) {
+  const dragItems = timelineSummaryDragItems(rows);
+  const activeItem = dragItems[activeIndex];
+  const overItem = dragItems[overIndex];
+  if (!(activeItem?.kind === "subMilestone" && overItem)) {
+    return null;
+  }
+
+  const sourceRow = rows.find((row) => row.key === activeItem.rowKey);
+  const targetRow = rows.find((row) => row.key === overItem.rowKey);
+  const movedSubMilestone = sourceRow?.subMilestoneDetails.find(
+    (subMilestone) => subMilestone.id === activeItem.subMilestoneId
+  );
+  if (!(sourceRow && targetRow && movedSubMilestone)) {
+    return null;
+  }
+
+  const sourceIndex = sourceRow.subMilestoneDetails.findIndex(
+    (subMilestone) => subMilestone.id === activeItem.subMilestoneId
+  );
+  const targetIndex =
+    overItem.kind === "subMilestone"
+      ? targetRow.subMilestoneDetails.findIndex(
+          (subMilestone) => subMilestone.id === overItem.subMilestoneId
+        )
+      : targetRow.subMilestoneDetails.length;
+  if (sourceIndex < 0 || targetIndex < 0) {
+    return null;
+  }
+
+  if (sourceRow.key === targetRow.key) {
+    const clampedTargetIndex =
+      overItem.kind === "group"
+        ? sourceRow.subMilestoneDetails.length - 1
+        : targetIndex;
+    if (sourceIndex === clampedTargetIndex) {
+      return null;
+    }
+    return rows.map((row) =>
+      row.key === sourceRow.key
+        ? withDerivedSubMilestoneRollups(
+            withSubMilestoneDetails(
+              row,
+              arrayMove(
+                row.subMilestoneDetails,
+                sourceIndex,
+                clampedTargetIndex
+              )
+            ),
+            { includeBudget }
+          )
+        : row
+    );
+  }
+
+  const nextSourceSubMilestones = sourceRow.subMilestoneDetails.filter(
+    (subMilestone) => subMilestone.id !== movedSubMilestone.id
+  );
+  const nextTargetSubMilestones = [
+    ...targetRow.subMilestoneDetails.slice(0, targetIndex),
+    movedSubMilestone,
+    ...targetRow.subMilestoneDetails.slice(targetIndex),
+  ];
+
+  return rows.map((row) => {
+    if (row.key === sourceRow.key) {
+      return withDerivedSubMilestoneRollups(
+        withSubMilestoneDetails(row, nextSourceSubMilestones),
+        { includeBudget }
+      );
+    }
+    if (row.key === targetRow.key) {
+      return withDerivedSubMilestoneRollups(
+        withSubMilestoneDetails(row, nextTargetSubMilestones),
+        { includeBudget }
+      );
+    }
+    return row;
+  });
 }
 
 function setupColumns({
@@ -1557,6 +3042,7 @@ function BlueprintMilestoneIcon({
 
 function BlueprintInput({
   align = "left",
+  aliasTestIds = [],
   className,
   id,
   label,
@@ -1570,6 +3056,7 @@ function BlueprintInput({
   value,
 }: {
   align?: "left" | "center" | "right";
+  aliasTestIds?: string[];
   className?: string;
   id?: string;
   label: string;
@@ -1582,7 +3069,13 @@ function BlueprintInput({
   type?: "date" | "text";
   value: string;
 }) {
-  return (
+  const handleChange = (value: string) => {
+    if (!readOnly) {
+      onChange(value);
+    }
+  };
+
+  const input = (
     <input
       aria-keyshortcuts="Enter Shift+Enter ArrowDown ArrowUp"
       aria-label={labelledBy ? undefined : label}
@@ -1592,17 +3085,38 @@ function BlueprintInput({
       data-testid={testId}
       id={id}
       onBlur={onBlur}
-      onChange={(event) => {
-        if (!readOnly) {
-          onChange(event.currentTarget.value);
-        }
-      }}
+      onChange={(event) => handleChange(event.currentTarget.value)}
       onKeyDown={(event) => handleBlueprintInputKeyDown(event, onCommit)}
       readOnly={readOnly}
       tabIndex={readOnly ? -1 : undefined}
       type={type}
       value={value}
     />
+  );
+
+  if (aliasTestIds.length === 0) {
+    return input;
+  }
+
+  return (
+    <>
+      {input}
+      {aliasTestIds.map((aliasTestId) => (
+        <input
+          aria-hidden="true"
+          data-testid={aliasTestId}
+          key={aliasTestId}
+          onBlur={onBlur}
+          onChange={(event) => handleChange(event.currentTarget.value)}
+          onKeyDown={(event) => handleBlueprintInputKeyDown(event, onCommit)}
+          readOnly={readOnly}
+          style={{ display: "none" }}
+          tabIndex={-1}
+          type={type}
+          value={value}
+        />
+      ))}
+    </>
   );
 }
 
@@ -1695,12 +3209,6 @@ function SubMilestoneEditor({
     subMilestones.find((detail) => detail.id === activeSubMilestoneId) ??
     subMilestones[0];
   const valueLabel = mode === "settings" ? "PoC" : "Budget";
-  const valueFieldLabelId = activeSubMilestone
-    ? `timeline-submilestone-value-label-${activeSubMilestone.id}`
-    : undefined;
-  const durationFieldLabelId = activeSubMilestone
-    ? `timeline-submilestone-duration-label-${activeSubMilestone.id}`
-    : undefined;
   const showDateSchedule =
     scheduleDisplayMode === "dates" && Boolean(proposedStartDate);
   const moveTargets = moveTargetRows.filter(
@@ -1828,293 +3336,534 @@ function SubMilestoneEditor({
         aria-label="Selected sub-milestone details"
         className="timeline-submilestone-detail-pane"
       >
-        {activeSubMilestone ? (
-          <div
-            className="timeline-submilestone-detail-body"
-            key={activeSubMilestone.id}
-          >
-            <div className="timeline-submilestone-detail-header">
-              <span>Selected sub-milestone</span>
-              <strong>
-                {sanitizeSubMilestoneName(activeSubMilestone.name)}
-              </strong>
-            </div>
-            <label className="timeline-submilestone-detail-field is-wide">
-              <span>Name</span>
-              <input
-                aria-label="Sub-milestone name"
-                data-testid={`timeline-setup-submilestone-name-${activeSubMilestone.id}`}
-                onBlur={onCommitField}
-                onChange={(event) =>
-                  onUpdateSubMilestone(
-                    activeSubMilestone.id,
-                    {
-                      name: event.currentTarget.value,
-                    },
-                    { commit: false }
-                  )
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    onCommitField();
-                    event.currentTarget.blur();
-                  }
-                }}
-                value={activeSubMilestone.name}
-              />
-            </label>
-            <label className="timeline-submilestone-detail-field is-wide">
-              <span>Scope note</span>
-              <textarea
-                aria-label="Sub-milestone scope note"
-                data-testid={`timeline-setup-submilestone-description-${activeSubMilestone.id}`}
-                onBlur={onCommitField}
-                onChange={(event) =>
-                  onUpdateSubMilestone(
-                    activeSubMilestone.id,
-                    {
-                      description: event.currentTarget.value,
-                    },
-                    { commit: false }
-                  )
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    onCommitField();
-                    event.currentTarget.blur();
-                  }
-                }}
-                value={activeSubMilestone.description}
-              />
-            </label>
-            <div className="timeline-submilestone-detail-grid">
-              <div className="timeline-submilestone-detail-field">
-                <span id={valueFieldLabelId}>{valueLabel}</span>
-                <BlueprintInput
-                  align="right"
-                  className="timeline-submilestone-detail-input"
-                  label={`Sub-milestone ${valueLabel.toLowerCase()}`}
-                  labelledBy={valueFieldLabelId}
-                  onBlur={() =>
-                    onUpdateSubMilestone(
-                      activeSubMilestone.id,
-                      mode === "settings"
-                        ? {
-                            percentageBps: parsePercentToBps(
-                              activeSubMilestone.percentageText ?? ""
-                            ),
-                            percentageText: normalizePercentText(
-                              activeSubMilestone.percentageText ?? ""
-                            ),
-                          }
-                        : {
-                            budgetText: normalizeCurrencyText(
-                              activeSubMilestone.budgetText
-                            ),
-                          },
-                      { commit: true }
-                    )
-                  }
-                  onChange={(value) =>
-                    onUpdateSubMilestone(
-                      activeSubMilestone.id,
-                      mode === "settings"
-                        ? {
-                            percentageBps: parsePercentToBps(value),
-                            percentageText: value,
-                          }
-                        : { budgetText: value },
-                      { commit: false }
-                    )
-                  }
-                  onCommit={onCommitField}
-                  testId={`timeline-setup-submilestone-budget-${activeSubMilestone.id}`}
-                  value={
-                    mode === "settings"
-                      ? (activeSubMilestone.percentageText ??
-                        formatBps(activeSubMilestone.percentageBps ?? 0))
-                      : activeSubMilestone.budgetText
-                  }
-                />
-              </div>
-              {showDateSchedule && proposedStartDate ? (
-                <>
-                  <div className="timeline-submilestone-detail-field">
-                    <span>Start</span>
-                    <BlueprintInput
-                      align="center"
-                      className="timeline-submilestone-detail-input"
-                      label="Sub-milestone start date"
-                      onBlur={onCommitField}
-                      onChange={(startDate) =>
-                        onUpdateSubMilestone(
-                          activeSubMilestone.id,
-                          {
-                            startDay: dayOffsetFromProposalDate(
-                              proposedStartDate,
-                              startDate
-                            ),
-                          },
-                          { commit: false }
-                        )
-                      }
-                      onCommit={onCommitField}
-                      testId={`timeline-setup-submilestone-start-date-${activeSubMilestone.id}`}
-                      type="date"
-                      value={dateFromProposalDayOffset(
-                        proposedStartDate,
-                        subMilestoneStartDay(row, activeSubMilestone)
-                      )}
-                    />
-                  </div>
-                  <div className="timeline-submilestone-detail-field">
-                    <span>End</span>
-                    <BlueprintInput
-                      align="center"
-                      className="timeline-submilestone-detail-input"
-                      label="Sub-milestone end date"
-                      onBlur={onCommitField}
-                      onChange={(endDate) => {
-                        const startDate = dateFromProposalDayOffset(
-                          proposedStartDate,
-                          subMilestoneStartDay(row, activeSubMilestone)
-                        );
-                        const durationDays =
-                          proposalDurationDaysFromInclusiveDates(
-                            startDate,
-                            endDate
-                          );
-                        onUpdateSubMilestone(
-                          activeSubMilestone.id,
-                          {
-                            durationText: String(durationDays),
-                          },
-                          { commit: false }
-                        );
-                      }}
-                      onCommit={onCommitField}
-                      testId={`timeline-setup-submilestone-end-date-${activeSubMilestone.id}`}
-                      type="date"
-                      value={inclusiveEndDateFromProposalSchedule(
-                        proposedStartDate,
-                        subMilestoneStartDay(row, activeSubMilestone),
-                        parseDurationDays(activeSubMilestone.durationText)
-                      )}
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="timeline-submilestone-detail-field">
-                    <span>Start</span>
-                    <BlueprintInput
-                      align="center"
-                      className="timeline-submilestone-detail-input"
-                      label="Sub-milestone T offset start"
-                      onBlur={onCommitField}
-                      onChange={(startText) =>
-                        onUpdateSubMilestone(
-                          activeSubMilestone.id,
-                          {
-                            startDay: parseTOffsetDay(startText),
-                          },
-                          { commit: false }
-                        )
-                      }
-                      onCommit={onCommitField}
-                      testId={`timeline-setup-submilestone-start-offset-${activeSubMilestone.id}`}
-                      value={formatTOffset(
-                        subMilestoneStartDay(row, activeSubMilestone)
-                      )}
-                    />
-                  </div>
-                  <div className="timeline-submilestone-detail-field">
-                    <span id={durationFieldLabelId}>Duration</span>
-                    <BlueprintInput
-                      align="center"
-                      className="timeline-submilestone-detail-input"
-                      label="Sub-milestone duration"
-                      labelledBy={durationFieldLabelId}
-                      onBlur={() =>
-                        onUpdateSubMilestone(
-                          activeSubMilestone.id,
-                          {
-                            durationText: normalizeDurationText(
-                              activeSubMilestone.durationText
-                            ),
-                          },
-                          { commit: true }
-                        )
-                      }
-                      onChange={(durationText) =>
-                        onUpdateSubMilestone(
-                          activeSubMilestone.id,
-                          {
-                            durationText: durationText
-                              .replace(DURATION_PREFIX_REGEX, "")
-                              .replace(NON_DIGIT_REGEX, ""),
-                          },
-                          { commit: false }
-                        )
-                      }
-                      onCommit={onCommitField}
-                      testId={`timeline-setup-submilestone-duration-${activeSubMilestone.id}`}
-                      value={`T${activeSubMilestone.durationText}`}
-                    />
-                  </div>
-                  <div className="timeline-submilestone-detail-field">
-                    <span>End</span>
-                    <BlueprintInput
-                      align="center"
-                      className="timeline-submilestone-detail-input"
-                      label="Sub-milestone T offset end"
-                      onBlur={() => undefined}
-                      onChange={() => undefined}
-                      readOnly
-                      testId={`timeline-setup-submilestone-end-offset-${activeSubMilestone.id}`}
-                      value={formatInclusiveEndTOffset(
-                        subMilestoneStartDay(row, activeSubMilestone),
-                        parseDurationDays(activeSubMilestone.durationText)
-                      )}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-            <button
-              aria-label={`Remove ${sanitizeSubMilestoneName(activeSubMilestone.name)}`}
-              className="timeline-submilestone-detail-remove"
-              data-testid={`timeline-setup-submilestone-detail-remove-${activeSubMilestone.id}`}
-              onClick={() => onRemoveSubMilestone(activeSubMilestone.id)}
-              type="button"
-            >
-              <Trash2 aria-hidden="true" />
-              Remove sub-milestone
-            </button>
-          </div>
-        ) : (
-          <div className="timeline-submilestone-empty">
-            <strong>No sub-milestones</strong>
-            <button
-              onClick={() =>
-                onAddSubMilestone({
-                  category: "Custom",
-                  description: "Custom scope checkpoint",
-                  durationText: DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
-                  name: "New sub-milestone",
-                })
-              }
-              type="button"
-            >
-              <Plus aria-hidden="true" />
-              Add sub-milestone
-            </button>
-          </div>
-        )}
+        <SubMilestoneDetailEditor
+          activeSubMilestone={activeSubMilestone}
+          mode={mode}
+          onAddSubMilestone={onAddSubMilestone}
+          onCommitField={onCommitField}
+          onRemoveSubMilestone={onRemoveSubMilestone}
+          onUpdateSubMilestone={onUpdateSubMilestone}
+          proposedStartDate={proposedStartDate}
+          row={row}
+          scheduleDisplayMode={scheduleDisplayMode}
+        />
       </section>
     </div>
+  );
+}
+
+function SubMilestoneDetailEditor({
+  activeSubMilestone,
+  mode,
+  onAddSubMilestone,
+  onCommitField,
+  onRemoveSubMilestone,
+  onUpdateSubMilestone,
+  proposedStartDate,
+  row,
+  scheduleDisplayMode,
+}: {
+  activeSubMilestone?: TimelineMilestoneWorksheetSubMilestone;
+  mode: WorksheetMode;
+  onAddSubMilestone?: (item?: SubMilestoneBankItem) => void;
+  onCommitField: () => void;
+  onRemoveSubMilestone: (subMilestoneId: string) => void;
+  onUpdateSubMilestone: (
+    subMilestoneId: string,
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  proposedStartDate?: string;
+  row: TimelineMilestoneWorksheetRow;
+  scheduleDisplayMode: TimelineScheduleDisplayMode;
+}) {
+  const valueLabel = mode === "settings" ? "PoC" : "Budget";
+  const valueFieldLabelId = activeSubMilestone
+    ? `timeline-submilestone-value-label-${activeSubMilestone.id}`
+    : undefined;
+  const durationFieldLabelId = activeSubMilestone
+    ? `timeline-submilestone-duration-label-${activeSubMilestone.id}`
+    : undefined;
+  const showDateSchedule =
+    scheduleDisplayMode === "dates" && Boolean(proposedStartDate);
+
+  if (!activeSubMilestone) {
+    return (
+      <div className="timeline-submilestone-empty">
+        <strong>No sub-milestones</strong>
+        {onAddSubMilestone ? (
+          <button
+            onClick={() =>
+              onAddSubMilestone({
+                category: "Custom",
+                description: "Custom scope checkpoint",
+                durationText: DEFAULT_NEW_SUB_MILESTONE_DURATION_TEXT,
+                name: "New sub-milestone",
+              })
+            }
+            type="button"
+          >
+            <Plus aria-hidden="true" />
+            Add sub-milestone
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="timeline-submilestone-detail-body"
+      key={activeSubMilestone.id}
+    >
+      <div className="timeline-submilestone-detail-header">
+        <span>Selected sub-milestone</span>
+        <strong>{sanitizeSubMilestoneName(activeSubMilestone.name)}</strong>
+      </div>
+      <label className="timeline-submilestone-detail-field is-wide">
+        <span>Name</span>
+        <input
+          aria-label="Sub-milestone name"
+          data-testid={`timeline-setup-submilestone-name-${activeSubMilestone.id}`}
+          onBlur={onCommitField}
+          onChange={(event) =>
+            onUpdateSubMilestone(
+              activeSubMilestone.id,
+              {
+                name: event.currentTarget.value,
+              },
+              { commit: false }
+            )
+          }
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onCommitField();
+              event.currentTarget.blur();
+            }
+          }}
+          value={activeSubMilestone.name}
+        />
+      </label>
+      <label className="timeline-submilestone-detail-field is-wide">
+        <span>Scope note</span>
+        <textarea
+          aria-label="Sub-milestone scope note"
+          data-testid={`timeline-setup-submilestone-description-${activeSubMilestone.id}`}
+          onBlur={onCommitField}
+          onChange={(event) =>
+            onUpdateSubMilestone(
+              activeSubMilestone.id,
+              {
+                description: event.currentTarget.value,
+              },
+              { commit: false }
+            )
+          }
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              onCommitField();
+              event.currentTarget.blur();
+            }
+          }}
+          value={activeSubMilestone.description}
+        />
+      </label>
+      <div className="timeline-submilestone-detail-grid">
+        <div className="timeline-submilestone-detail-field">
+          <span id={valueFieldLabelId}>{valueLabel}</span>
+          <BlueprintInput
+            align="right"
+            className="timeline-submilestone-detail-input"
+            label={`Sub-milestone ${valueLabel.toLowerCase()}`}
+            labelledBy={valueFieldLabelId}
+            onBlur={() =>
+              onUpdateSubMilestone(
+                activeSubMilestone.id,
+                mode === "settings"
+                  ? {
+                      percentageBps: parsePercentToBps(
+                        activeSubMilestone.percentageText ?? ""
+                      ),
+                      percentageText: normalizePercentText(
+                        activeSubMilestone.percentageText ?? ""
+                      ),
+                    }
+                  : {
+                      budgetText: normalizeCurrencyText(
+                        activeSubMilestone.budgetText
+                      ),
+                    },
+                { commit: true }
+              )
+            }
+            onChange={(value) =>
+              onUpdateSubMilestone(
+                activeSubMilestone.id,
+                mode === "settings"
+                  ? {
+                      percentageBps: parsePercentToBps(value),
+                      percentageText: value,
+                    }
+                  : { budgetText: value },
+                { commit: false }
+              )
+            }
+            onCommit={onCommitField}
+            testId={`timeline-setup-submilestone-budget-${activeSubMilestone.id}`}
+            value={
+              mode === "settings"
+                ? (activeSubMilestone.percentageText ??
+                  formatBps(activeSubMilestone.percentageBps ?? 0))
+                : activeSubMilestone.budgetText
+            }
+          />
+        </div>
+        {showDateSchedule && proposedStartDate ? (
+          <>
+            <div className="timeline-submilestone-detail-field">
+              <span>Start</span>
+              <BlueprintInput
+                align="center"
+                className="timeline-submilestone-detail-input"
+                label="Sub-milestone start date"
+                onBlur={onCommitField}
+                onChange={(startDate) =>
+                  onUpdateSubMilestone(
+                    activeSubMilestone.id,
+                    {
+                      startDay: dayOffsetFromProposalDate(
+                        proposedStartDate,
+                        startDate
+                      ),
+                    },
+                    { commit: false }
+                  )
+                }
+                onCommit={onCommitField}
+                testId={`timeline-setup-submilestone-start-date-${activeSubMilestone.id}`}
+                type="date"
+                value={dateFromProposalDayOffset(
+                  proposedStartDate,
+                  subMilestoneStartDay(row, activeSubMilestone)
+                )}
+              />
+            </div>
+            <div className="timeline-submilestone-detail-field">
+              <span>End</span>
+              <BlueprintInput
+                align="center"
+                className="timeline-submilestone-detail-input"
+                label="Sub-milestone end date"
+                onBlur={onCommitField}
+                onChange={(endDate) => {
+                  const startDate = dateFromProposalDayOffset(
+                    proposedStartDate,
+                    subMilestoneStartDay(row, activeSubMilestone)
+                  );
+                  const durationDays = proposalDurationDaysFromInclusiveDates(
+                    startDate,
+                    endDate
+                  );
+                  onUpdateSubMilestone(
+                    activeSubMilestone.id,
+                    {
+                      durationText: String(durationDays),
+                    },
+                    { commit: false }
+                  );
+                }}
+                onCommit={onCommitField}
+                testId={`timeline-setup-submilestone-end-date-${activeSubMilestone.id}`}
+                type="date"
+                value={inclusiveEndDateFromProposalSchedule(
+                  proposedStartDate,
+                  subMilestoneStartDay(row, activeSubMilestone),
+                  parseDurationDays(activeSubMilestone.durationText)
+                )}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="timeline-submilestone-detail-field">
+              <span>Start</span>
+              <BlueprintInput
+                align="center"
+                className="timeline-submilestone-detail-input"
+                label="Sub-milestone T offset start"
+                onBlur={onCommitField}
+                onChange={(startText) =>
+                  onUpdateSubMilestone(
+                    activeSubMilestone.id,
+                    {
+                      startDay: parseTOffsetDay(startText),
+                    },
+                    { commit: false }
+                  )
+                }
+                onCommit={onCommitField}
+                testId={`timeline-setup-submilestone-start-offset-${activeSubMilestone.id}`}
+                value={formatTOffset(
+                  subMilestoneStartDay(row, activeSubMilestone)
+                )}
+              />
+            </div>
+            <div className="timeline-submilestone-detail-field">
+              <span id={durationFieldLabelId}>Duration</span>
+              <BlueprintInput
+                align="center"
+                className="timeline-submilestone-detail-input"
+                label="Sub-milestone duration"
+                labelledBy={durationFieldLabelId}
+                onBlur={() =>
+                  onUpdateSubMilestone(
+                    activeSubMilestone.id,
+                    {
+                      durationText: normalizeDurationText(
+                        activeSubMilestone.durationText
+                      ),
+                    },
+                    { commit: true }
+                  )
+                }
+                onChange={(durationText) =>
+                  onUpdateSubMilestone(
+                    activeSubMilestone.id,
+                    {
+                      durationText: durationText
+                        .replace(DURATION_PREFIX_REGEX, "")
+                        .replace(NON_DIGIT_REGEX, ""),
+                    },
+                    { commit: false }
+                  )
+                }
+                onCommit={onCommitField}
+                testId={`timeline-setup-submilestone-duration-${activeSubMilestone.id}`}
+                value={`T${activeSubMilestone.durationText}`}
+              />
+            </div>
+            <div className="timeline-submilestone-detail-field">
+              <span>End</span>
+              <BlueprintInput
+                align="center"
+                className="timeline-submilestone-detail-input"
+                label="Sub-milestone T offset end"
+                onBlur={() => undefined}
+                onChange={() => undefined}
+                readOnly
+                testId={`timeline-setup-submilestone-end-offset-${activeSubMilestone.id}`}
+                value={formatInclusiveEndTOffset(
+                  subMilestoneStartDay(row, activeSubMilestone),
+                  parseDurationDays(activeSubMilestone.durationText)
+                )}
+              />
+            </div>
+          </>
+        )}
+      </div>
+      <button
+        aria-label={`Remove ${sanitizeSubMilestoneName(activeSubMilestone.name)}`}
+        className="timeline-submilestone-detail-remove"
+        data-testid={`timeline-setup-submilestone-detail-remove-${activeSubMilestone.id}`}
+        onClick={() => onRemoveSubMilestone(activeSubMilestone.id)}
+        type="button"
+      >
+        <Trash2 aria-hidden="true" />
+        Remove sub-milestone
+      </button>
+    </div>
+  );
+}
+
+function SubMilestoneFocusedTabs({
+  contractorOptions,
+  mode,
+  onAddContractorAssignment,
+  onCommitField,
+  onCreateCostItem,
+  onDeleteCostItem,
+  onRemoveContractorAssignment,
+  onRemoveSubMilestone,
+  onUpdateCostItem,
+  onUpdateSubMilestone,
+  proposedStartDate,
+  row,
+  scheduleDisplayMode,
+  subMilestone,
+}: {
+  contractorOptions: TimelineMilestoneWorksheetContractorOption[];
+  mode: WorksheetMode;
+  onAddContractorAssignment: (
+    assignment: Omit<TimelineMilestoneWorksheetContractorAssignment, "id">
+  ) => void;
+  onCommitField: () => void;
+  onCreateCostItem: (payload: MaterialPlanningPayload) => void;
+  onDeleteCostItem: (itemId: string) => void;
+  onRemoveContractorAssignment: (assignmentId: string) => void;
+  onRemoveSubMilestone: (subMilestoneId: string) => void;
+  onUpdateCostItem: (itemId: string, payload: MaterialPlanningPayload) => void;
+  onUpdateSubMilestone: (
+    subMilestoneId: string,
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  proposedStartDate?: string;
+  row: TimelineMilestoneWorksheetRow;
+  scheduleDisplayMode: TimelineScheduleDisplayMode;
+  subMilestone: TimelineMilestoneWorksheetSubMilestone;
+}) {
+  const subMilestoneName = sanitizeSubMilestoneName(subMilestone.name);
+
+  return (
+    <Tabs
+      className="timeline-blueprint-expanded-tabs timeline-submilestone-focused-tabs is-sheet"
+      defaultValue="scope"
+    >
+      <div className="timeline-blueprint-expanded-tabs-header">
+        <TabsList
+          aria-label={`${subMilestoneName} sub-milestone sections`}
+          className="timeline-blueprint-expanded-tabs-list"
+          variant="underline"
+        >
+          <TabsTab value="scope">Scope</TabsTab>
+          {mode === "setup" ? (
+            <>
+              <TabsTab value="contractors">Contractors</TabsTab>
+              <TabsTab value="materials">Materials</TabsTab>
+            </>
+          ) : null}
+          <TabsTab value="field-guidance">Field Guidance</TabsTab>
+        </TabsList>
+      </div>
+      <TabsPanel
+        className="timeline-blueprint-expanded-tab-panel"
+        data-testid={`timeline-focused-submilestone-scope-panel-${subMilestone.id}`}
+        value="scope"
+      >
+        <section
+          aria-label={`${subMilestoneName} scope`}
+          className="timeline-submilestone-focused-pane timeline-submilestone-detail-pane"
+        >
+          <SubMilestoneDetailEditor
+            activeSubMilestone={subMilestone}
+            mode={mode}
+            onCommitField={onCommitField}
+            onRemoveSubMilestone={onRemoveSubMilestone}
+            onUpdateSubMilestone={onUpdateSubMilestone}
+            proposedStartDate={proposedStartDate}
+            row={row}
+            scheduleDisplayMode={scheduleDisplayMode}
+          />
+        </section>
+      </TabsPanel>
+      {mode === "setup" ? (
+        <>
+          <TabsPanel
+            className="timeline-blueprint-expanded-tab-panel"
+            data-testid={`timeline-focused-submilestone-contractors-panel-${subMilestone.id}`}
+            value="contractors"
+          >
+            <ContractorAssignmentEditor
+              contractorOptions={contractorOptions}
+              onAddAssignment={onAddContractorAssignment}
+              onRemoveAssignment={onRemoveContractorAssignment}
+              row={row}
+              scopeName={subMilestoneName}
+              scopeSubMilestoneId={subMilestone.id}
+            />
+          </TabsPanel>
+          <TabsPanel
+            className="timeline-blueprint-expanded-tab-panel"
+            data-testid={`timeline-focused-submilestone-materials-panel-${subMilestone.id}`}
+            value="materials"
+          >
+            <MaterialCostItemsEditor
+              onCreateCostItem={onCreateCostItem}
+              onDeleteCostItem={onDeleteCostItem}
+              onUpdateCostItem={onUpdateCostItem}
+              row={row}
+              scopeName={subMilestoneName}
+              scopeSubMilestoneId={subMilestone.id}
+            />
+          </TabsPanel>
+        </>
+      ) : null}
+      <TabsPanel
+        className="timeline-blueprint-expanded-tab-panel"
+        data-testid={`timeline-focused-submilestone-field-guidance-panel-${subMilestone.id}`}
+        value="field-guidance"
+      >
+        <SubMilestoneFieldGuidanceEditor
+          onCommitField={onCommitField}
+          onUpdateSubMilestone={onUpdateSubMilestone}
+          row={row}
+          subMilestone={subMilestone}
+        />
+      </TabsPanel>
+    </Tabs>
+  );
+}
+
+function SubMilestoneFieldGuidanceEditor({
+  onCommitField,
+  onUpdateSubMilestone,
+  row,
+  subMilestone,
+}: {
+  onCommitField: () => void;
+  onUpdateSubMilestone: (
+    subMilestoneId: string,
+    patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
+    meta?: TimelineMilestoneWorksheetRowsChangeMeta
+  ) => void;
+  row: TimelineMilestoneWorksheetRow;
+  subMilestone: TimelineMilestoneWorksheetSubMilestone;
+}) {
+  const subMilestoneName = sanitizeSubMilestoneName(subMilestone.name);
+
+  return (
+    <section
+      aria-label={`${subMilestoneName} field guidance`}
+      className="timeline-blueprint-field-guidance timeline-submilestone-focused-guidance"
+      data-testid={`timeline-focused-submilestone-guidance-${subMilestone.id}`}
+    >
+      <div className="timeline-blueprint-planning-pane-heading">
+        <div>
+          <Badge className="timeline-blueprint-mini-badge" variant="outline">
+            Field Guidance
+          </Badge>
+          <strong>{subMilestoneName}</strong>
+          <p>{row.name}</p>
+        </div>
+      </div>
+      <label className="timeline-submilestone-detail-field is-wide">
+        <span>Verification note</span>
+        <textarea
+          aria-label={`${subMilestoneName} verification note`}
+          data-testid={`timeline-setup-submilestone-guidance-description-${subMilestone.id}`}
+          onBlur={onCommitField}
+          onChange={(event) =>
+            onUpdateSubMilestone(
+              subMilestone.id,
+              {
+                description: event.currentTarget.value,
+              },
+              { commit: false }
+            )
+          }
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              onCommitField();
+              event.currentTarget.blur();
+            }
+          }}
+          value={subMilestone.description}
+        />
+      </label>
+    </section>
   );
 }
 
@@ -2135,6 +3884,7 @@ function MilestoneExpandedTabs({
   onUpdateFieldGuidance,
   onUpdateSubMilestone,
   mode,
+  placement = "expanded",
   proposedStartDate,
   row,
   scheduleDisplayMode,
@@ -2161,13 +3911,17 @@ function MilestoneExpandedTabs({
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void;
+  placement?: "expanded" | "sheet";
   proposedStartDate?: string;
   row: TimelineMilestoneWorksheetRow;
   scheduleDisplayMode: TimelineScheduleDisplayMode;
 }) {
   return (
     <Tabs
-      className="timeline-blueprint-expanded-tabs"
+      className={cn(
+        "timeline-blueprint-expanded-tabs",
+        placement === "sheet" && "is-sheet"
+      )}
       defaultValue="submilestones"
     >
       <div className="timeline-blueprint-expanded-tabs-header">
@@ -2250,17 +4004,47 @@ function MaterialCostItemsEditor({
   onDeleteCostItem,
   onUpdateCostItem,
   row,
+  scopeName,
+  scopeSubMilestoneId,
 }: {
   onCreateCostItem: (payload: MaterialPlanningPayload) => void;
   onDeleteCostItem: (itemId: string) => void;
   onUpdateCostItem: (itemId: string, payload: MaterialPlanningPayload) => void;
   row: TimelineMilestoneWorksheetRow;
+  scopeName?: string;
+  scopeSubMilestoneId?: string;
 }) {
-  const costItemCount = (row.costItems ?? []).length;
+  const scopedSubMilestone = scopeSubMilestoneId
+    ? row.subMilestoneDetails.find(
+        (subMilestone) => subMilestone.id === scopeSubMilestoneId
+      )
+    : undefined;
+  const materialItems = worksheetCostItemsToMaterialItems(row).filter((item) =>
+    scopeSubMilestoneId
+      ? item.relevantSubmilestoneKeys.includes(scopeSubMilestoneId)
+      : true
+  );
+  const materialMilestone = scopedSubMilestone
+    ? worksheetRowToScopedMaterialMilestone(row, scopedSubMilestone)
+    : worksheetRowToMaterialMilestone(row);
+  const costItemCount = materialItems.length;
+  const applyMaterialScope = (
+    payload: MaterialPlanningPayload,
+    existingSubMilestoneIds: string[] = []
+  ): MaterialPlanningPayload =>
+    scopeSubMilestoneId
+      ? {
+          ...payload,
+          milestoneKey: row.key,
+          relevantSubmilestoneKeys: [
+            ...new Set([scopeSubMilestoneId, ...existingSubMilestoneIds]),
+          ],
+        }
+      : payload;
 
   return (
     <section
-      aria-label={`${row.name} materials and equipment`}
+      aria-label={`${scopeName ?? row.name} materials and equipment`}
       className="timeline-blueprint-planning-pane timeline-blueprint-planning-pane-materials"
     >
       <div className="timeline-blueprint-planning-pane-heading">
@@ -2268,10 +4052,15 @@ function MaterialCostItemsEditor({
           <Badge className="timeline-blueprint-mini-badge" variant="outline">
             Materials
           </Badge>
-          <strong>Build materials and equipment</strong>
+          <strong>
+            {scopeName
+              ? `${scopeName} materials`
+              : "Build materials and equipment"}
+          </strong>
           <p>
-            Cost-only entries stay attached to this milestone and its
-            sub-milestones.
+            {scopeName
+              ? "Cost-only entries stay attached to this sub-milestone."
+              : "Cost-only entries stay attached to this milestone and its sub-milestones."}
           </p>
         </div>
         <span className="timeline-blueprint-planning-count">
@@ -2281,14 +4070,18 @@ function MaterialCostItemsEditor({
       <div className="timeline-blueprint-material-planning">
         <MaterialPlanningTab
           actions={{
-            create: onCreateCostItem,
+            create: (payload) => onCreateCostItem(applyMaterialScope(payload)),
             delete: (item) => onDeleteCostItem(item._id),
-            update: (item, payload) => onUpdateCostItem(item._id, payload),
+            update: (item, payload) =>
+              onUpdateCostItem(
+                item._id,
+                applyMaterialScope(payload, item.relevantSubmilestoneKeys)
+              ),
           }}
-          items={worksheetCostItemsToMaterialItems(row)}
-          milestones={[worksheetRowToMaterialMilestone(row)]}
+          items={materialItems}
+          milestones={[materialMilestone]}
           panelLayout="stacked"
-          scopeLabel="Milestone"
+          scopeLabel={scopeName ? "Sub-milestone" : "Milestone"}
           showChangeReason={false}
           variant="embedded"
         />
@@ -2302,6 +4095,8 @@ function ContractorAssignmentEditor({
   onAddAssignment,
   onRemoveAssignment,
   row,
+  scopeName,
+  scopeSubMilestoneId,
 }: {
   contractorOptions: TimelineMilestoneWorksheetContractorOption[];
   onAddAssignment: (
@@ -2309,14 +4104,22 @@ function ContractorAssignmentEditor({
   ) => void;
   onRemoveAssignment: (assignmentId: string) => void;
   row: TimelineMilestoneWorksheetRow;
+  scopeName?: string;
+  scopeSubMilestoneId?: string;
 }) {
   const [contractorName, setContractorName] = useState("");
   const [contractorPickerOpen, setContractorPickerOpen] = useState(false);
   const [estimatedCostText, setEstimatedCostText] = useState("");
   const [estimatedHoursText, setEstimatedHoursText] = useState("");
   const [role, setRole] = useState("");
-  const [subMilestoneIds, setSubMilestoneIds] = useState<string[]>([]);
-  const assignments = row.contractorAssignments ?? [];
+  const [subMilestoneIds, setSubMilestoneIds] = useState<string[]>(
+    scopeSubMilestoneId ? [scopeSubMilestoneId] : []
+  );
+  const assignments = (row.contractorAssignments ?? []).filter((assignment) =>
+    scopeSubMilestoneId
+      ? assignment.subMilestoneIds.includes(scopeSubMilestoneId)
+      : true
+  );
   const normalizedContractorQuery = contractorName.trim().toLowerCase();
   const visibleContractorOptions = useMemo(
     () =>
@@ -2337,7 +4140,16 @@ function ContractorAssignmentEditor({
   );
   const hasContractorOptions = contractorOptions.length > 0;
 
+  useEffect(() => {
+    if (scopeSubMilestoneId) {
+      setSubMilestoneIds([scopeSubMilestoneId]);
+    }
+  }, [scopeSubMilestoneId]);
+
   const toggleSubMilestone = (subMilestoneId: string, checked: boolean) => {
+    if (scopeSubMilestoneId) {
+      return;
+    }
     setSubMilestoneIds((current) =>
       checked
         ? [...new Set([...current, subMilestoneId])]
@@ -2358,13 +4170,16 @@ function ContractorAssignmentEditor({
       estimatedCostCents: parseOptionalCurrencyCents(estimatedCostText),
       estimatedHours: parseOptionalHours(estimatedHoursText),
       role: normalizedRole,
-      subMilestoneIds,
+      subMilestoneIds: scopeSubMilestoneId
+        ? [scopeSubMilestoneId]
+        : subMilestoneIds,
     });
     setContractorName("");
     setEstimatedCostText("");
     setEstimatedHoursText("");
     setRole("");
-    setSubMilestoneIds([]);
+    setSubMilestoneIds(scopeSubMilestoneId ? [scopeSubMilestoneId] : []);
+    setContractorPickerOpen(false);
   };
 
   const selectContractorOption = (
@@ -2379,7 +4194,7 @@ function ContractorAssignmentEditor({
 
   return (
     <section
-      aria-label={`${row.name} contractor assignments`}
+      aria-label={`${scopeName ?? row.name} contractor assignments`}
       className="timeline-blueprint-planning-pane timeline-blueprint-planning-pane-contractors"
     >
       <div className="timeline-blueprint-planning-pane-heading">
@@ -2387,7 +4202,11 @@ function ContractorAssignmentEditor({
           <Badge className="timeline-blueprint-mini-badge" variant="outline">
             Contractors
           </Badge>
-          <strong>Milestone crew planning</strong>
+          <strong>
+            {scopeName
+              ? `${scopeName} crew planning`
+              : "Milestone crew planning"}
+          </strong>
           <p>Assign an existing contractor or type a guest contractor name.</p>
         </div>
         <span className="timeline-blueprint-planning-count">
@@ -2415,7 +4234,9 @@ function ContractorAssignmentEditor({
                 }
                 onValueChange={(nextQuery) => {
                   setContractorName(nextQuery);
-                  setContractorPickerOpen(hasContractorOptions);
+                  setContractorPickerOpen(
+                    hasContractorOptions && Boolean(nextQuery.trim())
+                  );
                 }}
                 open={contractorPickerOpen && hasContractorOptions}
                 openOnInputClick
@@ -2500,38 +4321,49 @@ function ContractorAssignmentEditor({
             />
           </label>
         </div>
-        <div className="grid gap-2">
-          <p className="font-medium text-sm">Sub-milestone scope</p>
-          <div className="flex flex-wrap gap-2">
-            {row.subMilestoneDetails.length > 0 ? (
-              row.subMilestoneDetails.map((subMilestone) => {
-                const checked = subMilestoneIds.includes(subMilestone.id);
-                return (
-                  <label
-                    className="timeline-blueprint-planning-scope-chip"
-                    key={subMilestone.id}
-                  >
-                    <input
-                      checked={checked}
-                      onChange={(event) =>
-                        toggleSubMilestone(
-                          subMilestone.id,
-                          event.currentTarget.checked
-                        )
-                      }
-                      type="checkbox"
-                    />
-                    <span>{sanitizeSubMilestoneName(subMilestone.name)}</span>
-                  </label>
-                );
-              })
-            ) : (
-              <p className="text-muted-foreground text-sm">
-                No sub-milestones are defined for this milestone.
-              </p>
-            )}
+        {scopeSubMilestoneId ? (
+          <div className="grid gap-2">
+            <p className="font-medium text-sm">Sub-milestone scope</p>
+            <div className="flex flex-wrap gap-2">
+              <span className="timeline-blueprint-planning-scope-chip is-locked">
+                {scopeName ?? subMilestoneNameById(row, scopeSubMilestoneId)}
+              </span>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="grid gap-2">
+            <p className="font-medium text-sm">Sub-milestone scope</p>
+            <div className="flex flex-wrap gap-2">
+              {row.subMilestoneDetails.length > 0 ? (
+                row.subMilestoneDetails.map((subMilestone) => {
+                  const checked = subMilestoneIds.includes(subMilestone.id);
+                  return (
+                    <label
+                      className="timeline-blueprint-planning-scope-chip"
+                      key={subMilestone.id}
+                    >
+                      <input
+                        checked={checked}
+                        onChange={(event) =>
+                          toggleSubMilestone(
+                            subMilestone.id,
+                            event.currentTarget.checked
+                          )
+                        }
+                        type="checkbox"
+                      />
+                      <span>{sanitizeSubMilestoneName(subMilestone.name)}</span>
+                    </label>
+                  );
+                })
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No sub-milestones are defined for this milestone.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
         <div className="flex justify-end">
           <button
             className="timeline-blueprint-planning-action"
@@ -3006,6 +4838,30 @@ function worksheetRowToMaterialMilestone(
   };
 }
 
+function worksheetRowToScopedMaterialMilestone(
+  row: TimelineMilestoneWorksheetRow,
+  subMilestone: TimelineMilestoneWorksheetSubMilestone
+): MaterialPlanningMilestone {
+  const budgetCents = parseCurrencyToCents(subMilestone.budgetText);
+  return {
+    budgetCents: Number.isFinite(budgetCents) ? Math.max(0, budgetCents) : 0,
+    key: row.key,
+    name: row.name,
+    order: row.order,
+    submilestones: [
+      {
+        key: subMilestone.id,
+        milestoneKey: row.key,
+        name: sanitizeSubMilestoneName(subMilestone.name),
+        order:
+          row.subMilestoneDetails.findIndex(
+            (candidate) => candidate.id === subMilestone.id
+          ) + 1,
+      },
+    ],
+  };
+}
+
 function worksheetCostItemsToMaterialItems(
   row: TimelineMilestoneWorksheetRow
 ): MaterialPlanningItem[] {
@@ -3348,13 +5204,22 @@ function subMilestoneDateRangeLabel(
 ) {
   const startDay = subMilestoneStartDay(row, subMilestone);
   return [
-    dateFromProposalDayOffset(proposedStartDate, startDay),
-    inclusiveEndDateFromProposalSchedule(
-      proposedStartDate,
-      startDay,
-      parseDurationDays(subMilestone.durationText)
+    formatDisplayDateWithoutYear(
+      dateFromProposalDayOffset(proposedStartDate, startDay)
+    ),
+    formatDisplayDateWithoutYear(
+      inclusiveEndDateFromProposalSchedule(
+        proposedStartDate,
+        startDay,
+        parseDurationDays(subMilestone.durationText)
+      )
     ),
   ].join(" - ");
+}
+
+function formatDisplayDateWithoutYear(value: string) {
+  const [, month, day] = value.split("-");
+  return month && day ? `${month}-${day}` : value;
 }
 
 function subMilestoneTOffsetRangeLabel(

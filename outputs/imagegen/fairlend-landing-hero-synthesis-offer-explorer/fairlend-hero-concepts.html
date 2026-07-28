@@ -1,0 +1,1257 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FairLend Hero Synthesis Concepts</title>
+    <script>
+    "use strict";
+    (() => {
+      const stored = localStorage.getItem("fairlend-hero-theme");
+      const prefersDark =
+        window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (stored === "dark" || (!stored && prefersDark)) {
+        document.documentElement.classList.add("dark");
+      }
+    })();
+    </script>
+    <style>
+    :root {
+      --paper: #f4eee5;
+      --paper-2: #fffaf3;
+      --ink: #052f25;
+      --ink-2: #111820;
+      --muted: #526170;
+      --line: #d9cfc2;
+      --line-2: #c5d8e9;
+      --blue: #7fa8d4;
+      --blue-soft: #e8f1fa;
+      --coral: #ff5b48;
+      --coral-2: #ffe7e1;
+      --sage: #6d806c;
+      --mint: #e7f0e6;
+      --cream: #fffdf8;
+      --shadow: 0 26px 70px rgba(22, 31, 38, 0.16);
+      --serif: Georgia, "Times New Roman", serif;
+      --sans:
+        ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+      --mono: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+    }
+
+    html.dark {
+      --paper: #101714;
+      --paper-2: #18231f;
+      --ink: #eef8f0;
+      --ink-2: #f7f1e9;
+      --muted: #aeb9b2;
+      --line: #34423b;
+      --line-2: #3b586e;
+      --blue: #87acd0;
+      --blue-soft: #172532;
+      --coral: #ff705f;
+      --coral-2: #3b201c;
+      --sage: #9faf93;
+      --mint: #1d2d27;
+      --cream: #121b18;
+      --shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      overflow: hidden;
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    .theme-toggle {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 20;
+      padding: 8px 12px;
+      font: 700 12px / 1 var(--sans);
+      color: var(--ink);
+      cursor: pointer;
+      background: var(--cream);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+    }
+    .capture .theme-toggle {
+      display: none;
+    }
+
+    .page {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background:
+        linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.5),
+          rgba(255, 255, 255, 0) 43%
+        ),
+        radial-gradient(
+          circle at 80% 26%,
+          rgba(127, 168, 212, 0.2),
+          transparent 34%
+        ),
+        var(--paper);
+    }
+
+    .page::before {
+      position: absolute;
+      inset: 92px 0 0;
+      pointer-events: none;
+      content: "";
+      background-image:
+        linear-gradient(rgba(127, 168, 212, 0.17) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(127, 168, 212, 0.17) 1px, transparent 1px);
+      background-size: 24px 24px;
+      opacity: 0.34;
+      mask-image: radial-gradient(circle at 55% 48%, black, transparent 70%);
+    }
+
+    .nav {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      gap: 34px;
+      align-items: center;
+      height: 92px;
+      padding: 0 46px;
+      background: color-mix(in srgb, var(--paper) 94%, white 6%);
+      border-bottom: 1px solid
+        color-mix(in srgb, var(--line) 84%, var(--ink) 16%);
+    }
+    .brand {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      min-width: 380px;
+    }
+    .brand-mark {
+      font: 900 56px / 0.86 var(--sans);
+      color: var(--ink);
+    }
+    .brand-line {
+      width: 1px;
+      height: 48px;
+      background: color-mix(in srgb, var(--line) 70%, var(--ink) 30%);
+    }
+    .brand-sub {
+      width: 116px;
+      font: 900 12px / 1.05 var(--sans);
+      color: var(--ink);
+      text-transform: uppercase;
+    }
+    .menu {
+      display: flex;
+      gap: 42px;
+      align-items: center;
+      margin-left: auto;
+      font: 900 13px / 1 var(--sans);
+      color: var(--ink);
+      text-transform: uppercase;
+    }
+    .menu span.active {
+      padding-bottom: 18px;
+      border-bottom: 3px solid currentColor;
+    }
+    .nav-cta {
+      display: grid;
+      place-items: center;
+      width: 146px;
+      height: 40px;
+      margin-left: 30px;
+      font: 900 12px / 1 var(--sans);
+      color: var(--paper-2);
+      text-transform: uppercase;
+      background: var(--ink);
+    }
+
+    .hero {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: minmax(480px, 42vw) 1fr;
+      gap: 34px;
+      height: calc(100vh - 92px);
+      padding: 50px 40px 34px;
+    }
+    .hero.centered {
+      grid-template-columns: 1fr;
+      place-items: start center;
+      text-align: center;
+    }
+    .copy {
+      position: relative;
+      z-index: 4;
+      padding-top: 30px;
+    }
+    .centered .copy {
+      max-width: 760px;
+      padding-top: 0;
+    }
+    .kicker {
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+      height: 44px;
+      padding: 0 18px;
+      font: 800 14px / 1 var(--sans);
+      color: var(--ink-2);
+      background: color-mix(in srgb, var(--cream) 82%, var(--paper) 18%);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      box-shadow: 0 12px 30px rgba(12, 32, 28, 0.07);
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      background: var(--coral);
+      border-radius: 50%;
+      box-shadow: 0 0 0 6px var(--coral-2);
+    }
+    h1 {
+      margin: 34px 0 18px;
+      font-family: var(--serif);
+      font-size: clamp(64px, 6.2vw, 106px);
+      font-weight: 700;
+      line-height: 0.93;
+      color: var(--ink-2);
+      letter-spacing: 0;
+    }
+    h1 .accent {
+      display: block;
+      color: var(--coral);
+    }
+    .centered h1 {
+      font-size: clamp(60px, 5.2vw, 88px);
+    }
+    .subcopy {
+      max-width: 560px;
+      margin: 0 0 22px;
+      font: 500 20px / 1.45 var(--sans);
+      color: var(--muted);
+    }
+    .centered .subcopy {
+      margin-right: auto;
+      margin-left: auto;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 22px 0 28px;
+    }
+    .centered .chips {
+      justify-content: center;
+    }
+    .chip {
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+      height: 46px;
+      padding: 0 14px;
+      font: 800 13px / 1 var(--sans);
+      color: var(--ink-2);
+      background: color-mix(in srgb, var(--cream) 90%, var(--paper) 10%);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 12px 28px rgba(24, 33, 42, 0.06);
+    }
+    .chip i {
+      display: inline-grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      font-style: normal;
+      color: var(--coral);
+      background: var(--coral-2);
+      border-radius: 50%;
+    }
+    .actions {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+    }
+    .centered .actions {
+      justify-content: center;
+    }
+    .button {
+      display: inline-flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: center;
+      min-width: 246px;
+      height: 60px;
+      font: 900 16px / 1 var(--sans);
+      color: white;
+      background: var(--coral);
+      border: 1px solid color-mix(in srgb, var(--coral) 82%, black 18%);
+      border-radius: 10px;
+      box-shadow: 0 22px 45px rgba(255, 91, 72, 0.22);
+    }
+    .button.secondary {
+      color: var(--ink);
+      background: var(--cream);
+      border-color: var(--line);
+      box-shadow: none;
+    }
+    .proof-line {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      margin-top: 26px;
+      font: 800 14px / 1.1 var(--sans);
+      color: var(--ink);
+    }
+    .proof-line span {
+      padding-left: 18px;
+      border-left: 1px solid var(--line);
+    }
+
+    .visual {
+      position: relative;
+      min-width: 0;
+      height: 100%;
+    }
+    .centered .visual {
+      position: absolute;
+      inset: 250px 28px 28px;
+    }
+
+    .blueprint-field {
+      position: absolute;
+      inset: 22px;
+      overflow: hidden;
+      background:
+        linear-gradient(
+          145deg,
+          rgba(255, 255, 255, 0.8),
+          rgba(255, 255, 255, 0.08)
+        ),
+        repeating-linear-gradient(
+          0deg,
+          rgba(107, 151, 194, 0.18),
+          rgba(107, 151, 194, 0.18) 1px,
+          transparent 1px,
+          transparent 22px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          rgba(107, 151, 194, 0.18),
+          rgba(107, 151, 194, 0.18) 1px,
+          transparent 1px,
+          transparent 22px
+        );
+      border: 1px solid color-mix(in srgb, var(--line-2) 70%, white 30%);
+      border-radius: 26px;
+      box-shadow: inset 0 0 90px rgba(255, 255, 255, 0.72);
+    }
+    .blueprint-field::after {
+      position: absolute;
+      inset: 12%;
+      content: "";
+      border: 2px dashed rgba(89, 132, 176, 0.46);
+      transform: rotate(-10deg);
+    }
+
+    .building {
+      position: absolute;
+      right: 6%;
+      bottom: 13%;
+      width: 430px;
+      height: 310px;
+      filter: drop-shadow(0 30px 44px rgba(22, 32, 38, 0.18));
+      perspective: 900px;
+    }
+    .podium {
+      position: absolute;
+      inset: auto 0 0;
+      height: 96px;
+      background: linear-gradient(135deg, #d6d0c5, #f2eee6);
+      border: 1px solid #c6bdae;
+      border-radius: 20px;
+      transform: skewX(-18deg);
+    }
+    .tower {
+      position: absolute;
+      bottom: 62px;
+      background: linear-gradient(145deg, #f9f6ee, #cfc8bd);
+      border: 1px solid #a99888;
+      box-shadow: inset -18px -8px 28px rgba(50, 55, 52, 0.08);
+    }
+    .tower.a {
+      left: 82px;
+      width: 142px;
+      height: 180px;
+    }
+    .tower.b {
+      left: 214px;
+      width: 120px;
+      height: 232px;
+    }
+    .tower.c {
+      left: 300px;
+      width: 82px;
+      height: 142px;
+    }
+    .roof {
+      position: absolute;
+      top: -18px;
+      right: -8px;
+      left: -8px;
+      height: 22px;
+      background: #b7aa99;
+      transform: skewX(-28deg);
+    }
+    .windows {
+      position: absolute;
+      inset: 28px 18px 18px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .window {
+      min-height: 34px;
+      background: linear-gradient(145deg, #263d42, #d4ab75);
+      border: 2px solid rgba(25, 35, 33, 0.34);
+    }
+    .tree {
+      position: absolute;
+      bottom: 72px;
+      width: 38px;
+      height: 80px;
+    }
+    .tree::before {
+      position: absolute;
+      top: 0;
+      left: 7px;
+      width: 28px;
+      height: 50px;
+      content: "";
+      background: #6c8f56;
+      border-radius: 50%;
+    }
+    .tree::after {
+      position: absolute;
+      top: 36px;
+      left: 18px;
+      width: 5px;
+      height: 42px;
+      content: "";
+      background: #87664d;
+    }
+    .tree.one {
+      left: 28px;
+    }
+    .tree.two {
+      right: 20px;
+      transform: scale(0.82);
+    }
+
+    .card {
+      position: absolute;
+      color: var(--ink);
+      background: color-mix(in srgb, var(--cream) 92%, var(--paper) 8%);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+    }
+    .license-card {
+      right: 10%;
+      bottom: 9%;
+      width: 390px;
+      padding: 22px;
+    }
+    .license-card .label {
+      font: 900 11px / 1 var(--mono);
+      text-transform: uppercase;
+    }
+    .license-card .name {
+      margin: 10px 0 18px;
+      font: 800 38px / 0.92 var(--serif);
+    }
+    .license-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .mini-license {
+      padding: 12px;
+      font: 900 12px / 1.1 var(--sans);
+      background: color-mix(in srgb, var(--paper-2) 76%, white 24%);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    .review-card {
+      top: 8%;
+      right: 6%;
+      width: 330px;
+      padding: 18px;
+    }
+    .review-card .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font: 900 13px / 1 var(--sans);
+    }
+    .dots {
+      display: flex;
+      gap: 7px;
+    }
+    .dots b {
+      display: block;
+      width: 7px;
+      height: 7px;
+      background: #c6cbd0;
+      border-radius: 50%;
+    }
+    .dots b:first-child {
+      background: var(--coral);
+      box-shadow: 0 0 0 5px var(--coral-2);
+    }
+    .review-card .input {
+      display: flex;
+      align-items: center;
+      height: 48px;
+      padding: 0 12px;
+      margin-top: 16px;
+      font: 800 12px / 1 var(--sans);
+      color: var(--muted);
+      background: var(--paper-2);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+
+    .workflow {
+      position: absolute;
+      inset: 6% 4% 8%;
+      padding: 28px;
+      background: color-mix(in srgb, var(--cream) 90%, var(--paper) 10%);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+    }
+    .workflow-title {
+      display: flex;
+      justify-content: space-between;
+      font: 900 13px / 1 var(--mono);
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .roadmap {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+      margin-top: 26px;
+    }
+    .road-row {
+      display: grid;
+      grid-template-columns: 140px 1fr 86px;
+      gap: 14px;
+      align-items: center;
+      min-height: 72px;
+    }
+    .milestone-label {
+      font: 900 13px / 1.1 var(--sans);
+    }
+    .bar {
+      position: relative;
+      height: 22px;
+      overflow: hidden;
+      background: var(--blue-soft);
+      border: 1px solid var(--line-2);
+      border-radius: 999px;
+    }
+    .bar b {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, var(--blue), var(--coral));
+      border-radius: inherit;
+    }
+    .status {
+      display: grid;
+      place-items: center;
+      height: 30px;
+      font: 900 11px / 1 var(--sans);
+      color: var(--ink);
+      background: var(--mint);
+      border-radius: 999px;
+    }
+
+    .split-panels {
+      position: absolute;
+      inset: 8% 5% 10%;
+      display: grid;
+      grid-template-columns: 1.25fr 0.85fr;
+      gap: 18px;
+    }
+    .path-panel {
+      position: relative;
+      padding: 26px;
+      overflow: hidden;
+      background: color-mix(in srgb, var(--cream) 88%, var(--paper) 12%);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+    }
+    .path-panel.primary {
+      border-color: color-mix(in srgb, var(--coral) 42%, var(--line) 58%);
+    }
+    .path-panel h3 {
+      margin: 0 0 12px;
+      font: 800 32px / 0.96 var(--serif);
+    }
+    .path-panel p {
+      max-width: 280px;
+      margin: 0;
+      font: 600 15px / 1.35 var(--sans);
+      color: var(--muted);
+    }
+    .path-panel .button {
+      min-width: 210px;
+      height: 52px;
+      margin-top: 24px;
+    }
+
+    .meter-card {
+      top: 12%;
+      right: 7%;
+      width: 520px;
+      padding: 28px;
+    }
+    .meter-card h3 {
+      margin: 0 0 18px;
+      font: 800 34px / 0.95 var(--serif);
+    }
+    .meter-line {
+      display: grid;
+      grid-template-columns: 165px 1fr 54px;
+      gap: 14px;
+      align-items: center;
+      margin: 16px 0;
+      font: 900 13px / 1 var(--sans);
+    }
+    .meter {
+      height: 18px;
+      overflow: hidden;
+      background: var(--blue-soft);
+      border: 1px solid var(--line-2);
+      border-radius: 999px;
+    }
+    .meter b {
+      display: block;
+      height: 100%;
+      background: var(--sage);
+      border-radius: inherit;
+    }
+    .meter-line:nth-child(3) .meter b {
+      background: var(--coral);
+    }
+    .timeline {
+      position: absolute;
+      right: 5%;
+      bottom: 12%;
+      left: 5%;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+      align-items: center;
+      height: 126px;
+      padding: 0 22px;
+      background: color-mix(in srgb, var(--cream) 90%, var(--paper) 10%);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+    }
+    .step {
+      position: relative;
+      font: 900 12px / 1.15 var(--sans);
+      color: var(--ink);
+      text-align: center;
+    }
+    .step::before {
+      display: block;
+      width: 38px;
+      height: 38px;
+      margin: 0 auto 10px;
+      content: "";
+      background: var(--coral-2);
+      border: 1px solid color-mix(in srgb, var(--coral) 40%, var(--line) 60%);
+      border-radius: 50%;
+    }
+    .step:not(:last-child)::after {
+      position: absolute;
+      top: 19px;
+      right: -50%;
+      width: 100%;
+      height: 1px;
+      content: "";
+      background: var(--line);
+    }
+
+    .evidence-stack {
+      position: absolute;
+      top: 9%;
+      right: 7%;
+      display: grid;
+      gap: 14px;
+      width: 420px;
+    }
+    .evidence {
+      position: relative;
+      padding: 18px;
+      background: color-mix(in srgb, var(--cream) 92%, var(--paper) 8%);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 18px 42px rgba(17, 24, 32, 0.12);
+    }
+    .evidence h3 {
+      margin: 0 0 10px;
+      font: 800 22px / 0.96 var(--serif);
+    }
+    .evidence p {
+      margin: 0;
+      font: 700 13px / 1.35 var(--sans);
+      color: var(--muted);
+    }
+    .photo-strip {
+      height: 145px;
+      margin-top: 14px;
+      overflow: hidden;
+      background:
+        linear-gradient(160deg, rgba(0, 0, 0, 0.08), rgba(255, 255, 255, 0.2)),
+        linear-gradient(
+          135deg,
+          #c9d8c0 0 25%,
+          #e7dfd1 25% 45%,
+          #bfc9d3 45% 65%,
+          #8aa0a8 65%
+        );
+      border: 1px solid var(--line);
+      border-radius: 18px;
+    }
+    .photo-strip::before {
+      display: block;
+      width: 46%;
+      height: 76%;
+      margin: 24px 0 0 120px;
+      content: "";
+      background: linear-gradient(145deg, #f5efe2, #9c8f7e);
+      border: 1px solid rgba(20, 30, 30, 0.26);
+    }
+
+    .anchor-license {
+      position: absolute;
+      top: 10%;
+      right: 6%;
+      width: 520px;
+      padding: 30px;
+    }
+    .anchor-license .name {
+      font-size: 52px;
+    }
+    .draw-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 20px;
+    }
+    .draw {
+      height: 58px;
+      padding: 10px;
+      font: 900 11px / 1.1 var(--sans);
+      background: var(--paper-2);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+
+    .concept-2 .hero {
+      grid-template-columns: minmax(560px, 48vw) 1fr;
+    }
+    .concept-1 .review-card {
+      top: 7%;
+      right: 7%;
+    }
+    .concept-1 .license-card {
+      top: 36%;
+      right: 8%;
+      bottom: auto;
+      transform: scale(0.86);
+      transform-origin: bottom right;
+    }
+    .concept-1 .building {
+      top: 34%;
+      right: 8%;
+      bottom: auto;
+      transform: scale(0.78);
+      transform-origin: bottom right;
+    }
+    .concept-2 .review-card {
+      top: auto;
+      right: auto;
+      bottom: 8%;
+      left: 10%;
+      width: 410px;
+    }
+    .concept-2 .license-card {
+      right: 8%;
+      bottom: 8%;
+      transform: scale(0.92);
+      transform-origin: bottom right;
+    }
+    .concept-2 .building {
+      right: 10%;
+      width: 520px;
+    }
+    .concept-3 .blueprint-field {
+      opacity: 0.72;
+    }
+    .concept-3 .workflow {
+      inset: 7% 5% 7%;
+    }
+    .concept-4 .building {
+      right: 31%;
+      bottom: 8%;
+      opacity: 0.74;
+      transform: scale(0.92);
+    }
+    .concept-5 .copy {
+      max-width: 620px;
+    }
+    .concept-5 .split-panels {
+      inset: 8% 4% auto;
+      height: 360px;
+    }
+    .concept-5 .license-card {
+      right: 8%;
+      bottom: 8%;
+      transform: scale(0.92);
+      transform-origin: bottom right;
+    }
+    .concept-5 .building {
+      right: 17%;
+      bottom: 10%;
+      opacity: 0.62;
+      transform: scale(0.78);
+    }
+    .concept-6 .building {
+      right: 5%;
+      bottom: 8%;
+      opacity: 0.72;
+      transform: scale(0.86);
+    }
+    .concept-7 .hero {
+      grid-template-columns: minmax(520px, 40vw) 1fr;
+    }
+    .concept-7 .building {
+      right: 7%;
+      bottom: 24%;
+      opacity: 0.84;
+      transform: scale(0.82);
+    }
+    .concept-8 .review-card {
+      top: auto;
+      right: auto;
+      bottom: 10%;
+      left: 8%;
+      width: 360px;
+    }
+    .concept-8 .building {
+      right: 12%;
+      bottom: 9%;
+      opacity: 0.7;
+      transform: scale(0.78);
+    }
+
+    @media (max-width: 980px) {
+      body {
+        overflow: auto;
+      }
+      .page {
+        height: auto;
+        min-height: 100vh;
+      }
+      .nav {
+        gap: 18px;
+        padding: 0 20px;
+      }
+      .menu {
+        display: none;
+      }
+      .brand {
+        min-width: 0;
+      }
+      .brand-mark {
+        font-size: 42px;
+      }
+      .hero,
+      .concept-2 .hero,
+      .concept-7 .hero {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: calc(100vh - 92px);
+        padding: 30px 22px 80px;
+      }
+      h1 {
+        font-size: 56px;
+      }
+      .visual,
+      .centered .visual {
+        position: relative;
+        inset: auto;
+        height: 560px;
+      }
+    }
+    </style>
+  </head>
+  <body>
+    <button class="theme-toggle" type="button">Theme</button>
+    <div class="page" id="page">
+      <nav class="nav">
+        <div class="brand">
+          <div class="brand-mark">FAIRLEND</div>
+          <div class="brand-line"></div>
+          <div class="brand-sub">Brokerage &amp; Investment Company</div>
+        </div>
+        <div class="menu">
+          <span>Financing Solutions</span>
+          <span class="active">Investor Opportunities</span>
+          <span>Who We Are</span>
+          <span>Resources</span>
+          <span>Contact</span>
+        </div>
+        <div class="nav-cta">Get in touch</div>
+      </nav>
+      <main id="hero"></main>
+    </div>
+    <script>
+    "use strict";
+    const concepts = [
+      {
+        id: "01-licensed-project-review",
+        cls: "concept-1",
+        kicker: "Step 1 of 7",
+        headline: ["Build financing with", "brokerage discipline"],
+        accent: 1,
+        subcopy:
+          "Plan reimbursement draws around real construction progress, backed by licensed Canadian brokerage oversight.",
+        primary: "Start project review",
+        secondary: "I am just exploring",
+        proof: ["Licensed brokerage", "Technology-led underwriting"],
+        chips: [
+          "No credit check",
+          "No documents required",
+          "Takes about 2 minutes",
+        ],
+        visual: "licensed",
+      },
+      {
+        id: "02-company-trust-with-quiz",
+        cls: "concept-2",
+        kicker: "Fair lending, built for projects",
+        headline: ["Building the future", "of Fair Lending"],
+        accent: -1,
+        subcopy:
+          "Build financing, private mortgages, and investor access for real Canadian housing, with a project review built into the first click.",
+        primary: "Explore build financing",
+        secondary: "See investor platform",
+        proof: ["Transparent terms", "Licensed management"],
+        chips: ["Project review", "Brokerage proof", "Investor-ready"],
+        visual: "companyQuiz",
+      },
+      {
+        id: "03-progress-draw-control-plane",
+        cls: "concept-3",
+        kicker: "Draws follow the work",
+        headline: ["Construction draws", "inside one control plane"],
+        accent: 1,
+        subcopy:
+          "Show builders how milestones, evidence, review, and release connect before they commit to the full proposal.",
+        primary: "Start project review",
+        secondary: "Preview workflow",
+        proof: ["Milestone rail", "Evidence state"],
+        chips: ["Draw groups", "Site evidence", "Admin release"],
+        visual: "workflow",
+      },
+      {
+        id: "04-site-verified-brokerage",
+        cls: "concept-4",
+        kicker: "Verified progress, reviewed by people",
+        headline: ["Funding decisions", "grounded on site"],
+        accent: 1,
+        subcopy:
+          "Evidence, geofence attempts, site visits, and lender review make the reimbursement promise feel concrete.",
+        primary: "Start project review",
+        secondary: "How review works",
+        proof: ["Evidence preserved", "Admin approval"],
+        chips: ["Site visit", "Location checked", "Lender review"],
+        visual: "evidence",
+      },
+      {
+        id: "05-two-door-priority-builder",
+        cls: "concept-5",
+        kicker: "Two audiences, one priority",
+        headline: ["A brokerage home page", "that still converts builders"],
+        accent: 1,
+        subcopy:
+          "Keep FairLend broad enough for investors and private mortgages while making Build Financing the obvious next move.",
+        primary: "Start project review",
+        secondary: "See investor platform",
+        proof: ["Borrower path first", "Investor path secondary"],
+        chips: ["Build financing", "Private mortgages", "Investor access"],
+        visual: "twoDoor",
+      },
+      {
+        id: "06-capital-confidence-meter",
+        cls: "concept-6",
+        kicker: "Feasibility before commitment",
+        headline: ["Know which draw plan", "your capital can carry"],
+        accent: 1,
+        subcopy:
+          "Bring working-capital limits, lender draw policy, fees, and review lag into the hero promise without quoting fake rates.",
+        primary: "Start project review",
+        secondary: "Compare draw plans",
+        proof: ["Working capital limit", "Lender policy limit"],
+        chips: ["Capital constrained", "Fastest feasible", "Cheapest feasible"],
+        visual: "meter",
+      },
+      {
+        id: "07-permit-to-payout-path",
+        cls: "concept-7",
+        kicker: "From permit to reimbursement",
+        headline: ["Turn the build roadmap", "into a payout path"],
+        accent: 1,
+        subcopy:
+          "Make the seven-step flow feel like governed execution, not a lead form.",
+        primary: "Start project review",
+        secondary: "View the path",
+        proof: ["Budget versioned", "Draw release after approval"],
+        chips: ["Permits", "Budget", "Milestones", "Evidence"],
+        visual: "timeline",
+      },
+      {
+        id: "08-brokerage-card-as-conversion-anchor",
+        cls: "concept-8",
+        kicker: "Trust beside the CTA",
+        headline: ["Start the review", "with the broker in view"],
+        accent: 1,
+        subcopy:
+          "Use the license card as the anxiety reducer that makes a two-minute project review feel safe.",
+        primary: "Start project review",
+        secondary: "Read brokerage profile",
+        proof: ["Legal business name", "Administrator licence"],
+        chips: ["Licensed", "Secure info", "Project first"],
+        visual: "anchor",
+      },
+    ];
+
+    function dots() {
+      return `<div class="dots">${Array.from({ length: 7 }, () => "<b></b>").join("")}</div>`;
+    }
+
+    function chips(items) {
+      return `<div class="chips">${items.map((item, idx) => `<span class="chip"><i>${idx + 1}</i>${item}</span>`).join("")}</div>`;
+    }
+
+    function copyBlock(c) {
+      const headline = c.headline
+        .map((line, index) => {
+          const cls = c.accent === index ? ' class="accent"' : "";
+          return `<span${cls}>${line}</span>`;
+        })
+        .join("");
+      return `
+    <section class="copy">
+      <div class="kicker"><span>${c.kicker}</span><span class="dot"></span>${dots()}</div>
+      <h1>${headline}</h1>
+      <p class="subcopy">${c.subcopy}</p>
+      ${chips(c.chips)}
+      <div class="actions">
+        <div class="button">${c.primary} <span>→</span></div>
+        <div class="button secondary">${c.secondary}</div>
+      </div>
+      <div class="proof-line">${c.proof.map((item, idx) => `<span${idx === 0 ? ' style="border-left:0;padding-left:0"' : ""}>${item}</span>`).join("")}</div>
+    </section>`;
+    }
+
+    function building() {
+      return `
+    <div class="building" aria-hidden="true">
+      <div class="podium"></div>
+      <div class="tower a"><div class="roof"></div><div class="windows">${'<div class="window"></div>'.repeat(6)}</div></div>
+      <div class="tower b"><div class="roof"></div><div class="windows">${'<div class="window"></div>'.repeat(6)}</div></div>
+      <div class="tower c"><div class="roof"></div><div class="windows">${'<div class="window"></div>'.repeat(4)}</div></div>
+      <div class="tree one"></div><div class="tree two"></div>
+    </div>`;
+    }
+
+    function licenseCard(anchor = false) {
+      return `
+    <div class="card license-card${anchor ? " anchor-license" : ""}">
+      <div class="label">Licensed</div>
+      <div class="name">FairLend<br>Management Inc</div>
+      <div class="mini-license">Legal business name:<br>FairLend Management Inc</div>
+      <div class="license-grid" style="margin-top:10px">
+        <div class="mini-license">Brokerage Licence<br>#13827</div>
+        <div class="mini-license">Administrator Licence<br>#13828</div>
+      </div>
+      ${anchor ? `<div class="draw-strip"><div class="draw">Budget</div><div class="draw">Evidence</div><div class="draw">Review</div><div class="draw">Release</div></div>` : ""}
+    </div>`;
+    }
+
+    function reviewCard() {
+      return `
+    <div class="card review-card">
+      <div class="row"><span>Step 1 of 7</span>${dots()}</div>
+      <div class="input">Build location</div>
+      <div class="input">Working capital range</div>
+      <div class="input" style="background:var(--coral);color:white;border-color:var(--coral)">Start project review →</div>
+    </div>`;
+    }
+
+    function workflow() {
+      const rows = [
+        ["Permits", "82%", "Ready"],
+        ["Foundation", "64%", "Evidence"],
+        ["Framing", "46%", "Review"],
+        ["Envelope", "30%", "Visit"],
+        ["Release", "18%", "Admin"],
+      ];
+      return `
+    <div class="workflow">
+      <div class="workflow-title"><span>Build workspace</span><span>Draw plan A</span></div>
+      <div class="roadmap">${rows
+        .map(
+          ([name, width, status]) => `
+        <div class="road-row">
+          <div class="milestone-label">${name}</div>
+          <div class="bar"><b style="width:${width}"></b></div>
+          <div class="status">${status}</div>
+        </div>`
+        )
+        .join("")}</div>
+    </div>`;
+    }
+
+    function evidence() {
+      return `
+    <div class="evidence-stack">
+      <div class="evidence"><h3>Evidence package</h3><p>Photos retained even when location needs review.</p><div class="photo-strip"></div></div>
+      <div class="evidence"><h3>Site visit scheduled</h3><p>Lender staff review, inspect, report, and recommend.</p></div>
+      <div class="evidence"><h3>Admin release gate</h3><p>Funds release only after approval and completed work.</p></div>
+    </div>`;
+    }
+
+    function twoDoor() {
+      return `
+    <div class="split-panels">
+      <div class="path-panel primary">
+        <h3>Build financing</h3>
+        <p>Start a two-minute project review and plan draws around real progress.</p>
+        <div class="button">Start project review →</div>
+      </div>
+      <div class="path-panel">
+        <h3>Investor platform</h3>
+        <p>See disciplined access to Canadian real-estate opportunities.</p>
+        <div class="button secondary">Explore platform →</div>
+      </div>
+    </div>`;
+    }
+
+    function meter() {
+      return `
+    <div class="card meter-card">
+      <h3>Draw feasibility snapshot</h3>
+      <div class="meter-line"><span>Working capital</span><div class="meter"><b style="width:68%"></b></div><span>68%</span></div>
+      <div class="meter-line"><span>Lender policy</span><div class="meter"><b style="width:54%"></b></div><span>54%</span></div>
+      <div class="meter-line"><span>Review lag</span><div class="meter"><b style="width:38%"></b></div><span>12d</span></div>
+      <div class="input" style="height:52px;margin-top:22px;border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;padding:0 14px;font:900 12px/1 var(--sans);background:var(--paper-2)">Compare cheapest, fastest, and capital-constrained plans</div>
+    </div>`;
+    }
+
+    function timeline() {
+      const steps = [
+        "Permit",
+        "Budget",
+        "Milestone",
+        "Evidence",
+        "Approval",
+        "Draw release",
+      ];
+      return `<div class="timeline">${steps.map((step) => `<div class="step">${step}</div>`).join("")}</div>`;
+    }
+
+    function visual(c) {
+      let body = `<div class="blueprint-field"></div>${building()}`;
+      if (c.visual === "licensed") {
+        body += reviewCard() + licenseCard();
+      }
+      if (c.visual === "companyQuiz") {
+        body += reviewCard() + licenseCard();
+      }
+      if (c.visual === "workflow") {
+        body += workflow();
+      }
+      if (c.visual === "evidence") {
+        body +=
+          evidence() +
+          `<div class="license-card card" style="left:7%;bottom:9%;right:auto;width:300px;padding:18px"><div class="label">Licensed brokerage</div><div class="name" style="font-size:30px">FairLend</div></div>`;
+      }
+      if (c.visual === "twoDoor") {
+        body += twoDoor() + licenseCard();
+      }
+      if (c.visual === "meter") {
+        body += meter() + licenseCard();
+      }
+      if (c.visual === "timeline") {
+        body += timeline() + reviewCard();
+      }
+      if (c.visual === "anchor") {
+        body += licenseCard(true) + reviewCard();
+      }
+      return `<section class="visual">${body}</section>`;
+    }
+
+    function render() {
+      const params = new URLSearchParams(location.search);
+      const requested = params.get("concept") || "01";
+      const capture = params.get("capture") === "1";
+      if (capture) {
+        document.body.classList.add("capture");
+      }
+      const c =
+        concepts.find((item) =>
+          item.id.startsWith(requested.padStart(2, "0"))
+        ) || concepts[0];
+      const page = document.getElementById("page");
+      page.className = `page ${c.cls}`;
+      const centered = c.visual === "licensed" ? " centered" : "";
+      document.getElementById("hero").className = `hero${centered}`;
+      document.getElementById("hero").innerHTML = `${copyBlock(c)}${visual(c)}`;
+      document.title = `${c.id} · FairLend Hero Concept`;
+    }
+
+    document.querySelector(".theme-toggle").addEventListener("click", () => {
+      document.documentElement.classList.toggle("dark");
+      localStorage.setItem(
+        "fairlend-hero-theme",
+        document.documentElement.classList.contains("dark") ? "dark" : "light"
+      );
+    });
+    render();
+    </script>
+  </body>
+</html>

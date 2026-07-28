@@ -83,9 +83,9 @@ function ProposalPreviewRoute() {
     return (
       <PreviewShell>
         <PreviewMessage
+          body="Open this page from a DrawFlow share link."
           eyebrow="Proposal preview"
           title="Snapshot link missing"
-          body="Open this page from a DrawFlow share link."
         />
       </PreviewShell>
     );
@@ -108,9 +108,9 @@ function ProposalPreviewRoute() {
     return (
       <PreviewShell>
         <PreviewMessage
+          body="This share link does not resolve to a saved DrawFlow snapshot."
           eyebrow="Proposal preview"
           title="Snapshot not found"
-          body="This share link does not resolve to a saved DrawFlow snapshot."
         />
       </PreviewShell>
     );
@@ -120,9 +120,9 @@ function ProposalPreviewRoute() {
     return (
       <PreviewShell>
         <PreviewMessage
+          body="This snapshot is missing proposal timeline data."
           eyebrow="Proposal preview"
           title="Snapshot cannot be previewed"
-          body="This snapshot is missing proposal timeline data."
         />
       </PreviewShell>
     );

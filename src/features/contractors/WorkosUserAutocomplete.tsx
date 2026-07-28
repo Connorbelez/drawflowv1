@@ -12,11 +12,7 @@ import {
   AutocompletePopup,
 } from "#/components/ui/autocomplete.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
-import {
-  Field,
-  FieldDescription,
-  FieldLabel,
-} from "#/components/ui/field.tsx";
+import { Field, FieldDescription, FieldLabel } from "#/components/ui/field.tsx";
 import { cn } from "#/lib/utils.ts";
 
 export type WorkosUserOption = {
@@ -102,10 +98,10 @@ export function WorkosUserAutocomplete({
 }) {
   const selectedOption = useMemo(
     () => options.find((option) => option.workosUserId === value),
-    [options, value],
+    [options, value]
   );
   const [query, setQuery] = useState(() =>
-    selectedOption ? formatWorkosUserInputValue(selectedOption) : "",
+    selectedOption ? formatWorkosUserInputValue(selectedOption) : ""
   );
   const [open, setOpen] = useState(false);
 
@@ -115,7 +111,7 @@ export function WorkosUserAutocomplete({
 
   const filteredOptions = useMemo(
     () => filterWorkosUserOptions(options, query).slice(0, 12),
-    [options, query],
+    [options, query]
   );
 
   const selectOption = (option: WorkosUserOption) => {
@@ -145,8 +141,8 @@ export function WorkosUserAutocomplete({
       <Autocomplete
         autoHighlight="always"
         filter={null}
-        itemToStringValue={formatWorkosUserInputValue}
         items={filteredOptions}
+        itemToStringValue={formatWorkosUserInputValue}
         keepHighlight
         modal={false}
         onOpenChange={(nextOpen) => setOpen(nextOpen && !disabled)}
@@ -193,7 +189,7 @@ export function WorkosUserAutocomplete({
                   <Badge className="max-w-full truncate" variant="outline">
                     {formatRoleSummary(option.roleSlugs)}
                   </Badge>
-                  <span className="max-w-full truncate text-muted-foreground text-[0.6875rem]">
+                  <span className="max-w-full truncate text-[0.6875rem] text-muted-foreground">
                     {option.organizationName ??
                       option.membershipStatus ??
                       option.status ??
@@ -217,7 +213,7 @@ export function WorkosUserAutocomplete({
 
 export function buildWorkosUserOptions(
   projection: WorkosUserDirectoryProjection | undefined,
-  workosOrganizationId?: string,
+  workosOrganizationId?: string
 ): WorkosUserOption[] {
   if (!projection) {
     return [];
@@ -227,7 +223,7 @@ export function buildWorkosUserOptions(
     (projection.organizations ?? []).map((organization) => [
       organization.workosOrganizationId,
       organization,
-    ]),
+    ])
   );
   const membershipsByUserId = new Map<
     string,
@@ -267,8 +263,8 @@ export function buildWorkosUserOptions(
       membershipStatus: membership?.status,
       name: user.name,
       organizationName: membership
-        ? organizationsById.get(membership.workosOrganizationId)?.name ??
-          membership.workosOrganizationId
+        ? (organizationsById.get(membership.workosOrganizationId)?.name ??
+          membership.workosOrganizationId)
         : undefined,
       roleSlugs: membership ? membershipRoleSlugs(membership) : user.roleSlugs,
       status: user.status,
@@ -284,8 +280,8 @@ export function buildWorkosUserOptions(
     optionsByUserId.set(workosUserId, {
       membershipStatus: membership?.status,
       organizationName: membership
-        ? organizationsById.get(membership.workosOrganizationId)?.name ??
-          membership.workosOrganizationId
+        ? (organizationsById.get(membership.workosOrganizationId)?.name ??
+          membership.workosOrganizationId)
         : undefined,
       roleSlugs: membership ? membershipRoleSlugs(membership) : [],
       workosUserId,
@@ -294,14 +290,14 @@ export function buildWorkosUserOptions(
 
   return [...optionsByUserId.values()].sort((left, right) =>
     formatWorkosUserInputValue(left).localeCompare(
-      formatWorkosUserInputValue(right),
-    ),
+      formatWorkosUserInputValue(right)
+    )
   );
 }
 
 function filterWorkosUserOptions(
   options: WorkosUserOption[],
-  query: string,
+  query: string
 ): WorkosUserOption[] {
   const terms = normalizeSearch(query).split(" ").filter(Boolean);
   if (terms.length === 0) {
@@ -320,7 +316,7 @@ function filterWorkosUserOptions(
         ...(option.roleSlugs ?? []),
       ]
         .filter(Boolean)
-        .join(" "),
+        .join(" ")
     );
     return terms.every((term) => haystack.includes(term));
   });

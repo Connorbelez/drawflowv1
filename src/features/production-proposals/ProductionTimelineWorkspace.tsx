@@ -3,9 +3,9 @@ import throttle from "lodash.throttle";
 import {
   Copy,
   LinkIcon,
-  Redo2,
   Radio,
   RadioTower,
+  Redo2,
   Undo2,
   UserPlus,
   Users,
@@ -38,20 +38,20 @@ import {
   SelectValue,
 } from "#/components/ui/select.tsx";
 import {
-  convexWorkspaceToTimelineState,
-  type ConvexTimelineWorkspace,
-} from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
-import {
-  TimelineWorkspace,
-  type TimelineModificationRequestView,
-  type TimelineWorkspacePersistence,
-} from "#/features/timeline-workspace/index.tsx";
-import {
+  type BuilderStaffAppPermissions,
   canUseAppPermission,
   hasAnyAppPermission,
   PROPOSAL_TIMELINE_EDIT_PERMISSION_CHECKS,
-  type BuilderStaffAppPermissions,
 } from "#/features/builder-staff/app-permissions.ts";
+import {
+  type ConvexTimelineWorkspace,
+  convexWorkspaceToTimelineState,
+} from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
+import {
+  type TimelineModificationRequestView,
+  TimelineWorkspace,
+  type TimelineWorkspacePersistence,
+} from "#/features/timeline-workspace/index.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
@@ -62,15 +62,18 @@ export interface ProductionTimelineWorkspaceProps {
   embedded?: boolean;
   headerActions?: ReactNode;
   initialRole?: "builder" | "lender";
+  lockedBannerActions?: ReactNode;
   persistenceMode?: "convex" | "noop";
   prejoinedCollabToken?: string | null;
   proposalHref: string;
   proposalId: Id<"buildProposals">;
+  workosOrganizationId: string;
   workspace: ConvexTimelineWorkspace & {
     contractorPlanning?: any;
     modificationRequests?: TimelineModificationRequestView[];
     proposal: {
       buildName: string;
+      interestAnnualBps?: number;
       location: string;
       lenderDrawPolicyLimitCents?: number;
       reviewOutcome?: string;
@@ -78,7 +81,6 @@ export interface ProductionTimelineWorkspaceProps {
       totalBudgetCents: number;
     };
   };
-  workosOrganizationId: string;
 }
 
 export function ProductionTimelineWorkspace({
@@ -87,6 +89,7 @@ export function ProductionTimelineWorkspace({
   embedded = false,
   headerActions,
   initialRole = "builder",
+  lockedBannerActions,
   persistenceMode = "convex",
   prejoinedCollabToken = null,
   proposalHref,
@@ -437,7 +440,6 @@ export function ProductionTimelineWorkspace({
   return (
     <TimelineWorkspace
       allowRoleSwitching={false}
-      embedded={embedded}
       collaboration={{
         cursors: collaboration.cursors,
         onCursorChange: collaboration.updateCursor,
@@ -452,8 +454,10 @@ export function ProductionTimelineWorkspace({
         status: durableStatus,
       }}
       durablePlanId={proposalId}
+      embedded={embedded}
       headerActions={headerActions}
       initialRole={initialRole}
+      lockedBannerActions={lockedBannerActions}
       initialState={initialState}
       modificationRequests={workspace.modificationRequests ?? []}
       persistence={persistence}
@@ -984,7 +988,7 @@ function useProductionProposalCollaboration({
               </Button>
               <Button
                 disabled={
-                  !activeSession || (!shareUrl && !sessionState?.canManage)
+                  !(activeSession && (shareUrl || sessionState?.canManage))
                 }
                 onClick={handleCopyShareUrl}
                 size="sm"

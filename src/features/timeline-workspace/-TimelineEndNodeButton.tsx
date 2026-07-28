@@ -37,7 +37,7 @@ export function TimelineEndNodeButton({
         active &&
           !complete &&
           "border-rose-500 bg-rose-500 text-white shadow-rose-500/30 ring-4 ring-rose-500/20",
-        !(active || complete) && "border-zinc-300 dark:border-zinc-700",
+        !(active || complete) && "border-zinc-300 dark:border-zinc-700"
       )}
       data-testid={`${testIdPrefix}-end-node-${item.id}`}
       onClick={onClick}

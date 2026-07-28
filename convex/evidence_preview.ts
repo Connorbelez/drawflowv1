@@ -41,7 +41,10 @@ export const convertEvidenceImagePreview = publicAction
       const previewBytes = await convert({
         buffer: sourceBytes,
         format: "JPEG",
-        quality: 0.88,
+        // This endpoint serves an inspection preview, not the downloadable
+        // source asset. A lower JPEG quality halves the payload for typical
+        // phone HEICs while preserving more than enough detail for the card.
+        quality: 0.65,
       });
       const arrayBuffer = new ArrayBuffer(previewBytes.byteLength);
       new Uint8Array(arrayBuffer).set(previewBytes);
@@ -53,9 +56,13 @@ export const convertEvidenceImagePreview = publicAction
   .internal();
 
 function isAllowedConvexStorageUrl(url: URL) {
-  if (url.protocol !== "https:") return false;
-  if (!url.pathname.includes("/api/storage/")) return false;
+  if (url.protocol !== "https:") {
+    return false;
+  }
+  if (!url.pathname.includes("/api/storage/")) {
+    return false;
+  }
   return ALLOWED_CONVEX_STORAGE_HOST_SUFFIXES.some((suffix) =>
-    url.hostname.endsWith(suffix),
+    url.hostname.endsWith(suffix)
   );
 }

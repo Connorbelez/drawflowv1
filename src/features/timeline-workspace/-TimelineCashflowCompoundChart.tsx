@@ -1,22 +1,22 @@
+import { memo } from "react";
 import { EvilComposedChart } from "#/components/evilcharts/charts/composed-chart.tsx";
 import type { ChartConfig } from "#/components/evilcharts/ui/chart.tsx";
-import { memo } from "react";
 
 const CASHFLOW_EDGE_BAR_PADDING_RATIO = 0.035;
 const CASHFLOW_MIN_EDGE_BAR_PADDING_DAYS = 2;
 
 export interface TimelineCashflowCompoundDatum {
   budget: number;
-  cashInfusionAmount?: number;
   capitalSpikeAmount: number;
+  cashInfusionAmount?: number;
   cashOnHand: number;
   day: number;
-  outOfPocketBudget?: number;
-  reimbursableBudget?: number;
   event: "capitalSpike" | "cashInfusion" | "draw" | "milestone" | "start";
   id: string;
   milestoneEndDay?: number;
   name: string;
+  outOfPocketBudget?: number;
+  reimbursableBudget?: number;
   [key: string]: unknown;
 }
 
@@ -117,7 +117,7 @@ export function resolveMilestoneEndDay(row: TimelineCashflowCompoundDatum) {
 
 export function buildMilestoneEndReferenceLines(
   data: TimelineCashflowCompoundDatum[],
-  onHotspotDaySelect?: (day: number) => void,
+  onHotspotDaySelect?: (day: number) => void
 ): TimelineCashflowReferenceLine[] {
   return data.filter(isMilestoneEndDatum).map((row) => {
     const endDay = resolveMilestoneEndDay(row);
@@ -137,138 +137,141 @@ export function buildMilestoneEndReferenceLines(
   });
 }
 
-export const TimelineCashflowCompoundChart = memo(function TimelineCashflowCompoundChart({
-  barSize = 18,
-  className = "mt-3 h-[220px] min-w-0 sm:h-[230px]",
-  data,
-  hideMilestoneEndReferenceLines = false,
-  onHotspotDaySelect,
-  onProbeChange,
-  referenceLines,
-  testId,
-  xDomain,
-  xTicks,
-  yAxisWidth = 56,
-  yDomain,
-}: TimelineCashflowCompoundChartProps) {
-  const milestoneEndReferenceLines = hideMilestoneEndReferenceLines
-    ? []
-    : buildMilestoneEndReferenceLines(data, onHotspotDaySelect);
-  const drawReferenceLines = data
-    .filter((row) => row.event === "draw")
-    .map((row) => ({
-      opacity: 0.46,
-      stroke: "oklch(0.62 0.18 245)",
-      strokeDasharray: "3 4",
-      x: row.day,
-    }));
-  const allReferenceLines = [
-    ...milestoneEndReferenceLines,
-    ...drawReferenceLines,
-    ...(referenceLines ?? []),
-  ];
-  const barSafeXDomain = buildCashflowBarSafeXDomain(xDomain);
-  const chart = (
-    <EvilComposedChart
-      activeDotVariant="default"
-      areaConfig={{ cashOnHand: timelineCashflowChartConfig.cashOnHand }}
-      areaCurveType="linear"
-      areaOpacity={0.16}
-      areaVariant="gradient"
-      barConfig={{
-        reimbursableBudget: timelineCashflowChartConfig.reimbursableBudget,
-        outOfPocketBudget: timelineCashflowChartConfig.outOfPocketBudget,
-        capitalSpikeAmount: timelineCashflowChartConfig.capitalSpikeAmount,
-        cashInfusionAmount: timelineCashflowChartConfig.cashInfusionAmount,
-      }}
-      barRadius={6}
-      barSize={barSize}
-      barStackId={{
-        reimbursableBudget: "milestone-budget",
-        outOfPocketBudget: "milestone-budget",
-      }}
-      barVariant="duotone"
-      chartProps={{
-        margin: { bottom: 0, left: 0, right: 12, top: 18 },
-        onMouseLeave: () => onProbeChange?.(null),
-        onMouseMove: (state: unknown) => {
-          const nextValue = getChartProbeValue(state);
+export const TimelineCashflowCompoundChart = memo(
+  function TimelineCashflowCompoundChart({
+    barSize = 18,
+    className = "mt-3 h-[220px] min-w-0 sm:h-[230px]",
+    data,
+    hideMilestoneEndReferenceLines = false,
+    onHotspotDaySelect,
+    onProbeChange,
+    referenceLines,
+    testId,
+    xDomain,
+    xTicks,
+    yAxisWidth = 56,
+    yDomain,
+  }: TimelineCashflowCompoundChartProps) {
+    const milestoneEndReferenceLines = hideMilestoneEndReferenceLines
+      ? []
+      : buildMilestoneEndReferenceLines(data, onHotspotDaySelect);
+    const drawReferenceLines = data
+      .filter((row) => row.event === "draw")
+      .map((row) => ({
+        opacity: 0.46,
+        stroke: "oklch(0.62 0.18 245)",
+        strokeDasharray: "3 4",
+        x: row.day,
+      }));
+    const allReferenceLines = [
+      ...milestoneEndReferenceLines,
+      ...drawReferenceLines,
+      ...(referenceLines ?? []),
+    ];
+    const barSafeXDomain = buildCashflowBarSafeXDomain(xDomain);
+    const chart = (
+      <EvilComposedChart
+        activeDotVariant="default"
+        areaConfig={{ cashOnHand: timelineCashflowChartConfig.cashOnHand }}
+        areaCurveType="linear"
+        areaOpacity={0.16}
+        areaVariant="gradient"
+        barConfig={{
+          reimbursableBudget: timelineCashflowChartConfig.reimbursableBudget,
+          outOfPocketBudget: timelineCashflowChartConfig.outOfPocketBudget,
+          capitalSpikeAmount: timelineCashflowChartConfig.capitalSpikeAmount,
+          cashInfusionAmount: timelineCashflowChartConfig.cashInfusionAmount,
+        }}
+        barRadius={6}
+        barSize={barSize}
+        barStackId={{
+          reimbursableBudget: "milestone-budget",
+          outOfPocketBudget: "milestone-budget",
+        }}
+        barVariant="duotone"
+        chartProps={{
+          margin: { bottom: 0, left: 0, right: 12, top: 18 },
+          onMouseLeave: () => onProbeChange?.(null),
+          onMouseMove: (state: unknown) => {
+            const nextValue = getChartProbeValue(state);
 
-          if (nextValue !== null) {
-            onProbeChange?.(nextValue);
-          }
-        },
-      }}
-      className={className}
-      curveType="linear"
-      data={data}
-      dotVariant="default"
-      hideLegend
-      lineConfig={{ cashOnHand: timelineCashflowChartConfig.cashOnHand }}
-      minBarWidth={barSize}
-      onBarClick={
-        onHotspotDaySelect
-          ? ({ dataKey, payload }) => {
-              const hotspotDay = getCashflowBarHotspotDay(dataKey, payload);
-              if (hotspotDay !== null) {
-                onHotspotDaySelect(hotspotDay);
-              }
+            if (nextValue !== null) {
+              onProbeChange?.(nextValue);
             }
-          : undefined
-      }
-      referenceLines={allReferenceLines}
-      strokeVariant="solid"
-      tooltipDefaultIndex={0}
-      tooltipHiddenKeys={["capitalSpikeAmount"]}
-      tooltipLabelFormatter={(_value, payload) => {
-        const activeDay = readChartPayloadValue(payload);
-        const milestoneEnd = readMilestoneEndFromPayload(payload);
-        if (milestoneEnd && activeDay !== null) {
-          const endDay = resolveMilestoneEndDay(milestoneEnd);
-          if (Math.round(activeDay) === Math.round(endDay)) {
-            return [`${milestoneEnd.name} ends`, formatTimelineDay(endDay)];
-          }
-
-          if (
-            milestoneEnd.budget > 0 &&
-            Math.round(activeDay) === Math.round(milestoneEnd.day)
-          ) {
-            return [
-              `${milestoneEnd.name} cost`,
-              formatTimelineDay(milestoneEnd.day),
-            ];
-          }
+          },
+        }}
+        className={className}
+        curveType="linear"
+        data={data}
+        dotVariant="default"
+        hideLegend
+        lineConfig={{ cashOnHand: timelineCashflowChartConfig.cashOnHand }}
+        minBarWidth={barSize}
+        onBarClick={
+          onHotspotDaySelect
+            ? ({ dataKey, payload }) => {
+                const hotspotDay = getCashflowBarHotspotDay(dataKey, payload);
+                if (hotspotDay !== null) {
+                  onHotspotDaySelect(hotspotDay);
+                }
+              }
+            : undefined
         }
+        referenceLines={allReferenceLines}
+        strokeVariant="solid"
+        tooltipDefaultIndex={0}
+        tooltipHiddenKeys={["capitalSpikeAmount"]}
+        tooltipLabelFormatter={(_value, payload) => {
+          const activeDay = readChartPayloadValue(payload);
+          const milestoneEnd = readMilestoneEndFromPayload(payload);
+          if (milestoneEnd && activeDay !== null) {
+            const endDay = resolveMilestoneEndDay(milestoneEnd);
+            if (Math.round(activeDay) === Math.round(endDay)) {
+              return [`${milestoneEnd.name} ends`, formatTimelineDay(endDay)];
+            }
 
-        return activeDay === null ? "Day" : formatTimelineDay(activeDay);
-      }}
-      tooltipRoundness="xl"
-      tooltipVariant="frosted-glass"
-      xAxisProps={{
-        domain: barSafeXDomain,
-        height: 26,
-        tickFormatter: formatTimelineDay,
-        ticks: xTicks,
-        type: "number",
-      }}
-      xDataKey="day"
-      yAxisProps={{
-        domain: yDomain,
-        tickFormatter: formatCompactMoney,
-        width: yAxisWidth,
-      }}
-      yDataKey="budget"
-    />
-  );
+            if (
+              milestoneEnd.budget > 0 &&
+              Math.round(activeDay) === Math.round(milestoneEnd.day)
+            ) {
+              return [
+                `${milestoneEnd.name} cost`,
+                formatTimelineDay(milestoneEnd.day),
+              ];
+            }
+          }
 
-  return testId ? <div data-testid={testId}>{chart}</div> : chart;
-}, areTimelineCashflowCompoundChartPropsEqual);
+          return activeDay === null ? "Day" : formatTimelineDay(activeDay);
+        }}
+        tooltipRoundness="xl"
+        tooltipVariant="frosted-glass"
+        xAxisProps={{
+          domain: barSafeXDomain,
+          height: 26,
+          tickFormatter: formatTimelineDay,
+          ticks: xTicks,
+          type: "number",
+        }}
+        xDataKey="day"
+        yAxisProps={{
+          domain: yDomain,
+          tickFormatter: formatCompactMoney,
+          width: yAxisWidth,
+        }}
+        yDataKey="budget"
+      />
+    );
+
+    return testId ? <div data-testid={testId}>{chart}</div> : chart;
+  },
+  areTimelineCashflowCompoundChartPropsEqual
+);
 
 TimelineCashflowCompoundChart.displayName = "TimelineCashflowCompoundChart";
 
 function areTimelineCashflowCompoundChartPropsEqual(
   previous: TimelineCashflowCompoundChartProps,
-  next: TimelineCashflowCompoundChartProps,
+  next: TimelineCashflowCompoundChartProps
 ) {
   return (
     previous.barSize === next.barSize &&
@@ -289,14 +292,14 @@ function areTimelineCashflowCompoundChartPropsEqual(
 
 function sameNumberTuple(
   previous: readonly [number, number],
-  next: readonly [number, number],
+  next: readonly [number, number]
 ) {
   return previous[0] === next[0] && previous[1] === next[1];
 }
 
 export function getCashflowBarHotspotDay(
   dataKey: string,
-  row: TimelineCashflowCompoundDatum,
+  row: TimelineCashflowCompoundDatum
 ) {
   if (
     (dataKey === "budget" ||
@@ -325,7 +328,7 @@ export function getCashflowBarHotspotDay(
 }
 
 export function buildCashflowBarSafeXDomain(
-  domain: [number, number],
+  domain: [number, number]
 ): [number, number] {
   const [min, max] = domain;
   if (!(Number.isFinite(min) && Number.isFinite(max) && max > min)) {
@@ -334,14 +337,14 @@ export function buildCashflowBarSafeXDomain(
 
   const padding = Math.max(
     CASHFLOW_MIN_EDGE_BAR_PADDING_DAYS,
-    (max - min) * CASHFLOW_EDGE_BAR_PADDING_RATIO,
+    (max - min) * CASHFLOW_EDGE_BAR_PADDING_RATIO
   );
 
   return [min - padding, max + padding];
 }
 
 export function getCashflowCompoundExtent(
-  data: TimelineCashflowCompoundDatum[],
+  data: TimelineCashflowCompoundDatum[]
 ) {
   const values = data.flatMap((row) => [
     row.budget,
@@ -375,7 +378,7 @@ function getChartProbeValue(state: unknown): number | null {
 }
 
 function readMilestoneEndFromPayload(
-  activePayload: unknown,
+  activePayload: unknown
 ): TimelineCashflowCompoundDatum | null {
   if (!Array.isArray(activePayload)) {
     return null;
@@ -443,8 +446,8 @@ function formatCompactMoney(value: number) {
     return `${sign}$${(absolute / 1_000_000).toFixed(1)}M`;
   }
 
-  if (absolute >= 1_000) {
-    return `${sign}$${Math.round(absolute / 1_000)}K`;
+  if (absolute >= 1000) {
+    return `${sign}$${Math.round(absolute / 1000)}K`;
   }
 
   return `${sign}$${Math.round(absolute)}`;

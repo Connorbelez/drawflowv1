@@ -6,8 +6,8 @@ export interface TimelineDrawAvailabilityDatum {
   day: number;
   interestBearingDraw: number;
   name: string;
-  totalInterestAccrued: number;
   totalAvailableDraw: number;
+  totalInterestAccrued: number;
   [key: string]: unknown;
 }
 
@@ -72,7 +72,8 @@ export function TimelineDrawAvailabilityChart({
     <EvilComposedChart
       activeDotVariant="default"
       areaConfig={{
-        interestBearingDraw: timelineDrawAvailabilityChartConfig.interestBearingDraw,
+        interestBearingDraw:
+          timelineDrawAvailabilityChartConfig.interestBearingDraw,
         additionalAvailableDraw:
           timelineDrawAvailabilityChartConfig.additionalAvailableDraw,
       }}
@@ -97,8 +98,10 @@ export function TimelineDrawAvailabilityChart({
       dotVariant="default"
       hideLegend
       lineConfig={{
-        interestBearingDraw: timelineDrawAvailabilityChartConfig.interestBearingDraw,
-        totalAvailableDraw: timelineDrawAvailabilityChartConfig.totalAvailableDraw,
+        interestBearingDraw:
+          timelineDrawAvailabilityChartConfig.interestBearingDraw,
+        totalAvailableDraw:
+          timelineDrawAvailabilityChartConfig.totalAvailableDraw,
       }}
       referenceLines={referenceLines}
       strokeVariant="solid"

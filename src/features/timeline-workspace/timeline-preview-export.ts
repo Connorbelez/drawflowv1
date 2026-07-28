@@ -7,8 +7,8 @@ import {
   getMilestonePaymentSchedule,
 } from "./-timeline-milestone-schedule.ts";
 import {
-  resolveMilestoneSubmilestones,
   type DemoSubmilestone,
+  resolveMilestoneSubmilestones,
 } from "./-timeline-milestone-submilestones.ts";
 import {
   applyTimelineShareSnapshotV2,

@@ -1,10 +1,9 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-
-import { AppShell } from "#/components/app-shell.tsx";
 import {
   builderStaffNavGroups,
   footerNavLinks,
 } from "#/components/app-shared.tsx";
+import { AppShell } from "#/components/app-shell.tsx";
 import {
   hasBuilderStaffWorkspaceAccess,
   requireWorkspaceAccess,

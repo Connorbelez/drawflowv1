@@ -44,7 +44,7 @@ export function resolveBuilderHomeView({
   if (!state.hasProfile) {
     return "profile-pending";
   }
-  if (!forceDashboard && !state.complete && !state.dismissed) {
+  if (!(forceDashboard || state.complete || state.dismissed)) {
     return "first-run";
   }
   return "dashboard";

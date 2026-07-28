@@ -361,7 +361,7 @@ function BorrowerDashboard() {
               ) : null}
               {activeTab === "gantt" ? (
                 <div className="h-full min-h-[calc(100vh-14rem)] overflow-auto p-2 sm:p-3">
-                  <BuildWorkspaceDemo layout="embedded" />
+                  <BuildWorkspaceDemo layout="embedded" viewer="builder" />
                 </div>
               ) : null}
               {activeTab === "chat" ? <ChatTab /> : null}

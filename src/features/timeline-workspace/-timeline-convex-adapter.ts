@@ -1,14 +1,15 @@
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
+import {
+  mapSubmilestoneSnapshotRows,
+  type TimelineSubmilestoneSnapshotRow,
+} from "./-timeline-milestone-submilestones.ts";
 import type {
   DemoCapitalSpike,
   DemoDraw,
   DemoMilestone,
   TimelineShareState,
 } from "./-timeline-share-snapshot.ts";
-import {
-  mapSubmilestoneSnapshotRows,
-  type TimelineSubmilestoneSnapshotRow,
-} from "./-timeline-milestone-submilestones.ts";
+import { normalizeInterestAnnualBps } from "./-timeline-share-snapshot.ts";
 
 const statusMap = {
   complete: "complete",
@@ -85,6 +86,7 @@ export interface ConvexTimelineWorkspace {
     startingCashCents: number;
   };
   proposal?: {
+    interestAnnualBps?: number;
     lenderDrawPolicyLimitCents?: number;
   };
 }
@@ -204,6 +206,9 @@ export function convexWorkspaceToTimelineState(
       ),
     currentDay: workspace.plan.currentDay,
     draws,
+    interestAnnualBps: normalizeInterestAnnualBps(
+      workspace.proposal?.interestAnnualBps
+    ),
     items,
     progressValue: workspace.plan.progressValue,
     range: {

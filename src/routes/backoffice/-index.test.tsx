@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
+import { getFunctionName } from "convex/server";
 import { type ReactNode, useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -29,11 +31,85 @@ import {
   ClosingConfirmationDialog,
   normalizeProductionBackofficeDashboard,
   ProposalKanban,
+  Route,
   ScheduleRail,
   SubmittedProposalsCard,
   type ClosingConfirmationInput,
   type ProductionBuilderOption,
 } from "./index";
+
+const WORKOS_ORGANIZATION_ID = "org_backoffice_loader_test";
+
+test("the backoffice route loader seeds and reuses the dashboard query cache", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime("2026-07-15T23:59:59.000Z");
+  const dashboard = { metrics: [{ id: "draw-requests", value: 2 }] };
+  const builders = [{ _id: "builder-1", displayName: "Northwind Homes" }];
+  const loadDashboard = vi.fn().mockResolvedValue(dashboard);
+  const loadBuilders = vi.fn().mockResolvedValue(builders);
+  const queryClient = new QueryClient();
+  const convexQueryClient = {
+    queryOptions: (functionReference: unknown, args: unknown) => {
+      const functionName = getFunctionName(functionReference as never);
+      return {
+        queryFn:
+          functionName === "production_proposals:getBackofficeDashboard"
+            ? loadDashboard
+            : loadBuilders,
+        queryKey: ["convexQuery", functionName, args],
+        staleTime: Number.POSITIVE_INFINITY,
+      };
+    },
+  };
+  const loader = Route.options.loader as (input: {
+    context: {
+      convexQueryClient: typeof convexQueryClient;
+      organizationId: string;
+      queryClient: QueryClient;
+    };
+  }) => Promise<unknown>;
+
+  try {
+    await expect(
+      loader({
+        context: {
+          convexQueryClient,
+          organizationId: WORKOS_ORGANIZATION_ID,
+          queryClient,
+        },
+      })
+    ).resolves.toEqual({ asOfDate: "2026-07-15" });
+    await loader({
+      context: {
+        convexQueryClient,
+        organizationId: WORKOS_ORGANIZATION_ID,
+        queryClient,
+      },
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+
+  expect(
+    queryClient.getQueryData([
+      "convexQuery",
+      "production_proposals:getBackofficeDashboard",
+      {
+        asOfDate: "2026-07-15",
+        workosOrganizationId: WORKOS_ORGANIZATION_ID,
+      },
+    ])
+  ).toEqual(dashboard);
+  expect(
+    queryClient.getQueryData([
+      "convexQuery",
+      "production_proposals:listActiveBrokerageBuilderOptions",
+      { workosOrganizationId: WORKOS_ORGANIZATION_ID },
+    ])
+  ).toEqual(builders);
+  expect(loadDashboard).toHaveBeenCalledTimes(1);
+  expect(loadBuilders).toHaveBeenCalledTimes(1);
+});
 
 const proposalColumns = [
   { id: "draft", name: "Draft" },

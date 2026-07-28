@@ -2,33 +2,33 @@
 name: Fairlend Marketing
 description: Public Fairlend brand and marketing design system for the /marketing route
 colors:
-  paper: "oklch(0.986 0.011 84.6)"
-  ink: "oklch(0.212 0.029 175.7)"
-  blueprint: "oklch(0.464 0.091 243.7)"
-  lime: "oklch(0.894 0.146 121.5)"
-  orange: "oklch(0.627 0.165 38.4)"
-  warm-gray: "oklch(0.868 0.015 84.6)"
-  line: "oklch(0.212 0.029 175.7 / 18%)"
+  paper: "oklch(0.975 0.021 80)"
+  paper-soft: "oklch(0.946 0.028 80)"
+  surface: "oklch(0.986 0.014 82)"
+  ink: "oklch(0.224 0.06 160)"
+  ink-muted: "oklch(0.365 0.032 163)"
+  forest: "oklch(0.35 0.09 145)"
+  sage: "oklch(0.56 0.074 141)"
+  success: "oklch(0.58 0.16 145)"
+  chartreuse: "oklch(0.841 0.238 128.85)"
+  chartreuse-ink: "oklch(0.405 0.101 131.063)"
+  blueprint: "oklch(0.58 0.118 250)"
+  blueprint-line: "rgb(88 137 207 / 30%)"
+  copper: "oklch(0.66 0.095 58)"
+  line: "oklch(0.224 0.06 160 / 14%)"
 typography:
   display:
-    fontFamily: "GT America Compressed, 'Arial Narrow', 'Roboto Condensed', sans-serif"
-    fontSize: "clamp(4rem, 10vw, 10rem)"
-    fontWeight: 900
-    lineHeight: 0.88
-    letterSpacing: "0"
-  headline:
-    fontFamily: "GT America Compressed, 'Arial Narrow', 'Roboto Condensed', sans-serif"
-    fontSize: "clamp(2.75rem, 6vw, 6.5rem)"
-    fontWeight: 900
-    lineHeight: 0.9
+    fontFamily: '"Larken Bold", "Larken", Georgia, "Times New Roman", serif'
+    fontWeight: 700
+    lineHeight: 0.95
     letterSpacing: "0"
   body:
-    fontFamily: "Sohne, 'Avenir Next', 'Segoe UI', system-ui, sans-serif"
+    fontFamily: '"Oxanium Variable", "Avenir Next", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif'
     fontSize: "1rem"
     fontWeight: 400
-    lineHeight: 1.55
+    lineHeight: 1.5
   label:
-    fontFamily: "Sohne Kraftig, Sohne, 'Avenir Next', 'Segoe UI', system-ui, sans-serif"
+    fontFamily: '"Oxanium Variable", "Avenir Next", "Segoe UI", system-ui, sans-serif'
     fontSize: "0.75rem"
     fontWeight: 700
     lineHeight: 1.1
@@ -38,7 +38,7 @@ rounded:
   panel: "0.25rem"
   image: "0"
 spacing:
-  grid: "clamp(1rem, 2vw, 2rem)"
+  grid: "clamp(16px, 2vw, 32px)"
   section-y: "clamp(4rem, 9vw, 9rem)"
   rule: "1px"
 components:
@@ -48,17 +48,15 @@ components:
     rounded: "{rounded.control}"
     height: "44px"
   secondary-button:
-    backgroundColor: "{colors.blueprint}"
-    textColor: "{colors.paper}"
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
+    borderColor: "{colors.line}"
     rounded: "{rounded.control}"
     height: "44px"
   brand-plate:
-    backgroundColor: "{colors.lime}"
-    textColor: "{colors.ink}"
+    backgroundColor: "{colors.chartreuse}"
+    textColor: "{colors.chartreuse-ink}"
     borderColor: "{colors.ink}"
-  impact-band:
-    backgroundColor: "{colors.orange}"
-    textColor: "{colors.paper}"
 ---
 
 # Design System: Fairlend Marketing
@@ -73,51 +71,47 @@ The system is louder than authenticated DrawFlow UI. It uses compressed display 
 
 Physical scene: a builder, investor, or civic partner is scanning Fairlend on a laptop during a financing decision, with printed plans and numbers nearby. The page must look like the team understands both the construction site and the capital stack.
 
-Color strategy: **Full palette.** Paper White and Black Green carry the brand base, Civic Blue owns blueprint/data proof, Soft Lime marks brand signal and active opportunity, Burnt Orange carries impact and urgency.
+Color strategy: **Full palette.** Paper and Ink carry the brand base, Blueprint owns data/proof, Chartreuse marks the Fairlend signal and active opportunity, Copper provides warm accent moments.
 
 Key characteristics:
 
 - Paper-based public surfaces with visible construction grids.
-- Black Green authority instead of fintech navy.
-- Civic Blue blueprint and data sections.
-- Soft Lime as the charged Fairlend mark.
-- Burnt Orange for impact bands and important friction.
-- Large compressed type with humanist body copy.
+- Forest/ink authority instead of fintech navy.
+- Blueprint sections for data and proof.
+- Chartreuse as the charged Fairlend mark.
+- Copper for warm accent moments.
+- Display serif (Larken) for editorial headlines; Oxanium for body and UI.
 - Real homes, materials, people, and technical documents.
 
 ## 2. Colors
 
 ### Core Tokens
 
-| Token | Hex Source | OKLCH | Role |
-|---|---:|---:|---|
-| Paper White | `#FEFAF2` | `oklch(0.986 0.011 84.6)` | Page base, editorial panels, fields |
-| Black Green | `#081D18` | `oklch(0.212 0.029 175.7)` | Ink, dark sections, primary CTAs |
-| Civic Blue | `#245E88` | `oklch(0.464 0.091 243.7)` | Blueprint sections, data proof, secondary action |
-| Soft Lime | `#CDEB78` | `oklch(0.894 0.146 121.5)` | Fairlend mark, active state, tags, proof highlight |
-| Burnt Orange | `#D85D34` | `oklch(0.627 0.165 38.4)` | Impact bands, warnings, community energy |
-| Warm Gray | `#D8D3C9` | `oklch(0.868 0.015 84.6)` | Rules, trays, inactive surfaces, material base |
-
-### Usage Ratios
-
-Public marketing pages should usually land near:
-
-- 50 to 60 percent Paper White and Warm Gray.
-- 20 to 30 percent Black Green.
-- 10 to 20 percent Civic Blue.
-- 5 to 10 percent Soft Lime.
-- 5 to 10 percent Burnt Orange.
-
-These ratios can flex by page. Investor pages may lean harder into Black Green and Civic Blue. Housing-program pages may use more Paper White, material texture, and field photography. Impact sections may drench in Burnt Orange for one fold.
+| Token | OKLCH | Role |
+|---|---:|---:|
+| Paper | `oklch(0.975 0.021 80)` | Page base, editorial panels, fields |
+| Paper Soft | `oklch(0.946 0.028 80)` | Subtle panel tints |
+| Surface | `oklch(0.986 0.014 82)` | Lightest surfaces, badges |
+| Ink | `oklch(0.224 0.06 160)` | Primary text, dark sections, primary CTAs |
+| Ink Muted | `oklch(0.365 0.032 163)` | Secondary/supporting text |
+| Forest | `oklch(0.35 0.09 145)` | Dark green accents, dark sections |
+| Sage | `oklch(0.56 0.074 141)` | Subtle green labels, eyebrows |
+| Success | `oklch(0.58 0.16 145)` | Completed/approved states |
+| Chartreuse | `oklch(0.841 0.238 128.85)` | Fairlend mark, active state, tags, proof highlight |
+| Chartreuse Ink | `oklch(0.405 0.101 131.063)` | Text on chartreuse |
+| Blueprint | `oklch(0.58 0.118 250)` | Blueprint sections, data proof |
+| Blueprint Line | `rgb(88 137 207 / 30%)` | Blueprint construction lines |
+| Copper | `oklch(0.66 0.095 58)` | Warm accent moments |
+| Line | `oklch(0.224 0.06 160 / 14%)` | Rules, dividers, borders |
 
 ### Rules
 
 - Use OKLCH in new CSS.
-- Use Paper White and Black Green instead of pure black or pure white.
-- Soft Lime is the Fairlend voltage. Use it for the logo plate, active opportunities, proof tags, and one or two key moments per viewport.
-- Civic Blue should feel structural: plans, data, underwriting, maps, and proof.
-- Burnt Orange should feel consequential: impact, warning, community need, or urgent action.
-- Warm Gray is substrate: concrete, paper aging, dividers, borders, and inactive states.
+- Use Paper and Ink instead of pure black or pure white.
+- Chartreuse is the Fairlend voltage. Use it for the logo plate, active opportunities, proof tags, and one or two key moments per viewport.
+- Blueprint should feel structural: plans, data, underwriting, maps, and proof.
+- Copper is a warm, material accent. Use sparingly.
+- Line is substrate: concrete, paper aging, dividers, borders, and inactive states.
 
 ## 3. Typography
 
@@ -125,22 +119,15 @@ These ratios can flex by page. Investor pages may lean harder into Black Green a
 
 Display should be compressed, tall, and architectural.
 
-Preferred:
-
-- **Display:** GT America Compressed Black.
-- **Body/UI:** Sohne Buch and Sohne Kraftig.
-
-Fallbacks when licensed fonts are unavailable:
-
-- **Display fallback:** `'Arial Narrow'`, `'Roboto Condensed'`, `Impact`, sans-serif. Use carefully and test rendering.
-- **Body fallback:** `'Avenir Next'`, `'Segoe UI'`, system-ui, sans-serif.
+- **Display:** `"Larken Bold", "Larken", Georgia, "Times New Roman", serif` — weight 700, tight line-height.
+- **Body/UI:** `"Oxanium Variable", "Avenir Next", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif` — weight 400, line-height 1.5.
+- **Label:** Same as body, weight 700, uppercase, letter-spacing 0.08em.
 
 ### Scale
 
-- **Display:** `clamp(4rem, 10vw, 10rem)`, weight 900, line-height 0.88.
-- **Headline:** `clamp(2.75rem, 6vw, 6.5rem)`, weight 900, line-height 0.9.
-- **Section title:** `clamp(1.8rem, 3.5vw, 3.75rem)`, weight 900, line-height 0.95.
-- **Body:** 1rem to 1.125rem, line-height 1.55.
+- **Display headline:** `clamp(2rem, 4vw, 4rem)`, line-height ~0.95.
+- **Section title:** `clamp(1.8rem, 3.5vw, 3.75rem)`, weight 700.
+- **Body:** 1rem to 1.125rem, line-height 1.5.
 - **Small label:** 0.7rem to 0.8rem, uppercase, weight 700.
 
 ### Rules
@@ -149,7 +136,6 @@ Fallbacks when licensed fonts are unavailable:
 - Body copy must stay readable and sentence-case.
 - Do not set long paragraphs in uppercase.
 - Do not use negative letter spacing.
-- Use hard line breaks in heroes and major editorial blocks.
 - Keep body copy to 65 to 75 characters per line.
 
 ## 4. Layout
@@ -169,7 +155,7 @@ Marketing layout is a visible grid, not a centered SaaS stack.
 
 Rotate through strong section types:
 
-- **Hero construction:** paper copy zone, real housing image, lime brand plate, blueprint overlay.
+- **Hero construction:** paper copy zone, real housing image, chartreuse brand plate, blueprint overlay.
 - **Metric belt:** horizontal proof strip with icons and numbers.
 - **Featured opportunity:** image-led investment or community card with actual deal details.
 - **Blueprint band:** Civic Blue section with line drawings and concise proof.
@@ -187,15 +173,15 @@ Marketing components may be more expressive than app components, but reuse exist
 
 Primary:
 
-- Black Green fill.
-- Paper White text.
+- Ink fill.
+- Paper text.
 - Square or lightly rounded corners.
 - Arrow icon on the right.
 - Hover: slight ink shift and arrow translation.
 
 Secondary:
 
-- Civic Blue fill on paper or Paper White outline on dark fields.
+- Transparent with ink outline.
 - Same geometry as primary.
 
 Tertiary:
@@ -229,21 +215,21 @@ Rules:
 
 Badges should look like stamped labels:
 
-- `ACTIVE`: Soft Lime.
-- `AFFORDABLE HOUSING`: Soft Lime tint.
-- `DEVELOPMENT`: Civic Blue.
-- `COMMUNITY SPACE`: Burnt Orange.
+- `ACTIVE`: Chartreuse.
+- `AFFORDABLE HOUSING`: Chartreuse tint.
+- `DEVELOPMENT`: Blueprint.
+- `COMMUNITY SPACE`: Copper.
 - `INVESTOR UPDATE`: Warm Gray.
 
 ### Forms
 
 Forms should feel like better paperwork:
 
-- Paper White fields.
-- Hairline Black Green or Warm Gray borders.
+- Paper fields.
+- Hairline ink borders.
 - Compact labels.
 - Clear inline validation.
-- Primary submit uses Black Green or Soft Lime depending on context.
+- Primary submit uses Ink or Chartreuse depending on context.
 
 ## 6. Imagery
 
@@ -318,12 +304,11 @@ Use a marketing-scoped token layer:
 
 ```css
 .mkt-shell {
-  --mkt-paper: oklch(0.986 0.011 84.6);
-  --mkt-ink: oklch(0.212 0.029 175.7);
-  --mkt-blueprint: oklch(0.464 0.091 243.7);
-  --mkt-lime: oklch(0.894 0.146 121.5);
-  --mkt-orange: oklch(0.627 0.165 38.4);
-  --mkt-warm-gray: oklch(0.868 0.015 84.6);
+  --mkt-paper: oklch(0.975 0.021 80);
+  --mkt-ink: oklch(0.224 0.06 160);
+  --mkt-chartreuse: oklch(0.841 0.238 128.85);
+  --mkt-blueprint: oklch(0.58 0.118 250);
+  --mkt-line: oklch(0.224 0.06 160 / 14%);
 }
 ```
 
@@ -345,8 +330,8 @@ Before shipping a marketing page:
 
 - The first viewport shows real housing, people, plans, or an investment artifact.
 - The page reads as Fairlend, not generic fintech, generic SaaS, or generic real estate.
-- The palette uses Paper White, Black Green, Civic Blue, Soft Lime, Burnt Orange, and Warm Gray deliberately.
-- Soft Lime has one clear job per viewport.
+- The palette uses Paper, Ink, Chartreuse, Blueprint, and Copper deliberately.
+- Chartreuse has one clear job per viewport.
 - Body copy is readable and not all caps.
 - No gradient text.
 - No decorative glassmorphism.

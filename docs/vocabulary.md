@@ -354,6 +354,10 @@ A lower-level checklist or work item under a milestone.
 
 Submilestones can exist in templates, proposals, and active builds.
 
+### Submilestone Execution
+
+The Build-specific operational state of one submilestone, including its status, dates, blocker, and status history. It does not create lender approval authority below the Milestone boundary.
+
 ### Site Visit Guidance
 
 Inspection guidance authored in backoffice settings against milestone archetypes.
@@ -444,3 +448,107 @@ This lets DrawFlow know which contractors are suitable for which system mileston
 The relationship connecting a contractor to a specific milestone.
 
 Contractors are not necessarily assigned to every milestone. Production must track contractor-to-milestone assignment explicitly.
+
+### Work Assignment
+
+The relationship connecting a contractor to assigned Milestone or submilestone scope on a proposal or active Build. It is the canonical assignment record; a Work Package presents one or more Work Assignments to the contractor.
+
+### Work Package
+
+A versioned contractor-facing brief that groups Work Assignments with scope, location, instructions, schedule, documents, and required Work Evidence. It is not an Evidence Package and carries no Draw approval authority.
+
+### Work Evidence
+
+Proof or context uploaded against assigned construction work. Work Evidence only becomes part of lender-facing completion evidence through the governed Milestone submission and review workflow.
+
+### Evidence Feedback
+
+A review state or request about a Work Evidence item’s relevance, sufficiency, or required replacement. It is distinct from a Work Review of contractor performance.
+
+### Work Review
+
+A published assessment of contractor performance for assigned scope. A contractor may contest a published Work Review, while raw internal risk and quality signals remain private.
+
+---
+
+## Participant Experiences And Communication
+
+### Homeowner Portal
+
+An allowlisted projection of Build progress, schedule, published updates, selected media/documents, and permitted communication for a homeowner. It excludes financing, lender policy, approval deliberation, internal risk detail, and unrelated participant data.
+
+### Build Channel
+
+A Build-scoped communication space with an explicit participant audience and visibility policy. A Build Channel contains participant-created Conversations.
+
+### Conversation
+
+A participant-created topic within a Build Channel containing ordered Messages and nested Replies. Avoid using “thread” for both the topic and its nested reply chain.
+
+### Person Mention
+
+A reference to an authorized Build participant inside a Message that can create a notification. A Person Mention never changes the participant’s underlying access.
+
+### Entity Reference
+
+A typed link from a Message to a DrawFlow domain object such as a submilestone, Milestone, Draw, Evidence Package, Work Package, Site Visit, contractor, Material, or document. An Entity Reference never grants access or copies restricted object data into the Conversation.
+
+---
+
+## Resource Bank
+
+### Resource Bank
+
+The versioned set of typed construction definitions used by templates and Builds, including submilestones, trades, equipment, certifications, evidence requirements, and constraints. It is not an untyped key/value catalog.
+
+### Resource Definition
+
+A stable, versioned, typed entry in one Resource Bank catalog. Builds pin the Resource Definition version they use so later catalog edits do not rewrite historical scope or requirements.
+
+---
+
+## Availability And Calendar Connectivity
+
+### Manual Availability
+
+Contractor-entered recurring working windows and dated availability exceptions. Manual Availability expresses preferences/capacity and is never overwritten by assignment automation.
+
+### Assignment Reservation
+
+The portion of contractor capacity occupied by an accepted, scheduled Work Assignment. It is derived from the Work Assignment and cannot be edited independently of that source.
+
+### Effective Availability
+
+The contractor capacity remaining after Assignment Reservations and unavailable exceptions are subtracted from Manual Availability. It is a planning projection, not a second editable availability calendar.
+
+### Calendar Connection
+
+An authorized link between one DrawFlow user and one external calendar provider account. A Calendar Connection can publish authorized Calendar Event Projections but does not transfer ownership of provider credentials to the organization.
+
+### Calendar Event Projection
+
+The role-safe external representation of a DrawFlow schedule object. Editing a projection never bypasses the authority and change-control rules of its source Milestone, submilestone, Work Assignment, Site Visit, or Draw.
+
+### Schedule Change Request
+
+A proposed change to authoritative DrawFlow schedule state originating from a participant or external calendar. It remains pending until an authorized DrawFlow workflow applies or rejects it.
+
+---
+
+## External Integrations
+
+### Public Event Contract
+
+A stable, versioned, authorization-safe representation of a DrawFlow domain event for external consumers. It is distinct from the internal event outbox record that triggered publication.
+
+### Webhook Subscription
+
+An organization-scoped configuration selecting an HTTPS endpoint, Public Event Contract types, filters, payload version, and delivery status. A creator can subscribe only to resource scopes they are authorized to export.
+
+### Webhook Delivery
+
+The immutable relationship between one Public Event Contract instance and one matching Webhook Subscription. A Webhook Delivery may have multiple signed delivery attempts and manual replays without changing the original event.
+
+### Webhook Delivery Attempt
+
+One signed HTTP request made for a Webhook Delivery, including its timing, outcome, and retry disposition. It is not itself the domain event and receives a distinct attempt identifier.

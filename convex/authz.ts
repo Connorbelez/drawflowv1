@@ -20,6 +20,7 @@ export type Capability =
   | "admin"
   | "backoffice"
   | "builder"
+  | "contractor"
   | "userManagementWrite"
   | "nonDestructiveWrite"
   | "destructiveWrite";
@@ -43,6 +44,7 @@ const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
   admin: ["admin"],
   backoffice: ["admin", "principle-broker", "broker", "broker-staff"],
   builder: ["admin", "builder", "builder-staff"],
+  contractor: ["contractor"],
   userManagementWrite: ["admin", "principle-broker"],
   nonDestructiveWrite: ["admin", "principle-broker", "broker", "broker-staff"],
   destructiveWrite: ["admin", "principle-broker"],
@@ -73,6 +75,7 @@ export const requireAuthenticated = fluent
 export const requireAdmin = createCapabilityMiddleware("admin");
 export const requireBackoffice = createCapabilityMiddleware("backoffice");
 export const requireBuilder = createCapabilityMiddleware("builder");
+export const requireContractor = createCapabilityMiddleware("contractor");
 export const requireUserManagementWrite = createCapabilityMiddleware(
   "userManagementWrite"
 );
@@ -99,6 +102,10 @@ export const backofficeAction = fluent.action().use(requireBackoffice);
 export const builderQuery = fluent.query().use(requireBuilder);
 export const builderMutation = fluent.mutation().use(requireBuilder);
 export const builderAction = fluent.action().use(requireBuilder);
+
+export const contractorQuery = fluent.query().use(requireContractor);
+export const contractorMutation = fluent.mutation().use(requireContractor);
+export const contractorAction = fluent.action().use(requireContractor);
 
 export const userManagementWriteQuery = fluent
   .query()

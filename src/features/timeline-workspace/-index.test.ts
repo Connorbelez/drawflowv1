@@ -7,6 +7,7 @@ import {
   buildCashShortfallPoints,
   calculateApprovedDrawRequestLimit,
   calculateDrawRequestLimit,
+  buildDrawAvailabilityChartData,
   buildDrawAvailabilityData,
   buildFinancialOverview,
   buildTimelineCashflowData,
@@ -383,13 +384,11 @@ describe("timeline cash shortfall logic", () => {
       event: "capitalSpike",
     });
     expect(
-      cashflow.find((point) => point.id === "site-prep-completion-capacity"),
-    ).toMatchObject({
-      budget: 0,
-      cashOnHand: 295_000,
-      day: 22,
-      drawCapacityUnlocked: 100_000,
-    });
+      cashflow.reduce((total, point) => total + point.drawCapacityUnlocked, 0),
+    ).toBe(100_000);
+    expect(
+      cashflow.find((point) => point.id === "site-prep-distributed-21-capacity"),
+    ).toMatchObject({ day: 21, drawCapacityUnlocked: 12_500 });
     expect(cashflow.find((point) => point.id === "site-prep-draw")).toMatchObject(
       { cashOnHand: 420_000, day: 22, drawAmount: 125_000 },
     );
@@ -444,11 +443,7 @@ describe("timeline cash shortfall logic", () => {
       outOfPocketBudget: 30_000,
       reimbursableBudget: 90_000,
     });
-    expect(chartData.find((point) => point.day === 16)).toMatchObject({
-      budget: 0,
-      outOfPocketBudget: 0,
-      reimbursableBudget: 0,
-    });
+    expect(chartData.find((point) => point.day === 16)).toBeUndefined();
   });
 
   test("cash infusion increases cash on hand without counting as a capital cost", () => {
@@ -595,11 +590,32 @@ describe("timeline cash shortfall logic", () => {
         id: "foundation-distributed-10",
       },
       {
+        budget: 0,
+        cashOnHand: 100_000,
+        day: 10,
+        drawCapacityUnlocked: 8000,
+        id: "foundation-distributed-10-capacity",
+      },
+      {
+        budget: 0,
+        cashOnHand: 100_000,
+        day: 10,
+        drawCapacityUnlocked: 32_000,
+        id: "foundation-initial-payment-capacity",
+      },
+      {
         budget: 10_000,
         cashOnHand: 90_000,
         day: 11,
         drawCapacityUnlocked: 0,
         id: "foundation-distributed-11",
+      },
+      {
+        budget: 0,
+        cashOnHand: 90_000,
+        day: 11,
+        drawCapacityUnlocked: 8000,
+        id: "foundation-distributed-11-capacity",
       },
       {
         budget: 10_000,
@@ -609,11 +625,25 @@ describe("timeline cash shortfall logic", () => {
         id: "foundation-distributed-12",
       },
       {
+        budget: 0,
+        cashOnHand: 80_000,
+        day: 12,
+        drawCapacityUnlocked: 8000,
+        id: "foundation-distributed-12-capacity",
+      },
+      {
         budget: 10_000,
         cashOnHand: 70_000,
         day: 13,
         drawCapacityUnlocked: 0,
         id: "foundation-distributed-13",
+      },
+      {
+        budget: 0,
+        cashOnHand: 70_000,
+        day: 13,
+        drawCapacityUnlocked: 8000,
+        id: "foundation-distributed-13-capacity",
       },
       {
         budget: 20_000,
@@ -626,8 +656,8 @@ describe("timeline cash shortfall logic", () => {
         budget: 0,
         cashOnHand: 50_000,
         day: 14,
-        drawCapacityUnlocked: 80_000,
-        id: "foundation-completion-capacity",
+        drawCapacityUnlocked: 16_000,
+        id: "foundation-completion-payment-capacity",
       },
     ]);
   });
@@ -670,12 +700,16 @@ describe("timeline cash shortfall logic", () => {
         .reduce((total, point) => total + point.budget, 0),
     ).toBe(280_000);
     expect(
-      cashflow.find((point) => point.id === "foundation-completion-capacity"),
+      cashflow.reduce((total, point) => total + point.drawCapacityUnlocked, 0),
+    ).toBe(240_000);
+    expect(
+      cashflow.find(
+        (point) => point.id === "foundation-distributed-0-capacity",
+      ),
     ).toMatchObject({
       budget: 0,
-      cashOnHand: 120_000,
-      day: 30,
-      drawCapacityUnlocked: 240_000,
+      day: 0,
+      drawCapacityUnlocked: 8000,
     });
     expect(getMilestoneDrawAvailabilityAmount(items[0]?.data)).toBe(240_000);
 
@@ -690,7 +724,7 @@ describe("timeline cash shortfall logic", () => {
     ).toBe(280_000);
     expect(chartData.find((point) => point.day === 0)).toMatchObject({
       budget: 280_000,
-      cashOnHand: 390_667,
+      cashOnHand: 400_000,
       event: "milestone",
     });
     expect(chartData.find((point) => point.day === 30)).toMatchObject({
@@ -736,12 +770,15 @@ describe("timeline cash shortfall logic", () => {
         .reduce((total, point) => total + point.budget, 0),
     ).toBe(320_000);
     expect(
-      cashflow.find((point) => point.id === "foundation-completion-capacity"),
+      cashflow.reduce((total, point) => total + point.drawCapacityUnlocked, 0),
+    ).toBe(240_000);
+    expect(
+      cashflow.find(
+        (point) => point.id === "foundation-distributed-0-capacity",
+      ),
     ).toMatchObject({
-      budget: 0,
-      cashOnHand: 80_000,
-      day: 30,
-      drawCapacityUnlocked: 240_000,
+      day: 0,
+      drawCapacityUnlocked: 8000,
     });
     expect(getMilestoneDrawAvailabilityAmount(items[0]?.data)).toBe(240_000);
   });
@@ -777,17 +814,27 @@ describe("timeline cash shortfall logic", () => {
       150_000,
     );
 
+    const capacityPoints = cashflow
+      .filter((point) => point.event === "milestone")
+      .filter((point) => point.drawCapacityUnlocked > 0);
     expect(
-      cashflow
-        .filter((point) => point.event === "milestone")
-        .filter((point) => point.drawCapacityUnlocked > 0),
-    ).toEqual([
+      capacityPoints.reduce(
+        (total, point) => total + point.drawCapacityUnlocked,
+        0,
+      ),
+    ).toBe(80_000);
+    expect(capacityPoints).toContainEqual(
       expect.objectContaining({
-        day: 8,
-        drawCapacityUnlocked: 80_000,
-        id: "foundation-completion-capacity",
+        day: 0,
+        drawCapacityUnlocked: 32_000,
+        id: "foundation-initial-payment-capacity",
       }),
-    ]);
+    );
+    expect(capacityPoints.at(-1)).toMatchObject({
+      day: 8,
+      drawCapacityUnlocked: 16_000,
+      id: "foundation-completion-payment-capacity",
+    });
     expect(
       cashflow
         .filter((point) => point.event === "milestone" && point.budget > 0)
@@ -825,7 +872,7 @@ describe("timeline cash shortfall logic", () => {
     });
   });
 
-  test("draw capacity unlocks only on completion day", () => {
+  test("draw capacity accrues during milestone spend", () => {
     const cashflow = buildTimelineCashflowData(
       [
         {
@@ -855,56 +902,72 @@ describe("timeline cash shortfall logic", () => {
     expect(
       cashflow
         .filter((point) => point.event === "milestone")
+        .filter((point) => point.drawCapacityUnlocked > 0)
         .map((point) => ({
-          budget: point.budget,
           day: point.day,
           drawCapacityUnlocked: point.drawCapacityUnlocked,
           id: point.id,
         })),
     ).toEqual([
       {
-        budget: 40_000,
         day: 10,
-        drawCapacityUnlocked: 0,
-        id: "foundation-initial-payment",
+        drawCapacityUnlocked: 8000,
+        id: "foundation-distributed-10-capacity",
       },
       {
-        budget: 10_000,
         day: 10,
-        drawCapacityUnlocked: 0,
-        id: "foundation-distributed-10",
+        drawCapacityUnlocked: 32_000,
+        id: "foundation-initial-payment-capacity",
       },
       {
-        budget: 10_000,
         day: 11,
-        drawCapacityUnlocked: 0,
-        id: "foundation-distributed-11",
+        drawCapacityUnlocked: 8000,
+        id: "foundation-distributed-11-capacity",
       },
       {
-        budget: 10_000,
         day: 12,
-        drawCapacityUnlocked: 0,
-        id: "foundation-distributed-12",
+        drawCapacityUnlocked: 8000,
+        id: "foundation-distributed-12-capacity",
       },
       {
-        budget: 10_000,
         day: 13,
-        drawCapacityUnlocked: 0,
-        id: "foundation-distributed-13",
+        drawCapacityUnlocked: 8000,
+        id: "foundation-distributed-13-capacity",
       },
       {
-        budget: 20_000,
         day: 14,
-        drawCapacityUnlocked: 0,
-        id: "foundation-completion-payment",
-      },
-      {
-        budget: 0,
-        day: 14,
-        drawCapacityUnlocked: 80_000,
-        id: "foundation-completion-capacity",
+        drawCapacityUnlocked: 16_000,
+        id: "foundation-completion-payment-capacity",
       },
     ]);
+    expect(
+      calculateDrawRequestLimit(
+        { amount: 40_000, id: "draw-1", label: "Draw 1", x: 10 },
+        [
+          {
+            data: {
+              amount: 100_000,
+              completionPaymentAmount: 20_000,
+              draw: "Draw 1",
+              durationDays: 4,
+              evidence: "Planning",
+              icon: "foundation",
+              initialPaymentAmount: 40_000,
+              name: "Foundation",
+              policy: "Planning",
+              status: "ready",
+              subMilestones: ["Excavation"],
+            },
+            id: "foundation",
+            x: 10,
+          },
+        ],
+        [],
+      ),
+    ).toMatchObject({
+      availableLimit: 40_000,
+      totalUnlocked: 40_000,
+    });
   });
 
   test("draw availability accumulates completion capacity instead of spend budget", () => {
@@ -958,6 +1021,46 @@ describe("timeline cash shortfall logic", () => {
         totalAvailableDraw: 100_000,
       },
     ]);
+  });
+
+  test("draw availability chart excludes daily distributed capacity points", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 1",
+          drawAvailabilityAmount: 80_000,
+          durationDays: 4,
+          evidence: "Planning",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Excavation"],
+        },
+        id: "foundation",
+        x: 10,
+      },
+    ];
+    const range = { max: 30, min: 0, unit: "days" } as const;
+    const cashflow = buildTimelineCashflowData(items, [], [], range, 150_000);
+    const availability = buildDrawAvailabilityData(cashflow);
+    const chartData = buildDrawAvailabilityChartData(
+      availability,
+      cashflow,
+      items,
+      range,
+    );
+
+    expect(availability.map((point) => point.day)).toEqual([
+      0, 10, 10, 11, 11, 12, 12, 13, 13,
+    ]);
+    expect(chartData.map((point) => point.day)).toEqual([0, 10, 14, 30]);
+    expect(chartData.find((point) => point.day === 11)).toBeUndefined();
+    expect(chartData.find((point) => point.day === 14)).toMatchObject({
+      additionalAvailableDraw: 80_000,
+      totalAvailableDraw: 80_000,
+    });
   });
 
   test("draw availability shows approved headroom above scheduled draws", () => {
@@ -1027,6 +1130,45 @@ describe("timeline cash shortfall logic", () => {
     expect(availability[2]?.totalInterestAccrued).toBeCloseTo(
       60_000 * ((1 + 0.0925 / 365) ** 30 - 1),
       2,
+    );
+  });
+
+  test("draw availability responds to the configured interest rate", () => {
+    const cashflow = [
+      cashflowPoint({
+        cashOnHand: 100_000,
+        day: 0,
+        event: "start",
+        id: "start",
+        name: "Starting cash",
+      }),
+      cashflowPoint({
+        cashOnHand: 160_000,
+        day: 10,
+        drawAmount: 60_000,
+        event: "draw",
+        id: "foundation-draw",
+        name: "Draw 1",
+      }),
+      cashflowPoint({
+        cashOnHand: 160_000,
+        day: 40,
+        event: "milestone",
+        id: "inspection-checkpoint",
+        name: "Inspection checkpoint",
+      }),
+    ];
+
+    const zeroRate = buildDrawAvailabilityData(cashflow, undefined, 0);
+    const higherRate = buildDrawAvailabilityData(cashflow, undefined, 1_200);
+
+    expect(zeroRate[2]?.totalInterestAccrued).toBe(0);
+    expect(higherRate[2]?.totalInterestAccrued).toBeCloseTo(
+      60_000 * ((1 + 0.12 / 365) ** 30 - 1),
+      2,
+    );
+    expect(higherRate[2]?.totalInterestAccrued).toBeGreaterThan(
+      zeroRate[2]?.totalInterestAccrued ?? 0,
     );
   });
 
@@ -1117,12 +1259,13 @@ describe("timeline cash shortfall logic", () => {
         name: "Draw 1",
       }),
     ];
-    const availability = buildDrawAvailabilityData(cashflow);
+    const availability = buildDrawAvailabilityData(cashflow, undefined, 1_200);
     const rangeEndAvailability = interpolateDrawAvailability(availability, 25);
     const overview = buildFinancialOverview(
       cashflow,
       [{ amount: 60_000, id: "foundation-draw", label: "Draw 1", x: 10 }],
       { max: 25, min: 0, unit: "days" },
+      1_200,
     );
 
     expect(overview.interestPaid).toBeCloseTo(
@@ -1166,26 +1309,77 @@ describe("timeline cash shortfall logic", () => {
       150_000,
     );
 
-    expect(chartData.map((point) => point.day)).toEqual([
-      0, 10, 11, 12, 13, 14, 30,
-    ]);
+    expect(chartData.map((point) => point.day)).toEqual([0, 10, 14, 30]);
     expect(
       chartData.find((point) => point.id === "milestone-cost-gate-10"),
     ).toMatchObject({
       budget: 100_000,
+      cashOnHand: 110_000,
       day: 10,
       milestoneEndDay: 14,
     });
-    expect(chartData.find((point) => point.day === 12)).toMatchObject({
-      budget: 0,
-      cashOnHand: 80_000,
-    });
+    expect(chartData.find((point) => point.day === 12)).toBeUndefined();
     expect(
       chartData.some(
         (point) => point.id.includes("distributed") && point.budget > 0,
       ),
     ).toBe(false);
     expect(interpolateLinearCashOnHand(chartData, 12)).toBe(80_000);
+  });
+
+  test("keeps overlapping milestone cash decay accurate with sparse chart points", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 1",
+          durationDays: 10,
+          evidence: "Planning",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: [],
+        },
+        id: "foundation",
+        x: 0,
+      },
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 2",
+          durationDays: 10,
+          evidence: "Planning",
+          icon: "roughIn",
+          name: "Rough-in",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: [],
+        },
+        id: "rough-in",
+        x: 5,
+      },
+    ];
+    const range = { max: 20, min: 0, unit: "days" } as const;
+    const accountingData = buildTimelineCashflowData(
+      items,
+      [],
+      [],
+      range,
+      300_000,
+    );
+    const chartData = buildCashflowChartData(
+      accountingData,
+      items,
+      range,
+      300_000,
+    );
+
+    expect(chartData.map((point) => point.day)).toEqual([0, 5, 10, 15, 20]);
+    expect(chartData.map((point) => point.cashOnHand)).toEqual([
+      300_000, 250_000, 150_000, 100_000, 100_000,
+    ]);
+    expect(interpolateLinearCashOnHand(chartData, 7.5)).toBe(200_000);
   });
 
   test("densifies chart-only probe points no more frequently than every five days", () => {

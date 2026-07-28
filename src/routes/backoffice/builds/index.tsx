@@ -23,7 +23,5 @@ function BuildsIndexRoute() {
     workosOrganizationId,
   }) as BackofficeBuildRosterResult | undefined;
 
-  return (
-    <BuildRosterSurface pending={roster === undefined} roster={roster} />
-  );
+  return <BuildRosterSurface pending={roster === undefined} roster={roster} />;
 }

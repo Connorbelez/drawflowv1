@@ -8,8 +8,12 @@ export type ProductionDrawStatus = BrokerageDrawRow["status"];
 
 export function drawStatusLabel(status: ProductionDrawStatus): string {
   switch (status) {
-    case "approved":
-      return "Approved";
+    case "approved_for_release":
+      return "Approved for release";
+    case "in_review":
+      return "In review";
+    case "ready_for_admin":
+      return "Ready for admin";
     case "rejected":
       return "Rejected";
     case "requested":
@@ -22,15 +26,15 @@ export function drawStatusLabel(status: ProductionDrawStatus): string {
 }
 
 export function drawBadgeVariant(
-  status: ProductionDrawStatus,
+  status: ProductionDrawStatus
 ): NonNullable<ComponentProps<typeof Badge>["variant"]> {
   if (status === "released") {
     return "success";
   }
-  if (status === "requested") {
+  if (status === "requested" || status === "ready_for_admin") {
     return "warning";
   }
-  if (status === "approved") {
+  if (status === "in_review" || status === "approved_for_release") {
     return "info";
   }
   if (status === "rejected") {
@@ -40,5 +44,9 @@ export function drawBadgeVariant(
 }
 
 export function drawNeedsAction(status: ProductionDrawStatus): boolean {
-  return status === "requested" || status === "approved";
+  return (
+    status === "requested" ||
+    status === "in_review" ||
+    status === "ready_for_admin"
+  );
 }

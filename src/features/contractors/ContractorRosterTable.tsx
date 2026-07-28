@@ -3,13 +3,13 @@
 import {
   type Column,
   type ColumnDef,
-  type Row,
-  type SortingState,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  type Row,
+  type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
 import {
@@ -110,12 +110,12 @@ export function ContractorRosterTable({
         }
         return true;
       }),
-    [contractors, statusFilter, accountFilter],
+    [contractors, statusFilter, accountFilter]
   );
 
   const columns = useMemo<ColumnDef<ContractorRosterRow>[]>(
     () => buildColumns(detailHrefFor),
-    [detailHrefFor],
+    [detailHrefFor]
   );
 
   const table = useReactTable({
@@ -227,7 +227,7 @@ export function ContractorRosterTable({
                       header.column.id === "rate" ||
                         header.column.id === "actions"
                         ? "text-right"
-                        : undefined,
+                        : undefined
                     )}
                     key={header.id}
                     style={{ width: header.getSize() }}
@@ -236,7 +236,7 @@ export function ContractorRosterTable({
                       ? null
                       : flexRender(
                           header.column.columnDef.header,
-                          header.getContext(),
+                          header.getContext()
                         )}
                   </TableHead>
                 ))}
@@ -266,11 +266,14 @@ export function ContractorRosterTable({
                         cell.column.id === "rate" ||
                           cell.column.id === "actions"
                           ? "text-right"
-                          : undefined,
+                          : undefined
                       )}
                       key={cell.id}
                     >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
                     </TableCell>
                   ))}
                 </TableRow>
@@ -317,7 +320,7 @@ export function ContractorRosterTable({
 }
 
 function buildColumns(
-  detailHrefFor: (contractor: ContractorRosterRow) => string,
+  detailHrefFor: (contractor: ContractorRosterRow) => string
 ): ColumnDef<ContractorRosterRow>[] {
   return [
     {
@@ -356,11 +359,13 @@ function buildColumns(
         <ChipList
           empty="No capabilities"
           values={(row.original.capabilities ?? []).map(
-            (capability) => capability.label,
+            (capability) => capability.label
           )}
         />
       ),
-      header: ({ column }) => <SortHeader column={column} label="Capabilities" />,
+      header: ({ column }) => (
+        <SortHeader column={column} label="Capabilities" />
+      ),
       id: "capabilities",
       size: 145,
     },
@@ -372,7 +377,7 @@ function buildColumns(
           values={(row.original.equipment ?? []).map((equipment) =>
             equipment.quantity && equipment.quantity > 1
               ? `${equipment.name} x${equipment.quantity}`
-              : equipment.name,
+              : equipment.name
           )}
         />
       ),
@@ -443,7 +448,9 @@ function ContractorIdentityCell({
   return (
     <div className="grid min-w-0 gap-1.5">
       <div className="flex min-w-0 items-center gap-2">
-        <span className={cn("size-2 rounded-full", statusDotClass(contractor))} />
+        <span
+          className={cn("size-2 rounded-full", statusDotClass(contractor))}
+        />
         <a
           className="truncate font-semibold text-sm hover:text-primary"
           href={href}
@@ -557,7 +564,7 @@ function SortHeader({
     <button
       className={cn(
         "-mx-1.5 flex items-center gap-1 rounded-md px-1.5 py-1 font-medium hover:text-foreground",
-        align === "right" && "ml-auto flex-row-reverse",
+        align === "right" && "ml-auto flex-row-reverse"
       )}
       onClick={() => column.toggleSorting(sorted === "asc")}
       type="button"
@@ -586,7 +593,9 @@ function RosterEmpty({
   return (
     <Empty className="min-h-64">
       <EmptyTitle>
-        {hasFilters ? "No contractors match the table filters" : "No contractor profiles"}
+        {hasFilters
+          ? "No contractors match the table filters"
+          : "No contractor profiles"}
       </EmptyTitle>
       <EmptyDescription>
         {hasFilters
@@ -611,7 +620,7 @@ function LoadingRows({ columnCount }: { columnCount: number }): ReactElement {
                 className={cn(
                   "h-4",
                   cellIndex === 0 ? "w-44" : "w-24",
-                  cellIndex === columnCount - 1 && "ml-auto w-16",
+                  cellIndex === columnCount - 1 && "ml-auto w-16"
                 )}
               />
             </TableCell>
@@ -625,7 +634,7 @@ function LoadingRows({ columnCount }: { columnCount: number }): ReactElement {
 function contractorGlobalFilter(
   row: Row<ContractorRosterRow>,
   _columnId: string,
-  filterValue: string,
+  filterValue: string
 ): boolean {
   const query = filterValue.trim().toLowerCase();
   if (!query) {
@@ -674,7 +683,7 @@ function formatContractorRate(contractor: ContractorRosterRow): string {
 }
 
 function formatAvailabilityWindow(
-  window: NonNullable<ContractorRosterRow["availabilityWindows"]>[number],
+  window: NonNullable<ContractorRosterRow["availabilityWindows"]>[number]
 ): string {
   const day = WEEKDAYS[window.dayOfWeek ?? -1] ?? "Day unset";
   if (

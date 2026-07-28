@@ -2,10 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { createStandardSchemaV1, parseAsString } from "nuqs";
-
-import { api } from "../../../../convex/_generated/api";
 import { TimelineWorkspace } from "#/features/timeline-workspace";
 import { convexWorkspaceToTimelineState } from "#/features/timeline-workspace/-timeline-convex-adapter.ts";
+import { api } from "../../../../convex/_generated/api";
 
 const durableTimelineSearchParsers = {
   proposal: parseAsString,
@@ -24,11 +23,11 @@ function DurableTimelineRoute() {
   const { proposal } = Route.useSearch();
   const workspace = useQuery(
     api.demo_timeline_plans.demo_getTimelinePlanWorkspace,
-    { planId: timelineId },
+    { planId: timelineId }
   );
   const resolvedProposal = useQuery(
     api.demo_timeline_plans.demo_resolveProposalShortLink,
-    proposal ? { proposalSlug: proposal } : "skip",
+    proposal ? { proposalSlug: proposal } : "skip"
   );
 
   if (workspace === undefined) {

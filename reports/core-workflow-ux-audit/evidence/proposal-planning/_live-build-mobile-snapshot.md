@@ -1,0 +1,202 @@
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - generic: Builder
+  - 'button "Theme mode: dark. Click to switch mode."':
+  - button "Notifications":
+  - separator
+  - list:
+    - button "Connor Beleznay Connor Beleznay c.beleznay@humanfeedback.com":
+      - img "Connor Beleznay"
+      - generic: Connor Beleznay
+      - generic: c.beleznay@humanfeedback.com
+  - main:
+    - paragraph: Builder home · Production borrower
+    - heading "Builder dashboard" [level=1]
+    - paragraph: Proposal workspaces, submitted plans, and approved live builds owned by your builder account.
+    - button "Refresh plan list":
+      - text: Refresh
+    - button "Start new proposal":
+      - text: Start new proposal
+    - paragraph: Drafts
+    - paragraph: "4"
+    - paragraph: Submitted
+    - paragraph: "4"
+    - paragraph: Live Builds
+    - paragraph: "5"
+    - paragraph: Archived
+    - paragraph: "0"
+    - generic: Live builds
+    - generic: Approved plans that now serve as day-to-day build timelines.
+    - table:
+      - rowgroup:
+        - row "Build Status Budget Milestones / draws Open requests Updated Action":
+          - columnheader "Build"
+          - columnheader "Status"
+          - columnheader "Budget"
+          - columnheader "Milestones / draws"
+          - columnheader "Open requests"
+          - columnheader "Updated"
+          - columnheader "Action"
+      - rowgroup:
+        - row "Seed Scenario - Approved With Permit moved to live build $750,000 0 / 0 - May 28, 4:11 PM Open live build Seed Scenario - Approved With Permit":
+          - cell "Seed Scenario - Approved With Permit"
+          - cell "moved to live build":
+            - generic: moved to live build
+          - cell "$750,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "May 28, 4:11 PM"
+          - cell "Open live build Seed Scenario - Approved With Permit":
+            - button "Open live build Seed Scenario - Approved With Permit" [active]:
+              - text: Open live build
+        - row "Seed Scenario - Approved With Waiver moved to live build $750,000 0 / 0 - May 31, 6:45 PM Open live build Seed Scenario - Approved With Waiver":
+          - cell "Seed Scenario - Approved With Waiver"
+          - cell "moved to live build":
+            - generic: moved to live build
+          - cell "$750,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "May 31, 6:45 PM"
+          - cell "Open live build Seed Scenario - Approved With Waiver":
+            - button "Open live build Seed Scenario - Approved With Waiver":
+              - text: Open live build
+        - row "Seed Scenario - Closed moved to live build $750,000 0 / 0 - May 28, 4:09 PM Open live build Seed Scenario - Closed":
+          - cell "Seed Scenario - Closed"
+          - cell "moved to live build":
+            - generic: moved to live build
+          - cell "$750,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "May 28, 4:09 PM"
+          - cell "Open live build Seed Scenario - Closed":
+            - button "Open live build Seed Scenario - Closed":
+              - text: Open live build
+        - row "Single Family Full Build Proposal moved to live build $1,250,000 0 / 0 - May 29, 4:35 PM Open live build Single Family Full Build Proposal":
+          - cell "Single Family Full Build Proposal"
+          - cell "moved to live build":
+            - generic: moved to live build
+          - cell "$1,250,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "May 29, 4:35 PM"
+          - cell "Open live build Single Family Full Build Proposal":
+            - button "Open live build Single Family Full Build Proposal":
+              - text: Open live build
+        - row "4-plex Proposal moved to live build $1,091,349 0 / 0 - Jun 02, 5:54 PM Open live build 4-plex Proposal":
+          - cell "4-plex Proposal"
+          - cell "moved to live build":
+            - generic: moved to live build
+          - cell "$1,091,349"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "Jun 02, 5:54 PM"
+          - cell "Open live build 4-plex Proposal":
+            - button "Open live build 4-plex Proposal":
+              - text: Open live build
+    - generic: Recent proposal workspaces
+    - generic: Draft, submitted, rejected, and archived proposal workspaces.
+    - table:
+      - rowgroup:
+        - row "Build Status Budget Milestones / draws Open requests Updated Action":
+          - columnheader "Build"
+          - columnheader "Status"
+          - columnheader "Budget"
+          - columnheader "Milestones / draws"
+          - columnheader "Open requests"
+          - columnheader "Updated"
+          - columnheader "Action"
+      - rowgroup:
+        - row "Seed Scenario - Requested Changes draft $750,000 0 / 0 - May 28, 4:09 PM Open proposal Seed Scenario - Requested Changes":
+          - cell "Seed Scenario - Requested Changes"
+          - cell "draft":
+            - generic: draft
+          - cell "$750,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "May 28, 4:09 PM"
+          - cell "Open proposal Seed Scenario - Requested Changes":
+            - button "Open proposal Seed Scenario - Requested Changes":
+              - text: Open proposal
+        - row "Single Family Full Build Proposal draft $1,250,000 0 / 0 - May 29, 12:05 AM Open proposal Single Family Full Build Proposal":
+          - cell "Single Family Full Build Proposal"
+          - cell "draft":
+            - generic: draft
+          - cell "$1,250,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "May 29, 12:05 AM"
+          - cell "Open proposal Single Family Full Build Proposal":
+            - button "Open proposal Single Family Full Build Proposal":
+              - text: Open proposal
+        - row "Single Family Full Build Proposal draft $1,250,000 0 / 0 - May 31, 10:00 PM Open proposal Single Family Full Build Proposal":
+          - cell "Single Family Full Build Proposal"
+          - cell "draft":
+            - generic: draft
+          - cell "$1,250,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "May 31, 10:00 PM"
+          - cell "Open proposal Single Family Full Build Proposal":
+            - button "Open proposal Single Family Full Build Proposal":
+              - text: Open proposal
+        - row "Single Family Full Build Proposal draft $1,250,000 0 / 0 - Jun 02, 11:18 PM Open proposal Single Family Full Build Proposal":
+          - cell "Single Family Full Build Proposal"
+          - cell "draft":
+            - generic: draft
+          - cell "$1,250,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "Jun 02, 11:18 PM"
+          - cell "Open proposal Single Family Full Build Proposal":
+            - button "Open proposal Single Family Full Build Proposal":
+              - text: Open proposal
+        - row "Single Family Full Build Proposal submitted $1,250,000 0 / 0 - May 28, 4:35 PM Open proposal Single Family Full Build Proposal":
+          - cell "Single Family Full Build Proposal"
+          - cell "submitted":
+            - generic: submitted
+          - cell "$1,250,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "May 28, 4:35 PM"
+          - cell "Open proposal Single Family Full Build Proposal":
+            - button "Open proposal Single Family Full Build Proposal":
+              - text: Open proposal
+        - row "Seed Scenario - Draft submitted $650,250 0 / 0 - Jul 16, 5:32 PM Open proposal Seed Scenario - Draft":
+          - cell "Seed Scenario - Draft"
+          - cell "submitted":
+            - generic: submitted
+          - cell "$650,250"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "Jul 16, 5:32 PM"
+          - cell "Open proposal Seed Scenario - Draft":
+            - button "Open proposal Seed Scenario - Draft":
+              - text: Open proposal
+        - row "Seed Scenario - Submitted submitted $750,000 0 / 0 - May 28, 4:09 PM Open proposal Seed Scenario - Submitted":
+          - cell "Seed Scenario - Submitted"
+          - cell "submitted":
+            - generic: submitted
+          - cell "$750,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "May 28, 4:09 PM"
+          - cell "Open proposal Seed Scenario - Submitted":
+            - button "Open proposal Seed Scenario - Submitted":
+              - text: Open proposal
+        - row "Seed Scenario - Rejected submitted $750,000 0 / 0 - May 28, 4:09 PM Open proposal Seed Scenario - Rejected":
+          - cell "Seed Scenario - Rejected"
+          - cell "submitted":
+            - generic: submitted
+          - cell "$750,000"
+          - cell "0 / 0"
+          - cell "-"
+          - cell "May 28, 4:09 PM"
+          - cell "Open proposal Seed Scenario - Rejected":
+            - button "Open proposal Seed Scenario - Rejected":
+              - text: Open proposal
+  - button "Open DrawFlow AI assistant":
+- region "Notifications alt+T"

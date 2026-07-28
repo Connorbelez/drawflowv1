@@ -2,8 +2,8 @@ import { Presence } from "@convex-dev/presence";
 import { Timeline } from "convex-timeline";
 
 import { components } from "./_generated/api";
-import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 import { normalizeRoleSlugs, type RoleSlug } from "./authz";
+import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 export const COLLABORATION_ROLES = [
   "builder",
@@ -115,10 +115,7 @@ export function proposalCollaborationRoomId(input: {
 export function defaultCollaborationPermission(
   roles: readonly RoleSlug[]
 ): CollaborationPermission {
-  if (
-    roles.includes("builder-staff") ||
-    roles.includes("broker-staff")
-  ) {
+  if (roles.includes("builder-staff") || roles.includes("broker-staff")) {
     return "view";
   }
   return "edit";
@@ -265,7 +262,9 @@ export async function getSessionByShareToken(
   const hashedToken = await shareTokenHash(shareToken);
   return await ctx.db
     .query("proposalCollaborationSessions")
-    .withIndex("by_share_token_hash", (q) => q.eq("shareTokenHash", hashedToken))
+    .withIndex("by_share_token_hash", (q) =>
+      q.eq("shareTokenHash", hashedToken)
+    )
     .unique();
 }
 
@@ -309,15 +308,18 @@ export async function upsertSessionParticipant(
     }
     return updated;
   }
-  const participantId = await ctx.db.insert("proposalCollaborationParticipants", {
-    ...patch,
-    brokerageId: input.session.brokerageId,
-    createdAt: now,
-    organizationId: input.session.organizationId,
-    proposalId: input.session.proposalId,
-    sessionId: input.session._id,
-    workosUserId: input.workosUserId,
-  });
+  const participantId = await ctx.db.insert(
+    "proposalCollaborationParticipants",
+    {
+      ...patch,
+      brokerageId: input.session.brokerageId,
+      createdAt: now,
+      organizationId: input.session.organizationId,
+      proposalId: input.session.proposalId,
+      sessionId: input.session._id,
+      workosUserId: input.workosUserId,
+    }
+  );
   const participant = await ctx.db.get(participantId);
   if (!participant) {
     throw new Error("Collaboration participant insert failed.");
@@ -343,7 +345,11 @@ export async function assertParticipantCanEdit(
   session: Doc<"proposalCollaborationSessions">,
   workosUserId: string
 ) {
-  const participant = await getParticipantForUser(ctx, session._id, workosUserId);
+  const participant = await getParticipantForUser(
+    ctx,
+    session._id,
+    workosUserId
+  );
   if (!participant) {
     throw new Error("Forbidden: collaboration participant");
   }
@@ -390,7 +396,11 @@ export async function hasActiveCollaborationParticipant(
   if (!session) {
     return false;
   }
-  const participant = await getParticipantForUser(ctx, session._id, workosUserId);
+  const participant = await getParticipantForUser(
+    ctx,
+    session._id,
+    workosUserId
+  );
   return Boolean(
     participant &&
       participant.status !== "revoked" &&
@@ -473,7 +483,8 @@ export async function captureProposalPlanningSnapshot(
     Doc<"proposalSubmilestones">[]
   >();
   for (const submilestone of submilestones) {
-    const rows = submilestonesByMilestoneKey.get(submilestone.milestoneKey) ?? [];
+    const rows =
+      submilestonesByMilestoneKey.get(submilestone.milestoneKey) ?? [];
     rows.push(submilestone);
     submilestonesByMilestoneKey.set(submilestone.milestoneKey, rows);
   }
@@ -529,7 +540,8 @@ export async function captureProposalPlanningSnapshot(
       tone: milestone.tone,
     })),
     proposal: {
-      borrowerWorkingCapitalLimitCents: proposal.borrowerWorkingCapitalLimitCents,
+      borrowerWorkingCapitalLimitCents:
+        proposal.borrowerWorkingCapitalLimitCents,
       lenderDrawPolicyLimitCents: proposal.lenderDrawPolicyLimitCents,
       timelineCurrentDay: proposal.timelineCurrentDay,
       timelineProgressValue: proposal.timelineProgressValue,
@@ -909,7 +921,11 @@ async function assertParticipantCanEditOrView(
   session: Doc<"proposalCollaborationSessions">,
   workosUserId: string
 ) {
-  const participant = await getParticipantForUser(ctx, session._id, workosUserId);
+  const participant = await getParticipantForUser(
+    ctx,
+    session._id,
+    workosUserId
+  );
   if (!participant || participant.status === "revoked") {
     throw new Error("Forbidden: collaboration participant");
   }

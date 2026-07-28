@@ -1,12 +1,21 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
-import { Frame, FrameDescription, FramePanel, FrameTitle } from "#/components/ui/frame.tsx";
-import { takeProposalClaimReturnPath } from "#/lib/proposal-claim-return.ts";
+import {
+  Frame,
+  FrameDescription,
+  FramePanel,
+  FrameTitle,
+} from "#/components/ui/frame.tsx";
 import { roleLabel, type Workspace } from "#/lib/auth/rbac.ts";
+import { takeProposalClaimReturnPath } from "#/lib/proposal-claim-return.ts";
 
 type ProtectedAccessSearch = {
-  reason?: "missing-organization" | "no-workspace-access" | "onboarding-required";
+  reason?:
+    | "missing-organization"
+    | "no-workspace-access"
+    | "onboarding-required"
+    | "profile-link-required";
   workspace?: Workspace;
 };
 
@@ -15,10 +24,16 @@ export const Route = createFileRoute("/protected-access")({
     reason:
       search.reason === "missing-organization" ||
       search.reason === "onboarding-required" ||
-      search.reason === "no-workspace-access"
+      search.reason === "no-workspace-access" ||
+      search.reason === "profile-link-required"
         ? search.reason
         : "no-workspace-access",
-    workspace: search.workspace === "builder" ? "builder" : "backoffice",
+    workspace:
+      search.workspace === "builder" ||
+      search.workspace === "backoffice" ||
+      search.workspace === "contractor"
+        ? search.workspace
+        : "backoffice",
   }),
   component: ProtectedAccessRoute,
 });

@@ -20,6 +20,7 @@ const row = {
   name: "Foundation",
   order: 1,
   percentageBps: 10_000,
+  startDay: 0,
   subMilestoneDetails: [],
   subMilestones: ["Excavation"],
   type: "foundation",

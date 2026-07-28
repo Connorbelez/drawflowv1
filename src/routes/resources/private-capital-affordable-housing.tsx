@@ -5,7 +5,9 @@ import {
   getArticlePageHead,
 } from "#/features/fairlend-public/fairlend-public-pages.tsx";
 
-export const Route = createFileRoute("/resources/private-capital-affordable-housing")({
+export const Route = createFileRoute(
+  "/resources/private-capital-affordable-housing"
+)({
   component: PrivateCapitalArticle,
   head: () => getArticlePageHead("privateCapital"),
 });

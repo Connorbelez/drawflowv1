@@ -28,21 +28,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu.tsx";
-import type {
-  CalendarAction,
-  CalendarActionContext,
-} from "./calendarTypes";
+import type { CalendarAction, CalendarActionContext } from "./calendarTypes";
 
 export function visibleCalendarActions(
   actions: CalendarAction[],
   appliesTo: CalendarAction["appliesTo"],
-  context: CalendarActionContext,
+  context: CalendarActionContext
 ): CalendarAction[] {
   return actions.filter(
     (action) =>
       action.appliesTo === appliesTo &&
       action.availability.state !== "hidden" &&
-      (action.isVisible?.(context) ?? true),
+      (action.isVisible?.(context) ?? true)
   );
 }
 
@@ -66,7 +63,11 @@ export function CalendarContextMenu({
       : context.events?.length
         ? "selection"
         : "date";
-  const visible = visibleCalendarActions(actions, target ?? inferredTarget, context);
+  const visible = visibleCalendarActions(
+    actions,
+    target ?? inferredTarget,
+    context
+  );
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<div />}>{children}</ContextMenuTrigger>
@@ -99,7 +100,11 @@ export function CalendarOverflowMenu({
       : context.events?.length
         ? "selection"
         : "date";
-  const visible = visibleCalendarActions(actions, target ?? inferredTarget, context);
+  const visible = visibleCalendarActions(
+    actions,
+    target ?? inferredTarget,
+    context
+  );
   return (
     <DropdownMenu>
       <DropdownMenuTrigger

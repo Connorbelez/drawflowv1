@@ -208,9 +208,12 @@
 }
 
 .timeline-setup-main {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
+  display: contents;
+}
+
+.timeline-setup-main > .timeline-setup-budget-input-panel,
+.timeline-setup-main > .timeline-blueprint-error {
+  grid-column: 1 / -1;
 }
 
 .timeline-blueprint-panel {
@@ -365,7 +368,7 @@
 }
 
 .timeline-setup-budget-input-panel {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr));
   align-items: start;
 }
 
@@ -600,7 +603,7 @@
 }
 
 .timeline-setup-sidecar {
-  position: sticky;
+  position: static;
   top: 24px;
   display: grid;
   align-content: start;
@@ -929,6 +932,33 @@
   height: 15px;
 }
 
+.timeline-blueprint-view-tabs {
+  min-width: 0;
+  gap: 0;
+}
+
+.timeline-blueprint-view-tabs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 46px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.28), oklch(0.72 0.08 240 / 0.28));
+  border-bottom: 0;
+  background: light-dark(oklch(0.985 0.010 235 / 0.72), oklch(0.08 0.016 255 / 0.72));
+  padding: 0 14px;
+}
+
+.timeline-blueprint-view-tabs-list {
+  justify-content: flex-start;
+  width: 100%;
+  overflow-x: auto;
+  padding-block: 0;
+}
+
+.timeline-blueprint-view-panel {
+  min-width: 0;
+}
+
 .timeline-blueprint-table-wrap {
   position: relative;
   overflow: visible;
@@ -1040,6 +1070,381 @@
 
 .timeline-blueprint-table tr:hover td {
   background: transparent;
+}
+
+.timeline-blueprint-summary-table-wrap {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.28), oklch(0.72 0.08 240 / 0.28));
+  background:
+    radial-gradient(ellipse 76% 52% at 52% -12%, light-dark(oklch(0.400 0.120 240 / 0.08), oklch(0.28 0.075 248 / 0.38)), transparent 62%),
+    radial-gradient(ellipse 42% 68% at 100% 2%, light-dark(oklch(0.400 0.120 240 / 0.06), oklch(0.22 0.055 238 / 0.28)), transparent 58%),
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.82), oklch(0.048 0.014 258 / 0.94)), light-dark(oklch(0.985 0.010 235 / 0.9), oklch(0.026 0.009 260 / 0.98))),
+    linear-gradient(90deg, light-dark(oklch(0.400 0.120 240 / 0.055), oklch(0.72 0.1 240 / 0.055)) 1px, transparent 1px);
+  background-size: auto, auto, auto, 32px 32px;
+  box-shadow:
+    inset 0 1px 0 light-dark(oklch(1 0 0 / 0.72), oklch(0.95 0.03 250 / 0.08)),
+    inset 0 -42px 80px light-dark(oklch(0.180 0.022 258 / 0.04), oklch(0.015 0.006 260 / 0.62));
+}
+
+.timeline-blueprint-summary-table-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 58px;
+  border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.22), oklch(0.72 0.08 240 / 0.22));
+  padding: 12px 14px;
+}
+
+.timeline-blueprint-summary-add-milestone {
+  display: grid;
+  grid-template-columns: minmax(180px, 300px) auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+.timeline-blueprint-summary-add-milestone input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.24), oklch(0.72 0.08 240 / 0.24));
+  border-radius: 7px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.72), oklch(0.08 0.016 258 / 0.72));
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.92 0.014 260));
+  font-size: 12px;
+  font-weight: 650;
+  outline: none;
+  padding: 7px 10px;
+}
+
+.timeline-blueprint-summary-add-milestone input:focus-visible {
+  border-color: light-dark(oklch(0.400 0.160 236 / 0.72), oklch(0.82 0.14 238 / 0.72));
+  box-shadow: 0 0 0 3px light-dark(oklch(0.400 0.120 240 / 0.12), oklch(0.72 0.12 238 / 0.12));
+}
+
+.timeline-blueprint-summary-table-heading span {
+  color: light-dark(oklch(0.400 0.120 240), oklch(0.68 0.055 246));
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.timeline-blueprint-summary-table-heading strong {
+  display: block;
+  margin-top: 4px;
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.94 0.012 260));
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.timeline-blueprint-summary-table {
+  min-width: 1280px;
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.9 0.018 260));
+  border-collapse: collapse;
+}
+
+.timeline-blueprint-summary-table th {
+  height: 44px;
+  border-right: 1px solid light-dark(oklch(0.400 0.120 240 / 0.16), oklch(0.72 0.08 240 / 0.16));
+  border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.24), oklch(0.72 0.08 240 / 0.24));
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.88), oklch(0.11 0.024 252 / 0.78)), light-dark(oklch(0.985 0.010 235 / 0.88), oklch(0.045 0.014 258 / 0.88))),
+    radial-gradient(ellipse 60% 80% at 50% 0%, light-dark(oklch(0.400 0.120 240 / 0.06), oklch(0.38 0.075 240 / 0.14)), transparent 64%);
+  color: light-dark(oklch(0.400 0.160 236), oklch(0.78 0.06 246));
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.timeline-blueprint-summary-table td {
+  height: 64px;
+  border-right: 1px solid light-dark(oklch(0.400 0.120 240 / 0.15), oklch(0.72 0.08 240 / 0.15));
+  border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.18), oklch(0.72 0.08 240 / 0.18));
+  background: transparent;
+  padding-block: 8px;
+}
+
+.timeline-blueprint-summary-row {
+  background: transparent !important;
+}
+
+.timeline-blueprint-summary-row:hover td,
+.timeline-blueprint-summary-row:focus-within td {
+  background: light-dark(oklch(0.985 0.010 235 / 0.28), oklch(0.18 0.04 248 / 0.28));
+}
+
+.timeline-blueprint-summary-row.is-submilestone td {
+  height: 54px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.35), oklch(0.035 0.012 258 / 0.54));
+}
+
+.timeline-blueprint-summary-row.is-excluded td {
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.56 0.028 260));
+  opacity: 0.62;
+}
+
+.timeline-blueprint-summary-scope {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  white-space: normal;
+}
+
+.timeline-blueprint-summary-scope.is-submilestone {
+  position: relative;
+  display: grid;
+  align-items: center;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  padding-left: 0;
+}
+
+.timeline-blueprint-summary-scope.is-submilestone::before {
+  display: none;
+}
+
+.timeline-blueprint-summary-scope.is-submilestone > span {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.timeline-blueprint-summary-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 28px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.22), oklch(0.72 0.08 240 / 0.22));
+  border-radius: 6px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.6), oklch(0.1 0.018 258 / 0.6));
+  color: light-dark(oklch(0.400 0.120 240), oklch(0.72 0.08 240));
+}
+
+.timeline-blueprint-summary-drag-handle:hover,
+.timeline-blueprint-summary-drag-handle:focus-visible {
+  border-color: light-dark(oklch(0.400 0.160 236 / 0.68), oklch(0.82 0.14 238 / 0.68));
+  color: light-dark(oklch(0.380 0.140 236), oklch(0.88 0.12 238));
+  outline: none;
+}
+
+.timeline-blueprint-summary-drag-handle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.timeline-blueprint-summary-scope strong {
+  overflow: hidden;
+  color: light-dark(oklch(0.180 0.022 258), oklch(0.95 0.012 260));
+  font-size: 14px;
+  font-weight: 740;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+}
+
+.timeline-blueprint-summary-scope small,
+.timeline-blueprint-summary-window small {
+  overflow: hidden;
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.66 0.035 260));
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+}
+
+.timeline-blueprint-summary-window {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.timeline-blueprint-summary-window strong {
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.91 0.014 260));
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.timeline-blueprint-summary-input {
+  width: min(100%, 140px);
+  max-width: 140px;
+}
+
+.timeline-blueprint-summary-table-wrap .timeline-blueprint-input,
+.timeline-blueprint-summary-add-milestone input {
+  background:
+    radial-gradient(ellipse 92% 120% at 50% -34%, light-dark(oklch(0.400 0.120 240 / 0.08), oklch(0.24 0.065 248 / 0.26)), transparent 62%),
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.9), oklch(0.055 0.014 258 / 0.88)), light-dark(oklch(0.985 0.010 235 / 0.96), oklch(0.018 0.007 260 / 0.94)));
+  box-shadow:
+    inset 0 1px 0 light-dark(oklch(1 0 0 / 0.72), oklch(0.95 0.03 250 / 0.06)),
+    inset 0 -18px 30px light-dark(oklch(0.180 0.022 258 / 0.03), oklch(0.005 0.002 260 / 0.48));
+}
+
+.timeline-blueprint-summary-readout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 30px;
+  color: light-dark(oklch(0.220 0.020 258), oklch(0.91 0.014 260));
+  font-size: 13px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.timeline-blueprint-summary-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.timeline-blueprint-summary-status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.18), oklch(0.72 0.08 240 / 0.18));
+  border-radius: 999px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.5), oklch(0.08 0.018 258 / 0.5));
+  color: light-dark(oklch(0.440 0.040 258), oklch(0.62 0.033 260));
+  cursor: help;
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  padding: 0 8px;
+  text-transform: uppercase;
+  transition:
+    transform var(--setup-fast) var(--setup-ease),
+    border-color var(--setup-fast) var(--setup-ease),
+    background var(--setup-fast) var(--setup-ease),
+    box-shadow var(--setup-fast) var(--setup-ease),
+    color var(--setup-fast) var(--setup-ease);
+  white-space: nowrap;
+}
+
+.timeline-blueprint-summary-status-chip[data-state="set"] {
+  border-color: light-dark(oklch(0.450 0.200 145 / 0.28), oklch(0.82 0.16 145 / 0.28));
+  background: light-dark(oklch(0.920 0.090 145 / 0.36), oklch(0.15 0.05 145 / 0.36));
+  color: light-dark(oklch(0.350 0.150 145), oklch(0.82 0.17 145));
+}
+
+.timeline-blueprint-summary-status-chip:hover,
+.timeline-blueprint-summary-status-chip:focus-visible {
+  transform: translateY(-1px);
+  border-color: light-dark(oklch(0.400 0.160 236 / 0.62), oklch(0.82 0.14 238 / 0.62));
+  background: light-dark(oklch(0.985 0.010 235 / 0.92), oklch(0.13 0.030 252 / 0.92));
+  box-shadow:
+    0 0 0 3px light-dark(oklch(0.400 0.120 240 / 0.1), oklch(0.72 0.12 238 / 0.12)),
+    0 8px 24px light-dark(oklch(0.130 0.035 258 / 0.09), oklch(0 0 0 / 0.24));
+  color: light-dark(oklch(0.320 0.125 236), oklch(0.9 0.12 238));
+  outline: none;
+}
+
+.timeline-blueprint-summary-status-chip[data-state="set"]:hover,
+.timeline-blueprint-summary-status-chip[data-state="set"]:focus-visible {
+  border-color: light-dark(oklch(0.430 0.200 145 / 0.5), oklch(0.84 0.17 145 / 0.5));
+  background: light-dark(oklch(0.920 0.090 145 / 0.58), oklch(0.18 0.06 145 / 0.58));
+  color: light-dark(oklch(0.280 0.140 145), oklch(0.88 0.17 145));
+}
+
+.timeline-blueprint-summary-status-tooltip {
+  width: min(360px, calc(100vw - 32px));
+  padding: 0;
+  text-align: left;
+  text-transform: none;
+}
+
+.timeline-blueprint-summary-status-tooltip-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.timeline-blueprint-summary-status-tooltip-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.timeline-blueprint-summary-status-tooltip-heading span {
+  color: light-dark(oklch(0.400 0.160 236), oklch(0.78 0.06 246));
+  font-size: 10px;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.timeline-blueprint-summary-status-tooltip-heading strong {
+  color: light-dark(oklch(0.180 0.022 258), oklch(0.95 0.012 260));
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.timeline-blueprint-summary-status-tooltip-card > p,
+.timeline-blueprint-summary-status-tooltip-empty,
+.timeline-blueprint-summary-status-tooltip-more {
+  margin: 0;
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.68 0.035 260));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.timeline-blueprint-summary-status-tooltip-list {
+  display: grid;
+  gap: 8px;
+}
+
+.timeline-blueprint-summary-status-tooltip-list article {
+  display: grid;
+  gap: 3px;
+  border: 1px solid light-dark(oklch(0.400 0.120 240 / 0.16), oklch(0.72 0.08 240 / 0.16));
+  border-radius: 7px;
+  background: light-dark(oklch(0.985 0.010 235 / 0.64), oklch(0.08 0.018 258 / 0.64));
+  padding: 8px;
+}
+
+.timeline-blueprint-summary-status-tooltip-list article strong {
+  color: light-dark(oklch(0.180 0.022 258), oklch(0.94 0.012 260));
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.timeline-blueprint-summary-status-tooltip-list article span,
+.timeline-blueprint-summary-status-tooltip-list article small {
+  color: light-dark(oklch(0.420 0.040 258), oklch(0.68 0.035 260));
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.timeline-blueprint-summary-row-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.timeline-blueprint-summary-details-button {
+  height: 30px;
+  border-color: light-dark(oklch(0.400 0.120 240 / 0.34), oklch(0.72 0.12 238 / 0.34));
+  background: light-dark(oklch(0.985 0.010 235 / 0.78), oklch(0.1 0.02 255 / 0.78));
+  color: light-dark(oklch(0.400 0.160 236), oklch(0.82 0.12 238));
+  font-size: 12px;
+}
+
+.timeline-blueprint-summary-details-button:hover,
+.timeline-blueprint-summary-details-button:focus-visible {
+  border-color: light-dark(oklch(0.400 0.160 236 / 0.72), oklch(0.82 0.14 238 / 0.72));
+  background: light-dark(oklch(0.985 0.010 235 / 0.9), oklch(0.14 0.03 252 / 0.9));
+  color: light-dark(oklch(0.380 0.140 236), oklch(0.9 0.12 238));
+}
+
+.timeline-blueprint-summary-details-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.timeline-blueprint-summary-add-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .timeline-blueprint-table tr.is-excluded td {
@@ -1338,6 +1743,74 @@
   animation: timeline-submilestone-reveal 220ms var(--setup-ease) both;
 }
 
+.timeline-blueprint-details-sheet {
+  width: min(96vw, 980px);
+  max-width: min(96vw, 980px);
+  border-color: light-dark(oklch(0.400 0.120 240 / 0.28), oklch(0.72 0.08 240 / 0.28));
+  background:
+    linear-gradient(180deg, light-dark(oklch(0.985 0.010 235 / 0.96), oklch(0.10 0.018 255 / 0.96)), light-dark(oklch(0.985 0.010 235 / 0.98), oklch(0.055 0.014 258 / 0.98))),
+    linear-gradient(to right, light-dark(oklch(0.400 0.120 240 / 0.045), oklch(0.72 0.09 240 / 0.045)) 1px, transparent 1px),
+    linear-gradient(to bottom, light-dark(oklch(0.400 0.120 240 / 0.04), oklch(0.72 0.09 240 / 0.04)) 1px, transparent 1px);
+  background-size: auto, 32px 32px, 32px 32px;
+}
+
+.timeline-blueprint-details-sheet.is-milestone-detail {
+  width: min(calc(100vw - 32px), 1420px);
+  max-width: min(calc(100vw - 32px), 1420px);
+}
+
+.timeline-blueprint-details-sheet-backdrop {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.timeline-blueprint-details-sheet-header {
+  border-bottom: 1px solid light-dark(oklch(0.400 0.120 240 / 0.18), oklch(0.72 0.08 240 / 0.18));
+  padding-bottom: 16px;
+}
+
+.timeline-blueprint-details-sheet-panel {
+  min-height: 0;
+  padding: 16px;
+}
+
+.timeline-blueprint-expanded-tabs.is-sheet {
+  min-height: min(720px, calc(100svh - 150px));
+  border-radius: 0;
+}
+
+.timeline-blueprint-expanded-tabs.is-sheet .timeline-submilestone-editor {
+  grid-template-columns: minmax(300px, 0.88fr) minmax(360px, 1.12fr);
+}
+
+.timeline-blueprint-expanded-tabs.is-sheet .timeline-submilestone-card-list {
+  max-height: min(420px, 48svh);
+}
+
+.timeline-submilestone-focused-tabs.is-sheet {
+  min-height: min(640px, calc(100svh - 150px));
+}
+
+.timeline-submilestone-focused-pane {
+  min-height: min(560px, calc(100svh - 220px));
+  border: 0;
+  padding: 18px;
+}
+
+.timeline-submilestone-focused-pane .timeline-submilestone-detail-body {
+  max-width: 780px;
+}
+
+.timeline-submilestone-focused-guidance {
+  min-height: min(560px, calc(100svh - 220px));
+  border: 0;
+}
+
+.timeline-submilestone-focused-guidance .timeline-submilestone-detail-field {
+  max-width: 780px;
+}
+
 .timeline-blueprint-expanded-tabs-header {
   display: flex;
   align-items: center;
@@ -1487,6 +1960,12 @@
   color: light-dark(oklch(0.220 0.020 258), oklch(0.9 0.018 260));
   font-size: 12px;
   padding: 0 10px;
+}
+
+.timeline-blueprint-planning-scope-chip.is-locked {
+  border-color: light-dark(oklch(0.450 0.200 145 / 0.34), oklch(0.82 0.16 145 / 0.34));
+  color: light-dark(oklch(0.350 0.150 145), oklch(0.82 0.17 145));
+  font-weight: 740;
 }
 
 .timeline-blueprint-planning-card {
@@ -2375,7 +2854,7 @@
   }
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 900px) {
   .timeline-setup-template-panel {
     grid-template-columns: 1fr;
   }
@@ -2388,10 +2867,6 @@
 
   .timeline-template-grid {
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
-  }
-
-  .timeline-setup-budget-input-panel {
-    grid-template-columns: 1fr;
   }
 
   .timeline-submilestone-editor,
@@ -2412,6 +2887,16 @@
   .timeline-blueprint-add-milestone,
   .timeline-blueprint-budget-controls {
     grid-template-columns: 1fr;
+  }
+
+  .timeline-blueprint-summary-table-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .timeline-blueprint-summary-add-milestone {
+    grid-template-columns: 1fr;
+    width: 100%;
   }
 
   .timeline-blueprint-budget-toggle-group {
@@ -2441,6 +2926,10 @@
 
   .timeline-setup-panel {
     padding: 18px;
+  }
+
+  .timeline-setup-budget-input-panel {
+    grid-template-columns: 1fr;
   }
 
   .timeline-setup-step-rail {
@@ -2534,6 +3023,20 @@
 
   .timeline-submilestone-bank-controls {
     grid-template-columns: 1fr;
+  }
+
+  .timeline-blueprint-details-sheet {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+  }
+
+  .timeline-blueprint-details-sheet.is-milestone-detail {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+  }
+
+  .timeline-blueprint-details-sheet-panel {
+    padding: 12px;
   }
 
   .timeline-submilestone-bank-list {

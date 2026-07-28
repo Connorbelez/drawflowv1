@@ -1,7 +1,7 @@
-import { motion, AnimatePresence, type Transition } from "framer-motion";
+import { AnimatePresence, motion, type Transition } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
-import type { NavMenu, NavColumn } from "./nav-data";
 import { cn } from "@/lib/utils";
+import type { NavColumn, NavMenu } from "./nav-data";
 
 type Direction = "ltr" | "rtl";
 
@@ -38,7 +38,7 @@ const contentVariants = {
 function flatIndex(
   colIdx: number,
   rowIdx: number,
-  columns: NavColumn[],
+  columns: NavColumn[]
 ): number {
   const before = columns
     .slice(0, colIdx)
@@ -50,11 +50,13 @@ function itemDelay(
   colIdx: number,
   rowIdx: number,
   columns: NavColumn[],
-  direction: Direction,
+  direction: Direction
 ): number {
   const total = columns.reduce((sum, col) => sum + 1 + col.items.length, 0);
   let flat = flatIndex(colIdx, rowIdx, columns);
-  if (direction === "rtl") flat = total - 1 - flat;
+  if (direction === "rtl") {
+    flat = total - 1 - flat;
+  }
   return Math.max(0, flat) * STAGGER_STEP;
 }
 
@@ -66,7 +68,7 @@ function itemTransition(
   colIdx: number,
   rowIdx: number,
   columns: NavColumn[],
-  direction: Direction,
+  direction: Direction
 ): Transition {
   return {
     duration: 0.18,
@@ -89,9 +91,11 @@ function MegaMenuPanel({
 
   useEffect(() => {
     const el = bodyRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const ro = new ResizeObserver(([entry]) =>
-      setHeight(entry.contentRect.height),
+      setHeight(entry.contentRect.height)
     );
     ro.observe(el);
     return () => ro.disconnect();
@@ -99,115 +103,115 @@ function MegaMenuPanel({
 
   return (
     <motion.div
-      id="desktop-mega-menu"
-      ref={panelRef}
-      initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height }}
+      className="absolute top-[calc(100%-1px)] -right-px -left-px z-50 overflow-hidden rounded-b-xl border border-neutral-200 border-t-0 bg-white shadow-lg"
       exit={{ opacity: 0, height: 0 }}
-      transition={{
-        height: { duration: 0.28, ease: SPRING },
-        opacity: { duration: 0.18, ease: "easeOut" },
-      }}
-      className="absolute -left-px -right-px top-[calc(100%-1px)] shadow-lg z-50 overflow-hidden rounded-b-xl border border-t-0 border-neutral-200 bg-white"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      id="desktop-mega-menu"
+      initial={{ opacity: 0, height: 0 }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
           onEscape?.();
         }
       }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      ref={panelRef}
+      transition={{
+        height: { duration: 0.28, ease: SPRING },
+        opacity: { duration: 0.18, ease: "easeOut" },
+      }}
     >
       <div ref={bodyRef}>
-        <AnimatePresence initial={false} custom={direction} mode="popLayout">
+        <AnimatePresence custom={direction} initial={false} mode="popLayout">
           <motion.div
-            key={menu.id}
-            custom={direction}
-            variants={contentVariants}
-            initial="enter"
             animate="center"
+            className="flex w-full"
+            custom={direction}
             exit="exit"
+            initial="enter"
+            key={menu.id}
             transition={{
               x: { duration: 0.26, ease: SPRING },
               opacity: { duration: 0.16, ease: "easeOut" },
             }}
-            className="flex w-full"
+            variants={contentVariants}
           >
             {menu.columns.map((column, colIdx) => (
               <div
-                key={column.heading}
                 className={cn(
                   "flex-1 px-8 py-8",
                   column.accent ? "bg-neutral-50" : "bg-white",
-                  colIdx !== 0 && "border-l border-neutral-200",
+                  colIdx !== 0 && "border-neutral-200 border-l"
                 )}
+                key={column.heading}
               >
                 <motion.p
-                  initial={initial}
                   animate={{ opacity: 1, x: 0, y: 0 }}
+                  className="mb-5 select-none font-semibold text-slate-500 text-xs uppercase tracking-widest"
+                  initial={initial}
                   transition={itemTransition(
                     colIdx,
                     -1,
                     menu.columns,
-                    direction,
+                    direction
                   )}
-                  className="mb-5 select-none text-xs font-semibold uppercase tracking-widest text-slate-500"
                 >
                   {column.heading}
                 </motion.p>
 
                 <div className="flex flex-col gap-y-5">
-                  {column.items.map((item, rowIdx) => (
+                  {column.items.map((item, rowIdx) =>
                     hasNavigableHref(item.href) ? (
                       <motion.a
-                        key={item.label}
+                        animate={{ opacity: 1, x: 0, y: 0 }}
+                        className="group block"
+                        data-mega-menu-item="true"
                         href={item.href}
                         initial={initial}
-                        animate={{ opacity: 1, x: 0, y: 0 }}
+                        key={item.label}
                         transition={itemTransition(
                           colIdx,
                           rowIdx,
                           menu.columns,
-                          direction,
+                          direction
                         )}
-                        className="group block"
-                        data-mega-menu-item="true"
                       >
-                        <span className="block text-sm font-semibold leading-snug text-slate-900 transition-colors duration-150 group-hover:text-violet-600">
+                        <span className="block font-semibold text-slate-900 text-sm leading-snug transition-colors duration-150 group-hover:text-violet-600">
                           {item.label}
                         </span>
                         {item.description && (
-                          <span className="mt-0.5 block text-xs leading-snug text-slate-500">
+                          <span className="mt-0.5 block text-slate-500 text-xs leading-snug">
                             {item.description}
                           </span>
                         )}
                       </motion.a>
                     ) : (
                       <motion.button
-                        key={item.label}
-                        type="button"
-                        initial={initial}
                         animate={{ opacity: 1, x: 0, y: 0 }}
+                        className="group block w-full text-left"
+                        data-mega-menu-item="true"
+                        initial={initial}
+                        key={item.label}
                         transition={itemTransition(
                           colIdx,
                           rowIdx,
                           menu.columns,
-                          direction,
+                          direction
                         )}
-                        className="group block w-full text-left"
-                        data-mega-menu-item="true"
+                        type="button"
                       >
-                        <span className="block text-sm font-semibold leading-snug text-slate-900 transition-colors duration-150 group-hover:text-violet-600">
+                        <span className="block font-semibold text-slate-900 text-sm leading-snug transition-colors duration-150 group-hover:text-violet-600">
                           {item.label}
                         </span>
                         {item.description && (
-                          <span className="mt-0.5 block text-xs leading-snug text-slate-500">
+                          <span className="mt-0.5 block text-slate-500 text-xs leading-snug">
                             {item.description}
                           </span>
                         )}
                       </motion.button>
                     )
-                  ))}
+                  )}
                 </div>
               </div>
             ))}
@@ -230,13 +234,13 @@ export function MegaMenu({
     <AnimatePresence>
       {menu && (
         <MegaMenuPanel
+          direction={direction}
           key="mega-menu-panel"
           menu={menu}
-          direction={direction}
+          onEscape={onEscape}
           onMouseEnter={onMouseEnter}
           onMouseLeave={onMouseLeave}
           panelRef={panelRef}
-          onEscape={onEscape}
         />
       )}
     </AnimatePresence>

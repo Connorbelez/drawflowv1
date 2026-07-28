@@ -5,7 +5,7 @@ const demoTimelineStatusValidator = v.union(
   v.literal("complete"),
   v.literal("ready"),
   v.literal("review"),
-  v.literal("upcoming"),
+  v.literal("upcoming")
 );
 
 const demoTimelineIconValidator = v.union(
@@ -19,7 +19,7 @@ const demoTimelineIconValidator = v.union(
   v.literal("kitchen"),
   v.literal("plumbing"),
   v.literal("roofing"),
-  v.literal("roughIn"),
+  v.literal("roughIn")
 );
 
 const demoTimelineToneValidator = v.optional(
@@ -28,14 +28,14 @@ const demoTimelineToneValidator = v.optional(
     v.literal("blocked"),
     v.literal("complete"),
     v.literal("upcoming"),
-    v.literal("warning"),
-  ),
+    v.literal("warning")
+  )
 );
 
 const demoTimelineSnapshotSubmilestoneStatusValidator = v.union(
   v.literal("todo"),
   v.literal("in_progress"),
-  v.literal("done"),
+  v.literal("done")
 );
 
 const demoTimelineSnapshotSubmilestoneValidator = v.object({
@@ -63,7 +63,7 @@ const demoTimelineMilestoneDataValidator = v.object({
       qualityNote: v.optional(v.string()),
       qualityRating: v.optional(v.number()),
       submittedAt: v.string(),
-    }),
+    })
   ),
   completionPaymentAmount: v.optional(v.number()),
   completionReview: v.optional(
@@ -80,10 +80,10 @@ const demoTimelineMilestoneDataValidator = v.object({
           tokenExpiresAt: v.optional(v.number()),
           url: v.optional(v.string()),
           visitId: v.optional(v.string()),
-        }),
+        })
       ),
       status: v.union(v.literal("approved"), v.literal("revisionRequested")),
-    }),
+    })
   ),
   draw: v.string(),
   drawAvailabilityAmount: v.optional(v.number()),
@@ -101,9 +101,9 @@ const demoTimelineMilestoneDataValidator = v.object({
           previewUrl: v.optional(v.string()),
           size: v.number(),
           tag: v.string(),
-        }),
+        })
       ),
-    }),
+    })
   ),
   icon: demoTimelineIconValidator,
   initialPaymentAmount: v.optional(v.number()),
@@ -113,7 +113,7 @@ const demoTimelineMilestoneDataValidator = v.object({
   status: demoTimelineStatusValidator,
   subMilestones: v.optional(v.array(v.string())),
   submilestoneDetails: v.optional(
-    v.array(demoTimelineSnapshotSubmilestoneValidator),
+    v.array(demoTimelineSnapshotSubmilestoneValidator)
   ),
 });
 
@@ -142,8 +142,8 @@ const demoTimelineDrawValidator = v.object({
       v.literal("draft"),
       v.literal("requested"),
       v.literal("approved"),
-      v.literal("rejected"),
-    ),
+      v.literal("rejected")
+    )
   ),
   reviewedAt: v.optional(v.string()),
   requestedAt: v.optional(v.string()),
@@ -173,31 +173,31 @@ const demoTimelinePlanStatusValidator = v.union(
   v.literal("draft"),
   v.literal("submitted"),
   v.literal("approved"),
-  v.literal("archived"),
+  v.literal("archived")
 );
 
 const demoTimelineDrawStatusValidator = v.union(
   v.literal("draft"),
   v.literal("requested"),
   v.literal("approved"),
-  v.literal("rejected"),
+  v.literal("rejected")
 );
 
 const demoTimelineCapitalEventKindValidator = v.union(
   v.literal("cost"),
-  v.literal("cashInfusion"),
+  v.literal("cashInfusion")
 );
 
 const demoTimelineModificationRequestTypeValidator = v.union(
   v.literal("createMilestone"),
   v.literal("deleteMilestone"),
-  v.literal("updateMilestoneBudget"),
+  v.literal("updateMilestoneBudget")
 );
 
 const demoTimelineModificationRequestStatusValidator = v.union(
   v.literal("requested"),
   v.literal("approved"),
-  v.literal("rejected"),
+  v.literal("rejected")
 );
 
 const demoTimelineSiteVisitStatusValidator = v.union(
@@ -205,12 +205,12 @@ const demoTimelineSiteVisitStatusValidator = v.union(
   v.literal("in_progress"),
   v.literal("complete"),
   v.literal("expired"),
-  v.literal("superseded"),
+  v.literal("superseded")
 );
 
 const demoSiteVisitGuidanceKindValidator = v.union(
   v.literal("whatToVerify"),
-  v.literal("cameraAngle"),
+  v.literal("cameraAngle")
 );
 
 const demoTimelineSubmilestoneSnapshotValidator = v.object({
@@ -221,7 +221,7 @@ const demoTimelineSubmilestoneSnapshotValidator = v.object({
   name: v.string(),
   order: v.number(),
   status: v.optional(
-    v.union(v.literal("todo"), v.literal("in_progress"), v.literal("done")),
+    v.union(v.literal("todo"), v.literal("in_progress"), v.literal("done"))
   ),
 });
 
@@ -229,32 +229,32 @@ const productionProposalStatusValidator = v.union(
   v.literal("draft"),
   v.literal("submitted"),
   v.literal("approved"),
-  v.literal("closed"),
+  v.literal("closed")
 );
 
 const productionReviewOutcomeValidator = v.union(
   v.literal("none"),
   v.literal("requested_changes"),
   v.literal("rejected"),
-  v.literal("approved"),
+  v.literal("approved")
 );
 
 const productionDocumentTypeValidator = v.union(
   v.literal("permit"),
   v.literal("budget"),
   v.literal("plan"),
-  v.literal("supporting"),
+  v.literal("supporting")
 );
 
 const productionDocumentStatusValidator = v.union(
   v.literal("uploaded"),
   v.literal("linked"),
-  v.literal("waived"),
+  v.literal("waived")
 );
 
 const siteVisitGuidanceFieldValidator = v.union(
   v.string(),
-  v.array(v.string()),
+  v.array(v.string())
 );
 
 const siteVisitGuidanceValidator = v.object({
@@ -264,60 +264,188 @@ const siteVisitGuidanceValidator = v.object({
 
 const richTextFormatValidator = v.union(
   v.literal("plain_text"),
-  v.literal("html"),
+  v.literal("html")
 );
 
 const productionBuildStatusValidator = v.union(
   v.literal("active"),
-  v.literal("future_start"),
+  v.literal("future_start")
 );
 
 const productionBuildDrawStatusValidator = v.union(
   v.literal("planned"),
   v.literal("requested"),
   v.literal("approved"),
+  v.literal("in_review"),
+  v.literal("ready_for_admin"),
+  v.literal("approved_for_release"),
   v.literal("rejected"),
-  v.literal("released"),
+  v.literal("withdrawn"),
+  v.literal("released")
+);
+
+const activeBuildDrawRequestStatusValidator = v.union(
+  v.literal("requested"),
+  v.literal("approved"),
+  v.literal("in_review"),
+  v.literal("ready_for_admin"),
+  v.literal("approved_for_release"),
+  v.literal("rejected"),
+  v.literal("withdrawn"),
+  v.literal("released")
 );
 
 const contractorKindValidator = v.union(
   v.literal("company"),
   v.literal("individual"),
+  v.literal("crew")
 );
 
 const contractorPayRateUnitValidator = v.union(
   v.literal("hour"),
   v.literal("day"),
-  v.literal("fixed"),
+  v.literal("fixed")
 );
 
 const contractorOnboardingStatusValidator = v.union(
   v.literal("profile_only"),
   v.literal("invited"),
-  v.literal("account_linked"),
+  v.literal("account_linked")
+);
+
+const contractorProfileSourceValidator = v.union(
+  v.literal("builder_created"),
+  v.literal("backoffice_created"),
+  v.literal("self_service")
+);
+
+const contractorProfileReviewTypeValidator = v.union(
+  v.literal("legal_name_change"),
+  v.literal("primary_email_change"),
+  v.literal("compliance_docs"),
+  v.literal("deactivation"),
+  v.literal("merge"),
+  v.literal("split"),
+  v.literal("account_unlink")
+);
+
+const contractorProfileReviewStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("approved"),
+  v.literal("rejected")
+);
+
+// Self-service onboarding review state machine (PRD §7.1, §14.1). Distinct
+// from the coarse account-link status on contractorProfiles.onboardingStatus:
+// onboarding review is the gated path a self-service `member` follows before
+// WorkOS contractor role promotion unlocks the full workspace.
+const contractorOnboardingReviewStatusValidator = v.union(
+  v.literal("draft"),
+  v.literal("pending_backoffice_review"),
+  v.literal("changes_requested"),
+  v.literal("approved_pending_workos"),
+  v.literal("active"),
+  v.literal("rejected"),
+  v.literal("merged")
+);
+
+// Backoffice onboarding review decision outcomes (PRD §7.2).
+const contractorOnboardingReviewOutcomeValidator = v.union(
+  v.literal("approved"),
+  v.literal("rejected"),
+  v.literal("changes_requested"),
+  v.literal("merged"),
+  v.literal("compliance_required"),
+  v.literal("approved_missing_compliance"),
+  v.literal("compliance_not_required")
+);
+
+// Invite/claim intent lifecycle (PRD §7.3, §14.2).
+const contractorInviteClaimStateValidator = v.union(
+  v.literal("not_invited"),
+  v.literal("invited"),
+  v.literal("accepted_pending_confirmation"),
+  v.literal("claimed"),
+  v.literal("revoked"),
+  v.literal("expired")
+);
+
+// Contractor-submitted supporting evidence feedback (PRD §8.7, §14.4).
+const contractorEvidenceFeedbackStateValidator = v.union(
+  v.literal("submitted"),
+  v.literal("useful"),
+  v.literal("not_relevant"),
+  v.literal("more_context_requested"),
+  v.literal("replacement_requested"),
+  v.literal("addressed")
+);
+
+// Assignment acknowledgement + scope issue state (PRD §14.3).
+const contractorAssignmentAckStateValidator = v.union(
+  v.literal("pending_acknowledgement"),
+  v.literal("acknowledged"),
+  v.literal("clarification_requested"),
+  v.literal("scope_disputed"),
+  v.literal("resolved")
+);
+
+const contractorScopeIssueKindValidator = v.union(
+  v.literal("clarification"),
+  v.literal("mismatch"),
+  v.literal("schedule_conflict")
+);
+
+const contractorScopeIssueStatusValidator = v.union(
+  v.literal("open"),
+  v.literal("awaiting_contractor"),
+  v.literal("awaiting_builder"),
+  v.literal("awaiting_backoffice"),
+  v.literal("resolved"),
+  v.literal("withdrawn")
+);
+
+// Contractor notification channels (PRD §10). Narrow notifications only — no
+// chat/threaded messaging (PRD §18).
+const contractorNotificationKindValidator = v.union(
+  v.literal("assigned_to_scope"),
+  v.literal("removed_from_scope"),
+  v.literal("schedule_changed"),
+  v.literal("schedule_acknowledgement_requested"),
+  v.literal("evidence_feedback"),
+  v.literal("invite_claimed"),
+  v.literal("profile_review_required"),
+  v.literal("clarification_requested"),
+  v.literal("clarification_responded"),
+  v.literal("clarification_resolved"),
+  v.literal("onboarding_result")
+);
+
+const contractorNotificationChannelValidator = v.union(
+  v.literal("in_app"),
+  v.literal("email")
 );
 
 const milestoneContractorAssignmentStatusValidator = v.union(
   v.literal("planned"),
   v.literal("active"),
   v.literal("completed"),
-  v.literal("removed"),
+  v.literal("removed")
 );
 
 const contractorQualityRatingSourceValidator = v.union(
   v.literal("builder_evidence"),
   v.literal("site_visit"),
-  v.literal("backoffice"),
+  v.literal("backoffice")
 );
 
 const productionCostItemTypeValidator = v.union(
   v.literal("material"),
-  v.literal("equipment"),
+  v.literal("equipment")
 );
 
 const builderStaffPermissionScopeValidator = v.union(
   v.literal("proposal"),
-  v.literal("activeBuild"),
+  v.literal("activeBuild")
 );
 
 const builderStaffPermissionResourceValidator = v.union(
@@ -328,40 +456,40 @@ const builderStaffPermissionResourceValidator = v.union(
   v.literal("contractor"),
   v.literal("material"),
   v.literal("capitalEvent"),
-  v.literal("reminder"),
+  v.literal("reminder")
 );
 
 const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
-  v.literal("failed"),
+  v.literal("failed")
 );
 
 const proposalCollaborationSessionStatusValidator = v.union(
   v.literal("active"),
-  v.literal("inactive"),
+  v.literal("inactive")
 );
 
 const proposalCollaborationInitiatorSideValidator = v.union(
   v.literal("broker"),
-  v.literal("builder"),
+  v.literal("builder")
 );
 
 const proposalCollaborationPermissionValidator = v.union(
   v.literal("view"),
-  v.literal("edit"),
+  v.literal("edit")
 );
 
 const proposalCollaborationParticipantStatusValidator = v.union(
   v.literal("invited"),
   v.literal("joined"),
-  v.literal("revoked"),
+  v.literal("revoked")
 );
 
 const proposalCollaborationParticipantSourceValidator = v.union(
   v.literal("creator"),
   v.literal("share-link"),
-  v.literal("invite"),
+  v.literal("invite")
 );
 
 export default defineSchema({
@@ -393,7 +521,7 @@ export default defineSchema({
         openWarnings: v.optional(v.number()),
         percentComplete: v.optional(v.number()),
         siteVisitsOpen: v.optional(v.number()),
-      }),
+      })
     ),
     borrowerCoPayBps: v.optional(v.number()),
     borrowerCoPayCents: v.optional(v.number()),
@@ -480,7 +608,7 @@ export default defineSchema({
     frozenAt: v.optional(v.number()),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones"),
+      v.id("demo_timelineMilestones")
     ),
     milestoneKey: v.string(),
     reviewStatus: v.string(),
@@ -592,7 +720,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones"),
+      v.id("demo_timelineMilestones")
     ),
     milestoneKey: v.string(),
     notes: v.string(),
@@ -605,7 +733,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones"),
+      v.id("demo_timelineMilestones")
     ),
     milestoneKey: v.string(),
     originalApprovedCents: v.number(),
@@ -623,7 +751,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones"),
+      v.id("demo_timelineMilestones")
     ),
     milestoneKey: v.string(),
     notes: v.optional(v.string()),
@@ -646,7 +774,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones"),
+      v.id("demo_timelineMilestones")
     ),
     milestoneKey: v.string(),
     milestoneName: v.string(),
@@ -721,7 +849,7 @@ export default defineSchema({
         name: v.string(),
         percentageBps: v.number(),
         type: v.string(),
-      }),
+      })
     ),
     orgKey: v.string(),
     seedVersion: v.number(),
@@ -1212,7 +1340,7 @@ export default defineSchema({
     status: v.union(
       v.literal("active"),
       v.literal("disabled"),
-      v.literal("expired"),
+      v.literal("expired")
     ),
     updatedAt: v.number(),
   })
@@ -1247,7 +1375,7 @@ export default defineSchema({
     orgKey: v.optional(v.string()),
     scenario: v.string(),
     sourceTimelineCapitalEventId: v.optional(
-      v.id("demo_timelineCapitalEvents"),
+      v.id("demo_timelineCapitalEvents")
     ),
     updatedAt: v.number(),
   })
@@ -1330,7 +1458,7 @@ export default defineSchema({
     status: v.union(
       v.literal("todo"),
       v.literal("in_progress"),
-      v.literal("done"),
+      v.literal("done")
     ),
     budgetCents: v.optional(v.number()),
     durationDays: v.optional(v.number()),
@@ -1362,6 +1490,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_brokerage", ["brokerageId"])
+    .index("by_brokerage_and_status", ["brokerageId", "status"])
     .index("by_organization", ["organizationId"]),
   builderAccountLinks: defineTable({
     brokerageId: v.id("brokerages"),
@@ -1423,18 +1552,28 @@ export default defineSchema({
     kind: v.optional(contractorKindValidator),
     city: v.optional(v.string()),
     email: v.optional(v.string()),
+    normalizedEmail: v.optional(v.string()),
     phone: v.optional(v.string()),
+    website: v.optional(v.string()),
+    description: v.optional(v.string()),
     trades: v.array(v.string()),
     defaultPayRateCents: v.optional(v.number()),
     defaultPayRateUnit: v.optional(contractorPayRateUnitValidator),
+    serviceAreaPrimaryCity: v.optional(v.string()),
+    serviceAreaRadiusKm: v.optional(v.number()),
+    serviceAreaPostalPrefixes: v.optional(v.array(v.string())),
+    serviceAreaNotes: v.optional(v.string()),
+    complianceNotes: v.optional(v.string()),
     accountWorkosUserId: v.optional(v.string()),
     onboardingStatus: v.optional(contractorOnboardingStatusValidator),
+    source: v.optional(contractorProfileSourceValidator),
     status: v.union(v.literal("active"), v.literal("inactive")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_brokerage", ["brokerageId"])
-    .index("by_account_user", ["accountWorkosUserId"]),
+    .index("by_account_user", ["accountWorkosUserId"])
+    .index("by_brokerage_normalized_email", ["brokerageId", "normalizedEmail"]),
   contractorCapabilities: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -1489,7 +1628,7 @@ export default defineSchema({
     status: v.union(
       v.literal("suggested"),
       v.literal("verified"),
-      v.literal("rejected"),
+      v.literal("rejected")
     ),
     confidence: v.optional(v.number()),
     reason: v.optional(v.string()),
@@ -1501,6 +1640,231 @@ export default defineSchema({
     .index("by_linked", ["linkedContractorId"])
     .index("by_primary_linked", ["primaryContractorId", "linkedContractorId"])
     .index("by_primary_brokerage", ["primaryBrokerageId"]),
+  contractorProfileReviewRequests: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    contractorId: v.id("contractorProfiles"),
+    reviewType: contractorProfileReviewTypeValidator,
+    status: contractorProfileReviewStatusValidator,
+    requestedFields: v.any(),
+    priorState: v.optional(v.any()),
+    proposedState: v.optional(v.any()),
+    reason: v.optional(v.string()),
+    requestedByWorkosUserId: v.string(),
+    requestedByRole: v.string(),
+    reviewerWorkosUserId: v.optional(v.string()),
+    reviewNote: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_contractor_status", ["contractorId", "status"])
+    .index("by_brokerage_status", ["brokerageId", "status"]),
+  // Self-service onboarding review state (PRD §7.1, §7.2, §13.3, §14.1). One
+  // row per self-service onboarding attempt, tracked across the full review
+  // state machine independently of the coarse account-link status on the
+  // profile. The backoffice review queue reads rows in
+  // pending_backoffice_review / changes_requested.
+  contractorOnboardingReviews: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    contractorId: v.id("contractorProfiles"),
+    // WorkOS user that initiated self-service onboarding as a `member`. Linked
+    // to the canonical profile on approval (PRD §7.1 step 11).
+    applicantWorkosUserId: v.string(),
+    applicantNormalizedEmail: v.optional(v.string()),
+    status: contractorOnboardingReviewStatusValidator,
+    // Draft payload captures the onboarding form fields (trades, capabilities,
+    // rates, service area, availability, equipment, compliance) (PRD §7.1.3).
+    draftFields: v.optional(v.any()),
+    submissionNote: v.optional(v.string()),
+    lastOutcome: v.optional(contractorOnboardingReviewOutcomeValidator),
+    reviewDecisionNote: v.optional(v.string()),
+    reviewerWorkosUserId: v.optional(v.string()),
+    submittedAt: v.optional(v.number()),
+    reviewedAt: v.optional(v.number()),
+    mergedIntoContractorId: v.optional(v.id("contractorProfiles")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_applicant", ["applicantWorkosUserId"])
+    .index("by_brokerage_status", ["brokerageId", "status"])
+    .index("by_status", ["status"]),
+  // Invite/claim intent for invited known contractors (PRD §7.3, §7.5, §13.4,
+  // §14.2). WorkOS owns the organization invitation + role projection; this
+  // table stores app-level claim intent + confirmation state only.
+  contractorInviteClaims: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    contractorId: v.id("contractorProfiles"),
+    invitedNormalizedEmail: v.optional(v.string()),
+    inviterWorkosUserId: v.string(),
+    // WorkOS organization invitation id returned by the Management API.
+    workosInvitationId: v.optional(v.string()),
+    state: contractorInviteClaimStateValidator,
+    // The WorkOS user that accepted the organization invitation. Populated
+    // after AuthKit acceptance, before contractor confirmation (PRD §7.3.6).
+    acceptedWorkosUserId: v.optional(v.string()),
+    confirmedAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revokedByWorkosUserId: v.optional(v.string()),
+    revokeReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_contractor_state", ["contractorId", "state"])
+    .index("by_brokerage_state", ["brokerageId", "state"])
+    .index("by_accepted_user", ["acceptedWorkosUserId"])
+    .index("by_invited_email", ["invitedNormalizedEmail"]),
+  // Contractor-submitted supporting evidence (PRD §8.7, §13.5, §14.4).
+  // Supporting context only — must never auto-satisfy completion, draw, or
+  // approval requirements (PRD §3.14).
+  contractorEvidence: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    contractorId: v.id("contractorProfiles"),
+    // Optional explicit assignment pointer (PRD §8.7 required metadata).
+    proposalAssignmentId: v.optional(
+      v.id("proposalMilestoneContractorAssignments")
+    ),
+    buildAssignmentId: v.optional(v.id("milestoneContractorAssignments")),
+    targetType: v.union(v.literal("proposal"), v.literal("build")),
+    proposalId: v.optional(v.id("buildProposals")),
+    buildId: v.optional(v.id("activeBuilds")),
+    milestoneKey: v.string(),
+    submilestoneKey: v.optional(v.string()),
+    caption: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    tags: v.optional(v.array(v.string())),
+    takenAt: v.optional(v.number()),
+    linkedReminderEventId: v.optional(v.string()),
+    source: v.literal("contractor_submitted"),
+    sourceActorRole: v.literal("contractor"),
+    feedbackState: contractorEvidenceFeedbackStateValidator,
+    feedbackNote: v.optional(v.string()),
+    feedbackByWorkosUserId: v.optional(v.string()),
+    feedbackAt: v.optional(v.number()),
+    uploadedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_contractor_uploaded", ["contractorId", "uploadedAt"])
+    .index("by_proposal", ["proposalId"])
+    .index("by_build", ["buildId"])
+    .index("by_proposal_milestone", ["proposalId", "milestoneKey"])
+    .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_assignment", ["buildAssignmentId"])
+    .index("by_feedback", ["feedbackState"]),
+  // Assignment acknowledgements + scope issues (PRD §13.6, §14.3). One row per
+  // assignment per acknowledgement kind, so acknowledgement, schedule, and
+  // scope-issue state stay auditable without overwriting prior transitions.
+  contractorAcknowledgements: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    contractorId: v.id("contractorProfiles"),
+    assignmentType: v.union(v.literal("proposal"), v.literal("build")),
+    proposalAssignmentId: v.optional(
+      v.id("proposalMilestoneContractorAssignments")
+    ),
+    buildAssignmentId: v.optional(v.id("milestoneContractorAssignments")),
+    kind: v.union(v.literal("assignment"), v.literal("schedule")),
+    state: contractorAssignmentAckStateValidator,
+    acknowledgedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_assignment_type", ["assignmentType", "proposalAssignmentId"])
+    .index("by_build_assignment", ["buildAssignmentId"])
+    .index("by_contractor_kind_state", ["contractorId", "kind", "state"]),
+  contractorScopeIssues: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    contractorId: v.id("contractorProfiles"),
+    assignmentType: v.union(v.literal("proposal"), v.literal("build")),
+    proposalAssignmentId: v.optional(
+      v.id("proposalMilestoneContractorAssignments")
+    ),
+    buildAssignmentId: v.optional(v.id("milestoneContractorAssignments")),
+    proposalId: v.optional(v.id("buildProposals")),
+    buildId: v.optional(v.id("activeBuilds")),
+    milestoneKey: v.string(),
+    submilestoneKey: v.optional(v.string()),
+    kind: contractorScopeIssueKindValidator,
+    status: contractorScopeIssueStatusValidator,
+    summary: v.string(),
+    detail: v.optional(v.string()),
+    raisedByWorkosUserId: v.string(),
+    raisedByRole: v.string(),
+    resolvedByWorkosUserId: v.optional(v.string()),
+    resolutionNote: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_status", ["status"])
+    .index("by_brokerage_status", ["brokerageId", "status"])
+    .index("by_proposal", ["proposalId"])
+    .index("by_build", ["buildId"]),
+  // Contractor aliases / merged identity records (PRD §6.1.4, §13.2, §6.3).
+  // Preserves builder-created identity labels that may differ from the
+  // canonical profile, so merging never orphans assignment history.
+  contractorAliases: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    canonicalContractorId: v.id("contractorProfiles"),
+    mergedContractorId: v.optional(v.id("contractorProfiles")),
+    originalName: v.string(),
+    originalEmail: v.optional(v.string()),
+    originalPhone: v.optional(v.string()),
+    originalTrade: v.optional(v.string()),
+    sourceBuilderProfileId: v.optional(v.id("builderProfiles")),
+    sourceProposalId: v.optional(v.id("buildProposals")),
+    sourceBuildId: v.optional(v.id("activeBuilds")),
+    createdByWorkosUserId: v.string(),
+    mergeStatus: v.union(
+      v.literal("suggested"),
+      v.literal("resolved"),
+      v.literal("rejected")
+    ),
+    mergedByWorkosUserId: v.optional(v.string()),
+    mergedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_canonical", ["canonicalContractorId"])
+    .index("by_merged", ["mergedContractorId"])
+    .index("by_brokerage_email", ["brokerageId", "originalEmail"]),
+  // Narrow contractor notifications (PRD §10, §13.8). No chat/threading.
+  contractorNotifications: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    contractorId: v.id("contractorProfiles"),
+    kind: contractorNotificationKindValidator,
+    channel: contractorNotificationChannelValidator,
+    title: v.string(),
+    body: v.optional(v.string()),
+    // Optional context pointers so the notification can deep-link into the
+    // relevant workspace surface.
+    proposalId: v.optional(v.id("buildProposals")),
+    buildId: v.optional(v.id("activeBuilds")),
+    milestoneKey: v.optional(v.string()),
+    evidenceId: v.optional(v.id("contractorEvidence")),
+    scopeIssueId: v.optional(v.id("contractorScopeIssues")),
+    readAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_contractor", ["contractorId"])
+    .index("by_contractor_read", ["contractorId", "readAt"])
+    .index("by_contractor_created", ["contractorId", "createdAt"]),
   milestoneArchetypes: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -1677,12 +2041,19 @@ export default defineSchema({
     mimeType: v.string(),
     sizeBytes: v.number(),
     storageId: v.optional(v.id("_storage")),
+    // Permits are contractor-visible by default (PRD §3.17, §15). Non-permit
+    // documents require an explicit contractor-visible ACL flag (PRD §3.34).
+    contractorVisible: v.optional(v.boolean()),
     uploadedByWorkosUserId: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_proposal", ["proposalId"])
-    .index("by_proposal_type", ["proposalId", "documentType"]),
+    .index("by_proposal_type", ["proposalId", "documentType"])
+    .index("by_proposal_contractor_visible", [
+      "proposalId",
+      "contractorVisible",
+    ]),
   documentWaivers: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -1715,6 +2086,7 @@ export default defineSchema({
     lane: v.optional(v.number()),
     markerLabel: v.optional(v.string()),
     policyState: v.optional(v.string()),
+    siteVisitGuidance: v.optional(siteVisitGuidanceValidator),
     timelineStatus: v.optional(v.string()),
     tone: v.optional(v.string()),
     createdAt: v.number(),
@@ -1833,8 +2205,8 @@ export default defineSchema({
         v.literal("draft"),
         v.literal("requested"),
         v.literal("approved"),
-        v.literal("rejected"),
-      ),
+        v.literal("rejected")
+      )
     ),
     requestedAt: v.optional(v.string()),
     reviewedAt: v.optional(v.string()),
@@ -1893,7 +2265,7 @@ export default defineSchema({
     requestType: v.union(
       v.literal("createMilestone"),
       v.literal("deleteMilestone"),
-      v.literal("updateMilestoneBudget"),
+      v.literal("updateMilestoneBudget")
     ),
     reviewNote: v.optional(v.string()),
     reviewedAt: v.optional(v.number()),
@@ -1902,7 +2274,7 @@ export default defineSchema({
     status: v.union(
       v.literal("requested"),
       v.literal("approved"),
-      v.literal("rejected"),
+      v.literal("rejected")
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1940,7 +2312,7 @@ export default defineSchema({
     status: v.union(
       v.literal("active"),
       v.literal("claimed"),
-      v.literal("revoked"),
+      v.literal("revoked")
     ),
     createdByWorkosUserId: v.string(),
     claimedByWorkosUserId: v.optional(v.string()),
@@ -2052,7 +2424,7 @@ export default defineSchema({
       v.literal("week"),
       v.literal("month"),
       v.literal("quarter"),
-      v.literal("agenda"),
+      v.literal("agenda")
     ),
     updatedAt: v.number(),
     viewKey: v.string(),
@@ -2068,7 +2440,7 @@ export default defineSchema({
       v.literal("evidenceDue"),
       v.literal("reviewTarget"),
       v.literal("adminDecisionTarget"),
-      v.literal("drawReleaseTarget"),
+      v.literal("drawReleaseTarget")
     ),
     drawKey: v.optional(v.string()),
     entityKey: v.string(),
@@ -2096,11 +2468,11 @@ export default defineSchema({
           v.literal("workosUser"),
           v.literal("builderProfile"),
           v.literal("contractorProfile"),
-          v.literal("externalEmail"),
+          v.literal("externalEmail")
         ),
         role: v.optional(v.string()),
         workosUserId: v.optional(v.string()),
-      }),
+      })
     ),
     brokerageId: v.id("brokerages"),
     createdAt: v.number(),
@@ -2109,9 +2481,10 @@ export default defineSchema({
     endsAt: v.optional(v.string()),
     externalEventId: v.optional(v.string()),
     externalProvider: v.optional(
-      v.union(v.literal("google"), v.literal("outlook"), v.literal("ics")),
+      v.union(v.literal("google"), v.literal("outlook"), v.literal("ics"))
     ),
     location: v.optional(v.string()),
+    buildId: v.optional(v.id("activeBuilds")),
     organizationId: v.string(),
     proposalId: v.id("buildProposals"),
     source: v.union(v.literal("drawflow"), v.literal("external")),
@@ -2123,6 +2496,7 @@ export default defineSchema({
     updatedByWorkosUserId: v.string(),
   })
     .index("by_proposal", ["proposalId"])
+    .index("by_build", ["buildId"])
     .index("by_created_by", ["organizationId", "createdByWorkosUserId"])
     .index("by_external", [
       "organizationId",
@@ -2138,14 +2512,14 @@ export default defineSchema({
     provider: v.union(
       v.literal("ics"),
       v.literal("google"),
-      v.literal("outlook"),
+      v.literal("outlook")
     ),
     sourceBuildId: v.optional(v.id("activeBuilds")),
     sourceProposalId: v.optional(v.id("buildProposals")),
     status: v.union(
       v.literal("active"),
       v.literal("paused"),
-      v.literal("revoked"),
+      v.literal("revoked")
     ),
     subscriptionKey: v.string(),
     surface: v.union(v.literal("proposal"), v.literal("activeBuild")),
@@ -2164,12 +2538,12 @@ export default defineSchema({
     provider: v.union(
       v.literal("ics"),
       v.literal("google"),
-      v.literal("outlook"),
+      v.literal("outlook")
     ),
     status: v.union(
       v.literal("pendingReview"),
       v.literal("applied"),
-      v.literal("rejected"),
+      v.literal("rejected")
     ),
     subscriptionId: v.optional(v.id("calendarSyncSubscriptions")),
     updatedAt: v.number(),
@@ -2217,7 +2591,7 @@ export default defineSchema({
       v.literal("user"),
       v.literal("assistant"),
       v.literal("system"),
-      v.literal("tool"),
+      v.literal("tool")
     ),
     threadId: v.id("assistantThreads"),
   })
@@ -2241,7 +2615,7 @@ export default defineSchema({
       v.literal("preview"),
       v.literal("committed"),
       v.literal("failed"),
-      v.literal("cancelled"),
+      v.literal("cancelled")
     ),
     threadId: v.optional(v.id("assistantThreads")),
     updatedAt: v.number(),
@@ -2251,6 +2625,35 @@ export default defineSchema({
     .index("by_thread", ["threadId"])
     .index("by_proposal", ["proposalId"])
     .index("by_build", ["buildId"]),
+  assistantWorkflowRuns: defineTable({
+    actorRoles: v.array(v.string()),
+    brokerageId: v.optional(v.id("brokerages")),
+    createdAt: v.number(),
+    createdByWorkosUserId: v.string(),
+    currentStepId: v.optional(v.string()),
+    finalSummary: v.optional(v.string()),
+    goal: v.string(),
+    organizationId: v.string(),
+    prompt: v.string(),
+    routeContext: v.any(),
+    status: v.union(
+      v.literal("running"),
+      v.literal("needs_input"),
+      v.literal("succeeded"),
+      v.literal("failed"),
+      v.literal("cancelled")
+    ),
+    steps: v.array(v.any()),
+    threadId: v.optional(v.id("assistantThreads")),
+    updatedAt: v.number(),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_actor_status", [
+      "organizationId",
+      "createdByWorkosUserId",
+      "status",
+    ])
+    .index("by_thread_status", ["threadId", "status"]),
   assistantTraceEvents: defineTable({
     aguiType: v.string(),
     createdAt: v.number(),
@@ -2263,7 +2666,7 @@ export default defineSchema({
       v.literal("running"),
       v.literal("needs_input"),
       v.literal("succeeded"),
-      v.literal("failed"),
+      v.literal("failed")
     ),
     threadId: v.id("assistantThreads"),
   })
@@ -2294,7 +2697,7 @@ export default defineSchema({
         activeMilestoneKey: v.optional(v.string()),
         selectedPanelOpen: v.boolean(),
         straightLine: v.boolean(),
-      }),
+      })
     ),
     timelineMinimumCashReserveCents: v.optional(v.number()),
     timelineStartingCashCents: v.optional(v.number()),
@@ -2317,12 +2720,16 @@ export default defineSchema({
     mimeType: v.string(),
     sizeBytes: v.number(),
     storageId: v.optional(v.id("_storage")),
+    // Permits are contractor-visible by default (PRD §3.17, §15). Non-permit
+    // documents require an explicit contractor-visible ACL flag (PRD §3.34).
+    contractorVisible: v.optional(v.boolean()),
     uploadedByWorkosUserId: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_build_type", ["buildId", "documentType"]),
+    .index("by_build_type", ["buildId", "documentType"])
+    .index("by_build_contractor_visible", ["buildId", "contractorVisible"]),
   buildEvidenceAssets: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -2478,7 +2885,7 @@ export default defineSchema({
     requestedPayload: v.any(),
     requestType: v.union(
       v.literal("principalIncrease"),
-      v.literal("paybackExtension"),
+      v.literal("paybackExtension")
     ),
     reviewNote: v.optional(v.string()),
     reviewedAt: v.optional(v.number()),
@@ -2487,7 +2894,7 @@ export default defineSchema({
     status: v.union(
       v.literal("requested"),
       v.literal("approved"),
-      v.literal("rejected"),
+      v.literal("rejected")
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2516,11 +2923,12 @@ export default defineSchema({
     isDragLocked: v.optional(v.boolean()),
     policyState: v.optional(v.string()),
     progressPercent: v.optional(v.number()),
+    siteVisitGuidance: v.optional(siteVisitGuidanceValidator),
     startedAt: v.optional(v.number()),
     status: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
-      v.literal("complete"),
+      v.literal("complete")
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2544,7 +2952,7 @@ export default defineSchema({
     status: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
-      v.literal("complete"),
+      v.literal("complete")
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2602,6 +3010,56 @@ export default defineSchema({
   })
     .index("by_build", ["buildId"])
     .index("by_build_order", ["buildId", "order"]),
+  activeBuildDrawRequests: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    requestKey: v.string(),
+    displayId: v.string(),
+    clientOperationId: v.string(),
+    workOrderKey: v.optional(v.string()),
+    plannedDrawKey: v.optional(v.string()),
+    label: v.string(),
+    amountCents: v.number(),
+    status: activeBuildDrawRequestStatusValidator,
+    note: v.optional(v.string()),
+    operationsRecommendationNote: v.optional(v.string()),
+    operationsReviewStartedAt: v.optional(v.string()),
+    operationsReviewerWorkosUserId: v.optional(v.string()),
+    readyForAdminAt: v.optional(v.string()),
+    reviewNote: v.optional(v.string()),
+    releaseNote: v.optional(v.string()),
+    withdrawalNote: v.optional(v.string()),
+    requestedByWorkosUserId: v.string(),
+    reviewedByWorkosUserId: v.optional(v.string()),
+    withdrawnByWorkosUserId: v.optional(v.string()),
+    requestedAt: v.string(),
+    reviewedAt: v.optional(v.string()),
+    withdrawnAt: v.optional(v.string()),
+    releaseDate: v.optional(v.string()),
+    releasedAt: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_build_status", ["buildId", "status"])
+    .index("by_build_operation", ["buildId", "clientOperationId"])
+    .index("by_build_request_key", ["buildId", "requestKey"]),
+  activeBuildDrawRequestAllocations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    drawRequestId: v.id("activeBuildDrawRequests"),
+    buildMilestoneId: v.id("buildMilestones"),
+    milestoneKey: v.string(),
+    drawGroupKey: v.string(),
+    amountCents: v.number(),
+    sourceOrder: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_request", ["drawRequestId"])
+    .index("by_build_milestone", ["buildId", "buildMilestoneId"]),
   buildSiteVisits: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -2612,11 +3070,14 @@ export default defineSchema({
     status: v.union(
       v.literal("requested"),
       v.literal("complete"),
-      v.literal("cancelled"),
+      v.literal("cancelled")
     ),
     requestedDay: v.number(),
     requestedAt: v.string(),
+    requestedTime: v.optional(v.string()),
     note: v.optional(v.string()),
+    siteVisitGuidance: v.optional(siteVisitGuidanceValidator),
+    submilestoneKeys: v.optional(v.array(v.string())),
     completedAt: v.optional(v.string()),
     recordNote: v.optional(v.string()),
     recordNoteFormat: v.optional(richTextFormatValidator),
@@ -2639,7 +3100,7 @@ export default defineSchema({
     eventType: v.union(
       v.literal("borrower_copay"),
       v.literal("draw_release"),
-      v.literal("cost"),
+      v.literal("cost")
     ),
     label: v.string(),
     amountCents: v.number(),
@@ -2692,7 +3153,7 @@ export default defineSchema({
       v.literal("active"),
       v.literal("inactive"),
       v.literal("pending"),
-      v.literal("deleted"),
+      v.literal("deleted")
     ),
     roleSlug: v.optional(v.string()),
     roleSlugs: v.array(v.string()),
@@ -2752,7 +3213,7 @@ export default defineSchema({
       v.literal("processing"),
       v.literal("processed"),
       v.literal("failed"),
-      v.literal("skipped"),
+      v.literal("skipped")
     ),
     processedAt: v.optional(v.number()),
     error: v.optional(v.string()),

@@ -1,10 +1,19 @@
 "use client";
 
-import { Building2, Link2, Plus, Search, UserRound } from "lucide-react";
+import {
+  Building2,
+  CheckCircle2,
+  Link2,
+  MailPlus,
+  Plus,
+  Search,
+  UserRound,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
   Drawer,
   DrawerClose,
@@ -65,7 +74,9 @@ export type ContractorDrawerAvailableContractor = {
   city?: string;
   defaultPayRateCents?: number;
   defaultPayRateUnit?: "hour" | "day" | "fixed";
+  email?: string;
   name: string;
+  onboardingStatus?: "profile_only" | "invited" | "account_linked";
   trades?: string[];
 };
 
@@ -74,6 +85,8 @@ type ContractorQuickAddDrawerProps = {
   createLabel?: string;
   description?: string;
   initialDraft?: Partial<ContractorProfileDraft>;
+  inviteAfterCreateDescription?: string;
+  inviteAfterCreateLabel?: string;
   onAttachExisting?: (input: {
     assignmentCost?: ContractorAssignmentCostDraft;
     contractorId: string;
@@ -83,7 +96,8 @@ type ContractorQuickAddDrawerProps = {
     assignmentCost?: ContractorAssignmentCostDraft;
     contractor: ContractorProfileDraft;
     role?: string;
-  }) => Promise<void> | void;
+  }) => ContractorCreateResult | Promise<ContractorCreateResult>;
+  onInviteCreatedContractor?: (contractorId: string) => Promise<void> | void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   requireRole?: boolean;
@@ -91,12 +105,17 @@ type ContractorQuickAddDrawerProps = {
   title?: string;
 };
 
+type ContractorCreateResult =
+  | string
+  | void
+  | {
+      contractorId?: string;
+    };
+
 type ContractorQuickAddForm = {
   actualCost: string;
   actualHours: string;
-  availabilityDay: string;
-  availabilityEnd: string;
-  availabilityStart: string;
+  availabilityWindows: ContractorProfileDraft["availabilityWindows"];
   assignmentRate: string;
   assignmentRateUnit: "hour" | "day" | "fixed";
   capabilities: string;
@@ -112,16 +131,13 @@ type ContractorQuickAddForm = {
   payRateUnit: "hour" | "day" | "fixed";
   phone: string;
   role: string;
-  timezone: string;
   trades: string;
 };
 
 const EMPTY_FORM: ContractorQuickAddForm = {
   actualCost: "",
   actualHours: "",
-  availabilityDay: "1",
-  availabilityEnd: "16:00",
-  availabilityStart: "07:00",
+  availabilityWindows: [],
   assignmentRate: "",
   assignmentRateUnit: "hour" as const,
   capabilities: "",
@@ -137,7 +153,6 @@ const EMPTY_FORM: ContractorQuickAddForm = {
   payRateUnit: "hour" as const,
   phone: "",
   role: "",
-  timezone: "America/Toronto",
   trades: "",
 };
 
@@ -146,8 +161,11 @@ export function ContractorQuickAddDrawer({
   createLabel = "Create contractor",
   description = "Create the profile once, then attach it to builds and milestone work as needed.",
   initialDraft,
+  inviteAfterCreateDescription = "Send a WorkOS invitation immediately after the profile is created.",
+  inviteAfterCreateLabel = "Invite contractor to the platform",
   onAttachExisting,
   onCreate,
+  onInviteCreatedContractor,
   onOpenChange,
   open,
   requireRole = false,
@@ -155,16 +173,17 @@ export function ContractorQuickAddDrawer({
   title = "Add contractor",
 }: ContractorQuickAddDrawerProps) {
   const [mode, setMode] = useState<"new" | "existing">(
-    onAttachExisting && availableContractors.length > 0 ? "existing" : "new",
+    onAttachExisting && availableContractors.length > 0 ? "existing" : "new"
   );
   const [form, setForm] = useState(() => formFromInitialDraft(initialDraft));
   const [selectedExistingId, setSelectedExistingId] = useState("");
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [inviteAfterCreate, setInviteAfterCreate] = useState(false);
   const updateForm = <K extends keyof ContractorQuickAddForm>(
     key: K,
-    value: ContractorQuickAddForm[K],
+    value: ContractorQuickAddForm[K]
   ) => {
     setForm((prev) => ({
       ...prev,
@@ -177,16 +196,12 @@ export function ContractorQuickAddDrawer({
     return availableContractors
       .filter((contractor) =>
         q
-          ? [
-              contractor.name,
-              contractor.city,
-              ...(contractor.trades ?? []),
-            ]
+          ? [contractor.name, contractor.city, ...(contractor.trades ?? [])]
               .filter(Boolean)
               .join(" ")
               .toLowerCase()
               .includes(q)
-          : true,
+          : true
       )
       .slice(0, 8);
   }, [availableContractors, query]);
@@ -209,31 +224,40 @@ export function ContractorQuickAddDrawer({
     setSelectedExistingId("");
     setQuery("");
     setError("");
-    setMode(onAttachExisting && availableContractors.length > 0 ? "existing" : "new");
+    setInviteAfterCreate(false);
+    setMode(
+      onAttachExisting && availableContractors.length > 0 ? "existing" : "new"
+    );
   };
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     setForm(formFromInitialDraft(initialDraft));
-    setMode(onAttachExisting && availableContractors.length > 0 ? "existing" : "new");
+    setMode(
+      onAttachExisting && availableContractors.length > 0 ? "existing" : "new"
+    );
+    setInviteAfterCreate(false);
   }, [availableContractors.length, initialDraft, onAttachExisting, open]);
+
+  useEffect(() => {
+    if (!form.email.trim()) {
+      setInviteAfterCreate(false);
+    }
+  }, [form.email]);
 
   const submitNew = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canCreate) return;
+    if (!canCreate) {
+      return;
+    }
     setPending(true);
     setError("");
     try {
       const trades = splitList(form.trades);
       const contractor: ContractorProfileDraft = {
-        availabilityWindows: [
-          {
-            dayOfWeek: Number(form.availabilityDay),
-            endMinute: timeToMinute(form.availabilityEnd),
-            startMinute: timeToMinute(form.availabilityStart),
-            timezone: form.timezone.trim() || "America/Toronto",
-          },
-        ],
+        availabilityWindows: form.availabilityWindows,
         capabilities: splitList(form.capabilities).map((label) => ({
           capabilityKey: slugify(label),
           label,
@@ -253,13 +277,22 @@ export function ContractorQuickAddDrawer({
         phone: optional(form.phone),
         trades,
       };
-      await onCreate({
+      const createResult = await onCreate({
         assignmentCost: showAssignmentCost
           ? assignmentCostFromForm(form, hourlyRateCents)
           : undefined,
         contractor,
         role: optional(form.role),
       });
+      if (inviteAfterCreate && onInviteCreatedContractor) {
+        const contractorId = contractorIdFromCreateResult(createResult);
+        if (!contractorId) {
+          throw new Error(
+            "Contractor was created, but the invite could not be sent because the new profile id was not returned."
+          );
+        }
+        await onInviteCreatedContractor(contractorId);
+      }
       reset();
       onOpenChange(false);
     } catch (err) {
@@ -271,15 +304,53 @@ export function ContractorQuickAddDrawer({
 
   const submitExisting = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canAttach || !onAttachExisting) return;
+    if (!(canAttach && onAttachExisting)) {
+      return;
+    }
     setPending(true);
     setError("");
     try {
       await onAttachExisting({
-        assignmentCost: showAssignmentCost ? assignmentCostFromForm(form) : undefined,
+        assignmentCost: showAssignmentCost
+          ? assignmentCostFromForm(form)
+          : undefined,
         contractorId: selectedExistingId,
         role: form.role.trim(),
       });
+      reset();
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const submitExistingWithInvite = async (
+    contractor: ContractorDrawerAvailableContractor
+  ) => {
+    if (!(onAttachExisting && onInviteCreatedContractor)) {
+      return;
+    }
+    const role =
+      form.role.trim() ||
+      titleCase(contractor.trades?.[0] ?? "") ||
+      "Contractor";
+    if (!role.trim()) {
+      return;
+    }
+    setSelectedExistingId(contractor._id);
+    setPending(true);
+    setError("");
+    try {
+      await onAttachExisting({
+        assignmentCost: showAssignmentCost
+          ? assignmentCostFromForm({ ...form, role })
+          : undefined,
+        contractorId: contractor._id,
+        role,
+      });
+      await onInviteCreatedContractor(contractor._id);
       reset();
       onOpenChange(false);
     } catch (err) {
@@ -299,11 +370,17 @@ export function ContractorQuickAddDrawer({
           </p>
           {onAttachExisting ? (
             <div className="mt-2 inline-flex w-fit rounded-lg border bg-muted/40 p-1">
-              <ModeButton active={mode === "existing"} onClick={() => setMode("existing")}>
+              <ModeButton
+                active={mode === "existing"}
+                onClick={() => setMode("existing")}
+              >
                 <Link2 className="size-3.5" />
                 Existing
               </ModeButton>
-              <ModeButton active={mode === "new"} onClick={() => setMode("new")}>
+              <ModeButton
+                active={mode === "new"}
+                onClick={() => setMode("new")}
+              >
                 <Plus className="size-3.5" />
                 New
               </ModeButton>
@@ -313,7 +390,11 @@ export function ContractorQuickAddDrawer({
 
         <DrawerPanel className="grid gap-4">
           {mode === "existing" && onAttachExisting ? (
-            <form className="grid gap-4" id="contractor-existing-form" onSubmit={submitExisting}>
+            <form
+              className="grid gap-4"
+              id="contractor-existing-form"
+              onSubmit={submitExisting}
+            >
               <Field label="Find contractor">
                 <span className="relative block">
                   <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -335,48 +416,88 @@ export function ContractorQuickAddDrawer({
                     No matching contractor profiles in this brokerage.
                   </p>
                 ) : (
-                  matches.map((contractor) => (
-                    <button
-                      className={cn(
-                        "flex min-w-0 items-center gap-3 rounded-lg border p-3 text-left text-sm transition-colors",
-                        selectedExistingId === contractor._id
-                          ? "border-primary bg-primary/10"
-                          : "bg-card hover:bg-accent",
-                      )}
-                      key={contractor._id}
-                      onClick={() => {
-                        setSelectedExistingId(contractor._id);
-                        if (!form.role.trim() && contractor.trades?.[0]) {
-                          setForm((prev) => ({
-                            ...prev,
-                            role: titleCase(contractor.trades?.[0] ?? ""),
-                          }));
-                        }
-                        if (contractor.defaultPayRateCents) {
-                          setForm((prev) => ({
-                            ...prev,
-                            assignmentRate: centsToMoney(
-                              contractor.defaultPayRateCents,
-                            ),
-                            assignmentRateUnit:
-                              contractor.defaultPayRateUnit ?? "hour",
-                          }));
-                        }
-                      }}
-                      type="button"
-                    >
-                      <AvatarIcon label={contractor.name} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">
-                          {contractor.name}
-                        </span>
-                        <span className="block truncate text-muted-foreground text-xs">
-                          {(contractor.trades ?? []).join(", ") || "No trades"}{" "}
-                          {contractor.city ? `· ${contractor.city}` : ""}
-                        </span>
-                      </span>
-                    </button>
-                  ))
+                  matches.map((contractor) => {
+                    const selected = selectedExistingId === contractor._id;
+                    const invitation = contractorInvitationView(contractor);
+                    const canAttachAndInvite =
+                      selected &&
+                      Boolean(onInviteCreatedContractor) &&
+                      invitation.kind === "not_invited" &&
+                      Boolean(onAttachExisting) &&
+                      roleReady &&
+                      !pending;
+                    return (
+                      <div
+                        className={cn(
+                          "rounded-lg border bg-card transition-colors",
+                          selected
+                            ? "border-primary bg-primary/10"
+                            : "hover:bg-accent"
+                        )}
+                        key={contractor._id}
+                      >
+                        <button
+                          className="flex w-full min-w-0 items-center gap-3 p-3 text-left text-sm"
+                          onClick={() => {
+                            setSelectedExistingId(contractor._id);
+                            if (!form.role.trim() && contractor.trades?.[0]) {
+                              setForm((prev) => ({
+                                ...prev,
+                                role: titleCase(contractor.trades?.[0] ?? ""),
+                              }));
+                            }
+                            if (contractor.defaultPayRateCents) {
+                              setForm((prev) => ({
+                                ...prev,
+                                assignmentRate: centsToMoney(
+                                  contractor.defaultPayRateCents
+                                ),
+                                assignmentRateUnit:
+                                  contractor.defaultPayRateUnit ?? "hour",
+                              }));
+                            }
+                          }}
+                          type="button"
+                        >
+                          <AvatarIcon label={contractor.name} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">
+                              {contractor.name}
+                            </span>
+                            <span className="block truncate text-muted-foreground text-xs">
+                              {(contractor.trades ?? []).join(", ") ||
+                                "No trades"}{" "}
+                              {contractor.city ? `· ${contractor.city}` : ""}
+                            </span>
+                          </span>
+                          <ContractorInviteStateBadge invitation={invitation} />
+                        </button>
+                        {selected && invitation.kind !== "joined" ? (
+                          <div className="grid gap-2 border-t px-3 py-2">
+                            <p className="text-muted-foreground text-xs">
+                              {invitation.description}
+                            </p>
+                            {invitation.kind === "not_invited" ? (
+                              <Button
+                                aria-label={`Invite ${contractor.name}`}
+                                className="w-full justify-center"
+                                disabled={!canAttachAndInvite}
+                                onClick={() =>
+                                  void submitExistingWithInvite(contractor)
+                                }
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                              >
+                                <MailPlus />
+                                {pending ? "Sending..." : "Invite"}
+                              </Button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })
                 )}
               </div>
               {requireRole ? (
@@ -396,7 +517,11 @@ export function ContractorQuickAddDrawer({
               ) : null}
             </form>
           ) : (
-            <form className="grid gap-4" id="contractor-new-form" onSubmit={submitNew}>
+            <form
+              className="grid gap-4"
+              id="contractor-new-form"
+              onSubmit={submitNew}
+            >
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Name">
                   <Input
@@ -415,12 +540,14 @@ export function ContractorQuickAddDrawer({
                     onChange={(event) =>
                       updateForm(
                         "kind",
-                        event.currentTarget.value as "company" | "individual",
+                        event.currentTarget.value as "company" | "individual"
                       )
                     }
                     value={form.kind}
                   >
-                    <NativeSelectOption value="company">Company</NativeSelectOption>
+                    <NativeSelectOption value="company">
+                      Company
+                    </NativeSelectOption>
                     <NativeSelectOption value="individual">
                       Individual
                     </NativeSelectOption>
@@ -453,17 +580,16 @@ export function ContractorQuickAddDrawer({
                       onChange={(event) =>
                         updateForm(
                           "payRateUnit",
-                          event.currentTarget.value as
-                            | "hour"
-                            | "day"
-                            | "fixed",
+                          event.currentTarget.value as "hour" | "day" | "fixed"
                         )
                       }
                       value={form.payRateUnit}
                     >
                       <NativeSelectOption value="hour">Hour</NativeSelectOption>
                       <NativeSelectOption value="day">Day</NativeSelectOption>
-                      <NativeSelectOption value="fixed">Fixed</NativeSelectOption>
+                      <NativeSelectOption value="fixed">
+                        Fixed
+                      </NativeSelectOption>
                     </NativeSelect>
                   </div>
                 </Field>
@@ -499,46 +625,6 @@ export function ContractorQuickAddDrawer({
                   value={form.equipment}
                 />
               </Field>
-
-              <div className="grid gap-3 rounded-lg border bg-muted/24 p-3 sm:grid-cols-[7rem_1fr_1fr]">
-                <Field label="Day">
-                  <NativeSelect
-                    className="w-full"
-                    onChange={(event) =>
-                      updateForm("availabilityDay", event.currentTarget.value)
-                    }
-                    value={form.availabilityDay}
-                  >
-                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
-                      (day, index) => (
-                        <NativeSelectOption key={day} value={String(index)}>
-                          {day}
-                        </NativeSelectOption>
-                      ),
-                    )}
-                  </NativeSelect>
-                </Field>
-                <Field label="Start">
-                  <Input
-                    nativeInput
-                    onChange={(event) =>
-                      updateForm("availabilityStart", event.currentTarget.value)
-                    }
-                    type="time"
-                    value={form.availabilityStart}
-                  />
-                </Field>
-                <Field label="End">
-                  <Input
-                    nativeInput
-                    onChange={(event) =>
-                      updateForm("availabilityEnd", event.currentTarget.value)
-                    }
-                    type="time"
-                    value={form.availabilityEnd}
-                  />
-                </Field>
-              </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Email">
@@ -580,6 +666,34 @@ export function ContractorQuickAddDrawer({
               {showAssignmentCost ? (
                 <AssignmentCostFields form={form} setForm={setForm} />
               ) : null}
+              {onInviteCreatedContractor ? (
+                <label
+                  className={cn(
+                    "flex gap-3 rounded-lg border bg-background/70 p-3 text-sm",
+                    form.email.trim()
+                      ? "cursor-pointer"
+                      : "cursor-not-allowed opacity-70"
+                  )}
+                >
+                  <Checkbox
+                    checked={inviteAfterCreate}
+                    disabled={!form.email.trim() || pending}
+                    onCheckedChange={(checked) =>
+                      setInviteAfterCreate(checked === true)
+                    }
+                  />
+                  <span className="grid gap-1">
+                    <span className="font-medium">
+                      {inviteAfterCreateLabel}
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      {form.email.trim()
+                        ? inviteAfterCreateDescription
+                        : "Add an email address to send a platform invite."}
+                    </span>
+                  </span>
+                </label>
+              ) : null}
             </form>
           )}
 
@@ -590,9 +704,7 @@ export function ContractorQuickAddDrawer({
           ) : null}
 
           <div className="flex flex-wrap gap-2">
-            <Badge variant="outline">
-              Schedule, rate, capabilities, equipment
-            </Badge>
+            <Badge variant="outline">Rate, capabilities, equipment</Badge>
             <Badge variant="secondary">Brokerage scoped</Badge>
           </div>
         </DrawerPanel>
@@ -603,7 +715,11 @@ export function ContractorQuickAddDrawer({
           </DrawerClose>
           <Button
             disabled={mode === "existing" ? !canAttach : !canCreate}
-            form={mode === "existing" ? "contractor-existing-form" : "contractor-new-form"}
+            form={
+              mode === "existing"
+                ? "contractor-existing-form"
+                : "contractor-new-form"
+            }
             type="submit"
           >
             {mode === "existing" ? <Link2 /> : <Plus />}
@@ -619,6 +735,82 @@ export function ContractorQuickAddDrawer({
   );
 }
 
+type ContractorInvitationView =
+  | {
+      description: string;
+      kind: "not_invited";
+      label: string;
+    }
+  | {
+      description: string;
+      kind: "invited";
+      label: string;
+    }
+  | {
+      description: string;
+      kind: "joined";
+      label: string;
+    }
+  | {
+      description: string;
+      kind: "no_email";
+      label: string;
+    };
+
+function contractorInvitationView(
+  contractor: ContractorDrawerAvailableContractor
+): ContractorInvitationView {
+  if (contractor.onboardingStatus === "account_linked") {
+    return {
+      description: "This contractor has already joined the platform.",
+      kind: "joined",
+      label: "Joined",
+    };
+  }
+  if (contractor.onboardingStatus === "invited") {
+    return {
+      description: "This contractor already has an active platform invite.",
+      kind: "invited",
+      label: "Invited",
+    };
+  }
+  if (!contractor.email?.trim()) {
+    return {
+      description: "Add an email to the contractor profile before inviting.",
+      kind: "no_email",
+      label: "No email",
+    };
+  }
+  return {
+    description: "Attach this contractor to the proposal and send their platform invite.",
+    kind: "not_invited",
+    label: "Not invited",
+  };
+}
+
+function ContractorInviteStateBadge({
+  invitation,
+}: {
+  invitation: ContractorInvitationView;
+}) {
+  if (invitation.kind === "joined") {
+    return (
+      <Badge className="shrink-0 gap-1" variant="secondary">
+        <CheckCircle2 className="size-3" />
+        {invitation.label}
+      </Badge>
+    );
+  }
+  return (
+    <Badge
+      className="shrink-0"
+      variant={invitation.kind === "not_invited" ? "outline" : "secondary"}
+    >
+      {invitation.label}
+    </Badge>
+  );
+}
+
 function AssignmentCostFields({
   form,
   setForm,
@@ -628,7 +820,7 @@ function AssignmentCostFields({
 }) {
   const updateForm = <K extends keyof ContractorQuickAddForm>(
     key: K,
-    value: ContractorQuickAddForm[K],
+    value: ContractorQuickAddForm[K]
   ) => {
     setForm((prev) => ({
       ...prev,
@@ -664,10 +856,7 @@ function AssignmentCostFields({
               onChange={(event) =>
                 updateForm(
                   "assignmentRateUnit",
-                  event.currentTarget.value as
-                    | "hour"
-                    | "day"
-                    | "fixed",
+                  event.currentTarget.value as "hour" | "day" | "fixed"
                 )
               }
               value={form.assignmentRateUnit}
@@ -771,7 +960,7 @@ function ModeButton({
     <button
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm",
-        active ? "bg-background shadow-xs/5" : "text-muted-foreground",
+        active ? "bg-background shadow-xs/5" : "text-muted-foreground"
       )}
       onClick={onClick}
       type="button"
@@ -814,13 +1003,17 @@ function optional(value: string) {
 
 function parseMoneyCents(value: string) {
   const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return;
+  }
   return Math.round(parsed * 100);
 }
 
 function parseHours(value: string) {
   const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return;
+  }
   return Math.round(parsed * 100) / 100;
 }
 
@@ -830,24 +1023,17 @@ function centsToMoney(value: number) {
 
 function assignmentCostFromForm(
   form: ContractorQuickAddForm,
-  fallbackRateCents?: number,
+  fallbackRateCents?: number
 ): ContractorAssignmentCostDraft {
   return {
     actualCostCents: parseMoneyCents(form.actualCost),
     actualHours: parseHours(form.actualHours),
-    agreedRateCents:
-      parseMoneyCents(form.assignmentRate) ?? fallbackRateCents,
+    agreedRateCents: parseMoneyCents(form.assignmentRate) ?? fallbackRateCents,
     agreedRateUnit: form.assignmentRateUnit,
     costNotes: optional(form.costNotes),
     estimatedCostCents: parseMoneyCents(form.estimatedCost),
     estimatedHours: parseHours(form.estimatedHours),
   };
-}
-
-function timeToMinute(value: string) {
-  const [hour, minute] = value.split(":").map((part) => Number(part));
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
-  return Math.max(0, Math.min(24 * 60, hour * 60 + minute));
 }
 
 function titleCase(value: string) {
@@ -858,25 +1044,27 @@ function titleCase(value: string) {
     .join(" ");
 }
 
+function contractorIdFromCreateResult(
+  result: ContractorCreateResult
+): string | null {
+  if (typeof result === "string") {
+    return result;
+  }
+  if (result && typeof result.contractorId === "string") {
+    return result.contractorId;
+  }
+  return null;
+}
+
 function formFromInitialDraft(
-  draft?: Partial<ContractorProfileDraft>,
+  draft?: Partial<ContractorProfileDraft>
 ): ContractorQuickAddForm {
-  if (!draft) return { ...EMPTY_FORM };
-  const availability = draft.availabilityWindows?.[0];
+  if (!draft) {
+    return { ...EMPTY_FORM };
+  }
   return {
     ...EMPTY_FORM,
-    availabilityDay:
-      availability?.dayOfWeek === undefined
-        ? EMPTY_FORM.availabilityDay
-        : String(availability.dayOfWeek),
-    availabilityEnd:
-      availability?.endMinute === undefined
-        ? EMPTY_FORM.availabilityEnd
-        : minuteToTime(availability.endMinute),
-    availabilityStart:
-      availability?.startMinute === undefined
-        ? EMPTY_FORM.availabilityStart
-        : minuteToTime(availability.startMinute),
+    availabilityWindows: draft.availabilityWindows ?? [],
     capabilities: (draft.capabilities ?? [])
       .map((capability) => capability.label)
       .join(", "),
@@ -893,14 +1081,6 @@ function formFromInitialDraft(
         : centsToMoney(draft.defaultPayRateCents),
     payRateUnit: draft.defaultPayRateUnit ?? "hour",
     phone: draft.phone ?? "",
-    timezone: availability?.timezone ?? EMPTY_FORM.timezone,
     trades: (draft.trades ?? []).join(", "),
   };
-}
-
-function minuteToTime(value: number) {
-  const clamped = Math.max(0, Math.min(24 * 60, Math.round(value)));
-  const hour = Math.floor(clamped / 60);
-  const minute = clamped % 60;
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }

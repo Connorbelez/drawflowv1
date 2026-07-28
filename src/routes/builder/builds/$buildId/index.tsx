@@ -2,14 +2,14 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
-import { canUseAppPermission } from "#/features/builder-staff/app-permissions.ts";
+import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
 import {
-  ProductionBuildDetailSurface,
   type ProductionBuildDetail,
   type ProductionBuildDetailActions,
+  ProductionBuildDetailSurface,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
-import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
+import { canUseAppPermission } from "#/features/builder-staff/app-permissions.ts";
+import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   getVisualParityActiveBuildDetail,
@@ -24,10 +24,12 @@ export type BuilderBuildSearch = {
   milestone?: string;
   tab?:
     | "calendar"
+    | "contractors"
     | "details"
     | "evidence"
     | "gantt"
     | "materials"
+    | "milestones"
     | "staff"
     | "timeline";
   rail?: "open" | "closed";
@@ -38,6 +40,8 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
     const tab =
       search.tab === "timeline" ||
       search.tab === "evidence" ||
+      search.tab === "contractors" ||
+      search.tab === "milestones" ||
       search.tab === "materials" ||
       search.tab === "staff" ||
       search.tab === "calendar" ||
@@ -109,7 +113,7 @@ export function BuilderBuildWorkspaceRoute({
       : {
           buildId,
           workosOrganizationId,
-        },
+        }
   );
   const effectiveProductionBuild = visualFixtureEnabled
     ? getVisualParityActiveBuildDetail(buildId)
@@ -124,7 +128,7 @@ export function BuilderBuildWorkspaceRoute({
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId,
           }
-        : "skip",
+        : "skip"
   );
   const effectiveTimelineWorkspace = visualFixtureEnabled
     ? getVisualParityActiveBuildTimelineWorkspace(buildId)
@@ -138,16 +142,31 @@ export function BuilderBuildWorkspaceRoute({
             buildId: activeBuildIdForWorkspace,
             workosOrganizationId,
           }
-        : "skip",
+        : "skip"
   );
   const requestDraw = useMutation(
-    api.production_proposals.requestActiveBuildDraw,
+    api.production_proposals.requestActiveBuildDraw
+  );
+  const withdrawDraw = useMutation(
+    api.production_proposals.withdrawActiveBuildDraw
   );
   const requestFacilityChange = useMutation(
-    (api as any).production_proposals.requestActiveBuildFacilityChange,
+    (api as any).production_proposals.requestActiveBuildFacilityChange
+  );
+  const assignContractorToMilestone = useMutation(
+    (api as any).production_proposals.assignActiveBuildContractorToMilestone
+  );
+  const attachContractor = useMutation(
+    api.production_proposals.attachActiveBuildContractor
+  );
+  const createAndAttachContractor = useMutation(
+    api.production_proposals.createAndAttachActiveBuildContractor
+  );
+  const sendContractorInvite = useMutation(
+    (api as any).contractorOnboarding.sendContractorProfileInvite
   );
   const submitMilestoneCompletion = useMutation(
-    (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+    (api as any).production_proposals.submitActiveBuildMilestoneCompletion
   );
 
   const onChangeTab = (tab: BuildDetailSubTab) =>
@@ -211,6 +230,84 @@ export function BuilderBuildWorkspaceRoute({
   const activeBuildId = detail.build._id as any;
   const appPermissions = detail.appPermissions;
   const actions: ProductionBuildDetailActions = {
+    assignContractorToMilestone: canUseAppPermission(
+      appPermissions,
+      "contractor",
+      "update"
+    )
+      ? ({
+          assignmentCost,
+          contractorId,
+          milestoneKey,
+          role,
+          submilestoneKeys,
+        }) =>
+          assignContractorToMilestone({
+            ...assignmentCost,
+            buildId: activeBuildId,
+            contractorId: contractorId as Id<"contractorProfiles">,
+            milestoneKey,
+            role,
+            submilestoneKeys,
+            workosOrganizationId,
+          })
+      : undefined,
+    attachContractor: canUseAppPermission(
+      appPermissions,
+      "contractor",
+      "update"
+    )
+      ? ({ contractorId, role }) =>
+          attachContractor({
+            buildId: activeBuildId,
+            contractorId: contractorId as any,
+            role,
+            workosOrganizationId,
+          })
+      : undefined,
+    createAndAttachContractor:
+      canUseAppPermission(appPermissions, "contractor", "create") &&
+      canUseAppPermission(appPermissions, "contractor", "update")
+        ? ({ contractor, role }) =>
+            createAndAttachContractor({
+              buildId: activeBuildId,
+              contractor,
+              role,
+              workosOrganizationId,
+            })
+        : undefined,
+    createAndAssignContractor:
+      canUseAppPermission(appPermissions, "contractor", "create") &&
+      canUseAppPermission(appPermissions, "contractor", "update")
+        ? async ({ assignmentCost, contractor, milestoneKey, role }) => {
+            const { contractorId } = await createAndAttachContractor({
+              buildId: activeBuildId,
+              contractor,
+              role,
+              workosOrganizationId,
+            });
+            await assignContractorToMilestone({
+              ...assignmentCost,
+              buildId: activeBuildId,
+              contractorId,
+              milestoneKey,
+              role,
+              workosOrganizationId,
+            });
+            return contractorId;
+          }
+        : undefined,
+    inviteContractor: canUseAppPermission(
+      appPermissions,
+      "contractor",
+      "create"
+    )
+      ? (contractorId) =>
+          sendContractorInvite({
+            contractorId: contractorId as Id<"contractorProfiles">,
+            workosOrganizationId,
+          })
+      : undefined,
     requestDraw: canUseAppPermission(appPermissions, "draw", "update")
       ? (draw) =>
           requestDraw({
@@ -221,10 +318,27 @@ export function BuilderBuildWorkspaceRoute({
             workosOrganizationId,
           })
       : undefined,
+    requestDrawAmount: canUseAppPermission(appPermissions, "draw", "update")
+      ? (input) =>
+          requestDraw({
+            ...input,
+            buildId: activeBuildId,
+            workosOrganizationId,
+          })
+      : undefined,
+    withdrawDraw: canUseAppPermission(appPermissions, "draw", "update")
+      ? (drawKey) =>
+          withdrawDraw({
+            buildId: activeBuildId,
+            drawKey,
+            note: "Withdrawn from builder build workspace.",
+            workosOrganizationId,
+          })
+      : undefined,
     requestFacilityChange: canUseAppPermission(
       appPermissions,
       "capitalEvent",
-      "create",
+      "create"
     )
       ? (input) =>
           requestFacilityChange({
@@ -236,7 +350,7 @@ export function BuilderBuildWorkspaceRoute({
     requestLoanFacilityDateChange: canUseAppPermission(
       appPermissions,
       "capitalEvent",
-      "create",
+      "create"
     )
       ? (input) =>
           requestFacilityChange({
@@ -250,7 +364,7 @@ export function BuilderBuildWorkspaceRoute({
     startMilestoneWork: canUseAppPermission(
       appPermissions,
       "milestone",
-      "update",
+      "update"
     )
       ? () => undefined
       : undefined,
@@ -283,21 +397,22 @@ export function BuilderBuildWorkspaceRoute({
       actions={actions}
       activeBuildId={activeBuildId}
       activeTab={search.tab ?? "details"}
-      calendarTimeframe={search.timeframe}
-      calendarWorkspace={calendarWorkspaceQuery as any}
       breadcrumbRootHref={routeBase}
       breadcrumbRootLabel="Builder"
       breadcrumbSectionHref={`${routeBase}/builds`}
       breadcrumbSectionLabel="Live Builds"
+      calendarTimeframe={search.timeframe}
+      calendarWorkspace={calendarWorkspaceQuery as any}
       contractorDetailHrefFor={
         enableContractorLinks
           ? (contractorId) => `/builder/contractors/${contractorId}`
           : undefined
       }
       detail={detail}
+      fundingWorkspaceEnabled
       milestoneKey={search.milestone}
-      onChangeMilestone={onChangeMilestone}
       onChangeCalendarTimeframe={onChangeCalendarTimeframe}
+      onChangeMilestone={onChangeMilestone}
       onChangeRail={onChangeRail}
       onChangeTab={onChangeTab}
       rail={search.rail}
@@ -311,12 +426,21 @@ export function BuilderBuildWorkspaceRoute({
         )
       }
       timelineWorkspace={effectiveTimelineWorkspace as any}
+      viewerRole="builder"
       visibleTabs={
         includeStaffTab
           ? undefined
-          : ["details", "timeline", "evidence", "materials", "calendar", "gantt"]
+          : [
+              "details",
+              "milestones",
+              "contractors",
+              "materials",
+              "timeline",
+              "evidence",
+              "calendar",
+              "gantt",
+            ]
       }
-      viewerRole="builder"
       workosOrganizationId={workosOrganizationId}
     />
   );

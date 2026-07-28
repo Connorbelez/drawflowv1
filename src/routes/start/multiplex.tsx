@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 
+import {
+  FairLendLegalFooter,
+  FairLendLegalFooterStyles,
+} from "#/components/marketing/fairlend-legal-footer.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardPanel } from "#/components/ui/card.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
@@ -44,11 +48,11 @@ export const Route = createFileRoute("/start/multiplex")({
   component: StartMultiplexPage,
   head: () => ({
     meta: [
-      { title: "Multiplex Financing Intake | Fairlend Capital" },
+      { title: "Multiplex Financing Intake | FairLend Mortgage" },
       {
         name: "description",
         content:
-          "Start a Fairlend multiplex financing review for a duplex, triplex, fourplex, or small multi-unit construction project.",
+          "Start a FairLend multiplex financing review for a duplex, triplex, fourplex, or small multi-unit construction project.",
       },
     ],
     links: [
@@ -61,7 +65,7 @@ export const Route = createFileRoute("/start/multiplex")({
 
 type Icon = ComponentType<{ className?: string }>;
 
-const intakeLanes = [
+const primaryIntakeLanes = [
   {
     icon: Building2,
     label: "Owner or builder",
@@ -72,10 +76,23 @@ const intakeLanes = [
     label: "Broker referral",
     note: "You are routing a borrower file for capital review.",
   },
+] satisfies Array<{ icon: Icon; label: string; note: string }>;
+
+const secondaryIntakeLanes = [
+  {
+    icon: Banknote,
+    label: "Built to Sell",
+    note: "You need construction capital before sale or takeout.",
+  },
   {
     icon: ShieldCheck,
     label: "MLI Select path",
     note: "You need affordability, accessibility, or energy readiness reviewed.",
+  },
+  {
+    icon: ClipboardCheck,
+    label: "For rental units",
+    note: "You are planning income, rents, and long-term hold assumptions.",
   },
 ] satisfies Array<{ icon: Icon; label: string; note: string }>;
 
@@ -123,8 +140,8 @@ const reviewSequence = [
   },
   {
     icon: FileSearch,
-    title: "Terms lane",
-    copy: "Fairlend separates files ready for underwriting from files that need documents, budget work, or policy review.",
+    title: "Terms",
+    copy: "FairLend separates files ready for underwriting from files that need documents, budget work, or policy review.",
   },
 ] satisfies Array<{ icon: Icon; title: string; copy: string }>;
 
@@ -134,12 +151,12 @@ const docketItems = [
   "Construction budget and contingency",
   "Permit, drawings, or planning notes",
   "Expected rent and takeout assumptions",
-  "Borrower working-capital limit",
+  "Borrower working capital",
 ];
 
 const routeNotes = [
   "Reimbursement-only draw model",
-  "Evidence preserved even when location needs review",
+  "Verified work stays on record through every review.",
   "Budget revisions versioned, not overwritten",
   "Lender admin keeps final draw-release authority",
 ];
@@ -148,18 +165,19 @@ function StartMultiplexPage() {
   return (
     <main className="smx-page">
       <StartMultiplexStyles />
+      <FairLendLegalFooterStyles />
       <MultiplexHeader />
 
       <section aria-labelledby="multiplex-intake-title" className="smx-hero">
         <div className="smx-hero-copy">
           <p className="smx-kicker">Multiplex financing intake</p>
           <h1 id="multiplex-intake-title">
-            Put the build file in lending shape.
+            Bring the build file. We&apos;ll bring the capital.
           </h1>
           <p>
-            Send enough site, permit, budget, debt, rent, and working-capital
-            context for Fairlend to review the financing path before a promising
-            multiplex project stalls between draws.
+            Good builds rarely stall on design. They stall between draws. Send
+            the site, permits, budget, debt, rents, and working capital, and
+            we&apos;ll map the financing path before that happens.
           </p>
           <div className="smx-actions">
             <Button
@@ -196,16 +214,34 @@ function StartMultiplexPage() {
                 <p>Review packet</p>
                 <h2>Multiplex capital screen</h2>
               </div>
-              <span>Draft</span>
+              <span>Review draft</span>
             </div>
 
-            <fieldset className="smx-lane-grid">
+            <fieldset className="smx-lane-grid smx-lane-grid-primary">
               <legend className="sr-only">Intake route</legend>
-              {intakeLanes.map((lane, index) => {
+              {primaryIntakeLanes.map((lane, index) => {
                 const LaneIcon = lane.icon;
                 return (
                   <button
                     aria-pressed={index === 0}
+                    className="smx-lane"
+                    key={lane.label}
+                    type="button"
+                  >
+                    <LaneIcon aria-hidden className="smx-lane-icon" />
+                    <span>{lane.label}</span>
+                    <small>{lane.note}</small>
+                  </button>
+                );
+              })}
+            </fieldset>
+            <fieldset className="smx-lane-grid smx-lane-grid-secondary">
+              <legend className="sr-only">Project strategy</legend>
+              {secondaryIntakeLanes.map((lane) => {
+                const LaneIcon = lane.icon;
+                return (
+                  <button
+                    aria-pressed={false}
                     className="smx-lane"
                     key={lane.label}
                     type="button"
@@ -347,7 +383,7 @@ function StartMultiplexPage() {
       <section aria-labelledby="docket-title" className="smx-dossier">
         <div className="smx-dossier-image">
           <img
-            alt="Fairlend multiplex blueprint system with construction card studies and measured brand references."
+            alt="FairLend multiplex blueprint system with construction card studies and measured brand references."
             height={1086}
             loading="lazy"
             src={blueprintAsset}
@@ -379,7 +415,7 @@ function StartMultiplexPage() {
 
       <section aria-labelledby="proof-title" className="smx-proof">
         <div className="smx-proof-copy">
-          <p className="smx-kicker">Why Fairlend asks early</p>
+          <p className="smx-kicker">Why FairLend asks early</p>
           <h2 id="proof-title">
             Multiplex files fail when capital timing is guessed.
           </h2>
@@ -414,14 +450,14 @@ function StartMultiplexPage() {
         </div>
         <div className="smx-proof-stack">
           <img
-            alt="Warm construction and planning material grid from the Fairlend multiplex brand kit."
+            alt="Warm construction and planning material grid from the FairLend multiplex brand kit."
             height={1086}
             loading="lazy"
             src={builderGridAsset}
             width={1448}
           />
           <img
-            alt="Blueprint plate showing Fairlend construction financing card studies."
+            alt="Blueprint plate showing FairLend construction financing card studies."
             height={1086}
             loading="lazy"
             src={reviewPlateAsset}
@@ -429,6 +465,7 @@ function StartMultiplexPage() {
           />
         </div>
       </section>
+      <FairLendLegalFooter />
     </main>
   );
 }
@@ -439,21 +476,24 @@ function MultiplexHeader() {
       <nav aria-label="Multiplex intake navigation" className="smx-nav">
         <Link
           {...homeLink}
-          aria-label="Fairlend Capital home"
+          aria-label="FairLend Mortgage home"
           className="smx-brand"
           preload="intent"
           viewTransition
         >
           <span>FL</span>
           <strong>
-            Fairlend
-            <small>Capital</small>
+            FairLend
+            <small>Mortgage</small>
           </strong>
         </Link>
         <div className="smx-nav-links">
+          <Link to="/construction-draw-financing">Construction draws</Link>
+          <Link to="/garden-suite-financing-gta">Garden suites</Link>
           <Link {...multiplexGuideLink} preload="intent" viewTransition>
             Multiplex guide
           </Link>
+          <Link to="/contact">Contact</Link>
           <Link {...financingGapLink} preload="intent" viewTransition>
             Capital gap
           </Link>
@@ -614,7 +654,6 @@ function StartMultiplexStyles() {
       .smx-brand small {
         display: block;
         line-height: 1;
-        text-transform: uppercase;
       }
 
       .smx-brand strong {
@@ -816,9 +855,17 @@ function StartMultiplexStyles() {
 
       .smx-lane-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 8px;
         margin-top: 22px;
+      }
+
+      .smx-lane-grid-primary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .smx-lane-grid-secondary {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 8px;
       }
 
       .smx-lane {
@@ -909,9 +956,24 @@ function StartMultiplexStyles() {
 
       .smx-field [data-slot="native-select"] {
         height: 36px;
+        border: 1px solid color-mix(in oklch, var(--smx-ink) 64%, transparent);
         border-radius: 10px;
-        background: color-mix(in oklch, var(--smx-paper) 92%, var(--smx-eucalyptus));
+        background: #fffdf8;
+        color: var(--smx-ink);
         font-size: 0.78rem;
+      }
+
+      .smx-field [data-slot="input-control"],
+      .smx-notes [data-slot="textarea-control"] {
+        border-color: color-mix(in oklch, var(--smx-ink) 64%, transparent);
+        background: #fffdf8;
+        color: var(--smx-ink);
+        box-shadow: 0 0 0 1px color-mix(in oklch, var(--smx-ink) 10%, transparent);
+      }
+
+      .smx-field [data-slot="input"],
+      .smx-notes [data-slot="textarea"] {
+        color: var(--smx-ink);
       }
 
       .smx-upload {
@@ -1199,6 +1261,8 @@ function StartMultiplexStyles() {
         }
 
         .smx-lane-grid,
+        .smx-lane-grid-primary,
+        .smx-lane-grid-secondary,
         .smx-field-grid,
         .smx-review-grid {
           grid-template-columns: 1fr;

@@ -1,7 +1,11 @@
+// @vitest-environment jsdom
+
+import heic2any from "heic2any";
 import { describe, expect, test, vi } from "vitest";
 
 import {
   browserSafeEvidenceImageName,
+  convertHeicEvidenceBlobToJpeg,
   evidenceMimeTypeForFile,
   isBrowserPreviewableImageMime,
   isHeicLikeEvidenceImage,
@@ -10,6 +14,14 @@ import {
 
 vi.mock("heic2any", () => ({
   default: vi.fn(async () => new Blob(["jpeg"], { type: "image/jpeg" })),
+}));
+
+vi.mock("heic-decode", () => ({
+  default: vi.fn(async () => ({
+    data: new Uint8ClampedArray(16),
+    height: 2,
+    width: 2,
+  })),
 }));
 
 describe("evidence image normalization", () => {
@@ -49,5 +61,33 @@ describe("evidence image normalization", () => {
 
     await expect(normalizeEvidenceFileForUpload(file)).resolves.toBe(file);
     expect(browserSafeEvidenceImageName("IMG_4748.heif")).toBe("IMG_4748.jpg");
+  });
+
+  test("falls back to the newer WASM decoder for unsupported iPhone HEIC files", async () => {
+    vi.mocked(heic2any).mockRejectedValueOnce({
+      code: 2,
+      message: "ERR_LIBHEIF format not supported",
+    });
+    const putImageData = vi.fn();
+    const createElement = vi.spyOn(document, "createElement");
+    createElement.mockReturnValueOnce({
+      getContext: () => ({
+        createImageData: () => ({ data: new Uint8ClampedArray(16) }),
+        putImageData,
+      }),
+      height: 0,
+      toBlob: (callback: BlobCallback) =>
+        callback(new Blob(["fallback-jpeg"], { type: "image/jpeg" })),
+      width: 0,
+    } as unknown as HTMLCanvasElement);
+
+    const converted = await convertHeicEvidenceBlobToJpeg(
+      new Blob(["heic"], { type: "image/heic" }),
+      "IMG_4748.heic",
+    );
+
+    expect(converted.type).toBe("image/jpeg");
+    expect(putImageData).toHaveBeenCalledOnce();
+    createElement.mockRestore();
   });
 });

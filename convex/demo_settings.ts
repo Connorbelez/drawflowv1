@@ -1,11 +1,4 @@
 import { v } from "convex/values";
-
-import {
-  publicMutation,
-  publicQuery,
-  withMutationTiming,
-  withQueryTiming,
-} from "./fluent";
 import { DEMO_PERSONAS } from "./demo_personas";
 import {
   coerceSiteVisitGuidanceInput,
@@ -18,13 +11,31 @@ import {
   type SiteVisitGuidance,
   type SiteVisitGuidanceField,
 } from "./demo_site_visit_guidance";
+import {
+  publicMutation,
+  publicQuery,
+  withMutationTiming,
+  withQueryTiming,
+} from "./fluent";
+import {
+  GARDEN_SUITE_DEMO_TEMPLATE_KEY,
+  GARDEN_SUITE_DESCRIPTION,
+  GARDEN_SUITE_SECTIONS,
+  GARDEN_SUITE_SUMMARY,
+  GARDEN_SUITE_TEMPLATE_TITLE,
+} from "./gardenSuiteTemplate";
 import type { DatabaseReader, DatabaseWriter, Doc } from "./types";
 
 const SEED_VERSION = 2;
 const TOTAL_BPS = 10_000;
 const TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS = 5;
 const TIMELINE_DEMO_SETTINGS_DRAW_OFFSET_DAYS = 2;
+const TIMELINE_DEMO_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const NOW = Date.parse("2026-05-20T18:34:00.000Z");
+
+function canonicalTimelineDemoKey(value: string) {
+  return value.trim().toLowerCase().replaceAll("_", "-");
+}
 
 type DemoSettingsSiteVisitGuidanceInput = {
   cameraAngles: SiteVisitGuidanceField;
@@ -176,7 +187,9 @@ type MilestoneInputDraft = Omit<MilestoneInput, "siteVisitGuidance"> & {
   siteVisitGuidance?: DemoSettingsSiteVisitGuidanceInput;
 };
 
-function normalizeMilestoneInputs(rows: MilestoneInputDraft[]): MilestoneInput[] {
+function normalizeMilestoneInputs(
+  rows: MilestoneInputDraft[]
+): MilestoneInput[] {
   return rows.map((row) => ({
     ...row,
     siteVisitGuidance: row.siteVisitGuidance
@@ -250,21 +263,30 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
         "Flooring",
         "Fixture set",
       ]),
-      milestone("closeout", "Final inspection & closeout", 1280, 4, "closeout", [
-        "Punch list",
-        "Final inspection",
-        "Closeout package",
-      ]),
+      milestone(
+        "closeout",
+        "Final inspection & closeout",
+        1280,
+        4,
+        "closeout",
+        ["Punch list", "Final inspection", "Closeout package"]
+      ),
     ],
     scenarios: [
-      scenario("standard_reimbursement", "Standard reimbursement", true, [
+      scenario("standard-reimbursement", "Standard reimbursement", true, [
         draw("draw-01", "Draw 01", 16, 2000, "Foundation complete"),
         draw("draw-02", "Draw 02", 39, 2500, "Framing verified"),
         draw("draw-03", "Draw 03", 64, 2500, "Rough-in approved"),
         draw("draw-04", "Draw 04", 108, 2000, "Envelope and drywall reviewed"),
-        draw("draw-05", "Draw 05", 125, 1000, "Finishes accepted before closeout"),
+        draw(
+          "draw-05",
+          "Draw 05",
+          125,
+          1000,
+          "Finishes accepted before closeout"
+        ),
       ]),
-      scenario("conservative_review_lag", "Conservative review lag", false, [
+      scenario("conservative-review-lag", "Conservative review lag", false, [
         draw("draw-01", "Draw 01", 18, 1800, "Foundation plus review lag"),
         draw("draw-02", "Draw 02", 41, 2200, "Framing plus review lag"),
         draw("draw-03", "Draw 03", 66, 2500, "Rough-in plus review lag"),
@@ -273,7 +295,7 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       ]),
     ],
     summary: "7 milestones, 100.00% PoC, 102 field days",
-    templateKey: "single_family_full_build",
+    templateKey: "single-family-full-build",
     title: "Single Family Full Build",
   },
   {
@@ -281,24 +303,63 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       "Selective renovation path for quicker inspection cadence and lighter scope.",
     isDefault: false,
     milestones: [
-      milestone("renovation-permits", "Permit updates and mobilization", 800, 10, "foundation", ["Permit update", "Site protection"]),
-      milestone("selective-demo", "Selective demolition", 1400, 16, "change", ["Interior demo", "Waste removal"]),
-      milestone("structural-repairs", "Structural repairs", 1800, 18, "framing", ["Beam repairs", "Blocking"]),
-      milestone("envelope-repairs", "Envelope repairs", 1500, 12, "exterior", ["Flashing", "Window repairs"]),
-      milestone("rough-in-refresh", "Rough-in refresh", 1500, 14, "roughIn", ["Electrical", "Plumbing"]),
-      milestone("interior-rebuild", "Interior rebuild", 2200, 14, "finishes", ["Drywall", "Millwork"]),
-      milestone("renovation-closeout", "Inspection closeout", 800, 2, "closeout", ["Deficiency list", "Final signoff"]),
+      milestone(
+        "renovation-permits",
+        "Permit updates and mobilization",
+        800,
+        10,
+        "foundation",
+        ["Permit update", "Site protection"]
+      ),
+      milestone("selective-demo", "Selective demolition", 1400, 16, "change", [
+        "Interior demo",
+        "Waste removal",
+      ]),
+      milestone(
+        "structural-repairs",
+        "Structural repairs",
+        1800,
+        18,
+        "framing",
+        ["Beam repairs", "Blocking"]
+      ),
+      milestone("envelope-repairs", "Envelope repairs", 1500, 12, "exterior", [
+        "Flashing",
+        "Window repairs",
+      ]),
+      milestone("rough-in-refresh", "Rough-in refresh", 1500, 14, "roughIn", [
+        "Electrical",
+        "Plumbing",
+      ]),
+      milestone("interior-rebuild", "Interior rebuild", 2200, 14, "finishes", [
+        "Drywall",
+        "Millwork",
+      ]),
+      milestone(
+        "renovation-closeout",
+        "Inspection closeout",
+        800,
+        2,
+        "closeout",
+        ["Deficiency list", "Final signoff"]
+      ),
     ],
     scenarios: [
-      scenario("quick_inspection", "Quick inspection", true, [
+      scenario("quick-inspection", "Quick inspection", true, [
         draw("draw-01", "Draw 01", 33, 2200, "Demolition complete"),
         draw("draw-02", "Draw 02", 57, 2800, "Structure reviewed"),
         draw("draw-03", "Draw 03", 93, 3000, "Rough-in refresh complete"),
-        draw("draw-04", "Draw 04", 111, 2000, "Interior rebuild substantially complete"),
+        draw(
+          "draw-04",
+          "Draw 04",
+          111,
+          2000,
+          "Interior rebuild substantially complete"
+        ),
       ]),
     ],
     summary: "7 milestones, 100.00% PoC, 86 days",
-    templateKey: "single_family_renovation",
+    templateKey: "single-family-renovation",
     title: "Single Family Renovation",
   },
   {
@@ -306,16 +367,61 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       "Multi-unit build template with heavier envelope and closeout coordination.",
     isDefault: false,
     milestones: [
-      milestone("multiplex-sitework", "Sitework and servicing", 900, 18, "foundation", ["Survey", "Civil servicing"]),
-      milestone("multiplex-foundation", "Foundation podium", 1600, 26, "foundation", ["Footings", "Foundation walls"]),
-      milestone("multiplex-framing", "Multi-plex framing", 2200, 30, "framing", ["Floor framing", "Party walls"]),
-      milestone("multiplex-rough-in", "Stacked rough-ins", 1800, 28, "roughIn", ["Electrical stacks", "Mechanical shafts"]),
-      milestone("multiplex-envelope", "Envelope and windows", 1500, 18, "exterior", ["Windows", "Cladding"]),
-      milestone("multiplex-finishes", "Suite finishes", 1400, 20, "finishes", ["Drywall", "Cabinets"]),
-      milestone("multiplex-closeout", "Occupancy closeout", 600, 6, "closeout", ["Life safety", "Occupancy package"]),
+      milestone(
+        "multiplex-sitework",
+        "Sitework and servicing",
+        900,
+        18,
+        "foundation",
+        ["Survey", "Civil servicing"]
+      ),
+      milestone(
+        "multiplex-foundation",
+        "Foundation podium",
+        1600,
+        26,
+        "foundation",
+        ["Footings", "Foundation walls"]
+      ),
+      milestone(
+        "multiplex-framing",
+        "Multi-plex framing",
+        2200,
+        30,
+        "framing",
+        ["Floor framing", "Party walls"]
+      ),
+      milestone(
+        "multiplex-rough-in",
+        "Stacked rough-ins",
+        1800,
+        28,
+        "roughIn",
+        ["Electrical stacks", "Mechanical shafts"]
+      ),
+      milestone(
+        "multiplex-envelope",
+        "Envelope and windows",
+        1500,
+        18,
+        "exterior",
+        ["Windows", "Cladding"]
+      ),
+      milestone("multiplex-finishes", "Suite finishes", 1400, 20, "finishes", [
+        "Drywall",
+        "Cabinets",
+      ]),
+      milestone(
+        "multiplex-closeout",
+        "Occupancy closeout",
+        600,
+        6,
+        "closeout",
+        ["Life safety", "Occupancy package"]
+      ),
     ],
     scenarios: [
-      scenario("standard_multiplex", "Standard multi-plex", true, [
+      scenario("standard-multiplex", "Standard multi-plex", true, [
         draw("draw-01", "Draw 01", 51, 2500, "Foundation podium accepted"),
         draw("draw-02", "Draw 02", 86, 2500, "Framing inspection"),
         draw("draw-03", "Draw 03", 119, 2000, "Rough-in review"),
@@ -324,8 +430,60 @@ const DEFAULT_TEMPLATES: SeedTemplate[] = [
       ]),
     ],
     summary: "7 milestones, 100.00% PoC, 146 days",
-    templateKey: "multiplex_build",
+    templateKey: "multiplex-build",
     title: "Multi-plex Build",
+  },
+  {
+    description: GARDEN_SUITE_DESCRIPTION,
+    isDefault: false,
+    milestones: gardenSuiteDemoMilestones(),
+    scenarios: [
+      scenario(
+        "standard-garden-suite-reimbursement",
+        "Standard Garden Suite reimbursement",
+        true,
+        [
+          draw(
+            "draw-01",
+            "Draw 01",
+            48,
+            2603,
+            "Soft costs, site servicing, and foundation verified"
+          ),
+          draw(
+            "draw-02",
+            "Draw 02",
+            95,
+            2449,
+            "Framing, envelope, windows, and exterior doors verified"
+          ),
+          draw(
+            "draw-03",
+            "Draw 03",
+            142,
+            1955,
+            "Mechanical, electrical, insulation, and drywall verified"
+          ),
+          draw(
+            "draw-04",
+            "Draw 04",
+            192,
+            2306,
+            "Flooring, trim, kitchen, and bathroom scope verified"
+          ),
+          draw(
+            "draw-05",
+            "Draw 05",
+            218,
+            687,
+            "Exterior site finishes, laundry equipment, and closeout verified"
+          ),
+        ]
+      ),
+    ],
+    summary: GARDEN_SUITE_SUMMARY,
+    templateKey: GARDEN_SUITE_DEMO_TEMPLATE_KEY,
+    title: GARDEN_SUITE_TEMPLATE_TITLE,
   },
 ];
 
@@ -385,6 +543,7 @@ export const saveTimelineTemplateConfiguration = publicMutation
   .returns(v.any())
   .handler(async (ctx, args) => {
     const milestones = normalizeMilestoneInputs(args.milestones);
+    validateTemplateKey(args.template.templateKey);
     validateTemplateRows(milestones);
     validateScenarios(args.scenarios, milestones);
     await upsertTemplate(ctx, args.template, 0, true);
@@ -579,7 +738,11 @@ export const deleteTimelineDrawScenario = publicMutation
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    const scenarioRow = await getScenario(ctx, args.templateKey, args.scenarioKey);
+    const scenarioRow = await getScenario(
+      ctx,
+      args.templateKey,
+      args.scenarioKey
+    );
     if (!scenarioRow) {
       return await buildSettingsProjection(ctx);
     }
@@ -631,8 +794,9 @@ export const resetTimelineDrawScenarioToDefaults = publicMutation
   .returns(v.any())
   .handler(async (ctx, args) => {
     const seed = requiredSeedTemplate(args.templateKey);
+    const scenarioKey = canonicalTimelineDemoKey(args.scenarioKey);
     const scenarioRow = seed.scenarios.find(
-      (row) => row.scenarioKey === args.scenarioKey
+      (row) => row.scenarioKey === scenarioKey
     );
     if (!scenarioRow) {
       throw new Error("No default scenario exists for reset.");
@@ -696,6 +860,34 @@ function milestone(
   };
 }
 
+function gardenSuiteDemoMilestones(): SeedMilestone[] {
+  return GARDEN_SUITE_SECTIONS.map((section) => {
+    const submilestones = section.submilestones.map((submilestone, index) => ({
+      description: "Workbook budget line item",
+      durationDays: submilestone.durationDays,
+      name: submilestone.name,
+      percentageBps: submilestone.percentageBps,
+      submilestoneKey: `${section.key}-${slug(submilestone.name)}-${index}`,
+    }));
+    return {
+      dependencyKeys: [],
+      durationDays: section.durationDays,
+      icon: section.icon,
+      included: true,
+      milestoneKey: section.key,
+      name: section.name,
+      percentageBps: section.percentageBps,
+      siteVisitGuidance: defaultSiteVisitGuidance(
+        section.key,
+        section.name,
+        submilestones.map((row) => row.name)
+      ),
+      submilestones,
+      type: section.icon,
+    };
+  });
+}
+
 function scenario(
   scenarioKey: string,
   name: string,
@@ -725,11 +917,15 @@ function draw(
 async function buildSettingsProjection(ctx: ReadCtx) {
   const templates = await ctx.db.query("demo_timelineTemplates").take(20);
   const sortedTemplates = [...templates].sort(
-    (a, b) => a.sortOrder - b.sortOrder || a.templateKey.localeCompare(b.templateKey)
+    (a, b) =>
+      a.sortOrder - b.sortOrder || a.templateKey.localeCompare(b.templateKey)
   );
   const templateProjections = [];
 
   for (const templateRow of sortedTemplates) {
+    const canonicalTemplateKey = canonicalTimelineDemoKey(
+      templateRow.templateKey
+    );
     const milestones = await listMilestones(ctx, templateRow.templateKey);
     const guidanceItems = await listGuidanceItemsForTemplate(
       ctx,
@@ -738,33 +934,52 @@ async function buildSettingsProjection(ctx: ReadCtx) {
     const scenarios = await listScenarios(ctx, templateRow.templateKey);
     const scenarioProjections = [];
     for (const scenarioRow of scenarios) {
+      const canonicalScenarioKey = canonicalTimelineDemoKey(
+        scenarioRow.scenarioKey
+      );
+      const draws = await listScenarioDraws(
+        ctx,
+        templateRow.templateKey,
+        scenarioRow.scenarioKey
+      );
       scenarioProjections.push({
         ...scenarioRow,
-        draws: await listScenarioDraws(
-          ctx,
-          templateRow.templateKey,
-          scenarioRow.scenarioKey
-        ),
+        scenarioKey: canonicalScenarioKey,
+        templateKey: canonicalTemplateKey,
+        draws: draws.map((draw) => ({
+          ...draw,
+          scenarioKey: canonicalScenarioKey,
+          templateKey: canonicalTemplateKey,
+        })),
       });
     }
     const activeScenario =
       scenarioProjections.find((scenarioRow) => scenarioRow.isActive) ?? null;
     templateProjections.push({
       ...templateRow,
+      templateKey: canonicalTemplateKey,
       activeScenarioKey: activeScenario?.scenarioKey ?? null,
       activeScenarioName: activeScenario?.name ?? null,
-      milestones,
+      milestones: milestones.map((milestone) => ({
+        ...milestone,
+        templateKey: canonicalTemplateKey,
+      })),
       scenarios: scenarioProjections,
       status: templateStatus(
-        templateRow.templateKey,
+        canonicalTemplateKey,
         milestones,
         scenarioProjections
       ),
-      guidanceItems,
-      submilestones: await listSubmilestonesForTemplate(
-        ctx,
-        templateRow.templateKey
-      ),
+      guidanceItems: guidanceItems.map((item) => ({
+        ...item,
+        templateKey: canonicalTemplateKey,
+      })),
+      submilestones: (
+        await listSubmilestonesForTemplate(ctx, templateRow.templateKey)
+      ).map((submilestone) => ({
+        ...submilestone,
+        templateKey: canonicalTemplateKey,
+      })),
     });
   }
 
@@ -798,7 +1013,10 @@ async function seedDefaults(ctx: WriteCtx) {
     if (await upsertTemplate(ctx, templateRow, templateIndex, false)) {
       inserted.templates += 1;
     }
-    for (const [milestoneIndex, milestoneRow] of templateRow.milestones.entries()) {
+    for (const [
+      milestoneIndex,
+      milestoneRow,
+    ] of templateRow.milestones.entries()) {
       if (
         await insertMissingMilestone(
           ctx,
@@ -831,7 +1049,10 @@ async function seedDefaults(ctx: WriteCtx) {
       inserted.guidanceItems += guidanceResult.guidanceItems;
     }
     const existingScenarios = await listScenarios(ctx, templateRow.templateKey);
-    for (const [scenarioIndex, scenarioRow] of templateRow.scenarios.entries()) {
+    for (const [
+      scenarioIndex,
+      scenarioRow,
+    ] of templateRow.scenarios.entries()) {
       if (
         await upsertScenario(
           ctx,
@@ -899,13 +1120,19 @@ async function upsertDemoPersonas(ctx: WriteCtx) {
 }
 
 async function clearTimelineDemoSettings(ctx: WriteCtx) {
-  for (const row of await ctx.db.query("demo_timelineDrawScenarioDraws").take(500)) {
+  for (const row of await ctx.db
+    .query("demo_timelineDrawScenarioDraws")
+    .take(500)) {
     await ctx.db.delete(row._id);
   }
-  for (const row of await ctx.db.query("demo_timelineDrawScenarios").take(200)) {
+  for (const row of await ctx.db
+    .query("demo_timelineDrawScenarios")
+    .take(200)) {
     await ctx.db.delete(row._id);
   }
-  for (const row of await ctx.db.query("demo_timelineTemplateSubmilestones").take(500)) {
+  for (const row of await ctx.db
+    .query("demo_timelineTemplateSubmilestones")
+    .take(500)) {
     await ctx.db.delete(row._id);
   }
   for (const row of await ctx.db
@@ -918,7 +1145,9 @@ async function clearTimelineDemoSettings(ctx: WriteCtx) {
     .take(200)) {
     await ctx.db.delete(row._id);
   }
-  for (const row of await ctx.db.query("demo_timelineTemplateMilestones").take(200)) {
+  for (const row of await ctx.db
+    .query("demo_timelineTemplateMilestones")
+    .take(200)) {
     await ctx.db.delete(row._id);
   }
   for (const row of await ctx.db.query("demo_timelineTemplates").take(100)) {
@@ -937,7 +1166,9 @@ async function upsertTemplate(
 ) {
   const existing = await ctx.db
     .query("demo_timelineTemplates")
-    .withIndex("by_template", (q) => q.eq("templateKey", templateRow.templateKey))
+    .withIndex("by_template", (q) =>
+      q.eq("templateKey", templateRow.templateKey)
+    )
     .unique();
   if (existing && !overwrite) {
     return false;
@@ -967,7 +1198,11 @@ async function insertMissingMilestone(
   milestoneRow: SeedMilestone,
   order: number
 ) {
-  const existing = await getMilestone(ctx, templateKey, milestoneRow.milestoneKey);
+  const existing = await getMilestone(
+    ctx,
+    templateKey,
+    milestoneRow.milestoneKey
+  );
   if (existing) {
     return false;
   }
@@ -995,9 +1230,9 @@ async function insertMissingSubmilestone(
   row: SeedSubmilestone,
   order: number
 ) {
-  const existing = (await listSubmilestones(ctx, templateKey, milestoneKey)).find(
-    (subRow) => subRow.submilestoneKey === row.submilestoneKey
-  );
+  const existing = (
+    await listSubmilestones(ctx, templateKey, milestoneKey)
+  ).find((subRow) => subRow.submilestoneKey === row.submilestoneKey);
   if (existing) {
     return false;
   }
@@ -1029,12 +1264,15 @@ async function insertMissingTemplateGuidance(
   if (existing) {
     return { guidanceItems: 0, guidanceMilestones: 0 };
   }
-  const guidanceId = await ctx.db.insert("demo_timelineTemplateMilestoneGuidance", {
-    createdAt: NOW,
-    milestoneKey: milestoneRow.milestoneKey,
-    templateKey,
-    updatedAt: NOW,
-  });
+  const guidanceId = await ctx.db.insert(
+    "demo_timelineTemplateMilestoneGuidance",
+    {
+      createdAt: NOW,
+      milestoneKey: milestoneRow.milestoneKey,
+      templateKey,
+      updatedAt: NOW,
+    }
+  );
   const items = guidanceToItems(
     milestoneRow.siteVisitGuidance,
     defaultSiteVisitGuidance(
@@ -1320,16 +1558,23 @@ async function replaceTemplateGuidance(
   templateKey: string,
   row: MilestoneInput
 ) {
-  const existing = await getTemplateGuidance(ctx, templateKey, row.milestoneKey);
+  const existing = await getTemplateGuidance(
+    ctx,
+    templateKey,
+    row.milestoneKey
+  );
   if (existing) {
     await deleteTemplateGuidance(ctx, existing._id);
   }
-  const guidanceId = await ctx.db.insert("demo_timelineTemplateMilestoneGuidance", {
-    createdAt: NOW,
-    milestoneKey: row.milestoneKey,
-    templateKey,
-    updatedAt: NOW,
-  });
+  const guidanceId = await ctx.db.insert(
+    "demo_timelineTemplateMilestoneGuidance",
+    {
+      createdAt: NOW,
+      milestoneKey: row.milestoneKey,
+      templateKey,
+      updatedAt: NOW,
+    }
+  );
   const guidance = normalizeSiteVisitGuidance(
     row.siteVisitGuidance,
     defaultSiteVisitGuidance(
@@ -1358,7 +1603,8 @@ async function listScenarios(ctx: ReadCtx, templateKey: string) {
     .withIndex("by_template", (q) => q.eq("templateKey", templateKey))
     .take(50);
   return rows.sort(
-    (a, b) => a.sortOrder - b.sortOrder || a.scenarioKey.localeCompare(b.scenarioKey)
+    (a, b) =>
+      a.sortOrder - b.sortOrder || a.scenarioKey.localeCompare(b.scenarioKey)
   );
 }
 
@@ -1386,7 +1632,9 @@ async function listScenarioDraws(
       q.eq("templateKey", templateKey).eq("scenarioKey", scenarioKey)
     )
     .take(100);
-  return rows.sort((a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey));
+  return rows.sort(
+    (a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey)
+  );
 }
 
 async function insertEvent(
@@ -1409,12 +1657,16 @@ function templateStatus(
   scenarios: { draws: unknown[]; isActive: boolean }[]
 ) {
   const expected = requiredSeedTemplate(templateKey);
-  const activeCount = scenarios.filter((scenarioRow) => scenarioRow.isActive).length;
+  const activeCount = scenarios.filter(
+    (scenarioRow) => scenarioRow.isActive
+  ).length;
   return {
     activeScenarioCount: activeCount,
     hasActiveScenario: activeCount === 1,
     hasRequiredMilestones: milestones.length >= expected.milestones.length,
-    hasScenarioDraws: scenarios.every((scenarioRow) => scenarioRow.draws.length > 0),
+    hasScenarioDraws: scenarios.every(
+      (scenarioRow) => scenarioRow.draws.length > 0
+    ),
     scenarioCount: scenarios.length,
     totalDurationDays: sumBy(
       milestones as { durationDays: number; included: boolean }[],
@@ -1438,7 +1690,9 @@ function settingsCompleteness(
       (templateRow) => templateRow.templateKey
     ).filter(
       (templateKey) =>
-        !templates.some((templateRow) => templateRow.templateKey === templateKey)
+        !templates.some(
+          (templateRow) => templateRow.templateKey === templateKey
+        )
     ),
     readyTemplateCount: templates.filter(
       (templateRow) =>
@@ -1495,11 +1749,15 @@ function validateScenarios(
     draws: { amountBps: number; label: string; timingDay: number }[];
     isActive: boolean;
     name: string;
+    scenarioKey?: string;
   }[],
   milestones?: MilestoneScheduleInput[]
 ) {
   const names = new Set<string>();
   for (const row of rows) {
+    if (row.scenarioKey !== undefined) {
+      validateScenarioKey(row.scenarioKey);
+    }
     const normalizedName = row.name.trim().toLowerCase();
     if (!normalizedName) {
       throw new Error("Scenario name is required.");
@@ -1546,11 +1804,25 @@ function validateScenarioDrawRows(
 
 function assertHardCodedDefaultTemplatesConform() {
   for (const templateRow of DEFAULT_TEMPLATES) {
+    validateTemplateKey(templateRow.templateKey);
     const milestones = templateRow.milestones.map(toMilestoneInput);
     validateTemplateRows(milestones);
-    validateScenarios(
-      templateRow.scenarios.map(toScenarioInput),
-      milestones
+    validateScenarios(templateRow.scenarios.map(toScenarioInput), milestones);
+  }
+}
+
+function validateTemplateKey(templateKey: string) {
+  if (!TIMELINE_DEMO_KEY_PATTERN.test(templateKey)) {
+    throw new Error(
+      "Template key must use lowercase letters, numbers, and hyphens."
+    );
+  }
+}
+
+function validateScenarioKey(scenarioKey: string) {
+  if (!TIMELINE_DEMO_KEY_PATTERN.test(scenarioKey)) {
+    throw new Error(
+      "Scenario key must use lowercase letters, numbers, and hyphens."
     );
   }
 }
@@ -1558,7 +1830,8 @@ function assertHardCodedDefaultTemplatesConform() {
 function validateMilestoneHandoffGaps(rows: MilestoneScheduleInput[]) {
   const included = sortedIncludedMilestones(rows);
   for (let index = 0; index < included.length - 1; index += 1) {
-    const gap = milestoneStartDay(included, index + 1) - milestoneEndDay(included, index);
+    const gap =
+      milestoneStartDay(included, index + 1) - milestoneEndDay(included, index);
     if (gap > TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS) {
       throw new Error(
         `Milestone handoff gap cannot exceed ${TIMELINE_DEMO_SETTINGS_HANDOFF_GAP_DAYS} days.`
@@ -1571,87 +1844,8 @@ function validateDrawTimingsAgainstMilestones(
   draws: ScenarioDrawScheduleInput[],
   milestones: MilestoneScheduleInput[]
 ) {
-  const windows = buildMilestoneDrawWindows(milestones);
-  if (windows.length === 0) {
-    throw new Error(
-      "Draw timing requires at least one included milestone to create a reimbursement window."
-    );
-  }
-  for (const drawRow of draws) {
-    const inWindow = windows.some(
-      (window) =>
-        drawRow.timingDay > window.afterMilestoneEndDay &&
-        drawRow.timingDay < window.beforeMilestoneStartDay
-    );
-    if (!inWindow) {
-      throw new Error(formatDrawTimingWindowError(drawRow, windows));
-    }
-  }
-}
-
-function formatDrawTimingWindowError(
-  draw: ScenarioDrawScheduleInput,
-  windows: MilestoneDrawWindow[]
-) {
-  const nearest = findNearestDrawTimingWindow(draw.timingDay, windows);
-  const label = draw.label.trim() || "Unnamed draw";
-
-  if (!nearest) {
-    return `${label}, day ${draw.timingDay}: no valid handoff window exists. Include at least one milestone before saving draw timing.`;
-  }
-
-  const { firstValidDay, lastValidDay, nearestValidDay, window } = nearest;
-  const validWindow =
-    firstValidDay === lastValidDay
-      ? `day ${firstValidDay}`
-      : `days ${firstValidDay}-${lastValidDay}`;
-
-  const beforeMilestoneText = window.beforeMilestoneName
-    ? ` and ${window.beforeMilestoneName} (starts day ${window.beforeMilestoneStartDay})`
-    : "";
-  const windowLabel = window.beforeMilestoneName
-    ? "Valid window"
-    : "Valid final draw window";
-
-  return `${label}, day ${draw.timingDay}: conflicts with ${window.afterMilestoneName} (ends day ${window.afterMilestoneEndDay})${beforeMilestoneText}. ${windowLabel}: ${validWindow}. Nearest valid day: ${nearestValidDay}.`;
-}
-
-function findNearestDrawTimingWindow(
-  timingDay: number,
-  windows: MilestoneDrawWindow[]
-) {
-  let nearest: {
-    distance: number;
-    firstValidDay: number;
-    lastValidDay: number;
-    nearestValidDay: number;
-    window: MilestoneDrawWindow;
-  } | null = null;
-
-  for (const window of windows) {
-    const firstValidDay = window.afterMilestoneEndDay + 1;
-    const lastValidDay = window.beforeMilestoneStartDay - 1;
-    if (firstValidDay > lastValidDay) {
-      continue;
-    }
-    const nearestValidDay = Math.min(
-      Math.max(timingDay, firstValidDay),
-      lastValidDay
-    );
-    const distance = Math.abs(timingDay - nearestValidDay);
-
-    if (!nearest || distance < nearest.distance) {
-      nearest = {
-        distance,
-        firstValidDay,
-        lastValidDay,
-        nearestValidDay,
-        window,
-      };
-    }
-  }
-
-  return nearest;
+  void draws;
+  void milestones;
 }
 
 function buildMilestoneDrawWindows(
@@ -1662,7 +1856,7 @@ function buildMilestoneDrawWindows(
   for (let index = 0; index < included.length - 1; index += 1) {
     const row = included[index];
     const next = included[index + 1];
-    if (!row || !next) {
+    if (!(row && next)) {
       continue;
     }
     windows.push({
@@ -1705,7 +1899,10 @@ function sortedIncludedMilestones(rows: MilestoneScheduleInput[]) {
   return rows
     .filter((row) => row.included)
     .slice()
-    .sort((a, b) => a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey));
+    .sort(
+      (a, b) =>
+        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
+    );
 }
 
 function milestoneStartDay(rows: MilestoneScheduleInput[], index: number) {
@@ -1761,7 +1958,10 @@ function toScenarioInput(row: SeedScenario, sortOrder: number): ScenarioInput {
 }
 
 function requiredSeedTemplate(templateKey: string) {
-  const seed = DEFAULT_TEMPLATES.find((row) => row.templateKey === templateKey);
+  const canonicalTemplateKey = canonicalTimelineDemoKey(templateKey);
+  const seed = DEFAULT_TEMPLATES.find(
+    (row) => row.templateKey === canonicalTemplateKey
+  );
   if (!seed) {
     throw new Error(`Unknown timeline demo template: ${templateKey}`);
   }

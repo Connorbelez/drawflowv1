@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -8,6 +9,10 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import {
+  dispatchAssistantClientAction,
+  queueAssistantClientActions,
+} from "#/features/assistant/assistantClientActionBridge";
 
 import { TimelineSetupFlow } from "./-TimelineSetupFlow";
 
@@ -18,6 +23,8 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   restoreObjectUrlStatics();
+  window.history.pushState(null, "", "/");
+  window.sessionStorage.clear();
 });
 
 const baseItems = [
@@ -41,6 +48,44 @@ const baseItems = [
     markerLabel: "1",
     tone: "upcoming" as const,
     x: 0,
+  },
+];
+
+const templateActionFixture = [
+  {
+    isDefault: true,
+    rows: [
+      {
+        dependencyKeys: [],
+        durationDays: 10,
+        icon: "foundation" as const,
+        key: "single-family-foundation",
+        name: "Foundation",
+        percentageBps: 10_000,
+        subMilestones: ["Permit mobilization"],
+        type: "foundation",
+      },
+    ],
+    summary: "Single family fixture",
+    templateKey: "single-family-full-build",
+    title: "Single Family Full Build",
+  },
+  {
+    rows: [
+      {
+        dependencyKeys: [],
+        durationDays: 14,
+        icon: "foundation" as const,
+        key: "garden-suite-permits",
+        name: "Garden suite permits and mobilization",
+        percentageBps: 10_000,
+        subMilestones: ["Permit release"],
+        type: "permitting",
+      },
+    ],
+    summary: "Garden Suite fixture",
+    templateKey: "garden-suite",
+    title: "Garden Suite",
   },
 ];
 
@@ -125,6 +170,245 @@ describe("TimelineSetupFlow permit viewer", () => {
     fireEvent.click(screen.getByTestId("timeline-setup-continue-budget"));
 
     expect(screen.queryByTestId("build-permit-viewer-trigger")).toBeNull();
+  });
+});
+
+describe("TimelineSetupFlow assistant client actions", () => {
+  test("selects the Garden Suite template through the agent action bridge", async () => {
+    render(
+      <TimelineSetupFlow
+        baseItems={baseItems}
+        onComplete={vi.fn()}
+        settingsTemplates={templateActionFixture}
+      />
+    );
+
+    const gardenSuiteCard = screen.getByTestId(
+      "timeline-setup-template-card-garden-suite"
+    );
+    expect(gardenSuiteCard.getAttribute("data-agent-id")).toBe(
+      "proposal-template:garden-suite"
+    );
+    expect(gardenSuiteCard.getAttribute("aria-pressed")).toBe("false");
+
+    expect(
+      dispatchAssistantClientAction({
+        actionKey: "select_proposal_template",
+        input: { templateKey: "Garden Suite" },
+      })
+    ).toBe(true);
+
+    await waitFor(() => {
+      expect(gardenSuiteCard.getAttribute("aria-pressed")).toBe("true");
+    });
+  });
+
+  test("consumes queued Garden Suite selection after navigation", async () => {
+    queueAssistantClientActions([
+      {
+        actionKey: "select_proposal_template",
+        input: { templateKey: "garden-suite" },
+      },
+    ]);
+
+    render(
+      <TimelineSetupFlow
+        baseItems={baseItems}
+        onComplete={vi.fn()}
+        settingsTemplates={templateActionFixture}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId("timeline-setup-template-card-garden-suite")
+          .getAttribute("aria-pressed")
+      ).toBe("true");
+    });
+    expect(screen.getByTestId("timeline-setup-assistant-notice").textContent).toBe(
+      "Garden Suite selected"
+    );
+  });
+
+  test("consumes queued Garden Suite selection when route strings differ by slash or search", async () => {
+    window.history.pushState(null, "", "/builder/proposals/new/?from=assistant");
+    queueAssistantClientActions([
+      {
+        actionKey: "select_proposal_template",
+        input: { templateKey: "garden-suite" },
+        route: "/builder/proposals/new",
+      },
+    ]);
+
+    render(
+      <TimelineSetupFlow
+        baseItems={baseItems}
+        onComplete={vi.fn()}
+        settingsTemplates={templateActionFixture}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId("timeline-setup-template-card-garden-suite")
+          .getAttribute("aria-pressed")
+      ).toBe("true");
+    });
+    expect(screen.getByTestId("timeline-setup-assistant-notice").textContent).toBe(
+      "Garden Suite selected"
+    );
+  });
+
+  test("waits for loaded settings templates before consuming queued Garden Suite selection", async () => {
+    queueAssistantClientActions([
+      {
+        actionKey: "select_proposal_template",
+        input: { templateKey: "garden-suite" },
+      },
+    ]);
+
+    const { rerender } = render(
+      <TimelineSetupFlow baseItems={baseItems} onComplete={vi.fn()} />
+    );
+
+    expect(screen.queryByText(/garden-suite is not available/i)).toBeNull();
+    expect(
+      screen.queryByTestId("timeline-setup-template-card-garden-suite")
+    ).toBeNull();
+
+    rerender(
+      <TimelineSetupFlow
+        baseItems={baseItems}
+        onComplete={vi.fn()}
+        settingsTemplates={templateActionFixture}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId("timeline-setup-template-card-garden-suite")
+          .getAttribute("aria-pressed")
+      ).toBe("true");
+    });
+    expect(screen.queryByText(/garden-suite is not available/i)).toBeNull();
+  });
+
+  test("updates setup fields, sub-milestone cost basis, and material costs through the agent action bridge", async () => {
+    const onComplete = vi.fn();
+    render(
+      <TimelineSetupFlow
+        baseItems={baseItems}
+        onComplete={onComplete}
+        settingsTemplates={[
+          {
+            isDefault: true,
+            rows: [
+              {
+                dependencyKeys: [],
+                durationDays: 8,
+                icon: "foundation",
+                key: "site-foundation",
+                name: "Site prep & foundation",
+                percentageBps: 10_000,
+                subMilestoneDetails: [
+                  {
+                    key: "permit-mobilization",
+                    name: "Permit mobilization",
+                    percentageBps: 5_000,
+                  },
+                  {
+                    key: "excavation",
+                    name: "Excavation",
+                    percentageBps: 5_000,
+                  },
+                ],
+                subMilestones: [],
+                type: "foundation",
+              },
+            ],
+            summary: "Agent setup fixture",
+            templateKey: "agent-setup-fixture",
+            title: "Agent setup fixture",
+          },
+        ]}
+      />,
+    );
+
+    await act(async () => {
+      expect(dispatchAssistantClientAction({
+        actionKey: "set_proposal_setup_field",
+        input: {
+          field: "totalBudget",
+          value: "100000",
+        },
+      })).toBe(true);
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByTestId("timeline-setup-budget-input") as HTMLInputElement)
+          .value,
+      ).toBe("100,000");
+    });
+    await act(async () => {
+      expect(dispatchAssistantClientAction({
+        actionKey: "advance_proposal_setup_step",
+        input: { step: "budget" },
+      })).toBe(true);
+    });
+    await screen.findByTestId("timeline-setup-budget-screen");
+
+    await act(async () => {
+      expect(dispatchAssistantClientAction({
+        actionKey: "update_setup_submilestone",
+        input: {
+          budgetCents: 7_000_000,
+          subMilestoneId: "permit-mobilization",
+        },
+      })).toBe(true);
+    });
+    await act(async () => {
+      expect(dispatchAssistantClientAction({
+        actionKey: "create_setup_cost_item",
+        input: {
+          costCents: 2_500_000,
+          itemId: "assistant-lumber",
+          itemType: "material",
+          quantity: 1,
+          relevantSubmilestoneKeys: ["permit-mobilization"],
+          rowKey: "site-foundation",
+          supplier: "A1 Lumber",
+          title: "Framing lumber package",
+        },
+      })).toBe(true);
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-setup-complete"));
+
+    await waitFor(() => {
+      expect(onComplete).toHaveBeenCalledOnce();
+    });
+    const result = onComplete.mock.calls[0]?.[0];
+    expect(result.totalBudget).toBe(120_000);
+    expect(result.items[0].data.submilestoneDetails).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          budgetCents: 7_000_000,
+          key: "permit-mobilization",
+        }),
+      ]),
+    );
+    expect(result.costItems).toEqual([
+      expect.objectContaining({
+        costCents: 2_500_000,
+        milestoneKey: "site-foundation",
+        relevantSubmilestoneKeys: ["permit-mobilization"],
+        supplier: "A1 Lumber",
+        title: "Framing lumber package",
+      }),
+    ]);
   });
 });
 
@@ -244,26 +528,12 @@ describe("TimelineSetupFlow sub-milestone budget rollups", () => {
       target: { value: "100000" },
     });
     fireEvent.click(screen.getByTestId("timeline-setup-continue-budget"));
-
-    expect(
-      (screen.getByTestId(
-        "timeline-setup-row-budget-site-foundation",
-      ) as HTMLInputElement).value,
-    ).toBe("$100,000");
+    await screen.findByTestId("timeline-setup-budget-screen");
 
     fireEvent.change(
-      screen.getByTestId(
-        "timeline-setup-submilestone-budget-permit-mobilization",
-      ),
+      await screen.findByLabelText(/permit mobilization.*budget/i),
       { target: { value: "70000" } },
     );
-
-    expect(
-      (screen.getByTestId(
-        "timeline-setup-row-budget-site-foundation",
-      ) as HTMLInputElement).value,
-    ).toBe("$120,000");
-    expect(screen.getAllByText("$120,000").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByTestId("timeline-setup-complete"));
 

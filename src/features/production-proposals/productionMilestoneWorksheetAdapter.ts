@@ -1,6 +1,4 @@
-import {
-  parseCurrencyToCents,
-} from "#/features/builder-proposal-demo/template-helpers.ts";
+import { parseCurrencyToCents } from "#/features/builder-proposal-demo/template-helpers.ts";
 import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
 import type {
   TimelineMilestoneWorksheetContractorAssignment,
@@ -121,7 +119,10 @@ export function milestoneContractorAssignmentsForWorksheetRow(
   assignments: ProductionProposalPlanningAssignment[] | undefined,
   availableSubMilestoneIds: Set<string>
 ): TimelineMilestoneWorksheetContractorAssignment[] {
-  const grouped = new Map<string, TimelineMilestoneWorksheetContractorAssignment>();
+  const grouped = new Map<
+    string,
+    TimelineMilestoneWorksheetContractorAssignment
+  >();
 
   for (const assignment of assignments ?? []) {
     if (assignment.milestoneKey !== milestoneKey) {
@@ -365,7 +366,7 @@ export function worksheetRowsToGanttMilestoneDrafts(
       );
       const dayStart = Number.isFinite(row.startDay)
         ? Math.round(row.startDay ?? 0)
-        : schedule?.dayStart ?? 0;
+        : (schedule?.dayStart ?? 0);
       const scheduleSubmilestonesByKey = new Map(
         (schedule?.submilestones ?? []).map((submilestone) => [
           submilestone.key,

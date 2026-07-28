@@ -58,7 +58,7 @@ export function BuilderFirstRun({
   workosOrganizationId,
 }: BuilderFirstRunProps): React.ReactElement {
   const dismiss = useMutation(
-    api.production_proposals.dismissBuilderOnboarding,
+    api.production_proposals.dismissBuilderOnboarding
   );
   const [dismissing, setDismissing] = useState(false);
 
@@ -87,8 +87,8 @@ export function BuilderFirstRun({
               </FrameTitle>
               <FrameDescription className="max-w-[58ch] text-base">
                 DrawFlow turns your construction roadmap into reimbursement draw
-                plans you can finance against. Add one build and you&rsquo;ll see
-                exactly when each draw becomes available, and what it costs.
+                plans you can finance against. Add one build and you&rsquo;ll
+                see exactly when each draw becomes available, and what it costs.
               </FrameDescription>
             </div>
 
@@ -102,7 +102,7 @@ export function BuilderFirstRun({
                       "flex items-start gap-3 rounded-xl border p-3.5 transition-colors",
                       isActive
                         ? "border-primary/40 bg-primary/[0.06]"
-                        : "border-border bg-muted/40",
+                        : "border-border bg-muted/40"
                     )}
                     key={item.key}
                   >
@@ -113,9 +113,8 @@ export function BuilderFirstRun({
                           "border-success/40 bg-success/16 text-success-foreground",
                         isActive &&
                           "border-primary bg-primary text-[color:var(--primary-foreground)]",
-                        !isDone &&
-                          !isActive &&
-                          "border-border bg-background text-muted-foreground",
+                        !(isDone || isActive) &&
+                          "border-border bg-background text-muted-foreground"
                       )}
                     >
                       {item.icon}

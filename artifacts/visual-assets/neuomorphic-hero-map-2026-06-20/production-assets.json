@@ -1,0 +1,17 @@
+{
+  "image_asset_count": 1,
+  "assets": [
+    {
+      "id": "neuomorphic-hero-map",
+      "reference_crop": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/neuomorphic-hero-map-2026-06-20/crops/neuomorphic-hero-map.png",
+      "raw_generated_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/neuomorphic-hero-map-2026-06-20/generated/raw/neuomorphic-hero-map.png",
+      "final_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/artifacts/visual-assets/neuomorphic-hero-map-2026-06-20/generated/webp/neuomorphic-hero-map.webp",
+      "public_webp_path": "/Users/connor/Dev/drawFlow/v1/drawflowv1/public/assets/hero/neuomorphic-hero-map.webp",
+      "imagegen_raw_attempt_path": "/Users/connor/.codex/generated_images/019ee5fa-fbfb-72c3-8815-84abf8bd5081/ig_0d5cd98a38b5e1f1016a36c80862b0819680bf9fe179a65076.png",
+      "method": "source-faithful alpha extraction",
+      "imagegen_prompt": "Edit the attached hero image. Extract only the full neuomorphic/isometric waterfront map artwork as a standalone production asset with a transparent background. Preserve the raised cream city-map plinth, blue harbor water, downtown skyline with tower, marina docks, mansion and guest house on the right, trees, warm soft lighting, all attached shadows on the object, and the original perspective/aspect. Remove only the surrounding cream page/canvas/background outside the artwork. Do not add text, logos, borders, a rectangular background, or a halo. Output with true transparency.",
+      "transparent": true,
+      "notes": "The imagegen edit was invoked per pipeline, but the selected production asset is the source-faithful extraction because the model edit changed the artwork. The user specifically requested extraction of the current hero image with the cream background removed."
+    }
+  ]
+}

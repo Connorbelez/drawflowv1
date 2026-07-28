@@ -2,9 +2,6 @@
 
 import { useMutation } from "convex/react";
 import { useState } from "react";
-
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Card,
@@ -13,10 +10,12 @@ import {
   CardTitle,
 } from "#/components/ui/card.tsx";
 import {
-  ContractorQuickAddDrawer,
   type ContractorDrawerAvailableContractor,
   type ContractorProfileDraft,
+  ContractorQuickAddDrawer,
 } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { initialsFor } from "./format";
 
 type AttachedContractor = {
@@ -35,7 +34,9 @@ type AvailableContractor = {
   city?: string;
   defaultPayRateCents?: number;
   defaultPayRateUnit?: "hour" | "day" | "fixed";
+  email?: string;
   name: string;
+  onboardingStatus?: "profile_only" | "invited" | "account_linked";
   skills?: string[];
   trades?: string[];
 };
@@ -48,21 +49,28 @@ interface ContractorActions {
   onCreateAndAttach?: (input: {
     contractor: ContractorProfileDraft;
     role: string;
-  }) => Promise<void> | void;
+  }) =>
+    | Promise<void | string | { contractorId?: string }>
+    | void
+    | string
+    | { contractorId?: string };
+  onInviteCreatedContractor?: (contractorId: string) => Promise<void> | void;
   sourceLabel?: string;
 }
 
 interface ContractorsCardProps {
-  buildId: Id<"demo_builds"> | string;
-  contractors: AttachedContractor[];
-  availableContractors: AvailableContractor[];
   actions?: ContractorActions;
+  availableContractors: AvailableContractor[];
+  buildId: Id<"demo_builds"> | string;
+  canAssignToMilestone?: boolean;
   contractorDetailHrefFor?: (contractorId: string) => string;
+  contractors: AttachedContractor[];
 }
 
 export function ContractorsCard({
   actions,
   buildId,
+  canAssignToMilestone = false,
   contractors,
   availableContractors,
   contractorDetailHrefFor,
@@ -74,12 +82,18 @@ export function ContractorsCard({
       city: contractor.city,
       defaultPayRateCents: contractor.defaultPayRateCents,
       defaultPayRateUnit: contractor.defaultPayRateUnit,
+      email: contractor.email,
       name: contractor.name,
+      onboardingStatus: contractor.onboardingStatus,
       trades: contractor.trades ?? contractor.skills ?? [],
     }));
 
   return (
-    <Card data-testid="build-detail-contractors" id="contractors">
+    <Card
+      className="self-start"
+      data-testid="build-detail-contractors"
+      id="contractors"
+    >
       <CardHeader className="flex-row items-center justify-between gap-3 p-4">
         <div>
           <CardTitle className="text-sm">
@@ -101,7 +115,10 @@ export function ContractorsCard({
           Add contractor
         </Button>
       </CardHeader>
-      <CardContent className="grid gap-2 p-4 pt-0">
+      <CardContent
+        className="grid auto-rows-max content-start items-start gap-2 p-4 pt-0"
+        data-testid="build-detail-contractors-list"
+      >
         {contractors.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-muted-foreground text-sm">
             No contractors yet.
@@ -112,9 +129,23 @@ export function ContractorsCard({
             const detailHref = contractorDetailHrefFor?.(profileId);
             return (
               <div
-                className="group flex items-center gap-3 rounded-lg border bg-background/55 p-3 transition-colors hover:bg-accent/45"
+                className="group flex items-center gap-3 self-start rounded-lg border bg-background/55 p-3 transition-colors hover:bg-accent/45 data-[drag-enabled=true]:cursor-grab data-[drag-enabled=true]:active:cursor-grabbing"
+                data-contractor-id={profileId}
+                data-drag-enabled={canAssignToMilestone ? "true" : undefined}
                 data-testid={`build-detail-contractor-${contractor._id}`}
+                draggable={canAssignToMilestone}
                 key={contractor._id}
+                onDragStart={(event) => {
+                  if (!canAssignToMilestone) {
+                    return;
+                  }
+                  event.dataTransfer.effectAllowed = "copy";
+                  event.dataTransfer.setData(
+                    "application/x-drawflow-contractor-id",
+                    profileId
+                  );
+                  event.dataTransfer.setData("text/plain", profileId);
+                }}
               >
                 <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/16 font-semibold text-primary text-xs">
                   {initialsFor(contractor.name)}
@@ -132,7 +163,7 @@ export function ContractorsCard({
                     ) : (
                       contractor.name
                     )}
-                    <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                    <span className="ml-2 font-normal text-[11px] text-muted-foreground">
                       {contractor.role}
                     </span>
                   </p>
@@ -182,7 +213,7 @@ function ContractorBuildQuickAddDrawer({
       <ContractorQuickAddDrawer
         availableContractors={availableContractors}
         createLabel="Create and add"
-        description="Create or attach a contractor with schedule, equipment, capability, and pay data before assigning milestone work."
+        description="Create or attach a contractor with equipment, capability, pay, and contact data before assigning milestone work."
         onAttachExisting={actions.onAttachExisting}
         onCreate={({ contractor, role }) =>
           actions.onCreateAndAttach?.({
@@ -190,6 +221,7 @@ function ContractorBuildQuickAddDrawer({
             role: role ?? contractor.trades[0] ?? "Contractor",
           })
         }
+        onInviteCreatedContractor={actions.onInviteCreatedContractor}
         onOpenChange={onOpenChange}
         open={open}
         requireRole
@@ -219,17 +251,17 @@ function DemoContractorBuildQuickAddDrawer({
   open: boolean;
 }) {
   const demoAttach = useMutation(
-    api.demo_drawflow_backoffice.demo_attachContractorToBuild,
+    api.demo_drawflow_backoffice.demo_attachContractorToBuild
   );
   const demoCreate = useMutation(
-    api.demo_drawflow_backoffice.demo_createAndAttachContractor,
+    api.demo_drawflow_backoffice.demo_createAndAttachContractor
   );
 
   return (
     <ContractorQuickAddDrawer
       availableContractors={availableContractors}
       createLabel="Create and add"
-      description="Create or attach a contractor with schedule, equipment, capability, and pay data before assigning milestone work."
+      description="Create or attach a contractor with equipment, capability, pay, and contact data before assigning milestone work."
       onAttachExisting={({ contractorId, role }) =>
         demoAttach({
           buildId: buildId as Id<"demo_builds">,
@@ -247,7 +279,9 @@ function DemoContractorBuildQuickAddDrawer({
             kind: contractor.kind,
             name: contractor.name,
             phone: contractor.phone,
-            skills: contractor.capabilities.map((capability) => capability.label),
+            skills: contractor.capabilities.map(
+              (capability) => capability.label
+            ),
             trades: contractor.trades,
           },
           role: role ?? contractor.trades[0] ?? "Contractor",

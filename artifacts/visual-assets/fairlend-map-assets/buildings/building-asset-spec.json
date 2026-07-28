@@ -1,0 +1,524 @@
+{
+  "project": "drawflow-fairlend-toronto-cityscape-buildings",
+  "notes": "Building-level decomposition of fairlend-toronto-cityscape.webp. All crops produced from this spec are reference-only inputs for later standalone generated assets; do not ship, optimize, or treat these crops as final production images. The source uses overlapping isometric perspective, so bboxes capture each visible structure plus its roof cap and immediate shadow where practical.",
+  "assets": [
+    {
+      "id": "west-park-pavilion",
+      "label": "West park low-rise pavilion",
+      "classification": "image",
+      "role": "Small foreground low-rise building in the west park cluster",
+      "bbox": { "x": 176, "y": 433, "width": 62, "height": 66 },
+      "rationale": "A standalone miniature building with its own roof cap and facade, distinct from surrounding trees and baseplate.",
+      "notes": "Partly surrounded by trees; crop intentionally includes a small amount of plaza shadow.",
+      "generation": {
+        "asset_type": "transparent isometric miniature low-rise building",
+        "transparent": true,
+        "prompt": "Generate a standalone warm off-white isometric miniature low-rise pavilion matching the reference: two-story clay/paper model, flat roof with small golden roof cap, soft studio lighting, subtle facade recesses, clean edges, and no surrounding trees or baseplate."
+      }
+    },
+    {
+      "id": "west-rear-slab-tower",
+      "label": "West rear slab tower",
+      "classification": "image",
+      "role": "Tall rectangular residential tower on the far-west skyline",
+      "bbox": { "x": 239, "y": 276, "width": 65, "height": 214 },
+      "rationale": "Distinct high-rise tower with independent roof, window grid, and vertical mass.",
+      "notes": "Lower edge meets trees and road; later generation should isolate the building only.",
+      "generation": {
+        "asset_type": "transparent isometric miniature high-rise tower",
+        "transparent": true,
+        "prompt": "Generate a standalone tall rectangular residential slab tower in the same warm cream clay/paper isometric style, with a small golden roof cap, tight vertical window grid, soft bevels, and premium miniature lighting."
+      }
+    },
+    {
+      "id": "west-rear-slim-apartment-tower",
+      "label": "West rear slim apartment tower",
+      "classification": "image",
+      "role": "Narrow residential tower behind the west mid-rise block",
+      "bbox": { "x": 318, "y": 337, "width": 53, "height": 153 },
+      "rationale": "Separate rear tower with its own roof cap and facade pattern.",
+      "notes": "Slightly occluded by the front block at the base.",
+      "generation": {
+        "asset_type": "transparent isometric miniature apartment tower",
+        "transparent": true,
+        "prompt": "Generate a standalone narrow apartment tower matching the crop: cream paper-clay material, small golden rooftop cap, vertical window rows, simple rectangular mass, and soft left-side studio highlights."
+      }
+    },
+    {
+      "id": "west-front-square-midrise",
+      "label": "West front square mid-rise",
+      "classification": "image",
+      "role": "Front mid-rise block in the west cluster",
+      "bbox": { "x": 311, "y": 399, "width": 79, "height": 132 },
+      "rationale": "Independent block with visible roof cap, four facades, and window grid.",
+      "notes": "Foreground trees overlap the lower facade; generation should reconstruct the clean building.",
+      "generation": {
+        "asset_type": "transparent isometric miniature mid-rise block",
+        "transparent": true,
+        "prompt": "Generate a standalone square mid-rise block in warm off-white clay, with a flat roof, centered small golden roof cap, dense tiny window grid, subtle beveled edges, and the same isometric camera angle."
+      }
+    },
+    {
+      "id": "west-canal-front-block",
+      "label": "West canal front block",
+      "classification": "image",
+      "role": "Low square block beside the west canal",
+      "bbox": { "x": 401, "y": 461, "width": 82, "height": 100 },
+      "rationale": "Visible standalone low/mid-rise building at the waterfront edge.",
+      "notes": "Lower edge is close to trees and canal; crop includes context only for reference.",
+      "generation": {
+        "asset_type": "transparent isometric miniature low-rise block",
+        "transparent": true,
+        "prompt": "Generate a standalone compact waterfront low-rise block with cream paper-clay facades, a small golden roof cap, regular window grid, soft shadows, and no water, road, or trees."
+      }
+    },
+    {
+      "id": "west-inner-small-midrise",
+      "label": "West inner small mid-rise",
+      "classification": "image",
+      "role": "Small partially occluded mid-rise inside the west cluster",
+      "bbox": { "x": 447, "y": 402, "width": 45, "height": 93 },
+      "rationale": "Own roof and facade make it a separate building despite partial occlusion.",
+      "notes": "Partly hidden by foreground tree canopy and neighboring blocks.",
+      "generation": {
+        "asset_type": "transparent isometric miniature small mid-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone small cream isometric mid-rise with a square footprint, flat roof, golden cap, tiny window rows, and a clean unobstructed facade reconstructed from the visible reference."
+      }
+    },
+    {
+      "id": "west-east-rear-residential-tower",
+      "label": "West east rear residential tower",
+      "classification": "image",
+      "role": "Tall rear tower at the east edge of the west cluster",
+      "bbox": { "x": 482, "y": 322, "width": 67, "height": 193 },
+      "rationale": "Distinct vertical tower with separate roof cap and full height silhouette.",
+      "notes": "Lower right edge is near trees and neighboring streets.",
+      "generation": {
+        "asset_type": "transparent isometric miniature residential tower",
+        "transparent": true,
+        "prompt": "Generate a standalone tall residential tower in warm off-white miniature material, flat roof with golden cap, regular window rows, subtle side shadow, and clean isolated silhouette."
+      }
+    },
+    {
+      "id": "downtown-west-front-tower",
+      "label": "Downtown west front tower",
+      "classification": "image",
+      "role": "Foreground tower in front of the west fluted high-rise",
+      "bbox": { "x": 565, "y": 376, "width": 66, "height": 178 },
+      "rationale": "Separate front tower with own roof cap and rectangular mass.",
+      "notes": "Overlaps visually with the taller tower behind it.",
+      "generation": {
+        "asset_type": "transparent isometric miniature foreground tower",
+        "transparent": true,
+        "prompt": "Generate a standalone foreground residential tower with cream clay facades, flat roof, small golden cap, vertical window grid, and the same soft isometric lighting."
+      }
+    },
+    {
+      "id": "downtown-west-fluted-highrise",
+      "label": "Downtown west fluted high-rise",
+      "classification": "image",
+      "role": "Tall fluted high-rise in the west downtown cluster",
+      "bbox": { "x": 589, "y": 219, "width": 62, "height": 274 },
+      "rationale": "Prominent high-rise tower with vertical ribbed facade and independent skyline silhouette.",
+      "notes": "Lower floors are partly covered by foreground buildings.",
+      "generation": {
+        "asset_type": "transparent isometric miniature fluted high-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone tall fluted high-rise tower in warm ivory clay/paper, with vertical ribbed facade panels, a flat roof and golden cap, soft shadows, and clean unobstructed lower floors."
+      }
+    },
+    {
+      "id": "downtown-west-front-slim-block",
+      "label": "Downtown west front slim block",
+      "classification": "image",
+      "role": "Slim foreground block east of the west high-rise",
+      "bbox": { "x": 629, "y": 383, "width": 51, "height": 124 },
+      "rationale": "Individual narrow block with its own roof cap and facade.",
+      "notes": "Closely adjacent to the taller rear tower and another front tower.",
+      "generation": {
+        "asset_type": "transparent isometric miniature slim block",
+        "transparent": true,
+        "prompt": "Generate a standalone slim rectangular mid-rise block with cream paper-clay material, tiny regular windows, flat roof, golden roof cap, and premium miniature soft lighting."
+      }
+    },
+    {
+      "id": "downtown-west-north-residential-tower",
+      "label": "Downtown west north residential tower",
+      "classification": "image",
+      "role": "Rear residential tower north of the downtown west foreground buildings",
+      "bbox": { "x": 677, "y": 302, "width": 54, "height": 211 },
+      "rationale": "Full distinct tower with visible roof cap and vertical facade grid.",
+      "notes": "Partly obscured at lower floors by front structures.",
+      "generation": {
+        "asset_type": "transparent isometric miniature residential tower",
+        "transparent": true,
+        "prompt": "Generate a standalone medium-tall rectangular residential tower with a golden rooftop cap, warm off-white material, crisp window grid, and clean isolated lower edge."
+      }
+    },
+    {
+      "id": "downtown-west-foreground-tower",
+      "label": "Downtown west foreground tower",
+      "classification": "image",
+      "role": "Foreground tower just west of the central boulevard",
+      "bbox": { "x": 667, "y": 417, "width": 62, "height": 160 },
+      "rationale": "Separate front tower with its own roof, height, and facade rhythm.",
+      "notes": "Lower left is near trees and road seams.",
+      "generation": {
+        "asset_type": "transparent isometric miniature foreground tower",
+        "transparent": true,
+        "prompt": "Generate a standalone foreground residential tower in the reference style, with flat cream roof, small golden cap, neat window rows, subtle bevels, and soft cast shadow removed from surroundings."
+      }
+    },
+    {
+      "id": "downtown-mid-foreground-tower",
+      "label": "Downtown mid foreground tower",
+      "classification": "image",
+      "role": "Foreground tower in front of the central mid rear tower",
+      "bbox": { "x": 743, "y": 429, "width": 63, "height": 148 },
+      "rationale": "Individual front building with own roof cap and visible facade.",
+      "notes": "Overlapped by trees at the base.",
+      "generation": {
+        "asset_type": "transparent isometric miniature foreground mid-rise tower",
+        "transparent": true,
+        "prompt": "Generate a standalone compact foreground tower with warm off-white clay facades, small golden roof cap, regular miniature windows, and clean isolated isometric form."
+      }
+    },
+    {
+      "id": "downtown-mid-rear-residential-tower",
+      "label": "Downtown mid rear residential tower",
+      "classification": "image",
+      "role": "Rear tower near the central art deco skyscraper",
+      "bbox": { "x": 755, "y": 323, "width": 60, "height": 210 },
+      "rationale": "Separate rear tower with visible full roof and facade grid.",
+      "notes": "Foreground tower partially covers lower floors.",
+      "generation": {
+        "asset_type": "transparent isometric miniature residential high-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone rear residential high-rise with cream material, golden roof cap, tight vertical window grid, and a clean lower silhouette reconstructed without foreground occluders."
+      }
+    },
+    {
+      "id": "downtown-central-front-square-tower",
+      "label": "Downtown central front square tower",
+      "classification": "image",
+      "role": "Square foreground tower before the central landmark tower",
+      "bbox": { "x": 828, "y": 439, "width": 64, "height": 134 },
+      "rationale": "Separate low tower with distinct roof and facade pattern.",
+      "notes": "Lower edge touches trees and roadway.",
+      "generation": {
+        "asset_type": "transparent isometric miniature square tower",
+        "transparent": true,
+        "prompt": "Generate a standalone square foreground tower in warm ivory paper-clay, flat roof with centered golden cap, uniform windows, and soft studio shadows."
+      }
+    },
+    {
+      "id": "downtown-central-art-deco-tower",
+      "label": "Downtown central art deco tower",
+      "classification": "image",
+      "role": "Tall stepped art deco skyscraper in the central skyline",
+      "bbox": { "x": 837, "y": 218, "width": 65, "height": 278 },
+      "rationale": "Prominent landmark-style tower with stepped ribs and unique vertical silhouette.",
+      "notes": "Lower floors are partially behind foreground tower and streetscape.",
+      "generation": {
+        "asset_type": "transparent isometric miniature art deco skyscraper",
+        "transparent": true,
+        "prompt": "Generate a standalone tall stepped art deco skyscraper in cream clay/paper material, with strong vertical ribs, recessed central facade, golden roof cap, refined miniature lighting, and no surrounding buildings."
+      }
+    },
+    {
+      "id": "downtown-east-slim-midrise",
+      "label": "Downtown east slim mid-rise",
+      "classification": "image",
+      "role": "Slim mid-rise east of the central art deco tower",
+      "bbox": { "x": 912, "y": 391, "width": 47, "height": 163 },
+      "rationale": "Independent narrow building with own roof cap.",
+      "notes": "Mostly visible, with lower edge near foreground block and road.",
+      "generation": {
+        "asset_type": "transparent isometric miniature slim mid-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone slim mid-rise tower with warm cream facades, a small golden roof cap, fine vertical window rows, and the same isometric miniature styling."
+      }
+    },
+    {
+      "id": "downtown-east-rear-slab-tower",
+      "label": "Downtown east rear slab tower",
+      "classification": "image",
+      "role": "Rear slab tower before the financial-district landmark",
+      "bbox": { "x": 940, "y": 343, "width": 52, "height": 184 },
+      "rationale": "Separate rear tower with visible roof and facade.",
+      "notes": "Partially overlapped by the foreground waterfront civic block.",
+      "generation": {
+        "asset_type": "transparent isometric miniature slab tower",
+        "transparent": true,
+        "prompt": "Generate a standalone rectangular slab tower with cream paper-clay texture, golden roof cap, regular windows, beveled edges, and clean reconstructed base."
+      }
+    },
+    {
+      "id": "downtown-east-back-lowrise",
+      "label": "Downtown east back low-rise",
+      "classification": "image",
+      "role": "Small low-rise behind the downtown east waterfront block",
+      "bbox": { "x": 940, "y": 548, "width": 58, "height": 64 },
+      "rationale": "Separate rear low-rise with its own roof cap and visible facade.",
+      "notes": "Partly tucked behind the front civic block and adjacent trees.",
+      "generation": {
+        "asset_type": "transparent isometric miniature rear low-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone small rear low-rise building with cream paper-clay facades, flat roof, small golden cap, subtle window/facade details, and no foreground civic block or trees."
+      }
+    },
+    {
+      "id": "downtown-east-waterfront-civic-block",
+      "label": "Downtown east waterfront civic block",
+      "classification": "image",
+      "role": "Low civic-style building at the downtown waterfront edge",
+      "bbox": { "x": 913, "y": 604, "width": 85, "height": 73 },
+      "rationale": "Independent foreground low-rise with a distinct roof and facade rhythm.",
+      "notes": "Sits at the water/baseplate edge; crop includes context for reference only.",
+      "generation": {
+        "asset_type": "transparent isometric miniature civic low-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone low civic-style waterfront building in the warm cream miniature style, with a flat roof, small golden cap, column-like facade details, and no water or baseplate."
+      }
+    },
+    {
+      "id": "financial-district-fluted-landmark",
+      "label": "Financial district fluted landmark tower",
+      "classification": "image",
+      "role": "Tall ribbed landmark tower west of the stadium",
+      "bbox": { "x": 1008, "y": 291, "width": 61, "height": 256 },
+      "rationale": "Unique taller building with tiered crown and fluted vertical facade.",
+      "notes": "Lower portion is close to the Rogers Centre dome and surrounding trees.",
+      "generation": {
+        "asset_type": "transparent isometric miniature fluted landmark tower",
+        "transparent": true,
+        "prompt": "Generate a standalone ribbed landmark tower in cream clay/paper material, with a tiered crown, small golden roof cap, vertical flutes, soft ambient occlusion, and clean isolated base."
+      }
+    },
+    {
+      "id": "stadium-west-midrise",
+      "label": "Stadium west mid-rise",
+      "classification": "image",
+      "role": "Mid-rise block immediately west of the domed stadium",
+      "bbox": { "x": 1067, "y": 388, "width": 65, "height": 151 },
+      "rationale": "Separate building with visible roof cap and facade grid.",
+      "notes": "Partly adjacent to the stadium dome; crop may contain dome edge as reference contamination.",
+      "generation": {
+        "asset_type": "transparent isometric miniature mid-rise block",
+        "transparent": true,
+        "prompt": "Generate a standalone mid-rise block west of the stadium, with warm off-white facades, small golden roof cap, dense windows, and no stadium dome or neighboring structures."
+      }
+    },
+    {
+      "id": "rogers-centre-dome",
+      "label": "Rogers Centre domed stadium",
+      "classification": "image",
+      "role": "Large domed stadium landmark in the Toronto cityscape",
+      "bbox": { "x": 997, "y": 448, "width": 292, "height": 204 },
+      "rationale": "Major landmark building with a complex curved dome, circular base, and colonnade.",
+      "notes": "Crop includes nearby trees and adjacent small buildings along the lower edge; later generation should isolate the stadium.",
+      "generation": {
+        "asset_type": "transparent isometric miniature domed stadium",
+        "transparent": true,
+        "prompt": "Generate a standalone isometric miniature domed stadium inspired by Rogers Centre, with a smooth warm ivory dome, circular cream base, simple colonnade, soft premium studio lighting, and no trees, roads, CN Tower, or neighboring towers."
+      }
+    },
+    {
+      "id": "stadium-northeast-tower",
+      "label": "Stadium northeast tower",
+      "classification": "image",
+      "role": "Rear high-rise northeast of the stadium",
+      "bbox": { "x": 1163, "y": 373, "width": 62, "height": 189 },
+      "rationale": "Independent tower visible behind and beside the stadium.",
+      "notes": "Lower floors are partially hidden by the stadium dome and streetscape.",
+      "generation": {
+        "asset_type": "transparent isometric miniature high-rise tower",
+        "transparent": true,
+        "prompt": "Generate a standalone high-rise tower with cream facades, golden roof cap, regular window rows, soft left-side highlights, and a clean base without stadium occlusion."
+      }
+    },
+    {
+      "id": "cn-south-front-pavilion",
+      "label": "CN south front pavilion",
+      "classification": "image",
+      "role": "Foreground pavilion south of the CN Tower approach",
+      "bbox": { "x": 1195, "y": 637, "width": 91, "height": 74 },
+      "rationale": "Distinct low-rise foreground structure with roof cap and simple colonnade.",
+      "notes": "At the lower edge near water and baseplate; includes some platform context.",
+      "generation": {
+        "asset_type": "transparent isometric miniature low-rise pavilion",
+        "transparent": true,
+        "prompt": "Generate a standalone low-rise pavilion in the warm cream miniature style, with a flat roof, small golden cap, simple recessed front columns, and no water, road, or CN Tower base."
+      }
+    },
+    {
+      "id": "cn-west-rear-tower",
+      "label": "CN west rear tower",
+      "classification": "image",
+      "role": "Rear tower west of CN Tower",
+      "bbox": { "x": 1253, "y": 401, "width": 51, "height": 175 },
+      "rationale": "Separate tower with its own roof cap and vertical window facade.",
+      "notes": "Base is partly occluded by foreground landscaping.",
+      "generation": {
+        "asset_type": "transparent isometric miniature residential tower",
+        "transparent": true,
+        "prompt": "Generate a standalone medium-height residential tower west of CN Tower, warm cream clay material, small golden roof cap, regular window grid, and clean isolated base."
+      }
+    },
+    {
+      "id": "cn-west-front-small-midrise",
+      "label": "CN west front small mid-rise",
+      "classification": "image",
+      "role": "Small front mid-rise west of the CN Tower base",
+      "bbox": { "x": 1284, "y": 548, "width": 57, "height": 91 },
+      "rationale": "Distinct front building with visible roof cap and facade.",
+      "notes": "Partly framed by trees and roads.",
+      "generation": {
+        "asset_type": "transparent isometric miniature small mid-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone small front mid-rise building with cream facades, tiny window grid, flat roof, small golden roof cap, and clean isometric lighting."
+      }
+    },
+    {
+      "id": "cn-west-front-slim-midrise",
+      "label": "CN west front slim mid-rise",
+      "classification": "image",
+      "role": "Slim mid-rise directly west of the CN Tower shaft",
+      "bbox": { "x": 1329, "y": 493, "width": 47, "height": 109 },
+      "rationale": "Own roof cap and facade make it a separate narrow building.",
+      "notes": "Close to CN Tower base and partially visually crowded.",
+      "generation": {
+        "asset_type": "transparent isometric miniature slim mid-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone slim mid-rise tower with warm off-white facades, golden cap, fine window rows, and no CN Tower or adjacent baseplate."
+      }
+    },
+    {
+      "id": "cn-west-side-slim-midrise",
+      "label": "CN west side slim mid-rise",
+      "classification": "image",
+      "role": "Narrow tower tucked beside the west side of CN Tower",
+      "bbox": { "x": 1390, "y": 491, "width": 42, "height": 110 },
+      "rationale": "Separate narrow visible facade with its own roof cap.",
+      "notes": "Heavily adjacent to the CN Tower plinth; bbox isolates the visible structure as much as possible.",
+      "generation": {
+        "asset_type": "transparent isometric miniature narrow mid-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone narrow mid-rise building with a cream clay facade, golden roof cap, tiny window grid, and reconstructed unobstructed base."
+      }
+    },
+    {
+      "id": "cn-tower",
+      "label": "CN Tower",
+      "classification": "image",
+      "role": "Primary CN Tower landmark with observation deck and circular base",
+      "bbox": { "x": 1375, "y": 15, "width": 165, "height": 690 },
+      "rationale": "Major landmark structure with complex tapered shaft, observation deck, antenna, and base plinth.",
+      "notes": "Crop intentionally includes the circular base even though nearby buildings and trees overlap its edges.",
+      "generation": {
+        "asset_type": "transparent isometric miniature CN Tower landmark",
+        "transparent": true,
+        "prompt": "Generate a standalone isometric miniature CN Tower in warm ivory clay/paper material, with a tapered shaft, circular observation deck, antenna spire with small golden tip, circular base plinth, soft premium studio lighting, and no surrounding buildings, trees, roads, or baseplate."
+      }
+    },
+    {
+      "id": "cn-east-front-slim-tower",
+      "label": "CN east front slim tower",
+      "classification": "image",
+      "role": "Slim foreground tower east of CN Tower",
+      "bbox": { "x": 1510, "y": 459, "width": 50, "height": 181 },
+      "rationale": "Independent high-rise with separate roof cap and facade.",
+      "notes": "Partially near CN Tower base and right-side towers.",
+      "generation": {
+        "asset_type": "transparent isometric miniature slim high-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone slim high-rise tower east of CN Tower, with warm cream facades, golden roof cap, regular window rows, soft shadows, and no CN Tower base."
+      }
+    },
+    {
+      "id": "cn-east-rear-slab-tower",
+      "label": "CN east rear slab tower",
+      "classification": "image",
+      "role": "Tall rear slab tower east of CN Tower",
+      "bbox": { "x": 1549, "y": 394, "width": 56, "height": 227 },
+      "rationale": "Distinct rear tower with full roof cap and tall facade.",
+      "notes": "Lower portion is partly covered by front mid-rise structures.",
+      "generation": {
+        "asset_type": "transparent isometric miniature slab high-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone tall rectangular slab high-rise with cream clay material, a golden roof cap, tiny regular windows, and a clean unobstructed base."
+      }
+    },
+    {
+      "id": "cn-east-foreground-midrise",
+      "label": "CN east foreground mid-rise",
+      "classification": "image",
+      "role": "Foreground mid-rise at the east side of CN Tower",
+      "bbox": { "x": 1538, "y": 537, "width": 77, "height": 145 },
+      "rationale": "Separate front building with visible roof cap and multi-face facade.",
+      "notes": "Overlaps visually with the rear slab tower and street trees.",
+      "generation": {
+        "asset_type": "transparent isometric miniature foreground mid-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone foreground mid-rise building in warm cream material, flat roof with golden cap, dense small windows, and clean isolated lower edge."
+      }
+    },
+    {
+      "id": "east-cluster-inner-midrise",
+      "label": "East cluster inner mid-rise",
+      "classification": "image",
+      "role": "Inner mid-rise in the far-east building cluster",
+      "bbox": { "x": 1615, "y": 501, "width": 53, "height": 131 },
+      "rationale": "Individual mid-rise with visible roof and facade, separate from rear tower.",
+      "notes": "Adjacent to multiple right-side buildings; crop is tight to avoid blending them.",
+      "generation": {
+        "asset_type": "transparent isometric miniature inner mid-rise",
+        "transparent": true,
+        "prompt": "Generate a standalone inner mid-rise tower in the warm isometric clay style, with small golden roof cap, regular window grid, and no adjacent towers."
+      }
+    },
+    {
+      "id": "east-cluster-rear-tower",
+      "label": "East cluster rear tower",
+      "classification": "image",
+      "role": "Tall rear tower in the far-east cluster",
+      "bbox": { "x": 1637, "y": 464, "width": 55, "height": 188 },
+      "rationale": "Separate high-rise with full roof cap and tall facade.",
+      "notes": "Foreground buildings overlap lower edge.",
+      "generation": {
+        "asset_type": "transparent isometric miniature rear tower",
+        "transparent": true,
+        "prompt": "Generate a standalone far-east rear high-rise with cream paper-clay facades, golden roof cap, dense window rows, and clean unobstructed lower floors."
+      }
+    },
+    {
+      "id": "east-cluster-front-tower",
+      "label": "East cluster front tower",
+      "classification": "image",
+      "role": "Front tower in the far-east cluster",
+      "bbox": { "x": 1664, "y": 539, "width": 63, "height": 130 },
+      "rationale": "Distinct front building with own roof cap and visible facade.",
+      "notes": "Right and lower edges touch nearby tower and baseplate.",
+      "generation": {
+        "asset_type": "transparent isometric miniature front tower",
+        "transparent": true,
+        "prompt": "Generate a standalone front tower in warm cream miniature material, flat roof with small golden cap, regular windows, and clean isolated silhouette."
+      }
+    },
+    {
+      "id": "far-east-edge-tower",
+      "label": "Far east edge tower",
+      "classification": "image",
+      "role": "Small tower at the far-east edge of the cityscape",
+      "bbox": { "x": 1692, "y": 532, "width": 43, "height": 129 },
+      "rationale": "Separate edge building with visible roof and facade.",
+      "notes": "Near image edge and partly crowded by adjacent front tower.",
+      "generation": {
+        "asset_type": "transparent isometric miniature edge tower",
+        "transparent": true,
+        "prompt": "Generate a standalone small edge tower with cream facades, golden roof cap, vertical window rows, and the same polished isometric miniature lighting."
+      }
+    }
+  ]
+}

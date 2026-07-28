@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  canMakeActiveBuildFinalDecision,
   BACKOFFICE_ROLE_SLUGS,
   BUILDER_ROLE_SLUGS,
   DESTRUCTIVE_WRITE_ROLE_SLUGS,
@@ -40,6 +41,14 @@ describe("DrawFlow frontend RBAC policy", () => {
       "principle-broker",
     ]);
     expect(DESTRUCTIVE_WRITE_ROLE_SLUGS).toEqual(["admin", "principle-broker"]);
+  });
+
+  test("reserves active-build final decisions for lender admins", () => {
+    expect(canMakeActiveBuildFinalDecision(["admin"])).toBe(true);
+    expect(canMakeActiveBuildFinalDecision(["principal-broker"])).toBe(true);
+    expect(canMakeActiveBuildFinalDecision(["broker"])).toBe(false);
+    expect(canMakeActiveBuildFinalDecision(["broker-staff"])).toBe(false);
+    expect(canMakeActiveBuildFinalDecision(["builder"])).toBe(false);
   });
 
   test("routes unauthenticated, allowed, wrong-role, member, and builder demo access centrally", () => {
@@ -111,6 +120,16 @@ describe("DrawFlow frontend RBAC policy", () => {
         workspace: "backoffice",
       })
     ).toMatchObject({ status: "forbidden", reason: "no-workspace-access" });
+
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "org_123",
+        pathname: "/backoffice",
+        roles: ["member", "admin"],
+        workspace: "backoffice",
+      })
+    ).toMatchObject({ status: "allowed" });
 
     expect(
       getWorkspaceAccessDecision({
@@ -343,6 +362,93 @@ describe("DrawFlow frontend RBAC policy", () => {
       }
     );
   });
+
+  test("contractor workspace route guard: onboarding bridge, full workspace, member, profile-link", () => {
+    // Unauthenticated contractor route → sign-in.
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: false,
+        pathname: "/contractor",
+        roles: [],
+        workspace: "contractor",
+      })
+    ).toMatchObject({ status: "unauthenticated" });
+
+    // Member can reach the onboarding bridge only (PRD §5.2, §11.1).
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "org_123",
+        pathname: "/contractor/onboarding",
+        roles: ["member"],
+        workspace: "contractor",
+      })
+    ).toMatchObject({ status: "allowed" });
+
+    // Member cannot reach the full workspace → onboarding-required.
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "org_123",
+        pathname: "/contractor",
+        roles: ["member"],
+        workspace: "contractor",
+      })
+    ).toMatchObject({ status: "forbidden", reason: "onboarding-required" });
+
+    // Contractor role + linked profile → full workspace allowed.
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "org_123",
+        pathname: "/contractor",
+        profileLinked: true,
+        roles: ["contractor"],
+        workspace: "contractor",
+      })
+    ).toMatchObject({ status: "allowed" });
+
+    // Contractor role without a linked profile → profile-link-required (PRD
+    // §11.1, §5.2 contractor role without linked profile sees resolution state).
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "org_123",
+        pathname: "/contractor",
+        profileLinked: false,
+        roles: ["contractor"],
+        workspace: "contractor",
+      })
+    ).toMatchObject({ status: "forbidden", reason: "profile-link-required" });
+
+    // A non-member, non-contractor role (e.g. builder) cannot reach the
+    // contractor workspace at all.
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "org_123",
+        pathname: "/contractor",
+        roles: ["builder"],
+        workspace: "contractor",
+      })
+    ).toMatchObject({ status: "forbidden", reason: "no-workspace-access" });
+
+    // Contractor role redirects to onboarding bridge when profile link missing.
+    expectRedirect(
+      () =>
+        requireWorkspaceAccess({
+          isAuthenticated: true,
+          organizationId: "org_123",
+          pathname: "/contractor",
+          profileLinked: false,
+          roles: ["contractor"],
+          workspace: "contractor",
+        }),
+      {
+        options: { to: "/contractor/onboarding" },
+      }
+    );
+  });
 });
 
 function expectRedirect(
@@ -350,7 +456,7 @@ function expectRedirect(
   expected: {
     location?: string;
     options?: {
-      search: Record<string, string>;
+      search?: Record<string, string>;
       to: string;
     };
   }

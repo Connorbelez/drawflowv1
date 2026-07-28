@@ -28,14 +28,17 @@ export function mapSubmilestoneSnapshotRows(
 ): DemoSubmilestone[] {
   return rows
     .map((row, index) => ({
-      ...(row.budgetCents === undefined ? {} : { budgetCents: row.budgetCents }),
+      ...(row.budgetCents === undefined
+        ? {}
+        : { budgetCents: row.budgetCents }),
       ...(row.description?.trim()
         ? { description: row.description.trim() }
         : {}),
       ...(row.durationDays === undefined
         ? {}
         : { durationDays: row.durationDays }),
-      key: row.key ?? `${milestoneKey}-sub-${String(index + 1).padStart(2, "0")}`,
+      key:
+        row.key ?? `${milestoneKey}-sub-${String(index + 1).padStart(2, "0")}`,
       name: row.name.trim(),
       order: row.order ?? index + 1,
       ...(row.status ? { status: row.status } : {}),

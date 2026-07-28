@@ -1,7 +1,6 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-
-import { AppShell } from "#/components/app-shell.tsx";
 import { builderNavGroups, footerNavLinks } from "#/components/app-shared.tsx";
+import { AppShell } from "#/components/app-shell.tsx";
 import { requireWorkspaceAccess } from "#/lib/auth/rbac.ts";
 
 export const Route = createFileRoute("/builder")({

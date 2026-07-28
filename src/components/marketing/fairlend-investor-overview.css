@@ -1,0 +1,983 @@
+@import "@fontsource/league-gothic/index.css";
+
+.fairlend-investor-overview {
+  --fairlend-paper: #f3eee5;
+  --fairlend-ink: #092b24;
+  --fairlend-green: #06271f;
+  --fairlend-green-2: #0b352b;
+  --fairlend-hero-green: #0a3027;
+  --fairlend-cream: #fff8ec;
+  --fairlend-line: rgb(243 238 229 / 52%);
+  --fairlend-paper-line: rgb(9 43 36 / 28%);
+  --fairlend-copper: #d94a16;
+  --fairlend-blue: #074b93;
+  --fairlend-blue-deep: #043a78;
+  --fairlend-nav-height: 94px;
+  --fairlend-rail-width: 78px;
+  --fairlend-grid-gap: clamp(14px, 1.55vw, 24px);
+  --fairlend-page-pad: clamp(26px, 3.05vw, 46px);
+
+  min-height: 100svh;
+  overflow-x: clip;
+  background:
+    radial-gradient(circle at 15% 0%, rgb(255 255 255 / 42%), transparent 28rem),
+    var(--fairlend-paper);
+  background-size: auto, auto;
+  color: var(--fairlend-ink);
+  font-family:
+    "Oxanium Variable", "Arial Narrow", "Roboto Condensed", system-ui,
+    sans-serif;
+}
+
+body:has(.fairlend-investor-overview) {
+  overflow-x: clip;
+  background: var(--fairlend-paper);
+}
+
+body:has(.fairlend-investor-overview) #tanstack_devtools,
+body:has(.fairlend-investor-overview)
+  button[aria-label="Open TanStack Devtools"] {
+  display: none !important;
+}
+
+.fairlend-investor-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(310px, 360px) minmax(0, 1fr) auto 1px auto;
+  gap: clamp(14px, 1.5vw, 24px);
+  align-items: center;
+  min-height: var(--fairlend-nav-height);
+  padding: 0 clamp(22px, 3vw, 44px);
+  border-bottom: 1px solid rgb(9 43 36 / 28%);
+  background: rgb(243 238 229 / 96%);
+  backdrop-filter: blur(18px);
+}
+
+.fairlend-investor-nav__brand {
+  display: grid;
+  grid-template-columns: auto 1px minmax(88px, 116px);
+  gap: 20px;
+  align-items: center;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.fairlend-investor-nav__brand strong {
+  font-family: "League Gothic", Impact, sans-serif;
+  font-size: clamp(48px, 4vw, 58px);
+  font-weight: 400;
+  line-height: 0.82;
+  letter-spacing: 0.035em;
+}
+
+.fairlend-investor-nav__brand span,
+.fairlend-investor-nav__divider {
+  width: 1px;
+  height: 48px;
+  background: rgb(9 43 36 / 36%);
+}
+
+.fairlend-investor-nav__brand em {
+  max-width: 112px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+.fairlend-investor-nav__links {
+  display: flex;
+  justify-content: center;
+  gap: clamp(16px, 2.2vw, 36px);
+  min-width: 0;
+}
+
+.fairlend-investor-nav__link,
+.fairlend-investor-nav__language {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.fairlend-investor-nav__link[data-active]::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: var(--fairlend-green);
+  content: "";
+}
+
+.fairlend-investor-nav__link svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.5;
+}
+
+.fairlend-investor-nav__cta {
+  min-width: 145px;
+  border: 0;
+  border-radius: 0;
+  background: var(--fairlend-green);
+  color: var(--fairlend-cream);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.fairlend-investor-overview__shell {
+  display: grid;
+  grid-template-columns: var(--fairlend-rail-width) repeat(12, minmax(0, 1fr));
+  min-height: calc(100svh - var(--fairlend-nav-height));
+  padding-top: var(--fairlend-nav-height);
+}
+
+.fairlend-investor-section {
+  grid-column: 2 / -1;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--fairlend-grid-gap);
+  min-width: 0;
+}
+
+.fairlend-investor-overview__hero {
+  position: relative;
+  isolation: isolate;
+  min-height: clamp(580px, calc(100svh - var(--fairlend-nav-height)), 720px);
+  overflow: hidden;
+  padding: clamp(34px, 4vw, 58px) var(--fairlend-page-pad)
+    clamp(34px, 4vw, 56px);
+  background:
+    radial-gradient(circle at 48% 12%, rgb(243 238 229 / 8%), transparent 18rem),
+    linear-gradient(180deg, rgb(255 248 236 / 7%), rgb(255 248 236 / 3%)),
+    url("/assets/fairlend-investor-overview/hero-noise-texture.webp"),
+    var(--fairlend-hero-green);
+  background-size: auto, auto, 240px 225px, auto;
+  background-blend-mode: normal, screen, soft-light, normal;
+  color: var(--fairlend-cream);
+}
+
+.fairlend-investor-hero-dot-field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+
+.fairlend-investor-hero-copy {
+  position: relative;
+  z-index: 3;
+  grid-column: 1 / span 6;
+  align-self: center;
+  min-width: 0;
+  max-width: 720px;
+}
+
+.fairlend-investor-section-marker {
+  display: grid;
+  grid-template-columns: auto 1px auto minmax(80px, 1fr);
+  gap: 18px;
+  align-items: center;
+  width: min(100%, 550px);
+  margin-bottom: 24px;
+  text-transform: uppercase;
+}
+
+.fairlend-investor-section-marker strong {
+  color: var(--fairlend-copper);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.fairlend-investor-section-marker span {
+  width: 1px;
+  height: 18px;
+  background: currentColor;
+  opacity: 0.52;
+}
+
+.fairlend-investor-section-marker p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.fairlend-investor-section-marker i {
+  height: 1px;
+  background: currentColor;
+  opacity: 0.38;
+}
+
+.fairlend-investor-section-marker[data-tone="paper"] {
+  color: var(--fairlend-green);
+}
+
+.fairlend-investor-hero-copy h1 {
+  max-width: 720px;
+  margin: 0;
+  font-family: "League Gothic", Impact, sans-serif;
+  font-size: clamp(68px, 6vw, 96px);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 0.92;
+  text-transform: uppercase;
+  text-shadow: 0 6px 0 rgb(0 0 0 / 18%);
+}
+
+.fairlend-investor-hero-copy h1 span {
+  display: block;
+  white-space: nowrap;
+}
+
+.fairlend-investor-hero-copy h1::after {
+  display: inline-block;
+  width: 6px;
+  height: 22px;
+  margin-left: 7px;
+  background: var(--fairlend-copper);
+  content: "";
+}
+
+.fairlend-investor-hero-copy > p {
+  width: min(545px, 100%);
+  margin: 26px 0 32px;
+  color: rgb(255 248 236 / 92%);
+  font-family:
+    "Inter", "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: clamp(17px, 1.25vw, 22px);
+  line-height: 1.55;
+}
+
+.fairlend-investor-hero-copy__actions {
+  display: grid;
+  grid-template-columns: minmax(250px, 352px) minmax(270px, 400px);
+  gap: 18px;
+  align-items: stretch;
+  max-width: 770px;
+}
+
+.fairlend-investor-button,
+.fairlend-investor-path-card__cta {
+  min-height: 50px;
+  border-radius: 0;
+  padding: 0 20px;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.fairlend-investor-button svg,
+.fairlend-investor-path-card__cta svg {
+  margin-left: auto;
+  width: 30px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.fairlend-investor-button--primary {
+  border-color: var(--fairlend-copper);
+  background: var(--fairlend-copper);
+  color: var(--fairlend-cream);
+  box-shadow:
+    0 0 0 1px rgb(255 248 236 / 10%) inset,
+    0 0 24px rgb(217 74 22 / 38%),
+    0 16px 34px rgb(0 0 0 / 22%);
+}
+
+.fairlend-investor-button--outline {
+  border-color: rgb(255 248 236 / 56%);
+  background: transparent;
+  color: var(--fairlend-cream);
+  box-shadow:
+    0 0 0 1px rgb(255 248 236 / 10%) inset,
+    0 0 22px rgb(255 248 236 / 18%),
+    0 14px 30px rgb(0 0 0 / 18%);
+}
+
+.fairlend-investor-collage {
+  position: relative;
+  z-index: 2;
+  grid-column: 7 / span 6;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 520px;
+  overflow: visible;
+}
+
+.fairlend-investor-collage img {
+  position: absolute;
+  display: block;
+  max-width: none;
+  user-select: none;
+}
+
+.fairlend-investor-collage__dot-field {
+  position: absolute;
+  top: clamp(28px, 4vw, 54px);
+  left: 5%;
+  width: 102px;
+  height: 110px;
+  opacity: 0.62;
+  background-image: radial-gradient(
+    circle,
+    rgb(255 248 236 / 72%) 1.2px,
+    transparent 1.4px
+  );
+  background-size: 13px 13px;
+}
+
+.fairlend-investor-collage__crosshair {
+  position: absolute;
+  top: clamp(18px, 3vw, 32px);
+  left: -7%;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgb(255 248 236 / 42%);
+  border-radius: 999px;
+}
+
+.fairlend-investor-collage__crosshair::before,
+.fairlend-investor-collage__crosshair::after {
+  position: absolute;
+  background: rgb(255 248 236 / 45%);
+  content: "";
+}
+
+.fairlend-investor-collage__crosshair::before {
+  top: 50%;
+  left: -16px;
+  width: 66px;
+  height: 1px;
+}
+
+.fairlend-investor-collage__crosshair::after {
+  top: -16px;
+  left: 50%;
+  width: 1px;
+  height: 66px;
+}
+
+.fairlend-investor-collage__blueprint {
+  top: clamp(24px, 4vw, 44px);
+  left: 9%;
+  z-index: 1;
+  width: clamp(210px, 25vw, 340px);
+  height: clamp(440px, 56vw, 590px);
+  object-fit: cover;
+  opacity: 0.92;
+}
+
+.fairlend-investor-collage__building {
+  top: 0;
+  right: calc(var(--fairlend-page-pad) * -1);
+  z-index: 0;
+  width: clamp(360px, 34vw, 560px);
+  height: 100%;
+  min-height: 560px;
+  object-fit: cover;
+}
+
+.fairlend-investor-paths {
+  min-height: auto;
+  padding: clamp(36px, 3.6vw, 54px) var(--fairlend-page-pad) clamp(14px, 1.4vw, 22px);
+  align-items: center;
+  background: var(--fairlend-paper);
+  color: var(--fairlend-green);
+}
+
+.fairlend-investor-paths__intro {
+  position: relative;
+  isolation: isolate;
+  grid-column: 1 / span 3;
+  align-self: center;
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  min-height: clamp(430px, 36vw, 560px);
+}
+
+.fairlend-investor-paths__intro .fairlend-investor-section-marker {
+  width: min(100%, 315px);
+  margin-bottom: clamp(22px, 2.2vw, 30px);
+}
+
+.fairlend-investor-paths__intro h2 {
+  position: relative;
+  z-index: 1;
+  max-width: 350px;
+  margin: 0;
+  font-family: "League Gothic", Impact, sans-serif;
+  font-size: clamp(60px, 4.65vw, 84px);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 0.88;
+  text-wrap: balance;
+  text-transform: uppercase;
+}
+
+.fairlend-investor-short-rule {
+  position: relative;
+  z-index: 1;
+  width: 42px;
+  height: 3px;
+  margin: clamp(24px, 2.25vw, 32px) 0 clamp(20px, 2vw, 28px);
+  background: var(--fairlend-green);
+}
+
+.fairlend-investor-paths__intro p {
+  position: relative;
+  z-index: 1;
+  max-width: 330px;
+  margin: 0;
+  font-family:
+    "Inter", "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: clamp(17px, 1.45vw, 22px);
+  line-height: 1.48;
+  text-wrap: pretty;
+}
+
+.fairlend-investor-paths__sketch {
+  position: relative;
+  z-index: 0;
+  display: block;
+  justify-self: end;
+  width: min(330px, 96%);
+  margin-top: clamp(18px, 2vw, 28px);
+  opacity: 0.22;
+}
+
+.fairlend-investor-paths__cards {
+  grid-column: 4 / -1;
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: var(--fairlend-grid-gap);
+  align-items: stretch;
+  min-width: 0;
+}
+
+.fairlend-investor-path-card {
+  position: relative;
+  display: flex;
+  min-height: 100%;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  padding: clamp(22px, 2.15vw, 32px);
+  color: var(--fairlend-cream);
+  box-shadow: none;
+}
+
+.fairlend-investor-path-card:first-child {
+  grid-column: 1 / span 4;
+}
+
+.fairlend-investor-path-card:last-child {
+  grid-column: 5 / span 5;
+}
+
+.fairlend-investor-path-card::before {
+  display: none;
+}
+
+.fairlend-investor-path-card[data-variant="green"] {
+  background:
+    radial-gradient(circle at 70% 21%, rgb(255 248 236 / 9%), transparent 18rem),
+    var(--fairlend-green-2);
+  background-size: auto, auto;
+}
+
+.fairlend-investor-path-card[data-variant="blue"] {
+  background:
+    radial-gradient(circle at 72% 25%, rgb(255 248 236 / 11%), transparent 18rem),
+    var(--fairlend-blue);
+  background-size: auto, auto;
+}
+
+.fairlend-investor-path-card__number {
+  display: grid;
+  place-items: center;
+  width: 51px;
+  height: 38px;
+  border: 1px solid currentColor;
+  color: #f5c84c;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.fairlend-investor-path-card[data-variant="blue"]
+  .fairlend-investor-path-card__number {
+  color: var(--fairlend-cream);
+}
+
+.fairlend-investor-path-card__art {
+  position: absolute;
+  right: 10px;
+  bottom: 68px;
+  z-index: 0;
+  width: min(58%, 290px);
+  max-height: 260px;
+  object-fit: contain;
+  opacity: 0.42;
+}
+
+.fairlend-investor-path-card[data-variant="blue"]
+  .fairlend-investor-path-card__art {
+  right: -5px;
+  bottom: 54px;
+  width: min(62%, 350px);
+  max-height: 300px;
+  opacity: 0.72;
+}
+
+.fairlend-investor-path-card__content {
+  position: relative;
+  z-index: 1;
+  max-width: 335px;
+  margin-top: 22px;
+}
+
+.fairlend-investor-path-card__content h3 {
+  max-width: 300px;
+  margin: 0;
+  font-family: "League Gothic", Impact, sans-serif;
+  font-size: clamp(40px, 3.7vw, 58px);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 0.96;
+  text-transform: uppercase;
+}
+
+.fairlend-investor-path-card__content span {
+  display: block;
+  width: 32px;
+  height: 3px;
+  margin: 19px 0 16px;
+  background: #f5c84c;
+}
+
+.fairlend-investor-path-card__content p {
+  margin: 0;
+  font-family:
+    "Inter", "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.42;
+}
+
+.fairlend-investor-path-card__cta {
+  position: relative;
+  z-index: 1;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: auto;
+  border: 0;
+  background: var(--fairlend-cream);
+  color: var(--fairlend-green);
+  white-space: normal;
+}
+
+.fairlend-investor-path-card[data-variant="blue"]
+  .fairlend-investor-path-card__cta {
+  color: var(--fairlend-blue-deep);
+}
+
+.fairlend-investor-footer {
+  position: relative;
+  isolation: isolate;
+  grid-column: 2 / -1;
+  display: grid;
+  grid-template-columns:
+    minmax(260px, 360px) minmax(220px, 1fr) minmax(330px, 0.9fr)
+    minmax(260px, 330px);
+  gap: clamp(18px, 2.2vw, 44px);
+  align-items: center;
+  min-height: clamp(64px, 5.4vw, 82px);
+  padding: 0 var(--fairlend-page-pad);
+  border-top: 1px solid rgb(255 248 236 / 18%);
+  background:
+    radial-gradient(circle at 0% 0%, rgb(255 248 236 / 8%), transparent 20rem),
+    var(--fairlend-green);
+  background-size: auto, auto;
+  color: rgb(255 248 236 / 72%);
+  text-transform: uppercase;
+}
+
+.fairlend-investor-footer::after {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background-image: url("/assets/fairlend-investor-overview/hero-noise-texture.webp");
+  background-repeat: repeat;
+  background-size: 220px 206px;
+  content: "";
+  mix-blend-mode: soft-light;
+  opacity: 0.42;
+}
+
+.fairlend-investor-footer__brand {
+  display: grid;
+  grid-template-columns: auto 1px minmax(120px, 1fr);
+  gap: clamp(18px, 2vw, 28px);
+  align-items: center;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.fairlend-investor-footer__brand strong {
+  color: var(--fairlend-cream);
+  font-family: "League Gothic", Impact, sans-serif;
+  font-size: clamp(28px, 2.4vw, 40px);
+  font-weight: 400;
+  letter-spacing: 0.035em;
+  line-height: 0.85;
+}
+
+.fairlend-investor-footer__brand span,
+.fairlend-investor-footer__canada::before,
+.fairlend-investor-footer__links::before {
+  width: 1px;
+  height: 42px;
+  background: rgb(255 248 236 / 22%);
+  content: "";
+}
+
+.fairlend-investor-footer__brand em,
+.fairlend-investor-footer__canada span,
+.fairlend-investor-footer__links a,
+.fairlend-investor-footer__cta {
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.fairlend-investor-footer__canada {
+  display: grid;
+  grid-template-columns: 1px auto auto;
+  gap: clamp(18px, 2vw, 26px);
+  align-items: center;
+  min-width: 0;
+}
+
+.fairlend-investor-footer__maple {
+  width: 21px;
+  height: 21px;
+  color: var(--fairlend-cream);
+  fill: currentColor;
+  opacity: 0.82;
+}
+
+.fairlend-investor-footer__links {
+  display: grid;
+  grid-template-columns: 1px repeat(3, auto);
+  gap: clamp(18px, 2vw, 34px);
+  align-items: center;
+  justify-content: start;
+  min-width: 0;
+}
+
+.fairlend-investor-footer__links a {
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.fairlend-investor-footer__cta {
+  justify-content: space-between;
+  min-height: 44px;
+  border-color: rgb(255 248 236 / 28%);
+  border-radius: 0;
+  background: transparent;
+  color: rgb(255 248 236 / 74%);
+  text-transform: uppercase;
+}
+
+.fairlend-investor-footer__cta svg {
+  width: 34px;
+  height: 18px;
+  margin-left: auto;
+}
+
+
+@media (max-width: 1260px) {
+  .fairlend-investor-nav {
+    grid-template-columns: minmax(300px, 340px) 1fr auto;
+  }
+
+  .fairlend-investor-nav__links {
+    justify-content: flex-start;
+    gap: 18px;
+    overflow-x: auto;
+  }
+
+  .fairlend-investor-nav__divider,
+  .fairlend-investor-nav__language {
+    display: none;
+  }
+
+  .fairlend-investor-hero-copy {
+    grid-column: 1 / span 7;
+  }
+
+  .fairlend-investor-collage {
+    grid-column: 7 / span 6;
+  }
+
+  .fairlend-investor-collage__building {
+    width: clamp(340px, 37vw, 470px);
+  }
+
+  .fairlend-investor-paths__intro {
+    grid-column: 1 / span 4;
+  }
+
+  .fairlend-investor-paths__cards {
+    grid-column: 5 / -1;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .fairlend-investor-path-card:first-child {
+    grid-column: 1 / span 4;
+  }
+
+  .fairlend-investor-path-card:last-child {
+    grid-column: 5 / span 4;
+  }
+
+  .fairlend-investor-footer {
+    grid-template-columns: minmax(250px, 320px) minmax(190px, 1fr) minmax(
+        250px,
+        300px
+      );
+  }
+
+  .fairlend-investor-footer__links {
+    grid-column: 2 / span 1;
+    grid-row: 2;
+  }
+
+  .fairlend-investor-footer__cta {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+}
+
+@media (max-width: 1020px) {
+  .fairlend-investor-overview {
+    --fairlend-nav-height: 80px;
+  }
+
+  .fairlend-investor-nav {
+    position: relative;
+    grid-template-columns: 1fr auto;
+    min-height: auto;
+    padding-block: 18px;
+  }
+
+  .fairlend-investor-nav__links {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+
+  .fairlend-investor-overview__shell {
+    display: block;
+  }
+
+  .fairlend-investor-section {
+    grid-column: auto;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+
+  .fairlend-investor-overview__hero {
+    min-height: auto;
+  }
+
+  .fairlend-investor-hero-copy {
+    grid-column: 1 / -1;
+    align-self: start;
+    max-width: none;
+  }
+
+  .fairlend-investor-collage {
+    grid-column: 1 / -1;
+    min-height: 490px;
+  }
+
+  .fairlend-investor-collage__building {
+    right: calc(var(--fairlend-page-pad) * -1);
+    width: min(55vw, 430px);
+    min-height: 490px;
+  }
+
+  .fairlend-investor-collage__blueprint {
+    left: 34%;
+    width: min(31vw, 230px);
+    height: 420px;
+  }
+
+  .fairlend-investor-paths__intro,
+  .fairlend-investor-paths__cards {
+    grid-column: 1 / -1;
+  }
+
+  .fairlend-investor-paths__intro {
+    min-height: 300px;
+  }
+
+  .fairlend-investor-paths__cards {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .fairlend-investor-path-card:first-child,
+  .fairlend-investor-path-card:last-child {
+    grid-column: 1 / -1;
+    min-height: 420px;
+  }
+
+  .fairlend-investor-footer {
+    grid-column: auto;
+    grid-template-columns: minmax(250px, 1fr) minmax(250px, 1fr);
+    gap: 22px 30px;
+    min-height: auto;
+    padding-block: 24px;
+  }
+
+  .fairlend-investor-footer__links {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .fairlend-investor-footer__cta {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .fairlend-investor-overview {
+    --fairlend-page-pad: 18px;
+    --fairlend-nav-height: 76px;
+  }
+
+  .fairlend-investor-nav {
+    grid-template-columns: 1fr;
+    gap: 15px;
+    padding: 18px;
+  }
+
+  .fairlend-investor-nav__brand {
+    grid-template-columns: auto 1px minmax(82px, 110px);
+    gap: 14px;
+  }
+
+  .fairlend-investor-nav__brand strong {
+    font-size: 46px;
+  }
+
+  .fairlend-investor-nav__links {
+    justify-content: flex-start;
+  }
+
+  .fairlend-investor-nav__cta {
+    width: 100%;
+  }
+
+  .fairlend-investor-hero-copy h1 {
+    font-size: clamp(58px, 16vw, 76px);
+  }
+
+  .fairlend-investor-hero-copy h1 span {
+    white-space: normal;
+  }
+
+  .fairlend-investor-hero-copy__actions {
+    grid-template-columns: 1fr;
+  }
+
+  .fairlend-investor-button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .fairlend-investor-collage {
+    min-height: 420px;
+  }
+
+  .fairlend-investor-collage__building {
+    width: 63vw;
+    min-height: 420px;
+  }
+
+  .fairlend-investor-collage__blueprint {
+    left: 18%;
+    width: 38vw;
+    height: 330px;
+  }
+
+  .fairlend-investor-paths {
+    padding-block: 28px;
+  }
+
+  .fairlend-investor-path-card {
+    min-height: 420px;
+    padding: 22px;
+  }
+
+  .fairlend-investor-path-card__cta {
+    min-height: 58px;
+  }
+
+  .fairlend-investor-footer {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .fairlend-investor-footer__brand {
+    grid-template-columns: auto 1px minmax(110px, 1fr);
+  }
+
+  .fairlend-investor-footer__canada,
+  .fairlend-investor-footer__links,
+  .fairlend-investor-footer__cta {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .fairlend-investor-footer__canada,
+  .fairlend-investor-footer__links {
+    grid-template-columns: repeat(3, auto);
+    justify-content: start;
+  }
+
+  .fairlend-investor-footer__canada::before,
+  .fairlend-investor-footer__links::before {
+    display: none;
+  }
+
+  .fairlend-investor-footer__links {
+    gap: 18px;
+    overflow-x: auto;
+  }
+}

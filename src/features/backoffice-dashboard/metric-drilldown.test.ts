@@ -14,7 +14,7 @@ describe("metric drilldown mapping", () => {
       expect.objectContaining({
         badgeLabel: "Pending",
         context: "$0 requested · Eligible 2026-05-08",
-        href: "/backoffice/builds/mock-build-1?rail=closed&tab=timeline",
+        href: "/backoffice/builds/mock-build-1?rail=closed&tab=details",
         subtitle: "MOCK-BUILD-1 · Mock build 1 address",
         title: "Mock draw request",
       }),
@@ -24,7 +24,7 @@ describe("metric drilldown mapping", () => {
       expect.objectContaining({
         badgeLabel: "Mock status - on track",
         context: "T+0 days · Mock milestone - awaiting demo seed",
-        href: "/backoffice/builds/mock-build-1?rail=closed&tab=timeline",
+        href: "/backoffice/builds/mock-build-1?rail=closed&tab=details",
         subtitle: "Mock build 1 address · Mock builder 1",
         title: "MOCK-BUILD-1",
       }),

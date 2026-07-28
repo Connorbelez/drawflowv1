@@ -42,7 +42,7 @@ export function projectMilestoneToKanbanColumn(
     "status" | "requiresSiteVisit" | "evidenceReviewStatus"
   >,
   visit: Pick<DemoSiteVisit, "status"> | null,
-  evidence: Pick<DemoEvidencePackage, "reviewStatus"> | null,
+  evidence: Pick<DemoEvidencePackage, "reviewStatus"> | null
 ): KanbanColumn {
   const evidenceStatus =
     evidence?.reviewStatus ?? milestone.evidenceReviewStatus ?? "not_started";
@@ -93,7 +93,9 @@ function isQuickActionEvent(eventType: string): boolean {
 
 function centsSum<T>(items: readonly T[], pick: (item: T) => number): number {
   let total = 0;
-  for (const item of items) total += pick(item);
+  for (const item of items) {
+    total += pick(item);
+  }
   return total;
 }
 
@@ -103,16 +105,30 @@ function buildDisplayId(build: Pick<DemoBuild, "key">): string {
 
 async function loadBuildById(
   ctx: { db: { get: (id: Id<"demo_builds">) => Promise<DemoBuild | null> } },
-  buildId: Id<"demo_builds">,
+  buildId: Id<"demo_builds">
 ): Promise<DemoBuild | null> {
   return await ctx.db.get(buildId);
 }
 
 interface BuildDetailViewModel {
-  buildId: Id<"demo_builds">;
-  displayId: string;
+  address: string;
+  auditEvents: DemoAuditEvent[];
+  availableContractors: DemoContractor[];
   build: DemoBuild;
-  milestones: DemoMilestone[];
+  buildId: Id<"demo_builds">;
+  contractors: (DemoContractor & { role: string })[];
+  derived: {
+    approvedPrincipalCents: number;
+    drawAvailableCents: number;
+    drawableTotalCents: number;
+    drawnCents: number;
+    daysToPayoff: number;
+    percentComplete: number;
+    openWarnings: number;
+    siteVisitsOpen: number;
+  };
+  displayId: string;
+  documents: DemoBuildDocument[];
   drawGroups: DemoDrawGroup[];
   draws: {
     drawGroupKey: string;
@@ -130,6 +146,7 @@ interface BuildDetailViewModel {
       | "rejected"
       | "release_approved";
   }[];
+  eventOutbox: DemoEventOutboxEntry[];
   kanban: {
     column: KanbanColumn;
     milestoneKey: string;
@@ -157,30 +174,14 @@ interface BuildDetailViewModel {
       durationDays?: number;
     }[];
   }[];
-  contractors: (DemoContractor & { role: string })[];
-  availableContractors: DemoContractor[];
   milestoneContractors: (DemoMilestoneContractor & {
     contractor: DemoContractor | null;
   })[];
-  notes: { internal: DemoBuildNote[]; public: DemoBuildNote[] };
-  documents: DemoBuildDocument[];
-  eventOutbox: DemoEventOutboxEntry[];
-  quickActionEvents: DemoEventOutboxEntry[];
-  auditEvents: DemoAuditEvent[];
-  address: string;
-  derived: {
-    approvedPrincipalCents: number;
-    drawAvailableCents: number;
-    drawableTotalCents: number;
-    drawnCents: number;
-    daysToPayoff: number;
-    percentComplete: number;
-    openWarnings: number;
-    siteVisitsOpen: number;
-  };
+  milestones: DemoMilestone[];
   mock_satelliteImageUrl: string;
-  timelinePlanId: Id<"demo_timelinePlans"> | null;
   mock_sitePhotos: { url: string; caption: string; takenAt: string }[];
+  notes: { internal: DemoBuildNote[]; public: DemoBuildNote[] };
+  quickActionEvents: DemoEventOutboxEntry[];
   timeline: {
     range: { min: number; max: number };
     projectStartDate: string;
@@ -207,19 +208,26 @@ interface BuildDetailViewModel {
       tone: "accent" | "neutral" | "today" | "warning";
     }[];
   };
+  timelinePlanId: Id<"demo_timelinePlans"> | null;
 }
 
 function initialsFor(name: string): string {
   const parts = name.trim().split(/\s+/);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  if (parts.length === 0) {
+    return "?";
+  }
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 function daysBetween(start: string, end: string): number {
   const a = Date.parse(start);
   const b = Date.parse(end);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  if (!(Number.isFinite(a) && Number.isFinite(b))) {
+    return 0;
+  }
   return Math.max(0, Math.round((b - a) / 86_400_000));
 }
 
@@ -329,21 +337,30 @@ export const demo_getBuildDetailViewModel = publicQuery
     }
 
     const contractorIds = new Set<Id<"demo_contractors">>();
-    for (const row of contractorRoles) contractorIds.add(row.contractorId);
-    for (const row of milestoneContractorRows)
+    for (const row of contractorRoles) {
       contractorIds.add(row.contractorId);
+    }
+    for (const row of milestoneContractorRows) {
+      contractorIds.add(row.contractorId);
+    }
     const contractorList: DemoContractor[] = [];
     for (const id of contractorIds) {
       const contractor = await ctx.db.get(id);
-      if (contractor) contractorList.push(contractor);
+      if (contractor) {
+        contractorList.push(contractor);
+      }
     }
     const contractorById = new Map<Id<"demo_contractors">, DemoContractor>();
-    for (const c of contractorList) contractorById.set(c._id, c);
+    for (const c of contractorList) {
+      contractorById.set(c._id, c);
+    }
 
     // Build contractors with roles
     const buildContractors = contractorRoles.flatMap((row) => {
       const contractor = contractorById.get(row.contractorId);
-      if (!contractor) return [];
+      if (!contractor) {
+        return [];
+      }
       return [{ ...contractor, role: row.role }];
     });
 
@@ -361,7 +378,7 @@ export const demo_getBuildDetailViewModel = publicQuery
       .collect();
     const attachedIds = new Set(contractorRoles.map((r) => r.contractorId));
     const availableContractors = allOrgContractors.filter(
-      (c) => !attachedIds.has(c._id),
+      (c) => !attachedIds.has(c._id)
     );
 
     // Evidence packages and site visits per milestone
@@ -371,22 +388,26 @@ export const demo_getBuildDetailViewModel = publicQuery
       const packages = await ctx.db
         .query("demo_evidencePackages")
         .withIndex("by_milestone", (q) =>
-          q.eq("scenario", scenario).eq("milestoneKey", milestone.key),
+          q.eq("scenario", scenario).eq("milestoneKey", milestone.key)
         )
         .collect();
-      const latestPackage = packages
-        .sort((a, b) => b.createdAt - a.createdAt)[0];
-      if (latestPackage) evidenceByMilestone.set(milestone.key, latestPackage);
+      const latestPackage = packages.sort(
+        (a, b) => b.createdAt - a.createdAt
+      )[0];
+      if (latestPackage) {
+        evidenceByMilestone.set(milestone.key, latestPackage);
+      }
 
       const visits = await ctx.db
         .query("demo_siteVisits")
         .withIndex("by_milestone", (q) =>
-          q.eq("scenario", scenario).eq("milestoneKey", milestone.key),
+          q.eq("scenario", scenario).eq("milestoneKey", milestone.key)
         )
         .collect();
-      const latestVisit = visits
-        .sort((a, b) => b.createdAt - a.createdAt)[0];
-      if (latestVisit) visitByMilestone.set(milestone.key, latestVisit);
+      const latestVisit = visits.sort((a, b) => b.createdAt - a.createdAt)[0];
+      if (latestVisit) {
+        visitByMilestone.set(milestone.key, latestVisit);
+      }
     }
 
     // Audit + outbox
@@ -424,7 +445,7 @@ export const demo_getBuildDetailViewModel = publicQuery
       .map((group) => {
         const groupMilestones = milestonesByDrawGroup.get(group.key) ?? [];
         const actualDate = groupMilestones.find(
-          (m) => m.status === "completion_approved",
+          (m) => m.status === "completion_approved"
         )?.actualCompletedDate;
         const requestStatus: BuildDetailViewModel["draws"][number]["requestStatus"] =
           group.status === "release_approved"
@@ -456,7 +477,11 @@ export const demo_getBuildDetailViewModel = publicQuery
       .map((milestone) => {
         const visit = visitByMilestone.get(milestone.key) ?? null;
         const evidence = evidenceByMilestone.get(milestone.key) ?? null;
-        const column = projectMilestoneToKanbanColumn(milestone, visit, evidence);
+        const column = projectMilestoneToKanbanColumn(
+          milestone,
+          visit,
+          evidence
+        );
         const contractorsForMilestone = milestoneContractors
           .filter((row) => row.milestoneKey === milestone.key)
           .map((row) => ({
@@ -488,12 +513,12 @@ export const demo_getBuildDetailViewModel = publicQuery
     // Derived values
     const approvedPrincipalCents = centsSum(
       drawGroups,
-      (g) => g.approvedValueCents,
+      (g) => g.approvedValueCents
     );
     const drawableTotalCents = approvedPrincipalCents;
     const drawnCents = centsSum(
       drawGroups.filter((g) => g.status === "release_approved"),
-      (g) => g.approvedValueCents,
+      (g) => g.approvedValueCents
     );
     const drawAvailableCents = Math.max(0, drawableTotalCents - drawnCents);
     const daysToPayoff = daysBetween(build.todayDate, build.payoffDate);
@@ -502,24 +527,23 @@ export const demo_getBuildDetailViewModel = publicQuery
     const calculatedPercentComplete = Math.round(
       centsSum(
         milestones,
-        (m) => m.progressPercent * Math.max(1, m.approvedValueCents),
+        (m) => m.progressPercent * Math.max(1, m.approvedValueCents)
       ) /
         Math.max(
           1,
-          centsSum(milestones, (m) => Math.max(1, m.approvedValueCents)),
-        ),
+          centsSum(milestones, (m) => Math.max(1, m.approvedValueCents))
+        )
     );
     const calculatedOpenWarnings = milestones.filter(
       (m) =>
         m.status === "review" ||
         m.evidenceReviewStatus === "submitted" ||
-        m.evidenceReviewStatus === "rejected",
+        m.evidenceReviewStatus === "rejected"
     ).length;
     const calculatedSiteVisitsOpen = Array.from(
-      visitByMilestone.values(),
+      visitByMilestone.values()
     ).filter(
-      (visit) =>
-        visit.status === "unopened" || visit.status === "in_progress",
+      (visit) => visit.status === "unopened" || visit.status === "in_progress"
     ).length;
     const percentComplete =
       build.detailOverrides?.percentComplete ?? calculatedPercentComplete;
@@ -544,20 +568,37 @@ export const demo_getBuildDetailViewModel = publicQuery
     const todayMs = Date.parse(build.todayDate);
     const totalDays = Math.max(
       1,
-      Math.round((payoffMs - projectStartMs) / 86_400_000),
+      Math.round((payoffMs - projectStartMs) / 86_400_000)
     );
     const dayOffset = (iso?: string): number => {
-      if (!iso) return 0;
+      if (!iso) {
+        return 0;
+      }
       const ms = Date.parse(iso);
       return Math.max(0, Math.round((ms - projectStartMs) / 86_400_000));
     };
-    const todayX = Math.max(0, Math.round((todayMs - projectStartMs) / 86_400_000));
-    const toneFor = (status: string): "active" | "blocked" | "complete" | "upcoming" | "warning" => {
-      if (status === "completion_approved") return "complete";
-      if (status === "in_progress_behind_schedule") return "warning";
-      if (status === "in_progress_on_schedule") return "active";
-      if (status === "review") return "active";
-      if (status === "blocked") return "blocked";
+    const todayX = Math.max(
+      0,
+      Math.round((todayMs - projectStartMs) / 86_400_000)
+    );
+    const toneFor = (
+      status: string
+    ): "active" | "blocked" | "complete" | "upcoming" | "warning" => {
+      if (status === "completion_approved") {
+        return "complete";
+      }
+      if (status === "in_progress_behind_schedule") {
+        return "warning";
+      }
+      if (status === "in_progress_on_schedule") {
+        return "active";
+      }
+      if (status === "review") {
+        return "active";
+      }
+      if (status === "blocked") {
+        return "blocked";
+      }
       return "upcoming";
     };
     const timelineItems = milestones
@@ -715,7 +756,7 @@ export const demo_updateBuildDetails = publicMutation
       percentComplete: v.number(),
       openWarnings: v.number(),
       siteVisitsOpen: v.number(),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const build = await ctx.db.get(args.buildId);
@@ -737,7 +778,7 @@ export const demo_updateBuildDetails = publicMutation
     if (args.projectStartDate !== undefined) {
       patch.projectStartDate = assertIsoDate(
         "Project start",
-        args.projectStartDate,
+        args.projectStartDate
       );
     }
     if (args.todayDate !== undefined) {
@@ -757,7 +798,7 @@ export const demo_updateBuildDetails = publicMutation
     if (args.percentComplete !== undefined) {
       detailOverrides.percentComplete = Math.min(
         100,
-        Math.max(0, Math.round(args.percentComplete)),
+        Math.max(0, Math.round(args.percentComplete))
       );
       detailOverridesTouched = true;
     }
@@ -768,7 +809,7 @@ export const demo_updateBuildDetails = publicMutation
     if (args.siteVisitsOpen !== undefined) {
       detailOverrides.siteVisitsOpen = Math.max(
         0,
-        Math.round(args.siteVisitsOpen),
+        Math.round(args.siteVisitsOpen)
       );
       detailOverridesTouched = true;
     }
@@ -796,22 +837,23 @@ export const demo_updateBuildDetails = publicMutation
     const calculatedPercentComplete = Math.round(
       centsSum(
         refreshedMilestones,
-        (m) => m.progressPercent * Math.max(1, m.approvedValueCents),
+        (m) => m.progressPercent * Math.max(1, m.approvedValueCents)
       ) /
         Math.max(
           1,
-          centsSum(refreshedMilestones, (m) => Math.max(1, m.approvedValueCents)),
-        ),
+          centsSum(refreshedMilestones, (m) =>
+            Math.max(1, m.approvedValueCents)
+          )
+        )
     );
     const calculatedOpenWarnings = refreshedMilestones.filter(
       (m) =>
         m.status === "review" ||
         m.evidenceReviewStatus === "submitted" ||
-        m.evidenceReviewStatus === "rejected",
+        m.evidenceReviewStatus === "rejected"
     ).length;
     const calculatedSiteVisitsOpen = refreshedVisits.filter(
-      (visit) =>
-        visit.status === "unopened" || visit.status === "in_progress",
+      (visit) => visit.status === "unopened" || visit.status === "in_progress"
     ).length;
 
     return {
@@ -831,17 +873,19 @@ export const demo_updateBuildDetails = publicMutation
   .public();
 
 interface ApproveDrawAuditMeta {
+  actorPersona: string;
   buildId: Id<"demo_builds">;
   drawGroupKey: string;
-  scenario: string;
-  actorPersona: string;
   priorStatus: string;
   reason?: string;
+  scenario: string;
 }
 
 async function recordApproveDrawAudit(
-  ctx: { db: { insert: (table: "demo_auditEvents", row: any) => Promise<any> } },
-  meta: ApproveDrawAuditMeta,
+  ctx: {
+    db: { insert: (table: "demo_auditEvents", row: any) => Promise<any> };
+  },
+  meta: ApproveDrawAuditMeta
 ): Promise<void> {
   const createdAt = Date.now();
   await ctx.db.insert("demo_auditEvents", {
@@ -865,8 +909,10 @@ async function recordApproveDrawAudit(
 }
 
 async function recordApproveDrawOutbox(
-  ctx: { db: { insert: (table: "demo_eventOutbox", row: any) => Promise<any> } },
-  meta: ApproveDrawAuditMeta,
+  ctx: {
+    db: { insert: (table: "demo_eventOutbox", row: any) => Promise<any> };
+  },
+  meta: ApproveDrawAuditMeta
 ): Promise<void> {
   await ctx.db.insert("demo_eventOutbox", {
     buildId: meta.buildId,
@@ -894,7 +940,7 @@ export const demo_approveDraw = publicMutation
       idempotent: v.boolean(),
       status: v.string(),
       drawGroupKey: v.string(),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const actorPersona = args.actorPersona ?? "lender_admin";
@@ -905,12 +951,12 @@ export const demo_approveDraw = publicMutation
     const drawGroup = await ctx.db
       .query("demo_drawGroups")
       .withIndex("by_scenario_key", (q) =>
-        q.eq("scenario", build.scenario).eq("key", args.drawGroupKey),
+        q.eq("scenario", build.scenario).eq("key", args.drawGroupKey)
       )
       .first();
     if (!drawGroup) {
       throw new Error(
-        `Draw group ${args.drawGroupKey} not found for scenario ${build.scenario}`,
+        `Draw group ${args.drawGroupKey} not found for scenario ${build.scenario}`
       );
     }
 
@@ -920,16 +966,14 @@ export const demo_approveDraw = publicMutation
       const recentAudit = await ctx.db
         .query("demo_auditEvents")
         .withIndex("by_draw_group", (q) =>
-          q
-            .eq("scenario", build.scenario)
-            .eq("drawGroupKey", args.drawGroupKey),
+          q.eq("scenario", build.scenario).eq("drawGroupKey", args.drawGroupKey)
         )
         .collect();
       const within = recentAudit.some(
         (event) =>
           event.command === "demo_approveDraw" &&
           event.actorPersona === actorPersona &&
-          Date.now() - event.createdAt < IDEMPOTENCY_WINDOW_MS,
+          Date.now() - event.createdAt < IDEMPOTENCY_WINDOW_MS
       );
       if (within) {
         return {
@@ -946,17 +990,12 @@ export const demo_approveDraw = publicMutation
       .withIndex("by_build_order", (q) => q.eq("buildId", args.buildId))
       .collect();
     const alreadyApproved = drawGroups
-      .filter(
-        (g) => g.status === "release_approved" && g._id !== drawGroup._id,
-      )
+      .filter((g) => g.status === "release_approved" && g._id !== drawGroup._id)
       .reduce((sum, g) => sum + g.approvedValueCents, 0);
     const projected = alreadyApproved + drawGroup.approvedValueCents;
-    if (
-      projected > build.lenderDrawPolicyLimitCents &&
-      !args.overrideReason
-    ) {
+    if (projected > build.lenderDrawPolicyLimitCents && !args.overrideReason) {
       throw new Error(
-        "policy_limit: lender draw policy limit would be exceeded; provide overrideReason to override.",
+        "policy_limit: lender draw policy limit would be exceeded; provide overrideReason to override."
       );
     }
 
@@ -1008,7 +1047,9 @@ export const demo_addBuildNote = publicMutation
       throw new Error("empty_body");
     }
     const build = await ctx.db.get(args.buildId);
-    if (!build) throw new Error(`Build ${args.buildId} not found`);
+    if (!build) {
+      throw new Error(`Build ${args.buildId} not found`);
+    }
     const now = Date.now();
     const id = await ctx.db.insert("demo_buildNotes", {
       buildId: args.buildId,
@@ -1040,16 +1081,14 @@ export const demo_addBuildNote = publicMutation
 // -----------------------------------------------------------------------------
 
 export const demo_getBorrowerVisibleNotes = publicQuery
-  .use(
-    withQueryTiming("demo_drawflow_backoffice.getBorrowerVisibleNotes"),
-  )
+  .use(withQueryTiming("demo_drawflow_backoffice.getBorrowerVisibleNotes"))
   .input({ buildId: v.id("demo_builds") })
   .returns(v.array(v.any()))
   .handler(async (ctx, { buildId }) => {
     const rows = await ctx.db
       .query("demo_buildNotes")
       .withIndex("by_build_visibility", (q) =>
-        q.eq("buildId", buildId).eq("visibility", "public"),
+        q.eq("buildId", buildId).eq("visibility", "public")
       )
       .collect();
     return rows;
@@ -1062,11 +1101,7 @@ export const demo_getBorrowerVisibleNotes = publicQuery
 // -----------------------------------------------------------------------------
 
 export const demo_approveMilestoneFromSheet = publicMutation
-  .use(
-    withMutationTiming(
-      "demo_drawflow_backoffice.approveMilestoneFromSheet",
-    ),
-  )
+  .use(withMutationTiming("demo_drawflow_backoffice.approveMilestoneFromSheet"))
   .input({
     buildId: v.id("demo_builds"),
     milestoneKey: v.string(),
@@ -1077,21 +1112,23 @@ export const demo_approveMilestoneFromSheet = publicMutation
     v.object({
       milestoneKey: v.string(),
       status: v.string(),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const actorPersona = args.actorPersona ?? "lender_admin";
     const build = await ctx.db.get(args.buildId);
-    if (!build) throw new Error(`Build ${args.buildId} not found`);
+    if (!build) {
+      throw new Error(`Build ${args.buildId} not found`);
+    }
     const milestone = await ctx.db
       .query("demo_milestones")
       .withIndex("by_key", (q) =>
-        q.eq("scenario", build.scenario).eq("key", args.milestoneKey),
+        q.eq("scenario", build.scenario).eq("key", args.milestoneKey)
       )
       .first();
     if (!milestone) {
       throw new Error(
-        `Milestone ${args.milestoneKey} not found for scenario ${build.scenario}`,
+        `Milestone ${args.milestoneKey} not found for scenario ${build.scenario}`
       );
     }
     const priorStatus = milestone.status;
@@ -1141,9 +1178,7 @@ export const demo_approveMilestoneFromSheet = publicMutation
 // -----------------------------------------------------------------------------
 
 export const demo_attachContractorToBuild = publicMutation
-  .use(
-    withMutationTiming("demo_drawflow_backoffice.attachContractorToBuild"),
-  )
+  .use(withMutationTiming("demo_drawflow_backoffice.attachContractorToBuild"))
   .input({
     buildId: v.id("demo_builds"),
     contractorId: v.id("demo_contractors"),
@@ -1154,22 +1189,28 @@ export const demo_attachContractorToBuild = publicMutation
     v.object({
       buildContractorId: v.union(v.id("demo_buildContractors"), v.null()),
       alreadyAttached: v.boolean(),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const role = args.role.trim();
-    if (!role) throw new Error("empty_role");
+    if (!role) {
+      throw new Error("empty_role");
+    }
     const build = await ctx.db.get(args.buildId);
-    if (!build) throw new Error(`Build ${args.buildId} not found`);
+    if (!build) {
+      throw new Error(`Build ${args.buildId} not found`);
+    }
     const contractor = await ctx.db.get(args.contractorId);
-    if (!contractor) throw new Error(`Contractor ${args.contractorId} not found`);
+    if (!contractor) {
+      throw new Error(`Contractor ${args.contractorId} not found`);
+    }
     if (contractor.scenario !== build.scenario) {
       throw new Error("scenario_mismatch");
     }
     const existing = await ctx.db
       .query("demo_buildContractors")
       .withIndex("by_build_contractor", (q) =>
-        q.eq("buildId", args.buildId).eq("contractorId", args.contractorId),
+        q.eq("buildId", args.buildId).eq("contractorId", args.contractorId)
       )
       .first();
     if (existing) {
@@ -1215,10 +1256,16 @@ export const demo_addBuildDocument = publicMutation
   .handler(async (ctx, args) => {
     const name = args.name.trim();
     const kind = args.kind.trim();
-    if (!name) throw new Error("empty_name");
-    if (!kind) throw new Error("empty_kind");
+    if (!name) {
+      throw new Error("empty_name");
+    }
+    if (!kind) {
+      throw new Error("empty_kind");
+    }
     const build = await ctx.db.get(args.buildId);
-    if (!build) throw new Error(`Build ${args.buildId} not found`);
+    if (!build) {
+      throw new Error(`Build ${args.buildId} not found`);
+    }
     const now = Date.now();
     const uploaderPersona = args.uploaderPersona ?? "lender_admin";
     const id = await ctx.db.insert("demo_buildDocuments", {
@@ -1250,9 +1297,7 @@ export const demo_addBuildDocument = publicMutation
   .public();
 
 export const demo_createAndAttachContractor = publicMutation
-  .use(
-    withMutationTiming("demo_drawflow_backoffice.createAndAttachContractor"),
-  )
+  .use(withMutationTiming("demo_drawflow_backoffice.createAndAttachContractor"))
   .input({
     buildId: v.id("demo_builds"),
     role: v.string(),
@@ -1272,28 +1317,40 @@ export const demo_createAndAttachContractor = publicMutation
     v.object({
       contractorId: v.id("demo_contractors"),
       buildContractorId: v.id("demo_buildContractors"),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
     const role = args.role.trim();
-    if (!role) throw new Error("empty_role");
+    if (!role) {
+      throw new Error("empty_role");
+    }
     const name = args.contractor.name.trim();
-    if (!name) throw new Error("empty_name");
+    if (!name) {
+      throw new Error("empty_name");
+    }
     const city = args.contractor.city.trim();
-    if (!city) throw new Error("empty_city");
-    if (!Number.isFinite(args.contractor.hourlyRateCents) ||
-      args.contractor.hourlyRateCents < 0) {
+    if (!city) {
+      throw new Error("empty_city");
+    }
+    if (
+      !Number.isFinite(args.contractor.hourlyRateCents) ||
+      args.contractor.hourlyRateCents < 0
+    ) {
       throw new Error("invalid_hourly_rate");
     }
     const trades = args.contractor.trades
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
-    if (trades.length === 0) throw new Error("empty_trades");
+    if (trades.length === 0) {
+      throw new Error("empty_trades");
+    }
     const skills = args.contractor.skills
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     const build = await ctx.db.get(args.buildId);
-    if (!build) throw new Error(`Build ${args.buildId} not found`);
+    if (!build) {
+      throw new Error(`Build ${args.buildId} not found`);
+    }
     // Builds carry scenario but not orgKey; derive orgKey from any existing
     // contractor in the same scenario, falling back to "demo".
     const sibling = await ctx.db
@@ -1349,13 +1406,13 @@ export const demo_createAndAttachContractor = publicMutation
 
 export interface SeedBuildDetailExtrasInput {
   buildId: Id<"demo_builds">;
-  scenario: string;
   orgKey: string;
+  scenario: string;
 }
 
 export async function seedBuildDetailExtras(
   ctx: { db: any },
-  { buildId, scenario, orgKey }: SeedBuildDetailExtrasInput,
+  { buildId, scenario, orgKey }: SeedBuildDetailExtrasInput
 ): Promise<void> {
   const now = Date.now();
   const northpeakId = await ctx.db.insert("demo_contractors", {
@@ -1496,58 +1553,220 @@ export async function seedBuildDetailExtras(
     {
       milestoneKey: "foundation",
       items: [
-        { key: "footings_formed", name: "Footings formed & inspected", status: "done", budgetCents: 1_800_000, durationDays: 4 },
-        { key: "rebar_tied", name: "Rebar tied", status: "done", budgetCents: 900_000, durationDays: 3 },
-        { key: "slab_poured", name: "Slab poured", status: "done", budgetCents: 2_400_000, durationDays: 2 },
-        { key: "stem_walls", name: "Stem walls cured", status: "in_progress", budgetCents: 1_500_000, durationDays: 5 },
-        { key: "waterproofing", name: "Waterproofing applied", status: "todo", budgetCents: 600_000, durationDays: 2 },
+        {
+          key: "footings_formed",
+          name: "Footings formed & inspected",
+          status: "done",
+          budgetCents: 1_800_000,
+          durationDays: 4,
+        },
+        {
+          key: "rebar_tied",
+          name: "Rebar tied",
+          status: "done",
+          budgetCents: 900_000,
+          durationDays: 3,
+        },
+        {
+          key: "slab_poured",
+          name: "Slab poured",
+          status: "done",
+          budgetCents: 2_400_000,
+          durationDays: 2,
+        },
+        {
+          key: "stem_walls",
+          name: "Stem walls cured",
+          status: "in_progress",
+          budgetCents: 1_500_000,
+          durationDays: 5,
+        },
+        {
+          key: "waterproofing",
+          name: "Waterproofing applied",
+          status: "todo",
+          budgetCents: 600_000,
+          durationDays: 2,
+        },
       ],
     },
     {
       milestoneKey: "underground_plumbing",
       items: [
-        { key: "rough_layout", name: "Rough layout marked", status: "todo", budgetCents: 350_000, durationDays: 1 },
-        { key: "trench_dug", name: "Trenches dug", status: "todo", budgetCents: 420_000, durationDays: 2 },
-        { key: "pipes_laid", name: "Pipes laid & pressure-tested", status: "todo", budgetCents: 1_100_000, durationDays: 4 },
-        { key: "inspection_pass", name: "City inspection passed", status: "todo", budgetCents: 130_000, durationDays: 1 },
+        {
+          key: "rough_layout",
+          name: "Rough layout marked",
+          status: "todo",
+          budgetCents: 350_000,
+          durationDays: 1,
+        },
+        {
+          key: "trench_dug",
+          name: "Trenches dug",
+          status: "todo",
+          budgetCents: 420_000,
+          durationDays: 2,
+        },
+        {
+          key: "pipes_laid",
+          name: "Pipes laid & pressure-tested",
+          status: "todo",
+          budgetCents: 1_100_000,
+          durationDays: 4,
+        },
+        {
+          key: "inspection_pass",
+          name: "City inspection passed",
+          status: "todo",
+          budgetCents: 130_000,
+          durationDays: 1,
+        },
       ],
     },
     {
       milestoneKey: "water_sewer",
       items: [
-        { key: "tap_permit", name: "City tap permit", status: "done", budgetCents: 240_000, durationDays: 1 },
-        { key: "main_run", name: "Water main run", status: "done", budgetCents: 1_650_000, durationDays: 6 },
-        { key: "sewer_connection", name: "Sewer connection", status: "in_progress", budgetCents: 1_300_000, durationDays: 5 },
-        { key: "backfill", name: "Backfill & compact", status: "todo", budgetCents: 410_000, durationDays: 2 },
-        { key: "as_built", name: "As-built drawings filed", status: "todo", budgetCents: 90_000, durationDays: 1 },
+        {
+          key: "tap_permit",
+          name: "City tap permit",
+          status: "done",
+          budgetCents: 240_000,
+          durationDays: 1,
+        },
+        {
+          key: "main_run",
+          name: "Water main run",
+          status: "done",
+          budgetCents: 1_650_000,
+          durationDays: 6,
+        },
+        {
+          key: "sewer_connection",
+          name: "Sewer connection",
+          status: "in_progress",
+          budgetCents: 1_300_000,
+          durationDays: 5,
+        },
+        {
+          key: "backfill",
+          name: "Backfill & compact",
+          status: "todo",
+          budgetCents: 410_000,
+          durationDays: 2,
+        },
+        {
+          key: "as_built",
+          name: "As-built drawings filed",
+          status: "todo",
+          budgetCents: 90_000,
+          durationDays: 1,
+        },
       ],
     },
     {
       milestoneKey: "framing",
       items: [
-        { key: "sill_plate", name: "Sill plate set", status: "todo", budgetCents: 480_000, durationDays: 1 },
-        { key: "floor_joists", name: "Floor joists & subfloor", status: "todo", budgetCents: 2_100_000, durationDays: 5 },
-        { key: "exterior_walls", name: "Exterior walls raised", status: "todo", budgetCents: 3_500_000, durationDays: 6 },
-        { key: "interior_walls", name: "Interior walls raised", status: "todo", budgetCents: 2_200_000, durationDays: 5 },
-        { key: "roof_deck", name: "Roof deck installed", status: "todo", budgetCents: 1_900_000, durationDays: 4 },
-        { key: "framing_inspection", name: "Framing inspection", status: "todo", budgetCents: 120_000, durationDays: 1 },
+        {
+          key: "sill_plate",
+          name: "Sill plate set",
+          status: "todo",
+          budgetCents: 480_000,
+          durationDays: 1,
+        },
+        {
+          key: "floor_joists",
+          name: "Floor joists & subfloor",
+          status: "todo",
+          budgetCents: 2_100_000,
+          durationDays: 5,
+        },
+        {
+          key: "exterior_walls",
+          name: "Exterior walls raised",
+          status: "todo",
+          budgetCents: 3_500_000,
+          durationDays: 6,
+        },
+        {
+          key: "interior_walls",
+          name: "Interior walls raised",
+          status: "todo",
+          budgetCents: 2_200_000,
+          durationDays: 5,
+        },
+        {
+          key: "roof_deck",
+          name: "Roof deck installed",
+          status: "todo",
+          budgetCents: 1_900_000,
+          durationDays: 4,
+        },
+        {
+          key: "framing_inspection",
+          name: "Framing inspection",
+          status: "todo",
+          budgetCents: 120_000,
+          durationDays: 1,
+        },
       ],
     },
     {
       milestoneKey: "roof_flat_shingles",
       items: [
-        { key: "underlayment", name: "Underlayment & flashings", status: "todo", budgetCents: 650_000, durationDays: 2 },
-        { key: "shingles", name: "Shingles installed", status: "todo", budgetCents: 1_450_000, durationDays: 4 },
-        { key: "ridge_caps", name: "Ridge caps & vents", status: "todo", budgetCents: 280_000, durationDays: 1 },
+        {
+          key: "underlayment",
+          name: "Underlayment & flashings",
+          status: "todo",
+          budgetCents: 650_000,
+          durationDays: 2,
+        },
+        {
+          key: "shingles",
+          name: "Shingles installed",
+          status: "todo",
+          budgetCents: 1_450_000,
+          durationDays: 4,
+        },
+        {
+          key: "ridge_caps",
+          name: "Ridge caps & vents",
+          status: "todo",
+          budgetCents: 280_000,
+          durationDays: 1,
+        },
       ],
     },
     {
       milestoneKey: "aluminum_windows",
       items: [
-        { key: "delivery", name: "Window delivery on-site", status: "todo", budgetCents: 4_200_000, durationDays: 1 },
-        { key: "install_first_floor", name: "First-floor install", status: "todo", budgetCents: 1_400_000, durationDays: 3 },
-        { key: "install_upper", name: "Upper-floor install", status: "todo", budgetCents: 1_500_000, durationDays: 3 },
-        { key: "seal_inspection", name: "Seal & weatherization inspection", status: "todo", budgetCents: 180_000, durationDays: 1 },
+        {
+          key: "delivery",
+          name: "Window delivery on-site",
+          status: "todo",
+          budgetCents: 4_200_000,
+          durationDays: 1,
+        },
+        {
+          key: "install_first_floor",
+          name: "First-floor install",
+          status: "todo",
+          budgetCents: 1_400_000,
+          durationDays: 3,
+        },
+        {
+          key: "install_upper",
+          name: "Upper-floor install",
+          status: "todo",
+          budgetCents: 1_500_000,
+          durationDays: 3,
+        },
+        {
+          key: "seal_inspection",
+          name: "Seal & weatherization inspection",
+          status: "todo",
+          budgetCents: 180_000,
+          durationDays: 1,
+        },
       ],
     },
   ];
@@ -1578,13 +1797,17 @@ export const demo_seedBuildDetailExtras = publicMutation
   .returns(v.object({ seeded: v.boolean() }))
   .handler(async (ctx, args) => {
     const build = await ctx.db.get(args.buildId);
-    if (!build) return { seeded: false };
+    if (!build) {
+      return { seeded: false };
+    }
     // Idempotency: only seed once.
     const existing = await ctx.db
       .query("demo_buildContractors")
       .withIndex("by_build", (q) => q.eq("buildId", args.buildId))
       .first();
-    if (existing) return { seeded: false };
+    if (existing) {
+      return { seeded: false };
+    }
     await seedBuildDetailExtras(ctx, {
       buildId: args.buildId,
       scenario: build.scenario,

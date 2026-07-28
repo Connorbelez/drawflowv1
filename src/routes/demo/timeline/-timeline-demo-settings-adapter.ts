@@ -8,12 +8,12 @@ import {
 } from "#/lib/site-visit-guidance.ts";
 import type { TimelineSetupTemplate } from "./-TimelineSetupFlow.tsx";
 import { normalizeMilestoneTimelineItems } from "./-timeline-milestone-schedule.ts";
-import { ISOMETRIC_ICON_KEYS } from "./-timeline-share-snapshot.ts";
 import type {
   DemoDraw,
   DemoMilestone,
   IsometricIconKey,
 } from "./-timeline-share-snapshot.ts";
+import { ISOMETRIC_ICON_KEYS } from "./-timeline-share-snapshot.ts";
 
 export const TIMELINE_DEMO_SETTINGS_CONTRACT_REFS = {
   adapter: [
@@ -190,11 +190,10 @@ export function validateTemplateDraft(
 
 export function validateScenarioDrafts(
   scenarios: TimelineSettingsScenarioDraft[],
-  template?: TimelineSettingsTemplateDraft
+  _template?: TimelineSettingsTemplateDraft
 ): TimelineSettingsValidationResult {
   const errors: Record<string, string> = {};
   const names = new Set<string>();
-  const drawWindows = template ? buildMilestoneDrawWindows(template) : [];
 
   for (const scenario of scenarios) {
     const name = scenario.name.trim().toLowerCase();
@@ -215,13 +214,7 @@ export function validateScenarioDrafts(
       errors[`scenario:${scenario.scenarioKey}:total`] =
         `Draw total must equal 100.00%; currently ${formatBps(drawTotal)}.`;
     }
-    validateScenarioDrawTiming(
-      scenario.scenarioKey,
-      scenario.draws,
-      drawWindows,
-      Boolean(template),
-      errors
-    );
+    validateScenarioDrawTiming(scenario.scenarioKey, scenario.draws, errors);
   }
   if (
     scenarios.length > 0 &&
@@ -291,8 +284,6 @@ export function buildTimelineItemsFromSettings(
 function validateScenarioDrawTiming(
   scenarioKey: string,
   draws: TimelineSettingsDrawDraft[],
-  windows: MilestoneDrawWindow[],
-  requireMilestoneWindow: boolean,
   errors: Record<string, string>
 ) {
   for (const draw of draws) {
@@ -308,83 +299,7 @@ function validateScenarioDrawTiming(
       errors[`scenario:${scenarioKey}:draw:${draw.drawKey}:amount`] =
         "Draw amount must be positive.";
     }
-    if (
-      requireMilestoneWindow &&
-      !windows.some(
-        (window) =>
-          draw.timingDay > window.afterMilestoneEndDay &&
-          draw.timingDay < window.beforeMilestoneStartDay
-      )
-    ) {
-      errors[`scenario:${scenarioKey}:draw:${draw.drawKey}:timingDayWindow`] =
-        formatDrawTimingWindowError(draw, windows);
-    }
   }
-}
-
-function formatDrawTimingWindowError(
-  draw: TimelineSettingsDrawDraft,
-  windows: MilestoneDrawWindow[]
-) {
-  const nearest = findNearestDrawTimingWindow(draw.timingDay, windows);
-  const label = draw.label.trim() || "Unnamed draw";
-
-  if (!nearest) {
-    return `${label}, day ${draw.timingDay}: no valid handoff window exists. Include at least one milestone before saving draw timing.`;
-  }
-
-  const { firstValidDay, lastValidDay, nearestValidDay, window } = nearest;
-  const validWindow =
-    firstValidDay === lastValidDay
-      ? `day ${firstValidDay}`
-      : `days ${firstValidDay}-${lastValidDay}`;
-
-  const beforeMilestoneText = window.beforeMilestoneName
-    ? ` and ${window.beforeMilestoneName} (starts day ${window.beforeMilestoneStartDay})`
-    : "";
-  const windowLabel = window.beforeMilestoneName
-    ? "Valid window"
-    : "Valid final draw window";
-
-  return `${label}, day ${draw.timingDay}: conflicts with ${window.afterMilestoneName} (ends day ${window.afterMilestoneEndDay})${beforeMilestoneText}. ${windowLabel}: ${validWindow}. Nearest valid day: ${nearestValidDay}.`;
-}
-
-function findNearestDrawTimingWindow(
-  timingDay: number,
-  windows: MilestoneDrawWindow[]
-) {
-  let nearest: {
-    distance: number;
-    firstValidDay: number;
-    lastValidDay: number;
-    nearestValidDay: number;
-    window: MilestoneDrawWindow;
-  } | null = null;
-
-  for (const window of windows) {
-    const firstValidDay = window.afterMilestoneEndDay + 1;
-    const lastValidDay = window.beforeMilestoneStartDay - 1;
-    if (firstValidDay > lastValidDay) {
-      continue;
-    }
-    const nearestValidDay = Math.min(
-      Math.max(timingDay, firstValidDay),
-      lastValidDay
-    );
-    const distance = Math.abs(timingDay - nearestValidDay);
-
-    if (!nearest || distance < nearest.distance) {
-      nearest = {
-        distance,
-        firstValidDay,
-        lastValidDay,
-        nearestValidDay,
-        window,
-      };
-    }
-  }
-
-  return nearest;
 }
 
 export function buildTimelineSetupTemplatesFromSettings(
@@ -735,10 +650,9 @@ function normalizeGuidanceItems(
       "Wide shot showing the full milestone work area.",
       "Close-up of the highest-risk connection, fixture, or finish.",
     ],
-    whatToVerify: (
-      submilestones.length
-        ? submilestones.map((submilestone) => submilestone.name)
-        : [name]
+    whatToVerify: (submilestones.length
+      ? submilestones.map((submilestone) => submilestone.name)
+      : [name]
     )
       .slice(0, 4)
       .map(
@@ -757,8 +671,7 @@ function normalizeSubmilestone(
     name: stringValue(row.name),
     order: numberValue(row.order, 0),
     percentageBps: numberValue(row.percentageBps, 0),
-    submilestoneKey:
-      stringValue(row.submilestoneKey) || stringValue(row.key),
+    submilestoneKey: stringValue(row.submilestoneKey) || stringValue(row.key),
   };
 }
 

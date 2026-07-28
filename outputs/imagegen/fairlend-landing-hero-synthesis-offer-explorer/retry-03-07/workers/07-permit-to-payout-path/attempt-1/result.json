@@ -1,0 +1,7 @@
+{
+  "id": "07-permit-to-payout-path",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation completed but no saved PNG artifact was exposed for file placement.",
+  "caveats": ""
+}

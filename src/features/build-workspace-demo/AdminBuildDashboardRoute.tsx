@@ -499,7 +499,9 @@ export function ConvexAdminBuildDashboardRoute({
     if (
       initialMilestoneId &&
       workspace.selectedMilestoneId !== initialMilestoneId &&
-      workspace.milestones.some((milestone) => milestone.id === initialMilestoneId)
+      workspace.milestones.some(
+        (milestone) => milestone.id === initialMilestoneId
+      )
     ) {
       workspace.selectMilestone(initialMilestoneId);
     }
@@ -521,7 +523,7 @@ function AdminBuildDashboard({
 }) {
   const workspace = useBuildWorkspace();
   const [activeTab, setActiveTab] = useState<AdminDashboardTab>(
-    initialTab ?? "overview",
+    initialTab ?? "overview"
   );
   const [expandedDrawGroupIds, setExpandedDrawGroupIds] = useState<Set<string>>(
     () => new Set()
@@ -2077,10 +2079,7 @@ function SiteVisitRequestDialog({
               label="Eligible milestones"
               value={`${eligibleMilestones.length}`}
             />
-            <DecisionMetric
-              label="Token lifetime"
-              value="1 hour"
-            />
+            <DecisionMetric label="Token lifetime" value="1 hour" />
           </div>
 
           <section className="mt-4 grid gap-3">
@@ -2131,12 +2130,14 @@ function SiteVisitRequestDialog({
           {displayUrl ? (
             <section className="mt-4 rounded-lg border bg-emerald-50 p-4 text-emerald-950 dark:bg-emerald-500/10 dark:text-emerald-100">
               <div className="font-semibold">Site visit token generated</div>
-              <div className="mt-2 break-all rounded-md border bg-background/70 p-2 font-mono text-xs text-foreground">
+              <div className="mt-2 break-all rounded-md border bg-background/70 p-2 font-mono text-foreground text-xs">
                 {displayUrl}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button
-                  onClick={() => void navigator.clipboard?.writeText(displayUrl)}
+                  onClick={() =>
+                    void navigator.clipboard?.writeText(displayUrl)
+                  }
                   size="sm"
                   type="button"
                   variant="outline"
@@ -2145,7 +2146,9 @@ function SiteVisitRequestDialog({
                   Copy URL
                 </Button>
                 <Button
-                  onClick={() => window.open(generatedUrl, "_blank", "noopener")}
+                  onClick={() =>
+                    window.open(generatedUrl, "_blank", "noopener")
+                  }
                   size="sm"
                   type="button"
                 >

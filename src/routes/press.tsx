@@ -269,10 +269,7 @@ function CompanyBoilerplate(): ReactElement {
               suites, construction projects, and rental housing opportunities.
             </blockquote>
             <div className="press-action-row">
-              <Button
-                className="press-button press-button--primary"
-                size="lg"
-              >
+              <Button className="press-button press-button--primary" size="lg">
                 <Copy aria-hidden="true" />
                 Copy Boilerplate
               </Button>
@@ -377,8 +374,8 @@ function AssetLibrary(): ReactElement {
             <span>Approved</span>
           </div>
           <p>
-            Approved founder headshots for editorial use. Please credit
-            Fairlend where appropriate.
+            Approved founder headshots for editorial use. Please credit Fairlend
+            where appropriate.
           </p>
           <Button className="press-button press-button--primary" size="lg">
             <ArrowDownToLine aria-hidden="true" />
@@ -475,9 +472,7 @@ function ApprovedDescriptions(): ReactElement {
     >
       <div className="press-descriptions__copy">
         <p className="press-kicker">Fairlend Capital | Press / Media Kit</p>
-        <h2 id="approved-descriptions-title">
-          Approved company descriptions
-        </h2>
+        <h2 id="approved-descriptions-title">Approved company descriptions</h2>
         <p>
           Use the following approved descriptions when referencing Fairlend in
           profiles, event listings, and media coverage.
@@ -613,7 +608,9 @@ function PressArchive(): ReactElement {
           <p>Company announcements & updates</p>
           <Card className="press-empty-card">
             <Newspaper aria-hidden="true" />
-            <span>Announcements will be posted here as they become available.</span>
+            <span>
+              Announcements will be posted here as they become available.
+            </span>
           </Card>
           {[0, 1].map((row) => (
             <Card className="press-skeleton-row" key={row}>

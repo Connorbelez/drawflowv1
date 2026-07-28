@@ -13,11 +13,11 @@ export interface ProductionContractorPlanningTabProps {
   initialRole?: "builder" | "lender";
   persistenceMode?: "convex" | "noop";
   proposalId: Id<"buildProposals">;
+  workosOrganizationId: string;
   workspace: Pick<
     ProductionTimelineWorkspaceProps["workspace"],
     "contractorPlanning" | "milestones"
   >;
-  workosOrganizationId: string;
 }
 
 export function ProductionContractorPlanningTab({
@@ -29,13 +29,16 @@ export function ProductionContractorPlanningTab({
   workosOrganizationId,
 }: ProductionContractorPlanningTabProps) {
   const attachProposalContractor = useMutation(
-    (api as any).production_proposals.attachProposalContractor,
+    (api as any).production_proposals.attachProposalContractor
   );
   const createAndAttachProposalContractor = useMutation(
-    (api as any).production_proposals.createAndAttachProposalContractor,
+    (api as any).production_proposals.createAndAttachProposalContractor
+  );
+  const sendContractorInvite = useMutation(
+    (api as any).contractorOnboarding.sendContractorProfileInvite
   );
   const assignProposalContractorToMilestone = useMutation(
-    (api as any).production_proposals.assignProposalContractorToMilestone,
+    (api as any).production_proposals.assignProposalContractorToMilestone
   );
 
   const milestones = productionProposalMilestonesForContractors(workspace);
@@ -81,6 +84,12 @@ export function ProductionContractorPlanningTab({
           workosOrganizationId,
         })
       }
+      onInviteCreatedContractor={(contractorId) =>
+        sendContractorInvite({
+          contractorId: contractorId as Id<"contractorProfiles">,
+          workosOrganizationId,
+        })
+      }
       planning={workspace.contractorPlanning}
       roleLabel={initialRole}
     />
@@ -88,13 +97,17 @@ export function ProductionContractorPlanningTab({
 }
 
 export function productionProposalMilestonesForContractors(
-  workspace: Pick<
-    ProductionTimelineWorkspaceProps["workspace"],
-    "milestones"
-  >,
+  workspace: Pick<ProductionTimelineWorkspaceProps["workspace"], "milestones">
 ) {
-  return workspace.milestones.map((milestone: { key?: string; milestoneKey?: string; name: string; submilestoneSnapshot?: Array<{ key: string; name: string }> }) => ({
-    ...milestone,
-    milestoneKey: milestone.milestoneKey ?? milestone.key ?? "milestone",
-  }));
+  return workspace.milestones.map(
+    (milestone: {
+      key?: string;
+      milestoneKey?: string;
+      name: string;
+      submilestoneSnapshot?: Array<{ key: string; name: string }>;
+    }) => ({
+      ...milestone,
+      milestoneKey: milestone.milestoneKey ?? milestone.key ?? "milestone",
+    })
+  );
 }

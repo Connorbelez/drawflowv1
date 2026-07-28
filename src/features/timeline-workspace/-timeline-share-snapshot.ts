@@ -198,12 +198,13 @@ export interface TimelineShareSnapshotV2 {
   capitalSpikes: DemoCapitalSpike[];
   currentDay: number;
   draws: DemoDraw[];
+  interestAnnualBps?: number;
   items: DemoTimelineSnapshotItem[];
+  minimumCashReserve: number;
   payloadVersion: 2;
   progressValue: number;
   range: TimelineRange;
   selectedPanelOpen: boolean;
-  minimumCashReserve: number;
   snapshotSummary: string;
   startingCash: number;
   straightLine: boolean;
@@ -216,11 +217,12 @@ export interface TimelineShareSnapshotInput {
   capitalSpikes: DemoCapitalSpike[];
   currentDay: number;
   draws: DemoDraw[];
+  interestAnnualBps?: number;
   items: TimelineItem<DemoMilestone>[];
+  minimumCashReserve?: number;
   progressValue: number;
   range: TimelineRange;
   selectedPanelOpen: boolean;
-  minimumCashReserve?: number;
   startingCash: number;
   straightLine: boolean;
   title?: string;
@@ -232,15 +234,17 @@ export interface TimelineShareState {
   capitalSpikes: DemoCapitalSpike[];
   currentDay: number;
   draws: DemoDraw[];
+  interestAnnualBps?: number;
   items: TimelineItem<DemoMilestone>[];
+  minimumCashReserve: number;
   progressValue: number;
   range: TimelineRange;
   selectedPanelOpen: boolean;
-  minimumCashReserve: number;
   startingCash: number;
   straightLine: boolean;
 }
 
+export const DEFAULT_INTEREST_ANNUAL_BPS = 925;
 const DEFAULT_TITLE = "Elm Street build draw roadmap";
 const FALLBACK_RANGE: TimelineRange = {
   max: 230,
@@ -270,6 +274,7 @@ export function buildTimelineShareSnapshotV2(
   const approvedDrawLimit = normalizeOptionalNonNegativeNumber(
     input.approvedDrawLimit
   );
+  const interestAnnualBps = normalizeInterestAnnualBps(input.interestAnnualBps);
 
   return {
     activeSelection,
@@ -277,6 +282,7 @@ export function buildTimelineShareSnapshotV2(
     capitalSpikes,
     currentDay,
     draws,
+    interestAnnualBps,
     items,
     payloadVersion: 2,
     progressValue,
@@ -333,6 +339,10 @@ export function applyTimelineShareSnapshotV2(
     capitalSpikes,
     currentDay: normalizeNumber(candidate.currentDay, fallbackState.currentDay),
     draws,
+    interestAnnualBps: normalizeInterestAnnualBps(
+      candidate.interestAnnualBps,
+      fallbackState.interestAnnualBps
+    ),
     items,
     progressValue: normalizeNumber(candidate.progressValue, range.min),
     range,
@@ -369,7 +379,8 @@ export function initialTimelineShareState(
   startingCash: number,
   straightLine: boolean,
   minimumCashReserve = 0,
-  approvedDrawLimit?: number
+  approvedDrawLimit?: number,
+  interestAnnualBps?: number
 ): TimelineShareState {
   const normalizedApprovedDrawLimit =
     normalizeOptionalNonNegativeNumber(approvedDrawLimit);
@@ -381,6 +392,7 @@ export function initialTimelineShareState(
     capitalSpikes,
     currentDay,
     draws,
+    interestAnnualBps: normalizeInterestAnnualBps(interestAnnualBps),
     items,
     progressValue,
     range,
@@ -403,6 +415,7 @@ function normalizeTimelineShareState(
     capitalSpikes: normalizeShareCapitalSpikes(state.capitalSpikes),
     currentDay: normalizeNumber(state.currentDay, range.min),
     draws: normalizeShareDraws(state.draws),
+    interestAnnualBps: normalizeInterestAnnualBps(state.interestAnnualBps),
     items,
     progressValue: normalizeNumber(state.progressValue, range.min),
     range,
@@ -436,9 +449,18 @@ function normalizeApprovedDrawLimitState(
 
 function normalizeOptionalNonNegativeNumber(value: unknown) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    return undefined;
+    return;
   }
   return Math.max(0, Math.round(value));
+}
+
+export function normalizeInterestAnnualBps(
+  value: unknown,
+  fallback = DEFAULT_INTEREST_ANNUAL_BPS
+) {
+  const raw =
+    typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return Math.max(0, Math.min(10_000, Math.round(raw)));
 }
 
 function normalizeShareItems(
@@ -519,7 +541,9 @@ function normalizeMilestoneData(
       : { initialPaymentAmount: normalized.initialPaymentAmount }),
     name: normalized.name,
     policy: normalized.policy,
-    ...(normalized.siteVisitGuidance ? { siteVisitGuidance: normalized.siteVisitGuidance } : {}),
+    ...(normalized.siteVisitGuidance
+      ? { siteVisitGuidance: normalized.siteVisitGuidance }
+      : {}),
     status: normalized.status,
     subMilestones: submilestoneDetails
       ? submilestoneNames(submilestoneDetails)
@@ -544,7 +568,10 @@ function normalizeCompletionClaim(
   const qualityRating =
     claim.qualityRating === undefined
       ? undefined
-      : Math.max(1, Math.min(5, Math.round(normalizeNumber(claim.qualityRating, 0))));
+      : Math.max(
+          1,
+          Math.min(5, Math.round(normalizeNumber(claim.qualityRating, 0)))
+        );
 
   return {
     ...(actualCost === undefined ? {} : { actualCost }),
@@ -710,11 +737,11 @@ function normalizeSiteVisitGuidance(
   guidance: DemoMilestone["siteVisitGuidance"] | undefined
 ): SiteVisitGuidanceHtml | undefined {
   if (!guidance) {
-    return undefined;
+    return;
   }
   const normalized = coerceSiteVisitGuidance(guidance);
   if (isSiteVisitGuidanceHtmlEmpty(normalized)) {
-    return undefined;
+    return;
   }
   return normalized;
 }

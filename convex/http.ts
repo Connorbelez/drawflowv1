@@ -1,10 +1,50 @@
 import { httpRouter } from "convex/server";
-import { httpAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
+import { httpAction } from "./_generated/server";
 import { authKit } from "./auth";
+
+const ALLOWED_CONVEX_STORAGE_HOST_SUFFIXES = [
+  ".convex.cloud",
+  ".convex.site",
+] as const;
+const CALENDAR_SUBSCRIPTION_PATH = /\/api\/calendar\/([^/]+)\.ics$/;
 
 const http = httpRouter();
 authKit.registerRoutes(http);
+http.route({
+  handler: httpAction(async (_ctx, request) => {
+    const requestUrl = new URL(request.url);
+    const sourceUrl = parseAllowedEvidenceStorageUrl(
+      requestUrl.searchParams.get("url")
+    );
+    if (!sourceUrl) {
+      return new Response("Unsupported evidence source URL.", { status: 400 });
+    }
+
+    try {
+      const sourceResponse = await fetch(sourceUrl);
+      if (!(sourceResponse.ok && sourceResponse.body)) {
+        return new Response("Unable to read evidence image.", { status: 404 });
+      }
+      return new Response(sourceResponse.body, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control":
+            "public, max-age=31536000, s-maxage=31536000, immutable",
+          "Content-Type":
+            sourceResponse.headers.get("Content-Type") ??
+            "application/octet-stream",
+          "X-Content-Type-Options": "nosniff",
+        },
+        status: 200,
+      });
+    } catch {
+      return new Response("Unable to read evidence image.", { status: 502 });
+    }
+  }),
+  method: "GET",
+  path: "/evidence-image-source",
+});
 http.route({
   handler: httpAction(async (ctx, request) => {
     const requestUrl = new URL(request.url);
@@ -15,12 +55,13 @@ http.route({
 
     try {
       const previewBytes = await ctx.runAction(
-        (internal as any).evidence_preview.convertEvidenceImagePreview,
-        { sourceUrl },
+        internal.evidence_preview.convertEvidenceImagePreview,
+        { sourceUrl }
       );
       return new Response(new Uint8Array(previewBytes), {
         headers: {
-          "Cache-Control": "public, max-age=86400",
+          "Cache-Control":
+            "public, max-age=31536000, s-maxage=31536000, immutable",
           "Content-Type": "image/jpeg",
         },
         status: 200,
@@ -37,7 +78,7 @@ http.route({
 http.route({
   handler: httpAction(async (ctx, request) => {
     const requestUrl = new URL(request.url);
-    const match = requestUrl.pathname.match(/\/api\/calendar\/([^/]+)\.ics$/);
+    const match = requestUrl.pathname.match(CALENDAR_SUBSCRIPTION_PATH);
     const subscriptionKey = match?.[1];
     if (!subscriptionKey) {
       return new Response("Missing calendar subscription key.", {
@@ -46,8 +87,8 @@ http.route({
     }
     try {
       const ics = await ctx.runQuery(
-        (api as any).production_proposals.getCalendarSubscriptionIcs,
-        { subscriptionKey },
+        api.production_proposals.getCalendarSubscriptionIcs,
+        { subscriptionKey }
       );
       return new Response(ics, {
         headers: {
@@ -66,5 +107,26 @@ http.route({
   method: "GET",
   pathPrefix: "/api/calendar/",
 });
+
+function parseAllowedEvidenceStorageUrl(sourceUrl: string | null) {
+  if (!sourceUrl) {
+    return null;
+  }
+  try {
+    const parsed = new URL(sourceUrl);
+    if (
+      parsed.protocol !== "https:" ||
+      !parsed.pathname.includes("/api/storage/") ||
+      !ALLOWED_CONVEX_STORAGE_HOST_SUFFIXES.some((suffix) =>
+        parsed.hostname.endsWith(suffix)
+      )
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 export default http;

@@ -24,7 +24,7 @@ export interface ProductionProposalDrawScheduleEditorProps {
   onAmountChange: (drawKey: string, value: string) => void;
   onCommit: (
     drawKey: string,
-    patch: ProductionProposalDrawSchedulePatch,
+    patch: ProductionProposalDrawSchedulePatch
   ) => void;
   onLabelChange: (drawKey: string, value: string) => void;
   onTimingChange: (drawKey: string, value: string) => void;
@@ -68,9 +68,7 @@ export function ProductionProposalDrawScheduleEditor({
             className="grid gap-3 border-b pb-4 last:border-b-0 last:pb-0"
             key={draw.drawKey}
           >
-            <legend className="mb-1 font-medium text-sm">
-              {draw.drawKey}
-            </legend>
+            <legend className="mb-1 font-medium text-sm">{draw.drawKey}</legend>
             <div className="grid gap-2">
               <Label htmlFor={`draw-label-${draw.drawKey}`}>
                 {draw.drawKey} label

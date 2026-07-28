@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">FairLend Management Inc licensing asset</title>
+  <desc id="desc">A clean document-style asset displaying FairLend Management Inc legal business name and licence numbers.</desc>
+  <defs>
+    <filter id="paperGrain" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" seed="13827" result="noise" />
+      <feColorMatrix in="noise" type="saturate" values="0" result="monoNoise" />
+      <feComponentTransfer in="monoNoise" result="softNoise">
+        <feFuncA type="table" tableValues="0 0.055" />
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" in2="softNoise" mode="multiply" />
+    </filter>
+    <filter id="softShadow" x="-8%" y="-12%" width="116%" height="124%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#0b1f18" flood-opacity="0.18" />
+    </filter>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbf4e3" />
+      <stop offset="0.48" stop-color="#f4ead4" />
+      <stop offset="1" stop-color="#eadfc6" />
+    </linearGradient>
+    <linearGradient id="ruleFade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0d3f31" stop-opacity="0.88" />
+      <stop offset="1" stop-color="#0d3f31" stop-opacity="0.52" />
+    </linearGradient>
+    <style>
+      .title {
+        fill: #083d30;
+        font-family: "League Gothic", "Arial Narrow", "Roboto Condensed", Impact, sans-serif;
+        font-size: 112px;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+
+      .label {
+        fill: #0d3f31;
+        font-family: "IBM Plex Mono", "Courier New", monospace;
+        font-size: 38px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      .micro {
+        fill: #0d3f31;
+        font-family: "IBM Plex Mono", "Courier New", monospace;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        opacity: 0.72;
+      }
+
+      .stamp-text {
+        fill: #c8572b;
+        font-family: "IBM Plex Mono", "Courier New", monospace;
+        font-size: 20px;
+        font-weight: 800;
+        letter-spacing: 2px;
+      }
+    </style>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <rect x="76" y="58" width="1048" height="684" rx="32" fill="url(#paper)" stroke="#d0bf9c" stroke-width="3" filter="url(#paperGrain)" />
+    <rect x="98" y="82" width="1004" height="636" rx="20" fill="none" stroke="#b9a986" stroke-width="1.5" stroke-dasharray="5 9" opacity="0.55" />
+  </g>
+
+  <path d="M182 126 h104" stroke="#b88b42" stroke-width="12" stroke-linecap="round" fill="none" />
+  <path d="M182 126 v94 c0 36 26 62 62 62s62-26 62-62v-98" stroke="#b88b42" stroke-width="12" stroke-linecap="round" fill="none" />
+  <path d="M182 126 h104" stroke="#f2ca83" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.8" />
+  <path d="M182 126 v94 c0 36 26 62 62 62s62-26 62-62v-98" stroke="#f2ca83" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.8" />
+
+  <text x="160" y="274" class="micro">AUTHORIZED LICENSING RECORD</text>
+  <text x="160" y="388" class="title">FairLend Management Inc</text>
+  <rect x="160" y="430" width="880" height="6" rx="3" fill="url(#ruleFade)" />
+
+  <text x="160" y="510" class="label">Legal business name: FairLend Management Inc</text>
+  <rect x="160" y="552" width="880" height="4" rx="2" fill="url(#ruleFade)" opacity="0.78" />
+
+  <text x="160" y="622" class="label">Brokerage Licence #13827</text>
+  <text x="160" y="690" class="label">Administrator Licence #13828</text>
+
+  <g transform="translate(894 560)">
+    <circle cx="0" cy="0" r="92" fill="none" stroke="#c8572b" stroke-width="8" opacity="0.88" />
+    <circle cx="0" cy="0" r="72" fill="none" stroke="#c8572b" stroke-width="2.5" stroke-dasharray="9 7" opacity="0.58" />
+    <path d="M-31 -2 l22 23 l46 -54" fill="none" stroke="#c8572b" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="-58" y="60" class="stamp-text">VERIFIED</text>
+  </g>
+</svg>

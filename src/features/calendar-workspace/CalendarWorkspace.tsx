@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  CalendarPlus,
   CalendarClock,
+  CalendarPlus,
   Download,
   ExternalLink,
   Filter,
@@ -11,16 +10,16 @@ import {
   Search,
   Wifi,
 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-
-import {
-  EventManager,
-  type Event as ManagedCalendarEvent,
-  type EventManagerView,
-} from "#/components/ui/event-manager.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card.tsx";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "#/components/ui/card.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
   Dialog,
@@ -30,6 +29,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
+import {
+  EventManager,
+  type EventManagerView,
+  type Event as ManagedCalendarEvent,
+} from "#/components/ui/event-manager.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
@@ -64,14 +68,19 @@ export interface CalendarWorkspaceProps {
   className?: string;
   initialTimeframe?: CalendarTimeframe;
   onCommitEdit?: (request: CalendarEditRequest) => Promise<unknown> | unknown;
-  onCreateReminderEvent?: (input: CalendarReminderEventInput) => Promise<unknown> | unknown;
+  onCreateReminderEvent?: (
+    input: CalendarReminderEventInput
+  ) => Promise<unknown> | unknown;
   onCreateSyncSubscription?: (input: {
     direction: "bidirectional" | "outbound";
     filters: CalendarFilters;
     provider: "google" | "ics" | "outlook";
     sourceId: string;
     surface: DrawFlowCalendarWorkspaceData["surface"];
-  }) => Promise<CalendarSyncSubscriptionResult> | CalendarSyncSubscriptionResult | void;
+  }) =>
+    | Promise<CalendarSyncSubscriptionResult>
+    | CalendarSyncSubscriptionResult
+    | void;
   onDeleteReminderEvent?: (input: {
     eventId: string;
     reason?: string;
@@ -91,7 +100,9 @@ export interface CalendarWorkspaceProps {
     viewKey: string;
   }) => Promise<unknown> | unknown;
   onTimeframeChange?: (timeframe: CalendarTimeframe) => void;
-  onUpdateReminderEvent?: (input: CalendarReminderEventInput & { eventId: string }) => Promise<unknown> | unknown;
+  onUpdateReminderEvent?: (
+    input: CalendarReminderEventInput & { eventId: string }
+  ) => Promise<unknown> | unknown;
   workspace?: DrawFlowCalendarWorkspaceData | null;
 }
 
@@ -111,19 +122,23 @@ export function CalendarWorkspace({
   workspace,
 }: CalendarWorkspaceProps) {
   const [timeframe, setTimeframe] = useState<CalendarTimeframe>(
-    initialTimeframe ?? workspace?.defaultTimeframe ?? "month",
+    initialTimeframe ?? workspace?.defaultTimeframe ?? "month"
   );
   const [filters, setFilters] = useState<CalendarFilters>({});
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>();
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
-  const [pendingEdit, setPendingEdit] = useState<CalendarEditRequest | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<CalendarEditRequest | null>(
+    null
+  );
   const [pendingBulkMove, setPendingBulkMove] = useState<{
     dayDelta: number;
     events: DrawFlowCalendarEvent[];
   } | null>(null);
   const [reason, setReason] = useState("");
-  const [reminderDraft, setReminderDraft] = useState<ReminderDraft | null>(null);
+  const [reminderDraft, setReminderDraft] = useState<ReminderDraft | null>(
+    null
+  );
   const [syncFeedUrl, setSyncFeedUrl] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState<string | null>(null);
 
@@ -147,12 +162,14 @@ export function CalendarWorkspace({
   }, [initialTimeframe]);
 
   const normalizedWorkspace = useMemo(() => {
-    if (!workspace) return workspace;
+    if (!workspace) {
+      return workspace;
+    }
     return {
       ...workspace,
       events: normalizeCalendarEvents(workspace.events),
       warnings: (workspace.warnings ?? []).map((warning) =>
-        typeof warning === "string" ? { label: warning } : warning,
+        typeof warning === "string" ? { label: warning } : warning
       ),
     };
   }, [workspace]);
@@ -162,27 +179,28 @@ export function CalendarWorkspace({
       normalizedWorkspace
         ? applyCalendarFilters(normalizedWorkspace.events, filters)
         : [],
-    [filters, normalizedWorkspace],
+    [filters, normalizedWorkspace]
   );
   const managedEvents = useMemo(
     () => filteredEvents.map(drawFlowEventToManagedEvent),
-    [filteredEvents],
+    [filteredEvents]
   );
   const selectedEvent = useMemo(
     () =>
-      normalizedWorkspace?.events.find((event) => event.id === selectedEventId) ??
-      null,
-    [normalizedWorkspace, selectedEventId],
+      normalizedWorkspace?.events.find(
+        (event) => event.id === selectedEventId
+      ) ?? null,
+    [normalizedWorkspace, selectedEventId]
   );
   const selectedEvents = useMemo(
     () =>
       normalizedWorkspace?.events.filter((event) =>
-        selectedEventIds.includes(event.id),
+        selectedEventIds.includes(event.id)
       ) ?? [],
-    [normalizedWorkspace, selectedEventIds],
+    [normalizedWorkspace, selectedEventIds]
   );
   const canCreateReminderEvents = Boolean(
-    normalizedWorkspace?.surface === "proposal" && onCreateReminderEvent,
+    normalizedWorkspace?.surface === "proposal" && onCreateReminderEvent
   );
   const canDeleteReminderEvents = Boolean(onDeleteReminderEvent);
   const canUpdateReminderEvents = Boolean(onUpdateReminderEvent);
@@ -192,7 +210,7 @@ export function CalendarWorkspace({
       setTimeframe(next);
       onTimeframeChange?.(next);
     },
-    [onTimeframeChange],
+    [onTimeframeChange]
   );
 
   const defaultActions = useMemo(
@@ -205,12 +223,14 @@ export function CalendarWorkspace({
             exportEvents: (events, filename) =>
               downloadTextFile(
                 filename,
-                buildIcsForEvents(events, normalizedWorkspace.source.title),
+                buildIcsForEvents(events, normalizedWorkspace.source.title)
               ),
             onBulkMove: (events, dayDelta) =>
               setPendingBulkMove({ dayDelta, events }),
             onDeleteReminder: async (event) => {
-              if (event.entity.type !== "calendarReminder") return;
+              if (event.entity.type !== "calendarReminder") {
+                return;
+              }
               await onDeleteReminderEvent?.({
                 eventId: event.entity.id,
                 reason: "Cancelled from calendar workspace.",
@@ -218,7 +238,9 @@ export function CalendarWorkspace({
               toast.success("Calendar reminder cancelled.");
             },
             onEditReminder: (event) => {
-              if (event.entity.type !== "calendarReminder") return;
+              if (event.entity.type !== "calendarReminder") {
+                return;
+              }
               setReminderDraft(reminderDraftFromEvent(event));
             },
             onNewReminder: (date) => setReminderDraft(emptyReminderDraft(date)),
@@ -232,11 +254,11 @@ export function CalendarWorkspace({
       canUpdateReminderEvents,
       normalizedWorkspace,
       onDeleteReminderEvent,
-    ],
+    ]
   );
   const allActions = useMemo(
     () => [...defaultActions, ...actions],
-    [actions, defaultActions],
+    [actions, defaultActions]
   );
 
   if (normalizedWorkspace === undefined) {
@@ -269,7 +291,8 @@ export function CalendarWorkspace({
     pendingEdit?.event.editable.requiredReason &&
     pendingEdit.event.editable.requiredReason !== "none";
   const needsBulkReason = pendingBulkMove?.events.some(
-    (event) => event.editable.requiredReason && event.editable.requiredReason !== "none",
+    (event) =>
+      event.editable.requiredReason && event.editable.requiredReason !== "none"
   );
 
   return (
@@ -303,7 +326,7 @@ export function CalendarWorkspace({
                 toast.error(
                   error instanceof Error
                     ? error.message
-                    : "Calendar sync setup failed.",
+                    : "Calendar sync setup failed."
                 );
               } finally {
                 setSyncBusy(null);
@@ -312,25 +335,31 @@ export function CalendarWorkspace({
             onExport={() =>
               downloadTextFile(
                 `${normalizedWorkspace.surface}-calendar.ics`,
-                buildIcsForEvents(filteredEvents, normalizedWorkspace.source.title),
+                buildIcsForEvents(
+                  filteredEvents,
+                  normalizedWorkspace.source.title
+                )
               )
             }
             onNewReminder={() =>
               setReminderDraft(
                 emptyReminderDraft(
-                  selectedDate ?? new Date().toISOString().slice(0, 10),
-                ),
+                  selectedDate ?? new Date().toISOString().slice(0, 10)
+                )
               )
             }
             onRecordInbound={async () => {
               if (!onRecordExternalSyncChange) {
-                toast.info("Inbound reconciliation is not configured for this route.");
+                toast.info(
+                  "Inbound reconciliation is not configured for this route."
+                );
                 return;
               }
               await onRecordExternalSyncChange({
                 changeKey: `manual_reconcile_${Date.now()}`,
                 payload: {
-                  reason: "Manual calendar reconciliation check from calendar workspace.",
+                  reason:
+                    "Manual calendar reconciliation check from calendar workspace.",
                 },
                 provider: "google",
                 subscriptionKey: undefined,
@@ -376,7 +405,9 @@ export function CalendarWorkspace({
                         changeType: "move",
                         event: event.drawFlowEvent,
                         nextEndsAt: calendarIsoFromManagedDate(next.endTime),
-                        nextStartsAt: calendarIsoFromManagedDate(next.startTime),
+                        nextStartsAt: calendarIsoFromManagedDate(
+                          next.startTime
+                        ),
                         priorEndsAt: event.drawFlowEvent.endsAt,
                         priorStartsAt: event.drawFlowEvent.startsAt,
                       })
@@ -385,26 +416,29 @@ export function CalendarWorkspace({
                 onEventResize={(event, next) =>
                   event.drawFlowEvent
                     ? setPendingEdit({
-                        changeType: next.edge === "start" ? "resizeStart" : "resizeEnd",
+                        changeType:
+                          next.edge === "start" ? "resizeStart" : "resizeEnd",
                         event: event.drawFlowEvent,
                         nextEndsAt: calendarIsoFromManagedDate(next.endTime),
-                        nextStartsAt: calendarIsoFromManagedDate(next.startTime),
+                        nextStartsAt: calendarIsoFromManagedDate(
+                          next.startTime
+                        ),
                         priorEndsAt: event.drawFlowEvent.endsAt,
                         priorStartsAt: event.drawFlowEvent.startsAt,
                       })
                     : undefined
                 }
-                onSelectDate={setSelectedDate}
                 onEventSelect={(event) => setSelectedEventId(event.id)}
-                onViewChange={(view) =>
-                  setTimeframeControlled(calendarTimeframeFromManagerView(view))
-                }
+                onSelectDate={setSelectedDate}
                 onToggleEventSelection={(event) =>
                   setSelectedEventIds((current) =>
                     current.includes(event.id)
                       ? current.filter((id) => id !== event.id)
-                      : [...current, event.id],
+                      : [...current, event.id]
                   )
+                }
+                onViewChange={(view) =>
+                  setTimeframeControlled(calendarTimeframeFromManagerView(view))
                 }
                 selectedDate={selectedDate}
                 selectedEventId={selectedEventId}
@@ -455,8 +489,8 @@ export function CalendarWorkspace({
           <DialogHeader>
             <DialogTitle>Preview schedule impact</DialogTitle>
             <DialogDescription>
-              Calendar edits commit through DrawFlow workflow mutations and audit
-              rules.
+              Calendar edits commit through DrawFlow workflow mutations and
+              audit rules.
             </DialogDescription>
           </DialogHeader>
           {pendingEdit ? (
@@ -488,7 +522,9 @@ export function CalendarWorkspace({
             <Button
               disabled={Boolean(needsReason && !reason.trim())}
               onClick={async () => {
-                if (!pendingEdit) return;
+                if (!pendingEdit) {
+                  return;
+                }
                 try {
                   await onCommitEdit?.({
                     ...pendingEdit,
@@ -501,7 +537,7 @@ export function CalendarWorkspace({
                   toast.error(
                     error instanceof Error
                       ? error.message
-                      : "Calendar schedule edit failed.",
+                      : "Calendar schedule edit failed."
                   );
                 }
               }}
@@ -525,17 +561,22 @@ export function CalendarWorkspace({
           <DialogHeader>
             <DialogTitle>Preview bulk move</DialogTitle>
             <DialogDescription>
-              Each selected event is validated against its edit capability before
-              commit.
+              Each selected event is validated against its edit capability
+              before commit.
             </DialogDescription>
           </DialogHeader>
           {pendingBulkMove ? (
             <div className="grid gap-3">
               <div className="max-h-56 overflow-y-auto rounded-md border p-3 text-sm">
                 {pendingBulkMove.events.map((event) => (
-                  <div className="flex items-center justify-between gap-2 border-b py-2 last:border-b-0" key={event.id}>
+                  <div
+                    className="flex items-center justify-between gap-2 border-b py-2 last:border-b-0"
+                    key={event.id}
+                  >
                     <span className="min-w-0 truncate">{event.title}</span>
-                    <Badge variant={event.editable.canMove ? "outline" : "secondary"}>
+                    <Badge
+                      variant={event.editable.canMove ? "outline" : "secondary"}
+                    >
                       {event.editable.canMove ? "Included" : "Excluded"}
                     </Badge>
                   </div>
@@ -566,10 +607,14 @@ export function CalendarWorkspace({
             <Button
               disabled={Boolean(needsBulkReason && !reason.trim())}
               onClick={async () => {
-                if (!pendingBulkMove) return;
+                if (!pendingBulkMove) {
+                  return;
+                }
                 try {
                   for (const event of pendingBulkMove.events) {
-                    if (!event.editable.canMove) continue;
+                    if (!event.editable.canMove) {
+                      continue;
+                    }
                     await onCommitEdit?.({
                       changeType: "bulkMove",
                       event,
@@ -577,7 +622,10 @@ export function CalendarWorkspace({
                       nextEndsAt: event.endsAt
                         ? shiftIso(event.endsAt, pendingBulkMove.dayDelta)
                         : undefined,
-                      nextStartsAt: shiftIso(event.startsAt, pendingBulkMove.dayDelta),
+                      nextStartsAt: shiftIso(
+                        event.startsAt,
+                        pendingBulkMove.dayDelta
+                      ),
                       priorEndsAt: event.endsAt,
                       priorStartsAt: event.startsAt,
                       reason: reason.trim() || undefined,
@@ -591,7 +639,7 @@ export function CalendarWorkspace({
                   toast.error(
                     error instanceof Error
                       ? error.message
-                      : "Bulk calendar move failed.",
+                      : "Bulk calendar move failed."
                   );
                 }
               }}
@@ -607,7 +655,10 @@ export function CalendarWorkspace({
         draft={reminderDraft}
         onClose={() => setReminderDraft(null)}
         onSubmit={async (draft) => {
-          const payload = reminderPayloadFromDraft(draft, assignableParticipants);
+          const payload = reminderPayloadFromDraft(
+            draft,
+            assignableParticipants
+          );
           try {
             if (draft.mode === "edit" && draft.eventId) {
               await onUpdateReminderEvent?.({
@@ -624,7 +675,7 @@ export function CalendarWorkspace({
             toast.error(
               error instanceof Error
                 ? error.message
-                : "Calendar reminder save failed.",
+                : "Calendar reminder save failed."
             );
           }
         }}
@@ -634,7 +685,7 @@ export function CalendarWorkspace({
 }
 
 function drawFlowEventToManagedEvent(
-  event: DrawFlowCalendarEvent,
+  event: DrawFlowCalendarEvent
 ): ManagedCalendarEvent {
   const { endTime, startTime } = managedDateRangeFromCalendarEvent(event);
   return {
@@ -685,11 +736,12 @@ function reminderDraftFromEvent(event: DrawFlowCalendarEvent): ReminderDraft {
   return {
     allDay: event.allDay,
     assignedParticipantKeys: (event.participants ?? []).map(
-      (participant) => participant.key,
+      (participant) => participant.key
     ),
     description: event.subtitle ?? "",
     endsAt: event.endsAt?.slice(0, 10) ?? "",
-    eventId: event.entity.type === "calendarReminder" ? event.entity.id : undefined,
+    eventId:
+      event.entity.type === "calendarReminder" ? event.entity.id : undefined,
     location: event.location ?? "",
     mode: "edit",
     startsAt: event.startsAt.slice(0, 10),
@@ -700,13 +752,13 @@ function reminderDraftFromEvent(event: DrawFlowCalendarEvent): ReminderDraft {
 
 function reminderPayloadFromDraft(
   draft: ReminderDraft,
-  assignableParticipants: CalendarAssignableParticipant[],
+  assignableParticipants: CalendarAssignableParticipant[]
 ): CalendarReminderEventInput {
   return {
     allDay: draft.allDay,
     assignedParticipants: assignableParticipants
       .filter((participant) =>
-        draft.assignedParticipantKeys.includes(participant.key),
+        draft.assignedParticipantKeys.includes(participant.key)
       )
       .map(({ key: _key, ...participant }) => participant),
     description: draft.description.trim() || undefined,
@@ -739,18 +791,22 @@ function ReminderEventDialog({
   return (
     <Dialog
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) {
+          onClose();
+        }
       }}
       open={Boolean(draft)}
     >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {localDraft?.mode === "edit" ? "Edit calendar event" : "New calendar event"}
+            {localDraft?.mode === "edit"
+              ? "Edit calendar event"
+              : "New calendar event"}
           </DialogTitle>
           <DialogDescription>
-            Reminder-only events stay on the calendar and do not change the build
-            timeline, draw plan, or approval workflow.
+            Reminder-only events stay on the calendar and do not change the
+            build timeline, draw plan, or approval workflow.
           </DialogDescription>
         </DialogHeader>
         {localDraft ? (
@@ -768,7 +824,9 @@ function ReminderEventDialog({
               <Label htmlFor="reminder-description">Notes</Label>
               <Textarea
                 id="reminder-description"
-                onChange={(event) => update({ description: event.target.value })}
+                onChange={(event) =>
+                  update({ description: event.target.value })
+                }
                 placeholder="Optional context for the event."
                 value={localDraft.description}
               />
@@ -827,7 +885,7 @@ function ReminderEventDialog({
                 {assignableParticipants.length > 0 ? (
                   assignableParticipants.map((participant) => {
                     const checked = localDraft.assignedParticipantKeys.includes(
-                      participant.key,
+                      participant.key
                     );
                     return (
                       <label
@@ -844,7 +902,7 @@ function ReminderEventDialog({
                                     participant.key,
                                   ]
                                 : localDraft.assignedParticipantKeys.filter(
-                                    (key) => key !== participant.key,
+                                    (key) => key !== participant.key
                                   ),
                             });
                           }}
@@ -890,14 +948,14 @@ function managedDateRangeFromCalendarEvent(event: DrawFlowCalendarEvent): {
   const startTime = managedDateFromCalendarValue(
     event.startsAt,
     event.timeBucket,
-    "start",
+    "start"
   );
   let endTime = managedDateFromCalendarValue(
     event.endsAt ?? event.startsAt,
     event.timeBucket,
-    "end",
+    "end"
   );
-  if (!event.endsAt && !event.allDay) {
+  if (!(event.endsAt || event.allDay)) {
     endTime = new Date(startTime);
     endTime.setHours(startTime.getHours() + 1, 0, 0, 0);
   }
@@ -910,7 +968,7 @@ function managedDateRangeFromCalendarEvent(event: DrawFlowCalendarEvent): {
 function managedDateFromCalendarValue(
   value: string,
   bucket: DrawFlowCalendarEvent["timeBucket"],
-  edge: "end" | "start",
+  edge: "end" | "start"
 ): Date {
   if (value.includes("T")) {
     const parsed = new Date(value);
@@ -926,7 +984,7 @@ function managedDateFromCalendarValue(
 
 function calendarBucketHour(
   bucket: DrawFlowCalendarEvent["timeBucket"],
-  edge: "end" | "start",
+  edge: "end" | "start"
 ): number {
   const startHours: Record<DrawFlowCalendarEvent["timeBucket"], number> = {
     afternoon: 14,
@@ -959,21 +1017,21 @@ function calendarIsoFromManagedDate(date: Date): string {
 }
 
 function calendarManagerViewFromTimeframe(
-  timeframe: CalendarTimeframe,
+  timeframe: CalendarTimeframe
 ): EventManagerView {
   return timeframe;
 }
 
 function calendarTimeframeFromManagerView(
-  view: EventManagerView,
+  view: EventManagerView
 ): CalendarTimeframe {
   return view === "list" ? "agenda" : view;
 }
 
-function calendarManagerCategories(
-  events: DrawFlowCalendarEvent[],
-): string[] {
-  return Array.from(new Set(events.map((event) => `${event.kind} / ${event.status}`)));
+function calendarManagerCategories(events: DrawFlowCalendarEvent[]): string[] {
+  return Array.from(
+    new Set(events.map((event) => `${event.kind} / ${event.status}`))
+  );
 }
 
 function calendarManagerTags(events: DrawFlowCalendarEvent[]): string[] {
@@ -984,26 +1042,44 @@ function calendarManagerTags(events: DrawFlowCalendarEvent[]): string[] {
         event.status,
         event.kind,
         ...event.warnings.map((warning) => warning.label),
-      ]),
-    ),
+      ])
+    )
   );
 }
 
 function calendarColorForEvent(event: DrawFlowCalendarEvent): string {
-  if (event.status === "blocked" || event.status === "overdue") return "red";
-  if (event.kind === "draw" || event.kind === "drawGroup") return "emerald";
-  if (event.kind === "loan") return "emerald";
-  if (event.kind === "siteVisit") return "cyan";
-  if (event.kind === "review" || event.kind === "adminDecision") return "violet";
-  if (event.kind === "evidence" || event.warnings.length > 0) return "amber";
-  if (event.kind === "budgetRevision") return "slate";
-  if (event.kind === "contractor") return "rose";
-  if (event.kind === "reminder") return "cyan";
+  if (event.status === "blocked" || event.status === "overdue") {
+    return "red";
+  }
+  if (event.kind === "draw" || event.kind === "drawGroup") {
+    return "emerald";
+  }
+  if (event.kind === "loan") {
+    return "emerald";
+  }
+  if (event.kind === "siteVisit") {
+    return "cyan";
+  }
+  if (event.kind === "review" || event.kind === "adminDecision") {
+    return "violet";
+  }
+  if (event.kind === "evidence" || event.warnings.length > 0) {
+    return "amber";
+  }
+  if (event.kind === "budgetRevision") {
+    return "slate";
+  }
+  if (event.kind === "contractor") {
+    return "rose";
+  }
+  if (event.kind === "reminder") {
+    return "cyan";
+  }
   return "blue";
 }
 
 function calendarTimeBucketLabel(
-  bucket: DrawFlowCalendarEvent["timeBucket"],
+  bucket: DrawFlowCalendarEvent["timeBucket"]
 ): string {
   const labels: Record<DrawFlowCalendarEvent["timeBucket"], string> = {
     afternoon: "Afternoon",
@@ -1068,7 +1144,9 @@ function CalendarWorkspaceToolbar({
             <Badge variant={warnings > 0 ? "secondary" : "outline"}>
               {warnings} warnings
             </Badge>
-            <Badge variant="outline">{events.filter(eventNeedsAction).length} needs action</Badge>
+            <Badge variant="outline">
+              {events.filter(eventNeedsAction).length} needs action
+            </Badge>
             {selectedCount > 0 ? (
               <span className="inline-flex items-center gap-1">
                 <Badge>{selectedCount} selected</Badge>
@@ -1125,7 +1203,7 @@ function CalendarWorkspaceToolbar({
         </div>
         <div className="grid gap-2 lg:grid-cols-[minmax(14rem,22rem)_1fr] lg:items-center">
           <div className="relative">
-            <Search className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 size-4 text-muted-foreground" />
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-8"
               onChange={(event) =>
@@ -1149,7 +1227,9 @@ function CalendarWorkspaceToolbar({
             ))}
             <Button
               className="shrink-0"
-              onClick={() => onSetFilters({ ...filters, riskOnly: !filters.riskOnly })}
+              onClick={() =>
+                onSetFilters({ ...filters, riskOnly: !filters.riskOnly })
+              }
               size="sm"
               variant={filters.riskOnly ? "secondary" : "outline"}
             >
@@ -1157,7 +1237,12 @@ function CalendarWorkspaceToolbar({
             </Button>
             <Button
               className="shrink-0"
-              onClick={() => onSetFilters({ ...filters, editableOnly: !filters.editableOnly })}
+              onClick={() =>
+                onSetFilters({
+                  ...filters,
+                  editableOnly: !filters.editableOnly,
+                })
+              }
               size="sm"
               variant={filters.editableOnly ? "secondary" : "outline"}
             >
@@ -1208,7 +1293,9 @@ function ImpactCard({ request }: { request: CalendarEditRequest }) {
         {event.warnings.length > 0 ? (
           <div className="grid grid-cols-[8rem_1fr] gap-2">
             <span className="text-muted-foreground">Warnings</span>
-            <span>{event.warnings.map((warning) => warning.label).join(", ")}</span>
+            <span>
+              {event.warnings.map((warning) => warning.label).join(", ")}
+            </span>
           </div>
         ) : null}
       </CardContent>
@@ -1242,7 +1329,7 @@ function buildDefaultCalendarActions(input: {
               input.onNewReminder(
                 context.date ??
                   context.dateRange?.startsAt ??
-                  new Date().toISOString().slice(0, 10),
+                  new Date().toISOString().slice(0, 10)
               );
             },
             requiresConfirmation: false,
@@ -1257,7 +1344,9 @@ function buildDefaultCalendarActions(input: {
       id: "open-event-detail",
       label: "Open detail",
       onSelect: (context: CalendarActionContext) => {
-        if (context.event) input.onOpen(context.event);
+        if (context.event) {
+          input.onOpen(context.event);
+        }
       },
       requiresConfirmation: false,
       requiresReason: false,
@@ -1275,7 +1364,7 @@ function buildDefaultCalendarActions(input: {
               input.onNewReminder(
                 context.date ??
                   context.event?.startsAt.slice(0, 10) ??
-                  new Date().toISOString().slice(0, 10),
+                  new Date().toISOString().slice(0, 10)
               );
             },
             requiresConfirmation: false,
@@ -1351,7 +1440,10 @@ function buildDefaultCalendarActions(input: {
       id: "export-selected-events",
       label: "Export selected",
       onSelect: (context) => {
-        input.exportEvents(context.events ?? [], `${input.source.id}-selected.ics`);
+        input.exportEvents(
+          context.events ?? [],
+          `${input.source.id}-selected.ics`
+        );
       },
       requiresConfirmation: false,
       requiresReason: false,

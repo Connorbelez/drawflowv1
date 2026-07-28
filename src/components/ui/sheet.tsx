@@ -68,6 +68,7 @@ export function SheetViewport({
 }
 
 export function SheetPopup({
+  backdropClassName,
   className,
   children,
   showCloseButton = true,
@@ -77,6 +78,7 @@ export function SheetPopup({
   portalProps,
   ...props
 }: SheetPrimitive.Popup.Props & {
+  backdropClassName?: string;
   showCloseButton?: boolean;
   side?: "right" | "left" | "top" | "bottom";
   variant?: "default" | "inset";
@@ -85,7 +87,7 @@ export function SheetPopup({
 }): React.ReactElement {
   return (
     <SheetPortal {...portalProps}>
-      <SheetBackdrop />
+      <SheetBackdrop className={backdropClassName} />
       <SheetViewport side={side} variant={variant}>
         <SheetPrimitive.Popup
           className={cn(

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCurrentEditor } from "@tiptap/react";
+import { useEffect, useState } from "react";
 import {
   EditorClearFormatting,
   EditorFormatBold,
@@ -10,6 +11,7 @@ import {
   EditorNodeBulletList,
   EditorNodeOrderedList,
   EditorProvider,
+  type EditorProviderProps,
 } from "#/components/kibo-ui/editor/index.tsx";
 import { cn } from "#/lib/utils.ts";
 
@@ -28,22 +30,24 @@ const PREVIEW_BASE_CLASSES = cn(
   EDITOR_IMAGE_CLASSES
 );
 
-export type FieldRichTextEditorProps = {
+export interface FieldRichTextEditorProps {
   ariaLabel: string;
   className?: string;
   editorMinHeightClass?: string;
+  extensions?: EditorProviderProps["extensions"];
   id?: string;
   imageMaxHeightClass?: string;
   onChange: (value: string) => void;
   placeholder?: string;
   testId?: string;
   value: string;
-};
+}
 
 export function FieldRichTextEditor({
   ariaLabel,
   className,
   editorMinHeightClass = "[&_.ProseMirror]:min-h-32",
+  extensions,
   id,
   imageMaxHeightClass = "[&_.ProseMirror_img]:max-h-56",
   onChange,
@@ -67,23 +71,44 @@ export function FieldRichTextEditor({
         "data-testid": testId,
         id,
       }}
+      extensions={extensions}
       onUpdate={({ editor }) => onChange(editor.getHTML())}
       placeholder={placeholder}
       slotBefore={<FieldRichTextToolbar />}
-    />
+    >
+      <FieldRichTextValueSync value={value} />
+    </EditorProvider>
   );
 }
 
-export type FieldRichTextPreviewProps = {
+function FieldRichTextValueSync({ value }: { value: string }) {
+  const { editor } = useCurrentEditor();
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    const nextValue = value || "<p></p>";
+    if (editor.getHTML() !== nextValue) {
+      editor.commands.setContent(nextValue, { emitUpdate: false });
+    }
+  }, [editor, value]);
+
+  return null;
+}
+
+export interface FieldRichTextPreviewProps {
   ariaLabel: string;
   className?: string;
+  extensions?: EditorProviderProps["extensions"];
   imageMaxHeightClass?: string;
   value: string;
-};
+}
 
 export function FieldRichTextPreview({
   ariaLabel,
   className,
+  extensions,
   imageMaxHeightClass = "[&_.ProseMirror_img]:max-h-48",
   value,
 }: FieldRichTextPreviewProps) {
@@ -104,6 +129,7 @@ export function FieldRichTextPreview({
       editorContainerProps={{
         "aria-label": ariaLabel,
       }}
+      extensions={extensions}
     />
   );
 }

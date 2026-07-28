@@ -13,7 +13,7 @@ export type BrokerageDrawBuildGroup = BrokerageDrawsResult["builds"][number];
 export type DrawPulseFilter =
   | "all"
   | "requested"
-  | "approved"
+  | "approved_for_release"
   | "planned"
   | "released"
   | "rejected";

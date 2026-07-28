@@ -23,7 +23,7 @@ export interface SiteVisitStagedEvidence {
 }
 
 export function classifyEvidenceMimeType(
-  mimeType: string,
+  mimeType: string
 ): SiteVisitEvidenceKind {
   if (mimeType.startsWith("image/")) {
     return "image";
@@ -130,7 +130,7 @@ export async function uploadSiteVisitStagedEvidence({
   upload: (
     url: string,
     file: Blob,
-    mimeType: string,
+    mimeType: string
   ) => Promise<{ json: () => Promise<{ storageId: string }>; ok: boolean }>;
   normalizeFile?: (file: File) => Promise<File>;
 }) {

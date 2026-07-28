@@ -146,12 +146,14 @@ describe("timeline share snapshots", () => {
       400_000,
       false,
       0,
-      300_000
+      300_000,
+      1_050
     );
     const snapshot = buildTimelineShareSnapshotV2(state);
 
     expect(snapshot.payloadVersion).toBe(2);
     expect(snapshot.approvedDrawLimit).toBe(300_000);
+    expect(snapshot.interestAnnualBps).toBe(1_050);
     expect(snapshot.currentDay).toBe(86);
     expect(snapshot.activeSelection).toEqual({
       itemId: "framing",

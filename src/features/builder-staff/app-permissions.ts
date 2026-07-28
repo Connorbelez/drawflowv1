@@ -40,37 +40,40 @@ const ACTION_FIELD = {
   delete: "canDelete",
   update: "canUpdate",
   view: "canView",
-} as const satisfies Record<BuilderStaffPermissionAction, keyof BuilderStaffPermissionGrant>;
+} as const satisfies Record<
+  BuilderStaffPermissionAction,
+  keyof BuilderStaffPermissionGrant
+>;
 
 export function canUseAppPermission(
   permissions: BuilderStaffAppPermissions | null | undefined,
   resourceType: BuilderStaffPermissionResource,
-  action: BuilderStaffPermissionAction,
+  action: BuilderStaffPermissionAction
 ) {
   if (!permissions || permissions.mode === "full") {
     return true;
   }
   const grant = permissions.grants?.find(
-    (candidate) => candidate.resourceType === resourceType,
+    (candidate) => candidate.resourceType === resourceType
   );
   return Boolean(grant?.[ACTION_FIELD[action]]);
 }
 
 export function hasAnyAppPermission(
   permissions: BuilderStaffAppPermissions | null | undefined,
-  checks: PermissionCheck[],
+  checks: PermissionCheck[]
 ) {
   return checks.some(([resourceType, action]) =>
-    canUseAppPermission(permissions, resourceType, action),
+    canUseAppPermission(permissions, resourceType, action)
   );
 }
 
 export function filterMaterialPlanningActionsForPermissions(
   permissions: BuilderStaffAppPermissions | null | undefined,
-  actions: MaterialPlanningActions | undefined,
+  actions: MaterialPlanningActions | undefined
 ) {
   if (!actions) {
-    return undefined;
+    return;
   }
   const filtered: MaterialPlanningActions = {
     ...(actions.create && canUseAppPermission(permissions, "material", "create")

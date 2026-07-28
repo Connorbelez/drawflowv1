@@ -13,6 +13,10 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+import {
+  FairLendLegalFooter,
+  FairLendLegalFooterStyles,
+} from "#/components/marketing/fairlend-legal-footer.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardContent } from "#/components/ui/card.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
@@ -29,11 +33,11 @@ export const Route = createFileRoute("/garden-suite-financing-gta")({
   component: GardenSuitePage,
   head: () => ({
     meta: [
-      { title: "Garden Suite Financing GTA | Fairlend Capital" },
+      { title: "Garden Suite Financing GTA | FairLend Mortgage" },
       {
         name: "description",
         content:
-          "Fairlend helps GTA owners, builders, and investors assess financing for garden suites, laneway suites, budgets, permits, and construction draws.",
+          "FairLend helps GTA owners, builders, and investors assess financing for garden suites, laneway suites, budgets, permits, and construction draws.",
       },
     ],
     links: [
@@ -57,7 +61,7 @@ const fitChecks: Array<{
   {
     icon: Landmark,
     title: "Equity position",
-    copy: "Existing mortgage debt, available equity, borrower liquidity, and rental intent are reviewed as one capital story.",
+    copy: "Existing mortgage debt, available equity, borrower liquidity, and rental intent are weighed together, not one at a time.",
   },
   {
     icon: Ruler,
@@ -67,21 +71,22 @@ const fitChecks: Array<{
   {
     icon: ClipboardCheck,
     title: "Draw readiness",
-    copy: "Construction funding works best when completed work, evidence, site review, and release timing are planned early.",
+    copy: "Construction funding moves fastest when completed work, site verification, and release timing are planned before the first draw.",
   },
 ];
 
 const reviewSteps = [
-  "Address and ownership",
-  "Mortgage and equity",
-  "Plans and permit stage",
-  "Budget and contingency",
-  "Rental and exit assumptions",
+  "Property and ownership",
+  "mortgage and equity",
+  "plans and permit stage",
+  "budget and contingency",
+  "rental and exit assumptions",
+  "builder context",
 ];
 
 const blockers = [
-  "Thin contingency",
-  "Unclear permit status",
+  "Contingency too thin",
+  "Permit status unclear",
   "Budget not tied to scope",
   "Rental assumptions without evidence",
   "Liquidity below working-capital need",
@@ -99,12 +104,14 @@ function GardenSuitePage() {
   return (
     <main className="min-h-screen overflow-hidden bg-[oklch(0.965_0.023_85)] font-[Oxanium_Variable,sans-serif] text-[oklch(0.22_0.049_171)]">
       <GardenSuiteNav />
+      <FairLendLegalFooterStyles />
       <HeroSection />
       <ProofBand />
       <FinanceabilitySection />
       <DrawPlanningSection />
       <LocalReviewSection />
       <FinalCtaSection />
+      <FairLendLegalFooter />
     </main>
   );
 }
@@ -113,11 +120,11 @@ function GardenSuiteNav() {
   return (
     <header className="relative z-20 border-[oklch(0.78_0.018_82)] border-b bg-[oklch(0.965_0.023_85_/_0.92)] backdrop-blur-sm">
       <nav
-        aria-label="Garden suite financing"
+        aria-label="FairLend full-site navigation"
         className="mx-auto flex max-w-7xl items-center justify-between gap-5 px-4 py-3 sm:px-6 lg:px-8"
       >
         <Link
-          aria-label="Fairlend Capital home"
+          aria-label="FairLend Mortgage home"
           className="group flex items-center gap-3"
           preload="intent"
           to="/"
@@ -128,17 +135,18 @@ function GardenSuiteNav() {
           </span>
           <span className="leading-none">
             <span className="block font-semibold text-[0.92rem] tracking-[0.18em]">
-              FAIRLEND
+              FairLend
             </span>
             <span className="block text-[0.62rem] text-[oklch(0.48_0.054_246)] tracking-[0.33em]">
-              CAPITAL
+              Mortgage
             </span>
           </span>
         </Link>
         <div className="hidden items-center gap-6 text-[0.72rem] text-[oklch(0.34_0.041_170)] tracking-[0.06em] md:flex">
-          <a href="#fit">Financeability</a>
-          <a href="#draw-plan">Draw plan</a>
-          <a href="#local-review">GTA review</a>
+          <Link to="/construction-draw-financing">Construction draws</Link>
+          <Link to="/garden-suite-financing-gta">Garden suites</Link>
+          <Link to="/multiplex-financing-gta">Multiplex</Link>
+          <Link to="/contact">Contact</Link>
         </div>
         <Button
           className="bg-[oklch(0.25_0.08_166)] text-[oklch(0.965_0.023_85)] hover:bg-[oklch(0.30_0.083_166)]"
@@ -150,6 +158,14 @@ function GardenSuiteNav() {
           Start review
           <ArrowRight aria-hidden="true" />
         </Button>
+      </nav>
+      <nav
+        aria-label="Garden suite page sections"
+        className="mx-auto flex max-w-7xl justify-center gap-6 border-[oklch(0.78_0.018_82)] border-t px-4 py-2 text-[0.68rem] text-[oklch(0.48_0.054_246)] tracking-[0.12em] sm:px-6 lg:px-8"
+      >
+        <a href="#fit">Financeability</a>
+        <a href="#draw-plan">Draw plan</a>
+        <a href="#local-review">Who it&apos;s for</a>
       </nav>
     </header>
   );
@@ -177,9 +193,10 @@ function HeroSection() {
           </div>
           <div className="mt-9 max-w-2xl">
             <p className="text-pretty text-[1rem] text-[oklch(0.29_0.037_174)] leading-7 sm:text-lg">
-              Fairlend reviews the property, mortgage position, permits,
-              construction budget, rental story, and draw timing before your
-              garden suite becomes a cash-flow problem.
+              Garden suites stall on cash flow, not construction. We check the
+              property, your mortgage position, permits, budget, and draw timing
+              before the build starts — so funding arrives when each stage needs
+              it.
             </p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <Button
@@ -218,7 +235,7 @@ function HeroSection() {
             <div className="grid min-h-[34rem] grid-rows-[1fr_auto]">
               <div className="relative overflow-hidden">
                 <img
-                  alt="Fairlend garden suite financing page concept with residential construction photography"
+                  alt="FairLend garden suite financing page concept with residential construction photography"
                   className="h-full min-h-[27rem] w-full object-cover"
                   decoding="async"
                   fetchPriority="high"
@@ -226,14 +243,6 @@ function HeroSection() {
                   src={pageMockAsset}
                   width={1100}
                 />
-                <div className="absolute inset-x-5 top-5 flex flex-wrap items-center justify-between gap-3 border border-[oklch(0.93_0.018_85_/_0.82)] bg-[oklch(0.965_0.023_85_/_0.88)] px-4 py-3 backdrop-blur-sm">
-                  <span className="text-[0.68rem] text-[oklch(0.48_0.054_246)] tracking-[0.16em]">
-                    FIELD NOTE 01
-                  </span>
-                  <span className="font-semibold text-[0.72rem]">
-                    Equity plus permit status plus budget
-                  </span>
-                </div>
               </div>
               <div className="grid gap-px bg-[oklch(0.78_0.018_82)] text-[0.75rem] sm:grid-cols-3">
                 {["Property", "Capital", "Draws"].map((label) => (
@@ -242,7 +251,7 @@ function HeroSection() {
                     key={label}
                   >
                     <span className="block text-[0.62rem] opacity-70">
-                      REVIEW LANE
+                      REVIEW
                     </span>
                     <strong className="mt-1 block text-base">{label}</strong>
                   </div>
@@ -387,9 +396,9 @@ function DrawPlanningSection() {
             Release timing should match completed work.
           </h2>
           <p className="mt-6 max-w-xl text-[oklch(0.34_0.041_170)] leading-7">
-            Garden suite construction can strain cash if the draw schedule is
-            treated as an afterthought. Fairlend looks at how work will be
-            evidenced, reviewed, approved, and funded before crews are waiting.
+            Garden suite construction strains cash when the draw schedule is an
+            afterthought. We map how each stage gets verified and funded before
+            crews are standing around waiting to be paid.
           </p>
           <div className="mt-8 grid gap-3">
             {[
@@ -420,7 +429,7 @@ function LocalReviewSection() {
       <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
         <div>
           <p className="mb-4 text-[0.7rem] text-[oklch(0.58_0.127_44)] tracking-[0.16em]">
-            GTA REVIEW LANES
+            WHO IT&apos;S FOR
           </p>
           <h2 className="max-w-2xl text-balance font-semibold text-[clamp(2.5rem,6vw,5.9rem)] text-[oklch(0.22_0.079_166)] leading-[0.88]">
             Local friction belongs in the financing conversation.
@@ -463,12 +472,16 @@ function LocalReviewSection() {
                   className="mb-8 size-6 text-[oklch(0.48_0.054_246)]"
                 />
                 <h3 className="font-semibold text-[oklch(0.22_0.079_166)] text-xl">
-                  Documents that matter
+                  What the review pulls in
                 </h3>
-                <p className="mt-3 text-[oklch(0.36_0.035_170)] text-sm leading-6">
-                  Address, mortgage details, ownership, design status, permits,
-                  budget, rent assumptions, and builder context.
-                </p>
+                <ul className="mt-3 grid gap-2 text-[oklch(0.36_0.035_170)] text-sm">
+                  {reviewSteps.map((step) => (
+                    <li className="flex items-center gap-2" key={step}>
+                      <span className="size-1.5 bg-[oklch(0.48_0.054_246)]" />
+                      {step}
+                    </li>
+                  ))}
+                </ul>
               </CardContent>
             </Card>
             <Card className="border-[oklch(0.78_0.018_82)] bg-[oklch(0.973_0.022_86)]">
@@ -478,7 +491,7 @@ function LocalReviewSection() {
                   className="mb-8 size-6 text-[oklch(0.58_0.127_44)]"
                 />
                 <h3 className="font-semibold text-[oklch(0.22_0.079_166)] text-xl">
-                  Common blockers
+                  What kills a deal
                 </h3>
                 <ul className="mt-3 grid gap-2 text-[oklch(0.36_0.035_170)] text-sm">
                   {blockers.map((blocker) => (
@@ -511,7 +524,7 @@ function FinalCtaSection() {
               Know whether the garden suite can carry the loan.
             </h2>
             <p className="mt-6 max-w-2xl text-[oklch(0.89_0.025_86)] leading-7">
-              Send the core property details and Fairlend will route the file
+              Send the core property details and FairLend will route the file
               through a financing review built for small residential rental
               construction.
             </p>
@@ -537,7 +550,7 @@ function FinalCtaSection() {
               size="xl"
               variant="outline"
             >
-              Talk to Fairlend
+              Talk to FairLend
             </Button>
           </div>
         </div>

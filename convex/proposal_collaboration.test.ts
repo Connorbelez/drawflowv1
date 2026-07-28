@@ -138,7 +138,7 @@ async function createDraftProposal(admin: any, seed: any) {
         order: 1,
         submilestones: [
           {
-            budgetCents: 20_000_000,
+            budgetCents: 50_000_000,
             durationDays: 12,
             key: "forms",
             name: "Forms and pour",

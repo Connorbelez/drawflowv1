@@ -1,0 +1,626 @@
+/// <reference types="vite/client" />
+
+import { convexTest } from "convex-test";
+import { describe, expect, test } from "vitest";
+
+import { api } from "./_generated/api";
+import schema from "./schema";
+
+const modules = import.meta.glob("./**/*.ts");
+
+const ORG = "org_01KSNW6JHW9P9YS41DZX1YHHGS";
+const PRINCIPAL_BROKER = "user_01KR207FRFHQT46EV9N538XBF3";
+const CONTRACTOR_USER = "user_contractor_linked";
+
+function withIdentity(
+  t: ReturnType<typeof convexTest>,
+  roles: string[],
+  subject: string,
+) {
+  return t.withIdentity({
+    email: `${subject}@example.com`,
+    name: subject,
+    organizationId: ORG,
+    role: roles[0],
+    roles,
+    subject,
+    tokenIdentifier: `https://api.workos.com/|${subject}`,
+  } as any);
+}
+
+async function seedFoundation() {
+  const base = convexTest(schema, modules);
+  const admin = withIdentity(base, ["admin", "principle-broker"], PRINCIPAL_BROKER);
+  const seed = await admin.mutation(
+    (api as any).production_proposals.dev_seedProductionFoundation,
+    { workosOrganizationId: ORG },
+  );
+  return { admin, base, seed };
+}
+
+const MILESTONES = [
+  {
+    budgetCents: 50_000_000,
+    dayEnd: 24,
+    dayStart: 0,
+    dependencyKeys: [] as string[],
+    durationDays: 24,
+    key: "foundation",
+    name: "Foundation",
+    order: 1,
+    submilestones: [
+      {
+        budgetCents: 18_000_000,
+        durationDays: 8,
+        key: "forms",
+        name: "Forms and pour",
+        order: 1,
+      },
+    ],
+  },
+  {
+    budgetCents: 75_000_000,
+    dayEnd: 48,
+    dayStart: 24,
+    dependencyKeys: ["foundation"],
+    durationDays: 24,
+    key: "framing",
+    name: "Framing",
+    order: 2,
+    submilestones: [],
+  },
+];
+
+async function createApprovedBuild(admin: ReturnType<typeof withIdentity>, seed: any) {
+  const proposalId = await admin.mutation(
+    (api as any).production_proposals.createDraftProposal,
+    {
+      brokerageId: seed.brokerageId,
+      builderProfileId: seed.builderProfileId,
+      buildName: "Contractor workspace build",
+      location: "12 Workspace Way",
+      workosOrganizationId: ORG,
+    },
+  );
+  await admin.mutation(
+    (api as any).production_proposals.saveDraftProposalPackage,
+    {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 35_000_000,
+      documents: [
+        {
+          documentType: "permit",
+          fileName: "building-permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+        },
+        {
+          documentType: "budget",
+          fileName: "internal-budget.xlsx",
+          mimeType: "application/vnd.ms-excel",
+          sizeBytes: 2048,
+        },
+      ],
+      lenderDrawPolicyLimitCents: 100_000_000,
+      milestones: MILESTONES,
+      proposalId,
+      workosOrganizationId: ORG,
+    },
+  );
+  await admin.mutation((api as any).production_proposals.submitProposal, {
+    proposalId,
+    workosOrganizationId: ORG,
+  });
+  await admin.mutation((api as any).production_proposals.approveProposal, {
+    proposalId,
+    reason: "Approved for contractor workspace test.",
+    workosOrganizationId: ORG,
+  });
+  const closing = await admin.mutation(
+    (api as any).production_proposals.recordOfflineClosing,
+    {
+      buildStartDate: "2026-08-01",
+      loanFacility: { interestAnnualBps: 925, principalCents: 100_000_000 },
+      proposalId,
+      reason: "Closed for contractor workspace test.",
+      workosOrganizationId: ORG,
+    },
+  );
+  return { buildId: closing.buildId as any, proposalId };
+}
+
+/**
+ * Create a draft proposal with permit + non-permit docs but do NOT submit it.
+ * Proposal contractor assignments are only accepted while a proposal is open,
+ * so callers attach contractors to the draft before any approval/closing.
+ */
+async function createDraftProposalWithPermit(
+  admin: ReturnType<typeof withIdentity>,
+  seed: any,
+) {
+  const proposalId = await admin.mutation(
+    (api as any).production_proposals.createDraftProposal,
+    {
+      brokerageId: seed.brokerageId,
+      builderProfileId: seed.builderProfileId,
+      buildName: "Contractor workspace build",
+      location: "12 Workspace Way",
+      workosOrganizationId: ORG,
+    },
+  );
+  await admin.mutation(
+    (api as any).production_proposals.saveDraftProposalPackage,
+    {
+      borrowerCoPayBps: 2_000,
+      borrowerWorkingCapitalLimitCents: 35_000_000,
+      documents: [
+        {
+          documentType: "permit",
+          fileName: "building-permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+        },
+        {
+          documentType: "budget",
+          fileName: "internal-budget.xlsx",
+          mimeType: "application/vnd.ms-excel",
+          sizeBytes: 2048,
+        },
+      ],
+      lenderDrawPolicyLimitCents: 100_000_000,
+      milestones: MILESTONES,
+      proposalId,
+      workosOrganizationId: ORG,
+    },
+  );
+  return proposalId;
+}
+
+async function createContractorLinked(
+  admin: ReturnType<typeof withIdentity>,
+  seed: any,
+  name = "Northstar Masonry",
+  workosUserId = CONTRACTOR_USER,
+) {
+  // Each distinct contractor must have a distinct normalized email now that
+  // canonical email reuse is enforced (PRD §6.2). Derive the email from the
+  // WorkOS user id so multiple linked contractors coexist in one brokerage.
+  const emailSlug = workosUserId.replace(/^user_/, "").replace(/_/g, "-");
+  const contractorId = await admin.mutation(
+    (api as any).production_proposals.createContractorProfile,
+    {
+      brokerageId: seed.brokerageId,
+      city: "Toronto, ON",
+      email: `${emailSlug}@example.com`,
+      kind: "company",
+      name,
+      phone: "416-555-0101",
+      trades: ["masonry", "brick"],
+      workosOrganizationId: ORG,
+    },
+  );
+  await admin.mutation(
+    (api as any).production_proposals.linkContractorProfileToWorkosUser,
+    { contractorId, workosOrganizationId: ORG, workosUserId },
+  );
+  return contractorId as any;
+}
+
+describe("contractor workspace authorization", () => {
+  test("denies workspace queries without the contractor role", async () => {
+    const { base, admin, seed } = await seedFoundation();
+    await createContractorLinked(admin, seed);
+    // A backoffice role (admin) is authenticated but is not a contractor.
+    const backoffice = withIdentity(base, ["admin"], PRINCIPAL_BROKER);
+    await expect(
+      backoffice.query((api as any).contractorWorkspace.getContractorProfile, {}),
+    ).rejects.toThrow();
+  });
+
+  test("denies workspace queries to a contractor role without a linked profile", async () => {
+    const { base } = await seedFoundation();
+    // Contractor role, but no contractorProfile.accountWorkosUserId === subject.
+    const unlinked = withIdentity(base, ["contractor"], "user_unlinked_contractor");
+    await expect(
+      unlinked.query((api as any).contractorWorkspace.getContractorProfile, {}),
+    ).rejects.toThrow(/not linked/);
+  });
+
+  test("denies workspace queries to an unauthenticated caller", async () => {
+    const base = convexTest(schema, modules);
+    await expect(
+      base.query((api as any).contractorWorkspace.getContractorProfile, {}),
+    ).rejects.toThrow();
+  });
+});
+
+describe("contractor workspace scope + redaction", () => {
+  test("summary and work list return only the linked contractor's assignments", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    // Proposal contractor assignment requires an open proposal; build
+    // contractor assignment requires an approved/active build.
+    const draftProposalId = await createDraftProposalWithPermit(admin, seed);
+    const { buildId } = await createApprovedBuild(admin, seed);
+    const myContractor = await createContractorLinked(admin, seed);
+    // A second contractor, not linked to the caller, also assigned to the build.
+    const otherContractor = await createContractorLinked(
+      admin,
+      seed,
+      "Other Crew",
+      "user_other_contractor",
+    );
+
+    await admin.mutation(
+      (api as any).production_proposals.assignProposalContractorToMilestone,
+      {
+        contractorId: myContractor,
+        milestoneKey: "foundation",
+        proposalId: draftProposalId,
+        role: "mason",
+        submilestoneKeys: ["forms"],
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId,
+        contractorId: myContractor,
+        milestoneKey: "foundation",
+        role: "mason",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId,
+        contractorId: otherContractor,
+        milestoneKey: "framing",
+        role: "framer",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    const summary = await me.query(
+      (api as any).contractorWorkspace.getContractorWorkspaceSummary,
+      {},
+    );
+    expect(summary.counts.activeBuildAssignments).toBe(1);
+    expect(summary.counts.activeProposalAssignments).toBe(1);
+
+    const workItems = await me.query(
+      (api as any).contractorWorkspace.listContractorWorkItems,
+      {},
+    );
+    // Two items for myContractor (one proposal, one build). The other
+    // contractor's framing assignment must never appear.
+    expect(workItems).toHaveLength(2);
+    expect(workItems.every((w: any) => w.milestoneKey !== "framing")).toBe(true);
+    expect(workItems.some((w: any) => w.objectType === "proposal")).toBe(true);
+    expect(workItems.some((w: any) => w.objectType === "build")).toBe(true);
+  });
+
+  test("proposal detail shows permit documents, hides non-permit docs, and forbids unassigned scope", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const proposalId = await createDraftProposalWithPermit(admin, seed);
+    const myContractor = await createContractorLinked(admin, seed);
+
+    await admin.mutation(
+      (api as any).production_proposals.assignProposalContractorToMilestone,
+      {
+        contractorId: myContractor,
+        milestoneKey: "foundation",
+        proposalId,
+        role: "mason",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    const detail = await me.query(
+      (api as any).contractorWorkspace.getContractorProposalDetail,
+      { proposalId },
+    );
+    expect(detail.proposal.buildName).toBe("Contractor workspace build");
+    expect(detail.assignedScope).toHaveLength(1);
+    expect(detail.assignedScope[0].milestoneKey).toBe("foundation");
+    // Only permit documents are contractor-visible (PRD §3.17, §15). The
+    // seeded internal budget document must be filtered out.
+    expect(detail.permitDocuments).toHaveLength(1);
+    expect(detail.permitDocuments[0].documentType).toBe("permit");
+    // No budgets/financing/lender notes leak into the contractor view.
+    expect(detail.totalBudgetCents).toBeUndefined();
+    expect(detail.borrowerWorkingCapitalLimitCents).toBeUndefined();
+    expect(detail.lenderDrawPolicyLimitCents).toBeUndefined();
+    expect(detail.proposal.timelineCurrentDay).toBeUndefined();
+
+    // A contractor assigned only to the build/proposal cannot see a proposal
+    // they are not assigned to.
+    const otherProposal = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Unrelated proposal",
+        location: "99 Elsewhere",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      me.query((api as any).contractorWorkspace.getContractorProposalDetail, {
+        proposalId: otherProposal,
+      }),
+    ).rejects.toThrow(/not assigned/);
+  });
+
+  test("document ACL: permits visible by default, non-permit docs only if contractorVisible (PRD §3.17, §3.34)", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    // createDraftProposalWithPermit seeds a permit (visible by default) and a
+    // budget doc (hidden — no contractorVisible flag).
+    const proposalId = await createDraftProposalWithPermit(admin, seed);
+    const myContractor = await createContractorLinked(admin, seed);
+    await admin.mutation(
+      (api as any).production_proposals.assignProposalContractorToMilestone,
+      {
+        contractorId: myContractor,
+        milestoneKey: "foundation",
+        proposalId,
+        role: "mason",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    // Attach a contractor-visible non-permit document directly (ACL flag set).
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("proposalDocuments", {
+        brokerageId: seed.brokerageId,
+        contractorVisible: true,
+        createdAt: Date.now(),
+        documentType: "plan",
+        fileName: "site-plan.pdf",
+        mimeType: "application/pdf",
+        organizationId: ORG,
+        proposalId,
+        sizeBytes: 512,
+        status: "uploaded",
+        updatedAt: Date.now(),
+        uploadedByWorkosUserId: PRINCIPAL_BROKER,
+      });
+    });
+
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    const detail = await me.query(
+      (api as any).contractorWorkspace.getContractorProposalDetail,
+      { proposalId },
+    );
+    const types = detail.permitDocuments.map((d: any) => d.documentType);
+    expect(types).toContain("permit");
+    expect(types).toContain("plan"); // explicitly contractor-visible
+    expect(types).not.toContain("budget"); // private financing material
+  });
+
+  test("build detail is scope-limited and forbids unassigned builds", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const { buildId } = await createApprovedBuild(admin, seed);
+    const myContractor = await createContractorLinked(admin, seed);
+
+    await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId,
+        contractorId: myContractor,
+        milestoneKey: "foundation",
+        role: "mason",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    const detail = await me.query(
+      (api as any).contractorWorkspace.getContractorBuildDetail,
+      { buildId },
+    );
+    expect(detail.build.buildName).toBe("Contractor workspace build");
+    expect(detail.assignedScope[0].milestoneKey).toBe("foundation");
+    expect(detail.permitDocuments.every((d: any) => d.documentType === "permit")).toBe(true);
+    // Raw/internal ratings and financing never reach the contractor.
+    expect(detail.ratings).toBeUndefined();
+    expect(detail.totalBudgetCents).toBeUndefined();
+  });
+});
+
+describe("contractor profile", () => {
+  test("exposes operational fields and readiness, hides raw ratings", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    await createContractorLinked(admin, seed);
+
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    const profile = await me.query(
+      (api as any).contractorWorkspace.getContractorProfile,
+      {},
+    );
+    expect(profile.profile.name).toBe("Northstar Masonry");
+    expect(profile.operational.trades).toEqual(["masonry", "brick"]);
+    expect(profile.readiness.completenessPercent).toBeGreaterThanOrEqual(0);
+    // Rates are optional and surface as guidance, never a blocker (PRD §3.20).
+    expect(profile.readiness.missingFields).toContain(
+      "default rate (optional)",
+    );
+    // Internal ratings are never exposed (PRD §3.18, §18).
+    expect(profile.ratings).toBeUndefined();
+  });
+
+  test("operational profile update writes audit and persists operational rows", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    await createContractorLinked(admin, seed);
+
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    const result = await me.mutation(
+      (api as any).contractorWorkspace.updateContractorOperationalProfile,
+      {
+        availabilityWindows: [
+          { dayOfWeek: 1, endMinute: 960, startMinute: 480, timezone: "America/Toronto" },
+        ],
+        capabilities: [
+          { capabilityKey: "brick-siding", label: "Brick siding", trade: "masonry" },
+        ],
+        complianceNotes: "WSIB current",
+        description: "Masonry specialists",
+        equipment: [
+          { equipmentKey: "telehandler", name: "Telehandler", quantity: 1 },
+        ],
+        serviceAreaPrimaryCity: "Toronto",
+        serviceAreaRadiusKm: 50,
+        trades: ["masonry"],
+        website: "https://northstar.example",
+      },
+    );
+    expect(result.contractorId).toBeDefined();
+
+    const after = await me.query(
+      (api as any).contractorWorkspace.getContractorProfile,
+      {},
+    );
+    expect(after.operational.description).toBe("Masonry specialists");
+    expect(after.operational.website).toBe("https://northstar.example");
+    expect(after.operational.serviceArea.primaryCity).toBe("Toronto");
+    expect(after.operational.serviceArea.radiusKm).toBe(50);
+    expect(after.operational.capabilities).toHaveLength(1);
+    expect(after.operational.equipment).toHaveLength(1);
+    expect(after.operational.availabilityWindows).toHaveLength(1);
+
+    // Audit event recorded (PRD §43).
+    const events = await admin.run(async (ctx: any) => {
+      return await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q.eq("entityType", "contractorProfile").eq("entityId", result.contractorId),
+        )
+        .collect();
+    });
+    expect(
+      events.some((e: any) => e.eventType === "contractor.profile.operational_updated"),
+    ).toBe(true);
+  });
+
+  test("identity-sensitive edits create a review request, not a direct change", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const contractorId = await createContractorLinked(admin, seed);
+
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    const requestId = await me.mutation(
+      (api as any).contractorWorkspace.requestContractorProfileReview,
+      {
+        reason: "Company renamed after incorporation.",
+        requestedFields: { name: "Northstar Masonry Inc." },
+        reviewType: "legal_name_change",
+      },
+    );
+    expect(requestId).toBeDefined();
+
+    // The review request is pending and the profile name is unchanged.
+    const review = await admin.run(async (ctx: any) =>
+      ctx.db.get(requestId),
+    );
+    expect(review.status).toBe("pending");
+    expect(review.reviewType).toBe("legal_name_change");
+
+    const profile = await me.query(
+      (api as any).contractorWorkspace.getContractorProfile,
+      {},
+    );
+    expect(profile.profile.name).toBe("Northstar Masonry");
+    expect(contractorId).toBeDefined();
+  });
+});
+
+describe("contractor email normalization", () => {
+  test("normalizeContractorEmail lowercases, validates structure, rejects garbage", async () => {
+    const { normalizeContractorEmail } = await import("./contractorWorkspace");
+    expect(normalizeContractorEmail("Masonry@Example.COM")).toBe(
+      "masonry@example.com",
+    );
+    expect(normalizeContractorEmail("  spaces@example.com  ")).toBe(
+      "spaces@example.com",
+    );
+    expect(normalizeContractorEmail(undefined)).toBe("");
+    expect(normalizeContractorEmail("no-at-sign")).toBe("");
+    expect(normalizeContractorEmail("nodomain@")).toBe("");
+    expect(normalizeContractorEmail("no-dot@example")).toBe("");
+  });
+});
+
+describe("contractor canonical email reuse (PRD §6.2, §7.4)", () => {
+  test("builder/backoffice creation with an existing normalized email reuses the canonical profile", async () => {
+    const { admin, seed } = await seedFoundation();
+    const first = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "Roofer@Example.com",
+        kind: "company",
+        name: "Apex Roofing",
+        trades: ["roofing"],
+        workosOrganizationId: ORG,
+      },
+    );
+    // Same email with different casing/whitespace must resolve to the same
+    // canonical profile instead of creating a duplicate (PRD §6.2).
+    const reused = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "  roofer@example.com  ",
+        kind: "company",
+        name: "Apex Roofing Inc.",
+        trades: ["roofing", "flashing"],
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(reused).toBe(first);
+  });
+
+  test("no-email contractor creation does not auto-merge and creates a separate profile", async () => {
+    const { admin, seed } = await seedFoundation();
+    const withoutEmail = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        kind: "individual",
+        name: "Field Crew Lead",
+        trades: ["labour"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const another = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        kind: "individual",
+        name: "Field Crew Lead",
+        trades: ["labour"],
+        workosOrganizationId: ORG,
+      },
+    );
+    // No-email records are never auto-merged (PRD §3.10, §6.2).
+    expect(withoutEmail).not.toBe(another);
+  });
+
+  test("created profiles carry a source badge distinguishing backoffice vs builder creation", async () => {
+    const { admin, seed } = await seedFoundation();
+    const contractorId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        kind: "company",
+        name: "Sourced Contractor",
+        trades: ["electrical"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const profile = await admin.run(async (ctx: any) => ctx.db.get(contractorId));
+    expect(profile.source).toBe("backoffice_created");
+  });
+});

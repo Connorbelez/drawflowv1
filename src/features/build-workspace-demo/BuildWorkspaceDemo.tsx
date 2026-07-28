@@ -103,10 +103,10 @@ import {
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
-import { cn } from "#/lib/utils.ts";
 import { ContractorQuickAddDrawer } from "#/features/contractors/ContractorQuickAddDrawer.tsx";
 import { ProductionProposalDrawScheduleEditor } from "#/features/production-proposals/ProductionProposalDrawScheduleEditor.tsx";
 import { TimelineMilestoneContractorList } from "#/features/timeline-workspace/TimelineMilestoneContractorList.tsx";
+import { cn } from "#/lib/utils.ts";
 import { parseGanttMilestoneScopeId } from "./build-workspace-contractor-planning.ts";
 import { SortableMilestoneRailRow } from "./SortableMilestoneRailRow";
 import type {
@@ -295,9 +295,17 @@ const milestoneToFeature = (milestone: Milestone): GanttFeature => ({
 });
 
 export function BuildWorkspaceDemo({
+  canFinalizeMilestones = true,
   layout = "route",
+  showPrimaryAction = true,
+  showRoleSelector = true,
+  viewer = "lender",
 }: {
+  canFinalizeMilestones?: boolean;
   layout?: "embedded" | "route";
+  showPrimaryAction?: boolean;
+  showRoleSelector?: boolean;
+  viewer?: "builder" | "lender";
 } = {}) {
   const workspace = useBuildWorkspace();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -398,10 +406,14 @@ export function BuildWorkspaceDemo({
       >
         <WorkspaceTopBar
           blockerCount={blockerCount}
+          canFinalizeMilestones={canFinalizeMilestones}
           onOpenDrawPlans={() => setDrawPlansOpen(true)}
           onOpenInspection={setInspectionDrawer}
           onOpenValidation={() => setValidationOpen(true)}
+          showPrimaryAction={showPrimaryAction}
+          showRoleSelector={showRoleSelector}
           totalDrawAmount={totalDrawAmount}
+          viewer={viewer}
         />
         {workspace.terminalMessage ? (
           <div className="mb-3 rounded-md border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-emerald-700 text-sm dark:text-emerald-100">
@@ -443,10 +455,12 @@ export function BuildWorkspaceDemo({
         </section>
 
         <MilestoneDetailSheet
+          canFinalizeMilestones={canFinalizeMilestones}
           draw={detailDraw}
           milestone={detailMilestone}
           onOpenChange={setDetailOpen}
           open={detailOpen}
+          viewer={viewer}
         />
         {detailDrawGroup ? (
           <DrawGroupDetailSheet
@@ -477,19 +491,36 @@ export function BuildWorkspaceDemo({
 
 function WorkspaceTopBar({
   blockerCount,
+  canFinalizeMilestones,
   onOpenDrawPlans,
   onOpenInspection,
   onOpenValidation,
+  showPrimaryAction,
+  showRoleSelector,
   totalDrawAmount,
+  viewer,
 }: {
   blockerCount: number;
+  canFinalizeMilestones: boolean;
   onOpenDrawPlans: () => void;
   onOpenInspection: (drawer: "audit" | "outbox") => void;
   onOpenValidation: () => void;
+  showPrimaryAction: boolean;
+  showRoleSelector: boolean;
   totalDrawAmount: number;
+  viewer: "builder" | "lender";
 }) {
   const workspace = useBuildWorkspace();
   const [addOpen, setAddOpen] = useState(false);
+  const isBuilderViewer = viewer === "builder";
+  const workspaceCrumb =
+    workspace.mode === "active"
+      ? { href: "/demo/drawflow/active", label: "Live Build" }
+      : { href: "/demo/drawflow/proposal", label: "Proposal" };
+  const buildTitle =
+    workspace.mode === "active"
+      ? activeBuildDisplayName(workspace.build.buildName)
+      : workspace.build.buildName;
   const validationCount =
     workspace.validationErrors.length +
     workspace.validationWarnings.length +
@@ -511,14 +542,14 @@ function WorkspaceTopBar({
             className="hover:text-emerald-700 dark:text-emerald-100"
             href="/demo/drawflow/active"
           >
-            Active
+            {workspace.mode === "active" ? "Active" : "Draft"}
           </a>
           <span>/</span>
           <a
             className="hover:text-emerald-700 dark:text-emerald-100"
-            href="/demo/drawflow/proposal"
+            href={workspaceCrumb.href}
           >
-            Proposal
+            {workspaceCrumb.label}
           </a>
           <Badge className="border-cyan-300/30 bg-cyan-300/10 text-cyan-700 dark:text-cyan-100">
             {workspace.mode === "active"
@@ -528,7 +559,7 @@ function WorkspaceTopBar({
         </div>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
           <h1 className="font-semibold text-2xl leading-tight tracking-normal">
-            {workspace.build.buildName}
+            {buildTitle}
           </h1>
           <span className="pb-1 text-muted-foreground text-xs">
             {workspace.build.phaseLabel}
@@ -540,21 +571,23 @@ function WorkspaceTopBar({
       </div>
 
       <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 lg:justify-end">
-        <NativeSelect
-          aria-label="Workspace role"
-          className="w-36"
-          data-testid="workspace-role-select"
-          onChange={(event) =>
-            workspace.setRole(event.currentTarget.value as WorkspaceRole)
-          }
-          value={workspace.role}
-        >
-          {Object.entries(roleLabels).map(([role, label]) => (
-            <NativeSelectOption key={role} value={role}>
-              {label}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+        {showRoleSelector && !isBuilderViewer ? (
+          <NativeSelect
+            aria-label="Workspace role"
+            className="w-36"
+            data-testid="workspace-role-select"
+            onChange={(event) =>
+              workspace.setRole(event.currentTarget.value as WorkspaceRole)
+            }
+            value={workspace.role}
+          >
+            {Object.entries(roleLabels).map(([role, label]) => (
+              <NativeSelectOption key={role} value={role}>
+                {label}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        ) : null}
         <SummaryPill icon={Banknote} label={compactMoney(totalDrawAmount)} />
         <SummaryPill icon={AlertTriangle} label={`${blockerCount} hard deps`} />
         <Button
@@ -607,7 +640,13 @@ function WorkspaceTopBar({
             Add milestone
           </Button>
         ) : null}
-        <RolePrimaryAction milestone={selectedMilestone} />
+        {showPrimaryAction ? (
+          <RolePrimaryAction
+            canFinalizeMilestones={canFinalizeMilestones}
+            milestone={selectedMilestone}
+            viewer={viewer}
+          />
+        ) : null}
         <Button
           data-testid="drawflow:shared:reset-demo"
           onClick={() => {
@@ -627,7 +666,19 @@ function WorkspaceTopBar({
   );
 }
 
-function RolePrimaryAction({ milestone }: { milestone: Milestone }) {
+function activeBuildDisplayName(buildName: string) {
+  return buildName.replace(/\s+proposal$/i, " Build");
+}
+
+function RolePrimaryAction({
+  canFinalizeMilestones,
+  milestone,
+  viewer,
+}: {
+  canFinalizeMilestones: boolean;
+  milestone: Milestone;
+  viewer: "builder" | "lender";
+}) {
   const workspace = useBuildWorkspace();
 
   if (workspace.mode === "proposal") {
@@ -671,7 +722,11 @@ function RolePrimaryAction({ milestone }: { milestone: Milestone }) {
     );
   }
 
-  if (workspace.role === "lenderAdmin") {
+  if (
+    canFinalizeMilestones &&
+    viewer === "lender" &&
+    workspace.role === "lenderAdmin"
+  ) {
     return (
       <Button
         data-testid={`active-primary-approve-${milestone.id}`}
@@ -688,7 +743,7 @@ function RolePrimaryAction({ milestone }: { milestone: Milestone }) {
     );
   }
 
-  if (workspace.role === "siteVisitor") {
+  if (viewer === "lender" && workspace.role === "siteVisitor") {
     return (
       <Button
         data-testid={`active-primary-site-visit-${milestone.id}`}
@@ -1200,7 +1255,8 @@ function GanttRoadmap({
   zoom: number;
 }) {
   const workspace = useBuildWorkspace();
-  const scheduleBaseDate = workspace.timelineBaseDate ?? initialScheduleBaseDate(workspace.milestones);
+  const scheduleBaseDate =
+    workspace.timelineBaseDate ?? initialScheduleBaseDate(workspace.milestones);
   const [selectedMilestoneIds, setSelectedMilestoneIds] =
     useState<SelectedMilestoneIds>(() => new Set());
   const [batchShiftPreview, setBatchShiftPreview] =
@@ -2161,11 +2217,11 @@ function MilestoneBlock({
                 onTimelineClick(milestone.id, event);
               }
             }}
+            role="button"
             style={{
               scrollMarginLeft:
                 "calc(var(--gantt-leading-sidebar-width) + var(--gantt-kibo-sidebar-width) + 2rem)",
             }}
-            role="button"
             tabIndex={0}
           >
             <span
@@ -2205,8 +2261,7 @@ function MilestoneBlock({
               endAt: milestone.endAt,
               startAt: milestone.startAt,
             })}{" "}
-            /{" "}
-            {compactMoney(milestone.estimatedCost)}
+            / {compactMoney(milestone.estimatedCost)}
           </div>
           <IssueList
             issues={milestone.issues}
@@ -2301,12 +2356,15 @@ function DrawGroupDetailSheet({
   const [drawAmounts, setDrawAmounts] = useState<Record<string, string>>({});
   const [drawLabels, setDrawLabels] = useState<Record<string, string>>({});
   const [drawTimingDays, setDrawTimingDays] = useState<Record<string, string>>(
-    {},
+    {}
   );
   const [error, setError] = useState("");
   const canEditDraws =
     Boolean(workspace.updateDrawGroup) &&
-    !(workspace.mode === "proposal" && workspace.build.proposalStatus === "submitted");
+    !(
+      workspace.mode === "proposal" &&
+      workspace.build.proposalStatus === "submitted"
+    );
   const timingDay = draw.timingDay ?? 0;
 
   useEffect(() => {
@@ -2319,11 +2377,14 @@ function DrawGroupDetailSheet({
     setError("");
   }, [draw.amount, draw.id, draw.label, open, timingDay]);
 
-  const updateDraw = async (_drawKey: string, patch: {
-    amountCents: number;
-    label: string;
-    timingDay: number;
-  }) => {
+  const updateDraw = async (
+    _drawKey: string,
+    patch: {
+      amountCents: number;
+      label: string;
+      timingDay: number;
+    }
+  ) => {
     if (!workspace.updateDrawGroup) {
       return;
     }
@@ -2337,7 +2398,7 @@ function DrawGroupDetailSheet({
       await workspace.updateDrawGroup(draw.id, drawPatch);
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Unable to update draw.",
+        caught instanceof Error ? caught.message : "Unable to update draw."
       );
     }
   };
@@ -2416,17 +2477,22 @@ function DrawGroupDetailSheet({
 }
 
 function MilestoneDetailSheet({
+  canFinalizeMilestones,
   milestone,
   draw,
   open,
   onOpenChange,
+  viewer,
 }: {
+  canFinalizeMilestones: boolean;
   milestone: Milestone;
   draw: DrawGroup | undefined;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  viewer: "builder" | "lender";
 }) {
   const workspace = useBuildWorkspace();
+  const isLenderViewer = viewer === "lender";
   const [draft, setDraft] = useState({
     actualCost: String(milestone.actualCost),
     completionReport: milestone.completionReport,
@@ -2453,7 +2519,7 @@ function MilestoneDetailSheet({
     parseGanttMilestoneScopeId(milestone.id).milestoneKey;
   const contractorScope = parseGanttMilestoneScopeId(milestone.id);
   const canAssignContractor = Boolean(
-    workspace.assignContractorToMilestone || workspace.createAndAssignContractor,
+    workspace.assignContractorToMilestone || workspace.createAndAssignContractor
   );
   const contractorOptions =
     workspace.contractorPlanning?.availableContractors ??
@@ -2765,7 +2831,7 @@ function MilestoneDetailSheet({
                   <Button
                     className="self-end"
                     data-testid="move-to-parent-milestone"
-                    disabled={!canMoveParent || !parentTarget}
+                    disabled={!(canMoveParent && parentTarget)}
                     onClick={() =>
                       parentTarget &&
                       void workspace.moveSubmilestoneToParent?.(
@@ -3042,7 +3108,7 @@ function MilestoneDetailSheet({
             </Panel>
           ) : null}
 
-          {workspace.mode === "active" ? (
+          {workspace.mode === "active" && isLenderViewer ? (
             <Panel title="Lender Review, Site Visit, and Admin Approval">
               <Field label="Audit reason / review note">
                 <Textarea
@@ -3099,25 +3165,29 @@ function MilestoneDetailSheet({
                 >
                   Submit site visit report
                 </Button>
-                <Button
-                  data-testid="reject-milestone"
-                  onClick={() =>
-                    void workspace.rejectMilestone(milestone.id, reason)
-                  }
-                  variant="outline"
-                >
-                  Reject completion
-                </Button>
-                <Button
-                  className="sm:col-span-2"
-                  data-testid="approve-milestone"
-                  onClick={() =>
-                    void workspace.approveMilestone(milestone.id, reason)
-                  }
-                >
-                  <ShieldCheck />
-                  Approve milestone
-                </Button>
+                {canFinalizeMilestones ? (
+                  <>
+                    <Button
+                      data-testid="reject-milestone"
+                      onClick={() =>
+                        void workspace.rejectMilestone(milestone.id, reason)
+                      }
+                      variant="outline"
+                    >
+                      Reject completion
+                    </Button>
+                    <Button
+                      className="sm:col-span-2"
+                      data-testid="approve-milestone"
+                      onClick={() =>
+                        void workspace.approveMilestone(milestone.id, reason)
+                      }
+                    >
+                      <ShieldCheck />
+                      Approve milestone
+                    </Button>
+                  </>
+                ) : null}
               </div>
             </Panel>
           ) : null}
@@ -3160,15 +3230,16 @@ function MilestoneDetailSheet({
             submilestoneKeys: contractorScope.submilestoneKeys,
           });
         }}
-        onCreate={async ({ assignmentCost, contractor, role }) => {
+        onCreate={async ({ assignmentCost, contractor, role }) =>
           await workspace.createAndAssignContractor?.({
             assignmentCost,
             contractor,
             milestoneId: milestone.id,
             role: role ?? "Contractor",
             submilestoneKeys: contractorScope.submilestoneKeys,
-          });
-        }}
+          })
+        }
+        onInviteCreatedContractor={workspace.inviteContractor}
         onOpenChange={setAssignContractorOpen}
         open={assignContractorOpen}
         requireRole

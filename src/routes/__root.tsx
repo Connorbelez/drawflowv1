@@ -1,5 +1,4 @@
 import type { ConvexQueryClient } from "@convex-dev/react-query";
-import { TanStackDevtools } from "@tanstack/react-devtools";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,
@@ -7,20 +6,32 @@ import {
   Scripts,
   useRouter,
 } from "@tanstack/react-router";
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
+import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getAuth } from "@workos/authkit-tanstack-react-start";
 import type { ConvexReactClient } from "convex/react";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
-import type { ReactElement, ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
 
+import { Button } from "#/components/ui/button.tsx";
+import { Card } from "#/components/ui/card.tsx";
 import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import ConvexProvider from "../integrations/convex/provider";
-import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import WorkOSProvider from "../integrations/workos/provider";
 import appCss from "../styles.css?url";
 import { VISUAL_PARITY_ORGANIZATION_ID } from "#/features/production-proposals/visualParityFixtures.ts";
+
+const LazyAppDevtools = lazy(async () => ({
+  default: (await import("#/components/app-devtools.tsx")).AppDevtools,
+}));
 
 interface RouterContext {
   convexClient: ConvexReactClient;
@@ -57,14 +68,51 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
     return fixtureAuth;
   }
 
-  const auth = await getAuth();
+  let auth: Awaited<ReturnType<typeof getAuth>>;
+  try {
+    auth = await getAuth();
+  } catch (error) {
+    logAuthFailure("getAuth failed", error);
+    return emptyAuthContext();
+  }
+  const tokenClaims = decodeJwtPayload(auth.accessToken);
+  const organizationId =
+    auth.user
+      ? (auth.organizationId ??
+        stringClaim(tokenClaims?.organizationId) ??
+        stringClaim(tokenClaims?.org_id) ??
+        stringClaim(tokenClaims?.["https://workos.com/organization_id"]) ??
+        null)
+      : null;
+  const roles = auth.user
+    ? nonEmptyStrings([
+        ...(auth.roles ?? []),
+        ...toStringArray(tokenClaims?.roles),
+        ...toStringArray(tokenClaims?.["https://workos.com/roles"]),
+      ])
+    : [];
+  const role =
+    auth.user
+      ? (auth.role ??
+        stringClaim(tokenClaims?.role) ??
+        stringClaim(tokenClaims?.["https://workos.com/role"]) ??
+        roles[0] ??
+        null)
+      : null;
+  const permissions = auth.user
+    ? nonEmptyStrings([
+        ...(auth.permissions ?? []),
+        ...toStringArray(tokenClaims?.permissions),
+        ...toStringArray(tokenClaims?.["https://workos.com/permissions"]),
+      ])
+    : [];
   const authPayload = {
     featureFlagCount: auth.user ? (auth.featureFlags ?? []).length : 0,
     impersonatorPresent: Boolean(auth.user && auth.impersonator),
-    organizationId: auth.user ? (auth.organizationId ?? null) : null,
-    permissionCount: auth.user ? (auth.permissions ?? []).length : 0,
-    role: auth.user ? (auth.role ?? null) : null,
-    roleCount: auth.user ? (auth.roles ?? []).length : 0,
+    organizationId,
+    permissionCount: permissions.length,
+    role,
+    roleCount: roles.length,
     sessionPresent: Boolean(auth.user && auth.sessionId),
     tokenPresent: Boolean(auth.user && auth.accessToken),
     userPresent: Boolean(auth.user),
@@ -74,13 +122,24 @@ const fetchWorkosAuth = createServerFn({ method: "GET" }).handler(async () => {
 
   return {
     organizationId: authPayload.organizationId,
-    permissions: auth.user ? (auth.permissions ?? []) : [],
+    permissions,
     role: authPayload.role,
-    roles: auth.user ? (auth.roles ?? []) : [],
+    roles,
     token: auth.user ? auth.accessToken : null,
     userId: auth.user?.id ?? null,
   };
 });
+
+function emptyAuthContext() {
+  return {
+    organizationId: null,
+    permissions: [],
+    role: null,
+    roles: [],
+    token: null,
+    userId: null,
+  };
+}
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   beforeLoad: async (ctx) => {
@@ -124,6 +183,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       },
     ],
   }),
+  errorComponent: RootError,
   notFoundComponent: RootNotFound,
   shellComponent: RootDocument,
 });
@@ -148,12 +208,58 @@ function logAuthDebug(label: string, payload: AuthDebugPayload) {
   console.info(`[drawflow:auth] ${label}`, payload);
 }
 
+function logAuthFailure(label: string, error: unknown) {
+  if (import.meta.env.PROD) {
+    return;
+  }
+
+  console.warn(`[drawflow:auth] ${label}`, {
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
 function isVisualParityFixtureEnabled(): boolean {
   return (
     !import.meta.env.PROD &&
     (process.env.DRAWFLOW_VISUAL_PARITY_FIXTURE === "1" ||
       import.meta.env.VITE_DRAWFLOW_VISUAL_PARITY_FIXTURE === "1")
   );
+}
+
+function decodeJwtPayload(token: string | null | undefined) {
+  if (!token) {
+    return null;
+  }
+  const parts = token.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+  try {
+    const normalized = parts[1]
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(parts[1].length / 4) * 4, "=");
+    return JSON.parse(Buffer.from(normalized, "base64").toString("utf8")) as
+      | Record<string, unknown>
+      | null;
+  } catch {
+    return null;
+  }
+}
+
+function stringClaim(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+  return typeof value === "string" ? [value] : [];
+}
+
+function nonEmptyStrings(values: readonly string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 interface RootDocumentProps {
@@ -176,18 +282,7 @@ export function RootDocument({ children }: RootDocumentProps): ReactElement {
               <TooltipProvider>
                 <NuqsAdapter>{children}</NuqsAdapter>
                 <Toaster closeButton position="top-right" richColors />
-                <TanStackDevtools
-                  config={{
-                    position: "bottom-right",
-                  }}
-                  plugins={[
-                    {
-                      name: "Tanstack Router",
-                      render: <TanStackRouterDevtoolsPanel />,
-                    },
-                    TanStackQueryDevtools,
-                  ]}
-                />
+                {import.meta.env.DEV ? <DeferredAppDevtools /> : null}
               </TooltipProvider>
             </QueryClientProvider>
           </ConvexProvider>
@@ -198,22 +293,77 @@ export function RootDocument({ children }: RootDocumentProps): ReactElement {
   );
 }
 
+function DeferredAppDevtools(): ReactElement | null {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setEnabled(true), 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  if (!enabled) {
+    return null;
+  }
+
+  return (
+    <Suspense fallback={null}>
+      <LazyAppDevtools />
+    </Suspense>
+  );
+}
+
 function RootNotFound(): ReactElement {
   return (
     <main className="grid min-h-[calc(100vh-4rem)] place-items-center bg-bg-base p-6 text-foreground">
-      <section className="w-full max-w-xl rounded-lg border bg-background p-6">
+      <Card className="w-full max-w-xl p-6">
         <p className="font-medium text-muted-foreground text-sm">404</p>
         <h1 className="mt-2 font-semibold text-2xl">Page not found</h1>
         <p className="mt-2 text-muted-foreground text-sm">
           This DrawFlow route does not exist or is no longer available.
         </p>
-        <a
-          className="mt-5 inline-flex h-10 items-center rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm"
-          href="/backoffice"
-        >
+        <Button className="mt-5" render={<a href="/backoffice" />}>
           Back to backoffice
-        </a>
-      </section>
+        </Button>
+      </Card>
+    </main>
+  );
+}
+
+export function RootError({ error, reset }: ErrorComponentProps): ReactElement {
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : "An unexpected DrawFlow route error occurred.";
+  const retryRoute = () => {
+    if (typeof window !== "undefined") {
+      window.location.reload();
+      return;
+    }
+
+    reset();
+  };
+
+  return (
+    <main className="grid min-h-[calc(100vh-4rem)] place-items-center bg-bg-base p-6 text-foreground">
+      <Card className="w-full max-w-2xl p-6">
+        <p className="font-medium text-destructive text-sm">Route error</p>
+        <h1 className="mt-2 font-semibold text-2xl">
+          DrawFlow could not load this screen.
+        </h1>
+        <p className="mt-2 text-muted-foreground text-sm">
+          The route failed while loading. Refresh the screen or return to the
+          workspace.
+        </p>
+        <pre className="mt-4 max-h-40 overflow-auto rounded-md bg-muted p-3 text-muted-foreground text-xs">
+          {message}
+        </pre>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button onClick={retryRoute}>Try again</Button>
+          <Button render={<a href="/backoffice" />} variant="outline">
+            Back to backoffice
+          </Button>
+        </div>
+      </Card>
     </main>
   );
 }

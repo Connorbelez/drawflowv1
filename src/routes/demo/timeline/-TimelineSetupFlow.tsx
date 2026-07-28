@@ -18,8 +18,8 @@ import {
   useRef,
   useState,
 } from "react";
-import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
+import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { cn } from "#/lib/utils.ts";
 import {
@@ -462,15 +462,11 @@ export const SUB_MILESTONE_BANK: SubMilestoneBankItem[] = [
 const TEMPLATE_THUMBNAILS: Record<string, string> = {
   "4-plex": "/drawflow-template-thumbnails/four-plex-blueprint.svg",
   four_plex: "/drawflow-template-thumbnails/four-plex-blueprint.svg",
-  multiplex_build:
+  "multiplex-build":
     "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
-  "multiplex-build": "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
-  single_family_full_build:
-    "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
+  "garden-suite": "/drawflow-template-thumbnails/multiplex-build-blueprint.png",
   "single-family-full-build":
     "/drawflow-template-thumbnails/single-family-full-build-blueprint.png",
-  single_family_renovation:
-    "/drawflow-template-thumbnails/single-family-renovation-blueprint.png",
   "single-family-renovation":
     "/drawflow-template-thumbnails/single-family-renovation-blueprint.png",
 };
@@ -753,7 +749,7 @@ function buildDefaultTemplate(baseItems: TimelineItem<DemoMilestone>[]) {
       } satisfies TimelineSetupPreset;
     }),
     summary: `${baseItems.length} project milestones`,
-    templateKey: "single_family_full_build",
+    templateKey: "single-family-full-build",
     title: "Single Family Full Build",
   } satisfies TimelineSetupTemplate;
 }
@@ -829,7 +825,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
         ),
       ],
       summary: "7 renovation milestones",
-      templateKey: "single_family_renovation",
+      templateKey: "single-family-renovation",
       title: "Single Family Renovation",
     },
     {
@@ -901,7 +897,7 @@ function secondaryTemplates(): TimelineSetupTemplate[] {
         ),
       ],
       summary: "7 multiplex milestones",
-      templateKey: "multiplex_build",
+      templateKey: "multiplex-build",
       title: "Multi-plex Build",
     },
   ];

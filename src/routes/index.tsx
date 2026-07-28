@@ -1,15 +1,43 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import {
-  FairlendPublicPage,
-  getCorePageHead,
-} from "#/features/fairlend-public/fairlend-public-pages.tsx";
+import { AccessPortalPage } from "#/features/access-portal/AccessPortalPage.tsx";
+import { resolveAccessDestination } from "#/features/access-portal/access-routing.ts";
 
 export const Route = createFileRoute("/")({
-  component: HomePage,
-  head: () => getCorePageHead("home"),
+  beforeLoad: ({ context }) => {
+    if (!context.userId) {
+      return;
+    }
+
+    const destination = resolveAccessDestination([
+      context.role,
+      ...(context.roles ?? []),
+    ]);
+
+    if (destination) {
+      throw redirect({ to: destination });
+    }
+  },
+  component: AccessPortalPage,
+  head: getHomePageHead,
 });
 
-function HomePage() {
-  return <FairlendPublicPage pageId="home" />;
+function getHomePageHead() {
+  return {
+    links: [{ href: "/", rel: "canonical" }],
+    meta: [
+      {
+        title: "Sign in to DrawFlow",
+      },
+      {
+        name: "description",
+        content:
+          "Secure organization-aware access for DrawFlow builder, lender, and contractor workspaces.",
+      },
+      {
+        name: "robots",
+        content: "noindex, nofollow",
+      },
+    ],
+  };
 }

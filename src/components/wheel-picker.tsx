@@ -37,7 +37,7 @@ function WheelPicker<T extends WheelPickerValue = string>({
     <WheelPickerPrimitive.WheelPicker
       classNames={{
         optionItem: cn(
-          "text-zinc-400 dark:text-zinc-500 data-disabled:opacity-40",
+          "text-zinc-400 data-disabled:opacity-40 dark:text-zinc-500",
           classNames?.optionItem
         ),
         highlightWrapper: cn(
@@ -55,5 +55,5 @@ function WheelPicker<T extends WheelPickerValue = string>({
   );
 }
 
-export { WheelPicker, WheelPickerWrapper };
 export type { WheelPickerClassNames, WheelPickerOption };
+export { WheelPicker, WheelPickerWrapper };

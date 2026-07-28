@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { gsap } from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { useEffect, useMemo, useRef } from "react";
 
-import './ScrollReveal.css';
+import "./ScrollReveal.css";
 
 gsap.registerPlugin(ScrollTrigger);
 
 const ScrollReveal = ({
-  as: Container = 'h2',
+  as: Container = "h2",
   children,
   scrollContainerRef,
   triggerRef,
@@ -15,21 +15,23 @@ const ScrollReveal = ({
   baseOpacity = 0.1,
   baseRotation = 3,
   blurStrength = 4,
-  containerClassName = '',
-  textClassName = '',
-  textAs: Text = 'p',
-  rotationStart = 'top bottom',
-  rotationEnd = 'bottom bottom',
-  wordAnimationStart = 'top bottom-=20%',
-  wordAnimationEnd = 'bottom bottom',
+  containerClassName = "",
+  textClassName = "",
+  textAs: Text = "p",
+  rotationStart = "top bottom",
+  rotationEnd = "bottom bottom",
+  wordAnimationStart = "top bottom-=20%",
+  wordAnimationEnd = "bottom bottom",
   ...containerProps
 }) => {
   const containerRef = useRef(null);
 
   const splitText = useMemo(() => {
-    const text = typeof children === 'string' ? children : '';
+    const text = typeof children === "string" ? children : "";
     return text.split(/(\s+)/).map((word, index) => {
-      if (word.match(/^\s+$/)) return word;
+      if (word.match(/^\s+$/)) {
+        return word;
+      }
       return (
         <span className="word" key={index}>
           {word}
@@ -40,35 +42,40 @@ const ScrollReveal = ({
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
 
-    const scroller = scrollContainerRef && scrollContainerRef.current ? scrollContainerRef.current : window;
+    const scroller =
+      scrollContainerRef && scrollContainerRef.current
+        ? scrollContainerRef.current
+        : window;
     const trigger = triggerRef && triggerRef.current ? triggerRef.current : el;
 
     const ctx = gsap.context(() => {
       gsap.fromTo(
         el,
-        { transformOrigin: '0% 50%', rotate: baseRotation },
+        { transformOrigin: "0% 50%", rotate: baseRotation },
         {
-          ease: 'none',
+          ease: "none",
           rotate: 0,
           scrollTrigger: {
             trigger,
             scroller,
             start: rotationStart,
             end: rotationEnd,
-            scrub: true
-          }
+            scrub: true,
+          },
         }
       );
 
-      const wordElements = el.querySelectorAll('.word');
+      const wordElements = el.querySelectorAll(".word");
 
       gsap.fromTo(
         wordElements,
-        { opacity: baseOpacity, y: '0.32em', willChange: 'opacity, transform' },
+        { opacity: baseOpacity, y: "0.32em", willChange: "opacity, transform" },
         {
-          ease: 'none',
+          ease: "none",
           opacity: 1,
           y: 0,
           stagger: 0.05,
@@ -77,8 +84,8 @@ const ScrollReveal = ({
             scroller,
             start: wordAnimationStart,
             end: wordAnimationEnd,
-            scrub: true
-          }
+            scrub: true,
+          },
         }
       );
 
@@ -87,16 +94,16 @@ const ScrollReveal = ({
           wordElements,
           { filter: `blur(${blurStrength}px)` },
           {
-            ease: 'none',
-            filter: 'blur(0px)',
+            ease: "none",
+            filter: "blur(0px)",
             stagger: 0.05,
             scrollTrigger: {
               trigger,
               scroller,
               start: wordAnimationStart,
               end: wordAnimationEnd,
-              scrub: true
-            }
+              scrub: true,
+            },
           }
         );
       }
@@ -115,13 +122,13 @@ const ScrollReveal = ({
     rotationEnd,
     wordAnimationStart,
     wordAnimationEnd,
-    blurStrength
+    blurStrength,
   ]);
 
   return (
     <Container
-      ref={containerRef}
       className={`scroll-reveal ${containerClassName}`}
+      ref={containerRef}
       {...containerProps}
     >
       <Text className={`scroll-reveal-text ${textClassName}`}>{splitText}</Text>

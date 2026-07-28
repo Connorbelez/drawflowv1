@@ -24,9 +24,11 @@ export type NavLink = {
 };
 
 export const fairlendNavLinks = {
-  home: linkOptions({ to: "/marketing" }),
+  home: linkOptions({ to: "/" }),
   about: linkOptions({ to: "/about" }),
-  affordableHousing: linkOptions({ to: "/affordable-sustainable-rental-housing" }),
+  affordableHousing: linkOptions({
+    to: "/affordable-sustainable-rental-housing",
+  }),
   backoffice: linkOptions({ to: "/backoffice" }),
   cmhcMliSelect: linkOptions({ to: "/cmhc-mli-select-multiplex-financing" }),
   constructionDraws: linkOptions({ to: "/construction-draw-financing" }),
@@ -37,13 +39,27 @@ export const fairlendNavLinks = {
   multiplex: linkOptions({ to: "/multiplex-financing-gta" }),
   press: linkOptions({ to: "/press" }),
   resources: linkOptions({ to: "/resources" }),
-  resourceCmhc: linkOptions({ to: "/resources/cmhc-mli-select-guide-for-multiplex-builds" }),
-  resourceDraws: linkOptions({ to: "/resources/construction-draws-small-builders" }),
-  resourceFinancingGap: linkOptions({ to: "/resources/financing-gap-gta-multiplex-builds" }),
-  resourceGardenSuites: linkOptions({ to: "/resources/garden-suites-family-suitable-rental-supply" }),
-  resourceHousingCapital: linkOptions({ to: "/resources/private-capital-affordable-housing" }),
-  resourceHousingReturns: linkOptions({ to: "/resources/sustainable-rental-housing-investor-returns" }),
-  resourceMultiplexCompare: linkOptions({ to: "/resources/multiplex-vs-garden-suite-vs-laneway-suite" }),
+  resourceCmhc: linkOptions({
+    to: "/resources/cmhc-mli-select-guide-for-multiplex-builds",
+  }),
+  resourceDraws: linkOptions({
+    to: "/resources/construction-draws-small-builders",
+  }),
+  resourceFinancingGap: linkOptions({
+    to: "/resources/financing-gap-gta-multiplex-builds",
+  }),
+  resourceGardenSuites: linkOptions({
+    to: "/resources/garden-suites-family-suitable-rental-supply",
+  }),
+  resourceHousingCapital: linkOptions({
+    to: "/resources/private-capital-affordable-housing",
+  }),
+  resourceHousingReturns: linkOptions({
+    to: "/resources/sustainable-rental-housing-investor-returns",
+  }),
+  resourceMultiplexCompare: linkOptions({
+    to: "/resources/multiplex-vs-garden-suite-vs-laneway-suite",
+  }),
   start: linkOptions({ to: "/start" }),
   startBroker: linkOptions({ to: "/start/broker" }),
   startBuilder: linkOptions({ to: "/start/builder" }),
@@ -117,7 +133,7 @@ export const NAV_LINKS: NavLink[] = [
               link: fairlendNavLinks.resourceDraws,
             },
             {
-              label: "Talk to Fairlend",
+              label: "Talk to FairLend",
               description: "Get lender-ready before you commit",
               link: fairlendNavLinks.contact,
             },
@@ -146,7 +162,7 @@ export const NAV_LINKS: NavLink[] = [
             },
             {
               label: "Broker introductions",
-              description: "Bring suitable clients into the Fairlend flow",
+              description: "Bring suitable clients into the FairLend flow",
               link: fairlendNavLinks.startBroker,
             },
           ],
@@ -240,7 +256,7 @@ export const NAV_LINKS: NavLink[] = [
             },
             {
               label: "Resource library",
-              description: "All Fairlend guides",
+              description: "All FairLend guides",
               link: fairlendNavLinks.resources,
             },
           ],
@@ -258,11 +274,11 @@ export const NAV_LINKS: NavLink[] = [
           items: [
             {
               label: "Marketing home",
-              description: "Fairlend Capital landing page",
+              description: "FairLend Mortgage landing page",
               link: fairlendNavLinks.home,
             },
             {
-              label: "About Fairlend",
+              label: "About FairLend",
               description: "A fairer construction lending model",
               link: fairlendNavLinks.about,
             },

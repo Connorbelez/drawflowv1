@@ -1,5 +1,10 @@
-export function formatCents(cents: number, opts: { compact?: boolean } = {}): string {
-  if (!Number.isFinite(cents)) return "$0";
+export function formatCents(
+  cents: number,
+  opts: { compact?: boolean } = {}
+): string {
+  if (!Number.isFinite(cents)) {
+    return "$0";
+  }
   const dollars = Math.round(cents) / 100;
   if (opts.compact && Math.abs(dollars) >= 1000) {
     return new Intl.NumberFormat("en-US", {
@@ -16,10 +21,26 @@ export function formatCents(cents: number, opts: { compact?: boolean } = {}): st
   }).format(dollars);
 }
 
+export function formatCentsExact(cents: number): string {
+  if (!Number.isFinite(cents)) {
+    return "$0.00";
+  }
+  return new Intl.NumberFormat("en-CA", {
+    currency: "CAD",
+    currencyDisplay: "narrowSymbol",
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(cents / 100);
+}
+
 export function formatDate(date?: string | number): string {
-  if (date == null) return "—";
+  if (date == null) {
+    return "—";
+  }
   const d = typeof date === "number" ? new Date(date) : new Date(date);
-  if (Number.isNaN(d.valueOf())) return "—";
+  if (Number.isNaN(d.valueOf())) {
+    return "—";
+  }
   return d.toISOString().slice(0, 10);
 }
 
@@ -40,7 +61,7 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export function normalizeIsoDateInput(
   fieldLabel: string,
   value: string,
-  fallback: string,
+  fallback: string
 ): string {
   const trimmed = value.trim();
   if (!ISO_DATE_RE.test(trimmed)) {
@@ -63,25 +84,37 @@ export function addDaysToIsoDate(isoDate: string, days: number): string {
 
 export function formatRelative(ms: number): string {
   const delta = Date.now() - ms;
-  if (delta < 0) return "just now";
+  if (delta < 0) {
+    return "just now";
+  }
   const days = Math.floor(delta / 86_400_000);
-  if (days >= 1) return `${days} day${days === 1 ? "" : "s"} ago`;
+  if (days >= 1) {
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+  }
   const hours = Math.floor(delta / 3_600_000);
-  if (hours >= 1) return `${hours}h ago`;
+  if (hours >= 1) {
+    return `${hours}h ago`;
+  }
   const minutes = Math.floor(delta / 60_000);
-  if (minutes >= 1) return `${minutes}m ago`;
+  if (minutes >= 1) {
+    return `${minutes}m ago`;
+  }
   return "just now";
 }
 
 export function initialsFor(name: string): string {
   const parts = name.trim().split(/\s+/);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  if (parts.length === 0) {
+    return "?";
+  }
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 export function statusChipTone(
-  status: string,
+  status: string
 ): "approved" | "requested" | "draft" | "review" | "rejected" {
   switch (status) {
     case "release_approved":

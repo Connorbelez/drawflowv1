@@ -2,29 +2,16 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { InlineEdit, InlineEditNumber } from "#/components/ui/inline-edit.tsx";
 import { BuildWorkspaceDemo } from "#/features/build-workspace-demo/BuildWorkspaceDemo.tsx";
 import { useConvexBuildWorkspace } from "#/features/build-workspace-demo/convex-workspace-adapter.tsx";
 import { BuildWorkspaceProvider } from "#/features/build-workspace-demo/workspace-adapter.tsx";
-import { ContractorsCard } from "./ContractorsCard";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
+import { type BuildDetailSubTab, BuildDetailTabBar } from "./BuildDetailTabs";
 import { BuildTimelinePanel } from "./BuildTimelinePanel";
-import {
-  BuildDetailTabBar,
-  type BuildDetailSubTab,
-} from "./BuildDetailTabs";
+import { ContractorsCard } from "./ContractorsCard";
 import { EventRailSheet } from "./EventRail";
-import {
-  type KanbanCardData,
-  type KanbanColumn,
-  MilestoneKanban,
-} from "./MilestoneKanban";
-import {
-  type MilestoneSheetData,
-  MilestoneDetailSheet,
-} from "./MilestoneDetailSheet";
-import { SitePhotoCarousel } from "./SitePhotoCarousel";
-import { InlineEdit, InlineEditNumber } from "#/components/ui/inline-edit.tsx";
 import {
   formatBuildAddress,
   formatCents,
@@ -34,6 +21,16 @@ import {
   statusChipLabel,
   statusChipTone,
 } from "./format";
+import {
+  MilestoneDetailSheet,
+  type MilestoneSheetData,
+} from "./MilestoneDetailSheet";
+import {
+  type KanbanCardData,
+  type KanbanColumn,
+  MilestoneKanban,
+} from "./MilestoneKanban";
+import { SitePhotoCarousel } from "./SitePhotoCarousel";
 
 type BuildDetailsPatch = {
   address?: string;
@@ -48,11 +45,11 @@ type BuildDetailsPatch = {
 
 interface BuildDetailRouteProps {
   buildKey: string;
-  tab?: BuildDetailSubTab;
-  onChangeTab: (tab: BuildDetailSubTab) => void;
   initialMilestoneId?: string;
-  rail?: "open" | "closed";
   onChangeRail: (rail: "open" | "closed") => void;
+  onChangeTab: (tab: BuildDetailSubTab) => void;
+  rail?: "open" | "closed";
+  tab?: BuildDetailSubTab;
 }
 
 export function BuildDetailRoute({
@@ -66,7 +63,7 @@ export function BuildDetailRoute({
   const activeTab = tab ?? "details";
   const buildId = useQuery(
     api.demo_drawflow_backoffice.demo_resolveBuildIdByKey,
-    { buildKey },
+    { buildKey }
   );
   if (buildId === undefined) {
     return <PageSkeleton />;
@@ -103,20 +100,20 @@ function BuildDetailShell({
 }) {
   const vm = useQuery(
     api.demo_drawflow_backoffice.demo_getBuildDetailViewModel,
-    { buildId },
+    { buildId }
   );
   const approveDraw = useMutation(
-    api.demo_drawflow_backoffice.demo_approveDraw,
+    api.demo_drawflow_backoffice.demo_approveDraw
   );
   const approveMilestoneFromSheet = useMutation(
-    api.demo_drawflow_backoffice.demo_approveMilestoneFromSheet,
+    api.demo_drawflow_backoffice.demo_approveMilestoneFromSheet
   );
   const addNote = useMutation(api.demo_drawflow_backoffice.demo_addBuildNote);
   const updateBuildDetails = useMutation(
-    api.demo_drawflow_backoffice.demo_updateBuildDetails,
+    api.demo_drawflow_backoffice.demo_updateBuildDetails
   );
   const [activeMilestoneKey, setActiveMilestoneKey] = useState<string | null>(
-    null,
+    null
   );
   const [sheetPending, setSheetPending] = useState(false);
   const [sheetError, setSheetError] = useState<string>("");
@@ -129,7 +126,9 @@ function BuildDetailShell({
   const eventsOpen = rail === "open";
 
   const kanbanCards: KanbanCardData[] = useMemo(() => {
-    if (!vm || vm.needsSeed) return [];
+    if (!vm || vm.needsSeed) {
+      return [];
+    }
     return vm.kanban.map((card: any) => ({
       milestoneKey: card.milestoneKey,
       milestoneId: card.milestoneId,
@@ -153,9 +152,13 @@ function BuildDetailShell({
   }, [vm]);
 
   const sheetData: MilestoneSheetData | null = useMemo(() => {
-    if (!vm || vm.needsSeed || !activeMilestoneKey) return null;
+    if (!vm || vm.needsSeed || !activeMilestoneKey) {
+      return null;
+    }
     const card = kanbanCards.find((c) => c.milestoneKey === activeMilestoneKey);
-    if (!card) return null;
+    if (!card) {
+      return null;
+    }
     const recentEvents = (vm.auditEvents as any[])
       .filter((ev) => ev.milestoneKey === activeMilestoneKey)
       .slice(0, 4)
@@ -190,13 +193,17 @@ function BuildDetailShell({
     };
   }, [vm, activeMilestoneKey, kanbanCards]);
 
-  if (!vm) return <PageSkeleton />;
+  if (!vm) {
+    return <PageSkeleton />;
+  }
   if (vm.needsSeed) {
     return <BuildMissing buildKey="active-maple-ridge" />;
   }
 
   const onApproveDraw = async (drawGroupKey: string) => {
-    if (pendingDraws.has(drawGroupKey)) return;
+    if (pendingDraws.has(drawGroupKey)) {
+      return;
+    }
     setPendingDraws((prev) => {
       const next = new Set(prev);
       next.add(drawGroupKey);
@@ -209,7 +216,7 @@ function BuildDetailShell({
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("policy_limit")) {
         const reason = window.prompt(
-          "Lender draw policy limit would be exceeded. Provide override reason to continue:",
+          "Lender draw policy limit would be exceeded. Provide override reason to continue:"
         );
         if (reason && reason.trim().length > 0) {
           try {
@@ -261,10 +268,15 @@ function BuildDetailShell({
   const onSaveNote = async (visibility: "internal" | "public") => {
     const body =
       visibility === "internal" ? internalNoteDraft : publicNoteDraft;
-    if (!body.trim()) return;
+    if (!body.trim()) {
+      return;
+    }
     await addNote({ buildId, visibility, body });
-    if (visibility === "internal") setInternalNoteDraft("");
-    else setPublicNoteDraft("");
+    if (visibility === "internal") {
+      setInternalNoteDraft("");
+    } else {
+      setPublicNoteDraft("");
+    }
   };
 
   const build: any = vm.build;
@@ -283,7 +295,7 @@ function BuildDetailShell({
         <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h1 className="font-semibold text-2xl tracking-tight">
-              <span className="font-normal text-muted-foreground text-lg">
+              <span className="font-normal text-lg text-muted-foreground">
                 {displayId} —{" "}
               </span>
               {build.name}
@@ -300,36 +312,40 @@ function BuildDetailShell({
           </button>
         </header>
 
-        <BuildDetailTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
+        <BuildDetailTabBar
+          activeTab={activeTab}
+          onChangeTab={onChangeTab}
+          tabs={["details", "timeline", "calendar", "gantt"]}
+        />
 
         {activeTab === "details" ? (
           <DetailsTabPanel
             address={address}
-            buildId={buildId}
+            availableContractors={vm.availableContractors ?? []}
             build={build}
+            buildId={buildId}
+            contractors={vm.contractors}
             derived={derived}
             displayId={displayId}
-            onUpdateBuildDetails={onUpdateBuildDetails}
             documents={vm.documents}
-            draws={vm.draws}
             drawErrors={drawErrors}
-            kanbanCards={kanbanCards}
-            sitePhotos={vm.mock_sitePhotos}
-            notes={vm.notes}
+            draws={vm.draws}
             internalDraft={internalNoteDraft}
-            publicDraft={publicNoteDraft}
+            kanbanCards={kanbanCards}
+            notes={vm.notes}
+            onApproveDraw={onApproveDraw}
+            onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
             onChangeInternalDraft={setInternalNoteDraft}
             onChangePublicDraft={setPublicNoteDraft}
             onSaveNote={onSaveNote}
-            onApproveDraw={onApproveDraw}
-            onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
             onToggleShowCompleted={() =>
               setShowCompletedKanban((prev) => !prev)
             }
+            onUpdateBuildDetails={onUpdateBuildDetails}
             pendingDraws={pendingDraws}
+            publicDraft={publicNoteDraft}
             showCompletedKanban={showCompletedKanban}
-            contractors={vm.contractors}
-            availableContractors={vm.availableContractors ?? []}
+            sitePhotos={vm.mock_sitePhotos}
           />
         ) : null}
 
@@ -481,8 +497,8 @@ function DetailsTabPanel({
       </section>
 
       <DrawsTable
-        draws={draws}
         drawErrors={drawErrors}
+        draws={draws}
         onApprove={onApproveDraw}
         pendingDraws={pendingDraws}
       />
@@ -567,13 +583,15 @@ function BuildDetailsCard({
           <InlineEdit
             affordance="glint"
             ariaLabel="Build address"
-            className="w-full max-w-full whitespace-normal!"
+            className="whitespace-normal! w-full max-w-full"
             displayValue={address}
             draftValue={address}
             inputWidth="100%"
             onCommit={async (draftValue) => {
               const trimmed = draftValue.trim();
-              if (!trimmed) return;
+              if (!trimmed) {
+                return;
+              }
               await onUpdate({ address: trimmed });
             }}
             reserveWidth="100%"
@@ -670,9 +688,7 @@ function BuildDetailsCard({
           <InlineEditNumber
             affordance="glint"
             ariaLabel="Open warnings"
-            className={
-              derived.openWarnings > 0 ? "text-amber-400" : undefined
-            }
+            className={derived.openWarnings > 0 ? "text-amber-400" : undefined}
             formatDisplay={(value) => String(value)}
             inputWidth="2.5rem"
             min={0}
@@ -760,7 +776,7 @@ function DrawsTable({
       </header>
       <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
-          <thead className="bg-card/70 text-[10px] uppercase text-muted-foreground">
+          <thead className="bg-card/70 text-[10px] text-muted-foreground uppercase">
             <tr>
               <Th>Draw</Th>
               <Th>Approved</Th>
@@ -780,7 +796,7 @@ function DrawsTable({
                 draw.status !== "rejected";
               return (
                 <tr
-                  className="border-t border-border"
+                  className="border-border border-t"
                   data-draw-key={draw.drawGroupKey}
                   data-testid={`build-detail-draw-row-${draw.drawGroupKey}`}
                   key={draw.drawGroupKey}
@@ -817,7 +833,7 @@ function DrawsTable({
                     )}
                     {drawErrors[draw.drawGroupKey] ? (
                       <p
-                        className="mt-1 text-destructive text-[11px]"
+                        className="mt-1 text-[11px] text-destructive"
                         data-testid={`build-detail-draw-error-${draw.drawGroupKey}`}
                         role="alert"
                       >
@@ -871,7 +887,6 @@ function StatusChip({
   );
 }
 
-
 const DOCUMENT_KINDS = [
   "permit",
   "survey",
@@ -890,7 +905,7 @@ function DocumentsCard({
   documents: any[];
 }) {
   const addDoc = useMutation(
-    api.demo_drawflow_backoffice.demo_addBuildDocument,
+    api.demo_drawflow_backoffice.demo_addBuildDocument
   );
   const [name, setName] = useState("");
   const [kind, setKind] = useState("permit");
@@ -898,7 +913,9 @@ function DocumentsCard({
   const [error, setError] = useState("");
 
   const onAdd = async () => {
-    if (!name.trim() || pending) return;
+    if (!name.trim() || pending) {
+      return;
+    }
     setPending(true);
     setError("");
     try {
@@ -940,7 +957,9 @@ function DocumentsCard({
           data-testid="documents-name"
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") onAdd();
+            if (e.key === "Enter") {
+              onAdd();
+            }
           }}
           placeholder="e.g. Permit_2026-06.pdf"
           type="text"
@@ -960,7 +979,7 @@ function DocumentsCard({
           ))}
         </select>
         <button
-          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground text-sm disabled:opacity-50"
           data-testid="documents-add"
           disabled={!name.trim() || pending}
           onClick={onAdd}

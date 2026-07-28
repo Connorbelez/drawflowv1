@@ -1,0 +1,111 @@
+{
+  "stage": "interview",
+  "title": "About Hero Reference Match",
+  "goalSlug": "about-hero-reference-match",
+  "questions": [
+    {
+      "id": "fidelity_target",
+      "prompt": "What should count as a successful match to the reference hero?",
+      "description": "The reference is a dense editorial collage: giant ABOUT FAIRLEND type on textured paper, orange CTA, layered house/blueprint/document assets, and the beginning of lower sections visible.",
+      "answerMode": "single-custom",
+      "recommendedAnswer": "Prioritize visual fidelity above the fold: layout proportions, asset placement, typography scale, colors, paper texture, CTA treatment, and visible lower-section boundary should closely match the screenshot. Exact pixel identity is not required where responsive rendering, available fonts, or browser differences make it impractical.",
+      "recommendedOptionIds": ["visual_fidelity"],
+      "options": [
+        {
+          "id": "visual_fidelity",
+          "label": "Visual fidelity"
+        },
+        {
+          "id": "pixel_strict",
+          "label": "Pixel strict"
+        },
+        {
+          "id": "brand_interpretation",
+          "label": "Brand interpretation"
+        }
+      ],
+      "required": true
+    },
+    {
+      "id": "scope",
+      "prompt": "How far should the implementation scope go?",
+      "description": "The screenshot includes the full first viewport: hero plus the top of the “Who We Are” and “What We Finance” rows.",
+      "answerMode": "multi-custom",
+      "recommendedAnswer": "Implement the above-the-fold composition needed to match the screenshot, including the hero and the immediately visible lower-row edge if required for visual parity. Avoid rebuilding unrelated below-fold sections unless they affect the first viewport.",
+      "recommendedOptionIds": ["hero", "fold_edge", "tests"],
+      "options": [
+        {
+          "id": "hero",
+          "label": "Hero only"
+        },
+        {
+          "id": "fold_edge",
+          "label": "Visible fold edge"
+        },
+        {
+          "id": "tests",
+          "label": "Tests/verification"
+        },
+        {
+          "id": "all_about",
+          "label": "Whole about page"
+        }
+      ],
+      "required": true
+    },
+    {
+      "id": "responsive_priority",
+      "prompt": "Which viewport should drive the visual-matching loop?",
+      "description": "The reference image is a wide desktop screenshot. The page still needs to be sane on smaller screens, but one viewport should be the primary parity target.",
+      "answerMode": "single-custom",
+      "recommendedAnswer": "Use the reference screenshot aspect and a wide desktop viewport as the primary target. Add responsive fallbacks that preserve the asset system and readable hierarchy on laptop and mobile, but do not let mobile constraints dilute the desktop match.",
+      "recommendedOptionIds": ["desktop_reference"],
+      "options": [
+        {
+          "id": "desktop_reference",
+          "label": "Desktop reference"
+        },
+        {
+          "id": "laptop_first",
+          "label": "Laptop first"
+        },
+        {
+          "id": "all_breakpoints",
+          "label": "All breakpoints"
+        }
+      ],
+      "required": true
+    },
+    {
+      "id": "implementation_constraints",
+      "prompt": "Any constraints I should preserve while matching the reference?",
+      "description": "I can infer the main constraints from your prompt and AGENTS.md, but this is where to add anything that would be expensive to discover after the fact.",
+      "answerMode": "multi-custom",
+      "recommendedAnswer": "Use existing assets from public/assets/about-webp and paper grain overlays. Preserve project conventions, use Bun commands, avoid unrelated page rewrites, and verify with tests plus browser screenshots.",
+      "recommendedOptionIds": [
+        "existing_assets",
+        "project_conventions",
+        "browser_loop"
+      ],
+      "options": [
+        {
+          "id": "existing_assets",
+          "label": "Existing assets"
+        },
+        {
+          "id": "project_conventions",
+          "label": "Project conventions"
+        },
+        {
+          "id": "browser_loop",
+          "label": "Browser loop"
+        },
+        {
+          "id": "no_new_assets",
+          "label": "No generated assets"
+        }
+      ],
+      "required": true
+    }
+  ]
+}

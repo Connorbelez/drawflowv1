@@ -124,8 +124,8 @@ export interface AnimatedCurvedTimelineProps<TData = unknown> {
   className?: string;
   defaultActiveItemId?: string;
   endCardWidth?: number;
-  formatValue?: (value: number, range: Required<TimelineRange>) => string;
   focusedMarkerId?: string | null;
+  formatValue?: (value: number, range: Required<TimelineRange>) => string;
   getItemEndValue?: (item: TimelineItem<TData>) => number | null | undefined;
   height?: number;
   hoverNodeCollisionPaddingPx?: number;
@@ -435,11 +435,7 @@ export function AnimatedCurvedTimeline<TData = unknown>({
   );
   const markerStacks = useMemo(
     () =>
-      groupMarkersByProximity(
-        markers,
-        layout.valueToX,
-        markerStackProximityPx
-      ),
+      groupMarkersByProximity(markers, layout.valueToX, markerStackProximityPx),
     [layout.valueToX, markerStackProximityPx, markers]
   );
   const nodeLayoutSignature = useMemo(
@@ -587,7 +583,11 @@ export function AnimatedCurvedTimeline<TData = unknown>({
   );
   const renderResolvedMarker = useCallback(
     (marker: TimelineMarker, context: TimelineMarkerRenderContext) =>
-      renderMarker ? renderMarker(marker, context) : <DefaultMarker marker={marker} />,
+      renderMarker ? (
+        renderMarker(marker, context)
+      ) : (
+        <DefaultMarker marker={marker} />
+      ),
     [renderMarker]
   );
 

@@ -250,7 +250,9 @@ export function MilestoneCard({
                               formatDisplay={(value) => money(value)}
                               inputWidth="5.75rem"
                               min={0}
-                              onCommit={(amount) => onUpdate(item.id, { amount })}
+                              onCommit={(amount) =>
+                                onUpdate(item.id, { amount })
+                              }
                               prefix="$"
                               reserveWidth="8.25rem"
                               size="money-lg"

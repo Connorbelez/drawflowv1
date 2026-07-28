@@ -1,3 +1,4 @@
+import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   ClientOnly,
   createFileRoute,
@@ -9,14 +10,13 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import {
   ArrowUpDown,
   CalendarClock,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
-  PanelRightClose,
   CircleAlert,
   ClipboardCheck,
   Eye,
@@ -24,6 +24,7 @@ import {
   Filter,
   Loader2,
   MoreHorizontal,
+  PanelRightClose,
   Plus,
   Search,
   Trash2,
@@ -40,7 +41,7 @@ import {
   KanbanCards,
   KanbanHeader,
   KanbanProvider,
-} from "#/components/kibo-ui/kanban/index.tsx";
+} from "#/features/backoffice-dashboard/readonly-kanban.tsx";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -131,6 +132,29 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/backoffice/")({
+  loader: async ({ context }) => {
+    const workosOrganizationId = context.organizationId;
+    if (!workosOrganizationId) {
+      throw new Error("Backoffice route requires an active organization.");
+    }
+    const asOfDate = new Date().toISOString().slice(0, 10);
+
+    await Promise.all([
+      context.queryClient.ensureQueryData(
+        context.convexQueryClient.queryOptions(
+          api.production_proposals.getBackofficeDashboard,
+          { asOfDate, workosOrganizationId }
+        )
+      ),
+      context.queryClient.ensureQueryData(
+        context.convexQueryClient.queryOptions(
+          api.production_proposals.listActiveBrokerageBuilderOptions,
+          { workosOrganizationId }
+        )
+      ),
+    ]);
+    return { asOfDate };
+  },
   staticData: {
     breadcrumb: {
       label: "Home",
@@ -215,10 +239,13 @@ export function normalizeProductionBackofficeDashboard(
 
 function RouteComponent() {
   const context = Route.useRouteContext();
+  const { asOfDate } = Route.useLoaderData();
   const workosOrganizationId = context.organizationId as string;
-  const dashboardResult = useQuery(
-    api.production_proposals.getBackofficeDashboard,
-    { workosOrganizationId }
+  const { data: dashboardResult } = useSuspenseQuery(
+    context.convexQueryClient.queryOptions(
+      api.production_proposals.getBackofficeDashboard,
+      { asOfDate, workosOrganizationId }
+    )
   );
   const recordClosing = useMutation(
     api.production_proposals.recordOfflineClosing
@@ -231,9 +258,11 @@ function RouteComponent() {
     api.production_proposals.deleteActiveBuild
   );
   const archiveProposal = useMutation(api.production_proposals.rejectProposal);
-  const buildersResult = useQuery(
-    api.production_proposals.listBrokerageBuilders,
-    { workosOrganizationId }
+  const { data: buildersResult } = useSuspenseQuery(
+    context.convexQueryClient.queryOptions(
+      api.production_proposals.listActiveBrokerageBuilderOptions,
+      { workosOrganizationId }
+    )
   );
   const navigate = useNavigate();
 
@@ -244,17 +273,6 @@ function RouteComponent() {
         : null,
     [dashboardResult]
   );
-
-  if (!dashboard) {
-    return (
-      <main className="grid min-h-[24rem] place-items-center bg-muted/30">
-        <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
-          <Loader2 className="size-4 animate-spin" />
-          Loading production backoffice dashboard...
-        </div>
-      </main>
-    );
-  }
 
   return (
     <BackofficeDashboard
@@ -334,10 +352,7 @@ export function BackofficeDashboard({
     proposal: ProposalKanbanCard,
     builderProfileId: string
   ) => Promise<unknown>;
-  onDeleteActiveBuild: (
-    build: ActiveBuild,
-    reason: string
-  ) => Promise<unknown>;
+  onDeleteActiveBuild: (build: ActiveBuild, reason: string) => Promise<unknown>;
   onDeleteDraft: (proposal: ProposalKanbanCard) => Promise<unknown>;
   onOpenUnassignedDrafts: () => Promise<unknown> | unknown;
   onStartNewBuildWorkflow: () => Promise<unknown> | unknown;
@@ -564,10 +579,7 @@ export function ActiveBuildsCard({
   onStartNewBuildWorkflow,
 }: {
   builds: ActiveBuild[];
-  onDeleteActiveBuild: (
-    build: ActiveBuild,
-    reason: string
-  ) => Promise<unknown>;
+  onDeleteActiveBuild: (build: ActiveBuild, reason: string) => Promise<unknown>;
   onOpenUnassignedDrafts: () => Promise<unknown> | unknown;
   onStartNewBuildWorkflow: () => Promise<unknown> | unknown;
 }) {
@@ -864,60 +876,61 @@ export function SubmittedProposalsCard({
   submittedProposals: ProposalKanbanCard[];
 }) {
   const navigate = useNavigate();
-  const [archiveTarget, setArchiveTarget] =
-    useState<ProposalKanbanCard | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<ProposalKanbanCard | null>(
+    null
+  );
   const reviewCount = submittedProposals.length;
   const closingCount = approvedPendingClosing.length;
 
   return (
     <>
-    <Card id="submitted-proposals">
-      <CardHeader className="gap-3 border-b p-4">
-        <CardTitle className="text-base">Submitted Proposals</CardTitle>
-        <CardDescription>
-          Lender-admin review queue and approved proposals pending closing
-        </CardDescription>
-        <CardAction className="row-span-1">
-          <Badge variant={reviewCount + closingCount ? "warning" : "outline"}>
-            {reviewCount} submitted · {closingCount} closing
-          </Badge>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="space-y-0 p-0">
-        <ProposalQueueTable
-          emptyLabel="No submitted proposals are waiting for admin approval."
-          onArchiveRequest={setArchiveTarget}
-          onPrimaryAction={(proposal) => {
-            navigate({
-              params: { planId: proposal.proposalId ?? proposal.id },
-              to: "/backoffice/proposals/$planId",
-            });
-          }}
-          primaryActionLabel="Review"
-          proposals={submittedProposals}
-          showArchive
-          title="Submitted for lender review"
-        />
-        <ProposalQueueTable
-          emptyLabel="No approved proposals are pending closing."
-          onOpenProposal={onOpenProposal}
-          onPrimaryAction={onOpenProposal}
-          onRecordClosing={onRecordClosing}
-          primaryActionLabel="Details"
-          proposals={approvedPendingClosing}
-          title="Approved, pending closing"
-        />
-      </CardContent>
-    </Card>
-    <ArchiveProposalDialog
-      onArchive={onArchiveProposal}
-      onOpenChange={(open) => {
-        if (!open) {
-          setArchiveTarget(null);
-        }
-      }}
-      proposal={archiveTarget}
-    />
+      <Card id="submitted-proposals">
+        <CardHeader className="gap-3 border-b p-4">
+          <CardTitle className="text-base">Submitted Proposals</CardTitle>
+          <CardDescription>
+            Lender-admin review queue and approved proposals pending closing
+          </CardDescription>
+          <CardAction className="row-span-1">
+            <Badge variant={reviewCount + closingCount ? "warning" : "outline"}>
+              {reviewCount} submitted · {closingCount} closing
+            </Badge>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="space-y-0 p-0">
+          <ProposalQueueTable
+            emptyLabel="No submitted proposals are waiting for admin approval."
+            onArchiveRequest={setArchiveTarget}
+            onPrimaryAction={(proposal) => {
+              navigate({
+                params: { planId: proposal.proposalId ?? proposal.id },
+                to: "/backoffice/proposals/$planId",
+              });
+            }}
+            primaryActionLabel="Review"
+            proposals={submittedProposals}
+            showArchive
+            title="Submitted for lender review"
+          />
+          <ProposalQueueTable
+            emptyLabel="No approved proposals are pending closing."
+            onOpenProposal={onOpenProposal}
+            onPrimaryAction={onOpenProposal}
+            onRecordClosing={onRecordClosing}
+            primaryActionLabel="Details"
+            proposals={approvedPendingClosing}
+            title="Approved, pending closing"
+          />
+        </CardContent>
+      </Card>
+      <ArchiveProposalDialog
+        onArchive={onArchiveProposal}
+        onOpenChange={(open) => {
+          if (!open) {
+            setArchiveTarget(null);
+          }
+        }}
+        proposal={archiveTarget}
+      />
     </>
   );
 }
@@ -1057,12 +1070,8 @@ function MilestoneKanban({
   columns: DashboardKanbanColumn[];
   milestones: MilestoneKanbanCard[];
 }) {
-  const [cards, setCards] = useState(milestones);
   const [activeMilestone, setActiveMilestone] =
     useState<MilestoneKanbanCard | null>(null);
-  useEffect(() => {
-    setCards(milestones);
-  }, [milestones]);
   useEffect(() => {
     if (!activeMilestone) {
       return;
@@ -1081,7 +1090,7 @@ function MilestoneKanban({
         <CardHeader className="gap-3 border-b p-4">
           <CardTitle className="text-base">Milestone Kanban</CardTitle>
           <CardDescription>
-            Milestones grouped by build; drag to move state
+            Milestones grouped by build and review state
           </CardDescription>
           <CardAction className="row-span-1 flex items-center gap-2 text-muted-foreground text-sm">
             <Switch aria-label="Show completed milestones" />
@@ -1093,9 +1102,7 @@ function MilestoneKanban({
             <KanbanProvider
               className="min-h-80 min-w-4xl gap-0"
               columns={columns}
-              data={cards}
-              onDataChange={setCards}
-              readOnly
+              data={milestones}
             >
               {(column) => (
                 <KanbanBoard
@@ -1108,7 +1115,7 @@ function MilestoneKanban({
                       <span>{column.name}</span>
                       <Badge variant="outline">
                         {
-                          cards.filter((card) => card.column === column.id)
+                          milestones.filter((card) => card.column === column.id)
                             .length
                         }
                       </Badge>
@@ -1225,12 +1232,8 @@ export function ProposalKanban({
     null
   );
   const navigate = useNavigate();
-  const [cards, setCards] = useState(proposals);
   const [activeProposal, setActiveProposal] =
     useState<ProposalKanbanCard | null>(null);
-  useEffect(() => {
-    setCards(proposals);
-  }, [proposals]);
   useEffect(() => {
     if (!activeProposal) {
       return;
@@ -1265,9 +1268,7 @@ export function ProposalKanban({
             <KanbanProvider
               className="min-h-96 min-w-4xl gap-0"
               columns={columns}
-              data={cards}
-              onDataChange={setCards}
-              readOnly
+              data={proposals}
             >
               {(column) => (
                 <KanbanBoard
@@ -1281,7 +1282,7 @@ export function ProposalKanban({
                         <span>{column.name}</span>
                         <Badge variant="outline">
                           {
-                            cards.filter((card) => card.column === column.id)
+                            proposals.filter((card) => card.column === column.id)
                               .length
                           }
                         </Badge>
@@ -1551,7 +1552,10 @@ function ProposalContextMenu({
                 </ContextMenuItem>
               ) : null}
               {showDelete ? (
-                <ContextMenuItem onClick={onDeleteRequest} variant="destructive">
+                <ContextMenuItem
+                  onClick={onDeleteRequest}
+                  variant="destructive"
+                >
                   <Trash2 aria-hidden />
                   Delete draft
                 </ContextMenuItem>
@@ -1613,7 +1617,9 @@ function SubmittedProposalContextMenu({
       <ContextMenuTrigger render={children} />
       <ContextMenuContent className="w-56">
         <ContextMenuGroup>
-          <ContextMenuLabel className="truncate">{proposal.name}</ContextMenuLabel>
+          <ContextMenuLabel className="truncate">
+            {proposal.name}
+          </ContextMenuLabel>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={onOpen}>
             <FileText aria-hidden />
@@ -1861,7 +1867,10 @@ export function ArchiveProposalDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="px-6 pb-2">
-          <label className="grid gap-2 text-sm" htmlFor="archive-proposal-reason">
+          <label
+            className="grid gap-2 text-sm"
+            htmlFor="archive-proposal-reason"
+          >
             <span>Archive reason</span>
             <Textarea
               data-testid="archive-proposal-reason"
@@ -1955,7 +1964,10 @@ function DeleteActiveBuildDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="px-6 pb-2">
-          <label className="grid gap-2 text-sm" htmlFor="delete-active-build-reason">
+          <label
+            className="grid gap-2 text-sm"
+            htmlFor="delete-active-build-reason"
+          >
             <span>Delete reason</span>
             <Textarea
               data-testid="delete-active-build-reason"

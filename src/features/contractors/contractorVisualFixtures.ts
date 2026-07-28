@@ -1,6 +1,6 @@
 import {
-  VISUAL_PARITY_ORGANIZATION_ID,
   isProductionVisualParityFixtureEnabled,
+  VISUAL_PARITY_ORGANIZATION_ID,
 } from "#/features/production-proposals/visualParityFixtures.ts";
 
 export { isProductionVisualParityFixtureEnabled };
@@ -68,7 +68,7 @@ const contractors = [
       },
     ],
     city: "Hamilton, ON",
-    defaultPayRateCents: 72000,
+    defaultPayRateCents: 72_000,
     defaultPayRateUnit: "day",
     email: "crew@beamline.example",
     equipment: [
@@ -91,8 +91,10 @@ export function getVisualContractorList() {
       capabilityKeys: [
         ...new Set(
           contractors.flatMap((contractor) =>
-            contractor.capabilities.map((capability) => capability.capabilityKey),
-          ),
+            contractor.capabilities.map(
+              (capability) => capability.capabilityKey
+            )
+          )
         ),
       ],
     },
@@ -100,7 +102,8 @@ export function getVisualContractorList() {
 }
 
 export function getVisualContractorDetail(contractorId: string) {
-  const profile = contractors.find((contractor) => contractor._id === contractorId) ??
+  const profile =
+    contractors.find((contractor) => contractor._id === contractorId) ??
     contractors[0];
   const ratings = [
     {
@@ -152,7 +155,7 @@ export function getVisualContractorDetail(contractorId: string) {
       totalActualHours: 72,
       totalEstimatedCostCents: 620_500,
       totalEstimatedHours: 73,
-      totalVarianceCents: -8_500,
+      totalVarianceCents: -8500,
     },
     profile,
     ratings,
