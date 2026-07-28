@@ -549,7 +549,7 @@ describe("BuildFundingWorkspace", () => {
       drawKey: "submitted",
       label: "Foundation trades reimbursement",
       requestedAt: "2026-07-14T12:00:00.000Z",
-      status: "requested" as const,
+      status: "ready_for_admin" as const,
     };
     const onApproveDraw = vi.fn().mockRejectedValue(
       new Error(

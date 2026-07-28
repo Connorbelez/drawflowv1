@@ -1641,7 +1641,11 @@ function CurrentBuildOverviewPanel({
     () =>
       projection.draws
         .filter(
-          (draw) => draw.status === "requested" || draw.status === "approved"
+          (draw) =>
+            draw.status === "requested" ||
+            draw.status === "in_review" ||
+            draw.status === "ready_for_admin" ||
+            draw.status === "approved_for_release"
         )
         .slice()
         .sort(compareDrawsMostRecentFirst),

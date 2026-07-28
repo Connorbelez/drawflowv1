@@ -8787,14 +8787,17 @@ describe("production proposal foundation", () => {
       reservedCents: 3_234_567,
       unlockedCents: 40_000_000,
     });
-    const persistedAttribution = await t.run(async (ctx: any) =>
-      ctx.db
+    const persistedAttribution = await t.run(async (ctx: any) => {
+      const persistedRequest = detail.draws.find(
+        (draw: any) => draw.drawKey === receipt.requestKey,
+      );
+      return await ctx.db
         .query("activeBuildDrawRequestAllocations")
         .withIndex("by_request", (q: any) =>
-          q.eq("drawRequestId", detail.draws[0]._id),
+          q.eq("drawRequestId", persistedRequest._id),
         )
-        .collect(),
-    );
+        .collect();
+    });
     expect(persistedAttribution).toEqual([
       expect.objectContaining({
         amountCents: 1_234_567,
@@ -8903,8 +8906,8 @@ describe("production proposal foundation", () => {
       status: "planned",
     });
     expect(detail.drawFunding).toMatchObject({
-      availableCents: 40_000_000,
-      reservedCents: 0,
+      availableCents: 38_000_000,
+      reservedCents: 2_000_000,
     });
     const drawAuditEvents = await t.run(async (ctx: any) =>
       ctx.db
@@ -8937,6 +8940,13 @@ describe("production proposal foundation", () => {
         command: "requestActiveBuildDraw",
         organizationId: ORG,
         reason: "Exact partial reimbursement.",
+      },
+      {
+        actorRoles: ["builder"],
+        actorWorkosUserId: "user_builder",
+        command: "requestActiveBuildDraw",
+        organizationId: ORG,
+        reason: "Second exact partial reimbursement.",
       },
       {
         actorRoles: ["builder"],
@@ -9207,15 +9217,34 @@ describe("production proposal foundation", () => {
       ),
     ).rejects.toThrow("run the active-build draw attribution migration");
 
+    const migrationReason =
+      "Normalize legacy draw attribution and work orders.";
+    const migrationPlan = await admin.mutation(
+      (api as any).production_proposals.migrateActiveBuildDrawRequests,
+      {
+        buildId: closing.buildId,
+        dryRun: true,
+        reason: migrationReason,
+        workosOrganizationId: ORG,
+      },
+    );
     await expect(
       admin.mutation(
         (api as any).production_proposals.migrateActiveBuildDrawRequests,
         {
           buildId: closing.buildId,
+          dryRun: false,
+          expectedPlanToken: migrationPlan.planToken,
+          reason: migrationReason,
           workosOrganizationId: ORG,
         },
       ),
-    ).resolves.toEqual({ attributed: 1, migrated: 0, skipped: 0 });
+    ).resolves.toMatchObject({
+      applied: true,
+      attributed: 1,
+      migrated: 0,
+      skipped: 0,
+    });
 
     const migrated = await admin.run(async (ctx: any) => ({
       allocations: await ctx.db
@@ -9496,6 +9525,23 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    await t.mutation(
+      (api as any).production_proposals.startActiveBuildDrawReview,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.submitActiveBuildDrawForAdmin,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Operations review complete.",
+        workosOrganizationId: ORG,
+      },
+    );
 
     await expect(
       t.mutation((api as any).production_proposals.rejectActiveBuildDraw, {
@@ -9506,16 +9552,21 @@ describe("production proposal foundation", () => {
       }),
     ).rejects.toThrow(/reason/i);
 
-    for (const note of [undefined, ""] as const) {
-      await expect(
-        t.mutation((api as any).production_proposals.rejectActiveBuildDraw, {
-          buildId: closing.buildId,
-          drawKey: receipt.requestKey,
-          ...(note === undefined ? {} : { note }),
-          workosOrganizationId: ORG,
-        }),
-      ).rejects.toThrow(/reason/i);
-    }
+    await expect(
+      t.mutation((api as any).production_proposals.rejectActiveBuildDraw, {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/note/i);
+    await expect(
+      t.mutation((api as any).production_proposals.rejectActiveBuildDraw, {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/reason/i);
 
     const reason = "Invoice total does not match verified work.";
     await t.mutation((api as any).production_proposals.rejectActiveBuildDraw, {
@@ -10001,6 +10052,23 @@ describe("recipient delivery inbox", () => {
         clientOperationId: "draw-handoff-001",
         drawKey: "draw-01",
         note: "Foundation reimbursement handoff.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.startActiveBuildDrawReview,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.submitActiveBuildDrawForAdmin,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Operations recommends release.",
         workosOrganizationId: ORG,
       },
     );

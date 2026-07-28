@@ -1089,7 +1089,7 @@ describe("ProductionBuildDetailSurface", () => {
               drawKey: "draw-requested",
               label: "Requested foundation reimbursement",
               requestedAt: "2026-06-24T12:00:00.000Z",
-              status: "requested",
+              status: "ready_for_admin",
             },
             {
               ...detail.draws[0],
@@ -1099,7 +1099,7 @@ describe("ProductionBuildDetailSurface", () => {
               label: "Approved framing reimbursement",
               order: 2,
               reviewedAt: "2026-06-25T12:00:00.000Z",
-              status: "approved",
+              status: "approved_for_release",
             },
           ],
         }}
@@ -1177,7 +1177,11 @@ describe("ProductionBuildDetailSurface", () => {
       "Draw approval queue",
     );
 
-    fireEvent.click(screen.getByTestId("draw-overview-start-draw-requested"));
+    fireEvent.click(
+      within(screen.getByTestId("draw-overview-approval-queue")).getByTestId(
+        "draw-overview-start-draw-requested",
+      ),
+    );
     await waitFor(() => expect(startDrawReview).toHaveBeenCalledTimes(1));
     expect(startDrawReview.mock.calls[0]?.[0]).toMatchObject({
       drawKey: "draw-requested",
