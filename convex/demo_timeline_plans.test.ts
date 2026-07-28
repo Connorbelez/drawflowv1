@@ -169,8 +169,8 @@ describe("durable timeline plan helpers", () => {
       ],
     });
 
-    // Was +7 (bug), now +8 to match DEFAULT_DRAW_REVIEW_LAG_DAYS
-    expect(normalized.draws[0].x).toBe(18);
+    // The milestone ends on day 14, then the default 8-day review lag applies.
+    expect(normalized.draws[0].x).toBe(22);
   });
 
   test("generates proposal short slugs in the required live-link format", () => {
