@@ -25,6 +25,7 @@ import {
   Search,
   SlidersHorizontal,
   UserPlus,
+  UserRoundCog,
   X,
 } from "lucide-react";
 import { type ReactElement, useMemo, useState } from "react";
@@ -91,10 +92,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "#/components/ui/tooltip.tsx";
+import { BrokerAssignmentDialog } from "#/features/broker-assignments/BrokerAssignmentDialog.tsx";
 import { cn } from "#/lib/utils.ts";
 
 import { BuilderDetailDrawer } from "./-builder-detail-drawer";
 import {
+  type AssignableBrokerage,
   type BrokerageOption,
   type BuilderRow,
   type BuilderStage,
@@ -110,6 +113,17 @@ import {
 } from "./-builder-roster-types";
 
 export interface BuilderRosterHandlers {
+  onAssignBroker: (input: {
+    assignedBrokerWorkosUserId: string;
+    builderProfileIds: string[];
+    reason: string;
+  }) => Promise<{
+    assigned: number;
+    processed: number;
+    reassigned: number;
+    repaired: number;
+    unchanged: number;
+  }>;
   onInviteBuilder: () => void;
   onLinkAccount: (input: {
     builderProfileId: string;
@@ -117,6 +131,7 @@ export interface BuilderRosterHandlers {
     workosUserId: string;
   }) => Promise<void>;
   onProvisionBuilder: (input: {
+    assignedBrokerWorkosUserId: string;
     displayName: string;
     ownerWorkosUserId: string;
     workosOrganizationId: string;
@@ -129,10 +144,17 @@ export interface BuilderRosterHandlers {
 }
 
 interface BuilderRosterSurfaceProps extends BuilderRosterHandlers {
+  assignableBrokerages: AssignableBrokerage[];
   brokerages: BrokerageOption[];
+  brokerOptionsPending: boolean;
   builders: BuilderRow[] | undefined;
   pending: boolean;
   unprovisionedBuilders: UnprovisionedBuilder[] | undefined;
+}
+
+interface BrokerAssignmentDialogState {
+  clearSelectionOnSuccess: boolean;
+  targets: BuilderRow[];
 }
 
 type StatusFilter = "all" | "active" | "inactive";
@@ -156,6 +178,8 @@ const globalFilterFn: FilterFn<BuilderRow> = (row, _columnId, value) => {
     builder.legalName ?? "",
     builder.organizationName,
     builder.brokerage?.displayName ?? "",
+    builder.brokerAssignment?.broker?.name ?? "",
+    builder.brokerAssignment?.broker?.email ?? "",
     ...builder.accounts.flatMap((account) => [
       account.name ?? "",
       account.email ?? "",
@@ -169,9 +193,12 @@ const globalFilterFn: FilterFn<BuilderRow> = (row, _columnId, value) => {
 };
 
 export function BuilderRosterSurface({
+  assignableBrokerages,
+  brokerOptionsPending,
   brokerages,
   builders,
   onInviteBuilder,
+  onAssignBroker,
   onLinkAccount,
   onProvisionBuilder,
   onSetProfileStatus,
@@ -191,6 +218,8 @@ export function BuilderRosterSurface({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [brokerageFilter, setBrokerageFilter] = useState<string>("all");
   const [openBuilderId, setOpenBuilderId] = useState<string | null>(null);
+  const [assignmentDialog, setAssignmentDialog] =
+    useState<BrokerAssignmentDialogState | null>(null);
 
   const filteredByFacets = useMemo(
     () =>
@@ -209,7 +238,16 @@ export function BuilderRosterSurface({
     [rows, statusFilter, brokerageFilter]
   );
 
-  const columns = useMemo<ColumnDef<BuilderRow>[]>(() => buildColumns(), []);
+  const columns = useMemo<ColumnDef<BuilderRow>[]>(
+    () =>
+      buildColumns((builder) =>
+        setAssignmentDialog({
+          clearSelectionOnSuccess: false,
+          targets: [builder],
+        })
+      ),
+    []
+  );
 
   const table = useReactTable({
     columns,
@@ -307,6 +345,12 @@ export function BuilderRosterSurface({
                   );
                   setRowSelection({});
                 }}
+                onAssign={() =>
+                  setAssignmentDialog({
+                    clearSelectionOnSuccess: true,
+                    targets: selectedRows.map((row) => row.original),
+                  })
+                }
                 onClear={() => setRowSelection({})}
                 onDeactivate={async () => {
                   await Promise.all(
@@ -388,6 +432,7 @@ export function BuilderRosterSurface({
                             key={cell.id}
                             onClick={
                               cell.column.id === "select" ||
+                              cell.column.id === "broker" ||
                               cell.column.id === "actions"
                                 ? (event) => event.stopPropagation()
                                 : undefined
@@ -420,6 +465,8 @@ export function BuilderRosterSurface({
         </Frame>
 
         <UnprovisionedBuildersPanel
+          assignableBrokerages={assignableBrokerages}
+          brokerOptionsPending={brokerOptionsPending}
           candidates={unprovisionedBuilders}
           onProvision={onProvisionBuilder}
           pending={pending}
@@ -438,15 +485,38 @@ export function BuilderRosterSurface({
         onUnlinkAccount={onUnlinkAccount}
         open={openBuilder !== null}
       />
+
+      <BrokerAssignmentDialog
+        brokerages={assignableBrokerages}
+        brokerOptionsPending={brokerOptionsPending}
+        onAssign={onAssignBroker}
+        onAssigned={() => {
+          if (assignmentDialog?.clearSelectionOnSuccess) {
+            setRowSelection({});
+          }
+          setAssignmentDialog(null);
+        }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAssignmentDialog(null);
+          }
+        }}
+        open={assignmentDialog !== null}
+        targets={assignmentDialog?.targets ?? []}
+      />
     </TooltipProvider>
   );
 }
 
 function UnprovisionedBuildersPanel({
+  assignableBrokerages,
+  brokerOptionsPending,
   candidates,
   onProvision,
   pending,
 }: {
+  assignableBrokerages: AssignableBrokerage[];
+  brokerOptionsPending: boolean;
   candidates: UnprovisionedBuilder[] | undefined;
   onProvision: BuilderRosterHandlers["onProvisionBuilder"];
   pending: boolean;
@@ -507,6 +577,8 @@ function UnprovisionedBuildersPanel({
                   </div>
                 </div>
                 <ProvisionBuilderDialog
+                  assignableBrokerages={assignableBrokerages}
+                  brokerOptionsPending={brokerOptionsPending}
                   candidate={candidate}
                   onProvision={onProvision}
                 />
@@ -520,9 +592,13 @@ function UnprovisionedBuildersPanel({
 }
 
 function ProvisionBuilderDialog({
+  assignableBrokerages,
+  brokerOptionsPending,
   candidate,
   onProvision,
 }: {
+  assignableBrokerages: AssignableBrokerage[];
+  brokerOptionsPending: boolean;
   candidate: UnprovisionedBuilder;
   onProvision: BuilderRosterHandlers["onProvisionBuilder"];
 }): ReactElement {
@@ -534,12 +610,27 @@ function ProvisionBuilderDialog({
     candidate.email?.split("@")[0]?.trim() ||
     candidate.workosUserId;
   const [name, setName] = useState(ownerFallback);
+  const brokerage = assignableBrokerages.find(
+    (option) => option.workosOrganizationId === candidate.workosOrganizationId
+  );
+  const brokers = brokerage?.brokers ?? [];
+  const defaultBrokerWorkosUserId =
+    brokers.find((broker) => broker.isPrincipal)?.workosUserId ??
+    brokers[0]?.workosUserId ??
+    "";
+  const [assignedBrokerWorkosUserId, setAssignedBrokerWorkosUserId] = useState(
+    defaultBrokerWorkosUserId
+  );
   const [saving, setSaving] = useState(false);
   const trimmed = name.trim();
   const brokerageName = candidate.brokerageDisplayName?.trim().toLowerCase();
   const mirrorsBrokerage =
     brokerageName !== undefined && trimmed.toLowerCase() === brokerageName;
-  const invalid = trimmed.length === 0 || mirrorsBrokerage;
+  const selectedBroker = brokers.find(
+    (broker) => broker.workosUserId === assignedBrokerWorkosUserId
+  );
+  const invalid =
+    trimmed.length === 0 || mirrorsBrokerage || !selectedBroker || saving;
 
   return (
     <Dialog
@@ -547,6 +638,7 @@ function ProvisionBuilderDialog({
         setOpen(next);
         if (next) {
           setName(ownerFallback);
+          setAssignedBrokerWorkosUserId(defaultBrokerWorkosUserId);
         }
       }}
       open={open}
@@ -583,6 +675,69 @@ function ProvisionBuilderDialog({
             </p>
           )}
         </div>
+        <div className="flex flex-col gap-2 py-1">
+          <Label htmlFor={`builder-broker-${candidate.workosMembershipId}`}>
+            Assigned broker
+          </Label>
+          <Select
+            disabled={brokerOptionsPending || brokers.length === 0}
+            items={brokers.map((broker) => broker.workosUserId)}
+            onValueChange={(value) =>
+              setAssignedBrokerWorkosUserId(value ?? "")
+            }
+            value={assignedBrokerWorkosUserId || undefined}
+          >
+            <SelectTrigger
+              id={`builder-broker-${candidate.workosMembershipId}`}
+            >
+              <SelectValue>
+                {(value) => {
+                  const broker = brokers.find(
+                    (option) => option.workosUserId === value
+                  );
+                  return (
+                    broker?.name ??
+                    broker?.email ??
+                    (brokerOptionsPending
+                      ? "Loading brokers..."
+                      : "Select broker")
+                  );
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              {brokers.map((broker) => (
+                <SelectItem
+                  key={broker.workosUserId}
+                  onClick={() =>
+                    setAssignedBrokerWorkosUserId(broker.workosUserId)
+                  }
+                  value={broker.workosUserId}
+                >
+                  <div className="flex min-w-0 flex-col">
+                    <span className="truncate font-medium">
+                      {broker.name ?? broker.email ?? broker.workosUserId}
+                    </span>
+                    <span className="truncate text-muted-foreground text-xs">
+                      {broker.email ?? broker.workosUserId}
+                      {broker.isPrincipal ? " · Principal broker" : ""}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {!brokerOptionsPending && brokers.length === 0 ? (
+            <p className="text-destructive text-xs" role="alert">
+              No active eligible brokers are available for this brokerage.
+            </p>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              Required. Only active broker members of this brokerage can be
+              assigned.
+            </p>
+          )}
+        </div>
         <DialogFooter>
           <DialogClose
             render={
@@ -592,11 +747,12 @@ function ProvisionBuilderDialog({
             }
           />
           <Button
-            disabled={invalid || saving}
+            disabled={invalid}
             onClick={async () => {
               setSaving(true);
               try {
                 await onProvision({
+                  assignedBrokerWorkosUserId,
                   displayName: trimmed,
                   ownerWorkosUserId: candidate.workosUserId,
                   workosOrganizationId: candidate.workosOrganizationId,
@@ -616,7 +772,9 @@ function ProvisionBuilderDialog({
   );
 }
 
-function buildColumns(): ColumnDef<BuilderRow>[] {
+function buildColumns(
+  onOpenBrokerAssignment: (builder: BuilderRow) => void
+): ColumnDef<BuilderRow>[] {
   return [
     {
       cell: ({ row }) => (
@@ -630,7 +788,7 @@ function buildColumns(): ColumnDef<BuilderRow>[] {
       enableSorting: false,
       header: ({ table }) => (
         <Checkbox
-          aria-label="Select all builders"
+          aria-label="Select all Builders on this page"
           checked={
             table.getIsAllPageRowsSelected()
               ? true
@@ -654,6 +812,21 @@ function buildColumns(): ColumnDef<BuilderRow>[] {
       size: 280,
       sortingFn: (a, b) =>
         a.original.displayName.localeCompare(b.original.displayName),
+    },
+    {
+      accessorFn: (row) =>
+        row.brokerAssignment?.broker?.name ??
+        row.brokerAssignment?.assignedBrokerWorkosUserId ??
+        "",
+      cell: ({ row }) => (
+        <BrokerAssignmentCell
+          builder={row.original}
+          onAssign={() => onOpenBrokerAssignment(row.original)}
+        />
+      ),
+      header: ({ column }) => <SortHeader column={column} label="Broker" />,
+      id: "broker",
+      size: 280,
     },
     {
       accessorFn: (row) => row.stage,
@@ -1064,41 +1237,104 @@ const COLUMN_LABELS: Record<string, string> = {
 function BulkActionBar({
   busyDisabled,
   onActivate,
+  onAssign,
   onClear,
   onDeactivate,
   selectedCount,
 }: {
   busyDisabled: boolean;
   onActivate: () => Promise<void>;
+  onAssign: () => void;
   onClear: () => void;
   onDeactivate: () => Promise<void>;
   selectedCount: number;
 }): ReactElement {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-accent/40 px-3 py-2">
-      <span className="font-medium text-sm">{selectedCount} selected</span>
-      <div className="flex-1" />
+    <Frame>
+      <FramePanel className="flex flex-wrap items-center gap-2 p-2.5">
+        <span className="font-medium text-sm">{selectedCount} selected</span>
+        <div className="flex-1" />
+        <Button disabled={busyDisabled} onClick={onAssign} size="sm">
+          <UserRoundCog />
+          Assign broker
+        </Button>
+        <Button
+          disabled={busyDisabled}
+          onClick={() => onActivate()}
+          size="sm"
+          variant="outline"
+        >
+          <Power />
+          Activate
+        </Button>
+        <Button
+          disabled={busyDisabled}
+          onClick={() => onDeactivate()}
+          size="sm"
+          variant="destructive-outline"
+        >
+          <Power />
+          Deactivate
+        </Button>
+        <Button onClick={onClear} size="sm" variant="ghost">
+          <X />
+          Clear
+        </Button>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function BrokerAssignmentCell({
+  builder,
+  onAssign,
+}: {
+  builder: BuilderRow;
+  onAssign: () => void;
+}): ReactElement {
+  const assignment = builder.brokerAssignment;
+  const broker = assignment?.broker;
+  const assignedBrokerId = assignment?.assignedBrokerWorkosUserId;
+  const actionLabel = assignedBrokerId
+    ? assignment?.healthy
+      ? "Change"
+      : "Repair"
+    : "Assign";
+  const brokerName = broker?.name ?? broker?.email ?? "Unassigned";
+  const brokerDetail = broker?.name
+    ? broker.email
+    : assignedBrokerId && !broker
+      ? "Broker record unavailable"
+      : "No active broker assignment";
+
+  return (
+    <div className="flex min-w-60 items-center gap-2.5">
+      <Avatar className="size-7">
+        <AvatarImage alt="" src={broker?.profilePictureUrl ?? undefined} />
+        <AvatarFallback className="text-[10px]">
+          {broker ? initials(broker.name, broker.email) : "?"}
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate font-medium text-sm">{brokerName}</span>
+          <Badge variant={assignment?.healthy ? "success" : "warning"}>
+            {assignment?.healthy ? "Assigned" : "Needs assignment"}
+          </Badge>
+        </div>
+        <p className="truncate text-muted-foreground text-xs">{brokerDetail}</p>
+      </div>
       <Button
-        disabled={busyDisabled}
-        onClick={() => onActivate()}
+        aria-label={`${actionLabel} broker for ${builder.displayName}`}
+        disabled={builder.status !== "active" || !builder.brokerage}
+        onClick={(event) => {
+          event.stopPropagation();
+          onAssign();
+        }}
         size="sm"
         variant="outline"
       >
-        <Power />
-        Activate
-      </Button>
-      <Button
-        disabled={busyDisabled}
-        onClick={() => onDeactivate()}
-        size="sm"
-        variant="destructive-outline"
-      >
-        <Power />
-        Deactivate
-      </Button>
-      <Button onClick={onClear} size="sm" variant="ghost">
-        <X />
-        Clear
+        {actionLabel}
       </Button>
     </div>
   );

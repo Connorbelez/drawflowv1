@@ -8,10 +8,14 @@ import {
   guidanceToItems,
 } from "./demo_site_visit_guidance";
 import {
+  createSiteVisitRecoveryReference,
   generateSiteVisitToken,
   hashSiteVisitToken,
+  resolveSiteVisitGeofenceAttempt,
   validateIncludedSiteVisitMilestones,
+  validateSiteVisitReplacementRequest,
   validateSiteVisitReportSubmission,
+  validateSiteVisitSubmissionContext,
 } from "./demo_site_visit_tokens";
 import {
   publicMutation,
@@ -20,6 +24,29 @@ import {
   withQueryTiming,
 } from "./fluent";
 import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
+
+const siteVisitLocationAttemptValidator = v.object({
+  accuracyMeters: v.optional(v.number()),
+  attempted: v.boolean(),
+  attemptedAt: v.optional(v.number()),
+  distanceMeters: v.optional(v.number()),
+  failureReason: v.optional(v.string()),
+  geofenceRadiusMeters: v.optional(v.number()),
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
+  permissionOutcome: v.union(
+    v.literal("denied"),
+    v.literal("granted"),
+    v.literal("not_requested"),
+    v.literal("unavailable")
+  ),
+  verified: v.boolean(),
+});
+
+const siteVisitPrerequisiteExceptionValidator = v.object({
+  acknowledged: v.boolean(),
+  reason: v.string(),
+});
 
 const DEMO_TODAY = "2026-05-08";
 const DEMO_NOW = Date.parse("2026-05-08T16:00:00.000Z");
@@ -962,7 +989,45 @@ async function getSiteVisitForToken(
       build,
       reason: "not_found" as const,
       state: "invalid" as const,
-      visit,
+      visit: null,
+    };
+  }
+
+  const scopedTargets = await ctx.db
+    .query("demo_siteVisitTargets")
+    .withIndex("by_site_visit", (q) => q.eq("siteVisitId", visit._id))
+    .collect();
+  const selectedTarget = scopedTargets.find(
+    (target) => target.milestoneKey === visit.milestoneKey
+  );
+  let expectedOrganizationScopeKey = `demo:${visit.scenario}`;
+  let evidenceScopeId = String(build._id);
+  if (visit.scenario.startsWith("timeline:")) {
+    const planIdValue = visit.scenario.slice("timeline:".length);
+    const planId = ctx.db.normalizeId("demo_timelinePlans", planIdValue);
+    const plan = planId ? await ctx.db.get(planId) : null;
+    expectedOrganizationScopeKey = plan?.orgKey ?? "";
+    evidenceScopeId = planIdValue;
+  }
+  const expectedWorkOrderId = `DEMO-WO-${visit.milestoneKey}-${visit.scopeBoundAt}`;
+  const expectedEvidencePackageId = `DEMO-EP-${evidenceScopeId}-${visit.milestoneKey}`;
+  const scopeIsInvalid =
+    !selectedTarget ||
+    selectedTarget.buildId !== build._id ||
+    selectedTarget.milestoneId !== visit.milestoneId ||
+    scopedTargets.some((target) => target.buildId !== build._id) ||
+    (visit.organizationScopeKey !== undefined &&
+      visit.organizationScopeKey !== expectedOrganizationScopeKey) ||
+    (visit.workOrderId !== undefined &&
+      visit.workOrderId !== expectedWorkOrderId) ||
+    (visit.evidencePackageId !== undefined &&
+      visit.evidencePackageId !== expectedEvidencePackageId);
+  if (scopeIsInvalid) {
+    return {
+      build,
+      reason: "not_found" as const,
+      state: "invalid" as const,
+      visit: null,
     };
   }
 
@@ -1173,6 +1238,8 @@ async function seedActive(ctx: DemoMutationCtx) {
     interestAnnualBps: INTEREST_ANNUAL_BPS,
     key: "active-maple-ridge",
     lenderDrawPolicyLimitCents: WORKING_CAPITAL_CENTS,
+    locationLatitude: 43.2557,
+    locationLongitude: -79.8711,
     name: "Maple Ridge Townhomes",
     ownerPersona: MOCK_BUILDER_PERSONA,
     payoffDate: "2027-01-05",
@@ -1301,6 +1368,8 @@ async function seedProposal(ctx: DemoMutationCtx) {
     interestAnnualBps: INTEREST_ANNUAL_BPS,
     key: "proposal-maple-ridge",
     lenderDrawPolicyLimitCents: WORKING_CAPITAL_CENTS,
+    locationLatitude: 43.2557,
+    locationLongitude: -79.8711,
     name: "Maple Ridge Townhomes",
     ownerPersona: MOCK_BUILDER_PERSONA,
     payoffDate: "2027-01-05",
@@ -1807,6 +1876,11 @@ const BACKOFFICE_MILESTONE_COLUMNS = [
     name: "In progress",
   },
   {
+    description: "Planned finish date has passed",
+    id: "behindSchedule",
+    name: "Behind schedule",
+  },
+  {
     description: "Pending staff approval",
     id: "inReview",
     name: "In review",
@@ -1895,7 +1969,10 @@ function milestoneState(status: string) {
   return "inProgress" as const;
 }
 
-function milestoneColumn(milestone: DecoratedMilestone) {
+function milestoneColumn(
+  build: Doc<"demo_builds">,
+  milestone: DecoratedMilestone
+) {
   if (
     milestone.status.includes("submitted") ||
     milestone.status.includes("review") ||
@@ -1915,6 +1992,10 @@ function milestoneColumn(milestone: DecoratedMilestone) {
     milestone.latestSiteVisit.status !== "completed"
   ) {
     return "inProgress";
+  }
+  const targetDate = milestone.forecastEndDate ?? milestone.plannedEndDate;
+  if (targetDate && targetDate < build.todayDate) {
+    return "behindSchedule";
   }
   return milestoneState(milestone.displayStatus);
 }
@@ -2171,7 +2252,7 @@ async function buildBackofficeDashboardProjection(ctx: DemoReadCtx) {
         address: demoBuildAddress(activeBuild),
         buildKey: activeBuild.key,
         buildId: activeDisplayId,
-        column: milestoneColumn(milestone),
+        column: milestoneColumn(activeBuild, milestone),
         dueLabel: milestoneDueLabel(activeBuild, milestone),
         href: `/backoffice/builds/${activeBuild.key}?milestone=${milestone.key}`,
         id: String(milestone._id),
@@ -3365,10 +3446,16 @@ export const demo_requestSiteVisit = publicMutation
     const token = generateSiteVisitToken();
     const tokenHash = await hashSiteVisitToken(token);
     const createdAt = Date.now();
+    const workOrderId = `DEMO-WO-${milestone.key}-${createdAt}`;
+    const evidencePackageId = `DEMO-EP-${String(milestone.buildId)}-${milestone.key}`;
     const visitId = await ctx.db.insert("demo_siteVisits", {
       assignedPersona: "site_visitor",
       buildId: milestone.buildId,
       createdAt,
+      evidencePackageId,
+      organizationScopeKey: "demo:active",
+      scopeBoundAt: createdAt,
+      workOrderId,
       milestoneId: milestone._id,
       milestoneKey: milestone.key,
       requestReason: args.reason,
@@ -3447,6 +3534,9 @@ export const demo_requestSiteVisit = publicMutation
       scenario: "active",
     });
     return {
+      evidencePackageId,
+      organizationScopeKey: "demo:active",
+      workOrderId,
       token,
       tokenExpiresAt: createdAt + 60 * 60 * 1000,
       url: `/newsitevisit/${build.key}/${token}`,
@@ -3523,6 +3613,62 @@ export const demo_getSiteVisitByToken = publicQuery
       targets: targetsWithGuidance,
       visit: state.visit,
     };
+  })
+  .public();
+
+export const demo_requestSiteVisitReplacementLink = publicMutation
+  .use(withMutationTiming("demo_drawflow.requestSiteVisitReplacementLink"))
+  .input({ buildId: v.string(), reason: v.string(), token: v.string() })
+  .returns(v.object({ reference: v.string(), requested: v.literal(true) }))
+  .handler(async (ctx, args) => {
+    const state = await getSiteVisitForToken(ctx, args.buildId, args.token);
+    const tokenState =
+      state.reason === "consumed"
+        ? ("consumed" as const)
+        : state.reason === "expired"
+          ? ("expired" as const)
+          : ("active" as const);
+    const request = validateSiteVisitReplacementRequest({
+      reason: args.reason,
+      tokenState,
+    });
+    if (!(state.build && state.visit)) {
+      throw new Error("Site visit recovery is unavailable for this link.");
+    }
+
+    const requestedAt = Date.now();
+    const reference = createSiteVisitRecoveryReference(crypto.randomUUID());
+    await ctx.db.insert("siteVisitLinkRecoveryRequests", {
+      buildId: String(state.build._id),
+      originalVisitId: String(state.visit._id),
+      reason: request.reason,
+      reference,
+      requestedAt,
+      source: "demo",
+      status: "pending",
+      tokenState: request.tokenState,
+    });
+    await appendAudit(ctx, {
+      actorPersona: "site_visitor",
+      buildId: state.build._id,
+      command: "demo_requestSiteVisitReplacementLink",
+      entityKey: state.visit.milestoneKey,
+      entityType: "site_visit",
+      eventType: "SiteVisitReplacementLinkRequested",
+      milestoneKey: state.visit.milestoneKey,
+      reason: request.reason,
+      scenario: state.visit.scenario as Scenario,
+      validation: JSON.stringify({ reference, tokenState: request.tokenState }),
+    });
+    await appendOutbox(ctx, {
+      buildId: state.build._id,
+      eventType: "demo.siteVisit.replacementLinkRequested",
+      milestoneKey: state.visit.milestoneKey,
+      payloadPreview: `Replacement site-visit link requested (${reference}).`,
+      relatedEntity: state.visit.milestoneKey,
+      scenario: state.visit.scenario as Scenario,
+    });
+    return { reference, requested: true as const };
   })
   .public();
 
@@ -3632,17 +3778,35 @@ export const demo_submitTokenizedSiteVisitReport = publicMutation
   .input({
     buildId: v.string(),
     completionObserved: v.boolean(),
+    locationAttempt: siteVisitLocationAttemptValidator,
+    missingPrerequisites: v.array(
+      v.union(v.literal("permit"), v.literal("site_plan"))
+    ),
+    prerequisiteException: v.optional(siteVisitPrerequisiteExceptionValidator),
     recommendedOutcome: v.string(),
     reportNotes: v.string(),
     token: v.string(),
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    const { visit } = await requireActiveSiteVisitForToken(
+    const { build, visit } = await requireActiveSiteVisitForToken(
       ctx,
       args.buildId,
       args.token
     );
+    const permit = await getDemoSiteVisitPermit(ctx, build);
+    const submissionContext = validateSiteVisitSubmissionContext({
+      locationAttempt: resolveSiteVisitGeofenceAttempt({
+        locationAttempt: args.locationAttempt,
+        siteLatitude: build.locationLatitude,
+        siteLongitude: build.locationLongitude,
+      }),
+      missingPrerequisites: [
+        ...args.missingPrerequisites,
+        ...(permit ? [] : (["permit"] as const)),
+      ],
+      prerequisiteException: args.prerequisiteException,
+    });
     const files = await getSiteVisitFiles(ctx, visit._id);
     const validatedReport = validateSiteVisitReportSubmission({
       compressedPackageBytes: files.reduce(
@@ -3655,16 +3819,22 @@ export const demo_submitTokenizedSiteVisitReport = publicMutation
     const notes = validatedReport.reportNotes;
     const completedAt = Date.now();
     const targets = await getSiteVisitTargets(ctx, visit._id);
-    const riskFlags = args.completionObserved
-      ? []
-      : ["completion_not_observed"];
+    const riskFlags = [
+      ...(args.completionObserved ? [] : ["completion_not_observed"]),
+      ...(submissionContext.locationAttempt.verified
+        ? []
+        : ["site_visit_location_unverified"]),
+    ];
 
     await ctx.db.patch(visit._id, {
       claimedAt: visit.claimedAt ?? completedAt,
       completedAt,
       completionObserved: args.completionObserved,
+      locationAttempt: submissionContext.locationAttempt,
+      missingPrerequisites: submissionContext.missingPrerequisites,
       notes,
       notesFormat: "html",
+      prerequisiteException: submissionContext.prerequisiteException,
       recommendedOutcome: args.recommendedOutcome,
       riskFlags,
       status: "completed",
@@ -3690,6 +3860,9 @@ export const demo_submitTokenizedSiteVisitReport = publicMutation
       reason: validatedReport.reportNotesText,
       scenario: "active",
       validation: JSON.stringify({
+        locationAttempt: submissionContext.locationAttempt,
+        missingPrerequisites: submissionContext.missingPrerequisites,
+        prerequisiteException: submissionContext.prerequisiteException,
         targetMilestoneKeys: targets.map((target) => target.milestoneKey),
       }),
     });

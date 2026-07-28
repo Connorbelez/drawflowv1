@@ -67,8 +67,8 @@ const editableNumberChipVariants = cva(
           "data-editing:border-white data-editing:ring-2 data-editing:ring-white",
         ].join(" "),
         light: [
-          "border-border bg-background text-foreground shadow-xs",
-          "hover:border-primary/45 hover:bg-muted/40 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/35",
+          "border-border bg-background text-foreground shadow-xs dark:bg-card dark:text-card-foreground",
+          "hover:border-primary/45 hover:bg-muted/40 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/35 dark:hover:bg-muted/60",
           "data-editing:border-primary/60 data-editing:ring-2 data-editing:ring-primary/35",
         ].join(" "),
       },

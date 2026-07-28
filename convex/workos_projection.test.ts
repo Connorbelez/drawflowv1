@@ -90,6 +90,76 @@ describe("WorkOS webhook projections", () => {
     });
   });
 
+  test("moves a matching contractor invitation into confirmation after WorkOS acceptance", async () => {
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    const seeded = await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId: "auth_invited_contractor",
+        email: "invited.contractor@example.com",
+        name: "Invited Contractor",
+        status: "active",
+        workosUserId: "user_invited_contractor",
+      });
+      const brokerageId = await ctx.db.insert("brokerages", {
+        createdAt: now,
+        displayName: "Invitation Brokerage",
+        legalName: "Invitation Brokerage LLC",
+        status: "active",
+        updatedAt: now,
+        workosOrganizationId: "org_invitation",
+      });
+      const contractorId = await ctx.db.insert("contractorProfiles", {
+        brokerageId,
+        createdAt: now,
+        email: "invited.contractor@example.com",
+        name: "Invitation Trade Co",
+        normalizedEmail: "invited.contractor@example.com",
+        organizationId: "org_invitation",
+        status: "active",
+        trades: ["masonry"],
+        updatedAt: now,
+      });
+      const claimId = await ctx.db.insert("contractorInviteClaims", {
+        brokerageId,
+        contractorId,
+        createdAt: now,
+        invitedNormalizedEmail: "invited.contractor@example.com",
+        inviterWorkosUserId: "user_builder",
+        organizationId: "org_invitation",
+        state: "invited",
+        updatedAt: now,
+      });
+      return { claimId };
+    });
+
+    await t.mutation(internal.auth.authKitEvent, {
+      event: "organization_membership.created",
+      data: {
+        id: "om_invited_contractor",
+        object: "organization_membership",
+        organizationId: "org_invitation",
+        userId: "user_invited_contractor",
+        status: "active",
+        role: { slug: "contractor" },
+        roles: [{ slug: "contractor" }],
+      },
+    });
+
+    const result = await t.run(async (ctx) => {
+      const claim = await ctx.db.get(seeded.claimId);
+      const audits = (await ctx.db.query("auditEvents").collect()).filter(
+        (event) => event.eventType === "contractor.invite.accepted",
+      );
+      return { audits, claim };
+    });
+    expect(result.claim).toMatchObject({
+      acceptedWorkosUserId: "user_invited_contractor",
+      state: "accepted_pending_confirmation",
+    });
+    expect(result.audits).toHaveLength(1);
+  });
+
   test("preserves pending memberships and aggregates multi-role memberships", async () => {
     const t = convexTest(schema, modules);
 
@@ -312,6 +382,58 @@ describe("WorkOS webhook projections", () => {
         },
       ],
     });
+  });
+
+  test("scopes tenant-facing user-management projections to the viewer's active organization", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: "FairLend",
+        sourceEventId: "seed_scope_org_fixture",
+        sourceEventType: "organization.created",
+        status: "active",
+        workosOrganizationId: "org_fixture",
+      });
+      await ctx.db.insert("workosOrganizations", {
+        domains: [],
+        name: "Foreign Org",
+        sourceEventId: "seed_scope_org_foreign",
+        sourceEventType: "organization.created",
+        status: "active",
+        workosOrganizationId: "org_foreign",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "broker",
+        roleSlugs: ["broker"],
+        sourceEventId: "seed_scope_membership_viewer",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_scope_viewer",
+        workosOrganizationId: "org_fixture",
+        workosUserId: "user_broker",
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "builder",
+        roleSlugs: ["builder"],
+        sourceEventId: "seed_scope_membership_foreign",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "om_scope_foreign",
+        workosOrganizationId: "org_foreign",
+        workosUserId: "user_foreign",
+      });
+    });
+
+    const projections = await asBroker(t).query(api.workosProjection.listUserManagement, {});
+
+    expect(
+      projections.organizations.map((row: any) => row.workosOrganizationId),
+    ).toEqual(["org_fixture"]);
+    expect(
+      projections.memberships.map((row: any) => row.workosOrganizationId),
+    ).toEqual(["org_fixture"]);
   });
 
   test("skips duplicate WorkOS event ids without mutating projection timestamps twice", async () => {
@@ -551,5 +673,17 @@ function asBuilder(t: any) {
     roles: ["builder"],
     subject: "user_builder",
     tokenIdentifier: "https://api.workos.com/|user_builder",
+  } as any);
+}
+
+function asBroker(t: any) {
+  return t.withIdentity({
+    email: "broker@example.com",
+    name: "Broker",
+    organizationId: "org_fixture",
+    role: "broker",
+    roles: ["broker"],
+    subject: "user_broker",
+    tokenIdentifier: "https://api.workos.com/|user_broker",
   } as any);
 }

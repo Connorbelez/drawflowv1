@@ -281,7 +281,7 @@ describe("BuildFundingWorkspace", () => {
     expect(
       within(summary)
         .getAllByText("$0.00", { selector: "dd" })
-        .every((value) => value.className.includes("text-3xl"))
+        .every((value) => value.className.includes("text-lg"))
     ).toBe(true);
     expect(
       screen
@@ -300,6 +300,123 @@ describe("BuildFundingWorkspace", () => {
         name: "Open Permits, demo & foundation milestone",
       })
     ).toBeTruthy();
+  });
+
+  test("groups unapproved milestones and highlights selected scheduled and actual intervals", () => {
+    const onOpenMilestone = vi.fn();
+    render(
+      <BuildFundingWorkspace
+        model={projectBuildFunding({
+          canRequest: false,
+          facilityCents: 50_000_000,
+          milestones: [
+            {
+              completionReview: {
+                reviewedAt: "2026-07-18T12:00:00.000Z",
+                status: "approved",
+              },
+              dayEnd: 8,
+              dayStart: 0,
+              drawAvailabilityCents: 4_000_000,
+              key: "approved",
+              name: "Approved foundation",
+              order: 1,
+              status: "complete",
+            },
+            {
+              dayEnd: 35,
+              dayStart: 10,
+              drawAvailabilityCents: 7_000_000,
+              key: "active",
+              name: "Active framing",
+              order: 2,
+              startedAt: Date.UTC(2026, 6, 4, 12),
+              status: "in_progress",
+            },
+            {
+              completionClaim: {
+                completedDay: 12,
+                submittedAt: "2026-07-14T12:00:00.000Z",
+              },
+              dayEnd: 15,
+              dayStart: 8,
+              drawAvailabilityCents: 3_000_000,
+              key: "verification",
+              name: "Pending rough-ins",
+              order: 3,
+              status: "complete",
+            },
+            {
+              dayEnd: 5,
+              dayStart: 1,
+              drawAvailabilityCents: 2_000_000,
+              key: "behind",
+              name: "Behind site work",
+              order: 4,
+              status: "in_progress",
+            },
+            {
+              dayEnd: 60,
+              dayStart: 40,
+              drawAvailabilityCents: 6_000_000,
+              key: "upcoming",
+              name: "Upcoming finishes",
+              order: 5,
+              status: "planned",
+            },
+          ],
+          requests: [],
+          startDate: "2026-07-01",
+        })}
+        onOpenMilestone={onOpenMilestone}
+        viewerRole="lender"
+      />
+    );
+
+    const schedule = screen.getByRole("region", {
+      name: "Milestone funding schedule",
+    });
+    expect(within(schedule).queryByText("Approved foundation")).toBeNull();
+    for (const groupName of [
+      "Active",
+      "Pending verification",
+      "Behind schedule",
+      "Upcoming",
+    ]) {
+      expect(
+        within(schedule).getByRole("heading", { name: groupName })
+      ).toBeTruthy();
+    }
+
+    const activeSelection = within(schedule).getByRole("button", {
+      name: "Highlight Active framing dates on the timeline",
+    });
+    expect(activeSelection.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(activeSelection);
+    expect(activeSelection.getAttribute("aria-pressed")).toBe("true");
+
+    const activeRail = within(schedule).getByRole("group", {
+      name: "Active framing date interval",
+    });
+    expect(activeRail.textContent).toContain("Jul 11, 2026");
+    expect(activeRail.textContent).toContain("Aug 5, 2026");
+    expect(activeRail.textContent).toContain("Actual Jul 4, 2026");
+    expect(activeRail.className).toContain("text-primary");
+
+    fireEvent.click(
+      within(schedule).getByRole("button", {
+        name: "Review Upcoming finishes milestone",
+      })
+    );
+    expect(onOpenMilestone).toHaveBeenCalledWith("upcoming");
+    expect(activeSelection.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      within(schedule)
+        .getByRole("button", {
+          name: "Highlight Upcoming finishes dates on the timeline",
+        })
+        .getAttribute("aria-pressed")
+    ).toBe("false");
   });
 
   test("treats a legacy revision state without a requested change as pending verification", () => {
@@ -366,6 +483,7 @@ describe("BuildFundingWorkspace", () => {
       <BuildFundingWorkspace
         model={projectBuildFunding({
           canRequest: false,
+          buildLabel: "Harbour Build",
           facilityCents: 20_000_000,
           milestones,
           plannedDraws: [
@@ -422,6 +540,48 @@ describe("BuildFundingWorkspace", () => {
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Confirm release" }));
     await waitFor(() => expect(onReleaseDraw).toHaveBeenCalledWith(approvedRequest));
+  });
+
+  test("contains raw draw review failures in a safe lender banner", async () => {
+    const submittedRequest = {
+      amountCents: 3_200_000,
+      displayId: "DR-1042",
+      drawKey: "submitted",
+      label: "Foundation trades reimbursement",
+      requestedAt: "2026-07-14T12:00:00.000Z",
+      status: "ready_for_admin" as const,
+    };
+    const onApproveDraw = vi.fn().mockRejectedValue(
+      new Error(
+        "ConvexError production_proposals.reviewDraw requestId=req-secret payload={drawKey:submitted} /srv/convex/production_proposals.ts"
+      )
+    );
+
+    render(
+      <BuildFundingWorkspace
+        model={projectBuildFunding({
+          canRequest: false,
+          facilityCents: 20_000_000,
+          milestones,
+          requests: [submittedRequest],
+          startDate: "2026-06-20",
+        })}
+        onApproveDraw={onApproveDraw}
+        onOpenMilestone={vi.fn()}
+        viewerRole="lender"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("lender-review-approve-submitted"));
+
+    expect(
+      await screen.findByText(
+        "We could not update this draw request. Refresh its status and try again."
+      )
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/ConvexError|requestId|payload=|\/srv\//i)
+    ).toBeNull();
   });
 
   test("shows previously approved draws in lender release history", () => {

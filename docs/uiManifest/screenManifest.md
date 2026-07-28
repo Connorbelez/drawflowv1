@@ -111,27 +111,28 @@ The manifest uses the following reference conventions:
 
 ---
 
-### SCR-005 — Available Working Capital Input
+### SCR-005 — Borrower Starting Cash Input
 
-**Purpose:** Capture borrower working-capital capacity used by the optimizer.
+**Purpose:** Capture the borrower's own opening cash balance used by the optimizer.
 
 **Primary users:** Builder Lead, Lender Admin.
 
 **UI / design description:**
 
 - Focused financial input screen or step inside proposal flow.
-- Primary field should be named **Available Working Capital** unless later renamed.
-- Helper text must explain that this is the maximum unreimbursed amount the builder can carry before needing a draw reimbursement.
-- Should preview the implications: higher working capital allows wider parallelization; lower working capital narrows draw windows and may create schedule stalls.
+- Primary field is named **Borrower Starting Cash**.
+- Helper text must explain that this is the borrower's own cash available at the start of the build, before any reimbursement draws are released.
+- Starting cash must be shown separately from the optimizer-derived **Required Working Capital / Peak Unreimbursed Exposure** metric.
+- The screen should preview whether starting cash covers the derived requirement and identify likely cash-ledger stalls.
 
-**Key components:** `uiManifest/componentManifest.md` §25.2 CMP-022 — WorkingCapitalInput, `uiManifest/componentManifest.md` §25.2 CMP-023 — CapitalConstraintExplainer, `uiManifest/componentManifest.md` §25.2 CMP-024 — FeasibilityPreview, `uiManifest/componentManifest.md` §25.2 CMP-025 — CurrencyInput.
+**Key components:** `uiManifest/componentManifest.md` §25.2 CMP-022 — BorrowerStartingCashInput, `uiManifest/componentManifest.md` §25.2 CMP-023 — CapitalConstraintExplainer, `uiManifest/componentManifest.md` §25.2 CMP-024 — FeasibilityPreview, `uiManifest/componentManifest.md` §25.2 CMP-025 — CurrencyInput.
 
-**Workflow references:** `draw_flow_prd.md` §7.10 Borrower Working Capital Limit; `draw_flow_prd.md` §8.5 Borrower Working Capital Constraint; `draw_flow_prd.md` §9.2 Optimization Inputs; `draw_flow_prd.md` §11.1 Builder Application / Build Proposal Flow.
+**Workflow references:** `draw_flow_prd.md` §7.10 Borrower Starting Cash; `draw_flow_prd.md` §8.5 Borrower Cash-Flow Feasibility Constraint; `draw_flow_prd.md` §9.2 Optimization Inputs; `draw_flow_prd.md` §11.1 Builder Application / Build Proposal Flow.
 
 **User stories:**
 
-- As a builder lead, I can enter available working capital so the system does not generate an infeasible draw plan.
-- As a lender admin, I can review whether the borrower’s working-capital assumption appears credible.
+- As a builder lead, I can enter the cash I bring into the build so the system can test plan feasibility.
+- As a lender admin, I can compare borrower starting cash with the plan's derived working-capital requirement.
 
 ---
 
@@ -713,4 +714,3 @@ The manifest uses the following reference conventions:
 
 - As lender admin, I can verify whether evidence was captured near the mapped build area.
 - As site visit staff, I can orient myself to the build site before inspection.
-

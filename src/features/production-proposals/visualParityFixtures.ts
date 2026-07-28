@@ -39,6 +39,21 @@ export function getVisualParityCreateContext() {
       companyName: "Northline Homes",
       status: "active",
     },
+    brokers: [
+      {
+        email: "principal@fairlend.local",
+        isPrincipal: true,
+        name: "FairLend Principal Broker",
+        workosUserId: "user_01KR207FRFHQT46EV9N538XBF3",
+      },
+      {
+        email: "broker@fairlend.local",
+        isPrincipal: false,
+        name: "Jordan Lee",
+        workosUserId: "user_visual_broker",
+      },
+    ],
+    defaultAssignedBrokerWorkosUserId: "user_01KR207FRFHQT46EV9N538XBF3",
     availableContractors: [
       {
         city: "Hamilton",
@@ -130,7 +145,7 @@ export function getVisualParityKanban(): ProductionKanban {
 }
 
 export function getVisualParityProposalDetail(
-  proposalId = VISUAL_PARITY_PROPOSAL_ID
+  proposalId = VISUAL_PARITY_PROPOSAL_ID,
 ): ProductionProposalDetail {
   const proposalStatus = getVisualParityProposalStatus(proposalId);
   return {
@@ -283,7 +298,7 @@ export function getVisualParityProposalDetail(
     permitWaiver: null,
     proposal: {
       borrowerCoPayBps: 2000,
-      borrowerWorkingCapitalLimitCents: 25_000_000,
+      borrowerStartingCashCents: 25_000_000,
       buildName: "Hamilton Infill Build",
       lenderDrawPolicyLimitCents: 100_000_000,
       location: "Hamilton, ON",
@@ -328,17 +343,17 @@ export function getVisualParityProposalDetail(
 }
 
 export function getVisualParityActiveBuildDetail(
-  buildId = VISUAL_PARITY_ACTIVE_BUILD_ID
+  buildId = VISUAL_PARITY_ACTIVE_BUILD_ID,
 ): ProductionBuildDetail | null {
   if (!buildId.includes("visual")) {
     return null;
   }
 
   const detail = getVisualParityProposalDetail(
-    VISUAL_PARITY_CLOSED_PROPOSAL_ID
+    VISUAL_PARITY_CLOSED_PROPOSAL_ID,
   );
   const workspace = getVisualParityTimelineWorkspace(
-    VISUAL_PARITY_CLOSED_PROPOSAL_ID
+    VISUAL_PARITY_CLOSED_PROPOSAL_ID,
   );
   const now = Date.UTC(2026, 5, 1, 14, 30);
 
@@ -348,28 +363,43 @@ export function getVisualParityActiveBuildDetail(
         _id: "audit-visual-materials",
         actorPersona: "user_visual_parity",
         afterSummary: "Material plan copied from approved proposal.",
+        changes: [
+          { after: "3 copied items", before: "Not set", field: "Cost items" },
+        ],
         createdAt: now,
         entityLabel: "Build material planning",
         entityType: "buildCostItems",
         eventType: "active_build.material_plan.copied",
+        reason: "Approved proposal material plan carried into the Active Build.",
+        warnings: [],
       },
       {
         _id: "active-build-audit-visual-contractors",
         actorPersona: "FairLend Principal Broker",
         afterSummary: "Proposal contractors copied forward at offline closing.",
+        changes: [
+          { after: "2 attached", before: "Not set", field: "Contractors" },
+        ],
         createdAt: now - 43_200_000,
         entityLabel: detail.proposal.buildName,
         entityType: "activeBuild",
         eventType: "active_build.contractors.copied_forward",
+        reason: "Preserve approved contractor assignments at loan closing.",
+        warnings: [],
       },
       {
         _id: "audit-visual-closing",
         actorPersona: "user_visual_parity",
         afterSummary: "Offline closing recorded and active build opened.",
+        changes: [
+          { after: "Active Build", before: "Approved proposal", field: "State" },
+        ],
         createdAt: now - 86_400_000,
         entityLabel: detail.proposal.buildName,
         entityType: "activeBuild",
         eventType: "active_build.created",
+        reason: "Loan closing completed and construction execution opened.",
+        warnings: [],
       },
     ],
     availableContractors: [
@@ -381,7 +411,7 @@ export function getVisualParityActiveBuildDetail(
           defaultPayRateUnit: contractor.defaultPayRateUnit,
           name: contractor.name,
           trades: contractor.trades,
-        })
+        }),
       ) ?? []),
       {
         _id: "contractor-visual-available",
@@ -404,8 +434,8 @@ export function getVisualParityActiveBuildDetail(
     },
     capitalPlan: {
       borrowerCoPayBps: detail.proposal.borrowerCoPayBps,
-      borrowerWorkingCapitalLimitCents:
-        detail.proposal.borrowerWorkingCapitalLimitCents,
+      borrowerStartingCashCents:
+        detail.proposal.borrowerStartingCashCents,
       lenderDrawPolicyLimitCents: detail.proposal.lenderDrawPolicyLimitCents,
       version: 1,
     },
@@ -422,7 +452,7 @@ export function getVisualParityActiveBuildDetail(
           name: contractor.name,
           role: contractor.role,
           trades: contractor.trades,
-        })
+        }),
       ) ?? []),
       {
         _id: "assignment-visual-framing",
@@ -535,20 +565,7 @@ export function getVisualParityActiveBuildDetail(
         },
       ],
     },
-    quickActionEvents: [
-      {
-        _id: "quick-visual-materials",
-        createdAt: now,
-        eventType: "active_build.material_plan.copied",
-        payloadPreview: "3 material/equipment cost-only entries attached.",
-      },
-      {
-        _id: "active-quick-visual-contractors",
-        createdAt: now - 3_600_000,
-        eventType: "active_build.contractor.assigned",
-        payloadPreview: "Northstar Masonry assigned to exterior brick veneer.",
-      },
-    ],
+    quickActionEvents: [],
     sitePhotos: [
       {
         caption: "Foundation progress",
@@ -585,7 +602,7 @@ export function getVisualParityActiveBuildDetail(
 
 export function createVisualParityCostItem(
   payload: MaterialPlanningPayload,
-  suffix = `${Date.now()}`
+  suffix = `${Date.now()}`,
 ): MaterialPlanningItem {
   return {
     _id: `proposal-cost-visual-local-${suffix}`,
@@ -654,22 +671,22 @@ function getVisualParityCostItems(): MaterialPlanningItem[] {
 }
 
 export function getVisualParityTimelineWorkspace(
-  proposalId = VISUAL_PARITY_PROPOSAL_ID
+  proposalId = VISUAL_PARITY_PROPOSAL_ID,
 ): ConvexTimelineWorkspace & {
   modificationRequests: any[];
   proposal: NonNullable<ProductionProposalDetail["proposal"]>;
 } {
   const detail = getVisualParityProposalDetail(proposalId);
   const milestones = [...(detail.milestones ?? [])].sort(
-    (a, b) => a.order - b.order
+    (a, b) => a.order - b.order,
   );
   const draws = [...(detail.draws ?? [])].sort(
-    (a, b) => a.timingDay - b.timingDay
+    (a, b) => a.timingDay - b.timingDay,
   );
   return {
     capitalEvents: [
       {
-        amountCents: detail.proposal.borrowerWorkingCapitalLimitCents,
+        amountCents: detail.proposal.borrowerStartingCashCents,
         capitalEventKey: "borrower-reserve",
         eventKind: "cashInfusion",
         label: "Borrower reserve",
@@ -855,7 +872,7 @@ export function getVisualParityTimelineWorkspace(
       borrowerCoPayBps: detail.proposal.borrowerCoPayBps,
       borrowerCoPayCents: Math.round(
         (detail.proposal.totalBudgetCents * detail.proposal.borrowerCoPayBps) /
-          10_000
+          10_000,
       ),
       currentDay: 28,
       progressValue: 28,
@@ -866,14 +883,14 @@ export function getVisualParityTimelineWorkspace(
         selectedPanelOpen: true,
         straightLine: true,
       },
-      startingCashCents: detail.proposal.borrowerWorkingCapitalLimitCents,
+      startingCashCents: detail.proposal.borrowerStartingCashCents,
     },
     proposal: detail.proposal,
   };
 }
 
 export function getVisualParityActiveBuildTimelineWorkspace(
-  buildId = VISUAL_PARITY_ACTIVE_BUILD_ID
+  buildId = VISUAL_PARITY_ACTIVE_BUILD_ID,
 ) {
   if (!buildId.includes("visual")) {
     return null;
@@ -882,7 +899,7 @@ export function getVisualParityActiveBuildTimelineWorkspace(
 }
 
 function getVisualParityProposalStatus(
-  proposalId: string
+  proposalId: string,
 ): VisualParityProposalStatus {
   if (proposalId.includes("approved")) {
     return "approved";
@@ -1026,7 +1043,7 @@ const VISUAL_PARITY_TEMPLATES: ProductionProposalTemplateProjection[] = [
         7,
         1280,
         15,
-        ["Punch list", "Final inspection", "Closeout package"]
+        ["Punch list", "Final inspection", "Closeout package"],
       ),
     ],
     summary: "Single-family reimbursement draw template",
@@ -1041,7 +1058,7 @@ function templateMilestone(
   order: number,
   percentageBps: number,
   durationDays: number,
-  submilestoneNames: string[]
+  submilestoneNames: string[],
 ) {
   return {
     archetypeKey: key,

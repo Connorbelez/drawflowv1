@@ -152,6 +152,9 @@ export type ContractorPlanningModel = {
 type ProposalContractor = NonNullable<
   ContractorPlanningModel["proposalContractors"]
 >[number];
+type MilestoneAssignment = NonNullable<
+  ContractorPlanningModel["milestoneAssignments"]
+>[number];
 
 type ContractorPlanningPanelProps = {
   canMutate?: boolean;
@@ -162,6 +165,17 @@ type ContractorPlanningPanelProps = {
     milestoneKey: string;
     role: string;
     submilestoneKeys?: string[];
+  }) => Promise<void> | void;
+  onRemoveFromMilestone?: (input: {
+    assignmentId: string;
+    contractorId: string;
+    milestoneKey: string;
+    reason: string;
+    submilestoneKey?: string;
+  }) => Promise<void> | void;
+  onAttachAndInviteExisting?: (input: {
+    contractorId: string;
+    role: string;
   }) => Promise<void> | void;
   onAttachExisting?: (input: {
     contractorId: string;
@@ -217,6 +231,8 @@ export function ContractorPlanningPanel({
   canMutate = true,
   milestones,
   onAssignToMilestone,
+  onRemoveFromMilestone,
+  onAttachAndInviteExisting,
   onAttachExisting,
   onCreateAndAttach,
   onInviteCreatedContractor,
@@ -240,6 +256,11 @@ export function ContractorPlanningPanel({
   const [assignDialog, setAssignDialog] = useState<AssignDialogState | null>(
     null
   );
+  const [removeAssignment, setRemoveAssignment] =
+    useState<MilestoneAssignment | null>(null);
+  const [removalReason, setRemovalReason] = useState("");
+  const [removalPending, setRemovalPending] = useState(false);
+  const [removalError, setRemovalError] = useState("");
   const [draggingContractorId, setDraggingContractorId] = useState<
     string | null
   >(null);
@@ -413,10 +434,43 @@ export function ContractorPlanningPanel({
         estimatedCost: "",
         estimatedHours: "",
       }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch {
+      setError(
+        "We could not save this crew assignment. Review the fields and try again."
+      );
     } finally {
       setPending(false);
+    }
+  };
+
+  const submitRemoval = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!(removeAssignment && onRemoveFromMilestone)) {
+      return;
+    }
+    const reason = removalReason.trim();
+    if (!reason) {
+      setRemovalError("A removal reason is required.");
+      return;
+    }
+    setRemovalPending(true);
+    setRemovalError("");
+    try {
+      await onRemoveFromMilestone({
+        assignmentId: removeAssignment._id,
+        contractorId: removeAssignment.contractorId,
+        milestoneKey: removeAssignment.milestoneKey,
+        reason,
+        submilestoneKey: removeAssignment.submilestoneKey,
+      });
+      setRemoveAssignment(null);
+      setRemovalReason("");
+    } catch {
+      setRemovalError(
+        "We could not remove this crew assignment. Refresh and try again."
+      );
+    } finally {
+      setRemovalPending(false);
     }
   };
 
@@ -435,8 +489,10 @@ export function ContractorPlanningPanel({
     setInviteError("");
     try {
       await onInviteCreatedContractor(contractor.contractorId);
-    } catch (err) {
-      setInviteError(err instanceof Error ? err.message : String(err));
+    } catch {
+      setInviteError(
+        "We could not send this invitation. Confirm the contractor email and try again."
+      );
     } finally {
       setInvitePendingContractorId(null);
     }
@@ -518,16 +574,17 @@ export function ContractorPlanningPanel({
                 submission.
               </p>
             </div>
-            <Button
-              className="shrink-0"
-              data-testid="proposal-add-contractor"
-              disabled={!(canMutate && (onCreateAndAttach || onAttachExisting))}
-              onClick={() => setDrawerOpen(true)}
-              type="button"
-            >
-              <UserPlus />
-              Add contractor
-            </Button>
+            {canMutate && (onCreateAndAttach || onAttachExisting) ? (
+              <Button
+                className="shrink-0"
+                data-testid="proposal-add-contractor"
+                onClick={() => setDrawerOpen(true)}
+                type="button"
+              >
+                <UserPlus />
+                Add contractor
+              </Button>
+            ) : null}
           </div>
 
           <dl
@@ -578,7 +635,9 @@ export function ContractorPlanningPanel({
                 invitePendingContractorId={invitePendingContractorId}
                 onAssignmentFilterChange={setAssignmentFilter}
                 onInviteContractor={
-                  onInviteCreatedContractor ? inviteContractor : undefined
+                  canMutate && onInviteCreatedContractor
+                    ? inviteContractor
+                    : undefined
                 }
                 onSearchChange={setSearchQuery}
                 onSelectContractor={setSelectedContractorId}
@@ -603,11 +662,26 @@ export function ContractorPlanningPanel({
                   }
                   openAssignDialog(selectedContractorId, milestoneKey);
                 }}
-                onEditAssignment={(milestoneKey, contractorId) => {
-                  openAssignDialog(contractorId, milestoneKey);
-                }}
+                onEditAssignment={
+                  canMutate
+                    ? (milestoneKey, contractorId) => {
+                        openAssignDialog(contractorId, milestoneKey);
+                      }
+                    : undefined
+                }
+                onRemoveAssignment={
+                  canMutate && onRemoveFromMilestone
+                    ? (assignment) => {
+                        setRemovalError("");
+                        setRemovalReason("");
+                        setRemoveAssignment(assignment);
+                      }
+                    : undefined
+                }
                 onInviteContractor={
-                  onInviteCreatedContractor ? inviteContractor : undefined
+                  canMutate && onInviteCreatedContractor
+                    ? inviteContractor
+                    : undefined
                 }
                 proposalContractors={proposalContractors}
                 selectedContractorId={selectedContractorId}
@@ -669,10 +743,32 @@ export function ContractorPlanningPanel({
         submitAssignment={submitAssignment}
       />
 
+      <RemoveAssignmentDialog
+        assignment={removeAssignment}
+        error={removalError}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRemoveAssignment(null);
+            setRemovalReason("");
+            setRemovalError("");
+          }
+        }}
+        onReasonChange={setRemovalReason}
+        pending={removalPending}
+        reason={removalReason}
+        submitRemoval={submitRemoval}
+      />
+
       <ContractorQuickAddDrawer
         availableContractors={planning?.availableContractors ?? []}
         createLabel="Create and add"
         description={`Add a contractor to this ${roleLabel} planning roster with equipment, capability, pay, and contact details.`}
+        onAttachAndInviteExisting={
+          onAttachAndInviteExisting
+            ? ({ contractorId, role }) =>
+                onAttachAndInviteExisting({ contractorId, role })
+            : undefined
+        }
         onAttachExisting={
           onAttachExisting
             ? ({ contractorId, role }) =>
@@ -952,8 +1048,8 @@ function ContractorProfileCard({
 }: {
   assignmentCount: number;
   contractor: ProposalContractor;
-  dragAttributes?: Record<string, unknown>;
-  dragListeners?: Record<string, unknown>;
+  dragAttributes?: ReturnType<typeof useDraggable>["attributes"];
+  dragListeners?: ReturnType<typeof useDraggable>["listeners"];
   invitePending?: boolean;
   isDragging?: boolean;
   isSelected?: boolean;
@@ -970,37 +1066,43 @@ function ContractorProfileCard({
         "motion-safe:transition-[border-color,box-shadow,opacity] motion-reduce:transition-none",
         isSelected && "border-primary/45 ring-1 ring-primary/25",
         isDragging && "opacity-40 shadow-md",
-        isDraggable && "cursor-grab touch-none active:cursor-grabbing",
+        isDraggable && "touch-none",
         isInteractive && "hover:border-primary/30"
       )}
       data-testid={`contractor-card-${contractor.contractorId}`}
-      render={
-        isInteractive ? (
-          <div
-            aria-label={`Select ${contractor.name}`}
-            aria-selected={isSelected}
-            className="block w-full rounded-[inherit] text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-            onClick={onSelect}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onSelect?.();
-              }
-            }}
-            ref={setDragNodeRef}
-            role="button"
-            tabIndex={0}
+      ref={setDragNodeRef}
+    >
+      <CardContent className="grid gap-2 p-3">
+        {isInteractive ? (
+          <button
             {...dragListeners}
             {...dragAttributes}
-          />
-        ) : undefined
-      }
-    >
-      <CardContent className="flex items-start gap-2 p-3">
-        <ContractorProfileCardBody
-          assignmentCount={assignmentCount}
+            aria-label={`Select ${contractor.name}`}
+            aria-pressed={isSelected}
+            className={cn(
+              "flex min-h-11 w-full items-start gap-2 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+              isDraggable && "cursor-grab active:cursor-grabbing"
+            )}
+            onClick={onSelect}
+            type="button"
+          >
+            <ContractorProfileCardBody
+              assignmentCount={assignmentCount}
+              contractor={contractor}
+            />
+          </button>
+        ) : (
+          <div className="flex items-start gap-2">
+            <ContractorProfileCardBody
+              assignmentCount={assignmentCount}
+              contractor={contractor}
+            />
+          </div>
+        )}
+        <ContractorInviteAction
+          className="ml-12"
           contractor={contractor}
-          invitePending={invitePending}
+          pending={invitePending}
           onInvite={onInvite}
         />
       </CardContent>
@@ -1011,13 +1113,9 @@ function ContractorProfileCard({
 function ContractorProfileCardBody({
   assignmentCount,
   contractor,
-  invitePending = false,
-  onInvite,
 }: {
   assignmentCount: number;
   contractor: ProposalContractor;
-  invitePending?: boolean;
-  onInvite?: (contractor: ProposalContractor) => void;
 }) {
   return (
     <>
@@ -1049,12 +1147,6 @@ function ContractorProfileCardBody({
             ? "Not assigned to milestones"
             : `${assignmentCount} milestone assignment${assignmentCount === 1 ? "" : "s"}`}
         </span>
-        <ContractorInviteAction
-          className="mt-2"
-          contractor={contractor}
-          pending={invitePending}
-          onInvite={onInvite}
-        />
       </span>
     </>
   );
@@ -1069,6 +1161,7 @@ function MilestoneAssignmentPanel({
   milestones,
   onAssign,
   onEditAssignment,
+  onRemoveAssignment,
   onInviteContractor,
   proposalContractors,
   selectedContractorId,
@@ -1083,7 +1176,8 @@ function MilestoneAssignmentPanel({
   invitePendingContractorId: string | null;
   milestones: ContractorPlanningMilestone[];
   onAssign: (milestoneKey: string) => void;
-  onEditAssignment: (milestoneKey: string, contractorId: string) => void;
+  onEditAssignment?: (milestoneKey: string, contractorId: string) => void;
+  onRemoveAssignment?: (assignment: MilestoneAssignment) => void;
   onInviteContractor?: (contractor: ProposalContractor) => void;
   proposalContractors: ProposalContractor[];
   selectedContractorId: string | null;
@@ -1124,9 +1218,14 @@ function MilestoneAssignmentPanel({
               onAssign={() => {
                 onAssign(milestone.milestoneKey);
               }}
-              onEditAssignment={(contractorId) => {
-                onEditAssignment(milestone.milestoneKey, contractorId);
-              }}
+              onEditAssignment={
+                onEditAssignment
+                  ? (contractorId) => {
+                      onEditAssignment(milestone.milestoneKey, contractorId);
+                    }
+                  : undefined
+              }
+              onRemoveAssignment={onRemoveAssignment}
               onInviteContractor={onInviteContractor}
               proposalContractorsById={contractorsById}
               rosterEmpty={proposalContractors.length === 0}
@@ -1147,6 +1246,7 @@ function DroppableMilestoneCard({
   milestone,
   onAssign,
   onEditAssignment,
+  onRemoveAssignment,
   onInviteContractor,
   proposalContractorsById,
   rosterEmpty,
@@ -1158,7 +1258,8 @@ function DroppableMilestoneCard({
   invitePendingContractorId: string | null;
   milestone: ContractorPlanningMilestone;
   onAssign: () => void;
-  onEditAssignment: (contractorId: string) => void;
+  onEditAssignment?: (contractorId: string) => void;
+  onRemoveAssignment?: (assignment: MilestoneAssignment) => void;
   onInviteContractor?: (contractor: ProposalContractor) => void;
   proposalContractorsById: Map<string, ProposalContractor>;
   rosterEmpty: boolean;
@@ -1168,7 +1269,8 @@ function DroppableMilestoneCard({
     id: milestoneDropId(milestone.milestoneKey),
   });
   const showDropTarget = isDragging || isOver;
-  const assignDisabled = !canMutate || rosterEmpty || !selectedContractorId;
+  const assignDisabled = rosterEmpty || !selectedContractorId;
+  const assignmentRequirementId = `assign-${milestone.milestoneKey}-requirements`;
 
   return (
     <Frame
@@ -1232,6 +1334,7 @@ function DroppableMilestoneCard({
                   }
                   key={assignment._id}
                   onEditAssignment={onEditAssignment}
+                  onRemoveAssignment={onRemoveAssignment}
                   onInviteContractor={onInviteContractor}
                 />
               ))}
@@ -1239,25 +1342,35 @@ function DroppableMilestoneCard({
           )}
         </div>
 
-        <FrameFooter className="border-border/60 border-t py-3">
-          <Button
-            className="w-full sm:w-auto"
-            data-testid={`proposal-milestone-assign-contractor-${milestone.milestoneKey}`}
-            disabled={assignDisabled}
-            onClick={onAssign}
-            size="sm"
-            title={
-              assignDisabled && !rosterEmpty && !selectedContractorId
-                ? "Select a contractor from the roster first"
-                : undefined
-            }
-            type="button"
-            variant="outline"
-          >
-            <UserPlus />
-            Assign crew
-          </Button>
-        </FrameFooter>
+        {canMutate ? (
+          <FrameFooter className="grid gap-2 border-border/60 border-t py-3">
+            <Button
+              aria-describedby={
+                assignDisabled ? assignmentRequirementId : undefined
+              }
+              className="min-h-11 w-full sm:min-h-0 sm:w-auto"
+              data-testid={`proposal-milestone-assign-contractor-${milestone.milestoneKey}`}
+              disabled={assignDisabled}
+              onClick={onAssign}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <UserPlus />
+              Assign crew
+            </Button>
+            {assignDisabled ? (
+              <p
+                className="text-muted-foreground text-xs"
+                id={assignmentRequirementId}
+              >
+                {rosterEmpty
+                  ? "Add a contractor to the proposal roster before assigning crew."
+                  : "Select one contractor from the roster before assigning crew."}
+              </p>
+            ) : null}
+          </FrameFooter>
+        ) : null}
       </FramePanel>
     </Frame>
   );
@@ -1268,6 +1381,7 @@ function MilestoneAssignmentRow({
   contractor,
   invitePending,
   onEditAssignment,
+  onRemoveAssignment,
   onInviteContractor,
 }: {
   assignment: NonNullable<
@@ -1275,7 +1389,8 @@ function MilestoneAssignmentRow({
   >[number];
   contractor?: ProposalContractor;
   invitePending: boolean;
-  onEditAssignment: (contractorId: string) => void;
+  onEditAssignment?: (contractorId: string) => void;
+  onRemoveAssignment?: (assignment: MilestoneAssignment) => void;
   onInviteContractor?: (contractor: ProposalContractor) => void;
 }) {
   return (
@@ -1302,16 +1417,28 @@ function MilestoneAssignmentRow({
             onInvite={onInviteContractor}
           />
         ) : null}
-        <Button
-          onClick={() => {
-            onEditAssignment(assignment.contractorId);
-          }}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          Edit
-        </Button>
+        {onEditAssignment ? (
+          <Button
+            onClick={() => {
+              onEditAssignment(assignment.contractorId);
+            }}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Edit
+          </Button>
+        ) : null}
+        {onRemoveAssignment ? (
+          <Button
+            onClick={() => onRemoveAssignment(assignment)}
+            size="sm"
+            type="button"
+            variant="destructive-outline"
+          >
+            Remove
+          </Button>
+        ) : null}
       </div>
     </li>
   );
@@ -1383,8 +1510,7 @@ function ContractorInviteAction({
 }) {
   const invitation = contractorInvitationState(contractor);
   const canInvite = Boolean(onInvite) && invitation.kind === "not_invited";
-  const showButton =
-    invitation.kind === "not_invited" || invitation.kind === "no_email";
+  const showButton = Boolean(onInvite) && invitation.kind === "not_invited";
 
   return (
     <span className={cn("flex flex-wrap items-center gap-1.5", className)}>
@@ -1397,11 +1523,7 @@ function ContractorInviteAction({
       </Badge>
       {showButton ? (
         <Button
-          aria-label={
-            invitation.kind === "not_invited"
-              ? `Invite ${contractor.name} to platform`
-              : `Add email before inviting ${contractor.name}`
-          }
+          aria-label={`Invite ${contractor.name} to platform`}
           disabled={!canInvite || pending}
           onClick={(event) => {
             event.preventDefault();
@@ -1416,14 +1538,85 @@ function ContractorInviteAction({
           variant="outline"
         >
           <MailPlus />
-          {pending
-            ? "Sending..."
-            : invitation.kind === "no_email"
-              ? "Add email to invite"
-              : "Invite"}
+          {pending ? "Sending..." : "Invite"}
         </Button>
       ) : null}
     </span>
+  );
+}
+
+function RemoveAssignmentDialog({
+  assignment,
+  error,
+  onOpenChange,
+  onReasonChange,
+  pending,
+  reason,
+  submitRemoval,
+}: {
+  assignment: MilestoneAssignment | null;
+  error: string;
+  onOpenChange: (open: boolean) => void;
+  onReasonChange: (reason: string) => void;
+  pending: boolean;
+  reason: string;
+  submitRemoval: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <Dialog onOpenChange={onOpenChange} open={assignment !== null}>
+      <DialogPopup className="w-full sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Remove crew assignment?</DialogTitle>
+          <DialogDescription>
+            {assignment
+              ? `${assignment.contractorName} will lose the ${assignment.milestoneName} scope. The decision remains in audit history and the contractor receives a notice.`
+              : "Remove this crew assignment."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            className="space-y-4"
+            id="remove-contractor-assignment-form"
+            onSubmit={submitRemoval}
+          >
+            <Field>
+              <FieldLabel htmlFor="remove-contractor-assignment-reason">
+                Removal reason
+              </FieldLabel>
+              <Input
+                aria-invalid={Boolean(error)}
+                id="remove-contractor-assignment-reason"
+                nativeInput
+                onChange={(event) =>
+                  onReasonChange((event.target as HTMLInputElement).value)
+                }
+                placeholder="Explain why this assignment is being removed"
+                value={reason}
+              />
+            </Field>
+            {error ? (
+              <p className="text-destructive text-sm" role="alert">
+                {error}
+              </p>
+            ) : null}
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button type="button" variant="outline" />}>
+            Keep assignment
+          </DialogClose>
+          <Button
+            disabled={!reason.trim()}
+            form="remove-contractor-assignment-form"
+            loading={pending}
+            type="submit"
+            variant="destructive"
+          >
+            Remove assignment
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
   );
 }
 

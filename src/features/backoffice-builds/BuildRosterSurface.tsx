@@ -1,6 +1,6 @@
 "use client";
 
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
   type ColumnDef,
   type FilterFn,
@@ -57,6 +57,7 @@ import {
   TableRow,
 } from "#/components/ui/table.tsx";
 import { ToggleGroup, ToggleGroupItem } from "#/components/ui/toggle-group.tsx";
+import { BuildIdentityCell } from "#/features/builds/BuildIdentityCell.tsx";
 import { cn } from "#/lib/utils.ts";
 
 import {
@@ -458,7 +459,34 @@ function buildColumns(): ColumnDef<BuildRosterRow>[] {
   return [
     {
       accessorFn: (row) => row.buildName,
-      cell: ({ row }) => <BuildIdentityCell build={row.original} />,
+      cell: ({ row }) => {
+        const build = row.original;
+        return (
+          <BuildIdentityCell
+            buildName={build.buildName}
+            href={build.href}
+            imageUrl={build.imageUrl}
+            latitude={build.locationLatitude}
+            location={build.location}
+            longitude={build.locationLongitude}
+            metadata={
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-mono text-muted-foreground text-xs">
+                  {build.displayId}
+                </span>
+                <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
+                  {build.buildStatusLabel}
+                </Badge>
+                {build.loanStatus === "closed" ? (
+                  <Badge className="h-5 px-1.5 text-[10px]" variant="secondary">
+                    Loan closed
+                  </Badge>
+                ) : null}
+              </div>
+            }
+          />
+        );
+      },
       header: ({ column }) => <SortHeader column={column} label="Build" />,
       id: "build",
       size: 260,
@@ -504,8 +532,13 @@ function buildColumns(): ColumnDef<BuildRosterRow>[] {
           </span>
           <span className="text-muted-foreground text-xs tabular-nums">
             {row.original.milestonesComplete}/{row.original.milestonesTotal}{" "}
-            milestones
+            milestones · {row.original.drawCount} draws
           </span>
+          {row.original.milestonesBehindSchedule > 0 ? (
+            <Badge className="mt-1 w-fit" variant="warning">
+              {row.original.milestonesBehindSchedule} behind schedule
+            </Badge>
+          ) : null}
         </div>
       ),
       header: ({ column }) => (
@@ -543,9 +576,9 @@ function buildColumns(): ColumnDef<BuildRosterRow>[] {
     },
     {
       accessorFn: (row) =>
-        row.original.drawRequestsPending +
-        row.original.milestonesInReview +
-        row.original.siteVisitsExpired,
+        row.drawRequestsPending +
+        row.milestonesInReview +
+        row.siteVisitsExpired,
       cell: ({ row }) => <SignalsCell build={row.original} />,
       enableSorting: false,
       header: () => <span>Signals</span>,
@@ -581,35 +614,6 @@ function buildColumns(): ColumnDef<BuildRosterRow>[] {
       size: 48,
     },
   ];
-}
-
-function BuildIdentityCell({ build }: { build: BuildRosterRow }): ReactElement {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <Link
-        className="font-medium text-sm hover:text-primary"
-        onClick={(event) => event.stopPropagation()}
-        preload="intent"
-        to={build.href}
-        viewTransition
-      >
-        {build.buildName}
-      </Link>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="font-mono text-muted-foreground text-xs">
-          {build.displayId}
-        </span>
-        <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
-          {build.buildStatusLabel}
-        </Badge>
-        {build.loanStatus === "closed" ? (
-          <Badge className="h-5 px-1.5 text-[10px]" variant="secondary">
-            Loan closed
-          </Badge>
-        ) : null}
-      </div>
-    </div>
-  );
 }
 
 function SignalsCell({ build }: { build: BuildRosterRow }): ReactElement {

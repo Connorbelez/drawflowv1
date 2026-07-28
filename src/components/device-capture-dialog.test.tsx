@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { DeviceCaptureDialog } from "./device-capture-dialog";
 
@@ -126,5 +133,48 @@ describe("DeviceCaptureDialog", () => {
     expect(capturedFile.type).toBe("video/webm");
     expect(capturedFile.name).toMatch(/^site-visit-\d+\.webm$/);
     expect(stopTrack).toHaveBeenCalled();
+  });
+
+  test("stops and ignores a camera stream that resolves after startup timeout", async () => {
+    vi.useFakeTimers();
+    let resolveStream!: (value: MediaStream) => void;
+    getUserMedia.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStream = resolve;
+        }),
+    );
+
+    render(
+      <DeviceCaptureDialog
+        kind="photo"
+        onCapture={vi.fn()}
+        onOpenChange={vi.fn()}
+        open
+      />,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(
+      screen.getByText(/live camera did not start/i),
+    ).toBeTruthy();
+
+    await act(async () => {
+      resolveStream(stream);
+      await Promise.resolve();
+    });
+
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(
+      (screen.getByRole("button", {
+        name: "Capture photo",
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      screen.getByText(/live camera did not start/i),
+    ).toBeTruthy();
+    vi.useRealTimers();
   });
 });

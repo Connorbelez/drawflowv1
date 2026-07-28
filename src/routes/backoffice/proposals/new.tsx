@@ -62,16 +62,26 @@ function NewBackofficeProductionProposalRoute() {
     try {
       const packagePayload = timelineSetupResultToDraftPackage(result);
       const proposalId = await createBrokerDraft({
+        assignedBrokerWorkosUserId: result.assignedBrokerWorkosUserId,
         buildName: packagePayload.buildName,
         location: packagePayload.location,
+        locationLatitude: result.projectAddressLatitude,
+        locationLongitude: result.projectAddressLongitude,
+        locationPlaceId: result.projectAddressPlaceId,
         proposedStartDate: packagePayload.proposedStartDate,
         workosOrganizationId,
       });
-      await saveDraft({
+      const saveResult = await saveDraft({
         ...packagePayload,
         proposalId,
         workosOrganizationId,
       });
+      if (saveResult.warnings.length > 0) {
+        console.warn(
+          "Draft proposal saved with schedule warnings",
+          saveResult.warnings
+        );
+      }
       await navigate({
         params: { planId: proposalId },
         to: "/backoffice/proposals/$planId",
@@ -114,7 +124,11 @@ function NewBackofficeProductionProposalRoute() {
       <div className="timeline-setup-app-shell-route">
         <TimelineSetupFlow
           baseItems={PRODUCTION_SETUP_BASE_ITEMS}
+          brokerOptions={createContext?.brokers ?? []}
           contractorOptions={createContext?.availableContractors ?? []}
+          defaultAssignedBrokerWorkosUserId={
+            createContext?.defaultAssignedBrokerWorkosUserId
+          }
           onComplete={(result) => void createProductionProposal(result)}
           settingsTemplates={setupTemplates}
         />

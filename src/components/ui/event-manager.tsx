@@ -17,10 +17,11 @@ import {
   X,
 } from "lucide-react";
 
-import { CalendarContextMenu, CalendarOverflowMenu } from "#/features/calendar-workspace/CalendarContextMenu.tsx";
+import { CalendarContextMenu } from "#/features/calendar-workspace/CalendarContextMenu.tsx";
 import {
   eventIsCapitalAffecting,
   eventNeedsAction,
+  formatAccessibleEventRange,
 } from "#/features/calendar-workspace/calendarEventProjection.ts";
 import type {
   CalendarAction,
@@ -29,6 +30,7 @@ import type {
   CalendarTimeframe,
   DrawFlowCalendarEvent,
 } from "#/features/calendar-workspace/calendarTypes.ts";
+import { useMediaQuery } from "#/hooks/use-media-query.ts";
 import { cn } from "#/lib/utils.ts";
 import { Badge } from "./badge.tsx";
 import { Button } from "./button.tsx";
@@ -219,6 +221,7 @@ export function EventManager({
   surface,
   view: controlledView,
 }: EventManagerProps) {
+  const compactNavigation = useMediaQuery("max-sm");
   const [events, setEvents] = useState<Event[]>(initialEvents);
   const [currentDate, setCurrentDate] = useState<Date>(
     () => initialEvents[0]?.startTime ?? new Date(),
@@ -311,6 +314,10 @@ export function EventManager({
 
   const eventsByDate = useMemo(
     () => groupManagedEventsByDate(filteredEvents),
+    [filteredEvents],
+  );
+  const logicalEventsByStartDate = useMemo(
+    () => groupManagedLogicalEventsByStartDate(filteredEvents),
     [filteredEvents],
   );
 
@@ -491,7 +498,7 @@ export function EventManager({
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="sm:hidden">
+          {compactNavigation ? (
             <Select
               onValueChange={(value) => selectView(value as EventManagerView)}
               value={view}
@@ -507,28 +514,28 @@ export function EventManager({
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <div
-            aria-label="Calendar timeframe"
-            className="hidden items-center gap-1 rounded-md border bg-background p-1 sm:flex"
-            role="tablist"
-          >
-            {availableViews.map((candidate) => (
-              <Button
-                aria-selected={view === normalizeView(candidate)}
-                className="h-8"
-                key={candidate}
-                onClick={() => selectView(candidate)}
-                role="tab"
-                size="sm"
-                variant={view === normalizeView(candidate) ? "secondary" : "ghost"}
-              >
-                {viewIcon(candidate)}
-                {viewLabel(candidate)}
-              </Button>
-            ))}
-          </div>
+          ) : (
+            <div
+              aria-label="Calendar timeframe"
+              className="flex items-center gap-1 rounded-md border bg-background p-1"
+              role="tablist"
+            >
+              {availableViews.map((candidate) => (
+                <Button
+                  aria-selected={view === normalizeView(candidate)}
+                  className="h-8"
+                  key={candidate}
+                  onClick={() => selectView(candidate)}
+                  role="tab"
+                  size="sm"
+                  variant={view === normalizeView(candidate) ? "secondary" : "ghost"}
+                >
+                  {viewIcon(candidate)}
+                  {viewLabel(candidate)}
+                </Button>
+              ))}
+            </div>
+          )}
 
           {allowCreate ?? Boolean(onEventCreate) ? (
             <Button onClick={handleCreateEvent} size="sm">
@@ -657,7 +664,7 @@ export function EventManager({
         ) : (
           <AgendaView
             actions={actions}
-            eventsByDate={eventsByDate}
+            eventsByDate={logicalEventsByStartDate}
             getColorClasses={getColorClasses}
             onDrop={handleDrop}
             onEventResize={handleResize}
@@ -1463,9 +1470,7 @@ function EventTile({
   compact = false,
   event,
   getColorClasses,
-  onEventResize,
   onEventSelect,
-  onToggleEventSelection,
   renderedDate,
   selected,
   selectedForBulk,
@@ -1492,13 +1497,13 @@ function EventTile({
   const color = getColorClasses(event.color);
   const domain = event.drawFlowEvent;
   const canMove = domain?.editable.canMove ?? true;
-  const canResizeStart = domain?.editable.canResizeStart ?? false;
-  const canResizeEnd = domain?.editable.canResizeEnd ?? false;
   const immutableReason = domain?.editable.immutableReason;
+  const isAccessible = timeframe === "agenda";
   const ariaLabel = buildEventTileAriaLabel(event);
   const content = (
     <div
-      aria-label={ariaLabel}
+      aria-hidden={isAccessible ? undefined : true}
+      aria-label={isAccessible ? ariaLabel : undefined}
       className={cn(
         "group relative flex min-w-0 cursor-pointer gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-primary dark:hover:brightness-110",
         color.bg,
@@ -1518,13 +1523,16 @@ function EventTile({
         if (canMove) setDraggedEvent(event);
       }}
       onKeyDown={(keyEvent) => {
-        if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+        if (
+          isAccessible &&
+          (keyEvent.key === "Enter" || keyEvent.key === " ")
+        ) {
           keyEvent.preventDefault();
           onEventSelect?.(event);
         }
       }}
-      role="button"
-      tabIndex={0}
+      role={isAccessible ? "button" : undefined}
+      tabIndex={isAccessible ? 0 : -1}
     >
       <span className={cn("mt-1 size-2 shrink-0 rounded-full", color.accent ?? color.bg)} />
       <div className="min-w-0 flex-1">
@@ -1559,67 +1567,7 @@ function EventTile({
             ))}
           </div>
         ) : null}
-        {!compact && (canResizeStart || canResizeEnd || onToggleEventSelection) ? (
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            {onToggleEventSelection ? (
-              <Button
-                aria-label={`${selectedForBulk ? "Remove" : "Add"} ${event.title} from selected events`}
-                className="h-6 px-2 text-[0.68rem]"
-                onClick={(buttonEvent) => {
-                  buttonEvent.stopPropagation();
-                  onToggleEventSelection(event);
-                }}
-                size="sm"
-                variant={selectedForBulk ? "secondary" : "outline"}
-              >
-                {selectedForBulk ? "Selected" : "Select"}
-              </Button>
-            ) : null}
-            {canResizeStart ? (
-              <Button
-                aria-label={`Move ${event.title} start earlier one day`}
-                className="h-6 px-2 text-[0.68rem]"
-                onClick={(buttonEvent) => {
-                  buttonEvent.stopPropagation();
-                  onEventResize(event, "start", -1);
-                }}
-                size="sm"
-                variant="outline"
-              >
-                Start -1d
-              </Button>
-            ) : null}
-            {canResizeEnd ? (
-              <Button
-                aria-label={`Move ${event.title} end later one day`}
-                className="h-6 px-2 text-[0.68rem]"
-                onClick={(buttonEvent) => {
-                  buttonEvent.stopPropagation();
-                  onEventResize(event, "end", 1);
-                }}
-                size="sm"
-                variant="outline"
-              >
-                End +1d
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
       </div>
-      {domain && source && surface ? (
-        <div
-          onClick={(clickEvent) => {
-            clickEvent.stopPropagation();
-          }}
-        >
-          <CalendarOverflowMenu
-            actions={actions}
-            context={{ date: renderedDate, event: domain, source, surface, timeframe }}
-            label={event.title}
-            target="event"
-          />
-        </div>
-      ) : null}
     </div>
   );
   if (!domain || !source || !surface) return content;
@@ -1639,6 +1587,7 @@ function buildEventTileAriaLabel(event: Event): string {
   const domain = event.drawFlowEvent;
   return [
     event.title,
+    domain ? formatAccessibleEventRange(domain) : undefined,
     formatEventTime(event),
     event.dateMarker ? dateMarkerLabel(event.dateMarker) : undefined,
     domain?.kind,
@@ -1793,6 +1742,29 @@ function groupManagedEventsByDate(events: Event[]): Map<string, Event[]> {
       current.push(markEventForDate(event, key));
       map.set(key, current);
     }
+  }
+  for (const [key, dayEvents] of map) {
+    map.set(
+      key,
+      dayEvents.sort(
+        (left, right) =>
+          left.startTime.getTime() - right.startTime.getTime() ||
+          left.title.localeCompare(right.title),
+      ),
+    );
+  }
+  return map;
+}
+
+function groupManagedLogicalEventsByStartDate(
+  events: Event[],
+): Map<string, Event[]> {
+  const map = new Map<string, Event[]>();
+  for (const event of events) {
+    const key = dateKey(event.startTime);
+    const current = map.get(key) ?? [];
+    current.push(event);
+    map.set(key, current);
   }
   for (const [key, dayEvents] of map) {
     map.set(

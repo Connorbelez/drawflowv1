@@ -59,7 +59,7 @@ describe("BuilderTimelineDashboardSurface", () => {
     const liveRow = screen.getByText("Live build").closest("tr");
     expect(liveRow).not.toBeNull();
     expect(
-      within(liveRow as HTMLTableRowElement).getByText("moved to live build"),
+      within(liveRow as HTMLTableRowElement).getByText("Active"),
     ).toBeTruthy();
     fireEvent.click(
       within(liveRow as HTMLTableRowElement).getByRole("button", {

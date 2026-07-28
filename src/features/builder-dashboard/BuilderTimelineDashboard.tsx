@@ -20,19 +20,51 @@ import {
   TableHeader,
   TableRow,
 } from "#/components/ui/table.tsx";
+import { BuildIdentityCell } from "#/features/builds/BuildIdentityCell.tsx";
 import { cn } from "#/lib/utils.ts";
 import { MOCK_BUILDER_PERSONA } from "../../../convex/demo_personas";
 
+export type TimelineBudgetGovernance = {
+  activeVersion: number;
+  activeVersionLabel: string;
+  affectedDrawRequestCount: number;
+  affectedDrawRequestIds?: string[];
+  affectedMilestoneCount: number;
+  affectedMilestoneKeys?: string[];
+  currentOwner: string;
+  decisionStatus: "approved" | "current" | "pending" | "rejected";
+  proposedVersion: number | null;
+  proposedVersionLabel: string | null;
+  requestId?: string | null;
+  requestReason?: string | null;
+  requestType?:
+    | "capitalPlanRevision"
+    | "paybackExtension"
+    | "principalIncrease"
+    | null;
+  revisionDeadline: string | null;
+  revisionPriority: "recommended" | "required" | null;
+  varianceBps: number;
+  varianceCents: number;
+};
+
 export type TimelinePlanRow = {
+  budgetGovernance?: TimelineBudgetGovernance | null;
+  buildStatus?: "active" | "future_start";
   buildKey?: string;
   buildName: string;
+  builderName?: string;
   drawCount: number;
+  imageUrl?: string | null;
   kind?: "activeBuild" | "proposal";
+  location?: string;
+  locationLatitude?: number;
+  locationLongitude?: number;
   milestoneCount: number;
+  milestonesBehindSchedule?: number;
   pendingDrawRequestCount?: number;
   pendingModificationRequestCount?: number;
   planId: string;
-  proposalId?: string;
   proposalSlug?: string;
   status: "approved" | "archived" | "draft" | "submitted";
   totalBudgetCents: number;
@@ -402,8 +434,9 @@ function TimelinePlanTable({
       <TableHeader>
         <TableRow>
           <TableHead>Build</TableHead>
+          <TableHead>Builder</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead>Budget</TableHead>
+          <TableHead>Budget / governance</TableHead>
           <TableHead>Milestones / draws</TableHead>
           <TableHead>Open requests</TableHead>
           <TableHead>Updated</TableHead>
@@ -413,15 +446,49 @@ function TimelinePlanTable({
       <TableBody>
         {rows.map((row) => {
           const resolvedActionLabel =
-            actionLabel ??
-            (isLiveBuildRow(row) ? "Open live build" : "Open proposal");
+            isLiveBuildRow(row) && row.budgetGovernance?.revisionPriority
+              ? row.budgetGovernance.decisionStatus === "pending"
+                ? "View revision"
+                : "Review variance"
+              : (actionLabel ??
+                (isLiveBuildRow(row) ? "Open live build" : "Open proposal"));
           return (
             <TableRow key={row.planId}>
-              <TableCell className="font-medium">{row.buildName}</TableCell>
               <TableCell>
-                <PlanStatusBadge status={row.status} />
+                <BuildIdentityCell
+                  buildName={row.buildName}
+                  imageUrl={row.imageUrl}
+                  latitude={row.locationLatitude}
+                  location={row.location}
+                  longitude={row.locationLongitude}
+                  metadata={
+                    row.location ? (
+                      <span className="block max-w-52 truncate text-muted-foreground text-xs">
+                        {row.location}
+                      </span>
+                    ) : null
+                  }
+                />
               </TableCell>
-              <TableCell>{formatCents(row.totalBudgetCents)}</TableCell>
+              <TableCell>{row.builderName ?? "Builder"}</TableCell>
+              <TableCell>
+                {isLiveBuildRow(row) ? (
+                  <LiveBuildStatusBadge row={row} />
+                ) : (
+                  <PlanStatusBadge status={row.status} />
+                )}
+              </TableCell>
+              <TableCell>
+                <div className="font-medium">
+                  {formatCents(row.totalBudgetCents)}
+                </div>
+                {row.budgetGovernance?.revisionPriority ? (
+                  <BudgetGovernanceSummary
+                    governance={row.budgetGovernance}
+                    rowLabel={row.buildName}
+                  />
+                ) : null}
+              </TableCell>
               <TableCell>
                 {row.milestoneCount} / {row.drawCount}
               </TableCell>
@@ -451,6 +518,60 @@ function TimelinePlanTable({
   );
 }
 
+function BudgetGovernanceSummary({
+  governance,
+  rowLabel,
+}: {
+  governance: TimelineBudgetGovernance;
+  rowLabel: string;
+}) {
+  const priorityLabel =
+    governance.revisionPriority === "required"
+      ? "Required budget revision"
+      : "Recommended budget revision";
+  const decisionLabel =
+    governance.decisionStatus.charAt(0).toUpperCase() +
+    governance.decisionStatus.slice(1);
+  return (
+    <section
+      aria-label={`Budget governance for ${rowLabel}`}
+      className="mt-2 min-w-56 space-y-1 text-xs"
+    >
+      <Badge
+        variant={
+          governance.revisionPriority === "required" ? "warning" : "outline"
+        }
+      >
+        {priorityLabel}
+      </Badge>
+      <p className="font-medium text-foreground">
+        {governance.activeVersionLabel}
+        {governance.proposedVersionLabel
+          ? ` → ${governance.proposedVersionLabel}`
+          : null}
+      </p>
+      <p className="text-muted-foreground">
+        {formatSignedCents(governance.varianceCents)} ·{" "}
+        {formatSignedBps(governance.varianceBps)}
+      </p>
+      <p className="text-muted-foreground">
+        {governance.currentOwner} · {decisionLabel}
+      </p>
+      <p className="text-muted-foreground">
+        {governance.affectedMilestoneCount}{" "}
+        {governance.affectedMilestoneCount === 1 ? "milestone" : "milestones"} ·{" "}
+        {governance.affectedDrawRequestCount} open{" "}
+        {governance.affectedDrawRequestCount === 1 ? "draw" : "draws"}
+      </p>
+      {governance.revisionDeadline ? (
+        <p className="text-muted-foreground">
+          Decision due {governance.revisionDeadline}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function StatusKpi({ label, value }: { label: string; value: number }) {
   return (
     <Card>
@@ -477,11 +598,23 @@ export function PlanStatusBadge({
         : status === "archived"
           ? "destructive"
           : "outline";
-  return (
-    <Badge variant={variant}>
-      {status === "approved" ? "moved to live build" : status}
-    </Badge>
-  );
+  return <Badge variant={variant}>{status}</Badge>;
+}
+
+function LiveBuildStatusBadge({ row }: { row: TimelinePlanRow }) {
+  const behindCount = row.milestonesBehindSchedule ?? 0;
+  if (behindCount > 0) {
+    return (
+      <Badge variant="warning">
+        {behindCount} {behindCount === 1 ? "milestone" : "milestones"} behind
+        schedule
+      </Badge>
+    );
+  }
+  if (row.buildStatus === "future_start") {
+    return <Badge variant="outline">Scheduled</Badge>;
+  }
+  return <Badge variant="success">Active</Badge>;
 }
 
 function countByStatus(rows: TimelinePlanRow[]) {
@@ -495,10 +628,16 @@ function countByStatus(rows: TimelinePlanRow[]) {
 }
 
 function resolveBuildKey(row: TimelinePlanRow) {
-  return row.buildKey ?? `demo-timeline-${row.proposalSlug ?? row.planId}`;
+  if (!row.buildKey) {
+    throw new Error("An accessible live build assignment is required.");
+  }
+  return row.buildKey;
 }
 
 function isLiveBuildRow(row: TimelinePlanRow) {
+  if (!row.buildKey) {
+    return false;
+  }
   return row.kind ? row.kind === "activeBuild" : row.status === "approved";
 }
 
@@ -506,9 +645,18 @@ function formatOpenRequests(row: TimelinePlanRow) {
   const drawCount = row.pendingDrawRequestCount ?? 0;
   const modificationCount = row.pendingModificationRequestCount ?? 0;
   if (drawCount === 0 && modificationCount === 0) {
-    return "-";
+    return "None";
   }
-  return `${drawCount} draw / ${modificationCount} change`;
+  return `${drawCount} ${drawCount === 1 ? "draw" : "draws"} / ${modificationCount} ${modificationCount === 1 ? "change" : "changes"}`;
+}
+
+function formatSignedCents(cents: number) {
+  return `${cents >= 0 ? "+" : "-"}${formatCents(Math.abs(cents))}`;
+}
+
+function formatSignedBps(bps: number) {
+  const percentage = Math.abs(bps) / 100;
+  return `${bps >= 0 ? "+" : "-"}${percentage.toFixed(1)}%`;
 }
 
 function formatCents(cents: number) {

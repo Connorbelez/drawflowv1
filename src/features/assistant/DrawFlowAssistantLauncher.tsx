@@ -19,7 +19,8 @@ export function DrawFlowAssistantLauncher({
           ? "Loading DrawFlow AI assistant"
           : "Open DrawFlow AI assistant"
       }
-      className="fixed right-5 bottom-20 z-[100000] size-12 rounded-full shadow-lg"
+      className="fixed right-5 bottom-[calc(env(safe-area-inset-bottom,0px)+5rem)] z-[100000] size-12 rounded-full shadow-lg"
+      data-drawflow-assistant-launcher=""
       disabled={disabled}
       onClick={onOpen}
       onFocus={onPreload}

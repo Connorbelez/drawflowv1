@@ -3,8 +3,6 @@ import {
   normalizeEvidenceFileForUpload,
 } from "#/lib/evidence-image-normalization.ts";
 
-export { evidenceMimeTypeForFile };
-
 export const SITE_VISIT_PACKAGE_CAP_BYTES = 1_000_000_000;
 
 export type SiteVisitEvidenceKind = "document" | "image" | "video";
@@ -16,6 +14,7 @@ export interface SiteVisitStagedEvidence {
   mimeType: string;
   name: string;
   originalBytes: number;
+  previewUrl?: string;
   targetMilestoneKey?: string;
   targetSubmilestoneKey?: string;
   thumbnailKind: "document" | "image" | "video-poster";
@@ -94,10 +93,64 @@ export function assertPackageWithinCap(items: SiteVisitStagedEvidence[]) {
   return total;
 }
 
-export type SiteVisitEvidenceUploadItem = {
+export interface SiteVisitEvidenceUploadItem {
   evidence: SiteVisitStagedEvidence;
   file: Blob & { name?: string; type?: string };
-};
+}
+
+interface SiteVisitUploadResponse {
+  json: () => Promise<{ storageId: string }>;
+  ok: boolean;
+}
+
+export async function fetchSiteVisitEvidenceWithTimeout({
+  controller,
+  file,
+  mimeType,
+  request = (url, init) => fetch(url, init),
+  timeoutMs = 60_000,
+  url,
+}: {
+  controller: AbortController;
+  file: Blob;
+  mimeType: string;
+  request?: (
+    url: string,
+    init: RequestInit
+  ) => Promise<SiteVisitUploadResponse>;
+  timeoutMs?: number;
+  url: string;
+}): Promise<SiteVisitUploadResponse> {
+  let timedOut = false;
+  const timeout = globalThis.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  try {
+    return await request(url, {
+      body: file,
+      headers: {
+        "Content-Type": mimeType,
+      },
+      method: "POST",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (
+      timedOut &&
+      error instanceof DOMException &&
+      error.name === "AbortError"
+    ) {
+      const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
+      throw new Error(
+        `Evidence upload timed out after ${seconds} seconds. Check your connection and retry.`
+      );
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
 
 export async function uploadSiteVisitStagedEvidence({
   buildId,
@@ -114,9 +167,10 @@ export async function uploadSiteVisitStagedEvidence({
     buildId: string;
     token: string;
   }) => Promise<string>;
-  onUploadedItem?: () => void;
+  onUploadedItem?: (item: SiteVisitEvidenceUploadItem) => void;
   registerFile: (input: {
     buildId: string;
+    clientEvidenceId: string;
     fileName: string;
     mimeType: string;
     sizeBytes: number;
@@ -131,7 +185,7 @@ export async function uploadSiteVisitStagedEvidence({
     url: string,
     file: Blob,
     mimeType: string
-  ) => Promise<{ json: () => Promise<{ storageId: string }>; ok: boolean }>;
+  ) => Promise<SiteVisitUploadResponse>;
   normalizeFile?: (file: File) => Promise<File>;
 }) {
   if (stagedItems.length === 0) {
@@ -155,6 +209,7 @@ export async function uploadSiteVisitStagedEvidence({
     const { storageId } = await response.json();
     await registerFile({
       buildId,
+      clientEvidenceId: item.evidence.id,
       fileName,
       mimeType,
       sizeBytes: file.size,
@@ -163,7 +218,7 @@ export async function uploadSiteVisitStagedEvidence({
       targetSubmilestoneKey: item.evidence.targetSubmilestoneKey,
       token,
     });
-    onUploadedItem?.();
+    onUploadedItem?.(item);
   }
 
   return stagedItems.length;

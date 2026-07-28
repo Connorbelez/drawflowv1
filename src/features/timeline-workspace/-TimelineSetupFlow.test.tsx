@@ -89,29 +89,140 @@ const templateActionFixture = [
   },
 ];
 
+const brokerOptions = [
+  {
+    email: "principal@fairlend.example",
+    isPrincipal: true,
+    name: "Priya Principal",
+    workosUserId: "user_principal",
+  },
+  {
+    email: "broker@fairlend.example",
+    isPrincipal: false,
+    name: "Jordan Broker",
+    workosUserId: "user_broker",
+  },
+];
+
+describe("TimelineSetupFlow assigned broker", () => {
+  test("shows the selector on the first screen and emits the principal broker default", () => {
+    const onComplete = vi.fn();
+    render(
+      <TimelineSetupFlow
+        baseItems={baseItems}
+        brokerOptions={brokerOptions}
+        defaultAssignedBrokerWorkosUserId="user_principal"
+        onComplete={onComplete}
+      />,
+    );
+
+    expect(screen.getByText("4. Assigned Broker")).toBeTruthy();
+    expect(
+      screen.getByText("Defaulted to your organization’s principal broker."),
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-setup-assigned-broker-select").textContent,
+    ).toContain("Priya Principal");
+
+    fireEvent.click(screen.getByTestId("timeline-setup-continue-budget"));
+    fireEvent.click(screen.getByTestId("timeline-setup-complete"));
+
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assignedBrokerWorkosUserId: "user_principal",
+      }),
+    );
+  });
+
+  test("blocks progress when the organization has no active broker members", () => {
+    render(
+      <TimelineSetupFlow
+        baseItems={baseItems}
+        brokerOptions={[]}
+        onComplete={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("timeline-setup-continue-budget"));
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "No active broker is available",
+    );
+  });
+});
+
+describe("TimelineSetupFlow loan percentage", () => {
+  test("defines borrower starting cash as borrower-owned funds available at build commencement", () => {
+    render(<TimelineSetupFlow baseItems={baseItems} onComplete={vi.fn()} />);
+
+    expect(screen.getAllByText("Borrower Starting Cash")).toHaveLength(2);
+    expect(
+      screen.getByText(
+        "The borrower's own cash available at the start of the build, before any reimbursement draws are released.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Cash on hand is how much the borrower can spend before needing a draw.",
+      ),
+    ).toBeNull();
+  });
+
+  test("displays an 80% default and persists the complementary borrower contribution", () => {
+    const onComplete = vi.fn();
+    render(<TimelineSetupFlow baseItems={baseItems} onComplete={onComplete} />);
+
+    const loanPercentageInput = screen.getByTestId(
+      "timeline-setup-loan-percentage-input",
+    ) as HTMLInputElement;
+    expect(loanPercentageInput.value).toBe("80");
+    const loanPercentageLabels = screen.getAllByText("Loan Percentage");
+    expect(loanPercentageLabels).toHaveLength(2);
+    expect(loanPercentageLabels[1]?.closest("div")?.textContent).toContain(
+      "80% · $1,000,000",
+    );
+    expect(
+      screen.getByText("Borrower Contribution").closest("div")?.textContent,
+    ).toContain("20% · $250,000");
+
+    fireEvent.change(loanPercentageInput, { target: { value: "75" } });
+    fireEvent.click(screen.getByTestId("timeline-setup-continue-budget"));
+    fireEvent.click(screen.getByTestId("timeline-setup-complete"));
+
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        borrowerCoPayBps: 2_500,
+        borrowerCoPayCents: 31_250_000,
+        reimbursementBps: 7_500,
+        reimbursableBudgetCents: 93_750_000,
+      }),
+    );
+  });
+});
+
 describe("TimelineSetupFlow permit viewer", () => {
   test("requires a proposed start date before continuing", () => {
     render(<TimelineSetupFlow baseItems={baseItems} onComplete={vi.fn()} />);
 
     const proposedStartDateInput = screen.getByTestId(
-      "timeline-setup-proposed-start-date-input"
+      "timeline-setup-proposed-start-date-input",
     );
     expect((proposedStartDateInput as HTMLInputElement).value).toMatch(
-      /^\d{4}-\d{2}-\d{2}$/
+      /^\d{4}-\d{2}-\d{2}$/,
     );
 
     fireEvent.change(proposedStartDateInput, { target: { value: "" } });
     fireEvent.click(screen.getByTestId("timeline-setup-continue-budget"));
 
     expect(screen.getByTestId("timeline-setup-error").textContent).toContain(
-      "Enter a proposed start date"
+      "Enter a proposed start date",
     );
   });
 
   test("opens the proposed start date picker from the calendar trigger", () => {
     render(<TimelineSetupFlow baseItems={baseItems} onComplete={vi.fn()} />);
     const proposedStartDateInput = screen.getByTestId(
-      "timeline-setup-proposed-start-date-input"
+      "timeline-setup-proposed-start-date-input",
     ) as HTMLInputElement;
     const showPicker = vi.fn();
     Object.defineProperty(proposedStartDateInput, "showPicker", {
@@ -120,7 +231,7 @@ describe("TimelineSetupFlow permit viewer", () => {
     });
 
     fireEvent.click(
-      screen.getByTestId("timeline-setup-proposed-start-date-input-picker")
+      screen.getByTestId("timeline-setup-proposed-start-date-input-picker"),
     );
 
     expect(showPicker).toHaveBeenCalledTimes(1);
@@ -132,7 +243,7 @@ describe("TimelineSetupFlow permit viewer", () => {
 
     fireEvent.change(
       screen.getByTestId("timeline-setup-proposed-start-date-input"),
-      { target: { value: "2025-01-15" } }
+      { target: { value: "2025-01-15" } },
     );
     fireEvent.click(screen.getByTestId("timeline-setup-continue-budget"));
     fireEvent.click(screen.getByTestId("timeline-setup-complete"));
@@ -140,7 +251,7 @@ describe("TimelineSetupFlow permit viewer", () => {
     expect(onComplete).toHaveBeenCalledWith(
       expect.objectContaining({
         proposedStartDate: "2025-01-15",
-      })
+      }),
     );
   });
 
@@ -180,14 +291,14 @@ describe("TimelineSetupFlow assistant client actions", () => {
         baseItems={baseItems}
         onComplete={vi.fn()}
         settingsTemplates={templateActionFixture}
-      />
+      />,
     );
 
     const gardenSuiteCard = screen.getByTestId(
-      "timeline-setup-template-card-garden-suite"
+      "timeline-setup-template-card-garden-suite",
     );
     expect(gardenSuiteCard.getAttribute("data-agent-id")).toBe(
-      "proposal-template:garden-suite"
+      "proposal-template:garden-suite",
     );
     expect(gardenSuiteCard.getAttribute("aria-pressed")).toBe("false");
 
@@ -195,7 +306,7 @@ describe("TimelineSetupFlow assistant client actions", () => {
       dispatchAssistantClientAction({
         actionKey: "select_proposal_template",
         input: { templateKey: "Garden Suite" },
-      })
+      }),
     ).toBe(true);
 
     await waitFor(() => {
@@ -216,23 +327,27 @@ describe("TimelineSetupFlow assistant client actions", () => {
         baseItems={baseItems}
         onComplete={vi.fn()}
         settingsTemplates={templateActionFixture}
-      />
+      />,
     );
 
     await waitFor(() => {
       expect(
         screen
           .getByTestId("timeline-setup-template-card-garden-suite")
-          .getAttribute("aria-pressed")
+          .getAttribute("aria-pressed"),
       ).toBe("true");
     });
-    expect(screen.getByTestId("timeline-setup-assistant-notice").textContent).toBe(
-      "Garden Suite selected"
-    );
+    expect(
+      screen.getByTestId("timeline-setup-assistant-notice").textContent,
+    ).toBe("Garden Suite selected");
   });
 
   test("consumes queued Garden Suite selection when route strings differ by slash or search", async () => {
-    window.history.pushState(null, "", "/builder/proposals/new/?from=assistant");
+    window.history.pushState(
+      null,
+      "",
+      "/builder/proposals/new/?from=assistant",
+    );
     queueAssistantClientActions([
       {
         actionKey: "select_proposal_template",
@@ -246,19 +361,19 @@ describe("TimelineSetupFlow assistant client actions", () => {
         baseItems={baseItems}
         onComplete={vi.fn()}
         settingsTemplates={templateActionFixture}
-      />
+      />,
     );
 
     await waitFor(() => {
       expect(
         screen
           .getByTestId("timeline-setup-template-card-garden-suite")
-          .getAttribute("aria-pressed")
+          .getAttribute("aria-pressed"),
       ).toBe("true");
     });
-    expect(screen.getByTestId("timeline-setup-assistant-notice").textContent).toBe(
-      "Garden Suite selected"
-    );
+    expect(
+      screen.getByTestId("timeline-setup-assistant-notice").textContent,
+    ).toBe("Garden Suite selected");
   });
 
   test("waits for loaded settings templates before consuming queued Garden Suite selection", async () => {
@@ -270,12 +385,12 @@ describe("TimelineSetupFlow assistant client actions", () => {
     ]);
 
     const { rerender } = render(
-      <TimelineSetupFlow baseItems={baseItems} onComplete={vi.fn()} />
+      <TimelineSetupFlow baseItems={baseItems} onComplete={vi.fn()} />,
     );
 
     expect(screen.queryByText(/garden-suite is not available/i)).toBeNull();
     expect(
-      screen.queryByTestId("timeline-setup-template-card-garden-suite")
+      screen.queryByTestId("timeline-setup-template-card-garden-suite"),
     ).toBeNull();
 
     rerender(
@@ -283,14 +398,14 @@ describe("TimelineSetupFlow assistant client actions", () => {
         baseItems={baseItems}
         onComplete={vi.fn()}
         settingsTemplates={templateActionFixture}
-      />
+      />,
     );
 
     await waitFor(() => {
       expect(
         screen
           .getByTestId("timeline-setup-template-card-garden-suite")
-          .getAttribute("aria-pressed")
+          .getAttribute("aria-pressed"),
       ).toBe("true");
     });
     expect(screen.queryByText(/garden-suite is not available/i)).toBeNull();
@@ -338,13 +453,15 @@ describe("TimelineSetupFlow assistant client actions", () => {
     );
 
     await act(async () => {
-      expect(dispatchAssistantClientAction({
-        actionKey: "set_proposal_setup_field",
-        input: {
-          field: "totalBudget",
-          value: "100000",
-        },
-      })).toBe(true);
+      expect(
+        dispatchAssistantClientAction({
+          actionKey: "set_proposal_setup_field",
+          input: {
+            field: "totalBudget",
+            value: "100000",
+          },
+        }),
+      ).toBe(true);
     });
     await waitFor(() => {
       expect(
@@ -353,36 +470,42 @@ describe("TimelineSetupFlow assistant client actions", () => {
       ).toBe("100,000");
     });
     await act(async () => {
-      expect(dispatchAssistantClientAction({
-        actionKey: "advance_proposal_setup_step",
-        input: { step: "budget" },
-      })).toBe(true);
+      expect(
+        dispatchAssistantClientAction({
+          actionKey: "advance_proposal_setup_step",
+          input: { step: "budget" },
+        }),
+      ).toBe(true);
     });
     await screen.findByTestId("timeline-setup-budget-screen");
 
     await act(async () => {
-      expect(dispatchAssistantClientAction({
-        actionKey: "update_setup_submilestone",
-        input: {
-          budgetCents: 7_000_000,
-          subMilestoneId: "permit-mobilization",
-        },
-      })).toBe(true);
+      expect(
+        dispatchAssistantClientAction({
+          actionKey: "update_setup_submilestone",
+          input: {
+            budgetCents: 7_000_000,
+            subMilestoneId: "permit-mobilization",
+          },
+        }),
+      ).toBe(true);
     });
     await act(async () => {
-      expect(dispatchAssistantClientAction({
-        actionKey: "create_setup_cost_item",
-        input: {
-          costCents: 2_500_000,
-          itemId: "assistant-lumber",
-          itemType: "material",
-          quantity: 1,
-          relevantSubmilestoneKeys: ["permit-mobilization"],
-          rowKey: "site-foundation",
-          supplier: "A1 Lumber",
-          title: "Framing lumber package",
-        },
-      })).toBe(true);
+      expect(
+        dispatchAssistantClientAction({
+          actionKey: "create_setup_cost_item",
+          input: {
+            costCents: 2_500_000,
+            itemId: "assistant-lumber",
+            itemType: "material",
+            quantity: 1,
+            relevantSubmilestoneKeys: ["permit-mobilization"],
+            rowKey: "site-foundation",
+            supplier: "A1 Lumber",
+            title: "Framing lumber package",
+          },
+        }),
+      ).toBe(true);
     });
 
     fireEvent.click(screen.getByTestId("timeline-setup-complete"));
@@ -438,10 +561,10 @@ describe("TimelineSetupFlow budget import", () => {
         "$ / Total Sqft",
         "Drawable Amount",
       ].join(","),
-      '1,Draw/Milestone 1,60000,DC/ED,25000,20%,10,20000',
+      "1,Draw/Milestone 1,60000,DC/ED,25000,20%,10,20000",
       ",,,Permits,37500,30%,15,30000",
       ",,,Foundation,12500,10%,5,10000",
-      '2,Draw/Milestone 2,40000,Framing,50000,40%,20,40000',
+      "2,Draw/Milestone 2,40000,Framing,50000,40%,20,40000",
     ].join("\n");
     const file = new File([csv], "luverne-budget.csv", { type: "text/csv" });
 
@@ -450,8 +573,9 @@ describe("TimelineSetupFlow budget import", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("timeline-budget-import-status").textContent)
-        .toContain("Imported 2 milestones and 4 budget lines");
+      expect(
+        screen.getByTestId("timeline-budget-import-status").textContent,
+      ).toContain("Imported 2 milestones and 4 budget lines");
     });
 
     expect(screen.getByText("Draw/Milestone 1")).toBeTruthy();
@@ -477,7 +601,7 @@ describe("TimelineSetupFlow budget import", () => {
           key: "draw-milestone-1-permits",
           name: "Permits",
         }),
-      ])
+      ]),
     );
   });
 });

@@ -35,6 +35,7 @@ import { Route as ContractorEvidenceRouteImport } from './routes/contractor/evid
 import { Route as BackofficeUserManagementRouteImport } from './routes/backoffice/user-management'
 import { Route as BackofficeOnboardContractorRouteImport } from './routes/backoffice/onboard-contractor'
 import { Route as BackofficeOnboardBuilderRouteImport } from './routes/backoffice/onboard-builder'
+import { Route as BackofficeIntegrationsRouteImport } from './routes/backoffice/integrations'
 import { Route as BuilderProposalsRouteRouteImport } from './routes/builder/proposals/route'
 import { Route as BuilderDemoRouteRouteImport } from './routes/builder/demo/route'
 import { Route as BuilderStaffProposalsRouteRouteImport } from './routes/builder-staff/proposals/route'
@@ -229,6 +230,11 @@ const BackofficeOnboardBuilderRoute =
     path: '/onboard-builder',
     getParentRoute: () => BackofficeRouteRoute,
   } as any)
+const BackofficeIntegrationsRoute = BackofficeIntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
+  getParentRoute: () => BackofficeRouteRoute,
+} as any)
 const BuilderProposalsRouteRoute = BuilderProposalsRouteRouteImport.update({
   id: '/proposals',
   path: '/proposals',
@@ -580,6 +586,7 @@ export interface FileRoutesByFullPath {
   '/builder-staff/proposals': typeof BuilderStaffProposalsRouteRouteWithChildren
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/builder/proposals': typeof BuilderProposalsRouteRouteWithChildren
+  '/backoffice/integrations': typeof BackofficeIntegrationsRoute
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
@@ -655,6 +662,7 @@ export interface FileRoutesByTo {
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
+  '/backoffice/integrations': typeof BackofficeIntegrationsRoute
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
@@ -737,6 +745,7 @@ export interface FileRoutesById {
   '/builder-staff/proposals': typeof BuilderStaffProposalsRouteRouteWithChildren
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/builder/proposals': typeof BuilderProposalsRouteRouteWithChildren
+  '/backoffice/integrations': typeof BackofficeIntegrationsRoute
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
@@ -826,6 +835,7 @@ export interface FileRouteTypes {
     | '/builder-staff/proposals'
     | '/builder/demo'
     | '/builder/proposals'
+    | '/backoffice/integrations'
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
@@ -901,6 +911,7 @@ export interface FileRouteTypes {
     | '/backoffice/draws'
     | '/backoffice/site-visits'
     | '/builder/demo'
+    | '/backoffice/integrations'
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
@@ -982,6 +993,7 @@ export interface FileRouteTypes {
     | '/builder-staff/proposals'
     | '/builder/demo'
     | '/builder/proposals'
+    | '/backoffice/integrations'
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
@@ -1248,6 +1260,13 @@ declare module '@tanstack/react-router' {
       path: '/onboard-builder'
       fullPath: '/backoffice/onboard-builder'
       preLoaderRoute: typeof BackofficeOnboardBuilderRouteImport
+      parentRoute: typeof BackofficeRouteRoute
+    }
+    '/backoffice/integrations': {
+      id: '/backoffice/integrations'
+      path: '/integrations'
+      fullPath: '/backoffice/integrations'
+      preLoaderRoute: typeof BackofficeIntegrationsRouteImport
       parentRoute: typeof BackofficeRouteRoute
     }
     '/builder/proposals': {
@@ -1773,6 +1792,7 @@ interface BackofficeRouteRouteChildren {
   BackofficeProposalsRouteRoute: typeof BackofficeProposalsRouteRouteWithChildren
   BackofficeSettingsRouteRoute: typeof BackofficeSettingsRouteRouteWithChildren
   BackofficeSiteVisitsRouteRoute: typeof BackofficeSiteVisitsRouteRoute
+  BackofficeIntegrationsRoute: typeof BackofficeIntegrationsRoute
   BackofficeOnboardBuilderRoute: typeof BackofficeOnboardBuilderRoute
   BackofficeOnboardContractorRoute: typeof BackofficeOnboardContractorRoute
   BackofficeUserManagementRoute: typeof BackofficeUserManagementRoute
@@ -1787,6 +1807,7 @@ const BackofficeRouteRouteChildren: BackofficeRouteRouteChildren = {
   BackofficeProposalsRouteRoute: BackofficeProposalsRouteRouteWithChildren,
   BackofficeSettingsRouteRoute: BackofficeSettingsRouteRouteWithChildren,
   BackofficeSiteVisitsRouteRoute: BackofficeSiteVisitsRouteRoute,
+  BackofficeIntegrationsRoute: BackofficeIntegrationsRoute,
   BackofficeOnboardBuilderRoute: BackofficeOnboardBuilderRoute,
   BackofficeOnboardContractorRoute: BackofficeOnboardContractorRoute,
   BackofficeUserManagementRoute: BackofficeUserManagementRoute,

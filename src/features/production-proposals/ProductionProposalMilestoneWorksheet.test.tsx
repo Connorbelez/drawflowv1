@@ -106,4 +106,23 @@ describe("ProductionProposalMilestoneWorksheet", () => {
 
     expect(onPersistRows).toHaveBeenCalledTimes(1);
   });
+
+  test("turns cascade on when the cascade toggle is clicked", () => {
+    render(
+      <ProductionProposalMilestoneWorksheet
+        detail={detail}
+        templateTitle="4-plex Proposal"
+      />
+    );
+
+    const toggle = screen.getByTestId("timeline-setup-budget-cascade-toggle");
+
+    expect(toggle.textContent).toContain("Cascade: Off");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(toggle);
+
+    expect(toggle.textContent).toContain("Cascade: On");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
 });

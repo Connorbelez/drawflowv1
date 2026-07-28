@@ -4,6 +4,7 @@ import {
   Building2,
   CheckCircle2,
   HardHat,
+  LoaderCircle,
   Mail,
   Plus,
   RotateCcw,
@@ -76,7 +77,7 @@ export function UserDetailSheet({
   onOpenChange,
   organizationsById,
   provisioningByOrg,
-  roleOptions,
+  roleOptionsByOrganization,
   workspaceOrganizations,
 }: {
   directoryUser: DirectoryUser | null;
@@ -84,7 +85,7 @@ export function UserDetailSheet({
   onOpenChange: (open: boolean) => void;
   organizationsById: Map<string, WorkosOrganizationRow>;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
-  roleOptions: string[];
+  roleOptionsByOrganization: Map<string, string[]>;
   workspaceOrganizations: WorkosOrganizationRow[];
 }): ReactElement {
   return (
@@ -96,7 +97,7 @@ export function UserDetailSheet({
             handlers={handlers}
             organizationsById={organizationsById}
             provisioningByOrg={provisioningByOrg}
-            roleOptions={roleOptions}
+            roleOptionsByOrganization={roleOptionsByOrganization}
             workspaceOrganizations={workspaceOrganizations}
           />
         ) : null}
@@ -110,14 +111,14 @@ function UserDetailBody({
   handlers,
   organizationsById,
   provisioningByOrg,
-  roleOptions,
+  roleOptionsByOrganization,
   workspaceOrganizations,
 }: {
   directoryUser: DirectoryUser;
   handlers: SheetHandlers;
   organizationsById: Map<string, WorkosOrganizationRow>;
   provisioningByOrg: Map<string, OrganizationProvisioning>;
-  roleOptions: string[];
+  roleOptionsByOrganization: Map<string, string[]>;
   workspaceOrganizations: WorkosOrganizationRow[];
 }): ReactElement {
   const { user, memberships, displayName, initials } = directoryUser;
@@ -168,13 +169,14 @@ function UserDetailBody({
           handlers={handlers}
           memberships={memberships}
           organizationsById={organizationsById}
-          roleOptions={roleOptions}
+          roleOptionsByOrganization={roleOptionsByOrganization}
         />
         <AddMembershipSection
           availableOrganizations={availableOrganizations}
           onCreateMembership={handlers.onCreateMembership}
-          roleOptions={roleOptions}
+          roleOptionsByOrganization={roleOptionsByOrganization}
           userId={user.workosUserId ?? ""}
+          workspaceOrganizations={workspaceOrganizations}
         />
         <ProfilesSection
           handlers={handlers}
@@ -194,12 +196,12 @@ function MembershipsSection({
   handlers,
   memberships,
   organizationsById,
-  roleOptions,
+  roleOptionsByOrganization,
 }: {
   handlers: SheetHandlers;
   memberships: WorkosMembershipRow[];
   organizationsById: Map<string, WorkosOrganizationRow>;
-  roleOptions: string[];
+  roleOptionsByOrganization: Map<string, string[]>;
 }): ReactElement {
   return (
     <section className="flex flex-col gap-3">
@@ -218,11 +220,16 @@ function MembershipsSection({
               handlers={handlers}
               key={membership.workosMembershipId}
               membership={membership}
-              organizationName={
-                organizationsById.get(membership.workosOrganizationId)?.name ??
+              organizationName={organizationDisplayLabel(
+                organizationsById.get(membership.workosOrganizationId),
+                organizationsById.values(),
                 membership.workosOrganizationId
+              )}
+              roleOptions={
+                roleOptionsByOrganization.get(
+                  membership.workosOrganizationId
+                ) ?? []
               }
-              roleOptions={roleOptions}
             />
           ))}
         </div>
@@ -304,7 +311,7 @@ function MembershipCard({
         </div>
       </div>
       <RoleEditor
-        disabled={saving || isDeleted}
+        disabled={isDeleted}
         onSubmit={async (args) => {
           setSaving(true);
           try {
@@ -316,6 +323,7 @@ function MembershipCard({
             setSaving(false);
           }
         }}
+        pending={saving}
         primaryRoleSlug={membership.roleSlug}
         roleOptions={[...new Set([...roleOptions, ...selectedRoles])]}
         roleSlugs={selectedRoles}
@@ -343,20 +351,22 @@ function MembershipStatusBadge({
 function AddMembershipSection({
   availableOrganizations,
   onCreateMembership,
-  roleOptions,
+  roleOptionsByOrganization,
   userId,
+  workspaceOrganizations,
 }: {
   availableOrganizations: WorkosOrganizationRow[];
   onCreateMembership: UserManagementHandlers["onCreateMembership"];
-  roleOptions: string[];
+  roleOptionsByOrganization: Map<string, string[]>;
   userId: string;
+  workspaceOrganizations: WorkosOrganizationRow[];
 }): ReactElement | null {
   const [organizationId, setOrganizationId] = useState(
     availableOrganizations[0]?.workosOrganizationId ?? ""
   );
   const [saving, setSaving] = useState(false);
 
-  if (!userId || roleOptions.length === 0) {
+  if (!userId) {
     return null;
   }
   if (availableOrganizations.length === 0) {
@@ -370,6 +380,9 @@ function AddMembershipSection({
     )
       ? organizationId
       : availableOrganizations[0]?.workosOrganizationId;
+  const roleOptions = effectiveOrgId
+    ? (roleOptionsByOrganization.get(effectiveOrgId) ?? [])
+    : [];
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-input border-dashed p-3.5">
@@ -389,13 +402,18 @@ function AddMembershipSection({
               key={organization.workosOrganizationId}
               value={organization.workosOrganizationId}
             >
-              {organization.name ?? organization.workosOrganizationId}
+              {organizationDisplayLabel(
+                organization,
+                workspaceOrganizations,
+                organization.workosOrganizationId
+              )}
             </NativeSelectOption>
           ))}
         </NativeSelect>
       </div>
       <RoleEditor
-        disabled={saving}
+        disabled={roleOptions.length === 0}
+        key={effectiveOrgId}
         onSubmit={async ({ primaryRoleSlug, roleSlugs }) => {
           if (!effectiveOrgId) {
             return;
@@ -412,6 +430,7 @@ function AddMembershipSection({
             setSaving(false);
           }
         }}
+        pending={saving}
         roleOptions={roleOptions}
         roleSlugs={[]}
         submitIcon={<Plus />}
@@ -735,6 +754,7 @@ function ConfirmButton({
 function RoleEditor({
   disabled,
   onSubmit,
+  pending = false,
   primaryRoleSlug,
   roleOptions,
   roleSlugs,
@@ -746,6 +766,7 @@ function RoleEditor({
     primaryRoleSlug?: string;
     roleSlugs: string[];
   }) => Promise<void>;
+  pending?: boolean;
   primaryRoleSlug?: string;
   roleOptions: string[];
   roleSlugs: string[];
@@ -755,23 +776,22 @@ function RoleEditor({
   const primaryRoleId = useId();
   const initialRoles = roleSlugs;
   const initialPrimary = primaryRoleSlug ?? initialRoles[0] ?? "";
-  // Signature of the server-confirmed roles. When a mutation lands and the
-  // parent feeds new props for the same membership, reset local edit state so
-  // the editor reflects the persisted truth instead of a stale draft.
-  const baseline = `${initialPrimary}\u0000${[...initialRoles].sort().join(",")}`;
-  const [syncedBaseline, setSyncedBaseline] = useState(baseline);
+  const propBaseline = roleSignature(initialPrimary, initialRoles);
+  const [seenPropBaseline, setSeenPropBaseline] = useState(propBaseline);
+  const [committedBaseline, setCommittedBaseline] = useState(propBaseline);
   const [selected, setSelected] = useState(initialRoles);
   const [primary, setPrimary] = useState(initialPrimary);
-  if (baseline !== syncedBaseline) {
-    setSyncedBaseline(baseline);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  if (propBaseline !== seenPropBaseline) {
+    setSeenPropBaseline(propBaseline);
+    setCommittedBaseline(propBaseline);
     setSelected(initialRoles);
     setPrimary(initialPrimary);
+    setSubmitError(null);
   }
+  const currentBaseline = roleSignature(primary, selected);
   const selectedActive = roleOptions.filter((role) => selected.includes(role));
-  const dirty =
-    selected.length !== initialRoles.length ||
-    selected.some((role) => !initialRoles.includes(role)) ||
-    primary !== initialPrimary;
+  const dirty = currentBaseline !== committedBaseline;
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -786,8 +806,9 @@ function RoleEditor({
             >
               <Checkbox
                 checked={checked}
-                disabled={disabled}
+                disabled={disabled || pending}
                 onCheckedChange={(next) => {
+                  setSubmitError(null);
                   const isChecked = next === true;
                   const updated = isChecked
                     ? [...selected, role]
@@ -815,9 +836,12 @@ function RoleEditor({
         </label>
         <NativeSelect
           aria-label="Primary role"
-          disabled={disabled || selectedActive.length === 0}
+          disabled={disabled || pending || selectedActive.length === 0}
           id={primaryRoleId}
-          onChange={(event) => setPrimary(event.target.value)}
+          onChange={(event) => {
+            setSubmitError(null);
+            setPrimary(event.target.value);
+          }}
           value={primary}
         >
           {selectedActive.map((role) => (
@@ -828,20 +852,82 @@ function RoleEditor({
         </NativeSelect>
         <div className="ms-auto">
           <Button
-            disabled={disabled || selected.length === 0 || !primary || !dirty}
-            onClick={() =>
-              onSubmit({ primaryRoleSlug: primary, roleSlugs: selected })
+            aria-busy={pending}
+            disabled={
+              disabled || pending || selected.length === 0 || !primary || !dirty
             }
+            onClick={async () => {
+              const submittedPrimary = primary;
+              const submittedRoles = selected;
+              setSubmitError(null);
+              try {
+                await onSubmit({
+                  primaryRoleSlug: submittedPrimary,
+                  roleSlugs: submittedRoles,
+                });
+              } catch (error) {
+                setSubmitError(roleEditorErrorMessage(error));
+                return;
+              }
+              setCommittedBaseline(
+                roleSignature(submittedPrimary, submittedRoles)
+              );
+            }}
             size="sm"
             type="button"
           >
-            {submitIcon}
-            {submitLabel}
+            {pending ? <LoaderCircle className="animate-spin" /> : submitIcon}
+            {pending
+              ? submitLabel === "Add membership"
+                ? "Adding..."
+                : "Saving..."
+              : submitLabel}
           </Button>
         </div>
       </div>
+      {selected.length === 0 ? (
+        <p className="text-muted-foreground text-xs">
+          Select at least one role to continue.
+        </p>
+      ) : null}
+      {submitError ? (
+        <p className="text-destructive text-xs" role="alert">
+          {submitError}
+        </p>
+      ) : null}
     </div>
   );
+}
+
+function roleSignature(primaryRoleSlug: string, roleSlugs: string[]): string {
+  return `${primaryRoleSlug}\u0000${[...roleSlugs].sort().join(",")}`;
+}
+
+function roleEditorErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return "The role change could not be saved. Try again.";
+}
+
+function organizationDisplayLabel(
+  organization: WorkosOrganizationRow | undefined,
+  organizations: Iterable<WorkosOrganizationRow>,
+  fallbackId: string
+): string {
+  const name = organization?.name?.trim() || fallbackId;
+  const duplicateName =
+    organization?.name &&
+    [...organizations].filter((candidate) => candidate.name === name).length >
+      1;
+  return duplicateName ? `${name} · ${compactWorkosId(fallbackId)}` : name;
+}
+
+function compactWorkosId(id: string): string {
+  if (id.length <= 16) {
+    return id;
+  }
+  return `${id.slice(0, 8)}…${id.slice(-6)}`;
 }
 
 function SectionLabel({

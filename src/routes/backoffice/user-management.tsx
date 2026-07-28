@@ -97,6 +97,7 @@ function UserManagementRoute() {
       setAccepted(await action());
     } catch (error) {
       setActionError(getActionErrorMessage(error));
+      throw error;
     }
   };
 
@@ -192,6 +193,7 @@ const userManagementVisualFixture = {
   brokerageProvisioning: {
     fairLendBootstrap: {
       displayName: "FairLendBrokerage",
+      principalBrokerEmail: "elie@fairlend.ca",
       principalBrokerWorkosUserId: "user_01KR207FRFHQT46EV9N538XBF3",
       workosOrganizationId: "org_01KSNW6JHW9P9YS41DZX1YHHGS",
     },

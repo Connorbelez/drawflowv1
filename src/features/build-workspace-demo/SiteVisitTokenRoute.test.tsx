@@ -1,5 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const mockConvex = vi.hoisted(() => {
@@ -9,11 +16,26 @@ const mockConvex = vi.hoisted(() => {
       if (input?.reportNotes !== undefined) {
         state.liveVisitState = consumedVisitState();
       }
+      if (input?.reason && input?.token) {
+        return { reference: "SVR-RECOVER1", requested: true };
+      }
       return null;
     }),
   };
   return state;
 });
+
+const mockToast = vi.hoisted(() => ({
+  error: vi.fn(),
+  info: vi.fn(),
+  warning: vi.fn(),
+}));
+
+const mockDraftStorage = vi.hoisted(() => ({
+  deleteDraft: vi.fn(async () => undefined),
+  loadDraft: vi.fn(async () => null),
+  saveDraft: vi.fn(async () => undefined),
+}));
 
 vi.mock("convex/react", () => ({
   ConvexProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -24,25 +46,89 @@ vi.mock("convex/react", () => ({
   useQuery: vi.fn(() => mockConvex.liveVisitState),
 }));
 
+vi.mock("sonner", () => ({ toast: mockToast }));
+
+vi.mock("./site-visit-draft-storage.ts", async () => {
+  const actual = await vi.importActual<
+    typeof import("./site-visit-draft-storage.ts")
+  >("./site-visit-draft-storage.ts");
+  return {
+    ...actual,
+    deleteSiteVisitDraft: mockDraftStorage.deleteDraft,
+    loadSiteVisitDraft: mockDraftStorage.loadDraft,
+    saveSiteVisitDraft: mockDraftStorage.saveDraft,
+  };
+});
+
 import { SiteVisitTokenRoute } from "./SiteVisitTokenRoute";
 
 const getUserMedia = vi.fn(
   () => new Promise<MediaStream>(() => undefined),
 );
+const getCurrentPosition = vi.fn();
+const scrollIntoView = vi.fn();
+
+function completeReportForm() {
+  fireEvent.change(screen.getByLabelText("Recommendation"), {
+    target: { value: "approve" },
+  });
+  fireEvent.change(screen.getByLabelText("Completion observation"), {
+    target: { value: "observed" },
+  });
+  const editor = screen
+    .getByTestId("site-visit-report-note")
+    .querySelector('[contenteditable="true"]');
+  if (!editor) {
+    throw new Error("Field note editor was not rendered.");
+  }
+  editor.innerHTML = "<p>Inspector verified the assigned scope.</p>";
+  fireEvent.input(editor);
+}
 
 describe("SiteVisitTokenRoute", () => {
   beforeEach(() => {
     mockConvex.liveVisitState = activeVisitState();
     mockConvex.mutation.mockClear();
+    mockToast.error.mockClear();
+    mockToast.info.mockClear();
+    mockToast.warning.mockClear();
+    mockDraftStorage.deleteDraft.mockClear();
+    mockDraftStorage.loadDraft.mockReset();
+    mockDraftStorage.loadDraft.mockResolvedValue(null);
+    mockDraftStorage.saveDraft.mockClear();
     getUserMedia.mockClear();
+    getCurrentPosition.mockReset();
+    scrollIntoView.mockClear();
+    getCurrentPosition.mockImplementation(
+      (onSuccess: PositionCallback) => {
+        onSuccess({
+          coords: {
+            accuracy: 8,
+            altitude: null,
+            altitudeAccuracy: null,
+            heading: null,
+            latitude: 43.25571,
+            longitude: -79.87109,
+            speed: null,
+          },
+          timestamp: Date.now(),
+        });
+      },
+    );
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
       value: { getUserMedia },
     });
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: { getCurrentPosition },
+    });
+    Element.prototype.scrollIntoView = scrollIntoView;
   });
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   test("keeps the submitted confirmation visible after realtime marks the token consumed", async () => {
@@ -54,15 +140,37 @@ describe("SiteVisitTokenRoute", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /submit report/i }));
+    await waitFor(() => {
+      expect(screen.getAllByText("Location verified").length).toBeGreaterThan(0);
+    });
+    completeReportForm();
+    await waitFor(() => {
+      expect(screen.getByText("Ready to submit")).toBeTruthy();
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /submit recommendation/i }),
+    );
 
     await waitFor(() => {
+      expect(
+        mockConvex.mutation.mock.calls.some(
+          ([input]) => input?.reportNotes !== undefined,
+        ),
+      ).toBe(true);
+      expect(mockToast.error).not.toHaveBeenCalled();
       expect(screen.getByText("Site visit recorded")).toBeTruthy();
     });
     expect(screen.queryByText("Visit unavailable")).toBeNull();
   });
 
-  test("opens the build permit tab from the site visit navigation", () => {
+  test("keeps submission clickable and explains every incomplete requirement", () => {
+    const active = activeVisitState();
+    mockConvex.liveVisitState = {
+      ...active,
+      files: [],
+      permit: null,
+    };
+
     render(
       <SiteVisitTokenRoute
         buildId="k57activebuild"
@@ -71,15 +179,272 @@ describe("SiteVisitTokenRoute", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /permit/i }));
+    const submitButton = screen.getByRole("button", {
+      name: /submit recommendation/i,
+    }) as HTMLButtonElement;
+    expect(submitButton.disabled).toBe(false);
 
-    expect(screen.getByText("Build Permit")).toBeTruthy();
+    fireEvent.click(submitButton);
+
+    expect(mockToast.warning).toHaveBeenCalledWith(
+      "Report not ready",
+      expect.objectContaining({
+        description: expect.stringContaining(
+          "Add at least one evidence photo or video.",
+        ),
+      }),
+    );
+    const description = mockToast.warning.mock.calls[0]?.[1]?.description;
+    expect(description).toContain(
+      "Acknowledge that the permit was unavailable.",
+    );
+    expect(description).toContain(
+      "Add the alternate-verification reason for the missing permit.",
+    );
+    expect(
+      mockConvex.mutation.mock.calls.some(
+        ([input]) => input?.reportNotes !== undefined,
+      ),
+    ).toBe(false);
+  });
+
+  test("does not let a late saved draft overwrite new field edits", async () => {
+    let resolveDraft!: (
+      draft: Awaited<
+        ReturnType<
+          typeof import("./site-visit-draft-storage.ts").loadSiteVisitDraft
+        >
+      >
+    ) => void;
+    mockDraftStorage.loadDraft.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDraft = resolve;
+        }),
+    );
+
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Recommendation"), {
+      target: { value: "approve" },
+    });
+    const editor = screen
+      .getByTestId("site-visit-report-note")
+      .querySelector('[contenteditable="true"]');
+    if (!editor) {
+      throw new Error("Field note editor was not rendered.");
+    }
+    editor.innerHTML = "<p>New field observation.</p>";
+    fireEvent.input(editor);
+
+    await act(async () => {
+      resolveDraft({
+        completionObserved: false,
+        key: "production:k57activebuild:fresh-token",
+        locationAttempt: {
+          accuracyMeters: 12,
+          attempted: true,
+          capturedAt: Date.now() - 60_000,
+          distanceMeters: 4,
+          failureReason: "",
+          latitude: 43.2557,
+          longitude: -79.8711,
+          verified: true,
+        },
+        prerequisiteAcknowledged: false,
+        prerequisiteReason: "",
+        qualityRating: "1",
+        recommendedOutcome: "reject",
+        reportNotes: "<p>Old saved observation.</p>",
+        selectedTarget: "visit-wide",
+        stagedItems: [],
+        updatedAt: Date.now() - 60_000,
+        version: 1,
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      (screen.getByLabelText("Recommendation") as HTMLSelectElement).value,
+    ).toBe("approve");
+    expect(editor.innerHTML).toContain("New field observation.");
+  });
+
+  test("prevents staged evidence removal while its upload is active", async () => {
+    let finishUpload!: (value: {
+      json: () => Promise<{ storageId: string }>;
+      ok: boolean;
+    }) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finishUpload = resolve;
+          }),
+      ),
+    );
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    const fileInput = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement | null;
+    if (!fileInput) {
+      throw new Error("Evidence file input was not rendered.");
+    }
+    fireEvent.change(fileInput, {
+      target: {
+        files: [
+          new File(["evidence"], "foundation-review.jpg", {
+            type: "image/jpeg",
+          }),
+        ],
+      },
+    });
+    const removeButton = screen.getByRole("button", {
+      name: "Remove foundation-review.jpg",
+    }) as HTMLButtonElement;
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload evidence" }));
+
+    await waitFor(() => expect(removeButton.disabled).toBe(true));
+
+    finishUpload({
+      json: async () => ({ storageId: "storage-1" }),
+      ok: true,
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", {
+          name: "Remove foundation-review.jpg",
+        }),
+      ).toBeNull(),
+    );
+  });
+
+  test("moves the mobile report shortcut to the report workflow", () => {
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+    });
+    expect(document.activeElement?.id).toBe("site-visit-report");
+    expect(screen.getByRole("heading", { name: "Report" })).toBeTruthy();
+  });
+
+  test("opens the consolidated visit packet from the site visit navigation", () => {
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /packet/i }));
+
+    expect(screen.getByText("Visit packet")).toBeTruthy();
     expect(
       screen.getAllByText("city-issued-build-permit.pdf").length,
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByTestId("site-visit-permit-frame").length,
     ).toBeGreaterThan(0);
+  });
+
+  test("renders an interactive site map and a working Open in Maps action", () => {
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+    const mapButton = screen.getByRole("button", { name: "Map" });
+    fireEvent.click(mapButton);
+    expect(mapButton.getAttribute("aria-pressed")).toBe("true");
+
+    const maps = screen.getAllByTitle(
+      "Interactive map for 1420 Maple Ridge Dr, Hamilton, ON L8P 2X4",
+    ) as HTMLIFrameElement[];
+    expect(maps.length).toBeGreaterThan(0);
+    expect(maps[0]?.src).toContain("google.com/maps");
+    expect(maps[0]?.src).toContain("43.2557");
+
+    const openInMaps = screen.getAllByRole("link", {
+      name: /open in maps/i,
+    }) as HTMLAnchorElement[];
+    expect(openInMaps.length).toBeGreaterThan(0);
+    expect(openInMaps[0]?.href).toContain(
+      "google.com/maps/search/?api=1",
+    );
+    expect(openInMaps[0]?.target).toBe("_blank");
+  });
+
+  test("automatically evaluates the device position against the site geofence", async () => {
+    getCurrentPosition.mockImplementationOnce(
+      (
+        onSuccess: PositionCallback,
+        _onError: PositionErrorCallback,
+      ) => {
+        onSuccess({
+          coords: {
+            accuracy: 9,
+            altitude: null,
+            altitudeAccuracy: null,
+            heading: null,
+            latitude: 43.2605,
+            longitude: -79.871,
+            speed: null,
+          },
+          timestamp: Date.now(),
+        });
+      },
+    );
+
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="fresh-token"
+        source="production"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(getCurrentPosition).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.any(Function),
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 15_000,
+        },
+      );
+      expect(screen.getAllByText("Outside site geofence").length).toBeGreaterThan(
+        0,
+      );
+    });
   });
 
   test("opens the device camera instead of a file picker for photos", async () => {
@@ -91,7 +456,7 @@ describe("SiteVisitTokenRoute", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Take Photo" }));
+    fireEvent.click(screen.getByRole("button", { name: /take photo/i }));
 
     await waitFor(() =>
       expect(getUserMedia).toHaveBeenCalledWith({
@@ -119,6 +484,34 @@ describe("SiteVisitTokenRoute", () => {
       }),
     );
   });
+
+  test("keeps a consumed token read-only and requests a separate auditable link", async () => {
+    mockConvex.liveVisitState = consumedVisitState();
+
+    render(
+      <SiteVisitTokenRoute
+        buildId="k57activebuild"
+        siteVisitToken="secret-consumed-token"
+        source="production"
+      />,
+    );
+
+    expect(screen.getByText("Site visit already complete")).toBeTruthy();
+    expect(screen.getByText("Submitted · read only")).toBeTruthy();
+    expect(screen.queryByText(/secret-consumed-token/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /submit report/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /request a new link/i }));
+
+    await waitFor(() => {
+      expect(mockConvex.mutation).toHaveBeenCalledWith({
+        buildId: "k57activebuild",
+        reason: "A new site visit is required for this Build.",
+        token: "secret-consumed-token",
+      });
+      expect(screen.getByText(/reference SVR-RECOVER1/i)).toBeTruthy();
+    });
+  });
 });
 
 function activeVisitState() {
@@ -126,8 +519,10 @@ function activeVisitState() {
     available: true,
     build: {
       key: "B-NX87JQW7",
+      locationLatitude: 43.2557,
+      locationLongitude: -79.8711,
       name: "Seed Scenario - Approved With Waiver",
-      subtitle: "Toronto, ON",
+      subtitle: "1420 Maple Ridge Dr, Hamilton, ON L8P 2X4",
     },
     files: [
       {

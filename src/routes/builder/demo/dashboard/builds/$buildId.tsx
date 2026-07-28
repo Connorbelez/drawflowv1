@@ -10,25 +10,73 @@ import {
   CardHeader,
   CardTitle,
 } from "#/components/ui/card.tsx";
+import {
+  MilestoneExecutionSheetPrototype,
+  type MilestonePrototypeVariant,
+} from "#/features/backoffice-build-detail/MilestoneExecutionSheet.prototype.tsx";
+import { getVisualParityActiveBuildDetail } from "#/features/production-proposals/visualParityFixtures.ts";
 import { TimelineWorkspace } from "#/features/timeline-workspace";
 import { convexWorkspaceToTimelineState } from "#/features/timeline-workspace/-timeline-convex-adapter";
 import { api } from "../../../../../../convex/_generated/api";
 import { MOCK_BUILDER_PERSONA } from "../../../../../../convex/demo_personas";
 
+interface BuilderMilestonePrototypeSearch {
+  milestone?: string;
+  variant?: MilestonePrototypeVariant;
+}
+
 export const Route = createFileRoute("/builder/demo/dashboard/builds/$buildId")(
   {
     ssr: false,
+    validateSearch: (
+      search: Record<string, unknown>
+    ): BuilderMilestonePrototypeSearch => ({
+      milestone:
+        typeof search.milestone === "string" ? search.milestone : undefined,
+      variant:
+        search.variant === "ledger" ||
+        search.variant === "console" ||
+        search.variant === "field-walk"
+          ? search.variant
+          : undefined,
+    }),
     component: BuilderLiveBuildWorkspaceRoute,
   }
 );
 
 function BuilderLiveBuildWorkspaceRoute() {
   const { buildId } = Route.useParams();
+  const search = Route.useSearch();
   const navigate = useNavigate();
   const workspace = useQuery(
     api.demo_timeline_plans.demo_getBuilderLiveTimelineWorkspaceByBuildKey,
     { buildKey: buildId, persona: MOCK_BUILDER_PERSONA }
   );
+
+  if (import.meta.env.DEV && search.variant) {
+    const detail = getVisualParityActiveBuildDetail("build_visual_hamilton");
+    if (detail) {
+      const onVariantChange = (variant: MilestonePrototypeVariant) =>
+        navigate({
+          params: { buildId },
+          replace: true,
+          search: { ...search, variant },
+          to: "/builder/demo/dashboard/builds/$buildId",
+        });
+
+      return (
+        <main className="min-h-[calc(100dvh-4rem)] bg-muted/20">
+          <MilestoneExecutionSheetPrototype
+            detail={detail}
+            milestoneKey={search.milestone}
+            onExit={() => navigate({ to: "/builder/demo/dashboard/builds" })}
+            onVariantChange={onVariantChange}
+            variant={search.variant}
+          />
+        </main>
+      );
+    }
+  }
 
   if (workspace === undefined) {
     return (
@@ -54,9 +102,7 @@ function BuilderLiveBuildWorkspaceRoute() {
           </CardHeader>
           <CardContent>
             <Button
-              onClick={() =>
-                void navigate({ to: "/builder/demo/dashboard/builds" })
-              }
+              onClick={() => navigate({ to: "/builder/demo/dashboard/builds" })}
               variant="outline"
             >
               Back to live builds

@@ -77,6 +77,7 @@ export function BuilderDetailDrawer({
   if (!builder) {
     return null;
   }
+  const brokerAssignmentHealthy = builder.brokerAssignment?.healthy === true;
   return (
     <Drawer onOpenChange={onOpenChange} open={open} position="right">
       <DrawerPopup className="sm:max-w-xl" position="right" showCloseButton>
@@ -111,6 +112,9 @@ export function BuilderDetailDrawer({
               variant={builder.status === "active" ? "outline" : "secondary"}
             >
               {builder.status}
+            </Badge>
+            <Badge variant={brokerAssignmentHealthy ? "success" : "warning"}>
+              Broker {brokerAssignmentHealthy ? "assigned" : "needs repair"}
             </Badge>
             <span className="text-muted-foreground text-xs">
               Provisioned {formatDate(builder.createdAt)}
@@ -222,6 +226,15 @@ function OverviewTab({ builder }: { builder: BuilderRow }): ReactElement {
             {builder.workosOrganizationId}
           </span>
         </DetailRow>
+        <DetailRow icon={<UserCog />} label="Broker assignment">
+          <Badge
+            variant={builder.brokerAssignment?.healthy ? "success" : "warning"}
+          >
+            {builder.brokerAssignment?.healthy
+              ? "Active"
+              : formatBrokerAssignmentReason(builder.brokerAssignment?.reason)}
+          </Badge>
+        </DetailRow>
         {builder.legalName ? (
           <DetailRow icon={<CircleUserRound />} label="Legal name">
             {builder.legalName}
@@ -233,6 +246,31 @@ function OverviewTab({ builder }: { builder: BuilderRow }): ReactElement {
       </dl>
     </div>
   );
+}
+
+function formatBrokerAssignmentReason(
+  reason: string | null | undefined
+): string {
+  switch (reason) {
+    case "assignment_missing":
+      return "Missing assignment";
+    case "duplicate_active_assignments":
+      return "Duplicate assignments";
+    case "broker_user_missing_or_inactive":
+      return "Broker inactive";
+    case "broker_membership_missing":
+      return "Membership missing";
+    case "broker_role_ineligible":
+      return "Broker role invalid";
+    case "assignment_scope_mismatch":
+      return "Scope mismatch";
+    case "inactive_brokerage":
+      return "Brokerage inactive";
+    case "inactive_builder_profile":
+      return "Builder inactive";
+    default:
+      return "Needs repair";
+  }
 }
 
 function Metric({

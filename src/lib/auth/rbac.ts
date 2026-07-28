@@ -31,6 +31,10 @@ export const USER_MANAGEMENT_WRITE_ROLE_SLUGS = [
   "principle-broker",
 ] as const satisfies readonly RoleSlug[];
 
+export const INTEGRATION_ADMIN_ROLE_SLUGS = [
+  "admin",
+] as const satisfies readonly RoleSlug[];
+
 export const NON_DESTRUCTIVE_WRITE_ROLE_SLUGS = [
   "admin",
   "principle-broker",
@@ -245,6 +249,42 @@ export function getUserManagementAccessDecision(
   )
     ? { status: "allowed" }
     : { reason: "no-workspace-access", status: "forbidden" };
+}
+
+export function getIntegrationAdminAccessDecision(
+  input: AuthAccessInput
+): WorkspaceAccessDecision {
+  const workspaceDecision = getWorkspaceAccessDecision({
+    ...input,
+    workspace: "backoffice",
+  });
+  if (workspaceDecision.status !== "allowed") {
+    return workspaceDecision;
+  }
+
+  return hasAnyRole(
+    normalizeRoleSlugs(input.roles),
+    INTEGRATION_ADMIN_ROLE_SLUGS
+  )
+    ? { status: "allowed" }
+    : { reason: "no-workspace-access", status: "forbidden" };
+}
+
+export function requireIntegrationAdminAccess(
+  input: AuthAccessInput
+): WorkspaceAccessDecision {
+  const decision = getIntegrationAdminAccessDecision(input);
+  logRbacDebug("integration admin access decision", {
+    decision,
+    input,
+    normalizedRoles: normalizeRoleSlugs(input.roles),
+  });
+
+  if (decision.status === "allowed") {
+    return decision;
+  }
+
+  throwAccessRedirect({ ...input, workspace: "backoffice" }, decision);
 }
 
 export function requireUserManagementWriteAccess(

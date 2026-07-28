@@ -7,6 +7,9 @@ import {
   buildCashShortfallPoints,
   calculateApprovedDrawRequestLimit,
   calculateDrawRequestLimit,
+  findDrawUnlockCapacityViolation,
+  getCumulativeDrawPosition,
+  getMaxSchedulableDrawAmount,
   buildDrawAvailabilityChartData,
   buildDrawAvailabilityData,
   buildFinancialOverview,
@@ -23,8 +26,10 @@ import {
   normalizeTimelineProbeValue,
   relabelTimelineDraws,
   resolveDemoLiveBuildHref,
+  resolveMilestoneCumulativeDrawPosition,
   resolveSelectedDrawDate,
 } from "./index.tsx";
+import { DEFAULT_DRAW_REVIEW_LAG_DAYS } from "./-timeline-milestone-schedule.ts";
 import type {
   DemoCapitalSpike,
   DemoDraw,
@@ -90,7 +95,7 @@ describe("timeline cash shortfall logic", () => {
     ]);
   });
 
-  test("fits range to five days after the last milestone completion", () => {
+  test("expands range through reimbursement review lag without contracting it", () => {
     const items: TimelineItem<DemoMilestone>[] = [
       {
         data: {
@@ -115,10 +120,17 @@ describe("timeline cash shortfall logic", () => {
         min: 0,
         unit: "days",
       }),
-    ).toEqual({ max: 244, min: 0, unit: "days" });
+    ).toEqual({ max: 247, min: 0, unit: "days" });
     expect(
-      buildDemoDraws(items, { max: 244, min: 0, unit: "days" })[0]?.x,
-    ).toBe(244);
+      buildDemoDraws(items, { max: 247, min: 0, unit: "days" })[0]?.x,
+    ).toBe(247);
+
+    expect(
+      expandTimelineRangeForMilestones(
+        [{ ...items[0], x: 0 }],
+        { max: 230, min: 0, unit: "days" },
+      ),
+    ).toEqual({ max: 230, min: 0, unit: "days" });
   });
 
   test("selected draw date follows the linked draw or computed completion reimbursement date", () => {
@@ -140,7 +152,7 @@ describe("timeline cash shortfall logic", () => {
 
     expect(
       resolveSelectedDrawDate(item, null, { max: 60, min: 0, unit: "days" }),
-    ).toBe(35);
+    ).toBe(38);
     expect(
       resolveSelectedDrawDate(
         item,
@@ -203,7 +215,7 @@ describe("timeline cash shortfall logic", () => {
 
     const hydrated = normalizeTimelineShareStateForRoute(state);
 
-    expect(hydrated.range.max).toBe(244);
+    expect(hydrated.range.max).toBe(247);
     expect(hydrated.draws).toEqual([
       {
         amount: 120_000,
@@ -387,8 +399,10 @@ describe("timeline cash shortfall logic", () => {
       cashflow.reduce((total, point) => total + point.drawCapacityUnlocked, 0),
     ).toBe(100_000);
     expect(
-      cashflow.find((point) => point.id === "site-prep-distributed-21-capacity"),
-    ).toMatchObject({ day: 21, drawCapacityUnlocked: 12_500 });
+      cashflow.find(
+        (point) => point.id === "site-prep-reimbursement-capacity",
+      ),
+    ).toMatchObject({ day: 30, drawCapacityUnlocked: 100_000 });
     expect(cashflow.find((point) => point.id === "site-prep-draw")).toMatchObject(
       { cashOnHand: 420_000, day: 22, drawAmount: 125_000 },
     );
@@ -590,32 +604,11 @@ describe("timeline cash shortfall logic", () => {
         id: "foundation-distributed-10",
       },
       {
-        budget: 0,
-        cashOnHand: 100_000,
-        day: 10,
-        drawCapacityUnlocked: 8000,
-        id: "foundation-distributed-10-capacity",
-      },
-      {
-        budget: 0,
-        cashOnHand: 100_000,
-        day: 10,
-        drawCapacityUnlocked: 32_000,
-        id: "foundation-initial-payment-capacity",
-      },
-      {
         budget: 10_000,
         cashOnHand: 90_000,
         day: 11,
         drawCapacityUnlocked: 0,
         id: "foundation-distributed-11",
-      },
-      {
-        budget: 0,
-        cashOnHand: 90_000,
-        day: 11,
-        drawCapacityUnlocked: 8000,
-        id: "foundation-distributed-11-capacity",
       },
       {
         budget: 10_000,
@@ -625,25 +618,11 @@ describe("timeline cash shortfall logic", () => {
         id: "foundation-distributed-12",
       },
       {
-        budget: 0,
-        cashOnHand: 80_000,
-        day: 12,
-        drawCapacityUnlocked: 8000,
-        id: "foundation-distributed-12-capacity",
-      },
-      {
         budget: 10_000,
         cashOnHand: 70_000,
         day: 13,
         drawCapacityUnlocked: 0,
         id: "foundation-distributed-13",
-      },
-      {
-        budget: 0,
-        cashOnHand: 70_000,
-        day: 13,
-        drawCapacityUnlocked: 8000,
-        id: "foundation-distributed-13-capacity",
       },
       {
         budget: 20_000,
@@ -655,9 +634,9 @@ describe("timeline cash shortfall logic", () => {
       {
         budget: 0,
         cashOnHand: 50_000,
-        day: 14,
-        drawCapacityUnlocked: 16_000,
-        id: "foundation-completion-payment-capacity",
+        day: 22,
+        drawCapacityUnlocked: 80_000,
+        id: "foundation-reimbursement-capacity",
       },
     ]);
   });
@@ -704,12 +683,12 @@ describe("timeline cash shortfall logic", () => {
     ).toBe(240_000);
     expect(
       cashflow.find(
-        (point) => point.id === "foundation-distributed-0-capacity",
+        (point) => point.id === "foundation-reimbursement-capacity",
       ),
     ).toMatchObject({
       budget: 0,
-      day: 0,
-      drawCapacityUnlocked: 8000,
+      day: 38,
+      drawCapacityUnlocked: 240_000,
     });
     expect(getMilestoneDrawAvailabilityAmount(items[0]?.data)).toBe(240_000);
 
@@ -774,16 +753,16 @@ describe("timeline cash shortfall logic", () => {
     ).toBe(240_000);
     expect(
       cashflow.find(
-        (point) => point.id === "foundation-distributed-0-capacity",
+        (point) => point.id === "foundation-reimbursement-capacity",
       ),
     ).toMatchObject({
-      day: 0,
-      drawCapacityUnlocked: 8000,
+      day: 38,
+      drawCapacityUnlocked: 240_000,
     });
     expect(getMilestoneDrawAvailabilityAmount(items[0]?.data)).toBe(240_000);
   });
 
-  test("early completion claim unlocks draw capacity before planned end", () => {
+  test("completed work can be requested while projected release waits for review", () => {
     const cashflow = buildTimelineCashflowData(
       [
         {
@@ -825,15 +804,15 @@ describe("timeline cash shortfall logic", () => {
     ).toBe(80_000);
     expect(capacityPoints).toContainEqual(
       expect.objectContaining({
-        day: 0,
-        drawCapacityUnlocked: 32_000,
-        id: "foundation-initial-payment-capacity",
+        day: 16,
+        drawCapacityUnlocked: 80_000,
+        id: "foundation-reimbursement-capacity",
       }),
     );
     expect(capacityPoints.at(-1)).toMatchObject({
-      day: 8,
-      drawCapacityUnlocked: 16_000,
-      id: "foundation-completion-payment-capacity",
+      day: 16,
+      drawCapacityUnlocked: 80_000,
+      id: "foundation-reimbursement-capacity",
     });
     expect(
       cashflow
@@ -872,7 +851,7 @@ describe("timeline cash shortfall logic", () => {
     });
   });
 
-  test("draw capacity accrues during milestone spend", () => {
+  test("draw capacity unlocks after milestone completion and review lag", () => {
     const cashflow = buildTimelineCashflowData(
       [
         {
@@ -910,34 +889,9 @@ describe("timeline cash shortfall logic", () => {
         })),
     ).toEqual([
       {
-        day: 10,
-        drawCapacityUnlocked: 8000,
-        id: "foundation-distributed-10-capacity",
-      },
-      {
-        day: 10,
-        drawCapacityUnlocked: 32_000,
-        id: "foundation-initial-payment-capacity",
-      },
-      {
-        day: 11,
-        drawCapacityUnlocked: 8000,
-        id: "foundation-distributed-11-capacity",
-      },
-      {
-        day: 12,
-        drawCapacityUnlocked: 8000,
-        id: "foundation-distributed-12-capacity",
-      },
-      {
-        day: 13,
-        drawCapacityUnlocked: 8000,
-        id: "foundation-distributed-13-capacity",
-      },
-      {
-        day: 14,
-        drawCapacityUnlocked: 16_000,
-        id: "foundation-completion-payment-capacity",
+        day: 22,
+        drawCapacityUnlocked: 80_000,
+        id: "foundation-reimbursement-capacity",
       },
     ]);
     expect(
@@ -965,8 +919,8 @@ describe("timeline cash shortfall logic", () => {
         [],
       ),
     ).toMatchObject({
-      availableLimit: 40_000,
-      totalUnlocked: 40_000,
+      availableLimit: 0,
+      totalUnlocked: 0,
     });
   });
 
@@ -1007,18 +961,30 @@ describe("timeline cash shortfall logic", () => {
     ]);
 
     expect(availability).toMatchObject([
-      { additionalAvailableDraw: 0, day: 0, totalAvailableDraw: 0 },
-      { additionalAvailableDraw: 0, day: 10, totalAvailableDraw: 0 },
+      {
+        additionalAvailableDraw: 0,
+        day: 0,
+        totalAvailableDraw: 0,
+        totalUnlockedDraw: 0,
+      },
+      {
+        additionalAvailableDraw: 0,
+        day: 10,
+        totalAvailableDraw: 0,
+        totalUnlockedDraw: 0,
+      },
       {
         additionalAvailableDraw: 100_000,
         day: 14,
         totalAvailableDraw: 100_000,
+        totalUnlockedDraw: 100_000,
       },
       {
         additionalAvailableDraw: 40_000,
         day: 18,
         interestBearingDraw: 60_000,
         totalAvailableDraw: 100_000,
+        totalUnlockedDraw: 100_000,
       },
     ]);
   });
@@ -1053,11 +1019,13 @@ describe("timeline cash shortfall logic", () => {
     );
 
     expect(availability.map((point) => point.day)).toEqual([
-      0, 10, 10, 11, 11, 12, 12, 13, 13,
+      0, 10, 11, 12, 13, 22,
     ]);
-    expect(chartData.map((point) => point.day)).toEqual([0, 10, 14, 30]);
+    expect(chartData.map((point) => point.day)).toEqual([
+      0, 10, 14, 22, 30,
+    ]);
     expect(chartData.find((point) => point.day === 11)).toBeUndefined();
-    expect(chartData.find((point) => point.day === 14)).toMatchObject({
+    expect(chartData.find((point) => point.day === 22)).toMatchObject({
       additionalAvailableDraw: 80_000,
       totalAvailableDraw: 80_000,
     });
@@ -1309,7 +1277,9 @@ describe("timeline cash shortfall logic", () => {
       150_000,
     );
 
-    expect(chartData.map((point) => point.day)).toEqual([0, 10, 14, 30]);
+    expect(chartData.map((point) => point.day)).toEqual([
+      0, 10, 14, 22, 30,
+    ]);
     expect(
       chartData.find((point) => point.id === "milestone-cost-gate-10"),
     ).toMatchObject({
@@ -1375,9 +1345,11 @@ describe("timeline cash shortfall logic", () => {
       300_000,
     );
 
-    expect(chartData.map((point) => point.day)).toEqual([0, 5, 10, 15, 20]);
+    expect(chartData.map((point) => point.day)).toEqual([
+      0, 5, 10, 15, 18, 20,
+    ]);
     expect(chartData.map((point) => point.cashOnHand)).toEqual([
-      300_000, 250_000, 150_000, 100_000, 100_000,
+      300_000, 250_000, 150_000, 100_000, 100_000, 100_000,
     ]);
     expect(interpolateLinearCashOnHand(chartData, 7.5)).toBe(200_000);
   });
@@ -1492,6 +1464,179 @@ describe("timeline cash shortfall logic", () => {
     });
   });
 
+  test("blocks scheduling draws that exceed unlocked capacity at any point", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 1",
+          durationDays: 4,
+          evidence: "Planning",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Excavation"],
+        },
+        id: "foundation",
+        x: 10,
+      },
+    ];
+    // Unlock day = end (14) + review lag (8) = 22, capacity = 80_000
+    const overCapacityDraws: DemoDraw[] = [
+      {
+        amount: 100_000,
+        id: "draw-1",
+        label: "Draw 1",
+        x: 22,
+      },
+    ];
+    const validDraws: DemoDraw[] = [
+      {
+        amount: 80_000,
+        id: "draw-1",
+        label: "Draw 1",
+        x: 22,
+      },
+    ];
+
+    expect(findDrawUnlockCapacityViolation(items, overCapacityDraws)).toEqual({
+      draw: overCapacityDraws[0],
+      limit: expect.objectContaining({
+        availableLimit: 80_000,
+        totalUnlocked: 80_000,
+      }),
+    });
+    expect(findDrawUnlockCapacityViolation(items, validDraws)).toBeNull();
+    expect(getMaxSchedulableDrawAmount(10, items, [])).toBe(0);
+    expect(getMaxSchedulableDrawAmount(22, items, [])).toBe(80_000);
+    expect(
+      getMaxSchedulableDrawAmount(22, items, validDraws, {
+        proposedDrawId: "draw-2",
+      }),
+    ).toBe(0);
+  });
+
+  test("max schedulable draw amount preserves later draws within unlock capacity", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 1",
+          durationDays: 4,
+          evidence: "Planning",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Excavation"],
+        },
+        id: "foundation",
+        x: 0,
+      },
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 2",
+          durationDays: 4,
+          evidence: "Planning",
+          icon: "framing",
+          name: "Framing",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Walls"],
+        },
+        id: "framing",
+        x: 20,
+      },
+    ];
+    // Foundation unlocks 80k at day 12; framing unlocks another 80k at day 32.
+    const laterDraw: DemoDraw = {
+      amount: 120_000,
+      id: "later-draw",
+      label: "Draw 2",
+      x: 32,
+    };
+
+    expect(getMaxSchedulableDrawAmount(12, items, [laterDraw], {
+      proposedDrawId: "early-draw",
+    })).toBe(40_000);
+    expect(
+      findDrawUnlockCapacityViolation(items, [
+        { amount: 40_000, id: "early-draw", label: "Draw 1", x: 12 },
+        laterDraw,
+      ]),
+    ).toBeNull();
+    expect(
+      findDrawUnlockCapacityViolation(items, [
+        { amount: 41_000, id: "early-draw", label: "Draw 1", x: 12 },
+        laterDraw,
+      ]),
+    ).toMatchObject({
+      draw: expect.objectContaining({ id: "later-draw" }),
+    });
+  });
+
+  test("editing a later draw stays allowed when an earlier draw is already over capacity", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 1",
+          durationDays: 4,
+          evidence: "Planning",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Excavation"],
+        },
+        id: "foundation",
+        x: 0,
+      },
+      {
+        data: {
+          amount: 100_000,
+          draw: "Draw 2",
+          durationDays: 4,
+          evidence: "Planning",
+          icon: "framing",
+          name: "Framing",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Walls"],
+        },
+        id: "framing",
+        x: 20,
+      },
+    ];
+    // Foundation unlocks 80k at day 12; framing unlocks another 80k at day 32.
+    const draws: DemoDraw[] = [
+      {
+        amount: 100_000,
+        id: "early-over",
+        label: "Draw 1",
+        x: 12,
+      },
+      {
+        amount: 10_000,
+        id: "later-draw",
+        label: "Draw 2",
+        x: 32,
+      },
+    ];
+
+    expect(findDrawUnlockCapacityViolation(items, draws)).toMatchObject({
+      draw: expect.objectContaining({ id: "early-over" }),
+    });
+    expect(
+      getMaxSchedulableDrawAmount(32, items, draws, {
+        excludeDrawId: "later-draw",
+        proposedDrawId: "later-draw",
+      }),
+    ).toBe(60_000);
+  });
+
   test("draw marker state distinguishes planned requested happened and rejected", () => {
     expect(
       getDrawTimelineMarkerState(
@@ -1549,6 +1694,131 @@ describe("timeline cash shortfall logic", () => {
       expect.objectContaining({ id: "custom", label: "Admin release" }),
       expect.objectContaining({ id: "draw-existing", label: "Draw 03" }),
     ]);
+  });
+
+  test("milestone cumulative draw position uses unlock day after completion lag", () => {
+    const items: TimelineItem<DemoMilestone>[] = [
+      {
+        data: {
+          amount: 125_000,
+          draw: "Draw 1",
+          drawAvailabilityAmount: 100_000,
+          durationDays: 14,
+          evidence: "Planning",
+          icon: "foundation",
+          name: "Foundation",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Excavation"],
+        },
+        id: "foundation",
+        x: 0,
+      },
+      {
+        data: {
+          amount: 150_000,
+          draw: "Draw 2",
+          drawAvailabilityAmount: 120_000,
+          durationDays: 10,
+          evidence: "Planning",
+          icon: "framing",
+          name: "Framing",
+          policy: "Planning",
+          status: "ready",
+          subMilestones: ["Walls"],
+        },
+        id: "framing",
+        x: 14,
+      },
+    ];
+    const range = expandTimelineRangeForMilestones(items, {
+      max: 50,
+      min: 0,
+      unit: "days",
+    });
+    const draws: DemoDraw[] = [
+      {
+        amount: 80_000,
+        id: "foundation-draw",
+        itemId: "foundation",
+        label: "Draw 1",
+        x: 14 + DEFAULT_DRAW_REVIEW_LAG_DAYS,
+      },
+    ];
+    const cashflow = buildTimelineCashflowData(
+      items,
+      draws,
+      [],
+      range,
+      200_000,
+    );
+    const availability = buildDrawAvailabilityData(cashflow);
+    const foundationPosition = resolveMilestoneCumulativeDrawPosition(
+      items[0]!,
+      availability,
+      range,
+    );
+    const framingPosition = resolveMilestoneCumulativeDrawPosition(
+      items[1]!,
+      availability,
+      range,
+    );
+
+    expect(foundationPosition).toMatchObject({
+      availableToDraw: 20_000,
+      day: 14 + DEFAULT_DRAW_REVIEW_LAG_DAYS,
+      totalDrawn: 80_000,
+      totalUnlocked: 100_000,
+    });
+    expect(framingPosition).toMatchObject({
+      availableToDraw: 140_000,
+      day: 24 + DEFAULT_DRAW_REVIEW_LAG_DAYS,
+      totalDrawn: 80_000,
+      totalUnlocked: 220_000,
+    });
+  });
+
+  test("cumulative unlock position ignores lender-policy headroom in available to draw", () => {
+    const availability = buildDrawAvailabilityData(
+      [
+        cashflowPoint({
+          cashOnHand: 100_000,
+          day: 0,
+          event: "start",
+          id: "start",
+          name: "Starting cash",
+        }),
+        cashflowPoint({
+          cashOnHand: 100_000,
+          day: 57,
+          drawCapacityUnlocked: 250_000,
+          event: "milestone",
+          id: "unlock",
+          name: "Unlock",
+        }),
+        cashflowPoint({
+          cashOnHand: 190_000,
+          day: 57,
+          drawAmount: 90_000,
+          event: "draw",
+          id: "draw-1",
+          name: "Draw 1",
+        }),
+      ],
+      300_000,
+    );
+
+    const position = getCumulativeDrawPosition(
+      interpolateDrawAvailability(availability, 57),
+    );
+
+    expect(position).toEqual({
+      availableToDraw: 160_000,
+      day: 57,
+      totalDrawn: 90_000,
+      totalUnlocked: 250_000,
+    });
+    expect(availability.at(-1)?.additionalAvailableDraw).toBe(210_000);
   });
 });
 

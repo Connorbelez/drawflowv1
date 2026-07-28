@@ -14,6 +14,19 @@ type ProductionProposalPlanningAssignment = NonNullable<
 >[number];
 
 export interface ProductionProposalWorksheetDetail {
+  costItems?: Array<{
+    _id: string;
+    budgetSubmilestoneKey?: string;
+    budgetTreatment?: "add" | "logOnly" | "maintain";
+    costCents: number;
+    description?: string;
+    itemType: "equipment" | "material";
+    milestoneKey: string;
+    quantity: number;
+    relevantSubmilestoneKeys: string[];
+    supplier?: string;
+    title: string;
+  }>;
   milestones?: Array<{
     budgetCents: number;
     dayEnd: number;
@@ -203,6 +216,15 @@ export function productionProposalDetailToWorksheetRows(
     submilestonesByMilestone.set(submilestone.milestoneKey, next);
   }
   const totalBudgetCents = Math.max(1, detail.proposal.totalBudgetCents);
+  const costItemsByMilestone = new Map<
+    string,
+    NonNullable<ProductionProposalWorksheetDetail["costItems"]>
+  >();
+  for (const costItem of detail.costItems ?? []) {
+    const next = costItemsByMilestone.get(costItem.milestoneKey) ?? [];
+    next.push(costItem);
+    costItemsByMilestone.set(costItem.milestoneKey, next);
+  }
 
   return (detail.milestones ?? [])
     .slice()
@@ -253,7 +275,22 @@ export function productionProposalDetailToWorksheetRows(
           milestoneAssignments,
           availableSubMilestoneIds
         ),
-        costItems: [],
+        costItems: (costItemsByMilestone.get(milestone.key) ?? []).map(
+          (item) => ({
+            budgetSubmilestoneKey: item.budgetSubmilestoneKey,
+            budgetTreatment: item.budgetTreatment,
+            costCents: item.costCents,
+            description: item.description,
+            id: String(item._id),
+            itemType: item.itemType,
+            quantity: item.quantity,
+            relevantSubMilestoneIds: item.relevantSubmilestoneKeys.filter(
+              (key) => availableSubMilestoneIds.has(key)
+            ),
+            supplier: item.supplier,
+            title: item.title,
+          })
+        ),
         dependencyKeys: milestone.dependencyKeys ?? [],
         durationDays,
         durationText: String(durationDays),

@@ -117,6 +117,12 @@ function RouteComponent() {
   const assignContractorToMilestone = useMutation(
     (api as any).production_proposals.assignActiveBuildContractorToMilestone
   );
+  const removeContractorFromMilestone = useMutation(
+    api.production_proposals.removeActiveBuildContractorFromMilestone
+  );
+  const attachAndInviteContractor = useMutation(
+    (api as any).production_proposals.attachAndInviteActiveBuildContractor
+  );
   const attachContractor = useMutation(
     api.production_proposals.attachActiveBuildContractor
   );
@@ -138,6 +144,9 @@ function RouteComponent() {
   const requestFacilityChange = useMutation(
     (api as any).production_proposals.requestActiveBuildFacilityChange
   );
+  const requestBudgetRevision = useMutation(
+    (api as any).production_proposals.requestActiveBuildBudgetRevision
+  );
   const requestMilestoneInfo = useMutation(
     api.production_proposals.requestActiveBuildMilestoneInfo
   );
@@ -146,6 +155,9 @@ function RouteComponent() {
   );
   const reviewFacilityChangeRequest = useMutation(
     (api as any).production_proposals.reviewActiveBuildFacilityChangeRequest
+  );
+  const reviewBudgetRevision = useMutation(
+    (api as any).production_proposals.reviewActiveBuildBudgetRevision
   );
   const startMilestoneWork = useMutation(
     api.production_proposals.startActiveBuildMilestone
@@ -257,6 +269,7 @@ function RouteComponent() {
     navigate({
       to: "/backoffice/builds/$buildId",
       params: { buildId },
+      resetScroll: false,
       search: { ...search, milestone },
       replace: true,
     });
@@ -409,6 +422,32 @@ function RouteComponent() {
               workosOrganizationId,
             })
         : undefined,
+      removeContractorFromMilestone: canUseAppPermission(
+        appPermissions,
+        "contractor",
+        "update"
+      )
+        ? ({ contractorId, milestoneKey, reason, submilestoneKey }) =>
+            removeContractorFromMilestone({
+              buildId: activeBuildId,
+              contractorId: contractorId as Id<"contractorProfiles">,
+              milestoneKey,
+              reason,
+              submilestoneKey,
+              workosOrganizationId,
+            })
+        : undefined,
+      attachAndInviteContractor:
+        canUseAppPermission(appPermissions, "contractor", "create") &&
+        canUseAppPermission(appPermissions, "contractor", "update")
+          ? ({ contractorId, role }) =>
+              attachAndInviteContractor({
+                buildId: activeBuildId,
+                contractorId: contractorId as Id<"contractorProfiles">,
+                role,
+                workosOrganizationId,
+              })
+          : undefined,
       attachContractor: canUseAppPermission(
         appPermissions,
         "contractor",
@@ -478,11 +517,11 @@ function RouteComponent() {
       rejectDraw:
         canMakeFinalDecision &&
         canUseAppPermission(appPermissions, "draw", "update")
-          ? (draw) =>
+          ? ({ draw, reason }) =>
               rejectDraw({
                 buildId: activeBuildId,
                 drawKey: draw.drawKey,
-                note: "Rejected from build detail workspace.",
+                note: reason,
                 workosOrganizationId,
               })
           : undefined,
@@ -663,6 +702,18 @@ function RouteComponent() {
               workosOrganizationId,
             })
         : undefined,
+      requestBudgetRevision: canUseAppPermission(
+        appPermissions,
+        "capitalEvent",
+        "create"
+      )
+        ? (input) =>
+            requestBudgetRevision({
+              ...input,
+              buildId: activeBuildId,
+              workosOrganizationId,
+            })
+        : undefined,
       reviewFacilityChangeRequest: canUseAppPermission(
         appPermissions,
         "capitalEvent",
@@ -670,6 +721,18 @@ function RouteComponent() {
       )
         ? (input) =>
             reviewFacilityChangeRequest({
+              ...input,
+              requestId: input.requestId as any,
+              workosOrganizationId,
+            })
+        : undefined,
+      reviewBudgetRevision: canUseAppPermission(
+        appPermissions,
+        "capitalEvent",
+        "update"
+      )
+        ? (input) =>
+            reviewBudgetRevision({
               ...input,
               requestId: input.requestId as any,
               workosOrganizationId,

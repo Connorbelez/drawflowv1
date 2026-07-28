@@ -144,6 +144,163 @@ describe("ContractorPlanningPanel", () => {
     );
   });
 
+  test("renders roster selection and invite as separate named controls", () => {
+    render(
+      <ContractorPlanningPanel
+        milestones={milestones}
+        onAssignToMilestone={vi.fn()}
+        onInviteCreatedContractor={vi.fn()}
+        planning={{
+          ...planning,
+          proposalContractors: [
+            {
+              ...planning.proposalContractors[0],
+              email: "ops@northstar.test",
+              onboardingStatus: "profile_only" as const,
+            },
+          ],
+        }}
+      />,
+    );
+
+    const select = screen.getByRole("button", {
+      name: "Select Northstar Masonry",
+    });
+    const invite = screen.getAllByRole("button", {
+      name: "Invite Northstar Masonry to platform",
+    })[0];
+    expect(select.contains(invite)).toBe(false);
+    expect(select.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(select);
+    expect(select.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("uses the atomic attach-and-invite contract from the proposal add drawer", async () => {
+    const onAttachAndInviteExisting = vi.fn().mockResolvedValue(undefined);
+    const onAttachExisting = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ContractorPlanningPanel
+        milestones={milestones}
+        onAttachAndInviteExisting={onAttachAndInviteExisting}
+        onAttachExisting={onAttachExisting}
+        planning={{
+          ...planning,
+          availableContractors: [
+            {
+              ...planning.availableContractors[0],
+              email: "ops@ironline.test",
+              onboardingStatus: "profile_only" as const,
+            },
+          ],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add contractor" }));
+    fireEvent.click(screen.getByRole("button", { name: /Ironline Framing/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Invite Ironline Framing" }),
+    );
+
+    await waitFor(() =>
+      expect(onAttachAndInviteExisting).toHaveBeenCalledWith({
+        contractorId: "contractor_framing",
+        role: "Framing",
+      }),
+    );
+    expect(onAttachExisting).not.toHaveBeenCalled();
+  });
+
+  test("omits contractor mutation controls when the current builder state is read-only", () => {
+    render(
+      <ContractorPlanningPanel
+        canMutate={false}
+        milestones={milestones}
+        onAssignToMilestone={vi.fn()}
+        onAttachExisting={vi.fn()}
+        onCreateAndAttach={vi.fn()}
+        onInviteCreatedContractor={vi.fn()}
+        planning={{
+          ...planning,
+          milestoneAssignments: [
+            {
+              _id: "assignment_foundation",
+              contractorId: "contractor_masonry",
+              contractorName: "Northstar Masonry",
+              milestoneKey: "exterior",
+              milestoneName: "Exterior envelope",
+              role: "Masonry lead",
+              status: "active",
+            },
+          ],
+          proposalContractors: [
+            {
+              ...planning.proposalContractors[0],
+              email: "ops@northstar.test",
+              onboardingStatus: "profile_only" as const,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Add contractor" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Assign crew" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "Invite Northstar Masonry to platform",
+      }),
+    ).toBeNull();
+  });
+
+  test("requires a reason before removing an active milestone assignment", async () => {
+    const onRemoveFromMilestone = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ContractorPlanningPanel
+        milestones={milestones}
+        onRemoveFromMilestone={onRemoveFromMilestone}
+        planning={{
+          ...planning,
+          milestoneAssignments: [
+            {
+              _id: "assignment_foundation",
+              contractorId: "contractor_masonry",
+              contractorName: "Northstar Masonry",
+              milestoneKey: "exterior",
+              milestoneName: "Exterior envelope",
+              role: "Masonry lead",
+              status: "active",
+              submilestoneKey: "brick-siding",
+              submilestoneName: "Brick siding",
+            },
+          ],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Remove crew assignment?")).toBeTruthy();
+    const submit = screen.getByRole("button", { name: "Remove assignment" });
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("Removal reason"), {
+      target: { value: "Scope reassigned after Builder review." },
+    });
+    fireEvent.click(submit);
+
+    await waitFor(() =>
+      expect(onRemoveFromMilestone).toHaveBeenCalledWith({
+        assignmentId: "assignment_foundation",
+        contractorId: "contractor_masonry",
+        milestoneKey: "exterior",
+        reason: "Scope reassigned after Builder review.",
+        submilestoneKey: "brick-siding",
+      }),
+    );
+  });
+
   test("surfaces an invite action on assigned contractor rows", async () => {
     const onInviteCreatedContractor = vi.fn().mockResolvedValue(undefined);
     render(

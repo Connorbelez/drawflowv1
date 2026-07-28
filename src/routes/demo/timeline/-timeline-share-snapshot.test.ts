@@ -74,7 +74,7 @@ const initialDraws: DemoDraw[] = [
 ];
 
 describe("timeline share snapshots", () => {
-  test("falls back to 20% co-pay when milestone draw availability is missing", () => {
+  test("falls back to an 80% Loan Percentage when draw availability is missing", () => {
     expect(
       getMilestoneDrawAvailabilityAmount({
         amount: 100_000,

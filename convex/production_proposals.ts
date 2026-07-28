@@ -1,4 +1,8 @@
-import { v } from "convex/values";
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
+import { ConvexError, v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
 import {
@@ -10,9 +14,19 @@ import {
   type RoleSlug,
 } from "./authz";
 import {
+  assignBuilderBrokerAssignment,
+  ensureBuilderBrokerAssignment,
+  getBuilderBrokerAssignmentHealth,
+  hasAssignableBrokerRole,
+  listAssignableBrokerMembers,
+  requireDefaultBrokerMember,
+  requireEligibleBrokerMember,
+} from "./brokerAssignments";
+import {
   isPendingBuilderStaffWorkosUserId,
   pendingBuilderStaffWorkosUserId,
 } from "./builderStaffIdentity";
+import { createContractorProfileInviteClaim } from "./contractorOnboarding";
 import { normalizeContractorEmail } from "./contractorWorkspace";
 import {
   type coerceSiteVisitGuidanceInput,
@@ -24,16 +38,21 @@ import {
   type SiteVisitGuidance,
 } from "./demo_site_visit_guidance";
 import {
-  normalizeSiteVisitReportNotes,
-  siteVisitReportNotesPlainText,
+  createSiteVisitRecoveryReference,
+  resolveSiteVisitGeofenceAttempt,
+  validateSiteVisitReplacementRequest,
+  validateSiteVisitReportSubmission,
+  validateSiteVisitSubmissionContext,
 } from "./demo_site_visit_tokens";
 import {
   FAIRLEND_BROKERAGE_NAME,
+  FAIRLEND_DEFAULT_BROKER_EMAIL,
   FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
   FAIRLEND_WORKOS_ORGANIZATION_ID,
 } from "./fairLendConfig";
 import {
   internalMutation,
+  internalQuery,
   publicMutation,
   publicQuery,
   withQueryTiming,
@@ -83,6 +102,42 @@ const BACKOFFICE_ROLES = [
 ] as const satisfies readonly RoleSlug[];
 const APPROVER_ROLES = ["admin", "principle-broker"] as const;
 const BUILDER_ROLES = ["builder", "builder-staff"] as const;
+const builderOnboardingRecoveryValidator = v.optional(
+  v.object({
+    intendedDestination: v.literal("/builder"),
+    invitationStatus: v.union(
+      v.literal("active"),
+      v.literal("deleted"),
+      v.literal("inactive"),
+      v.literal("missing"),
+      v.literal("pending")
+    ),
+    invitedEmail: v.optional(v.string()),
+    kind: v.union(
+      v.literal("ambiguous-builder-profile"),
+      v.literal("missing-broker-assignment"),
+      v.literal("missing-brokerage"),
+      v.literal("missing-builder-profile"),
+      v.literal("missing-membership"),
+      v.literal("missing-organization"),
+      v.literal("projection-failed"),
+      v.literal("projection-pending")
+    ),
+    organization: v.object({
+      id: v.string(),
+      name: v.string(),
+    }),
+    projectionStatus: v.union(
+      v.literal("failed"),
+      v.literal("missing"),
+      v.literal("pending"),
+      v.literal("ready")
+    ),
+    requiredRole: v.literal("Builder"),
+    responsibleOwner: v.string(),
+    supportReference: v.string(),
+  })
+);
 const BUILDER_STAFF_PERMISSION_RESOURCES = [
   "milestone",
   "submilestone",
@@ -104,6 +159,124 @@ const TOTAL_BPS = 10_000;
 const PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS = 5;
 const BACKOFFICE_DASHBOARD_PROPOSALS_PER_COLUMN = 50;
 const BACKOFFICE_BUILDER_OPTIONS_LIMIT = 200;
+
+const proposalDirectoryFiltersValidator = v.object({
+  approvedFrom: v.optional(v.number()),
+  approvedTo: v.optional(v.number()),
+  assignedBrokerWorkosUserId: v.optional(v.string()),
+  assignment: v.optional(
+    v.union(v.literal("assigned"), v.literal("unassigned"))
+  ),
+  builderProfileId: v.optional(v.id("builderProfiles")),
+  closingState: v.optional(
+    v.union(
+      v.literal("active_build"),
+      v.literal("pending_closing"),
+      v.literal("pre_closing")
+    )
+  ),
+  closedFrom: v.optional(v.number()),
+  closedTo: v.optional(v.number()),
+  createdFrom: v.optional(v.number()),
+  createdTo: v.optional(v.number()),
+  maxBorrowerStartingCashCents: v.optional(v.number()),
+  maxBorrowerCoPayBps: v.optional(v.number()),
+  maxBudgetCents: v.optional(v.number()),
+  maxInterestAnnualBps: v.optional(v.number()),
+  maxLenderDrawPolicyLimitCents: v.optional(v.number()),
+  minBorrowerStartingCashCents: v.optional(v.number()),
+  minBorrowerCoPayBps: v.optional(v.number()),
+  minBudgetCents: v.optional(v.number()),
+  minInterestAnnualBps: v.optional(v.number()),
+  minLenderDrawPolicyLimitCents: v.optional(v.number()),
+  planKey: v.optional(
+    v.union(
+      v.literal("capitalConstrained"),
+      v.literal("cheapestFeasible"),
+      v.literal("fastest"),
+      v.literal("unselected")
+    )
+  ),
+  proposedStartFrom: v.optional(v.string()),
+  proposedStartTo: v.optional(v.string()),
+  reviewOutcome: v.optional(
+    v.union(
+      v.literal("none"),
+      v.literal("approved"),
+      v.literal("requested_changes"),
+      v.literal("rejected")
+    )
+  ),
+  stage: v.optional(
+    v.union(
+      v.literal("draft"),
+      v.literal("submitted"),
+      v.literal("approved"),
+      v.literal("closed")
+    )
+  ),
+  submittedFrom: v.optional(v.number()),
+  submittedTo: v.optional(v.number()),
+  updatedFrom: v.optional(v.number()),
+  updatedTo: v.optional(v.number()),
+});
+
+const proposalDirectoryCardValidator = v.object({
+  activeBuildId: v.optional(v.string()),
+  approvedAt: v.optional(v.number()),
+  assignedBrokerEmail: v.optional(v.string()),
+  assignedBrokerName: v.optional(v.string()),
+  assignedBrokerWorkosUserId: v.optional(v.string()),
+  borrowerCoPayBps: v.number(),
+  borrowerCoPayCents: v.optional(v.number()),
+  borrowerStartingCashCents: v.number(),
+  builderAssigned: v.boolean(),
+  builderEmail: v.optional(v.string()),
+  builderLegalName: v.optional(v.string()),
+  builderName: v.string(),
+  builderProfileId: v.optional(v.string()),
+  closedAt: v.optional(v.number()),
+  column: v.union(
+    v.literal("draft"),
+    v.literal("submitted"),
+    v.literal("approved"),
+    v.literal("closed")
+  ),
+  createdAt: v.number(),
+  createdByEmail: v.optional(v.string()),
+  createdByName: v.optional(v.string()),
+  createdByWorkosUserId: v.string(),
+  href: v.string(),
+  interestAnnualBps: v.optional(v.number()),
+  lenderDrawPolicyLimitCents: v.number(),
+  location: v.string(),
+  locationLatitude: v.optional(v.number()),
+  locationLongitude: v.optional(v.number()),
+  locationPlaceId: v.optional(v.string()),
+  planKey: v.optional(
+    v.union(
+      v.literal("capitalConstrained"),
+      v.literal("cheapestFeasible"),
+      v.literal("fastest")
+    )
+  ),
+  planName: v.optional(v.string()),
+  proposedStartDate: v.optional(v.string()),
+  proposalId: v.string(),
+  reviewOutcome: v.union(
+    v.literal("none"),
+    v.literal("approved"),
+    v.literal("requested_changes"),
+    v.literal("rejected")
+  ),
+  statusLabel: v.string(),
+  submittedAt: v.optional(v.number()),
+  subtitle: v.string(),
+  title: v.string(),
+  totalBudgetCents: v.number(),
+  updatedAt: v.number(),
+  updatedByWorkosUserId: v.string(),
+});
 
 const productionSettingsSiteVisitGuidanceFieldInput = v.union(
   v.string(),
@@ -159,6 +332,24 @@ const proposalDraftDrawInput = v.object({
   milestoneKey: v.optional(v.string()),
   order: v.optional(v.number()),
   timingDay: v.number(),
+});
+
+const productionSelectedPlanKeyInput = v.union(
+  v.literal("cheapestFeasible"),
+  v.literal("fastest"),
+  v.literal("capitalConstrained")
+);
+
+const productionSelectedPlanMetricsInput = v.object({
+  drawCount: v.number(),
+  drawFeesCents: v.number(),
+  interestCostCents: v.number(),
+  minimumCashReserveCents: v.number(),
+  projectedDurationDays: v.number(),
+  requiredWorkingCapitalCents: v.optional(v.number()),
+  startingCashCents: v.number(),
+  totalCostCents: v.number(),
+  totalDrawAmountCents: v.number(),
 });
 
 const productionSettingsSubmilestoneInput = v.object({
@@ -228,6 +419,119 @@ const contractorPayRateUnitInput = v.union(
   v.literal("day"),
   v.literal("fixed")
 );
+
+const recipientDeliveryStatusValidator = v.union(
+  v.literal("unread"),
+  v.literal("read"),
+  v.literal("dismissed"),
+  v.literal("resolved")
+);
+
+const recipientDeliveryProjectionValidator = v.object({
+  _id: v.id("recipientDeliveries"),
+  actionLabel: v.string(),
+  actionRequired: v.boolean(),
+  body: v.string(),
+  createdAt: v.number(),
+  entityId: v.string(),
+  entityLabel: v.string(),
+  entityType: v.string(),
+  href: v.string(),
+  resolutionMode: v.union(v.literal("domain"), v.literal("recipient")),
+  sourceLabel: v.string(),
+  status: recipientDeliveryStatusValidator,
+  title: v.string(),
+  updatedAt: v.number(),
+});
+
+const operationsHandoffAcknowledgementStateValidator = v.union(
+  v.literal("pending_decision"),
+  v.literal("returned"),
+  v.literal("acknowledged")
+);
+
+const operationsHandoffReturnDecisionValidator = v.union(
+  v.literal("continue"),
+  v.literal("reroute"),
+  v.literal("close")
+);
+
+const operationsHandoffProjectionValidator = v.object({
+  _id: v.id("operationsQueueHandoffs"),
+  acknowledgementState: operationsHandoffAcknowledgementStateValidator,
+  acknowledgedAt: v.optional(v.number()),
+  acknowledgedByWorkosUserId: v.optional(v.string()),
+  createdAt: v.number(),
+  decisionPreview: v.string(),
+  escalatedByWorkosUserId: v.string(),
+  escalationReason: v.string(),
+  evidenceSummary: v.string(),
+  followUpAssignment: v.optional(v.string()),
+  queueItemId: v.string(),
+  recommendation: v.string(),
+  requiredAction: v.string(),
+  returnDecision: v.optional(operationsHandoffReturnDecisionValidator),
+  returnedAt: v.optional(v.number()),
+  returnedByWorkosUserId: v.optional(v.string()),
+  returnReason: v.optional(v.string()),
+  targetHref: v.string(),
+  targetLabel: v.string(),
+  targetRecordId: v.string(),
+  targetType: v.string(),
+  updatedAt: v.number(),
+  warnings: v.array(v.string()),
+});
+
+const integrationEndpointStatusValidator = v.union(
+  v.literal("draft"),
+  v.literal("active"),
+  v.literal("disabled"),
+  v.literal("revoked")
+);
+
+const integrationDeliveryStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("delivered"),
+  v.literal("failed"),
+  v.literal("retry_pending")
+);
+
+const integrationEndpointProjectionValidator = v.object({
+  _id: v.id("integrationEndpoints"),
+  activatedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  disabledAt: v.optional(v.number()),
+  endpointUrl: v.string(),
+  eventTypes: v.array(v.string()),
+  name: v.string(),
+  payloadVersion: v.string(),
+  revokedAt: v.optional(v.number()),
+  secretFingerprint: v.string(),
+  secretVersion: v.number(),
+  status: integrationEndpointStatusValidator,
+  updatedAt: v.number(),
+  validatedAt: v.optional(v.number()),
+});
+
+const integrationDeliveryProjectionValidator = v.object({
+  _id: v.id("integrationDeliveryAttempts"),
+  attemptNumber: v.number(),
+  attemptedAt: v.number(),
+  completedAt: v.optional(v.number()),
+  deliveryId: v.string(),
+  endpointId: v.id("integrationEndpoints"),
+  endpointName: v.string(),
+  endpointUrl: v.string(),
+  eventId: v.string(),
+  eventType: v.string(),
+  nextRetryAt: v.optional(v.number()),
+  payloadVersion: v.string(),
+  responseCode: v.optional(v.number()),
+  retryOfAttemptId: v.optional(v.id("integrationDeliveryAttempts")),
+  safeError: v.optional(v.string()),
+  status: integrationDeliveryStatusValidator,
+  updatedAt: v.number(),
+});
 
 const contractorCapabilityInput = v.object({
   capabilityKey: v.string(),
@@ -338,6 +642,12 @@ const productionCostItemType = v.union(
   v.literal("equipment")
 );
 
+const productionCostItemBudgetTreatment = v.union(
+  v.literal("logOnly"),
+  v.literal("add"),
+  v.literal("maintain")
+);
+
 const builderStaffPermissionResourceInput = v.union(
   v.literal("milestone"),
   v.literal("submilestone"),
@@ -378,6 +688,8 @@ const builderStaffProvisionResult = v.object({
 });
 
 const productionCostItemCreateInput = {
+  budgetSubmilestoneKey: v.optional(v.union(v.string(), v.null())),
+  budgetTreatment: v.optional(productionCostItemBudgetTreatment),
   costCents: v.number(),
   description: v.optional(v.string()),
   itemType: productionCostItemType,
@@ -402,6 +714,8 @@ const proposalDraftContractorAssignmentInput = v.object({
 });
 
 const productionCostItemUpdateInput = {
+  budgetSubmilestoneKey: v.optional(v.union(v.string(), v.null())),
+  budgetTreatment: v.optional(productionCostItemBudgetTreatment),
   costCents: v.optional(v.number()),
   description: v.optional(v.string()),
   itemId: v.id("proposalCostItems"),
@@ -415,6 +729,8 @@ const productionCostItemUpdateInput = {
 };
 
 const productionBuildCostItemUpdateInput = {
+  budgetSubmilestoneKey: v.optional(v.union(v.string(), v.null())),
+  budgetTreatment: v.optional(productionCostItemBudgetTreatment),
   costCents: v.optional(v.number()),
   description: v.optional(v.string()),
   itemId: v.id("buildCostItems"),
@@ -438,11 +754,11 @@ export const dev_seedProductionFoundation = authenticatedMutation
     const isFairLendBootstrapOrg =
       args.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID;
     await upsertWorkosUserAndMembership(ctx, {
-      email: ctx.viewer.email ?? "admin@example.com",
+      email: isFairLendBootstrapOrg
+        ? FAIRLEND_DEFAULT_BROKER_EMAIL
+        : (ctx.viewer.email ?? "admin@example.com"),
       now,
-      roleSlugs: isFairLendBootstrapOrg
-        ? ["admin", "principle-broker"]
-        : ["admin"],
+      roleSlugs: ["admin", "principle-broker"],
       workosOrganizationId: args.workosOrganizationId,
       workosUserId: isFairLendBootstrapOrg
         ? FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID
@@ -485,6 +801,15 @@ export const dev_seedProductionFoundation = authenticatedMutation
       role: "owner",
       workosUserId: "user_builder",
     });
+    await ensureSeedBuilderBrokerAssignment(ctx, {
+      assignedBrokerWorkosUserId: isFairLendBootstrapOrg
+        ? FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID
+        : "user_broker",
+      brokerageId,
+      builderProfileId,
+      now,
+      organizationId: args.workosOrganizationId,
+    });
     const templateId = await ensureProposalTemplate(ctx, {
       brokerageId,
       now,
@@ -517,20 +842,33 @@ export const seedProductionDefaultsToProd = authenticatedMutation
   .handler(async (ctx, args) => {
     requireAnyRole(ctx.viewer.roles, ["admin"]);
     const now = Date.now();
+    const isFairLendBootstrapOrg =
+      args.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID;
 
     await upsertWorkosProjection(ctx, args.workosOrganizationId, now);
     await upsertWorkosUserAndMembership(ctx, {
       email: ctx.viewer.email ?? "admin@example.com",
       now,
-      roleSlugs: ["admin"],
+      roleSlugs: ["admin", "principle-broker"],
       workosOrganizationId: args.workosOrganizationId,
       workosUserId: ctx.viewer.subject,
     });
+    if (isFairLendBootstrapOrg) {
+      await upsertWorkosUserAndMembership(ctx, {
+        email: FAIRLEND_DEFAULT_BROKER_EMAIL,
+        now,
+        roleSlugs: ["principle-broker"],
+        workosOrganizationId: args.workosOrganizationId,
+        workosUserId: FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID,
+      });
+    }
     const brokerageId = await ensureBrokerage(ctx, {
       displayName: FAIRLEND_BROKERAGE_NAME,
       legalName: FAIRLEND_BROKERAGE_NAME,
       now,
-      principalBrokerWorkosUserId: ctx.viewer.subject,
+      principalBrokerWorkosUserId: isFairLendBootstrapOrg
+        ? FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID
+        : ctx.viewer.subject,
       workosOrganizationId: args.workosOrganizationId,
     });
     const templateResult = await seedProductionDefaultTemplates(ctx, {
@@ -567,11 +905,11 @@ export const dev_seedProductionProposalScenarios = authenticatedMutation
     const isFairLendBootstrapOrg =
       args.workosOrganizationId === FAIRLEND_WORKOS_ORGANIZATION_ID;
     await upsertWorkosUserAndMembership(ctx, {
-      email: ctx.viewer.email ?? "admin@example.com",
+      email: isFairLendBootstrapOrg
+        ? FAIRLEND_DEFAULT_BROKER_EMAIL
+        : (ctx.viewer.email ?? "admin@example.com"),
       now,
-      roleSlugs: isFairLendBootstrapOrg
-        ? ["admin", "principle-broker"]
-        : ["admin"],
+      roleSlugs: ["admin", "principle-broker"],
       workosOrganizationId: args.workosOrganizationId,
       workosUserId: isFairLendBootstrapOrg
         ? FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID
@@ -617,6 +955,15 @@ export const dev_seedProductionProposalScenarios = authenticatedMutation
       now,
       role: "owner",
       workosUserId: "user_builder",
+    });
+    await ensureSeedBuilderBrokerAssignment(ctx, {
+      assignedBrokerWorkosUserId: isFairLendBootstrapOrg
+        ? FAIRLEND_PRINCIPAL_BROKER_WORKOS_USER_ID
+        : "user_broker",
+      brokerageId,
+      builderProfileId,
+      now,
+      organizationId: args.workosOrganizationId,
     });
     const templateId = await ensureProposalTemplate(ctx, {
       brokerageId,
@@ -781,17 +1128,27 @@ export const addProposalDocument = authenticatedMutation
 
 export const createDraftProposal = authenticatedMutation
   .input({
+    assignedBrokerWorkosUserId: v.optional(v.string()),
     brokerageId: v.id("brokerages"),
     builderProfileId: v.id("builderProfiles"),
     buildName: v.string(),
     location: v.string(),
+    locationLatitude: v.optional(v.number()),
+    locationLongitude: v.optional(v.number()),
+    locationPlaceId: v.optional(v.string()),
     proposedStartDate: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.id("buildProposals"))
   .handler(async (ctx, args) => {
+    if (
+      (args.locationLatitude === undefined) !==
+      (args.locationLongitude === undefined)
+    ) {
+      throw new Error("Latitude and longitude must be provided together.");
+    }
     const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
-    await assertBuilderProfileScope(
+    const builderProfile = await assertBuilderProfileScope(
       ctx,
       args.builderProfileId,
       auth.brokerage._id
@@ -799,16 +1156,35 @@ export const createDraftProposal = authenticatedMutation
     if (!isBackoffice(auth.roles)) {
       await assertBuilderOwnership(ctx, args.builderProfileId, auth.subject);
       requireAnyRole(auth.roles, BUILDER_ROLES);
+      const assignmentHealth = await getBuilderBrokerAssignmentHealth(ctx, {
+        brokerage: auth.brokerage,
+        builderProfile,
+      });
+      if (!assignmentHealth.healthy) {
+        throw new ConvexError({
+          code: "BUILDER_BROKER_ASSIGNMENT_REQUIRED",
+          reason: assignmentHealth.reason,
+          recoverable: true,
+          safeMessage:
+            "An active broker assignment is required before creating a proposal.",
+        });
+      }
     }
 
     const now = Date.now();
+    const assignedBrokerWorkosUserId =
+      args.assignedBrokerWorkosUserId ??
+      (await requireDefaultBrokerMember(ctx, auth.brokerage)).workosUserId;
+    await requireEligibleBrokerMember(ctx, {
+      workosOrganizationId: auth.brokerage.workosOrganizationId,
+      workosUserId: assignedBrokerWorkosUserId,
+    });
     const proposalId = await ctx.db.insert("buildProposals", {
       brokerageId: auth.brokerage._id,
-      ...(isBackoffice(auth.roles)
-        ? { assignedBrokerWorkosUserId: auth.subject }
-        : {}),
+      assignedBrokerWorkosUserId,
       borrowerCoPayBps: 2000,
       borrowerCoPayCents: 0,
+      borrowerStartingCashCents: 0,
       borrowerWorkingCapitalLimitCents: 0,
       buildName: args.buildName,
       builderProfileId: args.builderProfileId,
@@ -817,6 +1193,15 @@ export const createDraftProposal = authenticatedMutation
       interestAnnualBps: 925,
       lenderDrawPolicyLimitCents: 0,
       location: args.location,
+      ...(args.locationLatitude === undefined
+        ? {}
+        : {
+            locationLatitude: args.locationLatitude,
+            locationLongitude: args.locationLongitude,
+          }),
+      ...(args.locationPlaceId?.trim()
+        ? { locationPlaceId: args.locationPlaceId.trim() }
+        : {}),
       organizationId: args.workosOrganizationId,
       ...(args.proposedStartDate === undefined
         ? {}
@@ -837,7 +1222,10 @@ export const createDraftProposal = authenticatedMutation
       auth,
       command: "createDraftProposal",
       eventType: "proposal.created",
-      newState: "draft",
+      newState: JSON.stringify({
+        assignedBrokerWorkosUserId,
+        status: "draft",
+      }),
       proposalId,
     });
     return proposalId;
@@ -846,22 +1234,40 @@ export const createDraftProposal = authenticatedMutation
 
 export const createBrokerDraftProposal = authenticatedMutation
   .input({
+    assignedBrokerWorkosUserId: v.optional(v.string()),
     buildName: v.optional(v.string()),
     location: v.optional(v.string()),
+    locationLatitude: v.optional(v.number()),
+    locationLongitude: v.optional(v.number()),
+    locationPlaceId: v.optional(v.string()),
     proposedStartDate: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
   .returns(v.id("buildProposals"))
   .handler(async (ctx, args) => {
+    if (
+      (args.locationLatitude === undefined) !==
+      (args.locationLongitude === undefined)
+    ) {
+      throw new Error("Latitude and longitude must be provided together.");
+    }
     const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    const assignedBrokerWorkosUserId =
+      args.assignedBrokerWorkosUserId ??
+      (await requireDefaultBrokerMember(ctx, auth.brokerage)).workosUserId;
+    await requireEligibleBrokerMember(ctx, {
+      workosOrganizationId: auth.brokerage.workosOrganizationId,
+      workosUserId: assignedBrokerWorkosUserId,
+    });
 
     const now = Date.now();
     const proposalId = await ctx.db.insert("buildProposals", {
       brokerageId: auth.brokerage._id,
-      assignedBrokerWorkosUserId: auth.subject,
+      assignedBrokerWorkosUserId,
       borrowerCoPayBps: 2000,
       borrowerCoPayCents: 0,
+      borrowerStartingCashCents: 0,
       borrowerWorkingCapitalLimitCents: 0,
       buildName: args.buildName?.trim() || "Unassigned broker draft",
       createdAt: now,
@@ -869,6 +1275,15 @@ export const createBrokerDraftProposal = authenticatedMutation
       interestAnnualBps: 925,
       lenderDrawPolicyLimitCents: 0,
       location: args.location?.trim() || "Unassigned site",
+      ...(args.locationLatitude === undefined
+        ? {}
+        : {
+            locationLatitude: args.locationLatitude,
+            locationLongitude: args.locationLongitude,
+          }),
+      ...(args.locationPlaceId?.trim()
+        ? { locationPlaceId: args.locationPlaceId.trim() }
+        : {}),
       organizationId: args.workosOrganizationId,
       ...(args.proposedStartDate === undefined
         ? {}
@@ -890,6 +1305,7 @@ export const createBrokerDraftProposal = authenticatedMutation
       command: "createBrokerDraftProposal",
       eventType: "proposal.created",
       newState: JSON.stringify({
+        assignedBrokerWorkosUserId,
         assignment: "unassigned",
         status: "draft",
       }),
@@ -902,7 +1318,9 @@ export const createBrokerDraftProposal = authenticatedMutation
 export const saveDraftProposalPackage = authenticatedMutation
   .input({
     borrowerCoPayBps: v.number(),
-    borrowerWorkingCapitalLimitCents: v.number(),
+    borrowerStartingCashCents: v.optional(v.number()),
+    // Deprecated compatibility input for clients deployed before the cutover.
+    borrowerWorkingCapitalLimitCents: v.optional(v.number()),
     buildName: v.optional(v.string()),
     contractorAssignments: v.optional(
       v.array(proposalDraftContractorAssignmentInput)
@@ -918,7 +1336,11 @@ export const saveDraftProposalPackage = authenticatedMutation
     templateId: v.optional(v.id("proposalTemplates")),
     workosOrganizationId: v.string(),
   })
-  .returns(v.null())
+  .returns(
+    v.object({
+      warnings: v.array(v.string()),
+    })
+  )
   .handler(async (ctx, args) => {
     const auth = await authorizeProposal(
       ctx,
@@ -928,6 +1350,18 @@ export const saveDraftProposalPackage = authenticatedMutation
     if (auth.proposal.status !== "draft") {
       throw new Error("Only draft proposals can be edited.");
     }
+    const borrowerStartingCashCents =
+      args.borrowerStartingCashCents ?? args.borrowerWorkingCapitalLimitCents;
+    if (
+      borrowerStartingCashCents === undefined ||
+      !Number.isFinite(borrowerStartingCashCents) ||
+      borrowerStartingCashCents < 0
+    ) {
+      throw new Error("Borrower starting cash must be a non-negative amount.");
+    }
+    const normalizedBorrowerStartingCashCents = Math.round(
+      borrowerStartingCashCents
+    );
     if (!isBackoffice(auth.roles)) {
       await assertBuilderOwnership(
         ctx,
@@ -942,6 +1376,80 @@ export const saveDraftProposalPackage = authenticatedMutation
       throw new Error(
         "Proposal capital share must be between 0 and 10000 bps."
       );
+    }
+    const draftWarnings: string[] = [];
+    const lenderFacilityCents = Math.max(
+      0,
+      Math.round(args.lenderDrawPolicyLimitCents)
+    );
+    const plannedDrawsCents = (args.draws ?? []).reduce(
+      (total, draw) => total + Math.max(0, Math.round(draw.amountCents)),
+      0
+    );
+    // Draft generation should warn, not hard-fail: template draw shares can
+    // temporarily disagree with facility / completed-work eligibility while
+    // the borrower is still shaping the schedule.
+    if (plannedDrawsCents > lenderFacilityCents) {
+      draftWarnings.push(
+        "Planned draws exceed the lender facility. Revise the draw schedule or obtain an approved facility change."
+      );
+    }
+    const milestoneByKey = new Map(
+      args.milestones.map((milestone) => [milestone.key, milestone])
+    );
+    const additiveCostCentsByMilestoneKey = new Map<string, number>();
+    for (const costItem of args.costItems ?? []) {
+      if (normalizeCostItemBudgetTreatment(costItem.budgetTreatment) !== "add") {
+        continue;
+      }
+      const itemTotalCents = Math.round(
+        normalizeCostItemCost(costItem.costCents) *
+          normalizeCostItemQuantity(costItem.quantity)
+      );
+      additiveCostCentsByMilestoneKey.set(
+        costItem.milestoneKey,
+        (additiveCostCentsByMilestoneKey.get(costItem.milestoneKey) ?? 0) +
+          itemTotalCents
+      );
+    }
+    if (
+      (args.draws ?? []).some((draw) => {
+        const milestone = draw.milestoneKey
+          ? milestoneByKey.get(draw.milestoneKey)
+          : undefined;
+        return milestone !== undefined && draw.timingDay < milestone.dayEnd;
+      })
+    ) {
+      draftWarnings.push(
+        "Planned reimbursements are scheduled before their milestone is complete."
+      );
+    }
+    let cumulativePlannedDrawsCents = 0;
+    for (const draw of [...(args.draws ?? [])].sort(
+      (left, right) =>
+        left.timingDay - right.timingDay ||
+        (left.order ?? 0) - (right.order ?? 0) ||
+        left.drawKey.localeCompare(right.drawKey)
+    )) {
+      cumulativePlannedDrawsCents += Math.max(0, Math.round(draw.amountCents));
+      const cumulativeEligibleCents = args.milestones.reduce(
+        (total, milestone) =>
+          milestone.dayEnd <= draw.timingDay
+            ? total +
+              calculateDrawAvailability(
+                milestone.budgetCents +
+                  (additiveCostCentsByMilestoneKey.get(milestone.key) ?? 0),
+                args.borrowerCoPayBps
+              )
+            : total,
+        0
+      );
+      if (cumulativePlannedDrawsCents > cumulativeEligibleCents) {
+        draftWarnings.push(
+          "Planned draws exceed cumulative completed-work eligibility."
+        );
+        break;
+      }
     }
 
     const now = Date.now();
@@ -1008,7 +1516,9 @@ export const saveDraftProposalPackage = authenticatedMutation
       borrowerCoPayCents: Math.round(
         (totalBudgetCents * args.borrowerCoPayBps) / 10_000
       ),
-      borrowerWorkingCapitalLimitCents: args.borrowerWorkingCapitalLimitCents,
+      borrowerStartingCashCents: normalizedBorrowerStartingCashCents,
+      // Dual-write until the legacy field is narrowed out after backfill.
+      borrowerWorkingCapitalLimitCents: normalizedBorrowerStartingCashCents,
       buildName: args.buildName?.trim() || auth.proposal.buildName,
       lenderDrawPolicyLimitCents: args.lenderDrawPolicyLimitCents,
       location: args.location?.trim() || auth.proposal.location,
@@ -1049,7 +1559,21 @@ export const saveDraftProposalPackage = authenticatedMutation
         proposalId: args.proposalId,
       });
     }
-    return null;
+    if (draftWarnings.length > 0) {
+      await writeProposalEvent(ctx, {
+        auth,
+        command: "saveDraftProposalPackage",
+        eventType: "proposal.draft.schedule_warnings",
+        newState: JSON.stringify({
+          lenderFacilityCents,
+          plannedDrawsCents,
+          warningCount: draftWarnings.length,
+        }),
+        proposalId: args.proposalId,
+        warnings: draftWarnings,
+      });
+    }
+    return { warnings: draftWarnings };
   })
   .public();
 
@@ -1174,6 +1698,8 @@ interface DraftProposalDrawInput {
 }
 
 interface DraftProposalCostItemInput {
+  budgetSubmilestoneKey?: null | string;
+  budgetTreatment?: CostItemBudgetTreatment;
   costCents: number;
   description?: string;
   itemType: "equipment" | "material";
@@ -1443,19 +1969,35 @@ async function insertDraftProposalCostItems(
   }
 ) {
   const costDeltaByMilestoneKey = new Map<string, number>();
+  const costDeltaBySubmilestoneKey = new Map<string, number>();
+  const maintainedTargets = new Set<string>();
   for (const costItem of input.costItems) {
-    const { milestone, totalCents } = await insertDraftProposalCostItem(
+    const { item, milestone, totalCents } = await insertDraftProposalCostItem(
       ctx,
       input,
       costItem
     );
-    costDeltaByMilestoneKey.set(
-      milestone.key,
-      (costDeltaByMilestoneKey.get(milestone.key) ?? 0) + totalCents
-    );
+    if (item.budgetTreatment === "add") {
+      costDeltaByMilestoneKey.set(
+        milestone.key,
+        (costDeltaByMilestoneKey.get(milestone.key) ?? 0) + totalCents
+      );
+      if (item.budgetSubmilestoneKey) {
+        const target = `${milestone.key}:${item.budgetSubmilestoneKey}`;
+        costDeltaBySubmilestoneKey.set(
+          target,
+          (costDeltaBySubmilestoneKey.get(target) ?? 0) + totalCents
+        );
+      }
+    }
+    if (item.budgetTreatment === "maintain" && item.budgetSubmilestoneKey) {
+      maintainedTargets.add(`${milestone.key}:${item.budgetSubmilestoneKey}`);
+    }
   }
   return await applyDraftProposalCostItemDeltas(ctx, input, {
     costDeltaByMilestoneKey,
+    costDeltaBySubmilestoneKey,
+    maintainedTargets,
   });
 }
 
@@ -1479,11 +2021,23 @@ async function insertDraftProposalCostItem(
     milestone,
     costItem.relevantSubmilestoneKeys
   );
+  const budgetTreatment = normalizeCostItemBudgetTreatment(
+    costItem.budgetTreatment
+  );
+  const budgetSubmilestoneKey = await validateProposalCostItemBudgetTarget(
+    ctx,
+    milestone,
+    costItem.budgetSubmilestoneKey,
+    budgetTreatment,
+    costItem.budgetTreatment !== undefined
+  );
   const costCents = normalizeCostItemCost(costItem.costCents);
   const quantity = normalizeCostItemQuantity(costItem.quantity);
   const title = normalizeRequiredText(costItem.title, "Cost item title");
   const item = {
     brokerageId: input.auth.brokerage._id,
+    budgetSubmilestoneKey,
+    budgetTreatment,
     costCents,
     createdAt: input.now,
     createdByWorkosUserId: input.auth.subject,
@@ -1506,8 +2060,12 @@ async function insertDraftProposalCostItem(
     updatedAt: input.now,
     updatedByWorkosUserId: input.auth.subject,
   };
-  await ctx.db.insert("proposalCostItems", item);
-  return { milestone, totalCents: costItemTotalCents(item) };
+  const itemId = await ctx.db.insert("proposalCostItems", item);
+  return {
+    item: { ...item, _id: itemId },
+    milestone,
+    totalCents: costItemTotalCents(item),
+  };
 }
 
 async function applyDraftProposalCostItemDeltas(
@@ -1520,9 +2078,33 @@ async function applyDraftProposalCostItemDeltas(
   },
   deltas: {
     costDeltaByMilestoneKey: Map<string, number>;
+    costDeltaBySubmilestoneKey: Map<string, number>;
+    maintainedTargets: Set<string>;
   }
 ) {
   let totalDeltaCents = 0;
+  for (const [target, deltaCents] of deltas.costDeltaBySubmilestoneKey) {
+    const separator = target.indexOf(":");
+    const milestoneKey = target.slice(0, separator);
+    const submilestoneKey = target.slice(separator + 1);
+    const submilestoneId = input.planRows.submilestoneByMilestoneAndKey.get(
+      `${milestoneKey}:${submilestoneKey}`
+    );
+    if (!submilestoneId) {
+      throw new Error(`Budget sub-milestone not found: ${submilestoneKey}.`);
+    }
+    const submilestone = await ctx.db.get(submilestoneId);
+    if (!submilestone) {
+      throw new Error(`Budget sub-milestone not found: ${submilestoneKey}.`);
+    }
+    await ctx.db.patch(submilestone._id, {
+      budgetCents: Math.max(
+        0,
+        Math.round((submilestone.budgetCents ?? 0) + deltaCents)
+      ),
+      updatedAt: input.now,
+    });
+  }
   for (const [milestoneKey, deltaCents] of deltas.costDeltaByMilestoneKey) {
     if (deltaCents === 0) {
       continue;
@@ -1548,6 +2130,20 @@ async function applyDraftProposalCostItemDeltas(
       updatedAt: input.now,
     });
     totalDeltaCents += deltaCents;
+  }
+  for (const target of deltas.maintainedTargets) {
+    const separator = target.indexOf(":");
+    const milestoneKey = target.slice(0, separator);
+    const submilestoneKey = target.slice(separator + 1);
+    const milestone = getDraftProposalSavedMilestone(
+      input.planRows,
+      milestoneKey
+    );
+    await validateProposalMaintainedCostCoverage(ctx, {
+      milestoneId: milestone._id,
+      proposalId: input.proposalId,
+      submilestoneKey,
+    });
   }
   return totalDeltaCents;
 }
@@ -1716,6 +2312,113 @@ function getDraftProposalSavedMilestone(
   return milestone;
 }
 
+const productionSelectedPlanNames = {
+  capitalConstrained: "Capital-Constrained",
+  cheapestFeasible: "Cheapest Feasible",
+  fastest: "Fastest",
+} as const;
+
+function normalizeSelectedPlanMetric(value: number, label: string) {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative number.`);
+  }
+  return Math.round(value);
+}
+
+export const selectProposalPlan = authenticatedMutation
+  .input({
+    metrics: productionSelectedPlanMetricsInput,
+    planKey: productionSelectedPlanKeyInput,
+    proposalId: v.id("buildProposals"),
+    recommendationReason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    requireState(auth.proposal, "draft");
+    requireAnyRole(auth.roles, BUILDER_ROLES);
+    await requireProposalAppPermission(ctx, auth, "capitalEvent", "update");
+    await assertProposalCollaborationEditAllowed(ctx, auth);
+    const recommendationReason = args.recommendationReason.trim();
+    if (!recommendationReason) {
+      throw new Error("A plan recommendation reason is required.");
+    }
+    const now = Date.now();
+    const selectedPlan = {
+      metrics: {
+        drawCount: normalizeSelectedPlanMetric(
+          args.metrics.drawCount,
+          "Draw count"
+        ),
+        drawFeesCents: normalizeSelectedPlanMetric(
+          args.metrics.drawFeesCents,
+          "Draw fees"
+        ),
+        interestCostCents: normalizeSelectedPlanMetric(
+          args.metrics.interestCostCents,
+          "Interest cost"
+        ),
+        minimumCashReserveCents: normalizeSelectedPlanMetric(
+          args.metrics.minimumCashReserveCents,
+          "Minimum cash reserve"
+        ),
+        projectedDurationDays: normalizeSelectedPlanMetric(
+          args.metrics.projectedDurationDays,
+          "Projected duration"
+        ),
+        ...(args.metrics.requiredWorkingCapitalCents === undefined
+          ? {}
+          : {
+              requiredWorkingCapitalCents: normalizeSelectedPlanMetric(
+                args.metrics.requiredWorkingCapitalCents,
+                "Required working capital"
+              ),
+            }),
+        startingCashCents: normalizeSelectedPlanMetric(
+          args.metrics.startingCashCents,
+          "Starting cash"
+        ),
+        totalCostCents: normalizeSelectedPlanMetric(
+          args.metrics.totalCostCents,
+          "Total cost"
+        ),
+        totalDrawAmountCents: normalizeSelectedPlanMetric(
+          args.metrics.totalDrawAmountCents,
+          "Total draw amount"
+        ),
+      },
+      name: productionSelectedPlanNames[args.planKey],
+      planKey: args.planKey,
+      recommendationReason,
+      selectedAt: now,
+      selectedByWorkosUserId: auth.subject,
+    };
+    await ctx.db.patch(args.proposalId, {
+      selectedPlan,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "selectProposalPlan",
+      eventType: "proposal.plan.selected",
+      newState: JSON.stringify(selectedPlan),
+      priorState: auth.proposal.selectedPlan
+        ? JSON.stringify(auth.proposal.selectedPlan)
+        : undefined,
+      proposalId: args.proposalId,
+      reason: recommendationReason,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return null;
+  })
+  .public();
+
 export const submitProposal = authenticatedMutation
   .input({
     proposalId: v.id("buildProposals"),
@@ -1729,12 +2432,30 @@ export const submitProposal = authenticatedMutation
       args.workosOrganizationId
     );
     requireState(auth.proposal, "draft");
+    if (!auth.proposal.selectedPlan) {
+      throw new Error("Select a plan before submitting the proposal.");
+    }
     if (!isBackoffice(auth.roles)) {
-      await assertBuilderOwnership(
+      const builderProfileId = assignedBuilderProfileIdOrThrow(auth.proposal);
+      await assertBuilderOwnership(ctx, builderProfileId, auth.subject);
+      const builderProfile = await assertBuilderProfileScope(
         ctx,
-        assignedBuilderProfileIdOrThrow(auth.proposal),
-        auth.subject
+        builderProfileId,
+        auth.brokerage._id
       );
+      const assignmentHealth = await getBuilderBrokerAssignmentHealth(ctx, {
+        brokerage: auth.brokerage,
+        builderProfile,
+      });
+      if (!assignmentHealth.healthy) {
+        throw new ConvexError({
+          code: "BUILDER_BROKER_ASSIGNMENT_REQUIRED",
+          reason: assignmentHealth.reason,
+          recoverable: true,
+          safeMessage:
+            "An active broker assignment is required before submitting a proposal.",
+        });
+      }
     }
     const milestones = await collectByIndex(
       ctx,
@@ -2143,8 +2864,26 @@ export const updateProductionTimelineMilestone = authenticatedMutation
     });
     const budgetDerivedFromSubmilestones =
       args.submilestones !== undefined && schedule.submilestones.length > 0;
+    const unscopedAdditiveCostCents = budgetDerivedFromSubmilestones
+      ? (
+          await ctx.db
+            .query("proposalCostItems")
+            .withIndex("by_milestone", (q) =>
+              q.eq("proposalMilestoneId", milestone._id)
+            )
+            .collect()
+        ).reduce(
+          (total, item) =>
+            normalizeCostItemBudgetTreatment(item.budgetTreatment) === "add" &&
+            !item.budgetSubmilestoneKey
+              ? total + costItemTotalCents(item)
+              : total,
+          0
+        )
+      : 0;
     const nextBudgetCents = budgetDerivedFromSubmilestones
-      ? sumProductionSubmilestoneBudgetCents(schedule.submilestones)
+      ? sumProductionSubmilestoneBudgetCents(schedule.submilestones) +
+        unscopedAdditiveCostCents
       : args.budgetCents === undefined
         ? milestone.budgetCents
         : Math.max(0, Math.round(args.budgetCents));
@@ -2284,11 +3023,23 @@ export const createProposalCostItem = authenticatedMutation
         milestone,
         args.relevantSubmilestoneKeys
       );
+    const budgetTreatment = normalizeCostItemBudgetTreatment(
+      args.budgetTreatment
+    );
+    const budgetSubmilestoneKey = await validateProposalCostItemBudgetTarget(
+      ctx,
+      milestone,
+      args.budgetSubmilestoneKey,
+      budgetTreatment,
+      args.budgetTreatment !== undefined
+    );
     const now = Date.now();
     const costCents = normalizeCostItemCost(args.costCents);
     const quantity = normalizeCostItemQuantity(args.quantity);
     const item = {
       brokerageId: auth.brokerage._id,
+      budgetSubmilestoneKey,
+      budgetTreatment,
       costCents,
       createdAt: now,
       createdByWorkosUserId: auth.subject,
@@ -2312,9 +3063,8 @@ export const createProposalCostItem = authenticatedMutation
       updatedByWorkosUserId: auth.subject,
     };
     const itemId = await ctx.db.insert("proposalCostItems", item);
-    await applyProposalCostItemBudgetDelta(ctx, auth, {
-      deltaCents: costItemTotalCents(item),
-      milestone,
+    await applyProposalCostItemBudgetChange(ctx, auth, {
+      nextItem: { ...item, _id: itemId },
       proposalId: args.proposalId,
     });
     await writeProposalEvent(ctx, {
@@ -2368,8 +3118,29 @@ export const updateProposalCostItem = authenticatedMutation
             milestone,
             args.relevantSubmilestoneKeys ?? []
           );
+    const budgetTreatment = normalizeCostItemBudgetTreatment(
+      args.budgetTreatment ?? item.budgetTreatment
+    );
+    const requestedBudgetSubmilestoneKey =
+      args.budgetSubmilestoneKey === undefined
+        ? milestoneChanged
+          ? undefined
+          : item.budgetSubmilestoneKey
+        : args.budgetSubmilestoneKey;
+    const budgetSubmilestoneKey = await validateProposalCostItemBudgetTarget(
+      ctx,
+      milestone,
+      requestedBudgetSubmilestoneKey,
+      budgetTreatment,
+      budgetTreatment === "add" &&
+        (args.budgetTreatment !== undefined ||
+          args.budgetSubmilestoneKey !== undefined ||
+          item.budgetSubmilestoneKey !== undefined)
+    );
     const now = Date.now();
     const patch = {
+      budgetSubmilestoneKey,
+      budgetTreatment,
       ...(args.costCents === undefined
         ? {}
         : { costCents: normalizeCostItemCost(args.costCents) }),
@@ -2398,30 +3169,11 @@ export const updateProposalCostItem = authenticatedMutation
     };
     const nextItem = { ...item, ...patch };
     await ctx.db.patch(item._id, patch);
-    const priorTotal = costItemTotalCents(item);
-    const nextTotal = costItemTotalCents(nextItem);
-    if (milestoneChanged) {
-      const priorMilestone = await getProposalMilestoneByIdOrThrow(
-        ctx,
-        item.proposalMilestoneId
-      );
-      await applyProposalCostItemBudgetDelta(ctx, auth, {
-        deltaCents: -priorTotal,
-        milestone: priorMilestone,
-        proposalId: args.proposalId,
-      });
-      await applyProposalCostItemBudgetDelta(ctx, auth, {
-        deltaCents: nextTotal,
-        milestone,
-        proposalId: args.proposalId,
-      });
-    } else {
-      await applyProposalCostItemBudgetDelta(ctx, auth, {
-        deltaCents: nextTotal - priorTotal,
-        milestone,
-        proposalId: args.proposalId,
-      });
-    }
+    await applyProposalCostItemBudgetChange(ctx, auth, {
+      nextItem,
+      priorItem: item,
+      proposalId: args.proposalId,
+    });
     await writeProposalEvent(ctx, {
       auth,
       command: "updateProposalCostItem",
@@ -2458,14 +3210,9 @@ export const deleteProposalCostItem = authenticatedMutation
       args.proposalId,
       args.itemId
     );
-    const milestone = await getProposalMilestoneByIdOrThrow(
-      ctx,
-      item.proposalMilestoneId
-    );
     await ctx.db.delete(item._id);
-    await applyProposalCostItemBudgetDelta(ctx, auth, {
-      deltaCents: -costItemTotalCents(item),
-      milestone,
+    await applyProposalCostItemBudgetChange(ctx, auth, {
+      priorItem: item,
       proposalId: args.proposalId,
     });
     await writeProposalEvent(ctx, {
@@ -2508,11 +3255,25 @@ export const createActiveBuildCostItem = authenticatedMutation
       milestone,
       args.relevantSubmilestoneKeys
     );
+    if (
+      (args.budgetTreatment !== undefined && args.budgetTreatment !== "add") ||
+      normalizeCostItemBudgetSubmilestoneKey(args.budgetSubmilestoneKey)
+    ) {
+      throw new Error(
+        "Budget treatment and target can only be selected during proposal planning."
+      );
+    }
+    // Active-build cost items retain the historical additive behavior. Budget
+    // treatment is selected during proposal planning and copied at closing.
+    const budgetTreatment = "add" as const;
+    const budgetSubmilestoneKey = undefined;
     const now = Date.now();
     const costCents = normalizeCostItemCost(args.costCents);
     const quantity = normalizeCostItemQuantity(args.quantity);
     const item = {
       brokerageId: auth.brokerage._id,
+      budgetSubmilestoneKey,
+      budgetTreatment,
       buildId: args.buildId,
       buildMilestoneId: milestone._id,
       costCents,
@@ -2534,8 +3295,10 @@ export const createActiveBuildCostItem = authenticatedMutation
     const itemId = await ctx.db.insert("buildCostItems", item);
     await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
       buildId: args.buildId,
-      deltaCents: costItemTotalCents(item),
+      deltaCents:
+        budgetTreatment === "add" ? costItemTotalCents(item) : 0,
       milestone,
+      submilestoneKey: budgetSubmilestoneKey,
     });
     await writeActiveBuildEvent(ctx, {
       auth,
@@ -2585,8 +3348,37 @@ export const updateActiveBuildCostItem = authenticatedMutation
             milestone,
             args.relevantSubmilestoneKeys ?? []
           );
+    const budgetTreatment = normalizeCostItemBudgetTreatment(
+      item.budgetTreatment
+    );
+    const requestedBudgetSubmilestoneKey = item.budgetSubmilestoneKey;
+    if (
+      args.budgetTreatment !== undefined &&
+      args.budgetTreatment !== budgetTreatment
+    ) {
+      throw new Error(
+        "Budget treatment can only be changed during proposal planning."
+      );
+    }
+    if (
+      args.budgetSubmilestoneKey !== undefined &&
+      normalizeCostItemBudgetSubmilestoneKey(args.budgetSubmilestoneKey) !==
+        normalizeCostItemBudgetSubmilestoneKey(requestedBudgetSubmilestoneKey)
+    ) {
+      throw new Error(
+        "Budget sub-milestone target can only be changed during proposal planning."
+      );
+    }
+    const budgetSubmilestoneKey = await validateBuildCostItemBudgetTarget(
+      ctx,
+      milestone,
+      requestedBudgetSubmilestoneKey,
+      budgetTreatment
+    );
     const now = Date.now();
     const patch = {
+      budgetSubmilestoneKey,
+      budgetTreatment,
       ...(args.costCents === undefined
         ? {}
         : { costCents: normalizeCostItemCost(args.costCents) }),
@@ -2615,28 +3407,66 @@ export const updateActiveBuildCostItem = authenticatedMutation
     };
     const nextItem = { ...item, ...patch };
     await ctx.db.patch(item._id, patch);
-    const priorTotal = costItemTotalCents(item);
-    const nextTotal = costItemTotalCents(nextItem);
+    const priorTotal =
+      normalizeCostItemBudgetTreatment(item.budgetTreatment) === "add"
+        ? costItemTotalCents(item)
+        : 0;
+    const nextTotal =
+      budgetTreatment === "add" ? costItemTotalCents(nextItem) : 0;
+    let priorMilestoneForValidation = milestone;
     if (milestoneChanged) {
       const priorMilestone = await ctx.db.get(item.buildMilestoneId);
       if (!priorMilestone) {
         throw new Error("Production active-build milestone not found.");
       }
+      priorMilestoneForValidation = priorMilestone;
       await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
         buildId: args.buildId,
         deltaCents: -priorTotal,
         milestone: priorMilestone,
+        submilestoneKey: item.budgetSubmilestoneKey,
       });
       await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
         buildId: args.buildId,
         deltaCents: nextTotal,
         milestone,
+        submilestoneKey: budgetSubmilestoneKey,
       });
     } else {
-      await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+      if (item.budgetSubmilestoneKey === budgetSubmilestoneKey) {
+        await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+          buildId: args.buildId,
+          deltaCents: nextTotal - priorTotal,
+          milestone,
+          submilestoneKey: budgetSubmilestoneKey,
+        });
+      } else {
+        await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+          buildId: args.buildId,
+          deltaCents: -priorTotal,
+          milestone,
+          submilestoneKey: item.budgetSubmilestoneKey,
+        });
+        await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
+          buildId: args.buildId,
+          deltaCents: nextTotal,
+          milestone,
+          submilestoneKey: budgetSubmilestoneKey,
+        });
+      }
+    }
+    if (item.budgetSubmilestoneKey) {
+      await validateBuildMaintainedCostCoverage(ctx, {
         buildId: args.buildId,
-        deltaCents: nextTotal - priorTotal,
-        milestone,
+        milestoneId: priorMilestoneForValidation._id,
+        submilestoneKey: item.budgetSubmilestoneKey,
+      });
+    }
+    if (budgetSubmilestoneKey) {
+      await validateBuildMaintainedCostCoverage(ctx, {
+        buildId: args.buildId,
+        milestoneId: milestone._id,
+        submilestoneKey: budgetSubmilestoneKey,
       });
     }
     await writeActiveBuildEvent(ctx, {
@@ -2676,8 +3506,12 @@ export const deleteActiveBuildCostItem = authenticatedMutation
     await ctx.db.delete(item._id);
     await applyActiveBuildCostItemBudgetDelta(ctx, auth, {
       buildId: args.buildId,
-      deltaCents: -costItemTotalCents(item),
+      deltaCents:
+        normalizeCostItemBudgetTreatment(item.budgetTreatment) === "add"
+          ? -costItemTotalCents(item)
+          : 0,
       milestone,
+      submilestoneKey: item.budgetSubmilestoneKey,
     });
     await writeActiveBuildEvent(ctx, {
       auth,
@@ -3060,11 +3894,14 @@ export const updateProductionTimelinePlanState = authenticatedMutation
       startingCashCents: auth.proposal.timelineStartingCashCents,
     });
     const now = Date.now();
+    const normalizedStartingCashCents = Math.max(
+      0,
+      Math.round(args.startingCashCents)
+    );
     await ctx.db.patch(args.proposalId, {
-      borrowerWorkingCapitalLimitCents: Math.max(
-        0,
-        Math.round(args.startingCashCents)
-      ),
+      borrowerStartingCashCents: normalizedStartingCashCents,
+      // Dual-write until the legacy field is narrowed out after backfill.
+      borrowerWorkingCapitalLimitCents: normalizedStartingCashCents,
       timelineCurrentDay: Math.round(args.currentDay),
       timelineProgressValue: Math.round(args.progressValue),
       timelineRangeMax: Math.round(args.rangeMax),
@@ -3074,10 +3911,7 @@ export const updateProductionTimelinePlanState = authenticatedMutation
         0,
         Math.round(args.minimumCashReserveCents ?? 0)
       ),
-      timelineStartingCashCents: Math.max(
-        0,
-        Math.round(args.startingCashCents)
-      ),
+      timelineStartingCashCents: normalizedStartingCashCents,
       updatedAt: now,
       updatedByWorkosUserId: auth.subject,
     });
@@ -4042,10 +4876,17 @@ export const recordOfflineClosing = authenticatedMutation
     const permitWaiver = await getPermitWaiver(ctx, args.proposalId);
     const buildId = await ctx.db.insert("activeBuilds", {
       brokerageId: auth.brokerage._id,
+      borrowerStartingCashCents:
+        auth.proposal.borrowerStartingCashCents ??
+        auth.proposal.timelineStartingCashCents ??
+        auth.proposal.borrowerWorkingCapitalLimitCents,
       buildName: auth.proposal.buildName,
       builderProfileId: assignedBuilderProfileId,
       createdAt: now,
       location: auth.proposal.location,
+      locationLatitude: auth.proposal.locationLatitude,
+      locationLongitude: auth.proposal.locationLongitude,
+      locationPlaceId: auth.proposal.locationPlaceId,
       organizationId: args.workosOrganizationId,
       permitDocumentId: permit?._id,
       permitWaiverId: permitWaiver?._id,
@@ -4064,7 +4905,8 @@ export const recordOfflineClosing = authenticatedMutation
     });
     await ctx.db.insert("buildBrokerAssignments", {
       assignedBrokerWorkosUserId:
-        auth.proposal.assignedBrokerWorkosUserId ?? auth.subject,
+        auth.proposal.assignedBrokerWorkosUserId ??
+        (await requireDefaultBrokerMember(ctx, auth.brokerage)).workosUserId,
       brokerageId: auth.brokerage._id,
       buildId,
       createdAt: now,
@@ -4089,7 +4931,13 @@ export const recordOfflineClosing = authenticatedMutation
     });
     await ctx.db.insert("buildCapitalPlans", {
       borrowerCoPayBps: auth.proposal.borrowerCoPayBps,
+      borrowerStartingCashCents:
+        auth.proposal.borrowerStartingCashCents ??
+        auth.proposal.timelineStartingCashCents ??
+        auth.proposal.borrowerWorkingCapitalLimitCents,
       borrowerWorkingCapitalLimitCents:
+        auth.proposal.borrowerStartingCashCents ??
+        auth.proposal.timelineStartingCashCents ??
         auth.proposal.borrowerWorkingCapitalLimitCents,
       brokerageId: auth.brokerage._id,
       buildId,
@@ -4401,6 +5249,71 @@ export const recordOfflineClosing = authenticatedMutation
     return { buildId };
   })
   .public();
+
+const legacyActiveBuildRepairResultValidator = v.object({
+  buildId: v.id("activeBuilds"),
+  operation: v.union(
+    v.literal("created"),
+    v.literal("relinked"),
+    v.literal("already_repaired")
+  ),
+  warnings: v.array(v.string()),
+});
+
+export const repairLegacyClosedProposalActiveBuild = authenticatedMutation
+  .input({
+    buildStartDate: v.string(),
+    proposalId: v.id("buildProposals"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(legacyActiveBuildRepairResultValidator)
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    requireAnyRole(auth.roles, APPROVER_ROLES);
+    return await repairLegacyClosedProposalActiveBuildAggregate(ctx, {
+      auth,
+      buildStartDate: args.buildStartDate,
+      reason: args.reason,
+    });
+  })
+  .public();
+
+export const repairLegacyClosedProposalActiveBuildInternal = internalMutation
+  .input({
+    actorWorkosUserId: v.string(),
+    buildStartDate: v.string(),
+    proposalId: v.id("buildProposals"),
+    reason: v.string(),
+    warnings: v.optional(v.array(v.string())),
+  })
+  .returns(legacyActiveBuildRepairResultValidator)
+  .handler(async (ctx, args) => {
+    const proposal = await ctx.db.get(args.proposalId);
+    if (!proposal) {
+      throw new Error("Legacy repair proposal was not found.");
+    }
+    const brokerage = await ctx.db.get(proposal.brokerageId);
+    if (!brokerage || brokerage.status !== "active") {
+      throw new Error("Legacy repair requires an active brokerage.");
+    }
+    return await repairLegacyClosedProposalActiveBuildAggregate(ctx, {
+      auth: {
+        brokerage,
+        proposal,
+        roles: ["admin"],
+        subject: args.actorWorkosUserId,
+      },
+      buildStartDate: args.buildStartDate,
+      reason: args.reason,
+      warnings: args.warnings,
+    });
+  })
+  .internal();
 
 export const createContractorProfile = authenticatedMutation
   .input({
@@ -4868,6 +5781,186 @@ export const listContractors = authenticatedQuery
   })
   .public();
 
+export const getBuilderContractorRelationshipByString = authenticatedQuery
+  .input({
+    contractorId: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BUILDER_ROLES);
+    const contractorId = ctx.db.normalizeId(
+      "contractorProfiles",
+      args.contractorId
+    );
+    if (!contractorId) {
+      return builderContractorUnavailable("invalidLink");
+    }
+    const contractor = await ctx.db.get(contractorId);
+    if (!contractor || contractor.brokerageId !== auth.brokerage._id) {
+      return builderContractorUnavailable("notFound");
+    }
+    const scope = await builderContractorRelationshipScope(ctx, {
+      brokerageId: auth.brokerage._id,
+      contractorId,
+      subject: auth.subject,
+    });
+    if (!scope) {
+      return builderContractorUnavailable("accessDenied");
+    }
+
+    const [profile] = await hydrateContractorProfiles(ctx, [contractor]);
+    const claims = await ctx.db
+      .query("contractorInviteClaims")
+      .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
+      .collect();
+    const latestClaim = claims.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    const onboardingReviews = await ctx.db
+      .query("contractorOnboardingReviews")
+      .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
+      .collect();
+    const latestReview = onboardingReviews.sort(
+      (a, b) => b.updatedAt - a.updatedAt
+    )[0];
+    const acknowledgements = await ctx.db
+      .query("contractorAcknowledgements")
+      .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
+      .collect();
+    const acknowledgementByAssignment = new Map(
+      acknowledgements
+        .filter((acknowledgement) => acknowledgement.kind === "assignment")
+        .map((acknowledgement) => [
+          acknowledgement.assignmentType === "build"
+            ? `build:${String(acknowledgement.buildAssignmentId)}`
+            : `proposal:${String(acknowledgement.proposalAssignmentId)}`,
+          acknowledgement,
+        ])
+    );
+    const hasPendingAcknowledgement = [
+      ...scope.buildMilestoneAssignments.map((assignment) =>
+        acknowledgementByAssignment.get(`build:${String(assignment._id)}`)
+      ),
+      ...scope.proposalMilestoneAssignments.map((assignment) =>
+        acknowledgementByAssignment.get(`proposal:${String(assignment._id)}`)
+      ),
+    ].some(
+      (acknowledgement) =>
+        !acknowledgement ||
+        acknowledgement.state === "pending_acknowledgement" ||
+        acknowledgement.state === "clarification_requested" ||
+        acknowledgement.state === "scope_disputed"
+    );
+    const contractorAccountWorkosUserId = profile.accountWorkosUserId;
+    const contractorMembership = contractorAccountWorkosUserId
+      ? (
+          await ctx.db
+            .query("workosOrganizationMemberships")
+            .withIndex("by_user", (q) =>
+              q.eq("workosUserId", contractorAccountWorkosUserId)
+            )
+            .collect()
+        ).find(
+          (membership) =>
+            membership.workosOrganizationId === args.workosOrganizationId &&
+            membership.status === "active" &&
+            [membership.roleSlug, ...membership.roleSlugs].includes(
+              "contractor"
+            )
+        )
+      : null;
+    const lifecycle = builderContractorLifecycle({
+      hasMilestoneAssignment:
+        scope.buildMilestoneAssignments.length > 0 ||
+        scope.proposalMilestoneAssignments.length > 0,
+      hasPendingAcknowledgement,
+      hasActiveContractorMembership: Boolean(contractorMembership),
+      latestClaim,
+      latestReview,
+      profile,
+    });
+    const ratings = (
+      await ctx.db
+        .query("contractorQualityRatings")
+        .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
+        .collect()
+    ).filter((rating) => scope.buildIds.has(String(rating.buildId)));
+    const workHistory = await contractorWorkHistory(ctx, {
+      assignments: scope.buildMilestoneAssignments,
+      brokerageId: auth.brokerage._id,
+      contractorId,
+    });
+
+    return {
+      availability: {
+        category: "available" as const,
+        reference: "CTR-DETAIL-AVAILABLE",
+      },
+      detail: {
+        identityLinks: [],
+        intelligence: contractorDetailIntelligence({
+          assignments: scope.buildMilestoneAssignments,
+          profile,
+          proposalAssignments: scope.proposalMilestoneAssignments,
+          ratings,
+        }),
+        performance: contractorPerformanceSummary(
+          ratings,
+          scope.buildMilestoneAssignments
+        ),
+        profile: builderVisibleContractorProfile(profile),
+        ratings: ratings
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .map((rating) => ({
+            _id: rating._id,
+            buildId: rating.buildId,
+            createdAt: rating.createdAt,
+            milestoneKey: rating.milestoneKey,
+            note: rating.note,
+            rating: rating.rating,
+            source: rating.source,
+            submilestoneKey: rating.submilestoneKey,
+          })),
+        relationship: {
+          brokerage: {
+            displayName: auth.brokerage.displayName,
+          },
+          acknowledgementStatus: hasPendingAcknowledgement
+            ? "pending"
+            : scope.buildMilestoneAssignments.length > 0 ||
+                scope.proposalMilestoneAssignments.length > 0
+              ? "acknowledged"
+              : "not_required",
+          assignmentStatus:
+            scope.buildMilestoneAssignments.length > 0 ||
+            scope.proposalMilestoneAssignments.length > 0
+              ? "assigned"
+              : "not_assigned",
+          invitation: latestClaim
+            ? {
+                email: latestClaim.invitedNormalizedEmail,
+                expiresAt: latestClaim.expiresAt,
+                sentAt: latestClaim.createdAt,
+                state: lifecycle.invitationState,
+                updatedAt: latestClaim.updatedAt,
+              }
+            : null,
+          lifecycleState: lifecycle.lifecycleState,
+          nextAction: lifecycle.nextAction,
+          review: latestReview
+            ? {
+                state: latestReview.status,
+                updatedAt: latestReview.updatedAt,
+              }
+            : null,
+          scopes: scope.scopes,
+        },
+        workHistory,
+      },
+    };
+  })
+  .public();
+
 export const getContractorDetail = authenticatedQuery
   .input({
     contractorId: v.id("contractorProfiles"),
@@ -5007,6 +6100,87 @@ export const attachProposalContractor = authenticatedMutation
     });
     await pushProposalPlanningSnapshot(ctx, args.proposalId);
     return assignmentId;
+  })
+  .public();
+
+export const attachAndInviteProposalContractor = authenticatedMutation
+  .input({
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitInput),
+    contractorId: v.id("contractorProfiles"),
+    endDay: v.optional(v.number()),
+    expiresInDays: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    proposalId: v.id("buildProposals"),
+    role: v.string(),
+    startDay: v.optional(v.number()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      contractorInviteClaimId: v.id("contractorInviteClaims"),
+      proposalContractorAssignmentId: v.id("proposalContractorAssignments"),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    await requireProposalContractorPlanningWrite(ctx, auth);
+    await requireProposalAppPermission(ctx, auth, "contractor", "create");
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    if (contractor.status !== "active") {
+      throw new Error("Production contractor is inactive.");
+    }
+
+    const proposalContractorAssignmentId =
+      await ensureProposalContractorAssignment(ctx, {
+        agreedRateCents:
+          normalizeOptionalMoneyCents(args.agreedRateCents) ??
+          contractor.defaultPayRateCents,
+        agreedRateUnit:
+          args.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour",
+        auth,
+        contractorId: args.contractorId,
+        endDay: args.endDay,
+        notes: args.notes,
+        proposalId: args.proposalId,
+        role: args.role,
+        startDay: args.startDay,
+        workosOrganizationId: args.workosOrganizationId,
+      });
+    const contractorInviteClaimId = await createContractorProfileInviteClaim(
+      ctx,
+      {
+        actorRoles: auth.roles,
+        actorSubject: auth.subject,
+        brokerageId: auth.brokerage._id,
+        contractor,
+        expiresInDays: args.expiresInDays,
+        workosOrganizationId: args.workosOrganizationId,
+      }
+    );
+    await writeProposalEvent(ctx, {
+      auth,
+      command: "attachAndInviteProposalContractor",
+      eventType: "proposal.contractor.attached_invited",
+      newState: JSON.stringify({
+        contractorId: args.contractorId,
+        contractorInviteClaimId,
+        proposalContractorAssignmentId,
+        role: args.role,
+      }),
+      proposalId: args.proposalId,
+      reason: args.notes,
+    });
+    await pushProposalPlanningSnapshot(ctx, args.proposalId);
+    return { contractorInviteClaimId, proposalContractorAssignmentId };
   })
   .public();
 
@@ -5283,13 +6457,20 @@ export const getBuilderProposalCreateContext = authenticatedQuery
       throw new Error("Forbidden: builder ownership");
     }
 
+    const brokerMembers = await listAssignableBrokerMembers(
+      ctx,
+      auth.brokerage
+    );
     return {
       availableContractors: await listAvailableContractorOptions(
         ctx,
         auth.brokerage._id
       ),
       brokerage: auth.brokerage,
+      brokers: brokerMembers.options,
       builderProfile,
+      defaultAssignedBrokerWorkosUserId:
+        brokerMembers.defaultAssignedBrokerWorkosUserId,
       templates: await collectProposalTemplateDetails(ctx, auth.brokerage._id),
     };
   })
@@ -5302,17 +6483,63 @@ export const getBrokerProposalCreateContext = authenticatedQuery
     const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
     requireAnyRole(auth.roles, BACKOFFICE_ROLES);
 
+    const brokerMembers = await listAssignableBrokerMembers(
+      ctx,
+      auth.brokerage
+    );
     return {
       availableContractors: await listAvailableContractorOptions(
         ctx,
         auth.brokerage._id
       ),
       brokerage: auth.brokerage,
+      brokers: brokerMembers.options,
+      defaultAssignedBrokerWorkosUserId:
+        brokerMembers.defaultAssignedBrokerWorkosUserId,
       templates: await collectProposalTemplateDetails(ctx, auth.brokerage._id),
     };
   })
   .public();
 
+type BuilderOnboardingRecoveryKind =
+  | "ambiguous-builder-profile"
+  | "missing-broker-assignment"
+  | "missing-brokerage"
+  | "missing-builder-profile"
+  | "missing-membership"
+  | "missing-organization"
+  | "projection-failed"
+  | "projection-pending";
+
+function builderOnboardingRecovery(input: {
+  email?: string;
+  invitationStatus: "active" | "deleted" | "inactive" | "missing" | "pending";
+  kind: BuilderOnboardingRecoveryKind;
+  organizationId: string;
+  organizationName?: string;
+  projectionStatus: "failed" | "missing" | "pending" | "ready";
+  responsibleOwner: string;
+  subject: string;
+}) {
+  let hash = 0;
+  for (const character of `${input.kind}|${input.organizationId}|${input.subject}`) {
+    hash = (hash * 31 + character.charCodeAt(0)) % 2_147_483_647;
+  }
+  return {
+    intendedDestination: "/builder" as const,
+    invitationStatus: input.invitationStatus,
+    invitedEmail: input.email,
+    kind: input.kind,
+    organization: {
+      id: input.organizationId,
+      name: input.organizationName ?? "Current organization",
+    },
+    projectionStatus: input.projectionStatus,
+    requiredRole: "Builder" as const,
+    responsibleOwner: input.responsibleOwner,
+    supportReference: `BLDR-${hash.toString(36).toUpperCase().padStart(7, "0")}`,
+  };
+}
 export const getBuilderOnboardingState = authenticatedQuery
   .input({ workosOrganizationId: v.string() })
   .returns(
@@ -5330,55 +6557,167 @@ export const getBuilderOnboardingState = authenticatedQuery
       hasProposals: v.boolean(),
       isBuilder: v.boolean(),
       proposalCount: v.number(),
+      recovery: builderOnboardingRecoveryValidator,
     })
   )
   .handler(async (ctx, args) => {
-    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    const roles = normalizeRoleSlugs(ctx.viewer.roles);
+    const subject = ctx.viewer.subject;
     const isBuilder =
-      auth.roles.includes("builder") || auth.roles.includes("builder-staff");
-
-    // First-run is a builder concept. Backoffice/admin viewers are never gated.
-    const builderProfile = isBuilder
-      ? await getOwnedBuilderProfile(ctx, auth.brokerage._id, auth.subject)
-      : null;
-    const hasProfile = Boolean(builderProfile);
-
-    let proposalCount = 0;
-    if (builderProfile) {
-      const proposals = await ctx.db
-        .query("buildProposals")
-        .withIndex("by_builder", (q) =>
-          q.eq("builderProfileId", builderProfile._id)
+      roles.includes("builder") || roles.includes("builder-staff");
+    const [dismissal, membership, organization, brokerage] = await Promise.all([
+      ctx.db
+        .query("builderOnboardingDismissals")
+        .withIndex("by_user_org", (q) =>
+          q
+            .eq("workosUserId", subject)
+            .eq("organizationId", args.workosOrganizationId)
         )
-        .collect();
-      proposalCount = proposals.length;
-    }
-    const hasProposals = proposalCount > 0;
-
-    const dismissal = await ctx.db
-      .query("builderOnboardingDismissals")
-      .withIndex("by_user_org", (q) =>
-        q
-          .eq("workosUserId", auth.subject)
-          .eq("organizationId", args.workosOrganizationId)
-      )
-      .unique();
-
-    return {
-      builderProfile: builderProfile
-        ? {
-            _id: builderProfile._id,
-            displayName: builderProfile.displayName,
-          }
-        : null,
-      // Onboarding is "complete" once the builder has reached first value
-      // (a submitted/started proposal) or is not a builder at all.
-      complete: !isBuilder || hasProposals,
+        .unique(),
+      ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_user", (q) => q.eq("workosUserId", subject))
+        .filter((q) =>
+          q.eq(q.field("workosOrganizationId"), args.workosOrganizationId)
+        )
+        .first(),
+      ctx.db
+        .query("workosOrganizations")
+        .withIndex("by_workos_organization_id", (q) =>
+          q.eq("workosOrganizationId", args.workosOrganizationId)
+        )
+        .unique(),
+      ctx.db
+        .query("brokerages")
+        .withIndex("by_workos_organization", (q) =>
+          q.eq("workosOrganizationId", args.workosOrganizationId)
+        )
+        .unique(),
+    ]);
+    const organizationName = organization?.name ?? brokerage?.displayName;
+    const recoveryState = (
+      kind: BuilderOnboardingRecoveryKind,
+      input: {
+        hasProfile?: boolean;
+        invitationStatus?:
+          | "active"
+          | "deleted"
+          | "inactive"
+          | "missing"
+          | "pending";
+        projectionStatus: "failed" | "missing" | "pending" | "ready";
+        responsibleOwner: string;
+      }
+    ) => ({
+      builderProfile: null,
+      complete: false,
       dismissed: Boolean(dismissal),
-      hasProfile,
+      hasProfile: input.hasProfile ?? false,
+      hasProposals: false,
+      isBuilder: true,
+      proposalCount: 0,
+      recovery: builderOnboardingRecovery({
+        email: ctx.viewer.email,
+        invitationStatus:
+          input.invitationStatus ?? membership?.status ?? "missing",
+        kind,
+        organizationId: args.workosOrganizationId,
+        organizationName,
+        projectionStatus: input.projectionStatus,
+        responsibleOwner: input.responsibleOwner,
+        subject,
+      }),
+    });
+
+    if (!isBuilder) {
+      return {
+        builderProfile: null,
+        complete: true,
+        dismissed: Boolean(dismissal),
+        hasProfile: false,
+        hasProposals: false,
+        isBuilder: false,
+        proposalCount: 0,
+        recovery: undefined,
+      };
+    }
+    if (!organization || organization.status !== "active") {
+      return recoveryState("missing-organization", {
+        projectionStatus: "missing",
+        responsibleOwner: "Platform Admin",
+      });
+    }
+    if (!membership) {
+      return recoveryState("missing-membership", {
+        projectionStatus: "missing",
+        responsibleOwner: "Organization Admin or invitation sender",
+      });
+    }
+    if (membership.status === "pending") {
+      return recoveryState("projection-pending", {
+        invitationStatus: "pending",
+        projectionStatus: "pending",
+        responsibleOwner: "Organization Admin or invitation sender",
+      });
+    }
+    if (membership.status !== "active") {
+      return recoveryState("projection-failed", {
+        invitationStatus: membership.status,
+        projectionStatus: "failed",
+        responsibleOwner: "Platform Admin",
+      });
+    }
+    if (!brokerage || brokerage.status !== "active") {
+      return recoveryState("missing-brokerage", {
+        invitationStatus: "active",
+        projectionStatus: "failed",
+        responsibleOwner: "Platform Admin",
+      });
+    }
+
+    const ownedBuilderProfiles = await getOwnedBuilderProfiles(
+      ctx,
+      brokerage._id,
+      subject
+    );
+    const hasProfile = ownedBuilderProfiles.length > 0;
+    if (!hasProfile) {
+      return recoveryState("missing-builder-profile", {
+        invitationStatus: "active",
+        projectionStatus: "ready",
+        responsibleOwner: "Principal Broker",
+      });
+    }
+    if (ownedBuilderProfiles.length > 1) {
+      return recoveryState("ambiguous-builder-profile", {
+        hasProfile: true,
+        invitationStatus: "active",
+        projectionStatus: "failed",
+        responsibleOwner: "Platform Admin",
+      });
+    }
+
+    const builderProfile = ownedBuilderProfiles[0];
+    const proposals = await ctx.db
+      .query("buildProposals")
+      .withIndex("by_builder", (q) =>
+        q.eq("builderProfileId", builderProfile._id)
+      )
+      .collect();
+    const proposalCount = proposals.length;
+    const hasProposals = proposalCount > 0;
+    return {
+      builderProfile: {
+        _id: builderProfile._id,
+        displayName: builderProfile.displayName,
+      },
+      complete: hasProposals,
+      dismissed: Boolean(dismissal),
+      hasProfile: true,
       hasProposals,
-      isBuilder,
+      isBuilder: true,
       proposalCount,
+      recovery: undefined,
     };
   })
   .public();
@@ -5388,6 +6727,19 @@ export const dismissBuilderOnboarding = authenticatedMutation
   .returns(v.object({ dismissed: v.literal(true) }))
   .handler(async (ctx, args) => {
     const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    const isBuilder =
+      auth.roles.includes("builder") || auth.roles.includes("builder-staff");
+    if (
+      isBuilder &&
+      !(await getActiveOrganizationMembership(
+        ctx,
+        auth.subject,
+        args.workosOrganizationId
+      ))
+    ) {
+      throw new Error("Forbidden: WorkOS membership");
+    }
+
     const existing = await ctx.db
       .query("builderOnboardingDismissals")
       .withIndex("by_user_org", (q) =>
@@ -5519,8 +6871,7 @@ export const getProposalClaimPreview = publicQuery
       milestoneCount: milestones.length,
       proposal: {
         borrowerCoPayBps: proposal.borrowerCoPayBps,
-        borrowerWorkingCapitalLimitCents:
-          proposal.borrowerWorkingCapitalLimitCents,
+        borrowerStartingCashCents: resolveBorrowerStartingCashCents(proposal),
         buildName: proposal.buildName,
         lenderDrawPolicyLimitCents: proposal.lenderDrawPolicyLimitCents,
         location: proposal.location,
@@ -5781,7 +7132,7 @@ export const getProposalDetail = authenticatedQuery
       plannedDraws: canUseAppPermission(appPermissions, "draw", "view")
         ? plannedDraws
         : [],
-      proposal: auth.proposal,
+      proposal: withBorrowerStartingCash(auth.proposal),
       submilestones: canUseAppPermission(appPermissions, "submilestone", "view")
         ? submilestones
         : [],
@@ -6066,6 +7417,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         ? [
             {
               amountCents:
+                auth.proposal.borrowerStartingCashCents ??
                 auth.proposal.timelineStartingCashCents ??
                 auth.proposal.borrowerWorkingCapitalLimitCents,
               capitalEventKey: "borrower-reserve",
@@ -6269,6 +7621,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         minimumCashReserveCents:
           auth.proposal.timelineMinimumCashReserveCents ?? 0,
         startingCashCents:
+          auth.proposal.borrowerStartingCashCents ??
           auth.proposal.timelineStartingCashCents ??
           auth.proposal.borrowerWorkingCapitalLimitCents,
       },
@@ -6278,7 +7631,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
         templateTitle: auth.proposal.buildName,
         totalBudget: auth.proposal.totalBudgetCents,
       },
-      proposal: auth.proposal,
+      proposal: withBorrowerStartingCash(auth.proposal),
     };
   })
   .public();
@@ -8213,7 +9566,12 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
     const now = Date.now();
     const requestedDay = Math.max(0, Math.round(args.requestedDay));
     const visitId = `active_visit_${args.milestoneKey}_${now}`;
+    const workOrderId = `WO-${visitId}`;
+    const evidencePackageId = `EP-${String(args.buildId)}-${args.milestoneKey}`;
     const siteVisit = {
+      evidencePackageId,
+      scopeBoundAt: now,
+      workOrderId,
       note: args.note,
       requestedAt: new Date(now).toISOString(),
       requestedDay,
@@ -8230,6 +9588,9 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       buildId: args.buildId,
       buildMilestoneId: milestone._id,
       createdAt: now,
+      evidencePackageId,
+      scopeBoundAt: now,
+      workOrderId,
       milestoneKey: args.milestoneKey,
       note: args.note,
       organizationId: args.workosOrganizationId,
@@ -8941,7 +10302,7 @@ export const getProposalDetailByString = authenticatedQuery
       milestones,
       permitWaiver,
       plannedDraws,
-      proposal: auth.proposal,
+      proposal: withBorrowerStartingCash(auth.proposal),
       submilestones,
     };
   })
@@ -8970,9 +10331,31 @@ export const listProposalKanban = authenticatedQuery
     const enriched = await Promise.all(
       cards.map(async (card) => {
         const proposal = await ctx.db.get(card.proposalId);
+        const linkedBuild = proposal?.activeBuildId
+          ? await ctx.db.get(proposal.activeBuildId)
+          : null;
+        const accessibleBuild =
+          linkedBuild &&
+          proposal &&
+          linkedBuild.proposalId === proposal._id &&
+          linkedBuild.brokerageId === auth.brokerage._id &&
+          linkedBuild.organizationId === args.workosOrganizationId
+            ? linkedBuild
+            : null;
+        const activeBuildRow = accessibleBuild
+          ? await builderStaffActiveBuildWorkspaceRow(
+              ctx,
+              auth.brokerage,
+              accessibleBuild._id
+            )
+          : null;
         return {
           ...card,
-          activeBuildId: proposal?.activeBuildId,
+          ...activeBuildRow,
+          activeBuildId: accessibleBuild
+            ? String(accessibleBuild._id)
+            : undefined,
+          budgetGovernance: activeBuildRow?.budgetGovernance ?? null,
           builderAssigned: Boolean(proposal?.builderProfileId),
         };
       })
@@ -8983,6 +10366,180 @@ export const listProposalKanban = authenticatedQuery
         id,
         name: titleCase(id),
       })),
+    };
+  })
+  .public();
+
+export const listBackofficeProposalDirectory = authenticatedQuery
+  .use(withQueryTiming("production_proposals.listBackofficeProposalDirectory"))
+  .input({
+    filters: v.optional(proposalDirectoryFiltersValidator),
+    paginationOpts: paginationOptsValidator,
+    search: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(paginationResultValidator(proposalDirectoryCardValidator))
+  .handler(async (ctx, args) => {
+    const scope = await resolveBrokerageScope(ctx, args.workosOrganizationId);
+    requireAnyRole(scope.roles, BACKOFFICE_ROLES);
+    if (!scope.brokerage) {
+      return {
+        continueCursor: args.paginationOpts.cursor ?? "",
+        isDone: true,
+        page: [],
+      };
+    }
+    const auth = {
+      brokerage: scope.brokerage,
+      roles: scope.roles,
+      subject: scope.subject,
+    };
+    const staffCanRead =
+      auth.roles.includes("broker-staff") &&
+      (await hasPermission(
+        ctx,
+        auth.brokerage.workosOrganizationId,
+        auth.roles,
+        "proposals:read"
+      ));
+    const page = await ctx.db
+      .query("proposalKanbanCards")
+      .withIndex("by_brokerage_column_sort", (q) =>
+        q.eq("brokerageId", auth.brokerage._id)
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
+    const projected = await Promise.all(
+      page.page.map(async (card) => {
+        const proposal = await ctx.db.get(card.proposalId);
+        if (
+          !proposal ||
+          !(canReadBackofficeProposal(auth, proposal) || staffCanRead)
+        ) {
+          return null;
+        }
+        const { attachedBuilder, card: directoryCard } =
+          await productionProposalDirectoryMatchContext(ctx, proposal);
+        return proposalDirectoryCardMatches({
+          attachedBuilder,
+          card: directoryCard,
+          filters: args.filters,
+          proposal,
+          search: args.search,
+        })
+          ? directoryCard
+          : null;
+      })
+    );
+    return {
+      ...page,
+      page: projected.filter(
+        (card): card is NonNullable<typeof card> => card !== null
+      ),
+    };
+  })
+  .public();
+
+export const listBackofficeProposalFilterOptions = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(
+    v.object({
+      brokers: v.array(
+        v.object({
+          email: v.optional(v.string()),
+          isPrincipal: v.boolean(),
+          name: v.string(),
+          workosUserId: v.string(),
+        })
+      ),
+      builders: v.array(
+        v.object({
+          _id: v.id("builderProfiles"),
+          displayName: v.string(),
+          email: v.optional(v.string()),
+          workosUserIds: v.array(v.string()),
+        })
+      ),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+    const [builderProfiles, memberships] = await Promise.all([
+      ctx.db
+        .query("builderProfiles")
+        .withIndex("by_brokerage_and_status", (q) =>
+          q.eq("brokerageId", auth.brokerage._id).eq("status", "active")
+        )
+        .take(BACKOFFICE_BUILDER_OPTIONS_LIMIT),
+      ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_organization", (q) =>
+          q.eq("workosOrganizationId", auth.brokerage.workosOrganizationId)
+        )
+        .collect(),
+    ]);
+    const builders = await Promise.all(
+      builderProfiles.map(async (builder) => {
+        const accounts = await builderAccountSummaries(ctx, builder._id);
+        const email = preferredBuilderAccountEmail(accounts);
+        return {
+          _id: builder._id,
+          displayName: builder.displayName,
+          ...(email ? { email } : {}),
+          workosUserIds: accounts.map((account) => account.workosUserId),
+        };
+      })
+    );
+    const seenBrokerIds = new Set<string>();
+    const brokers = [];
+    for (const membership of memberships) {
+      if (
+        membership.status !== "active" ||
+        !hasAssignableBrokerRole(membership) ||
+        seenBrokerIds.has(membership.workosUserId)
+      ) {
+        continue;
+      }
+      const broker = await getWorkosUserById(ctx, membership.workosUserId);
+      if (broker?.status !== "active") {
+        continue;
+      }
+      seenBrokerIds.add(membership.workosUserId);
+      const email = normalizeOptionalString(broker.email);
+      const name =
+        [broker.firstName, broker.lastName]
+          .filter((part): part is string => Boolean(part?.trim()))
+          .join(" ")
+          .trim() ||
+        normalizeOptionalString(broker.name) ||
+        email ||
+        membership.workosUserId;
+      brokers.push({
+        ...(email ? { email } : {}),
+        isPrincipal:
+          membership.workosUserId ===
+            auth.brokerage.principalBrokerWorkosUserId ||
+          Boolean(
+            email &&
+              auth.brokerage.principalBrokerEmail &&
+              email.toLowerCase() ===
+                auth.brokerage.principalBrokerEmail.toLowerCase()
+          ),
+        name,
+        workosUserId: membership.workosUserId,
+      });
+    }
+    return {
+      brokers: brokers.sort((a, b) => {
+        if (a.isPrincipal !== b.isPrincipal) {
+          return a.isPrincipal ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      }),
+      builders: builders.sort((a, b) =>
+        a.displayName.localeCompare(b.displayName)
+      ),
     };
   })
   .public();
@@ -9050,7 +10607,9 @@ export const getBackofficeDashboard = authenticatedQuery
     type VisibleActiveBuild = {
       build: Doc<"activeBuilds">;
       builder: Doc<"builderProfiles"> | null;
-      draws: Doc<"plannedDrawScheduleRows">[];
+      drawRequests: Doc<"activeBuildDrawRequests">[];
+      evidence: Doc<"buildEvidenceAssets">[];
+      plannedDraws: Doc<"plannedDrawScheduleRows">[];
       milestones: Doc<"buildMilestones">[];
       proposal: Doc<"buildProposals">;
     };
@@ -9063,23 +10622,34 @@ export const getBackofficeDashboard = authenticatedQuery
         if (!(canReadBackofficeProposal(auth, proposal) || staffCanRead)) {
           return null;
         }
-        const [builder, milestones, draws] = await Promise.all([
-          ctx.db.get(build.builderProfileId),
-          ctx.db
-            .query("buildMilestones")
-            .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-            .take(100),
-          ctx.db
-            .query("plannedDrawScheduleRows")
-            .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-            .take(100),
-        ]);
+        const [builder, milestones, plannedDraws, drawRequests, evidence] =
+          await Promise.all([
+            ctx.db.get(build.builderProfileId),
+            ctx.db
+              .query("buildMilestones")
+              .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+              .take(100),
+            ctx.db
+              .query("plannedDrawScheduleRows")
+              .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+              .take(100),
+            ctx.db
+              .query("activeBuildDrawRequests")
+              .withIndex("by_build", (q) => q.eq("buildId", build._id))
+              .take(100),
+            ctx.db
+              .query("buildEvidenceAssets")
+              .withIndex("by_build", (q) => q.eq("buildId", build._id))
+              .take(100),
+          ]);
         return {
           build,
           builder,
-          draws,
+          drawRequests,
+          evidence,
           milestones,
-          proposal,
+          plannedDraws,
+          proposal: withBorrowerStartingCash(proposal),
         };
       })
     );
@@ -9087,82 +10657,148 @@ export const getBackofficeDashboard = authenticatedQuery
       (row): row is VisibleActiveBuild => row !== null
     );
 
-    const activeBuilds = visibleActiveBuilds.map(
-      ({ build, builder, milestones }) => {
-        const activeMilestone =
-          milestones.find((milestone) => milestone.status !== "complete") ??
-          milestones[0];
-        return {
-          activeMilestone:
-            activeMilestone?.name ?? `${milestones.length} milestones`,
-          address: build.location,
-          buildKey: String(build._id),
-          builder: builder?.displayName ?? "Builder",
-          daysActive: productionDaysActive(build.startDate, asOfDate),
-          href: `/backoffice/builds/${build._id}`,
-          id: productionBuildDisplayId(build),
-          milestoneState: activeMilestone
-            ? productionMilestoneState(activeMilestone.status)
-            : "backlog",
-          status: productionBuildDashboardStatus(build.status),
-          statusLabel: productionBuildStatusLabel(build.status),
-        };
+    const activeBuilds = await Promise.all(
+      visibleActiveBuilds.map(
+        async ({
+          build,
+          builder,
+          drawRequests,
+          evidence,
+          milestones,
+          plannedDraws,
+        }) => {
+          const currentDay = productionDaysActive(build.startDate, asOfDate);
+          const milestonesBehindSchedule = milestones.filter((milestone) =>
+            productionMilestoneIsBehindSchedule(milestone, currentDay)
+          ).length;
+          const firstImage = evidence.find(
+            (asset) => asset.storageId && asset.mimeType.startsWith("image/")
+          );
+          const activeMilestone =
+            milestones.find((milestone) => milestone.status !== "complete") ??
+            milestones[0];
+          return {
+            activeMilestone:
+              activeMilestone?.name ?? `${milestones.length} milestones`,
+            address: build.location,
+            buildKey: String(build._id),
+            buildName: build.buildName,
+            builder: builder?.displayName ?? "Builder",
+            daysActive: currentDay,
+            drawCount: plannedDraws.length,
+            href: `/backoffice/builds/${build._id}`,
+            id: productionBuildDisplayId(build),
+            imageUrl: firstImage?.storageId
+              ? await ctx.storage.getUrl(firstImage.storageId)
+              : null,
+            locationLatitude: build.locationLatitude,
+            locationLongitude: build.locationLongitude,
+            milestoneCount: milestones.length,
+            milestonesBehindSchedule,
+            milestoneState: activeMilestone
+              ? productionMilestoneState(activeMilestone.status)
+              : "backlog",
+            pendingDrawRequestCount: drawRequests.filter(
+              (request) => request.status === "requested"
+            ).length,
+            status:
+              milestonesBehindSchedule > 0
+                ? ("behind" as const)
+                : productionBuildDashboardStatus(build.status),
+            statusLabel:
+              milestonesBehindSchedule > 0
+                ? `${milestonesBehindSchedule} ${milestonesBehindSchedule === 1 ? "milestone" : "milestones"} behind schedule`
+                : productionBuildStatusLabel(build.status),
+          };
+        }
+      )
+    );
+
+    const drawRequests = visibleActiveBuilds.flatMap(
+      ({ build, drawRequests, plannedDraws }) => {
+        const plannedDrawsByKey = new Map(
+          plannedDraws.map((draw) => [draw.drawKey, draw])
+        );
+        return drawRequests
+          .filter((request) => request.status === "requested")
+          .map((request) => {
+            const plannedDraw = request.plannedDrawKey
+              ? plannedDrawsByKey.get(request.plannedDrawKey)
+              : undefined;
+            return {
+              address: build.location,
+              buildId: productionBuildDisplayId(build),
+              buildKey: String(build._id),
+              eligibleDate: plannedDraw
+                ? `Day ${plannedDraw.timingDay}`
+                : request.requestedAt.slice(0, 10),
+              href: `/backoffice/builds/${build._id}`,
+              id: String(request._id),
+              label: request.label,
+              requestedAmount: centsToCurrency(request.amountCents),
+              statusLabel: "Requested",
+            };
+          });
       }
     );
 
-    const drawRequests = visibleActiveBuilds.flatMap(({ build, draws }) =>
-      draws
-        .filter((draw) => draw.status === "requested")
-        .map((draw) => ({
-          address: build.location,
-          buildId: productionBuildDisplayId(build),
-          buildKey: String(build._id),
-          eligibleDate: `Day ${draw.timingDay}`,
-          href: `/backoffice/builds/${build._id}`,
-          id: String(draw._id),
-          label: draw.label,
-          requestedAmount: centsToCurrency(draw.amountCents),
-          statusLabel: "Requested",
-        }))
-    );
-
-    const milestones = visibleActiveBuilds.flatMap(({ build, milestones }) =>
-      milestones
-        .filter(productionMilestoneNeedsBackofficeReview)
+    const milestones = visibleActiveBuilds.flatMap(({ build, milestones }) => {
+      const currentDay = productionDaysActive(build.startDate, asOfDate);
+      return milestones
+        .filter(
+          (milestone) =>
+            productionMilestoneNeedsBackofficeReview(milestone) ||
+            productionMilestoneIsBehindSchedule(milestone, currentDay)
+        )
         .map((milestone) => ({
           address: build.location,
           buildId: productionBuildDisplayId(build),
           buildKey: String(build._id),
-          column: productionMilestoneColumn(milestone),
-          dueLabel: `Day ${milestone.dayEnd}`,
+          column: productionMilestoneColumn(milestone, currentDay),
+          dueLabel: productionMilestoneDueLabel(milestone, currentDay),
           href: `/backoffice/builds/${build._id}?milestone=${milestone.key}`,
           id: String(milestone._id),
           milestoneKey: milestone.key,
           name: milestone.name,
-          priority: productionMilestonePriority(milestone),
-        }))
-    );
+          priority: productionMilestonePriority(milestone, currentDay),
+        }));
+    });
 
     const proposals = proposalRows.map(({ card, proposal }) =>
       productionDashboardProposalCard(card, proposal)
     );
-    const submittedProposals = proposalRows
-      .filter(
-        ({ proposal }) =>
-          proposal.status === "submitted" &&
-          proposal.reviewOutcome !== "rejected"
-      )
-      .map(({ card, proposal }) =>
-        productionDashboardProposalCard(card, proposal)
-      );
-    const approvedPendingClosing = proposalRows
-      .filter(
-        ({ proposal }) =>
-          proposal.status === "approved" && proposal.activeBuildId === undefined
-      )
-      .map(({ card, proposal }) =>
-        productionDashboardProposalCard(card, proposal)
-      );
+    const [submittedProposals, approvedPendingClosing] = await Promise.all([
+      Promise.all(
+        proposalRows
+          .filter(
+            ({ proposal }) =>
+              proposal.status === "submitted" &&
+              proposal.reviewOutcome !== "rejected"
+          )
+          .map(async ({ card, proposal }) =>
+            productionDashboardProposalCard(
+              card,
+              proposal,
+              await productionProposalDirectoryCard(ctx, proposal)
+            )
+          )
+      ),
+      Promise.all(
+        proposalRows
+          .filter(
+            ({ proposal }) =>
+              proposal.status === "approved" &&
+              proposal.activeBuildId === undefined
+          )
+          .map(async ({ card, proposal }) =>
+            productionDashboardProposalCard(
+              card,
+              proposal,
+              await productionProposalDirectoryCard(ctx, proposal)
+            )
+          )
+      ),
+    ]);
 
     const proposalColumns = PROPOSAL_COLUMNS.map((id) => ({
       description: productionProposalColumnDescription(id, proposals),
@@ -9186,15 +10822,189 @@ export const getBackofficeDashboard = authenticatedQuery
         name: "In progress",
       },
       {
+        description: "Planned finish date has passed",
+        id: "behindSchedule",
+        name: "Behind schedule",
+      },
+      {
         description: "Pending staff approval",
         id: "inReview",
         name: "In review",
       },
     ];
+    const proposalQuickActions = proposalRows.flatMap(({ proposal }) => {
+      const ownerLabel = proposal.assignedBrokerWorkosUserId
+        ? "Assigned broker"
+        : "Unassigned";
+      if (
+        proposal.status === "submitted" &&
+        proposal.reviewOutcome !== "rejected"
+      ) {
+        return [
+          {
+            actionLabel: "Review proposal",
+            address: proposal.location,
+            ageLabel: productionQueueAgeLabel(
+              proposal.submittedAt ?? proposal.updatedAt,
+              asOfDate
+            ),
+            authorityLabel: "Lender Admin decision",
+            blocker: "Awaiting underwriting decision",
+            buildId: proposal.buildName,
+            dueLabel: "Decision pending",
+            entityLabel: proposal.buildName,
+            href: `/backoffice/proposals/${proposal._id}`,
+            id: `proposal-review:${proposal._id}`,
+            ownerLabel,
+            recommendationLabel: "Review submission and record a decision",
+            title: "Proposal awaiting decision",
+            type: "proposal" as const,
+          },
+        ];
+      }
+      if (proposal.status === "approved" && !proposal.activeBuildId) {
+        return [
+          {
+            actionLabel: "Record closing",
+            address: proposal.location,
+            ageLabel: productionQueueAgeLabel(
+              proposal.approvedAt ?? proposal.updatedAt,
+              asOfDate
+            ),
+            authorityLabel: "Lender Admin authority",
+            blocker: "Approved loan has not been recorded as closed",
+            buildId: proposal.buildName,
+            dueLabel: "Closing pending",
+            entityLabel: proposal.buildName,
+            href: `/backoffice/proposals/${proposal._id}`,
+            id: `proposal-closing:${proposal._id}`,
+            ownerLabel,
+            recommendationLabel: "Confirm closing package and build start date",
+            title: "Approved proposal pending closing",
+            type: "proposal" as const,
+          },
+        ];
+      }
+      return [];
+    });
+    const operationsHandoffs = await ctx.db
+      .query("operationsQueueHandoffs")
+      .withIndex("by_organization_updated", (q) =>
+        q.eq("organizationId", args.workosOrganizationId)
+      )
+      .order("desc")
+      .take(200);
+    const latestHandoffByQueueItem = new Map<
+      string,
+      Doc<"operationsQueueHandoffs">
+    >();
+    for (const handoff of operationsHandoffs) {
+      if (
+        handoff.brokerageId === auth.brokerage._id &&
+        !latestHandoffByQueueItem.has(handoff.queueItemId)
+      ) {
+        latestHandoffByQueueItem.set(handoff.queueItemId, handoff);
+      }
+    }
+
+    const activeBuildQuickActions = visibleActiveBuilds.flatMap(
+      ({ build, builder, drawRequests, milestones }) => {
+        const staleBuildAction =
+          build.status === "future_start" && build.startDate < asOfDate
+            ? [
+                {
+                  actionLabel: "Open build",
+                  address: build.location,
+                  ageLabel: productionQueueAgeLabel(build.updatedAt, asOfDate),
+                  authorityLabel: "Operations follow-up",
+                  blocker: "Scheduled start date has passed",
+                  buildId: productionBuildDisplayId(build),
+                  dueLabel: `Start ${build.startDate}`,
+                  entityLabel: build.buildName,
+                  href: `/backoffice/builds/${build._id}`,
+                  id: `build-stale:${build._id}`,
+                  ownerLabel: builder
+                    ? `Builder: ${builder.displayName}`
+                    : "Unassigned",
+                  recommendationLabel:
+                    "Confirm start status or update the schedule",
+                  title: "Build start status needs confirmation",
+                  type: "build" as const,
+                },
+              ]
+            : [];
+        const drawQuickActions = drawRequests
+          .filter((request) => request.status === "requested")
+          .map((request) => ({
+            actionLabel: "Review draw",
+            address: build.location,
+            ageLabel: productionQueueAgeLabel(
+              Date.parse(request.requestedAt),
+              asOfDate
+            ),
+            authorityLabel: "Lender Admin release authority",
+            blocker: "Funds remain held until review",
+            buildId: productionBuildDisplayId(build),
+            dueLabel: "Review requested",
+            entityLabel: `${build.buildName} · ${request.label}`,
+            href: `/backoffice/draws?buildId=${build._id}&drawId=${request._id}`,
+            id: `draw-review:${request._id}`,
+            ownerLabel: "Unassigned",
+            recommendationLabel: "Review eligibility, evidence, and amount",
+            title: "Draw request awaiting review",
+            type: "drawRequest" as const,
+          }));
+        const milestoneQuickActions = milestones
+          .filter(productionMilestoneNeedsBackofficeReview)
+          .map((milestone) => {
+            const siteVisit = milestone.completionReview?.siteVisit;
+            const isSiteVisitAction =
+              siteVisit !== undefined && siteVisit.status !== "complete";
+            return {
+              actionLabel: isSiteVisitAction
+                ? "Manage site visit"
+                : "Review milestone",
+              address: build.location,
+              ageLabel: productionQueueAgeLabel(milestone.updatedAt, asOfDate),
+              authorityLabel: isSiteVisitAction
+                ? "Operations recommendation"
+                : "Lender Admin decision",
+              blocker: isSiteVisitAction
+                ? "Site visit outcome is pending"
+                : "Completion claim is awaiting review",
+              buildId: productionBuildDisplayId(build),
+              dueLabel: `Day ${milestone.dayEnd}`,
+              entityLabel: `${build.buildName} · ${milestone.name}`,
+              href: isSiteVisitAction
+                ? `/backoffice/site-visits?buildId=${build._id}&milestone=${milestone.key}`
+                : `/backoffice/builds/${build._id}?milestone=${milestone.key}`,
+              id: `${isSiteVisitAction ? "site-visit" : "milestone-review"}:${milestone._id}`,
+              ownerLabel: "Unassigned",
+              recommendationLabel: isSiteVisitAction
+                ? "Complete field verification and return a recommendation"
+                : "Review the completion package and decide next steps",
+              title: isSiteVisitAction
+                ? "Site visit requires follow-up"
+                : "Milestone completion awaiting review",
+              type: isSiteVisitAction
+                ? ("siteVisit" as const)
+                : ("milestone" as const),
+            };
+          });
+        return [
+          ...staleBuildAction,
+          ...drawQuickActions,
+          ...milestoneQuickActions,
+        ];
+      }
+    );
 
     return {
       activeBuilds,
       approvedPendingClosing,
+      canMakeFinalDecision: auth.roles.some((role) =>
+        APPROVER_ROLES.includes(role as (typeof APPROVER_ROLES)[number])
+      ),
       drawRequests,
       metrics: [
         {
@@ -9234,13 +11044,47 @@ export const getBackofficeDashboard = authenticatedQuery
       milestones,
       proposalColumns,
       proposals,
-      quickActions: [],
+      quickActions: [...proposalQuickActions, ...activeBuildQuickActions].map(
+        (action) => {
+          const handoff = latestHandoffByQueueItem.get(action.id);
+          return {
+            ...action,
+            canAcknowledgeHandoff:
+              handoff?.acknowledgementState === "returned" &&
+              handoff.escalatedByWorkosUserId === auth.subject,
+            handoff: handoff ? operationsHandoffProjection(handoff) : undefined,
+          };
+        }
+      ),
       scheduleDate: `${asOfDate}T00:00:00.000Z`,
       scheduleEvents: [],
       submittedProposals,
     };
   })
   .public();
+
+const siteVisitLocationAttemptValidator = v.object({
+  accuracyMeters: v.optional(v.number()),
+  attempted: v.boolean(),
+  attemptedAt: v.optional(v.number()),
+  distanceMeters: v.optional(v.number()),
+  failureReason: v.optional(v.string()),
+  geofenceRadiusMeters: v.optional(v.number()),
+  latitude: v.optional(v.number()),
+  longitude: v.optional(v.number()),
+  permissionOutcome: v.union(
+    v.literal("denied"),
+    v.literal("granted"),
+    v.literal("not_requested"),
+    v.literal("unavailable")
+  ),
+  verified: v.boolean(),
+});
+
+const siteVisitPrerequisiteExceptionValidator = v.object({
+  acknowledged: v.boolean(),
+  reason: v.string(),
+});
 
 const siteVisitOperationalStatusValidator = v.union(
   v.literal("open"),
@@ -9273,11 +11117,16 @@ export const listBrokerageSiteVisits = authenticatedQuery
               completedAt: v.optional(v.string()),
               geofenceFlagged: v.boolean(),
               location: v.string(),
+              locationAttempt: v.optional(siteVisitLocationAttemptValidator),
               milestoneKey: v.string(),
               milestoneName: v.string(),
               milestoneReviewStatus: v.optional(v.string()),
+              missingPrerequisites: v.optional(v.array(v.string())),
               note: v.optional(v.string()),
               operationalStatus: siteVisitOperationalStatusValidator,
+              prerequisiteException: v.optional(
+                siteVisitPrerequisiteExceptionValidator
+              ),
               recordNote: v.optional(v.string()),
               recordNoteFormat: v.optional(
                 v.union(v.literal("plain_text"), v.literal("html"))
@@ -9323,11 +11172,16 @@ export const listBrokerageSiteVisits = authenticatedQuery
           completedAt: v.optional(v.string()),
           geofenceFlagged: v.boolean(),
           location: v.string(),
+          locationAttempt: v.optional(siteVisitLocationAttemptValidator),
           milestoneKey: v.string(),
           milestoneName: v.string(),
           milestoneReviewStatus: v.optional(v.string()),
+          missingPrerequisites: v.optional(v.array(v.string())),
           note: v.optional(v.string()),
           operationalStatus: siteVisitOperationalStatusValidator,
+          prerequisiteException: v.optional(
+            siteVisitPrerequisiteExceptionValidator
+          ),
           recordNote: v.optional(v.string()),
           recordNoteFormat: v.optional(
             v.union(v.literal("plain_text"), v.literal("html"))
@@ -9445,11 +11299,14 @@ export const listBrokerageSiteVisits = authenticatedQuery
         completedAt: visit.completedAt,
         geofenceFlagged,
         location: build?.location ?? "",
+        locationAttempt: visit.locationAttempt,
         milestoneKey: visit.milestoneKey,
         milestoneName: milestone?.name ?? visit.milestoneKey,
         milestoneReviewStatus: milestone?.completionReview?.status,
+        missingPrerequisites: visit.missingPrerequisites,
         note: visit.note,
         operationalStatus,
+        prerequisiteException: visit.prerequisiteException,
         recordNote: visit.recordNote,
         recordNoteFormat: visit.recordNoteFormat,
         recommendedOutcome:
@@ -9975,12 +11832,17 @@ export const listBackofficeBuildRoster = authenticatedQuery
           closedAt: v.optional(v.number()),
           daysActive: v.number(),
           displayId: v.string(),
+          drawCount: v.number(),
           drawRequestsPending: v.number(),
           href: v.string(),
+          imageUrl: v.union(v.string(), v.null()),
           loanStatus: v.optional(
             v.union(v.literal("active"), v.literal("closed"))
           ),
           location: v.string(),
+          locationLatitude: v.optional(v.number()),
+          locationLongitude: v.optional(v.number()),
+          milestonesBehindSchedule: v.number(),
           milestonesComplete: v.number(),
           milestonesInReview: v.number(),
           milestonesTotal: v.number(),
@@ -10078,10 +11940,15 @@ export const listBackofficeBuildRoster = authenticatedQuery
       closedAt?: number;
       daysActive: number;
       displayId: string;
+      drawCount: number;
       drawRequestsPending: number;
       href: string;
+      imageUrl: string | null;
       loanStatus?: "active" | "closed";
       location: string;
+      locationLatitude?: number;
+      locationLongitude?: number;
+      milestonesBehindSchedule: number;
       milestonesComplete: number;
       milestonesInReview: number;
       milestonesTotal: number;
@@ -10107,21 +11974,30 @@ export const listBackofficeBuildRoster = authenticatedQuery
         continue;
       }
 
-      const [builder, milestones, draws, loan] = await Promise.all([
-        ctx.db.get(build.builderProfileId),
-        ctx.db
-          .query("buildMilestones")
-          .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-          .take(100),
-        ctx.db
-          .query("plannedDrawScheduleRows")
-          .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
-          .take(100),
-        ctx.db
-          .query("loanFacilities")
-          .withIndex("by_build", (q) => q.eq("buildId", build._id))
-          .unique(),
-      ]);
+      const [builder, milestones, plannedDraws, drawRequests, loan, evidence] =
+        await Promise.all([
+          ctx.db.get(build.builderProfileId),
+          ctx.db
+            .query("buildMilestones")
+            .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+            .take(100),
+          ctx.db
+            .query("plannedDrawScheduleRows")
+            .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+            .take(100),
+          ctx.db
+            .query("activeBuildDrawRequests")
+            .withIndex("by_build", (q) => q.eq("buildId", build._id))
+            .take(100),
+          ctx.db
+            .query("loanFacilities")
+            .withIndex("by_build", (q) => q.eq("buildId", build._id))
+            .unique(),
+          ctx.db
+            .query("buildEvidenceAssets")
+            .withIndex("by_build", (q) => q.eq("buildId", build._id))
+            .take(100),
+        ]);
 
       const visitCounts = visitsByBuild.get(String(build._id)) ?? {
         expired: 0,
@@ -10133,9 +12009,21 @@ export const listBackofficeBuildRoster = authenticatedQuery
       const milestonesInReview = milestones.filter(
         productionMilestoneNeedsBackofficeReview
       ).length;
-      const drawRequestsPending = draws.filter(
-        (draw) => draw.status === "requested"
+      const drawRequestsPending = drawRequests.filter(
+        (request) => request.status === "requested"
       ).length;
+      const milestonesBehindSchedule = milestones.filter((milestone) =>
+        productionMilestoneIsBehindSchedule(
+          milestone,
+          productionDaysActive(build.startDate)
+        )
+      ).length;
+      const firstImage = evidence.find(
+        (asset) => asset.storageId && asset.mimeType.startsWith("image/")
+      );
+      const imageUrl = firstImage?.storageId
+        ? await ctx.storage.getUrl(firstImage.storageId)
+        : null;
       const activeMilestone =
         milestones.find((milestone) => milestone.status !== "complete") ??
         milestones[0];
@@ -10162,10 +12050,19 @@ export const listBackofficeBuildRoster = authenticatedQuery
           : { closedAt: proposal.closedAt }),
         daysActive: productionDaysActive(build.startDate),
         displayId: productionBuildDisplayId(build),
+        drawCount: plannedDraws.length,
         drawRequestsPending,
         href: `/backoffice/builds/${build._id}`,
+        imageUrl,
         ...(loan ? { loanStatus: loan.status } : {}),
         location: build.location,
+        ...(build.locationLatitude === undefined
+          ? {}
+          : { locationLatitude: build.locationLatitude }),
+        ...(build.locationLongitude === undefined
+          ? {}
+          : { locationLongitude: build.locationLongitude }),
+        milestonesBehindSchedule,
         milestonesComplete,
         milestonesInReview,
         milestonesTotal: milestones.length,
@@ -10261,9 +12158,7 @@ export const listBrokerageBuilders = authenticatedQuery
     const options = [];
     for (const builder of builders) {
       const accounts = await builderAccountSummaries(ctx, builder._id);
-      const email =
-        accounts.find((account) => account.role === "owner")?.email ??
-        accounts[0]?.email;
+      const email = preferredBuilderAccountEmail(accounts);
       options.push({
         _id: builder._id,
         displayName: builder.displayName,
@@ -10306,6 +12201,208 @@ export const listActiveBrokerageBuilderOptions = authenticatedQuery
   })
   .public();
 
+const proposalBrokerAssignmentOperationValidator = v.union(
+  v.literal("assigned"),
+  v.literal("reassigned"),
+  v.literal("repaired"),
+  v.literal("unchanged")
+);
+
+/**
+ * Assign the accountable broker for a pre-closing Build Proposal. When the
+ * proposal already has a Builder, the canonical Builder relationship is
+ * transferred in the same transaction so proposal access and portfolio
+ * ownership cannot drift.
+ */
+export const assignProposalBroker = authenticatedMutation
+  .input({
+    assignedBrokerWorkosUserId: v.string(),
+    proposalId: v.id("buildProposals"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      operation: proposalBrokerAssignmentOperationValidator,
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProposal(
+      ctx,
+      args.proposalId,
+      args.workosOrganizationId
+    );
+    requireAnyRole(auth.roles, APPROVER_ROLES);
+    if (auth.proposal.status === "closed" || auth.proposal.activeBuildId) {
+      throw new Error(
+        "Closed proposals must be reassigned from the active Build workspace."
+      );
+    }
+
+    const reason = args.reason.trim();
+    if (reason.length < 10) {
+      throw new Error(
+        "An assignment reason of at least 10 characters is required."
+      );
+    }
+
+    const priorAssignedBrokerWorkosUserId =
+      auth.proposal.assignedBrokerWorkosUserId;
+    const proposalOperation = priorAssignedBrokerWorkosUserId
+      ? priorAssignedBrokerWorkosUserId === args.assignedBrokerWorkosUserId
+        ? "unchanged"
+        : "reassigned"
+      : "assigned";
+    let relationshipOperation:
+      | "assigned"
+      | "reassigned"
+      | "repaired"
+      | "unchanged" = "unchanged";
+
+    if (auth.proposal.builderProfileId) {
+      const builderProfile = await assertBuilderProfileScope(
+        ctx,
+        auth.proposal.builderProfileId,
+        auth.brokerage._id
+      );
+      const result = await assignBuilderBrokerAssignment(ctx, {
+        actorRoles: auth.roles,
+        actorWorkosUserId: auth.subject,
+        assignedBrokerWorkosUserId: args.assignedBrokerWorkosUserId,
+        brokerage: auth.brokerage,
+        builderProfile,
+        command: "assignProposalBroker",
+        now: Date.now(),
+        reason,
+      });
+      relationshipOperation = result.operation;
+    } else {
+      await requireEligibleBrokerMember(ctx, {
+        workosOrganizationId: auth.brokerage.workosOrganizationId,
+        workosUserId: args.assignedBrokerWorkosUserId,
+      });
+    }
+
+    const operation =
+      proposalOperation === "unchanged"
+        ? relationshipOperation
+        : proposalOperation;
+    if (proposalOperation !== "unchanged") {
+      const now = Date.now();
+      await ctx.db.patch(args.proposalId, {
+        assignedBrokerWorkosUserId: args.assignedBrokerWorkosUserId,
+        updatedAt: now,
+        updatedByWorkosUserId: auth.subject,
+      });
+      await upsertKanbanCard(ctx, args.proposalId, now);
+    }
+
+    if (operation !== "unchanged") {
+      await writeProposalEvent(ctx, {
+        auth,
+        command: "assignProposalBroker",
+        eventType: `proposal.broker_${operation}`,
+        newState: JSON.stringify({
+          assignedBrokerWorkosUserId: args.assignedBrokerWorkosUserId,
+          builderProfileId: auth.proposal.builderProfileId,
+        }),
+        priorState: JSON.stringify({
+          assignedBrokerWorkosUserId: priorAssignedBrokerWorkosUserId ?? null,
+          builderProfileId: auth.proposal.builderProfileId,
+        }),
+        proposalId: args.proposalId,
+        reason,
+        warnings:
+          relationshipOperation === "repaired"
+            ? ["The attached Builder assignment required repair."]
+            : [],
+      });
+    }
+
+    return { operation };
+  })
+  .public();
+
+type ProposalBuilderAssignmentArgs = {
+  builderProfileId: Id<"builderProfiles">;
+  proposalId: Id<"buildProposals">;
+  workosOrganizationId: string;
+};
+
+async function assignBuilderToProposal(
+  ctx: MutationCtx & { viewer: AuthorizedViewer },
+  args: ProposalBuilderAssignmentArgs,
+  options: {
+    allowedStatuses: ReadonlySet<Doc<"buildProposals">["status"]>;
+    command: "assignDraftBuilder" | "assignProposalBuilder";
+    invalidStatusMessage: string;
+  }
+) {
+  const auth = await authorizeProposal(
+    ctx,
+    args.proposalId,
+    args.workosOrganizationId
+  );
+  requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+  requireBackofficeProposalWrite(auth, auth.proposal);
+  if (!options.allowedStatuses.has(auth.proposal.status)) {
+    throw new Error(options.invalidStatusMessage);
+  }
+  if (auth.proposal.builderProfileId) {
+    throw new Error("Proposal is already assigned to a builder.");
+  }
+  const builderProfile = await assertBuilderProfileScope(
+    ctx,
+    args.builderProfileId,
+    auth.brokerage._id
+  );
+
+  const now = Date.now();
+  const assignmentHealth = await getBuilderBrokerAssignmentHealth(ctx, {
+    brokerage: auth.brokerage,
+    builderProfile,
+  });
+  if (!assignmentHealth.healthy) {
+    if (assignmentHealth.reason !== "assignment_missing") {
+      throw new ConvexError({
+        code: "BUILDER_BROKER_ASSIGNMENT_INVALID",
+        reason: assignmentHealth.reason,
+        recoverable: true,
+        safeMessage:
+          "Repair the builder's broker relationship before attaching this Build Proposal.",
+      });
+    }
+    const { workosUserId: assignedBrokerWorkosUserId } =
+      await requireDefaultBrokerMember(ctx, auth.brokerage);
+    await ensureBuilderBrokerAssignment(ctx, {
+      actorRoles: auth.roles,
+      actorWorkosUserId: auth.subject,
+      assignedBrokerWorkosUserId,
+      brokerage: auth.brokerage,
+      builderProfile,
+      command: options.command,
+      now,
+      reason:
+        "Creating the missing builder broker relationship before assigning the Build Proposal.",
+    });
+  }
+  await ctx.db.patch(args.proposalId, {
+    builderProfileId: args.builderProfileId,
+    updatedAt: now,
+    updatedByWorkosUserId: auth.subject,
+  });
+  await upsertKanbanCard(ctx, args.proposalId, now);
+  await writeProposalEvent(ctx, {
+    auth,
+    command: options.command,
+    eventType: "proposal.builder_assigned",
+    newState: JSON.stringify({ builderProfileId: args.builderProfileId }),
+    priorState: JSON.stringify({ assignment: "unassigned" }),
+    proposalId: args.proposalId,
+  });
+  return null;
+}
+
 export const assignDraftBuilder = authenticatedMutation
   .input({
     builderProfileId: v.id("builderProfiles"),
@@ -10313,43 +12410,31 @@ export const assignDraftBuilder = authenticatedMutation
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
-  .handler(async (ctx, args) => {
-    const auth = await authorizeProposal(
-      ctx,
-      args.proposalId,
-      args.workosOrganizationId
-    );
-    requireAnyRole(auth.roles, BACKOFFICE_ROLES);
-    requireBackofficeProposalWrite(auth, auth.proposal);
-    if (auth.proposal.status !== "draft") {
-      throw new Error("Only draft proposals can be assigned to a builder.");
-    }
-    if (auth.proposal.builderProfileId) {
-      throw new Error("Proposal is already assigned to a builder.");
-    }
-    await assertBuilderProfileScope(
-      ctx,
-      args.builderProfileId,
-      auth.brokerage._id
-    );
-
-    const now = Date.now();
-    await ctx.db.patch(args.proposalId, {
-      builderProfileId: args.builderProfileId,
-      updatedAt: now,
-      updatedByWorkosUserId: auth.subject,
-    });
-    await upsertKanbanCard(ctx, args.proposalId, now);
-    await writeProposalEvent(ctx, {
-      auth,
+  .handler((ctx, args) =>
+    assignBuilderToProposal(ctx, args, {
+      allowedStatuses: new Set(["draft"]),
       command: "assignDraftBuilder",
-      eventType: "proposal.builder_assigned",
-      newState: JSON.stringify({ builderProfileId: args.builderProfileId }),
-      priorState: JSON.stringify({ assignment: "unassigned" }),
-      proposalId: args.proposalId,
-    });
-    return null;
+      invalidStatusMessage:
+        "Only draft proposals can be assigned to a builder.",
+    })
+  )
+  .public();
+
+export const assignProposalBuilder = authenticatedMutation
+  .input({
+    builderProfileId: v.id("builderProfiles"),
+    proposalId: v.id("buildProposals"),
+    workosOrganizationId: v.string(),
   })
+  .returns(v.null())
+  .handler((ctx, args) =>
+    assignBuilderToProposal(ctx, args, {
+      allowedStatuses: new Set(["draft", "submitted", "approved"]),
+      command: "assignProposalBuilder",
+      invalidStatusMessage:
+        "Only draft, submitted, or approved proposals can be assigned to a builder.",
+    })
+  )
   .public();
 
 export const unassignDraftBuilder = authenticatedMutation
@@ -10733,6 +12818,41 @@ export const deleteProductionDrawScenario = authenticatedMutation
   })
   .public();
 
+export const backfillProductionDefaultTemplates = authenticatedMutation
+  .input({ workosOrganizationId: v.string() })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeProductionSettingsMutation(
+      ctx,
+      args.workosOrganizationId
+    );
+    const priorTemplates = await collectProposalTemplateDetails(
+      ctx,
+      auth.brokerage._id
+    );
+    const result = await seedProductionDefaultTemplates(ctx, {
+      brokerageId: auth.brokerage._id,
+      now: Date.now(),
+      organizationId: args.workosOrganizationId,
+    });
+    await writeProductionSettingsEvent(ctx, {
+      auth,
+      command: "backfillProductionDefaultTemplates",
+      entityId: auth.brokerage._id,
+      eventType: "production_settings.defaults_backfilled",
+      newState: JSON.stringify(result),
+      organizationId: args.workosOrganizationId,
+      priorState: JSON.stringify({
+        templateKeys: priorTemplates.map((template) => template.templateKey),
+      }),
+    });
+    return {
+      ...result,
+      settings: await buildProductionSettingsProjection(ctx, auth.brokerage),
+    };
+  })
+  .public();
+
 export const resetProductionTemplateToDefaults = authenticatedMutation
   .input({ templateKey: v.string(), workosOrganizationId: v.string() })
   .returns(v.any())
@@ -10831,6 +12951,1070 @@ export const resetProductionDrawScenarioToDefaults = authenticatedMutation
   })
   .public();
 
+export const escalateOperationsQueueItem = authenticatedMutation
+  .input({
+    decisionPreview: v.string(),
+    evidenceSummary: v.string(),
+    queueItemId: v.string(),
+    reason: v.string(),
+    recommendation: v.string(),
+    requiredAction: v.string(),
+    warnings: v.array(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(operationsHandoffProjectionValidator)
+  .handler(async (ctx, args) => {
+    const auth = await authorizeOperationsQueueMutation(
+      ctx,
+      args.workosOrganizationId
+    );
+    const target = await resolveOperationsQueueTarget(ctx, {
+      auth,
+      queueItemId: args.queueItemId,
+      workosOrganizationId: args.workosOrganizationId,
+    });
+    const activeHandoff = await ctx.db
+      .query("operationsQueueHandoffs")
+      .withIndex("by_brokerage_queue_item", (q) =>
+        q
+          .eq("brokerageId", auth.brokerage._id)
+          .eq("queueItemId", args.queueItemId)
+      )
+      .order("desc")
+      .first();
+    if (
+      activeHandoff &&
+      activeHandoff.acknowledgementState !== "acknowledged"
+    ) {
+      throw new ConvexError(
+        "This queue item already has an active escalation."
+      );
+    }
+
+    const now = Date.now();
+    const escalationReason = requireOperationsHandoffText(
+      args.reason,
+      "Escalation reason"
+    );
+    const handoffId = await ctx.db.insert("operationsQueueHandoffs", {
+      acknowledgementState: "pending_decision",
+      brokerageId: auth.brokerage._id,
+      createdAt: now,
+      decisionPreview: requireOperationsHandoffText(
+        args.decisionPreview,
+        "Decision preview"
+      ),
+      escalatedByWorkosUserId: auth.subject,
+      escalationReason,
+      evidenceSummary: requireOperationsHandoffText(
+        args.evidenceSummary,
+        "Evidence summary"
+      ),
+      organizationId: args.workosOrganizationId,
+      queueItemId: args.queueItemId,
+      recommendation: requireOperationsHandoffText(
+        args.recommendation,
+        "Recommendation"
+      ),
+      requiredAction: requireOperationsHandoffText(
+        args.requiredAction,
+        "Required action"
+      ),
+      targetHref: target.href,
+      targetLabel: target.label,
+      targetRecordId: target.recordId,
+      targetType: target.type,
+      updatedAt: now,
+      warnings: normalizeOperationsHandoffWarnings(args.warnings),
+    });
+    const handoff = await ctx.db.get(handoffId);
+    if (!handoff) {
+      throw new ConvexError("Operations escalation could not be created.");
+    }
+    await writeOperationsHandoffEvent(ctx, {
+      auth,
+      command: "escalateOperationsQueueItem",
+      eventType: "operations.escalation.created",
+      handoff,
+      newState: operationsHandoffAuditState(handoff),
+      organizationId: args.workosOrganizationId,
+      reason: escalationReason,
+    });
+    return operationsHandoffProjection(handoff);
+  })
+  .public();
+
+export const returnOperationsEscalationDecision = authenticatedMutation
+  .input({
+    decision: operationsHandoffReturnDecisionValidator,
+    followUpAssignment: v.string(),
+    handoffId: v.id("operationsQueueHandoffs"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(operationsHandoffProjectionValidator)
+  .handler(async (ctx, args) => {
+    const { auth, handoff } = await getOperationsHandoffOrThrow(
+      ctx,
+      args.handoffId,
+      args.workosOrganizationId
+    );
+    requireAnyRole(auth.roles, APPROVER_ROLES);
+    if (handoff.acknowledgementState !== "pending_decision") {
+      throw new ConvexError("This escalation is not awaiting a decision.");
+    }
+    const now = Date.now();
+    const priorState = operationsHandoffAuditState(handoff);
+    const returnReason = requireOperationsHandoffText(
+      args.reason,
+      "Return reason"
+    );
+    await ctx.db.patch(handoff._id, {
+      acknowledgementState: "returned",
+      followUpAssignment: requireOperationsHandoffText(
+        args.followUpAssignment,
+        "Follow-up assignment"
+      ),
+      returnDecision: args.decision,
+      returnedAt: now,
+      returnedByWorkosUserId: auth.subject,
+      returnReason,
+      updatedAt: now,
+    });
+    const updated = await ctx.db.get(handoff._id);
+    if (!updated) {
+      throw new ConvexError("Operations escalation unavailable.");
+    }
+    await writeOperationsHandoffEvent(ctx, {
+      auth,
+      command: "returnOperationsEscalationDecision",
+      eventType: "operations.escalation.returned",
+      handoff: updated,
+      newState: operationsHandoffAuditState(updated),
+      organizationId: args.workosOrganizationId,
+      priorState,
+      reason: returnReason,
+    });
+    return operationsHandoffProjection(updated);
+  })
+  .public();
+
+export const acknowledgeOperationsEscalationReturn = authenticatedMutation
+  .input({
+    handoffId: v.id("operationsQueueHandoffs"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(operationsHandoffProjectionValidator)
+  .handler(async (ctx, args) => {
+    const { auth, handoff } = await getOperationsHandoffOrThrow(
+      ctx,
+      args.handoffId,
+      args.workosOrganizationId
+    );
+    if (auth.subject !== handoff.escalatedByWorkosUserId) {
+      throw new ConvexError(
+        "Only the escalating operator can acknowledge this return."
+      );
+    }
+    if (handoff.acknowledgementState !== "returned") {
+      throw new ConvexError(
+        "This escalation has no returned decision to acknowledge."
+      );
+    }
+    const now = Date.now();
+    const priorState = operationsHandoffAuditState(handoff);
+    await ctx.db.patch(handoff._id, {
+      acknowledgedAt: now,
+      acknowledgedByWorkosUserId: auth.subject,
+      acknowledgementState: "acknowledged",
+      updatedAt: now,
+    });
+    const updated = await ctx.db.get(handoff._id);
+    if (!updated) {
+      throw new ConvexError("Operations escalation unavailable.");
+    }
+    await writeOperationsHandoffEvent(ctx, {
+      auth,
+      command: "acknowledgeOperationsEscalationReturn",
+      eventType: "operations.escalation.acknowledged",
+      handoff: updated,
+      newState: operationsHandoffAuditState(updated),
+      organizationId: args.workosOrganizationId,
+      priorState,
+      reason: "Returned operations decision acknowledged.",
+    });
+    return operationsHandoffProjection(updated);
+  })
+  .public();
+
+export const listRecipientInbox = authenticatedQuery
+  .input({
+    includeResolved: v.optional(v.boolean()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      actionRequiredCount: v.number(),
+      deliveries: v.array(recipientDeliveryProjectionValidator),
+      unreadCount: v.number(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeBrokerage(ctx, args.workosOrganizationId);
+    const records = await ctx.db
+      .query("recipientDeliveries")
+      .withIndex("by_recipient", (q) =>
+        q
+          .eq("organizationId", args.workosOrganizationId)
+          .eq("recipientWorkosUserId", auth.subject)
+      )
+      .order("desc")
+      .take(100);
+    const visibleRecords = args.includeResolved
+      ? records
+      : records.filter(
+          (record) =>
+            record.status !== "dismissed" && record.status !== "resolved"
+        );
+
+    return {
+      actionRequiredCount: visibleRecords.filter(
+        (record) =>
+          record.actionRequired &&
+          record.status !== "dismissed" &&
+          record.status !== "resolved"
+      ).length,
+      deliveries: visibleRecords.map((record) => ({
+        _id: record._id,
+        actionLabel: record.actionLabel,
+        actionRequired: record.actionRequired,
+        body: record.body,
+        createdAt: record.createdAt,
+        entityId: record.entityId,
+        entityLabel: record.entityLabel,
+        entityType: record.entityType,
+        href: record.href,
+        resolutionMode: record.resolutionMode,
+        sourceLabel: record.sourceLabel,
+        status: record.status,
+        title: record.title,
+        updatedAt: record.updatedAt,
+      })),
+      unreadCount: visibleRecords.filter((record) => record.status === "unread")
+        .length,
+    };
+  })
+  .public();
+
+export const markRecipientDeliveryRead = authenticatedMutation
+  .input({
+    deliveryId: v.id("recipientDeliveries"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const delivery = await getRecipientDeliveryOrThrow(
+      ctx,
+      args.deliveryId,
+      args.workosOrganizationId
+    );
+    if (delivery.status === "unread") {
+      await ctx.db.patch(delivery._id, {
+        status: "read",
+        updatedAt: Date.now(),
+      });
+    }
+    return null;
+  })
+  .public();
+
+export const dismissRecipientDelivery = authenticatedMutation
+  .input({
+    deliveryId: v.id("recipientDeliveries"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const delivery = await getRecipientDeliveryOrThrow(
+      ctx,
+      args.deliveryId,
+      args.workosOrganizationId
+    );
+    if (delivery.status !== "dismissed" && delivery.status !== "resolved") {
+      await ctx.db.patch(delivery._id, {
+        status: "dismissed",
+        updatedAt: Date.now(),
+      });
+    }
+    return null;
+  })
+  .public();
+
+export const resolveRecipientDelivery = authenticatedMutation
+  .input({
+    deliveryId: v.id("recipientDeliveries"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const delivery = await getRecipientDeliveryOrThrow(
+      ctx,
+      args.deliveryId,
+      args.workosOrganizationId
+    );
+    if (delivery.resolutionMode !== "recipient") {
+      throw new ConvexError("Resolve this delivery from its related workflow.");
+    }
+    if (delivery.status !== "resolved") {
+      await ctx.db.patch(delivery._id, {
+        status: "resolved",
+        updatedAt: Date.now(),
+      });
+    }
+    return null;
+  })
+  .public();
+
+export const getIntegrationOperations = authenticatedQuery
+  .input({ workosOrganizationId: v.string() })
+  .returns(
+    v.object({
+      attempts: v.array(integrationDeliveryProjectionValidator),
+      endpoints: v.array(integrationEndpointProjectionValidator),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeIntegrationAdmin(
+      ctx,
+      args.workosOrganizationId
+    );
+    const [endpoints, attempts] = await Promise.all([
+      ctx.db
+        .query("integrationEndpoints")
+        .withIndex("by_organization", (q) =>
+          q.eq("organizationId", args.workosOrganizationId)
+        )
+        .order("desc")
+        .take(100),
+      ctx.db
+        .query("integrationDeliveryAttempts")
+        .withIndex("by_organization_attempted", (q) =>
+          q.eq("organizationId", args.workosOrganizationId)
+        )
+        .order("desc")
+        .take(200),
+    ]);
+    const visibleEndpoints = endpoints.filter(
+      (endpoint) => endpoint.brokerageId === auth.brokerage._id
+    );
+    const endpointById = new Map(
+      visibleEndpoints.map((endpoint) => [String(endpoint._id), endpoint])
+    );
+
+    return {
+      attempts: attempts.flatMap((attempt) => {
+        const endpoint = endpointById.get(String(attempt.endpointId));
+        return endpoint && attempt.brokerageId === auth.brokerage._id
+          ? [integrationDeliveryProjection(attempt, endpoint)]
+          : [];
+      }),
+      endpoints: visibleEndpoints.map(integrationEndpointProjection),
+    };
+  })
+  .public();
+
+export const createIntegrationEndpoint = authenticatedMutation
+  .input({
+    endpointUrl: v.string(),
+    eventTypes: v.array(v.string()),
+    name: v.string(),
+    payloadVersion: v.string(),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      endpoint: integrationEndpointProjectionValidator,
+      signingSecret: v.string(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeIntegrationAdmin(
+      ctx,
+      args.workosOrganizationId
+    );
+    const now = Date.now();
+    const name = requireIntegrationText(args.name, "Endpoint name");
+    const endpointUrl = normalizeIntegrationEndpointUrl(args.endpointUrl);
+    const eventTypes = normalizeIntegrationEventTypes(args.eventTypes);
+    const payloadVersion = requireIntegrationText(
+      args.payloadVersion,
+      "Payload version"
+    );
+    const reason = requireIntegrationReason(args.reason);
+    const signingSecret = `dfwhsec_${generateShareToken().replaceAll("-", "")}`;
+    const secretHash = await shareTokenHash(signingSecret);
+    const endpointId = await ctx.db.insert("integrationEndpoints", {
+      brokerageId: auth.brokerage._id,
+      createdAt: now,
+      createdByWorkosUserId: auth.subject,
+      endpointUrl,
+      eventTypes,
+      name,
+      organizationId: args.workosOrganizationId,
+      payloadVersion,
+      secretFingerprint: `…${signingSecret.slice(-6)}`,
+      secretHash,
+      secretVersion: 1,
+      status: "draft",
+      updatedAt: now,
+    });
+    const endpoint = await ctx.db.get(endpointId);
+    if (!endpoint) {
+      throw new ConvexError("Integration endpoint could not be created.");
+    }
+    await writeIntegrationEvent(ctx, {
+      auth,
+      command: "createIntegrationEndpoint",
+      endpoint,
+      eventType: "integration.endpoint.created",
+      newState: integrationEndpointAuditState(endpoint),
+      organizationId: args.workosOrganizationId,
+      reason,
+    });
+    return { endpoint: integrationEndpointProjection(endpoint), signingSecret };
+  })
+  .public();
+
+export const updateIntegrationEndpointConfiguration = authenticatedMutation
+  .input({
+    endpointId: v.id("integrationEndpoints"),
+    endpointUrl: v.string(),
+    eventTypes: v.array(v.string()),
+    name: v.string(),
+    payloadVersion: v.string(),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(integrationEndpointProjectionValidator)
+  .handler(async (ctx, args) => {
+    const { auth, endpoint } = await getIntegrationEndpointOrThrow(
+      ctx,
+      args.endpointId,
+      args.workosOrganizationId
+    );
+    if (endpoint.status === "revoked") {
+      throw new ConvexError("Revoked endpoints cannot be changed.");
+    }
+    const now = Date.now();
+    const priorState = integrationEndpointAuditState(endpoint);
+    await ctx.db.patch(endpoint._id, {
+      endpointUrl: normalizeIntegrationEndpointUrl(args.endpointUrl),
+      eventTypes: normalizeIntegrationEventTypes(args.eventTypes),
+      name: requireIntegrationText(args.name, "Endpoint name"),
+      payloadVersion: requireIntegrationText(
+        args.payloadVersion,
+        "Payload version"
+      ),
+      updatedAt: now,
+      validatedAt: undefined,
+    });
+    const updated = await ctx.db.get(endpoint._id);
+    if (!updated) {
+      throw new ConvexError("Integration endpoint unavailable.");
+    }
+    await writeIntegrationEvent(ctx, {
+      auth,
+      command: "updateIntegrationEndpointConfiguration",
+      endpoint: updated,
+      eventType: "integration.endpoint.configuration_updated",
+      newState: integrationEndpointAuditState(updated),
+      organizationId: args.workosOrganizationId,
+      priorState,
+      reason: requireIntegrationReason(args.reason),
+    });
+    return integrationEndpointProjection(updated);
+  })
+  .public();
+
+export const validateIntegrationEndpoint = authenticatedMutation
+  .input({
+    endpointId: v.id("integrationEndpoints"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(integrationEndpointProjectionValidator)
+  .handler(async (ctx, args) => {
+    const { auth, endpoint } = await getIntegrationEndpointOrThrow(
+      ctx,
+      args.endpointId,
+      args.workosOrganizationId
+    );
+    if (endpoint.status === "revoked") {
+      throw new ConvexError("Revoked endpoints cannot be validated.");
+    }
+    const now = Date.now();
+    await ctx.db.patch(endpoint._id, { updatedAt: now, validatedAt: now });
+    const updated = await ctx.db.get(endpoint._id);
+    if (!updated) {
+      throw new ConvexError("Integration endpoint unavailable.");
+    }
+    await writeIntegrationEvent(ctx, {
+      auth,
+      command: "validateIntegrationEndpoint",
+      endpoint: updated,
+      eventType: "integration.endpoint.validated",
+      newState: integrationEndpointAuditState(updated),
+      organizationId: args.workosOrganizationId,
+      priorState: integrationEndpointAuditState(endpoint),
+      reason: requireIntegrationReason(args.reason),
+    });
+    return integrationEndpointProjection(updated);
+  })
+  .public();
+
+export const activateIntegrationEndpoint = authenticatedMutation
+  .input({
+    endpointId: v.id("integrationEndpoints"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(integrationEndpointProjectionValidator)
+  .handler(async (ctx, args) => {
+    const { auth, endpoint } = await getIntegrationEndpointOrThrow(
+      ctx,
+      args.endpointId,
+      args.workosOrganizationId
+    );
+    if (!endpoint.validatedAt) {
+      throw new ConvexError("Validate the endpoint before activation.");
+    }
+    if (endpoint.status === "revoked") {
+      throw new ConvexError("Revoked endpoints cannot be activated.");
+    }
+    const now = Date.now();
+    await ctx.db.patch(endpoint._id, {
+      activatedAt: now,
+      disabledAt: undefined,
+      status: "active",
+      updatedAt: now,
+    });
+    const updated = await ctx.db.get(endpoint._id);
+    if (!updated) {
+      throw new ConvexError("Integration endpoint unavailable.");
+    }
+    await writeIntegrationEvent(ctx, {
+      auth,
+      command: "activateIntegrationEndpoint",
+      endpoint: updated,
+      eventType: "integration.endpoint.activated",
+      newState: integrationEndpointAuditState(updated),
+      organizationId: args.workosOrganizationId,
+      priorState: integrationEndpointAuditState(endpoint),
+      reason: requireIntegrationReason(args.reason),
+    });
+    return integrationEndpointProjection(updated);
+  })
+  .public();
+
+export const disableIntegrationEndpoint = authenticatedMutation
+  .input({
+    endpointId: v.id("integrationEndpoints"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(integrationEndpointProjectionValidator)
+  .handler(async (ctx, args) => {
+    const { auth, endpoint } = await getIntegrationEndpointOrThrow(
+      ctx,
+      args.endpointId,
+      args.workosOrganizationId
+    );
+    if (endpoint.status === "revoked") {
+      throw new ConvexError("Revoked endpoints are already unavailable.");
+    }
+    const now = Date.now();
+    await ctx.db.patch(endpoint._id, {
+      disabledAt: now,
+      status: "disabled",
+      updatedAt: now,
+    });
+    const updated = await ctx.db.get(endpoint._id);
+    if (!updated) {
+      throw new ConvexError("Integration endpoint unavailable.");
+    }
+    await writeIntegrationEvent(ctx, {
+      auth,
+      command: "disableIntegrationEndpoint",
+      endpoint: updated,
+      eventType: "integration.endpoint.disabled",
+      newState: integrationEndpointAuditState(updated),
+      organizationId: args.workosOrganizationId,
+      priorState: integrationEndpointAuditState(endpoint),
+      reason: requireIntegrationReason(args.reason),
+    });
+    return integrationEndpointProjection(updated);
+  })
+  .public();
+
+export const rotateIntegrationEndpointSecret = authenticatedMutation
+  .input({
+    endpointId: v.id("integrationEndpoints"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      endpoint: integrationEndpointProjectionValidator,
+      signingSecret: v.string(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const { auth, endpoint } = await getIntegrationEndpointOrThrow(
+      ctx,
+      args.endpointId,
+      args.workosOrganizationId
+    );
+    if (endpoint.status === "revoked") {
+      throw new ConvexError("Revoked endpoint secrets cannot be rotated.");
+    }
+    const signingSecret = `dfwhsec_${generateShareToken().replaceAll("-", "")}`;
+    const now = Date.now();
+    await ctx.db.patch(endpoint._id, {
+      secretFingerprint: `…${signingSecret.slice(-6)}`,
+      secretHash: await shareTokenHash(signingSecret),
+      secretVersion: endpoint.secretVersion + 1,
+      updatedAt: now,
+    });
+    const updated = await ctx.db.get(endpoint._id);
+    if (!updated) {
+      throw new ConvexError("Integration endpoint unavailable.");
+    }
+    await writeIntegrationEvent(ctx, {
+      auth,
+      command: "rotateIntegrationEndpointSecret",
+      endpoint: updated,
+      eventType: "integration.endpoint.secret_rotated",
+      newState: integrationEndpointAuditState(updated),
+      organizationId: args.workosOrganizationId,
+      priorState: integrationEndpointAuditState(endpoint),
+      reason: requireIntegrationReason(args.reason),
+    });
+    return { endpoint: integrationEndpointProjection(updated), signingSecret };
+  })
+  .public();
+
+export const revokeIntegrationEndpoint = authenticatedMutation
+  .input({
+    endpointId: v.id("integrationEndpoints"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(integrationEndpointProjectionValidator)
+  .handler(async (ctx, args) => {
+    const { auth, endpoint } = await getIntegrationEndpointOrThrow(
+      ctx,
+      args.endpointId,
+      args.workosOrganizationId
+    );
+    const now = Date.now();
+    await ctx.db.patch(endpoint._id, {
+      revokedAt: now,
+      secretHash: await shareTokenHash(generateShareToken()),
+      status: "revoked",
+      updatedAt: now,
+    });
+    const updated = await ctx.db.get(endpoint._id);
+    if (!updated) {
+      throw new ConvexError("Integration endpoint unavailable.");
+    }
+    await writeIntegrationEvent(ctx, {
+      auth,
+      command: "revokeIntegrationEndpoint",
+      endpoint: updated,
+      eventType: "integration.endpoint.revoked",
+      newState: integrationEndpointAuditState(updated),
+      organizationId: args.workosOrganizationId,
+      priorState: integrationEndpointAuditState(endpoint),
+      reason: requireIntegrationReason(args.reason),
+    });
+    return integrationEndpointProjection(updated);
+  })
+  .public();
+
+export const retryIntegrationDeliveryAttempt = authenticatedMutation
+  .input({
+    attemptId: v.id("integrationDeliveryAttempts"),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(integrationDeliveryProjectionValidator)
+  .handler(async (ctx, args) => {
+    const { attempt, auth, endpoint } =
+      await getIntegrationDeliveryAttemptOrThrow(
+        ctx,
+        args.attemptId,
+        args.workosOrganizationId
+      );
+    if (attempt.status !== "failed") {
+      throw new ConvexError("Only failed deliveries can be retried.");
+    }
+    if (endpoint.status !== "active") {
+      throw new ConvexError("Activate the endpoint before retrying delivery.");
+    }
+    requireIntegrationReason(args.reason);
+    const existingRetry = await ctx.db
+      .query("integrationDeliveryAttempts")
+      .withIndex("by_event", (q) =>
+        q
+          .eq("organizationId", args.workosOrganizationId)
+          .eq("eventId", attempt.eventId)
+      )
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("retryOfAttemptId"), attempt._id),
+          q.eq(q.field("status"), "retry_pending")
+        )
+      )
+      .first();
+    if (existingRetry) {
+      return integrationDeliveryProjection(existingRetry, endpoint);
+    }
+    const now = Date.now();
+    const retryId = await ctx.db.insert("integrationDeliveryAttempts", {
+      attemptNumber: attempt.attemptNumber + 1,
+      attemptedAt: now,
+      brokerageId: auth.brokerage._id,
+      createdAt: now,
+      deliveryId: `delivery_${crypto.randomUUID()}`,
+      endpointId: endpoint._id,
+      eventId: attempt.eventId,
+      eventType: attempt.eventType,
+      nextRetryAt: now,
+      organizationId: args.workosOrganizationId,
+      payloadVersion: attempt.payloadVersion,
+      retryOfAttemptId: attempt._id,
+      status: "retry_pending",
+      updatedAt: now,
+    });
+    const retry = await ctx.db.get(retryId);
+    if (!retry) {
+      throw new ConvexError("Delivery retry could not be scheduled.");
+    }
+    await writeIntegrationEvent(ctx, {
+      auth,
+      command: "retryIntegrationDeliveryAttempt",
+      endpoint,
+      eventType: "integration.delivery.retry_scheduled",
+      newState: JSON.stringify({
+        attemptNumber: retry.attemptNumber,
+        deliveryId: retry.deliveryId,
+        eventId: retry.eventId,
+        status: retry.status,
+      }),
+      organizationId: args.workosOrganizationId,
+      reason: requireIntegrationReason(args.reason),
+    });
+    return integrationDeliveryProjection(retry, endpoint);
+  })
+  .public();
+
+type IntegrationDeliveryDispatchContext = {
+  attempt: Doc<"integrationDeliveryAttempts">;
+  endpoint: {
+    endpointUrl: string;
+    name: string;
+    secretHash: string;
+  };
+};
+
+type IntegrationDeliveryProjection = {
+  _id: Id<"integrationDeliveryAttempts">;
+  attemptNumber: number;
+  attemptedAt: number;
+  completedAt?: number;
+  deliveryId: string;
+  endpointId: Id<"integrationEndpoints">;
+  endpointName: string;
+  endpointUrl: string;
+  eventId: string;
+  eventType: string;
+  nextRetryAt?: number;
+  payloadVersion: string;
+  responseCode?: number;
+  retryOfAttemptId?: Id<"integrationDeliveryAttempts">;
+  safeError?: string;
+  status: Doc<"integrationDeliveryAttempts">["status"];
+  updatedAt: number;
+};
+export const getIntegrationDeliveryDispatchContext = internalQuery
+  .input({
+    attemptId: v.id("integrationDeliveryAttempts"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const attempt = await ctx.db.get(args.attemptId);
+    if (!attempt || attempt.organizationId !== args.workosOrganizationId) {
+      throw new ConvexError("Integration delivery unavailable.");
+    }
+    const endpoint = await ctx.db.get(attempt.endpointId);
+    if (
+      !endpoint ||
+      endpoint.organizationId !== args.workosOrganizationId ||
+      endpoint.status !== "active"
+    ) {
+      throw new ConvexError("Integration endpoint is not active.");
+    }
+    if (attempt.status !== "pending" && attempt.status !== "retry_pending") {
+      throw new ConvexError("Integration delivery is not pending dispatch.");
+    }
+    return {
+      attempt,
+      endpoint: {
+        endpointUrl: endpoint.endpointUrl,
+        name: endpoint.name,
+        secretHash: endpoint.secretHash,
+      },
+    };
+  })
+  .internal();
+
+export const completeIntegrationDeliveryDispatch = internalMutation
+  .input({
+    actorRoles: v.array(v.string()),
+    actorWorkosUserId: v.string(),
+    attemptId: v.id("integrationDeliveryAttempts"),
+    responseCode: v.optional(v.number()),
+    safeError: v.optional(v.string()),
+    status: v.union(v.literal("delivered"), v.literal("failed")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(integrationDeliveryProjectionValidator)
+  .handler(async (ctx, args) => {
+    const attempt = await ctx.db.get(args.attemptId);
+    if (!attempt || attempt.organizationId !== args.workosOrganizationId) {
+      throw new ConvexError("Integration delivery unavailable.");
+    }
+    const endpoint = await ctx.db.get(attempt.endpointId);
+    if (!endpoint || endpoint.organizationId !== args.workosOrganizationId) {
+      throw new ConvexError("Integration endpoint unavailable.");
+    }
+    if (attempt.status !== "pending" && attempt.status !== "retry_pending") {
+      throw new ConvexError("Integration delivery is no longer pending.");
+    }
+    const now = Date.now();
+    const nextRetryAt =
+      args.status === "failed"
+        ? now + Math.min(86_400_000, 300_000 * 2 ** (attempt.attemptNumber - 1))
+        : undefined;
+    await ctx.db.patch(attempt._id, {
+      completedAt: now,
+      nextRetryAt,
+      responseCode: args.responseCode,
+      safeError: args.safeError,
+      status: args.status,
+      updatedAt: now,
+    });
+    const updated = await ctx.db.get(attempt._id);
+    if (!updated) {
+      throw new ConvexError("Integration delivery unavailable.");
+    }
+    await writeIntegrationEvent(ctx, {
+      auth: {
+        brokerage: await requireBrokerageById(ctx, endpoint.brokerageId),
+        roles: normalizeRoleSlugs(args.actorRoles),
+        subject: args.actorWorkosUserId,
+      },
+      command: "dispatchIntegrationDeliveryAttempt",
+      endpoint,
+      eventType:
+        args.status === "delivered"
+          ? "integration.delivery.delivered"
+          : "integration.delivery.failed",
+      newState: JSON.stringify({
+        attemptId: String(updated._id),
+        responseCode: updated.responseCode,
+        status: updated.status,
+      }),
+      organizationId: args.workosOrganizationId,
+      priorState: JSON.stringify({ status: attempt.status }),
+      reason:
+        args.status === "delivered"
+          ? "Signed webhook delivery accepted by the endpoint."
+          : (args.safeError ?? "Signed webhook delivery failed."),
+    });
+    return integrationDeliveryProjection(updated, endpoint);
+  })
+  .internal();
+
+export const dispatchIntegrationDeliveryAttempt = authenticatedAction
+  .input({
+    attemptId: v.id("integrationDeliveryAttempts"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(integrationDeliveryProjectionValidator)
+  .handler(async (ctx, args): Promise<IntegrationDeliveryProjection> => {
+    requireAnyRole(ctx.viewer.roles, ["admin"]);
+    const dispatchContext = (await ctx.runQuery(
+      internal.production_proposals.getIntegrationDeliveryDispatchContext,
+      args
+    )) as IntegrationDeliveryDispatchContext;
+    const timestamp = String(Date.now());
+    const body = JSON.stringify({
+      deliveryId: dispatchContext.attempt.deliveryId,
+      eventId: dispatchContext.attempt.eventId,
+      eventType: dispatchContext.attempt.eventType,
+      occurredAt: dispatchContext.attempt.createdAt,
+      payloadVersion: dispatchContext.attempt.payloadVersion,
+    });
+    const signature = await integrationDeliverySignature(
+      dispatchContext.endpoint.secretHash,
+      `${timestamp}.${body}`
+    );
+    let responseCode: number | undefined;
+    let safeError: string | undefined;
+    let status: "delivered" | "failed" = "failed";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const request: Request = new Request(
+        normalizeIntegrationEndpointUrl(dispatchContext.endpoint.endpointUrl),
+        {
+          body,
+          headers: {
+            "Content-Type": "application/json",
+            "X-DrawFlow-Delivery": dispatchContext.attempt.deliveryId,
+            "X-DrawFlow-Signature": `v1=${signature}`,
+            "X-DrawFlow-Timestamp": timestamp,
+          },
+          method: "POST",
+          signal: controller.signal,
+        }
+      );
+      const response = await fetch(request);
+      responseCode = response.status;
+      if (response.ok) {
+        status = "delivered";
+      } else {
+        safeError = `Endpoint returned HTTP ${response.status}. Response content was not stored.`;
+      }
+    } catch (error) {
+      safeError =
+        error instanceof DOMException && error.name === "AbortError"
+          ? "Endpoint timed out before acknowledging delivery."
+          : "Endpoint could not be reached. No response content was stored.";
+    } finally {
+      clearTimeout(timeout);
+    }
+    return await ctx.runMutation(
+      internal.production_proposals.completeIntegrationDeliveryDispatch,
+      {
+        actorRoles: ctx.viewer.roles,
+        actorWorkosUserId: ctx.viewer.subject,
+        attemptId: args.attemptId,
+        responseCode,
+        safeError,
+        status,
+        workosOrganizationId: args.workosOrganizationId,
+      }
+    );
+  })
+  .public();
+
+async function integrationDeliverySignature(
+  secretHash: string,
+  message: string
+) {
+  const keyBytes = new Uint8Array(
+    secretHash.match(/.{1,2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? []
+  );
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { hash: "SHA-256", name: "HMAC" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(message)
+  );
+  return [...new Uint8Array(signature)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function requireBrokerageById(
+  ctx: MutationCtx,
+  brokerageId: Id<"brokerages">
+) {
+  const brokerage = await ctx.db.get(brokerageId);
+  if (!brokerage) {
+    throw new ConvexError("Integration brokerage unavailable.");
+  }
+  return brokerage;
+}
+export const getActiveBuildRouteAvailabilityByString = authenticatedQuery
+  .input({
+    buildId: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      buildName: v.optional(v.string()),
+      category: v.union(
+        v.literal("accessDenied"),
+        v.literal("available"),
+        v.literal("invalidLink"),
+        v.literal("notFound")
+      ),
+      requestedBuildId: v.string(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    await authorizeBrokerage(ctx, args.workosOrganizationId);
+    const buildId = ctx.db.normalizeId("activeBuilds", args.buildId);
+    if (!buildId) {
+      return {
+        category: "invalidLink" as const,
+        requestedBuildId: args.buildId,
+      };
+    }
+    const build = await ctx.db.get(buildId);
+    if (!build) {
+      return {
+        category: "notFound" as const,
+        requestedBuildId: args.buildId,
+      };
+    }
+    try {
+      const auth = await authorizeActiveBuild(
+        ctx,
+        buildId,
+        args.workosOrganizationId
+      );
+      if (!auth) {
+        return {
+          category: "accessDenied" as const,
+          requestedBuildId: args.buildId,
+        };
+      }
+      return {
+        buildName: auth.build.buildName,
+        category: "available" as const,
+        requestedBuildId: args.buildId,
+      };
+    } catch {
+      return {
+        category: "accessDenied" as const,
+        requestedBuildId: args.buildId,
+      };
+    }
+  })
+  .public();
+
 export const getActiveBuildDetailByString = authenticatedQuery
   .input({
     buildId: v.string(),
@@ -10861,6 +14045,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
       drawRequests,
       drawAllocations,
       facilityChangeRequests,
+      budgetRevisionRequests,
       proposalMilestones,
     ] = await Promise.all([
       collectByIndex(ctx, "loanFacilities", "by_build", buildId),
@@ -10879,6 +14064,12 @@ export const getActiveBuildDetailByString = authenticatedQuery
       collectByIndex(
         ctx,
         "activeBuildFacilityChangeRequests",
+        "by_build",
+        buildId
+      ),
+      collectByIndex(
+        ctx,
+        "activeBuildBudgetRevisionRequests",
         "by_build",
         buildId
       ),
@@ -10928,8 +14119,9 @@ export const getActiveBuildDetailByString = authenticatedQuery
     const buildNotes = notes as Doc<"buildNotes">[];
     const buildContractorAssignments =
       assignments as Doc<"buildContractorAssignments">[];
-    const buildMilestoneContractorAssignments =
-      milestoneAssignments as Doc<"milestoneContractorAssignments">[];
+    const buildMilestoneContractorAssignments = (
+      milestoneAssignments as Doc<"milestoneContractorAssignments">[]
+    ).filter((assignment) => assignment.status !== "removed");
     const buildSiteVisits = siteVisits as Doc<"buildSiteVisits">[];
     const proposalGuidanceByMilestoneId = new Map(
       (proposalMilestones as Doc<"proposalMilestones">[]).map((milestone) => [
@@ -10998,23 +14190,107 @@ export const getActiveBuildDetailByString = authenticatedQuery
         String(assignment.contractorId)
       )
     );
+    const acknowledgementByMilestoneAssignmentId = new Map(
+      (
+        await Promise.all(
+          buildMilestoneContractorAssignments.map(async (assignment) => {
+            const acknowledgements = await ctx.db
+              .query("contractorAcknowledgements")
+              .withIndex("by_build_assignment", (q) =>
+                q.eq("buildAssignmentId", assignment._id)
+              )
+              .collect();
+            const acknowledgement = acknowledgements.find(
+              (row) => row.kind === "assignment"
+            );
+            return [String(assignment._id), acknowledgement] as const;
+          })
+        )
+      ).filter((entry) => entry[1])
+    );
     const mappedAuditEvents = auditEvents
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map((event) => ({
-        _id: String(event._id),
-        actorPersona: event.actorWorkosUserId,
-        afterSummary: event.newState,
-        beforeSummary: event.priorState,
-        createdAt: event.createdAt,
-        entityLabel: build.buildName,
-        entityType: event.entityType,
-        eventType: event.eventType,
-      }));
+      .map((event) => {
+        const changes = projectAuditStateChanges(
+          event.priorState,
+          event.newState
+        );
+        return {
+          _id: String(event._id),
+          actorPersona:
+            event.actorRoles.map((role) => titleCase(role)).join(", ") ||
+            "Authorized user",
+          afterSummary: changes[0]?.after,
+          beforeSummary: changes[0]?.before,
+          changes,
+          command: event.command,
+          createdAt: event.createdAt,
+          entityLabel: build.buildName,
+          entityType: event.entityType,
+          eventType: event.eventType,
+          reason: event.reason,
+          warnings: event.warnings,
+        };
+      });
     const appPermissions = await activeBuildAppPermissionProjection(ctx, auth);
+    const quickActionEvents = isBackoffice(auth.roles)
+      ? [
+          ...(drawRequests as Doc<"activeBuildDrawRequests">[])
+            .filter((request) => request.status === "requested")
+            .map((request) => ({
+              _id: String(request._id),
+              actionLabel: "Review draw",
+              body: "Review eligibility, evidence, and the requested amount.",
+              createdAt: request.createdAt,
+              entityLabel: `${build.buildName} · ${request.label}`,
+              entityType: "draw",
+              href: `/backoffice/draws?buildId=${build._id}&drawId=${request._id}`,
+              resolutionMode: "domain" as const,
+              sourceLabel: "Builder workspace",
+              title: "Draw request awaiting review",
+            })),
+          ...(milestones as Doc<"buildMilestones">[])
+            .filter(productionMilestoneNeedsBackofficeReview)
+            .map((milestone) => {
+              const siteVisit = milestone.completionReview?.siteVisit;
+              const isSiteVisitAction =
+                siteVisit !== undefined && siteVisit.status !== "complete";
+              return {
+                _id: String(milestone._id),
+                actionLabel: isSiteVisitAction
+                  ? "Manage site visit"
+                  : "Review milestone",
+                body: isSiteVisitAction
+                  ? "Complete field verification and return a recommendation."
+                  : "Review the completion package and record the next decision.",
+                createdAt: milestone.updatedAt,
+                entityLabel: `${build.buildName} · ${milestone.name}`,
+                entityType: isSiteVisitAction ? "siteVisit" : "milestone",
+                href: isSiteVisitAction
+                  ? `/backoffice/site-visits?buildId=${build._id}&milestone=${milestone.key}`
+                  : `/backoffice/builds/${build._id}?milestone=${milestone.key}`,
+                resolutionMode: "domain" as const,
+                sourceLabel: "Builder workspace",
+                title: isSiteVisitAction
+                  ? "Site visit requires follow-up"
+                  : "Milestone completion awaiting review",
+              };
+            }),
+        ]
+      : [];
     return {
       appPermissions,
       build,
-      capitalPlan: capitalPlans[0] ?? null,
+      capitalPlan: (() => {
+        const capitalPlan = latestBuildCapitalPlan(capitalPlans);
+        return capitalPlan
+          ? {
+              ...capitalPlan,
+              borrowerStartingCashCents:
+                resolveBorrowerStartingCashCents(capitalPlan),
+            }
+          : null;
+      })(),
       displayId: productionBuildDisplayId(build),
       documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
       drawFunding: {
@@ -11052,6 +14328,17 @@ export const getActiveBuildDetailByString = authenticatedQuery
               requestedAt: request.requestedAt,
               requestNote: request.note,
               requestReviewNote: request.reviewNote,
+              reviewedByWorkosUserId: request.reviewedByWorkosUserId,
+              nextAction:
+                request.status === "rejected"
+                  ? "Correct the request and submit it again for review."
+                  : request.status === "approved"
+                    ? "Lender Admin can release the approved funds."
+                    : request.status === "requested"
+                      ? "Lender Operations must review this request."
+                      : request.status === "released"
+                        ? "Confirm receipt and report any settlement discrepancy."
+                        : undefined,
               reviewedAt: request.reviewedAt,
               sourceAllocations:
                 drawAllocationsByRequest.get(String(request._id)) ?? [],
@@ -11070,6 +14357,26 @@ export const getActiveBuildDetailByString = authenticatedQuery
       evidenceAssets: canUseAppPermission(appPermissions, "evidence", "view")
         ? await withBuildEvidenceAssetStorageUrls(ctx, buildEvidenceAssets)
         : [],
+      budgetRevisionRequests: (
+        budgetRevisionRequests as Doc<"activeBuildBudgetRevisionRequests">[]
+      )
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((request) => ({
+          _id: request._id,
+          approvedCapitalPlanId: request.approvedCapitalPlanId,
+          baseVersion: request.baseVersion,
+          createdAt: request.createdAt,
+          priorState: request.priorState,
+          reason: request.reason,
+          requestedByWorkosUserId: request.requestedByWorkosUserId,
+          requestedPayload: request.requestedPayload,
+          reviewNote: request.reviewNote,
+          reviewedAt: request.reviewedAt,
+          reviewerWorkosUserId: request.reviewerWorkosUserId,
+          status: request.status,
+          updatedAt: request.updatedAt,
+          varianceCents: request.varianceCents,
+        })),
       facilityChangeRequests: (
         facilityChangeRequests as Doc<"activeBuildFacilityChangeRequests">[]
       )
@@ -11123,6 +14430,40 @@ export const getActiveBuildDetailByString = authenticatedQuery
               if (!contractor) {
                 return null;
               }
+              const contractorMilestoneAssignments =
+                buildMilestoneContractorAssignments.filter(
+                  (milestoneAssignment) =>
+                    milestoneAssignment.contractorId === contractor._id &&
+                    milestoneAssignment.status !== "removed"
+                );
+              const hasPendingAcknowledgement =
+                contractorMilestoneAssignments.length > 0 &&
+                contractorMilestoneAssignments.some((milestoneAssignment) => {
+                  const acknowledgement =
+                    acknowledgementByMilestoneAssignmentId.get(
+                      String(milestoneAssignment._id)
+                    );
+                  return (
+                    !acknowledgement ||
+                    acknowledgement.state === "pending_acknowledgement" ||
+                    acknowledgement.state === "clarification_requested" ||
+                    acknowledgement.state === "scope_disputed"
+                  );
+                });
+              const onboardingStatus =
+                contractor.onboardingStatus ??
+                (contractor.accountWorkosUserId
+                  ? "account_linked"
+                  : "profile_only");
+              const lifecycleState = contractor.accountWorkosUserId
+                ? hasPendingAcknowledgement
+                  ? "acknowledgement_pending"
+                  : "active"
+                : onboardingStatus === "invited"
+                  ? "invited"
+                  : contractorMilestoneAssignments.length > 0
+                    ? "assigned"
+                    : "attached";
               return {
                 _id: String(assignment._id),
                 agreedRateCents:
@@ -11135,11 +14476,8 @@ export const getActiveBuildDetailByString = authenticatedQuery
                 city: contractor.city,
                 email: contractor.email,
                 hourlyRateCents: contractor.defaultPayRateCents,
-                onboardingStatus:
-                  contractor.onboardingStatus ??
-                  (contractor.accountWorkosUserId
-                    ? "account_linked"
-                    : "profile_only"),
+                lifecycleState,
+                onboardingStatus,
                 payRateCents:
                   assignment.agreedRateCents ?? contractor.defaultPayRateCents,
                 payRateUnit:
@@ -11190,16 +14528,23 @@ export const getActiveBuildDetailByString = authenticatedQuery
             })
             .filter(Boolean)
         : [],
-      quickActionEvents: mappedAuditEvents.slice(0, 8).map((event) => ({
-        _id: event._id,
-        createdAt: event.createdAt,
-        eventType: event.eventType,
-        payloadPreview:
-          event.afterSummary ?? event.beforeSummary ?? event.eventType,
-      })),
+      quickActionEvents,
       loanFacility: loanFacilities[0] ?? null,
       milestones: canUseAppPermission(appPermissions, "milestone", "view")
-        ? hydratedMilestones
+        ? hydratedMilestones.map((milestone) => ({
+            ...milestone,
+            ...activeBuildMilestoneSummary({
+              assignments: buildMilestoneContractorAssignments,
+              includeSubmilestones: canUseAppPermission(
+                appPermissions,
+                "submilestone",
+                "view"
+              ),
+              milestone,
+              milestones: hydratedMilestones,
+              submilestones: submilestones as Doc<"buildSubmilestones">[],
+            }),
+          }))
         : [],
       notes: {
         internal: buildNotes
@@ -11535,6 +14880,7 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
       capitalEvents,
       auditEvents,
       permitWaiver,
+      milestoneAssignments,
     ] = await Promise.all([
       collectByIndex(ctx, "buildMilestones", "by_build", args.buildId),
       collectByIndex(ctx, "buildSubmilestones", "by_build", args.buildId),
@@ -11557,6 +14903,12 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
         )
         .collect(),
       build.permitWaiverId ? ctx.db.get(build.permitWaiverId) : null,
+      collectByIndex(
+        ctx,
+        "milestoneContractorAssignments",
+        "by_build",
+        args.buildId
+      ),
     ]);
     const sortedMilestones = [...milestones].sort(
       (a, b) => a.order - b.order || a.key.localeCompare(b.key)
@@ -11632,6 +14984,9 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
     }
     const activeCapitalEvents = capitalEvents as Doc<"capitalEvents">[];
     const activeSubmilestones = submilestones as Doc<"buildSubmilestones">[];
+    const buildMilestoneContractorAssignments = (
+      milestoneAssignments as Doc<"milestoneContractorAssignments">[]
+    ).filter((assignment) => assignment.status !== "removed");
     const appPermissions = await activeBuildAppPermissionProjection(ctx, auth);
 
     return {
@@ -11652,8 +15007,9 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
         ? [
             {
               amountCents:
+                capitalPlan?.borrowerStartingCashCents ??
                 capitalPlan?.borrowerWorkingCapitalLimitCents ??
-                proposal.borrowerWorkingCapitalLimitCents,
+                resolveBorrowerStartingCashCents(proposal),
               capitalEventKey: "borrower-reserve",
               eventKind: "cashInfusion",
               label: "Borrower reserve",
@@ -11763,15 +15119,25 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
               currentDay,
               milestones: sortedMilestones,
             });
+            const milestoneSummary = activeBuildMilestoneSummary({
+              assignments: buildMilestoneContractorAssignments,
+              includeSubmilestones: canUseAppPermission(
+                appPermissions,
+                "submilestone",
+                "view"
+              ),
+              milestone,
+              milestones: sortedMilestones,
+              submilestones: activeSubmilestones,
+            });
             return {
-              budgetCents: milestone.budgetCents,
+              ...milestoneSummary,
               completionClaim: productionCompletionClaimView(
                 milestone.completionClaim
               ),
               completionReview:
                 completionReview ??
                 activeBuildSiteVisitCompletionReviewView(visits.at(-1)),
-              drawAvailabilityCents: milestone.drawAvailabilityCents,
               drawKey: draw?.label ?? "Reimbursement draw",
               durationDays: milestone.durationDays,
               evidenceState:
@@ -11789,34 +15155,6 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
                 milestone.policyState ??
                 productionPolicyState(proposal, permitWaiver),
               status,
-              submilestoneSnapshot: canUseAppPermission(
-                appPermissions,
-                "submilestone",
-                "view"
-              )
-                ? activeSubmilestones
-                    .filter(
-                      (submilestone) =>
-                        submilestone.milestoneKey === milestone.key
-                    )
-                    .sort(
-                      (a, b) => a.order - b.order || a.key.localeCompare(b.key)
-                    )
-                    .map((submilestone) => ({
-                      ...(submilestone.budgetCents === undefined
-                        ? {}
-                        : { budgetCents: submilestone.budgetCents }),
-                      ...(submilestone.durationDays === undefined
-                        ? {}
-                        : { durationDays: submilestone.durationDays }),
-                      key: submilestone.key,
-                      name: submilestone.name,
-                      order: submilestone.order,
-                      ...(submilestone.startDay === undefined
-                        ? {}
-                        : { startDay: submilestone.startDay }),
-                    }))
-                : [],
               tone: activeBuildTimelineMilestoneTone(
                 milestone,
                 status,
@@ -11859,9 +15197,11 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
         },
         minimumCashReserveCents: build.timelineMinimumCashReserveCents ?? 0,
         startingCashCents:
+          build.borrowerStartingCashCents ??
           build.timelineStartingCashCents ??
+          capitalPlan?.borrowerStartingCashCents ??
           capitalPlan?.borrowerWorkingCapitalLimitCents ??
-          proposal.borrowerWorkingCapitalLimitCents,
+          resolveBorrowerStartingCashCents(proposal),
       },
       planSummary: {
         address: build.location,
@@ -11906,39 +15246,92 @@ export const updateActiveBuildTimelinePlanState = authenticatedMutation
       args.workosOrganizationId
     );
     await requireActiveBuildAppPermission(ctx, auth, "capitalEvent", "update");
-    const priorState = JSON.stringify({
-      currentDay: auth.build.timelineCurrentDay,
-      progressValue: auth.build.timelineProgressValue,
-      rangeMax: auth.build.timelineRangeMax,
-      rangeMin: auth.build.timelineRangeMin,
-      routeState: auth.build.timelineRouteState,
-      minimumCashReserveCents: auth.build.timelineMinimumCashReserveCents,
-      startingCashCents: auth.build.timelineStartingCashCents,
-    });
-    const patch = {
-      timelineCurrentDay: Math.round(args.currentDay),
-      timelineProgressValue: Math.round(args.progressValue),
-      timelineRangeMax: Math.round(args.rangeMax),
-      timelineRangeMin: Math.round(args.rangeMin),
-      timelineRouteState: args.routeState,
-      timelineMinimumCashReserveCents: Math.max(
+    const nextDomainState = {
+      currentDay: Math.round(args.currentDay),
+      minimumCashReserveCents: Math.max(
         0,
         Math.round(args.minimumCashReserveCents ?? 0)
       ),
-      timelineStartingCashCents: Math.max(
-        0,
-        Math.round(args.startingCashCents)
-      ),
-      updatedAt: Date.now(),
+      progressValue: Math.round(args.progressValue),
+      rangeMax: Math.round(args.rangeMax),
+      rangeMin: Math.round(args.rangeMin),
+      startingCashCents: Math.max(0, Math.round(args.startingCashCents)),
     };
-    await ctx.db.patch(args.buildId, patch);
-    await writeActiveBuildEvent(ctx, {
-      auth,
-      build: auth.build,
-      command: "updateActiveBuildTimelinePlanState",
-      eventType: "active_build.timeline_state.updated",
-      newState: JSON.stringify(patch),
-      priorState,
+    const currentDomainState = {
+      currentDay: auth.build.timelineCurrentDay ?? nextDomainState.currentDay,
+      minimumCashReserveCents:
+        auth.build.timelineMinimumCashReserveCents ??
+        nextDomainState.minimumCashReserveCents,
+      progressValue:
+        auth.build.timelineProgressValue ?? nextDomainState.progressValue,
+      rangeMax: auth.build.timelineRangeMax ?? nextDomainState.rangeMax,
+      rangeMin: auth.build.timelineRangeMin ?? nextDomainState.rangeMin,
+      startingCashCents:
+        auth.build.timelineStartingCashCents ??
+        nextDomainState.startingCashCents,
+    };
+    const nextRouteState = {
+      activeCapitalSpikeId: args.routeState.activeCapitalSpikeId,
+      activeDrawId: args.routeState.activeDrawId,
+      activeMilestoneKey: args.routeState.activeMilestoneKey,
+      selectedPanelOpen: args.routeState.selectedPanelOpen,
+      straightLine: args.routeState.straightLine,
+    };
+    const changedFields = (
+      Object.keys(nextDomainState) as Array<keyof typeof nextDomainState>
+    ).filter((field) => nextDomainState[field] !== currentDomainState[field]);
+    const domainChanged = changedFields.length > 0;
+    const routeChanged =
+      JSON.stringify(nextRouteState) !==
+      JSON.stringify(auth.build.timelineRouteState);
+
+    if (!(domainChanged || routeChanged)) {
+      return null;
+    }
+    if (domainChanged) {
+      await ctx.db.patch(args.buildId, {
+        timelineCurrentDay: nextDomainState.currentDay,
+        timelineMinimumCashReserveCents:
+          nextDomainState.minimumCashReserveCents,
+        timelineProgressValue: nextDomainState.progressValue,
+        timelineRangeMax: nextDomainState.rangeMax,
+        timelineRangeMin: nextDomainState.rangeMin,
+        ...(routeChanged ? { timelineRouteState: nextRouteState } : {}),
+        timelineStartingCashCents: nextDomainState.startingCashCents,
+        updatedAt: Date.now(),
+      });
+      const fieldLabel: Record<keyof typeof nextDomainState, string> = {
+        currentDay: "Current day",
+        minimumCashReserveCents: "Minimum cash reserve",
+        progressValue: "Progress day",
+        rangeMax: "Timeline range end",
+        rangeMin: "Timeline range start",
+        startingCashCents: "Starting cash",
+      };
+      const summarize = (state: typeof nextDomainState) =>
+        changedFields
+          .map((field) => `${fieldLabel[field]}: ${state[field]}`)
+          .join("; ");
+      await writeActiveBuildEvent(ctx, {
+        auth,
+        build: auth.build,
+        command: "updateActiveBuildTimelinePlanState",
+        eventType: "active_build.timeline_plan.updated",
+        newState: summarize(nextDomainState),
+        priorState: summarize(currentDomainState),
+        reason: `Updated ${changedFields.map((field) => fieldLabel[field].toLowerCase()).join(", ")}.`,
+      });
+      return null;
+    }
+
+    await ctx.db.patch(args.buildId, {
+      timelineCurrentDay: nextDomainState.currentDay,
+      timelineMinimumCashReserveCents: nextDomainState.minimumCashReserveCents,
+      timelineProgressValue: nextDomainState.progressValue,
+      timelineRangeMax: nextDomainState.rangeMax,
+      timelineRangeMin: nextDomainState.rangeMin,
+      timelineRouteState: nextRouteState,
+      timelineStartingCashCents: nextDomainState.startingCashCents,
     });
     return null;
   })
@@ -12141,6 +15534,198 @@ export const reviewActiveBuildFacilityChangeRequest = authenticatedMutation
   })
   .public();
 
+export const requestActiveBuildBudgetRevision = authenticatedMutation
+  .input({
+    borrowerCoPayBps: v.number(),
+    borrowerStartingCashCents: v.optional(v.number()),
+    // Deprecated compatibility input for clients deployed before the cutover.
+    borrowerWorkingCapitalLimitCents: v.optional(v.number()),
+    buildId: v.id("activeBuilds"),
+    lenderDrawPolicyLimitCents: v.number(),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.id("activeBuildBudgetRevisionRequests"))
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireAnyRole(auth.roles, BUILDER_ROLES);
+    requireReason(args.reason);
+    const plans = await collectByIndex(
+      ctx,
+      "buildCapitalPlans",
+      "by_build",
+      args.buildId
+    );
+    const currentPlan = latestBuildCapitalPlan(plans);
+    if (!currentPlan) {
+      throw new Error("Active Build capital plan is missing.");
+    }
+    const borrowerStartingCashCents = normalizePositiveCents(
+      args.borrowerStartingCashCents ?? args.borrowerWorkingCapitalLimitCents,
+      "Borrower Starting Cash is required."
+    );
+    const lenderDrawPolicyLimitCents = normalizePositiveCents(
+      args.lenderDrawPolicyLimitCents,
+      "Lender Draw Policy Limit is required."
+    );
+    const borrowerCoPayBps = Math.round(args.borrowerCoPayBps);
+    if (borrowerCoPayBps < 0 || borrowerCoPayBps > 10_000) {
+      throw new Error("Loan Percentage must be between 0 and 100 percent.");
+    }
+    if (
+      resolveBorrowerStartingCashCents(currentPlan) ===
+        borrowerStartingCashCents &&
+      currentPlan.lenderDrawPolicyLimitCents === lenderDrawPolicyLimitCents &&
+      currentPlan.borrowerCoPayBps === borrowerCoPayBps
+    ) {
+      throw new Error(
+        "Budget revision must change at least one capital-plan value."
+      );
+    }
+    const pending = await ctx.db
+      .query("activeBuildBudgetRevisionRequests")
+      .withIndex("by_build_status", (q) =>
+        q.eq("buildId", args.buildId).eq("status", "requested")
+      )
+      .first();
+    if (pending) {
+      throw new Error("A budget revision is already awaiting review.");
+    }
+    const now = Date.now();
+    const priorState = {
+      borrowerCoPayBps: currentPlan.borrowerCoPayBps,
+      borrowerStartingCashCents: resolveBorrowerStartingCashCents(currentPlan),
+      lenderDrawPolicyLimitCents: currentPlan.lenderDrawPolicyLimitCents,
+      version: currentPlan.version,
+    };
+    const requestedPayload = {
+      borrowerCoPayBps,
+      borrowerStartingCashCents,
+      lenderDrawPolicyLimitCents,
+    };
+    const requestId = await ctx.db.insert("activeBuildBudgetRevisionRequests", {
+      baseVersion: currentPlan.version,
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      capitalPlanId: currentPlan._id,
+      createdAt: now,
+      organizationId: args.workosOrganizationId,
+      priorState,
+      proposalId: auth.proposal._id,
+      reason: args.reason.trim(),
+      requestedByWorkosUserId: auth.subject,
+      requestedPayload,
+      status: "requested",
+      updatedAt: now,
+      varianceCents:
+        lenderDrawPolicyLimitCents - currentPlan.lenderDrawPolicyLimitCents,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "requestActiveBuildBudgetRevision",
+      eventType: "active_build.budget_revision.requested",
+      newState: JSON.stringify({ requestId, requestedPayload }),
+      priorState: JSON.stringify(priorState),
+      reason: args.reason.trim(),
+    });
+    return requestId;
+  })
+  .public();
+
+export const reviewActiveBuildBudgetRevision = authenticatedMutation
+  .input({
+    note: v.string(),
+    requestId: v.id("activeBuildBudgetRevisionRequests"),
+    status: v.union(v.literal("approved"), v.literal("rejected")),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    requireReason(args.note);
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.organizationId !== args.workosOrganizationId) {
+      throw new Error("Budget revision request not found.");
+    }
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      request.buildId,
+      args.workosOrganizationId
+    );
+    requireAnyRole(auth.roles, APPROVER_ROLES);
+    requireBackofficeProposalWrite(auth, auth.proposal);
+    if (request.status !== "requested") {
+      throw new Error("Budget revision request has already been reviewed.");
+    }
+    const currentPlan = latestBuildCapitalPlan(
+      await collectByIndex(
+        ctx,
+        "buildCapitalPlans",
+        "by_build",
+        request.buildId
+      )
+    );
+    if (!currentPlan || currentPlan.version !== request.baseVersion) {
+      throw new Error(
+        "Budget revision is based on a stale capital-plan version. Submit a new revision."
+      );
+    }
+    const now = Date.now();
+    let approvedCapitalPlanId: Id<"buildCapitalPlans"> | undefined;
+    if (args.status === "approved") {
+      approvedCapitalPlanId = await ctx.db.insert("buildCapitalPlans", {
+        borrowerCoPayBps: request.requestedPayload.borrowerCoPayBps,
+        borrowerStartingCashCents:
+          request.requestedPayload.borrowerStartingCashCents,
+        borrowerWorkingCapitalLimitCents:
+          request.requestedPayload.borrowerStartingCashCents,
+        brokerageId: request.brokerageId,
+        buildId: request.buildId,
+        createdAt: now,
+        lenderDrawPolicyLimitCents:
+          request.requestedPayload.lenderDrawPolicyLimitCents,
+        organizationId: request.organizationId,
+        proposalId: request.proposalId,
+        revisionRequestId: request._id,
+        source: "approved_budget_revision",
+        supersedesCapitalPlanId: currentPlan._id,
+        updatedAt: now,
+        version: currentPlan.version + 1,
+      });
+    }
+    await ctx.db.patch(request._id, {
+      ...(approvedCapitalPlanId ? { approvedCapitalPlanId } : {}),
+      reviewedAt: now,
+      reviewerWorkosUserId: auth.subject,
+      reviewNote: args.note.trim(),
+      status: args.status,
+      updatedAt: now,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "reviewActiveBuildBudgetRevision",
+      eventType: "active_build.budget_revision.reviewed",
+      newState: JSON.stringify({
+        approvedCapitalPlanId,
+        requestId: request._id,
+        status: args.status,
+        version:
+          args.status === "approved"
+            ? currentPlan.version + 1
+            : currentPlan.version,
+      }),
+      priorState: JSON.stringify(request.priorState),
+      reason: args.note.trim(),
+    });
+    return null;
+  })
+  .public();
+
 export const createActiveBuildTimelineMilestone = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
@@ -12277,9 +15862,9 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
       args.budgetCents === undefined
         ? milestone.budgetCents
         : Math.max(0, Math.round(args.budgetCents));
-    const capitalPlan = (
+    const capitalPlan = latestBuildCapitalPlan(
       await collectByIndex(ctx, "buildCapitalPlans", "by_build", args.buildId)
-    )[0] as Doc<"buildCapitalPlans"> | undefined;
+    );
     const borrowerCoPayBps =
       capitalPlan?.borrowerCoPayBps ?? auth.proposal.borrowerCoPayBps;
     const patch = {
@@ -12988,6 +16573,151 @@ export const startActiveBuildMilestone = authenticatedMutation
   })
   .public();
 
+export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
+  .input({
+    actualCostCents: v.optional(v.union(v.number(), v.null())),
+    buildId: v.id("activeBuilds"),
+    fieldNote: v.optional(v.union(v.string(), v.null())),
+    milestoneKey: v.string(),
+    reason: v.optional(v.string()),
+    status: v.optional(
+      v.union(
+        v.literal("planned"),
+        v.literal("in_progress"),
+        v.literal("complete")
+      )
+    ),
+    submilestoneKey: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    await requireActiveBuildAppPermission(ctx, auth, "submilestone", "update");
+    if (args.actualCostCents !== undefined || args.fieldNote !== undefined) {
+      await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+    }
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const submilestones = (await ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
+      .collect()) as Doc<"buildSubmilestones">[];
+    const submilestone = submilestones.find(
+      (row) => row.key === args.submilestoneKey
+    );
+    if (!submilestone) {
+      throw new ConvexError({
+        code: "SUBMILESTONE_NOT_FOUND",
+        message: "Submilestone is unavailable for this milestone.",
+        submilestoneKey: args.submilestoneKey,
+      });
+    }
+    const nextStatus = args.status ?? submilestone.status;
+    if (
+      submilestone.status === "complete" &&
+      nextStatus !== "complete" &&
+      milestone.completionClaim &&
+      !args.reason?.trim()
+    ) {
+      throw new ConvexError({
+        code: "REOPEN_REASON_REQUIRED",
+        message:
+          "A reason is required to reopen work after milestone completion was submitted.",
+        submilestoneKey: submilestone.key,
+      });
+    }
+    const now = Date.now();
+    const patch = {
+      ...(args.actualCostCents === undefined
+        ? {}
+        : {
+            actualCostCents:
+              args.actualCostCents === null
+                ? undefined
+                : Math.max(0, Math.round(args.actualCostCents)),
+          }),
+      ...(args.fieldNote === undefined
+        ? {}
+        : {
+            fieldNote:
+              args.fieldNote === null
+                ? undefined
+                : args.fieldNote.trim() || undefined,
+          }),
+      ...(args.status === undefined
+        ? {}
+        : {
+            completedAt:
+              nextStatus === "complete"
+                ? (submilestone.completedAt ?? now)
+                : undefined,
+            completedByWorkosUserId:
+              nextStatus === "complete"
+                ? (submilestone.completedByWorkosUserId ?? auth.subject)
+                : undefined,
+            status: nextStatus,
+          }),
+      updatedAt: now,
+    };
+    await ctx.db.patch(submilestone._id, patch);
+
+    const completedCount = submilestones.filter((row) =>
+      row._id === submilestone._id
+        ? nextStatus === "complete"
+        : row.status === "complete"
+    ).length;
+    const progressPercent =
+      submilestones.length === 0
+        ? (milestone.progressPercent ?? 0)
+        : Math.round((completedCount / submilestones.length) * 100);
+    await ctx.db.patch(milestone._id, {
+      ...(nextStatus !== "complete" && milestone.completionClaim
+        ? {
+            completionClaim: undefined,
+            completionReview: undefined,
+            evidenceState: "Work reopened",
+          }
+        : {}),
+      progressPercent,
+      status:
+        args.status === undefined
+          ? milestone.status
+          : progressPercent > 0 || nextStatus === "in_progress"
+            ? "in_progress"
+            : "planned",
+      updatedAt: now,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "updateActiveBuildSubmilestoneExecution",
+      eventType: "active_build.submilestone.execution_updated",
+      newState: JSON.stringify({
+        actualCostCents: patch.actualCostCents,
+        fieldNote: patch.fieldNote,
+        milestoneKey: milestone.key,
+        status: nextStatus,
+        submilestoneKey: submilestone.key,
+      }),
+      priorState: JSON.stringify({
+        actualCostCents: submilestone.actualCostCents,
+        fieldNote: submilestone.fieldNote,
+        status: submilestone.status,
+      }),
+      reason: args.reason,
+    });
+    return null;
+  })
+  .public();
+
 export const submitActiveBuildMilestoneCompletion = authenticatedMutation
   .input({
     actualCostCents: v.optional(v.number()),
@@ -13016,6 +16746,22 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       args.buildId,
       args.milestoneKey
     );
+    const submilestones = (await ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
+      .collect()) as Doc<"buildSubmilestones">[];
+    const incompleteSubmilestoneKeys = submilestones
+      .filter((submilestone) => submilestone.status !== "complete")
+      .map((submilestone) => submilestone.key);
+    if (incompleteSubmilestoneKeys.length > 0) {
+      throw new ConvexError({
+        code: "INCOMPLETE_SUBMILESTONES",
+        incompleteSubmilestoneKeys,
+        message:
+          "Complete every submilestone before submitting this milestone.",
+        milestoneKey: milestone.key,
+      });
+    }
     const completionClaim = {
       ...(args.actualCostCents === undefined
         ? {}
@@ -13046,6 +16792,16 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       newState: JSON.stringify(completionClaim),
       priorState: JSON.stringify(milestone.completionClaim),
     });
+    if (
+      activeBuildCompletionReviewRecord(milestone.completionReview).status ===
+      "rejected"
+    ) {
+      await resolveBuilderMilestoneDecisionDeliveries(ctx, {
+        auth,
+        milestone,
+        status: "rejected",
+      });
+    }
     if (args.qualityRating !== undefined) {
       await recordQualityRatingForMilestoneAssignments(ctx, {
         auth,
@@ -13148,6 +16904,90 @@ export const getActiveBuildSiteVisitByToken = publicQuery
   )
   .public();
 
+export const requestActiveBuildSiteVisitReplacementLink = publicMutation
+  .input({
+    buildId: v.string(),
+    reason: v.string(),
+    token: v.string(),
+  })
+  .returns(v.object({ reference: v.string(), requested: v.literal(true) }))
+  .handler(async (ctx, args) => {
+    const state = await getActiveBuildSiteVisitTokenState(
+      ctx,
+      args.buildId,
+      args.token
+    );
+    const tokenState =
+      state.reason === "consumed"
+        ? ("consumed" as const)
+        : state.reason === "expired"
+          ? ("expired" as const)
+          : ("active" as const);
+    const request = validateSiteVisitReplacementRequest({
+      reason: args.reason,
+      tokenState,
+    });
+    const buildId = ctx.db.normalizeId("activeBuilds", args.buildId);
+    if (!buildId) {
+      throw new Error("Site visit recovery is unavailable for this link.");
+    }
+    const [build, visit] = await Promise.all([
+      ctx.db.get(buildId),
+      ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (q) => q.eq("visitId", args.token))
+        .unique(),
+    ]);
+    if (!(build && visit) || visit.buildId !== buildId) {
+      throw new Error("Site visit recovery is unavailable for this link.");
+    }
+
+    const requestedAt = Date.now();
+    const reference = createSiteVisitRecoveryReference(crypto.randomUUID());
+    await ctx.db.insert("siteVisitLinkRecoveryRequests", {
+      brokerageId: build.brokerageId,
+      buildId: String(buildId),
+      organizationId: build.organizationId,
+      originalVisitId: visit.visitId,
+      reason: request.reason,
+      reference,
+      requestedAt,
+      source: "production",
+      status: "pending",
+      tokenState: request.tokenState,
+    });
+    await ctx.db.insert("auditEvents", {
+      actorRoles: ["contractor"],
+      actorWorkosUserId: "tokenized_site_visitor",
+      brokerageId: build.brokerageId,
+      command: "requestActiveBuildSiteVisitReplacementLink",
+      createdAt: requestedAt,
+      entityId: String(build._id),
+      entityType: "activeBuild",
+      eventType: "active_build.site_visit.replacement_link_requested",
+      newState: JSON.stringify({
+        reference,
+        status: "pending",
+        tokenState: request.tokenState,
+      }),
+      organizationId: build.organizationId,
+      reason: request.reason,
+      warnings: [],
+    });
+    await ctx.db.insert("eventOutbox", {
+      brokerageId: build.brokerageId,
+      createdAt: requestedAt,
+      eventType: "active_build.site_visit.replacement_link_requested",
+      organizationId: build.organizationId,
+      payloadPreview: `Replacement site-visit link requested (${reference}).`,
+      relatedEntityId: build._id,
+      relatedEntityType: "activeBuild",
+      status: "pending",
+    });
+    return { reference, requested: true as const };
+  })
+  .public();
+
 export const generateActiveBuildSiteVisitUploadUrl = publicMutation
   .input({ buildId: v.string(), token: v.string() })
   .returns(v.string())
@@ -13167,6 +17007,7 @@ export const generateActiveBuildSiteVisitUploadUrl = publicMutation
 export const registerActiveBuildSiteVisitFile = publicMutation
   .input({
     buildId: v.string(),
+    clientEvidenceId: v.optional(v.string()),
     contractorIds: v.optional(v.array(v.id("contractorProfiles"))),
     fileName: v.string(),
     mimeType: v.string(),
@@ -13175,6 +17016,7 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     targetMilestoneKey: v.optional(v.string()),
     targetSubmilestoneKey: v.optional(v.string()),
     token: v.string(),
+    locationAttempt: v.optional(siteVisitLocationAttemptValidator),
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
@@ -13198,21 +17040,61 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     if (!(build && visit) || visit.buildId !== buildId) {
       throw new Error("Site visit token is invalid.");
     }
+    if (args.clientEvidenceId) {
+      const existing = await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_site_visit_client", (q) =>
+          q
+            .eq("siteVisitId", visit._id)
+            .eq("clientEvidenceId", args.clientEvidenceId)
+        )
+        .unique();
+      if (existing) {
+        return null;
+      }
+    }
+    const resolvedLocationAttempt = args.locationAttempt
+      ? resolveSiteVisitGeofenceAttempt({
+          locationAttempt: args.locationAttempt,
+          siteLatitude: build.locationLatitude,
+          siteLongitude: build.locationLongitude,
+        })
+      : undefined;
     const now = Date.now();
     await ctx.db.insert("buildEvidenceAssets", {
       brokerageId: build.brokerageId,
       buildId,
+      clientEvidenceId: args.clientEvidenceId,
       contractorIds: args.contractorIds,
       createdAt: now,
       evidenceKey: `site-visit-${args.token}-${now}`,
       fileName: args.fileName,
       label: args.fileName,
-      locationVerified: true,
+      locationVerified: resolvedLocationAttempt?.verified ?? false,
+      ...(resolvedLocationAttempt?.accuracyMeters === undefined
+        ? {}
+        : { locationAccuracyMeters: resolvedLocationAttempt.accuracyMeters }),
+      ...(resolvedLocationAttempt?.attemptedAt === undefined
+        ? {}
+        : { locationAttemptedAt: resolvedLocationAttempt.attemptedAt }),
+      ...(resolvedLocationAttempt?.distanceMeters === undefined
+        ? {}
+        : { locationDistanceMeters: resolvedLocationAttempt.distanceMeters }),
+      ...(resolvedLocationAttempt?.failureReason
+        ? { locationFailureReason: resolvedLocationAttempt.failureReason }
+        : {}),
+      ...(resolvedLocationAttempt?.geofenceRadiusMeters === undefined
+        ? {}
+        : {
+            locationGeofenceRadiusMeters:
+              resolvedLocationAttempt.geofenceRadiusMeters,
+          }),
       milestoneKey: args.targetMilestoneKey ?? visit.milestoneKey,
       mimeType: args.mimeType,
       organizationId: build.organizationId,
       proposalId: build.proposalId,
       sizeBytes: Math.max(0, Math.round(args.sizeBytes)),
+      siteVisitId: visit._id,
       source: `active_build_site_visit:${args.token}:${args.targetSubmilestoneKey ?? ""}`,
       storageId: args.storageId,
       submilestoneKey: args.targetSubmilestoneKey,
@@ -13255,6 +17137,11 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     buildId: v.string(),
     completionObserved: v.boolean(),
     contractorRatings: v.optional(v.array(contractorQualityRatingInput)),
+    locationAttempt: siteVisitLocationAttemptValidator,
+    missingPrerequisites: v.array(
+      v.union(v.literal("permit"), v.literal("site_plan"))
+    ),
+    prerequisiteException: v.optional(siteVisitPrerequisiteExceptionValidator),
     recommendedOutcome: v.string(),
     reportNotes: v.string(),
     token: v.string(),
@@ -13269,8 +17156,6 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     if (!state.available) {
       throw new Error("Site visit token is not active.");
     }
-    const reportNotes = normalizeSiteVisitReportNotes(args.reportNotes);
-    const reportNotesText = siteVisitReportNotesPlainText(reportNotes);
     const buildId = ctx.db.normalizeId("activeBuilds", args.buildId);
     if (!buildId) {
       throw new Error("Site visit token is invalid.");
@@ -13283,6 +17168,77 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     if (!(build && visit) || visit.buildId !== buildId) {
       throw new Error("Site visit token is invalid.");
     }
+    const visitEvidence = (
+      await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_build", (q) => q.eq("buildId", buildId))
+        .collect()
+    ).filter(
+      (asset) =>
+        asset.siteVisitId === visit._id ||
+        asset.source.startsWith(`active_build_site_visit:${args.token}:`)
+    );
+    const validatedReport = validateSiteVisitReportSubmission({
+      compressedPackageBytes: visitEvidence.reduce(
+        (sum, asset) => sum + asset.sizeBytes,
+        0
+      ),
+      reportNotes: args.reportNotes,
+      uploadedEvidenceCount: visitEvidence.length,
+    });
+    const reportNotes = validatedReport.reportNotes;
+    const reportNotesText = validatedReport.reportNotesText;
+    const permitDocuments = await ctx.db
+      .query("buildDocuments")
+      .withIndex("by_build_type", (q) =>
+        q.eq("buildId", buildId).eq("documentType", "permit")
+      )
+      .collect();
+    const missingPrerequisites = [
+      ...args.missingPrerequisites,
+      ...(permitDocuments.length === 0 ? (["permit"] as const) : []),
+    ];
+    const submissionContext = validateSiteVisitSubmissionContext({
+      locationAttempt: resolveSiteVisitGeofenceAttempt({
+        locationAttempt: args.locationAttempt,
+        siteLatitude: build.locationLatitude,
+        siteLongitude: build.locationLongitude,
+      }),
+      missingPrerequisites,
+      prerequisiteException: args.prerequisiteException,
+    });
+    for (const asset of visitEvidence) {
+      await ctx.db.patch(asset._id, {
+        locationVerified: submissionContext.locationAttempt.verified,
+        ...(submissionContext.locationAttempt.accuracyMeters === undefined
+          ? {}
+          : {
+              locationAccuracyMeters:
+                submissionContext.locationAttempt.accuracyMeters,
+            }),
+        ...(submissionContext.locationAttempt.attemptedAt === undefined
+          ? {}
+          : {
+              locationAttemptedAt:
+                submissionContext.locationAttempt.attemptedAt,
+            }),
+        ...(submissionContext.locationAttempt.distanceMeters === undefined
+          ? {}
+          : {
+              locationDistanceMeters:
+                submissionContext.locationAttempt.distanceMeters,
+            }),
+        locationFailureReason: submissionContext.locationAttempt.failureReason,
+        ...(submissionContext.locationAttempt.geofenceRadiusMeters === undefined
+          ? {}
+          : {
+              locationGeofenceRadiusMeters:
+                submissionContext.locationAttempt.geofenceRadiusMeters,
+            }),
+        siteVisitId: visit._id,
+        updatedAt: Date.now(),
+      });
+    }
     const milestone = await ctx.db.get(visit.buildMilestoneId);
     if (!milestone) {
       throw new Error("Site visit milestone was not found.");
@@ -13292,6 +17248,9 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     const siteVisit = {
       ...(visit.note ? { note: visit.note } : {}),
       completedAt,
+      locationAttempt: submissionContext.locationAttempt,
+      missingPrerequisites: submissionContext.missingPrerequisites,
+      prerequisiteException: submissionContext.prerequisiteException,
       recordNote: reportNotes,
       recordNoteFormat: "html" as const,
       recommendedOutcome: args.recommendedOutcome,
@@ -13309,6 +17268,9 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
     );
     await ctx.db.patch(visit._id, {
       completedAt,
+      locationAttempt: submissionContext.locationAttempt,
+      missingPrerequisites: submissionContext.missingPrerequisites,
+      prerequisiteException: submissionContext.prerequisiteException,
       recordNote: reportNotes,
       recordNoteFormat: "html" as const,
       status: args.completionObserved ? "complete" : "cancelled",
@@ -13360,7 +17322,9 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       organizationId: build.organizationId,
       priorState: JSON.stringify(visit),
       reason: reportNotesText,
-      warnings: [],
+      warnings: submissionContext.locationAttempt.verified
+        ? []
+        : ["site_visit_location_unverified"],
     });
     await ctx.db.insert("eventOutbox", {
       brokerageId: build.brokerageId,
@@ -13371,6 +17335,12 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       relatedEntityId: build._id,
       relatedEntityType: "activeBuild",
       status: "pending",
+    });
+    await upsertBackofficeSiteVisitReportDeliveries(ctx, {
+      build,
+      milestone,
+      reportNotes: reportNotesText,
+      visit: { ...visit, ...siteVisit },
     });
     return null;
   })
@@ -13573,6 +17543,74 @@ export const attachActiveBuildContractor = authenticatedMutation
   })
   .public();
 
+export const attachAndInviteActiveBuildContractor = authenticatedMutation
+  .input({
+    agreedRateCents: v.optional(v.number()),
+    agreedRateUnit: v.optional(contractorPayRateUnitInput),
+    buildId: v.id("activeBuilds"),
+    contractorId: v.id("contractorProfiles"),
+    endDate: v.optional(v.string()),
+    expiresInDays: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    role: v.string(),
+    startDate: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      buildContractorAssignmentId: v.id("buildContractorAssignments"),
+      contractorInviteClaimId: v.id("contractorInviteClaims"),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    await requireActiveBuildAppPermission(ctx, auth, "contractor", "create");
+    await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
+    const buildContractorAssignmentId =
+      await upsertActiveBuildContractorAssignment(ctx, {
+        auth,
+        command: "attachAndInviteActiveBuildContractor",
+        input: args,
+      });
+    const contractor = await ctx.db.get(args.contractorId);
+    if (
+      !contractor ||
+      contractor.brokerageId !== auth.brokerage._id ||
+      contractor.status !== "active"
+    ) {
+      throw new Error("Production contractor not found.");
+    }
+    const contractorInviteClaimId = await createContractorProfileInviteClaim(
+      ctx,
+      {
+        actorRoles: auth.roles,
+        actorSubject: auth.subject,
+        brokerageId: auth.brokerage._id,
+        contractor,
+        expiresInDays: args.expiresInDays,
+        workosOrganizationId: args.workosOrganizationId,
+      }
+    );
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "attachAndInviteActiveBuildContractor",
+      eventType: "active_build.contractor.invited",
+      newState: JSON.stringify({
+        buildContractorAssignmentId,
+        contractorId: args.contractorId,
+        contractorInviteClaimId,
+        role: args.role,
+      }),
+    });
+    return { buildContractorAssignmentId, contractorInviteClaimId };
+  })
+  .public();
+
 export const createAndAttachActiveBuildContractor = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
@@ -13734,7 +17772,6 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
       args.buildId,
       args.workosOrganizationId
     );
-    requireBackofficeActiveBuildWrite(auth);
     await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
     const contractor = await getScopedContractorOrThrow(
       ctx,
@@ -13771,6 +17808,8 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
         : [{ id: undefined, key: undefined }];
     const now = Date.now();
     const assignmentIds: Id<"milestoneContractorAssignments">[] = [];
+    const assignmentOperations = new Set<"created" | "updated" | "removed">();
+    const priorAssignments: Array<Record<string, unknown>> = [];
     const agreedRateCents =
       normalizeOptionalMoneyCents(args.agreedRateCents) ??
       contractor.defaultPayRateCents;
@@ -13799,50 +17838,110 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
         milestoneKey: args.milestoneKey,
         submilestoneKey: target.key,
       });
+      if (existing) {
+        priorAssignments.push({
+          assignmentId: existing._id,
+          milestoneKey: existing.milestoneKey,
+          role: existing.role,
+          status: existing.status,
+          submilestoneKey: existing.submilestoneKey,
+        });
+      }
+      const nextStatus =
+        args.status ??
+        existing?.status ??
+        (milestone.status === "complete" ? "completed" : "active");
       const row = {
-        actualCostCents,
-        actualHours,
-        assignedAt: now,
-        assignedByWorkosUserId: auth.subject,
-        agreedRateCents,
-        agreedRateUnit,
+        actualCostCents:
+          args.actualCostCents === undefined
+            ? existing?.actualCostCents
+            : actualCostCents,
+        actualHours:
+          args.actualHours === undefined ? existing?.actualHours : actualHours,
+        assignedAt: existing?.assignedAt ?? now,
+        assignedByWorkosUserId:
+          existing?.assignedByWorkosUserId ?? auth.subject,
+        agreedRateCents:
+          args.agreedRateCents === undefined
+            ? (existing?.agreedRateCents ?? agreedRateCents)
+            : agreedRateCents,
+        agreedRateUnit:
+          args.agreedRateUnit === undefined
+            ? (existing?.agreedRateUnit ?? agreedRateUnit)
+            : agreedRateUnit,
         buildContractorAssignmentId: buildAssignmentId,
         buildMilestoneId: milestone._id,
         buildSubmilestoneId: target.id,
         contractorId: args.contractorId,
-        costNotes: normalizeOptionalString(args.costNotes),
-        estimatedCostCents,
-        estimatedHours,
+        costNotes:
+          args.costNotes === undefined
+            ? existing?.costNotes
+            : normalizeOptionalString(args.costNotes),
+        estimatedCostCents:
+          args.estimatedCostCents === undefined &&
+          args.estimatedHours === undefined &&
+          args.agreedRateCents === undefined
+            ? existing?.estimatedCostCents
+            : estimatedCostCents,
+        estimatedHours:
+          args.estimatedHours === undefined
+            ? existing?.estimatedHours
+            : estimatedHours,
         milestoneKey: args.milestoneKey,
-        note: normalizeOptionalString(args.note),
-        postHoc: Boolean(args.postHoc),
-        role: args.role.trim() || "Contractor",
-        status:
-          args.status ??
-          (milestone.status === "complete" ? "completed" : "active"),
+        note:
+          args.note === undefined
+            ? existing?.note
+            : normalizeOptionalString(args.note),
+        postHoc: args.postHoc ?? existing?.postHoc ?? false,
+        role: args.role.trim() || existing?.role || "Contractor",
+        status: nextStatus,
         submilestoneKey: target.key,
         updatedAt: now,
       };
+      let assignmentId: Id<"milestoneContractorAssignments">;
       if (existing) {
         await ctx.db.patch(existing._id, row);
-        assignmentIds.push(existing._id);
+        assignmentId = existing._id;
       } else {
-        assignmentIds.push(
-          await ctx.db.insert("milestoneContractorAssignments", {
-            ...row,
-            brokerageId: auth.brokerage._id,
-            buildId: args.buildId,
-            createdAt: now,
-            organizationId: args.workosOrganizationId,
-          })
-        );
+        assignmentId = await ctx.db.insert("milestoneContractorAssignments", {
+          ...row,
+          brokerageId: auth.brokerage._id,
+          buildId: args.buildId,
+          createdAt: now,
+          organizationId: args.workosOrganizationId,
+        });
       }
+      assignmentIds.push(assignmentId);
+      const operation =
+        nextStatus === "removed" ? "removed" : existing ? "updated" : "created";
+      assignmentOperations.add(operation);
+      if (operation === "removed") {
+        await resolveBuildAssignmentAcknowledgement(ctx, assignmentId, now);
+      } else {
+        await ensurePendingBuildAssignmentAcknowledgement(ctx, {
+          assignmentId,
+          brokerageId: auth.brokerage._id,
+          contractorId: args.contractorId,
+          now,
+          organizationId: args.workosOrganizationId,
+        });
+      }
+      await upsertContractorAssignmentDelivery(ctx, {
+        assignmentId,
+        auth,
+        contractor,
+        milestone,
+        operation,
+      });
     }
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
       command: "assignActiveBuildContractorToMilestone",
-      eventType: "active_build.contractor.milestone_assigned",
+      eventType:
+        assignmentOperations.size === 1
+          ? `active_build.contractor.milestone_assignment_${[...assignmentOperations][0]}`
+          : "active_build.contractor.milestone_assignment_updated",
       newState: JSON.stringify({
         assignmentIds,
         contractorId: args.contractorId,
@@ -13852,9 +17951,123 @@ export const assignActiveBuildContractorToMilestone = authenticatedMutation
         postHoc: Boolean(args.postHoc),
         submilestoneKeys,
       }),
+      priorState:
+        priorAssignments.length > 0
+          ? JSON.stringify(priorAssignments)
+          : undefined,
       reason: args.note,
     });
     return assignmentIds;
+  })
+  .public();
+
+export const removeActiveBuildContractorFromMilestone = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    contractorId: v.id("contractorProfiles"),
+    milestoneKey: v.string(),
+    reason: v.string(),
+    submilestoneKey: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.array(v.id("milestoneContractorAssignments")))
+  .handler(async (ctx, args) => {
+    const reason = args.reason.trim();
+    if (!reason) {
+      throw new Error("A removal reason is required.");
+    }
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
+    const contractor = await getScopedContractorOrThrow(
+      ctx,
+      args.contractorId,
+      auth.brokerage._id
+    );
+    const milestone = await getActiveBuildMilestoneOrThrow(
+      ctx,
+      args.buildId,
+      args.milestoneKey
+    );
+    const assignments = await ctx.db
+      .query("milestoneContractorAssignments")
+      .withIndex("by_contractor_build", (q) =>
+        q.eq("contractorId", args.contractorId).eq("buildId", args.buildId)
+      )
+      .collect();
+    const targets = assignments.filter(
+      (assignment) =>
+        assignment.milestoneKey === args.milestoneKey &&
+        assignment.status !== "removed" &&
+        (args.submilestoneKey === undefined ||
+          assignment.submilestoneKey === args.submilestoneKey)
+    );
+    if (targets.length === 0) {
+      throw new Error(
+        "No active contractor assignment was found for this scope."
+      );
+    }
+    const now = Date.now();
+    for (const assignment of targets) {
+      await ctx.db.patch(assignment._id, {
+        note: reason,
+        status: "removed",
+        updatedAt: now,
+      });
+      await resolveBuildAssignmentAcknowledgement(ctx, assignment._id, now);
+      await upsertContractorAssignmentDelivery(ctx, {
+        assignmentId: assignment._id,
+        auth,
+        contractor,
+        milestone,
+        operation: "removed",
+      });
+    }
+    const activeAssignments = assignments.filter(
+      (assignment) =>
+        !targets.some((target) => target._id === assignment._id) &&
+        assignment.status !== "removed"
+    );
+    if (activeAssignments.length === 0) {
+      const buildAssignment = await ctx.db
+        .query("buildContractorAssignments")
+        .withIndex("by_build_contractor", (q) =>
+          q.eq("buildId", args.buildId).eq("contractorId", args.contractorId)
+        )
+        .unique();
+      if (buildAssignment) {
+        await ctx.db.patch(buildAssignment._id, {
+          status: "inactive",
+          updatedAt: now,
+        });
+      }
+    }
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "removeActiveBuildContractorFromMilestone",
+      eventType: "active_build.contractor.milestone_assignment_removed",
+      newState: JSON.stringify({
+        assignmentIds: targets.map((assignment) => assignment._id),
+        contractorId: args.contractorId,
+        milestoneKey: args.milestoneKey,
+        status: "removed",
+        submilestoneKey: args.submilestoneKey,
+      }),
+      priorState: JSON.stringify(
+        targets.map((assignment) => ({
+          assignmentId: assignment._id,
+          role: assignment.role,
+          status: assignment.status,
+          submilestoneKey: assignment.submilestoneKey,
+        }))
+      ),
+      reason,
+    });
+    return targets.map((assignment) => assignment._id);
   })
   .public();
 
@@ -13911,6 +18124,84 @@ export const recordContractorQualityRating = authenticatedMutation
   })
   .public();
 
+function invalidActiveBuildDrawRequestError(input: {
+  availableCents?: number;
+  requestedCents?: number;
+  safeMessage: string;
+  reason:
+    | "different_amount_for_operation"
+    | "exceeds_available_limit"
+    | "invalid_amount"
+    | "invalid_draw_key"
+    | "invalid_note"
+    | "invalid_operation_id";
+}) {
+  return new ConvexError({
+    code: "ACTIVE_BUILD_DRAW_REQUEST_INVALID",
+    ...(input.availableCents === undefined
+      ? {}
+      : { availableCents: input.availableCents }),
+    ...(input.requestedCents === undefined
+      ? {}
+      : { requestedCents: input.requestedCents }),
+    reason: input.reason,
+    recoverable: true,
+    safeMessage: input.safeMessage,
+  });
+}
+
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value)
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function buildLegacyActiveBuildDrawOperationId(input: {
+  amountCents: number;
+  buildId: Id<"activeBuilds">;
+  drawKey: string;
+  requestedByWorkosUserId: string;
+}) {
+  return `legacy:${await sha256Hex(
+    [
+      String(input.buildId),
+      input.requestedByWorkosUserId,
+      input.drawKey,
+      String(input.amountCents),
+    ].join("|")
+  )}`;
+}
+
+function terminalActiveBuildDrawOperationConflictError(
+  request: Doc<"activeBuildDrawRequests">
+) {
+  return new ConvexError({
+    code: "ACTIVE_BUILD_DRAW_REQUEST_TERMINAL_OPERATION_CONFLICT",
+    currentStatus: request.status,
+    recoverable: true,
+    request: {
+      amountCents: request.amountCents,
+      displayId: request.displayId,
+      requestKey: request.requestKey,
+      requestedAt: request.requestedAt,
+      ...(request.withdrawnAt === undefined
+        ? {}
+        : { withdrawnAt: request.withdrawnAt }),
+      ...(request.reviewedAt === undefined
+        ? {}
+        : { reviewedAt: request.reviewedAt }),
+      ...(request.releasedAt === undefined
+        ? {}
+        : { releasedAt: request.releasedAt }),
+    },
+    safeMessage: `This draw request already ended as ${request.status}. Refresh the build funding view before retrying.`,
+  });
+}
+
 export const requestActiveBuildDraw = authenticatedMutation
   .input({
     amountCents: v.number(),
@@ -13948,24 +18239,40 @@ export const requestActiveBuildDraw = authenticatedMutation
     );
     await requireActiveBuildAppPermission(ctx, auth, "draw", "update");
     if (!Number.isSafeInteger(args.amountCents) || args.amountCents <= 0) {
-      throw new Error(
-        "Draw request amount must be a positive whole number of cents."
-      );
+      throw invalidActiveBuildDrawRequestError({
+        reason: "invalid_amount",
+        safeMessage:
+          "Draw request amount must be a positive whole number of cents.",
+      });
     }
     const amountCents = args.amountCents;
     const drawKey = args.drawKey.trim();
     if (!drawKey || drawKey.length > 256) {
-      throw new Error("Draw request planning reference is invalid.");
+      throw invalidActiveBuildDrawRequestError({
+        reason: "invalid_draw_key",
+        safeMessage: "Draw request planning reference is invalid.",
+      });
     }
     const note = args.note?.trim() || undefined;
     if (note && note.length > 500) {
-      throw new Error("Draw request note must be 500 characters or fewer.");
+      throw invalidActiveBuildDrawRequestError({
+        reason: "invalid_note",
+        safeMessage: "Draw request note must be 500 characters or fewer.",
+      });
     }
     const clientOperationId =
       args.clientOperationId?.trim() ||
-      `legacy:${drawKey}:${auth.subject}:${Date.now()}`;
+      (await buildLegacyActiveBuildDrawOperationId({
+        amountCents,
+        buildId: args.buildId,
+        drawKey,
+        requestedByWorkosUserId: auth.subject,
+      }));
     if (clientOperationId.length > 128) {
-      throw new Error("Draw request operation ID is invalid.");
+      throw invalidActiveBuildDrawRequestError({
+        reason: "invalid_operation_id",
+        safeMessage: "Draw request operation ID is invalid.",
+      });
     }
     const existing = await ctx.db
       .query("activeBuildDrawRequests")
@@ -13975,9 +18282,15 @@ export const requestActiveBuildDraw = authenticatedMutation
       .unique();
     if (existing) {
       if (existing.amountCents !== amountCents) {
-        throw new Error(
-          "This operation ID was already used for a different draw amount."
-        );
+        throw invalidActiveBuildDrawRequestError({
+          reason: "different_amount_for_operation",
+          requestedCents: amountCents,
+          safeMessage:
+            "This operation ID was already used for a different draw amount.",
+        });
+      }
+      if (existing.status !== "requested") {
+        throw terminalActiveBuildDrawOperationConflictError(existing);
       }
       const funding = await activeBuildDrawFundingSnapshot(ctx, args.buildId);
       const sourceAllocations = await activeBuildDrawAllocationViews(
@@ -13997,9 +18310,12 @@ export const requestActiveBuildDraw = authenticatedMutation
     }
     const funding = await activeBuildDrawFundingSnapshot(ctx, args.buildId);
     if (amountCents > funding.availableCents) {
-      throw new Error(
-        `Requested draw exceeds the available draw limit of ${funding.availableCents} cents.`
-      );
+      throw invalidActiveBuildDrawRequestError({
+        availableCents: funding.availableCents,
+        reason: "exceeds_available_limit",
+        requestedCents: amountCents,
+        safeMessage: `Requested draw exceeds the available draw limit of ${funding.availableCents} cents.`,
+      });
     }
     const plannedDraw = await ctx.db
       .query("plannedDrawScheduleRows")
@@ -14300,6 +18616,12 @@ export const approveActiveBuildDraw = authenticatedMutation
       priorState: JSON.stringify(draw),
       reason: note,
     });
+    await upsertBuilderDrawDecisionDeliveries(ctx, {
+      auth,
+      draw: { ...draw, ...patch },
+      note: args.note,
+      status: "approved",
+    });
     return null;
   })
   .public();
@@ -14349,6 +18671,12 @@ export const rejectActiveBuildDraw = authenticatedMutation
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(draw),
       reason: note,
+    });
+    await upsertBuilderDrawDecisionDeliveries(ctx, {
+      auth,
+      draw: { ...draw, ...patch },
+      note,
+      status: "rejected",
     });
     return null;
   })
@@ -14410,6 +18738,12 @@ export const releaseActiveBuildDraw = authenticatedMutation
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(draw),
       reason: note,
+    });
+    await upsertBuilderDrawDecisionDeliveries(ctx, {
+      auth,
+      draw: { ...draw, ...patch },
+      note: args.note,
+      status: "released",
     });
     return null;
   })
@@ -15267,6 +19601,9 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
   })
   .returns(
     v.object({
+      evidencePackageId: v.string(),
+      scopeBoundAt: v.number(),
+      workOrderId: v.string(),
       note: v.optional(v.string()),
       requestedAt: v.string(),
       requestedDay: v.number(),
@@ -15299,7 +19636,12 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
     );
     const now = Date.now();
     const visitId = `active_visit_${args.milestoneKey}_${now}`;
+    const workOrderId = `WO-${visitId}`;
+    const evidencePackageId = `EP-${String(args.buildId)}-${args.milestoneKey}`;
     const siteVisit = {
+      evidencePackageId,
+      scopeBoundAt: now,
+      workOrderId,
       ...(args.note ? { note: args.note } : {}),
       requestedAt: new Date(now).toISOString(),
       requestedDay: Math.max(0, Math.round(args.requestedDay)),
@@ -15316,6 +19658,9 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       buildId: args.buildId,
       buildMilestoneId: milestone._id,
       createdAt: now,
+      evidencePackageId,
+      scopeBoundAt: now,
+      workOrderId,
       milestoneKey: args.milestoneKey,
       note: args.note,
       organizationId: args.workosOrganizationId,
@@ -15458,6 +19803,12 @@ export const approveActiveBuildMilestone = authenticatedMutation
       priorState: JSON.stringify(milestone.completionReview),
       reason: args.note,
     });
+    await upsertBuilderMilestoneDecisionDeliveries(ctx, {
+      auth,
+      milestone,
+      note: args.note,
+      status: "approved",
+    });
     return null;
   })
   .public();
@@ -15504,9 +19855,786 @@ export const rejectActiveBuildMilestone = authenticatedMutation
       priorState: JSON.stringify(milestone.completionReview),
       reason: args.note,
     });
+    await upsertBuilderMilestoneDecisionDeliveries(ctx, {
+      auth,
+      milestone,
+      note: args.note,
+      status: "rejected",
+    });
     return null;
   })
   .public();
+
+type ActiveBuildDeliveryAuth = {
+  brokerage: Doc<"brokerages">;
+  build: Doc<"activeBuilds">;
+  proposal: Doc<"buildProposals">;
+  roles: RoleSlug[];
+  subject: string;
+};
+
+async function activeBuilderRecipientWorkosUserIds(
+  ctx: MutationCtx,
+  auth: ActiveBuildDeliveryAuth
+) {
+  const builderProfileId = auth.proposal.builderProfileId;
+  if (!builderProfileId) {
+    return [];
+  }
+  const links = await ctx.db
+    .query("builderAccountLinks")
+    .withIndex("by_builder", (q) => q.eq("builderProfileId", builderProfileId))
+    .collect();
+  return [
+    ...new Set(
+      links
+        .filter(
+          (link) =>
+            link.status === "active" && link.brokerageId === auth.brokerage._id
+        )
+        .map((link) => link.workosUserId)
+    ),
+  ];
+}
+
+async function upsertBuilderMilestoneDecisionDeliveries(
+  ctx: MutationCtx,
+  input: {
+    auth: ActiveBuildDeliveryAuth;
+    milestone: Doc<"buildMilestones">;
+    note?: string;
+    status: "approved" | "rejected";
+  }
+) {
+  const recipients = await activeBuilderRecipientWorkosUserIds(ctx, input.auth);
+  const now = Date.now();
+  const rejected = input.status === "rejected";
+  const dedupeKey = `milestone-decision:${input.auth.build._id}:${input.milestone.key}:${input.status}`;
+  const title = rejected
+    ? `${input.milestone.name} changes requested`
+    : `${input.milestone.name} approved`;
+  const body =
+    normalizeOptionalString(input.note) ??
+    (rejected
+      ? "Review the lender decision and update the milestone before resubmitting."
+      : "The milestone review is complete. Open the build to review the approved state.");
+
+  for (const recipientWorkosUserId of recipients) {
+    const existing = await ctx.db
+      .query("recipientDeliveries")
+      .withIndex("by_recipient_dedupe", (q) =>
+        q
+          .eq("organizationId", input.auth.build.organizationId)
+          .eq("recipientWorkosUserId", recipientWorkosUserId)
+          .eq("dedupeKey", dedupeKey)
+      )
+      .first();
+    const delivery = {
+      actionLabel: rejected ? "Review milestone" : "View milestone",
+      actionRequired: rejected,
+      body,
+      createdAt: now,
+      entityId: String(input.auth.build._id),
+      entityLabel: `${input.auth.build.buildName} · ${input.milestone.name}`,
+      entityType: "activeBuild",
+      href: `/builder/builds/${input.auth.build._id}?milestone=${encodeURIComponent(input.milestone.key)}`,
+      resolutionMode: "domain" as const,
+      sourceLabel: "Lender Admin",
+      status: "unread" as const,
+      title,
+      updatedAt: now,
+    };
+    if (existing) {
+      await ctx.db.patch(existing._id, delivery);
+    } else {
+      await ctx.db.insert("recipientDeliveries", {
+        ...delivery,
+        brokerageId: input.auth.brokerage._id,
+        dedupeKey,
+        organizationId: input.auth.build.organizationId,
+        recipientWorkosUserId,
+      });
+    }
+  }
+}
+
+async function upsertBuilderDrawDecisionDeliveries(
+  ctx: MutationCtx,
+  input: {
+    auth: ActiveBuildDeliveryAuth;
+    draw: Doc<"activeBuildDrawRequests">;
+    note?: string;
+    status: "approved" | "rejected" | "released";
+  }
+) {
+  const recipients = await activeBuilderRecipientWorkosUserIds(ctx, input.auth);
+  const now = Date.now();
+  const rejected = input.status === "rejected";
+  const released = input.status === "released";
+  const dedupeKey = `draw-decision:${input.auth.build._id}:${input.draw.requestKey}:${input.status}`;
+  const title = rejected
+    ? `${input.draw.displayId} changes requested`
+    : released
+      ? `${input.draw.displayId} funds released`
+      : `${input.draw.displayId} approved`;
+  const body =
+    normalizeOptionalString(input.note) ??
+    (rejected
+      ? "Review the lender decision, correct the request, and submit it again."
+      : released
+        ? "Confirm receipt of the released reimbursement and report any settlement discrepancy."
+        : "The draw is approved and is waiting for Lender Admin release authority.");
+  for (const recipientWorkosUserId of recipients) {
+    const existing = await ctx.db
+      .query("recipientDeliveries")
+      .withIndex("by_recipient_dedupe", (q) =>
+        q
+          .eq("organizationId", input.auth.build.organizationId)
+          .eq("recipientWorkosUserId", recipientWorkosUserId)
+          .eq("dedupeKey", dedupeKey)
+      )
+      .first();
+    const delivery = {
+      actionLabel: rejected
+        ? "Correct draw request"
+        : released
+          ? "Acknowledge release"
+          : "View draw",
+      actionRequired: rejected || released,
+      body,
+      createdAt: now,
+      entityId: String(input.auth.build._id),
+      entityLabel: `${input.auth.build.buildName} · ${input.draw.displayId}`,
+      entityType: "activeBuild",
+      href: `/builder/builds/${input.auth.build._id}?tab=details&rail=open`,
+      resolutionMode: (released ? "recipient" : "domain") as
+        | "domain"
+        | "recipient",
+      sourceLabel: released ? "Lender Admin" : "Lender Operations",
+      status: "unread" as const,
+      title,
+      updatedAt: now,
+    };
+    if (existing) {
+      await ctx.db.patch(existing._id, delivery);
+    } else {
+      await ctx.db.insert("recipientDeliveries", {
+        ...delivery,
+        brokerageId: input.auth.brokerage._id,
+        dedupeKey,
+        organizationId: input.auth.build.organizationId,
+        recipientWorkosUserId,
+      });
+    }
+  }
+}
+
+async function upsertBackofficeSiteVisitReportDeliveries(
+  ctx: MutationCtx,
+  input: {
+    build: Doc<"activeBuilds">;
+    milestone: Doc<"buildMilestones">;
+    reportNotes: string;
+    visit: Pick<Doc<"buildSiteVisits">, "visitId">;
+  }
+) {
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_organization", (q) =>
+      q.eq("workosOrganizationId", input.build.organizationId)
+    )
+    .collect();
+  const recipients = new Set(
+    memberships
+      .filter(
+        (membership) =>
+          membership.status === "active" &&
+          [membership.roleSlug, ...membership.roleSlugs].some(
+            (role) =>
+              role !== undefined &&
+              (BACKOFFICE_ROLES as readonly string[]).includes(role)
+          )
+      )
+      .map((membership) => membership.workosUserId)
+  );
+  const dedupeKey = `site-visit-report:${input.build._id}:${input.visit.visitId}`;
+  const now = Date.now();
+  for (const recipientWorkosUserId of recipients) {
+    const existing = await ctx.db
+      .query("recipientDeliveries")
+      .withIndex("by_recipient_dedupe", (q) =>
+        q
+          .eq("organizationId", input.build.organizationId)
+          .eq("recipientWorkosUserId", recipientWorkosUserId)
+          .eq("dedupeKey", dedupeKey)
+      )
+      .first();
+    const delivery = {
+      actionLabel: "Review site visit",
+      actionRequired: true,
+      body:
+        input.reportNotes ||
+        "A site visitor submitted a recommendation for lender review.",
+      createdAt: now,
+      entityId: String(input.build._id),
+      entityLabel: `${input.build.buildName} · ${input.milestone.name}`,
+      entityType: "activeBuild",
+      href: `/backoffice/builds/${input.build._id}?milestone=${encodeURIComponent(input.milestone.key)}&rail=open`,
+      resolutionMode: "domain" as const,
+      sourceLabel: "Site Visit Staff",
+      status: "unread" as const,
+      title: `${input.milestone.name} site visit submitted`,
+      updatedAt: now,
+    };
+    if (existing) {
+      await ctx.db.patch(existing._id, delivery);
+    } else {
+      await ctx.db.insert("recipientDeliveries", {
+        ...delivery,
+        brokerageId: input.build.brokerageId,
+        dedupeKey,
+        organizationId: input.build.organizationId,
+        recipientWorkosUserId,
+      });
+    }
+  }
+}
+
+async function resolveBuilderMilestoneDecisionDeliveries(
+  ctx: MutationCtx,
+  input: {
+    auth: ActiveBuildDeliveryAuth;
+    milestone: Doc<"buildMilestones">;
+    status: "approved" | "rejected";
+  }
+) {
+  const recipients = await activeBuilderRecipientWorkosUserIds(ctx, input.auth);
+  const dedupeKey = `milestone-decision:${input.auth.build._id}:${input.milestone.key}:${input.status}`;
+  const now = Date.now();
+  for (const recipientWorkosUserId of recipients) {
+    const delivery = await ctx.db
+      .query("recipientDeliveries")
+      .withIndex("by_recipient_dedupe", (q) =>
+        q
+          .eq("organizationId", input.auth.build.organizationId)
+          .eq("recipientWorkosUserId", recipientWorkosUserId)
+          .eq("dedupeKey", dedupeKey)
+      )
+      .first();
+    if (delivery && delivery.status !== "resolved") {
+      await ctx.db.patch(delivery._id, { status: "resolved", updatedAt: now });
+    }
+  }
+}
+
+function operationsHandoffProjection(handoff: Doc<"operationsQueueHandoffs">) {
+  return {
+    _id: handoff._id,
+    acknowledgementState: handoff.acknowledgementState,
+    acknowledgedAt: handoff.acknowledgedAt,
+    acknowledgedByWorkosUserId: handoff.acknowledgedByWorkosUserId,
+    createdAt: handoff.createdAt,
+    decisionPreview: handoff.decisionPreview,
+    escalatedByWorkosUserId: handoff.escalatedByWorkosUserId,
+    escalationReason: handoff.escalationReason,
+    evidenceSummary: handoff.evidenceSummary,
+    followUpAssignment: handoff.followUpAssignment,
+    queueItemId: handoff.queueItemId,
+    recommendation: handoff.recommendation,
+    requiredAction: handoff.requiredAction,
+    returnDecision: handoff.returnDecision,
+    returnedAt: handoff.returnedAt,
+    returnedByWorkosUserId: handoff.returnedByWorkosUserId,
+    returnReason: handoff.returnReason,
+    targetHref: handoff.targetHref,
+    targetLabel: handoff.targetLabel,
+    targetRecordId: handoff.targetRecordId,
+    targetType: handoff.targetType,
+    updatedAt: handoff.updatedAt,
+    warnings: handoff.warnings,
+  };
+}
+
+async function authorizeOperationsQueueMutation(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  workosOrganizationId: string
+) {
+  const auth = await authorizeBrokerage(ctx, workosOrganizationId);
+  requireAnyRole(auth.roles, BACKOFFICE_ROLES);
+  const elevated = auth.roles.some((role) =>
+    ["admin", "principle-broker", "broker"].includes(role)
+  );
+  if (
+    !(
+      elevated ||
+      (await hasPermission(
+        ctx,
+        auth.brokerage.workosOrganizationId,
+        auth.roles,
+        "proposals:read"
+      ))
+    )
+  ) {
+    throw new Error("Forbidden: permission");
+  }
+  return auth;
+}
+
+async function getOperationsHandoffOrThrow(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  handoffId: Id<"operationsQueueHandoffs">,
+  workosOrganizationId: string
+) {
+  const auth = await authorizeOperationsQueueMutation(
+    ctx,
+    workosOrganizationId
+  );
+  const handoff = await ctx.db.get(handoffId);
+  if (
+    !handoff ||
+    handoff.brokerageId !== auth.brokerage._id ||
+    handoff.organizationId !== workosOrganizationId
+  ) {
+    throw new ConvexError("Operations escalation unavailable.");
+  }
+  return { auth, handoff };
+}
+
+async function resolveOperationsQueueTarget(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    auth: { brokerage: Doc<"brokerages"> };
+    queueItemId: string;
+    workosOrganizationId: string;
+  }
+) {
+  const separatorIndex = input.queueItemId.indexOf(":");
+  if (separatorIndex <= 0) {
+    throw new ConvexError("Operations queue item unavailable.");
+  }
+  const kind = input.queueItemId.slice(0, separatorIndex);
+  const rawId = input.queueItemId.slice(separatorIndex + 1);
+
+  if (kind === "proposal-review" || kind === "proposal-closing") {
+    const proposalId = ctx.db.normalizeId("buildProposals", rawId);
+    const proposal = proposalId ? await ctx.db.get(proposalId) : null;
+    const isReviewable =
+      kind === "proposal-review"
+        ? proposal?.status === "submitted" &&
+          proposal.reviewOutcome !== "rejected"
+        : proposal?.status === "approved" && !proposal.activeBuildId;
+    if (
+      !(proposal && isReviewable) ||
+      proposal.brokerageId !== input.auth.brokerage._id ||
+      proposal.organizationId !== input.workosOrganizationId
+    ) {
+      throw new ConvexError("Operations queue item unavailable.");
+    }
+    return {
+      href: `/backoffice/proposals/${proposal._id}`,
+      label: proposal.buildName,
+      recordId: String(proposal._id),
+      type: "proposal",
+    };
+  }
+
+  if (kind === "build-stale") {
+    const buildId = ctx.db.normalizeId("activeBuilds", rawId);
+    const build = buildId ? await ctx.db.get(buildId) : null;
+    if (
+      !build ||
+      build.brokerageId !== input.auth.brokerage._id ||
+      build.organizationId !== input.workosOrganizationId
+    ) {
+      throw new ConvexError("Operations queue item unavailable.");
+    }
+    return {
+      href: `/backoffice/builds/${build._id}`,
+      label: build.buildName,
+      recordId: String(build._id),
+      type: "activeBuild",
+    };
+  }
+
+  if (kind === "draw-review") {
+    const requestId = ctx.db.normalizeId("activeBuildDrawRequests", rawId);
+    const request = requestId ? await ctx.db.get(requestId) : null;
+    const build = request ? await ctx.db.get(request.buildId) : null;
+    if (
+      !request ||
+      request.status !== "requested" ||
+      !build ||
+      build.brokerageId !== input.auth.brokerage._id ||
+      build.organizationId !== input.workosOrganizationId
+    ) {
+      throw new ConvexError("Operations queue item unavailable.");
+    }
+    return {
+      href: `/backoffice/draws?buildId=${build._id}&drawId=${request._id}`,
+      label: `${build.buildName} · ${request.label}`,
+      recordId: String(request._id),
+      type: "drawRequest",
+    };
+  }
+
+  if (kind === "milestone-review" || kind === "site-visit") {
+    const milestoneId = ctx.db.normalizeId("buildMilestones", rawId);
+    const milestone = milestoneId ? await ctx.db.get(milestoneId) : null;
+    const build = milestone ? await ctx.db.get(milestone.buildId) : null;
+    if (
+      !(
+        milestone &&
+        productionMilestoneNeedsBackofficeReview(milestone) &&
+        build
+      ) ||
+      build.brokerageId !== input.auth.brokerage._id ||
+      build.organizationId !== input.workosOrganizationId
+    ) {
+      throw new ConvexError("Operations queue item unavailable.");
+    }
+    return {
+      href:
+        kind === "site-visit"
+          ? `/backoffice/site-visits?buildId=${build._id}&milestone=${milestone.key}`
+          : `/backoffice/builds/${build._id}?milestone=${milestone.key}`,
+      label: `${build.buildName} · ${milestone.name}`,
+      recordId: String(milestone._id),
+      type: kind === "site-visit" ? "siteVisit" : "milestone",
+    };
+  }
+
+  throw new ConvexError("Operations queue item unavailable.");
+}
+
+function requireOperationsHandoffText(value: string, label: string) {
+  const normalized = value.trim();
+  if (normalized.length < 8) {
+    throw new ConvexError(`${label} must contain at least 8 characters.`);
+  }
+  return normalized;
+}
+
+function normalizeOperationsHandoffWarnings(warnings: string[]) {
+  return [
+    ...new Set(warnings.map((warning) => warning.trim()).filter(Boolean)),
+  ].slice(0, 10);
+}
+
+function operationsHandoffAuditState(handoff: Doc<"operationsQueueHandoffs">) {
+  return JSON.stringify({
+    acknowledgementState: handoff.acknowledgementState,
+    decisionPreview: handoff.decisionPreview,
+    followUpAssignment: handoff.followUpAssignment,
+    queueItemId: handoff.queueItemId,
+    recommendation: handoff.recommendation,
+    requiredAction: handoff.requiredAction,
+    returnDecision: handoff.returnDecision,
+    returnReason: handoff.returnReason,
+    targetHref: handoff.targetHref,
+    targetLabel: handoff.targetLabel,
+    warnings: handoff.warnings,
+  });
+}
+
+async function writeOperationsHandoffEvent(
+  ctx: MutationCtx,
+  input: {
+    auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string };
+    command: string;
+    eventType: string;
+    handoff: Doc<"operationsQueueHandoffs">;
+    newState: string;
+    organizationId: string;
+    priorState?: string;
+    reason: string;
+  }
+) {
+  await ctx.db.insert("auditEvents", {
+    actorRoles: input.auth.roles,
+    actorWorkosUserId: input.auth.subject,
+    brokerageId: input.auth.brokerage._id,
+    command: input.command,
+    createdAt: Date.now(),
+    entityId: String(input.handoff._id),
+    entityType: "operationsQueueHandoff",
+    eventType: input.eventType,
+    newState: input.newState,
+    organizationId: input.organizationId,
+    priorState: input.priorState,
+    reason: input.reason,
+    warnings: input.handoff.warnings,
+  });
+}
+
+function integrationEndpointProjection(endpoint: Doc<"integrationEndpoints">) {
+  return {
+    _id: endpoint._id,
+    activatedAt: endpoint.activatedAt,
+    createdAt: endpoint.createdAt,
+    disabledAt: endpoint.disabledAt,
+    endpointUrl: endpoint.endpointUrl,
+    eventTypes: endpoint.eventTypes,
+    name: endpoint.name,
+    payloadVersion: endpoint.payloadVersion,
+    revokedAt: endpoint.revokedAt,
+    secretFingerprint: endpoint.secretFingerprint,
+    secretVersion: endpoint.secretVersion,
+    status: endpoint.status,
+    updatedAt: endpoint.updatedAt,
+    validatedAt: endpoint.validatedAt,
+  };
+}
+
+function integrationDeliveryProjection(
+  attempt: Doc<"integrationDeliveryAttempts">,
+  endpoint: Doc<"integrationEndpoints">
+) {
+  return {
+    _id: attempt._id,
+    attemptNumber: attempt.attemptNumber,
+    attemptedAt: attempt.attemptedAt,
+    completedAt: attempt.completedAt,
+    deliveryId: attempt.deliveryId,
+    endpointId: attempt.endpointId,
+    endpointName: endpoint.name,
+    endpointUrl: endpoint.endpointUrl,
+    eventId: attempt.eventId,
+    eventType: attempt.eventType,
+    nextRetryAt: attempt.nextRetryAt,
+    payloadVersion: attempt.payloadVersion,
+    responseCode: attempt.responseCode,
+    retryOfAttemptId: attempt.retryOfAttemptId,
+    safeError: sanitizeIntegrationError(attempt.safeError),
+    status: attempt.status,
+    updatedAt: attempt.updatedAt,
+  };
+}
+
+async function authorizeIntegrationAdmin(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  workosOrganizationId: string
+) {
+  const auth = await authorizeBrokerage(ctx, workosOrganizationId);
+  requireAnyRole(auth.roles, ["admin"]);
+  return auth;
+}
+
+async function getIntegrationEndpointOrThrow(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  endpointId: Id<"integrationEndpoints">,
+  workosOrganizationId: string
+) {
+  const auth = await authorizeIntegrationAdmin(ctx, workosOrganizationId);
+  const endpoint = await ctx.db.get(endpointId);
+  if (
+    !endpoint ||
+    endpoint.brokerageId !== auth.brokerage._id ||
+    endpoint.organizationId !== workosOrganizationId
+  ) {
+    throw new ConvexError("Integration endpoint unavailable.");
+  }
+  return { auth, endpoint };
+}
+
+async function getIntegrationDeliveryAttemptOrThrow(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  attemptId: Id<"integrationDeliveryAttempts">,
+  workosOrganizationId: string
+) {
+  const auth = await authorizeIntegrationAdmin(ctx, workosOrganizationId);
+  const attempt = await ctx.db.get(attemptId);
+  if (
+    !attempt ||
+    attempt.brokerageId !== auth.brokerage._id ||
+    attempt.organizationId !== workosOrganizationId
+  ) {
+    throw new ConvexError("Integration delivery unavailable.");
+  }
+  const endpoint = await ctx.db.get(attempt.endpointId);
+  if (
+    !endpoint ||
+    endpoint.brokerageId !== auth.brokerage._id ||
+    endpoint.organizationId !== workosOrganizationId
+  ) {
+    throw new ConvexError("Integration endpoint unavailable.");
+  }
+  return { attempt, auth, endpoint };
+}
+
+function requireIntegrationText(value: string, label: string) {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new ConvexError(`${label} is required.`);
+  }
+  return normalized;
+}
+
+function requireIntegrationReason(reason: string) {
+  const normalized = reason.trim();
+  if (normalized.length < 8) {
+    throw new ConvexError("Provide a reason with at least 8 characters.");
+  }
+  return normalized;
+}
+
+function normalizeIntegrationEndpointUrl(value: string) {
+  const normalized = value.trim();
+  let endpointUrl: URL;
+  try {
+    endpointUrl = new URL(normalized);
+  } catch {
+    throw new ConvexError("Enter a valid HTTPS endpoint URL.");
+  }
+  if (endpointUrl.protocol !== "https:") {
+    throw new ConvexError("Integration endpoints must use HTTPS.");
+  }
+  const hostname = endpointUrl.hostname
+    .toLowerCase()
+    .replaceAll("[", "")
+    .replaceAll("]", "");
+  const ipv4Parts = hostname.split(".").map(Number);
+  const isIpv4 =
+    ipv4Parts.length === 4 &&
+    ipv4Parts.every(
+      (part) => Number.isInteger(part) && part >= 0 && part <= 255
+    );
+  const isPrivateIpv4 =
+    isIpv4 &&
+    (ipv4Parts[0] === 10 ||
+      ipv4Parts[0] === 127 ||
+      (ipv4Parts[0] === 169 && ipv4Parts[1] === 254) ||
+      (ipv4Parts[0] === 172 && ipv4Parts[1] >= 16 && ipv4Parts[1] <= 31) ||
+      (ipv4Parts[0] === 192 && ipv4Parts[1] === 168));
+  const isPrivateHostname =
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    hostname === "::1" ||
+    hostname.startsWith("fc") ||
+    hostname.startsWith("fd") ||
+    hostname.startsWith("fe80:");
+  if (isPrivateIpv4 || isPrivateHostname) {
+    throw new ConvexError(
+      "Integration endpoint hosts must be publicly routable."
+    );
+  }
+  const allowedHosts = process.env.DRAWFLOW_WEBHOOK_ALLOWED_HOSTS?.split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+  if (
+    allowedHosts?.length &&
+    !allowedHosts.some(
+      (allowedHost) =>
+        hostname === allowedHost || hostname.endsWith(`.${allowedHost}`)
+    )
+  ) {
+    throw new ConvexError("Integration endpoint host is not allowlisted.");
+  }
+  endpointUrl.username = "";
+  endpointUrl.password = "";
+  endpointUrl.hash = "";
+  return endpointUrl.toString();
+}
+
+function normalizeIntegrationEventTypes(eventTypes: string[]) {
+  const normalized = [
+    ...new Set(eventTypes.map((eventType) => eventType.trim()).filter(Boolean)),
+  ];
+  if (normalized.length === 0) {
+    throw new ConvexError("Select at least one event subscription.");
+  }
+  return normalized;
+}
+
+function sanitizeIntegrationError(value?: string) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return;
+  }
+  return normalized
+    .replace(/dfwhsec_[A-Za-z0-9-]+/g, "[secret redacted]")
+    .replace(
+      /(authorization|secret|token|signature)\s*[:=]\s*\S+/gi,
+      "$1: [redacted]"
+    )
+    .slice(0, 500);
+}
+
+function integrationEndpointAuditState(endpoint: Doc<"integrationEndpoints">) {
+  return JSON.stringify({
+    endpointUrl: endpoint.endpointUrl,
+    eventTypes: endpoint.eventTypes,
+    name: endpoint.name,
+    payloadVersion: endpoint.payloadVersion,
+    secretFingerprint: endpoint.secretFingerprint,
+    secretVersion: endpoint.secretVersion,
+    status: endpoint.status,
+    validatedAt: endpoint.validatedAt,
+  });
+}
+
+async function writeIntegrationEvent(
+  ctx: MutationCtx,
+  input: {
+    auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string };
+    command: string;
+    endpoint: Doc<"integrationEndpoints">;
+    eventType: string;
+    newState?: string;
+    organizationId: string;
+    priorState?: string;
+    reason: string;
+  }
+) {
+  const now = Date.now();
+  await ctx.db.insert("auditEvents", {
+    actorRoles: input.auth.roles,
+    actorWorkosUserId: input.auth.subject,
+    brokerageId: input.auth.brokerage._id,
+    command: input.command,
+    createdAt: now,
+    entityId: String(input.endpoint._id),
+    entityType: "integrationEndpoint",
+    eventType: input.eventType,
+    newState: input.newState,
+    organizationId: input.organizationId,
+    priorState: input.priorState,
+    reason: input.reason,
+    warnings: [],
+  });
+  await ctx.db.insert("eventOutbox", {
+    brokerageId: input.auth.brokerage._id,
+    createdAt: now,
+    eventType: input.eventType,
+    organizationId: input.organizationId,
+    payloadPreview: JSON.stringify({
+      endpointId: String(input.endpoint._id),
+      status: input.endpoint.status,
+    }),
+    relatedEntityId: input.endpoint._id,
+    relatedEntityType: "integrationEndpoint",
+    status: "pending",
+  });
+}
+
+async function getRecipientDeliveryOrThrow(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  deliveryId: Id<"recipientDeliveries">,
+  workosOrganizationId: string
+) {
+  const auth = await authorizeBrokerage(ctx, workosOrganizationId);
+  const delivery = await ctx.db.get(deliveryId);
+  if (
+    !delivery ||
+    delivery.brokerageId !== auth.brokerage._id ||
+    delivery.organizationId !== workosOrganizationId ||
+    delivery.recipientWorkosUserId !== auth.subject
+  ) {
+    throw new ConvexError("Delivery unavailable.");
+  }
+  return delivery;
+}
 
 async function authorizeBrokerage(
   ctx: QueryCtx | MutationCtx,
@@ -15717,6 +20845,7 @@ async function assertBuilderProfileScope(
   ) {
     throw new Error("Forbidden: builder scope");
   }
+  return builder;
 }
 
 function assignedBuilderProfileIdOrThrow(
@@ -16228,21 +21357,65 @@ async function getOwnedBuilderProfile(
   brokerageId: Id<"brokerages">,
   workosUserId: string
 ) {
+  const ownedBuilderProfiles = await getOwnedBuilderProfiles(
+    ctx,
+    brokerageId,
+    workosUserId
+  );
+  return ownedBuilderProfiles[0] ?? null;
+}
+
+async function getOwnedBuilderProfiles(
+  ctx: QueryCtx | MutationCtx,
+  brokerageId: Id<"brokerages">,
+  workosUserId: string
+) {
   const links = await ctx.db
     .query("builderAccountLinks")
     .withIndex("by_user", (q) => q.eq("workosUserId", workosUserId))
     .collect();
-  for (const link of links.filter((row) => row.status === "active")) {
+  const ownedBuilderProfiles: Doc<"builderProfiles">[] = [];
+  const seenBuilderProfileIds = new Set<string>();
+
+  for (const link of links) {
+    if (link.status !== "active") {
+      continue;
+    }
     const builderProfile = await ctx.db.get(link.builderProfileId);
     if (
-      builderProfile &&
-      builderProfile.brokerageId === brokerageId &&
-      builderProfile.status === "active"
+      !builderProfile ||
+      builderProfile.brokerageId !== brokerageId ||
+      builderProfile.status !== "active"
     ) {
-      return builderProfile;
+      continue;
     }
+    const builderProfileKey = String(builderProfile._id);
+    if (seenBuilderProfileIds.has(builderProfileKey)) {
+      continue;
+    }
+    seenBuilderProfileIds.add(builderProfileKey);
+    ownedBuilderProfiles.push(builderProfile);
   }
-  return null;
+
+  return ownedBuilderProfiles;
+}
+
+async function getActiveOrganizationMembership(
+  ctx: QueryCtx | MutationCtx,
+  workosUserId: string,
+  workosOrganizationId: string
+) {
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user", (q) => q.eq("workosUserId", workosUserId))
+    .collect();
+  return (
+    memberships.find(
+      (membership) =>
+        membership.workosOrganizationId === workosOrganizationId &&
+        membership.status === "active"
+    ) ?? null
+  );
 }
 
 async function getWorkosUserById(
@@ -17072,6 +22245,7 @@ async function getOrCreateClaimantBuilderProfile(
   input: {
     auth: {
       brokerage: Doc<"brokerages">;
+      roles: RoleSlug[];
       subject: string;
     };
     claimantEmail?: string;
@@ -17080,43 +22254,58 @@ async function getOrCreateClaimantBuilderProfile(
     workosOrganizationId: string;
   }
 ) {
-  const existing = await getOwnedBuilderProfile(
+  let builderProfile = await getOwnedBuilderProfile(
     ctx,
     input.auth.brokerage._id,
     input.auth.subject
   );
-  if (existing) {
-    return existing;
+
+  if (!builderProfile) {
+    const user = await getWorkosUserById(ctx, input.auth.subject);
+    const displayName = claimBuilderDisplayName(
+      user,
+      input.proposal,
+      input.claimantEmail
+    );
+    const builderProfileId = await ctx.db.insert("builderProfiles", {
+      brokerageId: input.auth.brokerage._id,
+      createdAt: input.now,
+      displayName,
+      legalName: displayName,
+      organizationId: input.workosOrganizationId,
+      status: "active",
+      updatedAt: input.now,
+    });
+    await ctx.db.insert("builderAccountLinks", {
+      brokerageId: input.auth.brokerage._id,
+      builderProfileId,
+      createdAt: input.now,
+      role: "owner",
+      status: "active",
+      updatedAt: input.now,
+      workosUserId: input.auth.subject,
+    });
+    const createdBuilderProfile = await ctx.db.get(builderProfileId);
+    if (!createdBuilderProfile) {
+      throw new Error("Builder profile creation failed.");
+    }
+    builderProfile = createdBuilderProfile;
   }
 
-  const user = await getWorkosUserById(ctx, input.auth.subject);
-  const displayName = claimBuilderDisplayName(
-    user,
-    input.proposal,
-    input.claimantEmail
-  );
-  const builderProfileId = await ctx.db.insert("builderProfiles", {
-    brokerageId: input.auth.brokerage._id,
-    createdAt: input.now,
-    displayName,
-    legalName: displayName,
-    organizationId: input.workosOrganizationId,
-    status: "active",
-    updatedAt: input.now,
+  const { workosUserId: assignedBrokerWorkosUserId } =
+    await requireDefaultBrokerMember(ctx, input.auth.brokerage);
+  await ensureBuilderBrokerAssignment(ctx, {
+    actorRoles: input.auth.roles,
+    actorWorkosUserId: input.auth.subject,
+    assignedBrokerWorkosUserId,
+    brokerage: input.auth.brokerage,
+    builderProfile,
+    command: "claimDraftProposalLink",
+    now: input.now,
+    reason:
+      "Assigning the brokerage principal broker while linking a claimed proposal to its builder.",
   });
-  await ctx.db.insert("builderAccountLinks", {
-    brokerageId: input.auth.brokerage._id,
-    builderProfileId,
-    createdAt: input.now,
-    role: "owner",
-    status: "active",
-    updatedAt: input.now,
-    workosUserId: input.auth.subject,
-  });
-  const builderProfile = await ctx.db.get(builderProfileId);
-  if (!builderProfile) {
-    throw new Error("Builder profile creation failed.");
-  }
+
   return builderProfile;
 }
 
@@ -17165,6 +22354,7 @@ async function builderAccountSummaries(
     const displayEmail = user?.email ?? assignedEmail;
     summaries.push({
       ...(displayEmail ? { email: displayEmail } : {}),
+      emailVerified: user?.emailVerified === true,
       ...(user?.name
         ? { name: user.name }
         : assignedEmail
@@ -17175,6 +22365,23 @@ async function builderAccountSummaries(
     });
   }
   return summaries;
+}
+
+function preferredBuilderAccountEmail(
+  accounts: readonly {
+    email?: string;
+    emailVerified: boolean;
+    role: string;
+  }[]
+) {
+  return (
+    accounts.find(
+      (account) => account.role === "owner" && account.emailVerified
+    )?.email ??
+    accounts.find((account) => account.emailVerified)?.email ??
+    accounts.find((account) => account.role === "owner")?.email ??
+    accounts[0]?.email
+  );
 }
 
 function workosUserSummary(
@@ -17219,9 +22426,7 @@ async function buildProposalIdentityProjection(
     activeClaimLink &&
       (!activeClaimLink.expiresAt || activeClaimLink.expiresAt >= Date.now())
   );
-  const builderOwnerEmail =
-    builderAccounts.find((account) => account.role === "owner")?.email ??
-    builderAccounts[0]?.email;
+  const builderOwnerEmail = preferredBuilderAccountEmail(builderAccounts);
 
   return {
     broker: workosUserSummary(
@@ -17261,16 +22466,503 @@ function isBackoffice(roles: readonly RoleSlug[]) {
   );
 }
 
+function resolveBorrowerStartingCashCents(record: {
+  borrowerStartingCashCents?: number;
+  borrowerWorkingCapitalLimitCents?: number;
+  timelineStartingCashCents?: number;
+}) {
+  return Math.max(
+    0,
+    Math.round(
+      record.borrowerStartingCashCents ??
+        record.timelineStartingCashCents ??
+        record.borrowerWorkingCapitalLimitCents ??
+        0
+    )
+  );
+}
+
+function withBorrowerStartingCash<
+  T extends {
+    borrowerStartingCashCents?: number;
+    borrowerWorkingCapitalLimitCents?: number;
+    timelineStartingCashCents?: number;
+  },
+>(record: T): T & { borrowerStartingCashCents: number } {
+  return {
+    ...record,
+    borrowerStartingCashCents: resolveBorrowerStartingCashCents(record),
+  };
+}
+
+type ProposalDirectoryCard = {
+  activeBuildId?: string;
+  approvedAt?: number;
+  assignedBrokerEmail?: string;
+  assignedBrokerName?: string;
+  assignedBrokerWorkosUserId?: string;
+  borrowerCoPayBps: number;
+  borrowerCoPayCents?: number;
+  borrowerStartingCashCents: number;
+  builderAssigned: boolean;
+  builderEmail?: string;
+  builderLegalName?: string;
+  builderName: string;
+  builderProfileId?: string;
+  closedAt?: number;
+  column: Doc<"buildProposals">["status"];
+  createdAt: number;
+  createdByEmail?: string;
+  createdByName?: string;
+  createdByWorkosUserId: string;
+  href: string;
+  interestAnnualBps?: number;
+  lenderDrawPolicyLimitCents: number;
+  location: string;
+  locationLatitude?: number;
+  locationLongitude?: number;
+  locationPlaceId?: string;
+  planKey?: "capitalConstrained" | "cheapestFeasible" | "fastest";
+  planName?: string;
+  proposedStartDate?: string;
+  proposalId: string;
+  reviewOutcome: Doc<"buildProposals">["reviewOutcome"];
+  statusLabel: string;
+  submittedAt?: number;
+  subtitle: string;
+  title: string;
+  totalBudgetCents: number;
+  updatedAt: number;
+  updatedByWorkosUserId: string;
+};
+
+async function productionProposalDirectoryCard(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Doc<"buildProposals">
+): Promise<ProposalDirectoryCard> {
+  const { card } = await productionProposalDirectoryMatchContext(ctx, proposal);
+  return card;
+}
+
+async function productionProposalDirectoryMatchContext(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Doc<"buildProposals">
+) {
+  const assignment = await proposalDirectoryIdentityProjection(ctx, proposal);
+  const attachedAccountEmails = uniqueNormalizedSearchValues(
+    (assignment.builder?.accounts ?? []).map((account) => account.email)
+  );
+  const attachedAccountNames = uniqueNormalizedSearchValues(
+    (assignment.builder?.accounts ?? []).map((account) => account.name)
+  );
+  const card: ProposalDirectoryCard = {
+    ...(proposal.activeBuildId
+      ? { activeBuildId: String(proposal.activeBuildId) }
+      : {}),
+    ...(proposal.approvedAt === undefined
+      ? {}
+      : { approvedAt: proposal.approvedAt }),
+    ...(assignment.broker?.email
+      ? { assignedBrokerEmail: assignment.broker.email }
+      : {}),
+    ...(assignment.broker?.name
+      ? { assignedBrokerName: assignment.broker.name }
+      : {}),
+    ...(proposal.assignedBrokerWorkosUserId
+      ? {
+          assignedBrokerWorkosUserId:
+            proposal.assignedBrokerWorkosUserId,
+        }
+      : {}),
+    borrowerCoPayBps: proposal.borrowerCoPayBps,
+    ...(proposal.borrowerCoPayCents === undefined
+      ? {}
+      : { borrowerCoPayCents: proposal.borrowerCoPayCents }),
+    borrowerStartingCashCents: resolveBorrowerStartingCashCents(proposal),
+    builderAssigned: Boolean(assignment.builder),
+    ...(assignment.builder?.ownerEmail
+      ? { builderEmail: assignment.builder.ownerEmail }
+      : {}),
+    ...(assignment.builder?.legalName
+      ? { builderLegalName: assignment.builder.legalName }
+      : {}),
+    builderName: assignment.builder?.displayName ?? "Unassigned builder",
+    ...(assignment.builder?._id
+      ? { builderProfileId: String(assignment.builder._id) }
+      : {}),
+    ...(proposal.closedAt === undefined
+      ? {}
+      : { closedAt: proposal.closedAt }),
+    column: proposal.status,
+    createdAt: proposal.createdAt,
+    ...(assignment.createdBy?.email
+      ? { createdByEmail: assignment.createdBy.email }
+      : {}),
+    ...(assignment.createdBy?.name
+      ? { createdByName: assignment.createdBy.name }
+      : {}),
+    createdByWorkosUserId: proposal.createdByWorkosUserId,
+    href: `/backoffice/proposals/${proposal._id}`,
+    ...(proposal.interestAnnualBps === undefined
+      ? {}
+      : { interestAnnualBps: proposal.interestAnnualBps }),
+    lenderDrawPolicyLimitCents: proposal.lenderDrawPolicyLimitCents,
+    location: proposal.location,
+    ...(proposal.locationLatitude === undefined
+      ? {}
+      : { locationLatitude: proposal.locationLatitude }),
+    ...(proposal.locationLongitude === undefined
+      ? {}
+      : { locationLongitude: proposal.locationLongitude }),
+    ...(proposal.locationPlaceId
+      ? { locationPlaceId: proposal.locationPlaceId }
+      : {}),
+    ...(proposal.selectedPlan?.planKey
+      ? { planKey: proposal.selectedPlan.planKey }
+      : {}),
+    ...(proposal.selectedPlan?.name
+      ? { planName: proposal.selectedPlan.name }
+      : {}),
+    ...(proposal.proposedStartDate
+      ? { proposedStartDate: proposal.proposedStartDate }
+      : {}),
+    proposalId: String(proposal._id),
+    reviewOutcome: proposal.reviewOutcome,
+    statusLabel: productionProposalStatusLabel(proposal),
+    ...(proposal.submittedAt === undefined
+      ? {}
+      : { submittedAt: proposal.submittedAt }),
+    subtitle: proposal.location,
+    title: proposal.buildName,
+    totalBudgetCents: proposal.totalBudgetCents,
+    updatedAt: proposal.updatedAt,
+    updatedByWorkosUserId: proposal.updatedByWorkosUserId,
+  };
+  return {
+    attachedBuilder: assignment.builder
+      ? {
+          accountEmails: attachedAccountEmails,
+          accountNames: attachedAccountNames,
+          displayName: assignment.builder.displayName,
+          ...(assignment.builder.legalName
+            ? { legalName: assignment.builder.legalName }
+            : {}),
+          ...(assignment.builder.ownerEmail
+            ? { preferredEmail: assignment.builder.ownerEmail }
+            : {}),
+        }
+      : null,
+    card,
+  };
+}
+
+async function proposalDirectoryIdentityProjection(
+  ctx: QueryCtx | MutationCtx,
+  proposal: Doc<"buildProposals">
+) {
+  const builder = proposal.builderProfileId
+    ? await ctx.db.get(proposal.builderProfileId)
+    : null;
+  const builderAccounts = builder
+    ? await builderAccountSummaries(ctx, builder._id)
+    : [];
+  const [assignedBroker, createdBy] = await Promise.all([
+    proposal.assignedBrokerWorkosUserId
+      ? getWorkosUserById(ctx, proposal.assignedBrokerWorkosUserId)
+      : null,
+    getWorkosUserById(ctx, proposal.createdByWorkosUserId),
+  ]);
+  const builderOwnerEmail = preferredBuilderAccountEmail(builderAccounts);
+  return {
+    broker: workosUserSummary(
+      proposal.assignedBrokerWorkosUserId,
+      assignedBroker
+    ),
+    builder: builder
+      ? {
+          _id: builder._id,
+          accounts: builderAccounts,
+          displayName: builder.displayName,
+          ...(builder.legalName ? { legalName: builder.legalName } : {}),
+          ...(builderOwnerEmail ? { ownerEmail: builderOwnerEmail } : {}),
+        }
+      : null,
+    createdBy: workosUserSummary(proposal.createdByWorkosUserId, createdBy),
+  };
+}
+
+function proposalDirectoryCardMatches(input: {
+  attachedBuilder?: {
+    accountEmails: string[];
+    accountNames: string[];
+    displayName: string;
+    legalName?: string;
+    preferredEmail?: string;
+  } | null;
+  card: ProposalDirectoryCard;
+  filters?: {
+    approvedFrom?: number;
+    approvedTo?: number;
+    assignedBrokerWorkosUserId?: string;
+    assignment?: "assigned" | "unassigned";
+    builderProfileId?: Id<"builderProfiles">;
+    closingState?: "active_build" | "pending_closing" | "pre_closing";
+    closedFrom?: number;
+    closedTo?: number;
+    createdFrom?: number;
+    createdTo?: number;
+    maxBorrowerStartingCashCents?: number;
+    maxBorrowerCoPayBps?: number;
+    maxBudgetCents?: number;
+    maxInterestAnnualBps?: number;
+    maxLenderDrawPolicyLimitCents?: number;
+    minBorrowerStartingCashCents?: number;
+    minBorrowerCoPayBps?: number;
+    minBudgetCents?: number;
+    minInterestAnnualBps?: number;
+    minLenderDrawPolicyLimitCents?: number;
+    planKey?:
+      | "capitalConstrained"
+      | "cheapestFeasible"
+      | "fastest"
+      | "unselected";
+    proposedStartFrom?: string;
+    proposedStartTo?: string;
+    reviewOutcome?: Doc<"buildProposals">["reviewOutcome"];
+    stage?: Doc<"buildProposals">["status"];
+    submittedFrom?: number;
+    submittedTo?: number;
+    updatedFrom?: number;
+    updatedTo?: number;
+  };
+  proposal: Doc<"buildProposals">;
+  search?: string;
+}) {
+  const { card, filters, proposal } = input;
+  if (filters?.stage && card.column !== filters.stage) {
+    return false;
+  }
+  if (filters?.reviewOutcome && card.reviewOutcome !== filters.reviewOutcome) {
+    return false;
+  }
+  if (
+    filters?.assignment === "assigned" &&
+    !card.builderAssigned
+  ) {
+    return false;
+  }
+  if (
+    filters?.assignment === "unassigned" &&
+    card.builderAssigned
+  ) {
+    return false;
+  }
+  if (
+    filters?.builderProfileId &&
+    card.builderProfileId !== String(filters.builderProfileId)
+  ) {
+    return false;
+  }
+  if (
+    filters?.assignedBrokerWorkosUserId &&
+    card.assignedBrokerWorkosUserId !== filters.assignedBrokerWorkosUserId
+  ) {
+    return false;
+  }
+  if (
+    filters?.planKey === "unselected" &&
+    card.planKey !== undefined
+  ) {
+    return false;
+  }
+  if (
+    filters?.planKey &&
+    filters.planKey !== "unselected" &&
+    card.planKey !== filters.planKey
+  ) {
+    return false;
+  }
+  if (
+    filters?.closingState === "active_build" &&
+    !card.activeBuildId
+  ) {
+    return false;
+  }
+  if (
+    filters?.closingState === "pending_closing" &&
+    !(card.column === "approved" && !card.activeBuildId)
+  ) {
+    return false;
+  }
+  if (
+    filters?.closingState === "pre_closing" &&
+    (card.activeBuildId || card.column === "approved")
+  ) {
+    return false;
+  }
+  if (!numberInRange(card.totalBudgetCents, filters?.minBudgetCents, filters?.maxBudgetCents)) {
+    return false;
+  }
+  if (
+    !numberInRange(
+      card.borrowerCoPayBps,
+      filters?.minBorrowerCoPayBps,
+      filters?.maxBorrowerCoPayBps
+    )
+  ) {
+    return false;
+  }
+  if (
+    !numberInRange(
+      card.borrowerStartingCashCents,
+      filters?.minBorrowerStartingCashCents,
+      filters?.maxBorrowerStartingCashCents
+    )
+  ) {
+    return false;
+  }
+  if (
+    !numberInRange(
+      card.lenderDrawPolicyLimitCents,
+      filters?.minLenderDrawPolicyLimitCents,
+      filters?.maxLenderDrawPolicyLimitCents
+    )
+  ) {
+    return false;
+  }
+  if (
+    !numberInRange(
+      card.interestAnnualBps,
+      filters?.minInterestAnnualBps,
+      filters?.maxInterestAnnualBps
+    )
+  ) {
+    return false;
+  }
+  if (!numberInRange(card.createdAt, filters?.createdFrom, filters?.createdTo)) {
+    return false;
+  }
+  if (!numberInRange(card.updatedAt, filters?.updatedFrom, filters?.updatedTo)) {
+    return false;
+  }
+  if (
+    !numberInRange(
+      card.submittedAt,
+      filters?.submittedFrom,
+      filters?.submittedTo
+    )
+  ) {
+    return false;
+  }
+  if (
+    !numberInRange(card.approvedAt, filters?.approvedFrom, filters?.approvedTo)
+  ) {
+    return false;
+  }
+  if (!numberInRange(card.closedAt, filters?.closedFrom, filters?.closedTo)) {
+    return false;
+  }
+  if (
+    filters?.proposedStartFrom &&
+    (!card.proposedStartDate || card.proposedStartDate < filters.proposedStartFrom)
+  ) {
+    return false;
+  }
+  if (
+    filters?.proposedStartTo &&
+    (!card.proposedStartDate || card.proposedStartDate > filters.proposedStartTo)
+  ) {
+    return false;
+  }
+
+  const terms = normalizeProposalDirectorySearch(input.search);
+  if (terms.length === 0) {
+    return true;
+  }
+  const attachedBuilder = input.attachedBuilder ?? null;
+  const searchText = JSON.stringify({
+    assignment: {
+      brokerEmail: card.assignedBrokerEmail,
+      brokerName: card.assignedBrokerName,
+      brokerWorkosUserId: card.assignedBrokerWorkosUserId,
+      builderAccountEmails: attachedBuilder?.accountEmails ?? [],
+      builderAccountNames: attachedBuilder?.accountNames ?? [],
+      builderEmail:
+        attachedBuilder?.preferredEmail ?? card.builderEmail,
+      builderLegalName: attachedBuilder?.legalName ?? card.builderLegalName,
+      builderName: attachedBuilder?.displayName ?? card.builderName,
+      builderProfileId: card.builderProfileId,
+    },
+    card,
+    formatted: {
+      borrowerStartingCash: centsToCurrency(card.borrowerStartingCashCents),
+      budget: centsToCurrency(card.totalBudgetCents),
+      lenderDrawPolicyLimit: centsToCurrency(
+        card.lenderDrawPolicyLimitCents
+      ),
+    },
+    proposal: withBorrowerStartingCash(proposal),
+  }).toLowerCase();
+  return terms.every((term) => searchText.includes(term));
+}
+
+function uniqueNormalizedSearchValues(
+  values: ReadonlyArray<string | undefined>
+) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function normalizeProposalDirectorySearch(search: string | undefined) {
+  return (search ?? "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function numberInRange(
+  value: number | undefined,
+  minimum: number | undefined,
+  maximum: number | undefined
+) {
+  if (minimum !== undefined && (value === undefined || value < minimum)) {
+    return false;
+  }
+  if (maximum !== undefined && (value === undefined || value > maximum)) {
+    return false;
+  }
+  return true;
+}
+
 function productionDashboardProposalCard(
   card: Doc<"proposalKanbanCards"> | null,
-  proposal: Doc<"buildProposals">
+  proposal: Doc<"buildProposals">,
+  directoryCard?: ProposalDirectoryCard
 ) {
   return {
     address: card?.subtitle ?? proposal.location,
     approvedAt: proposal.approvedAt,
-    borrowerWorkingCapitalLimitCents: proposal.borrowerWorkingCapitalLimitCents,
+    borrowerStartingCashCents: resolveBorrowerStartingCashCents(proposal),
     builderAssigned: Boolean(proposal.builderProfileId),
     builder: card?.builderName ?? "Unassigned builder",
+    builderEmail: directoryCard?.builderEmail,
+    builderProfileId: proposal.builderProfileId
+      ? String(proposal.builderProfileId)
+      : undefined,
     closeLabel:
       proposal.status === "approved" && !proposal.activeBuildId
         ? "Pending closing"
@@ -17330,6 +23022,21 @@ function productionProposalColumnDescription(
 
 function productionBuildDisplayId(build: Doc<"activeBuilds">) {
   return `B-${String(build._id).slice(-8).toUpperCase()}`;
+}
+
+function productionQueueAgeLabel(timestamp: number, asOfDate: string) {
+  const asOfTime = Date.parse(`${asOfDate}T00:00:00.000Z`);
+  const elapsedDays = Math.max(
+    0,
+    Math.floor((asOfTime - timestamp) / 86_400_000)
+  );
+  if (elapsedDays === 0) {
+    return "Today";
+  }
+  if (elapsedDays === 1) {
+    return "1 day old";
+  }
+  return `${elapsedDays} days old`;
 }
 
 function productionDrawUrgencyRank(
@@ -17664,6 +23371,156 @@ function activeBuildMilestoneDependencyBlockers(
   });
 }
 
+function activeBuildMilestoneLifecycleState(
+  milestone: Doc<"buildMilestones">,
+  milestones?: readonly Doc<"buildMilestones">[]
+) {
+  if (
+    milestone.status === "complete" ||
+    milestone.completionReview?.status === "approved"
+  ) {
+    return "complete" as const;
+  }
+  if (milestone.completionReview?.status === "rejected") {
+    return "revision_requested" as const;
+  }
+  if (milestone.completionClaim) {
+    return "completion_submitted" as const;
+  }
+  if (milestone.status === "in_progress") {
+    return "in_progress" as const;
+  }
+  if (
+    milestones &&
+    activeBuildMilestoneDependencyBlockers(milestone, milestones).length > 0
+  ) {
+    return "blocked" as const;
+  }
+  return "scheduled" as const;
+}
+
+function activeBuildMilestoneSummary(input: {
+  assignments: readonly Doc<"milestoneContractorAssignments">[];
+  includeSubmilestones: boolean;
+  milestone: Doc<"buildMilestones">;
+  milestones?: readonly Doc<"buildMilestones">[];
+  submilestones: readonly Doc<"buildSubmilestones">[];
+}) {
+  const assignmentCount = input.assignments.filter(
+    (assignment) =>
+      assignment.buildMilestoneId === input.milestone._id ||
+      assignment.milestoneKey === input.milestone.key
+  ).length;
+  const lifecycleState = activeBuildMilestoneLifecycleState(
+    input.milestone,
+    input.milestones
+  );
+  const milestoneSubmilestones = input.submilestones
+    .filter((submilestone) => submilestone.milestoneKey === input.milestone.key)
+    .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key));
+  const completedSubmilestoneCount = milestoneSubmilestones.filter(
+    (submilestone) => submilestone.status === "complete"
+  ).length;
+  const totalSubmilestoneCount = milestoneSubmilestones.length;
+  const normalizedProgressPercent =
+    lifecycleState === "complete"
+      ? 100
+      : Math.max(0, Math.min(100, input.milestone.progressPercent ?? 0));
+  const reconciliationIssues: Array<{
+    code: string;
+    message: string;
+    severity: "warning";
+  }> = [];
+
+  if (
+    (lifecycleState === "completion_submitted" ||
+      lifecycleState === "complete") &&
+    completedSubmilestoneCount < totalSubmilestoneCount
+  ) {
+    reconciliationIssues.push({
+      code:
+        lifecycleState === "complete"
+          ? "complete_with_incomplete_submilestones"
+          : "completion_submitted_with_incomplete_submilestones",
+      message: `${totalSubmilestoneCount - completedSubmilestoneCount} sub-milestone${
+        totalSubmilestoneCount - completedSubmilestoneCount === 1
+          ? " is"
+          : "s are"
+      } not complete.`,
+      severity: "warning",
+    });
+  }
+  if (
+    lifecycleState === "completion_submitted" &&
+    normalizedProgressPercent < 100
+  ) {
+    reconciliationIssues.push({
+      code: "completion_submitted_below_full_progress",
+      message: `Completion was submitted while progress is ${normalizedProgressPercent}%.`,
+      severity: "warning",
+    });
+  }
+  if (
+    lifecycleState !== "complete" &&
+    lifecycleState !== "completion_submitted" &&
+    normalizedProgressPercent === 100
+  ) {
+    reconciliationIssues.push({
+      code: "full_progress_without_completion",
+      message:
+        "Progress is 100% but the milestone has not been approved as complete.",
+      severity: "warning",
+    });
+  }
+  if (input.milestone.drawAvailabilityCents > input.milestone.budgetCents) {
+    reconciliationIssues.push({
+      code: "draw_availability_exceeds_budget",
+      message: "Available draw value exceeds the milestone budget.",
+      severity: "warning",
+    });
+  }
+
+  return {
+    assignmentCount,
+    assignmentCoverage:
+      assignmentCount > 0 ? ("assigned" as const) : ("unassigned" as const),
+    budgetCents: input.milestone.budgetCents,
+    completedSubmilestoneCount,
+    drawAvailabilityCents: input.milestone.drawAvailabilityCents,
+    lifecycleState,
+    normalizedProgressPercent,
+    reconciliationIssues,
+    reconciliationState:
+      reconciliationIssues.length > 0
+        ? ("needs_review" as const)
+        : ("consistent" as const),
+    submilestoneCoverage:
+      totalSubmilestoneCount === 0
+        ? ("not_applicable" as const)
+        : completedSubmilestoneCount === totalSubmilestoneCount
+          ? ("complete" as const)
+          : ("incomplete" as const),
+    submilestoneSnapshot: input.includeSubmilestones
+      ? milestoneSubmilestones.map((submilestone) => ({
+          ...(submilestone.budgetCents === undefined
+            ? {}
+            : { budgetCents: submilestone.budgetCents }),
+          ...(submilestone.durationDays === undefined
+            ? {}
+            : { durationDays: submilestone.durationDays }),
+          key: submilestone.key,
+          name: submilestone.name,
+          order: submilestone.order,
+          ...(submilestone.startDay === undefined
+            ? {}
+            : { startDay: submilestone.startDay }),
+          status: submilestone.status,
+        }))
+      : [],
+    totalSubmilestoneCount,
+  };
+}
+
 function activeBuildSiteVisitCompletionReviewView(
   visit?: Doc<"buildSiteVisits">
 ) {
@@ -17762,7 +23619,10 @@ function productionMilestoneNeedsBackofficeReview(
   return true;
 }
 
-function productionMilestoneColumn(milestone: Doc<"buildMilestones">) {
+function productionMilestoneColumn(
+  milestone: Doc<"buildMilestones">,
+  currentDay: number
+) {
   const siteVisitStatus = milestone.completionReview?.siteVisit?.status;
   if (siteVisitStatus === "requested") {
     return "needsSiteVisit";
@@ -17770,11 +23630,47 @@ function productionMilestoneColumn(milestone: Doc<"buildMilestones">) {
   if (siteVisitStatus === "complete") {
     return "inReview";
   }
+  if (siteVisitStatus) {
+    return "inProgress";
+  }
+  if (productionMilestoneIsBehindSchedule(milestone, currentDay)) {
+    return "behindSchedule";
+  }
   return "backlog";
 }
 
-function productionMilestonePriority(milestone: Doc<"buildMilestones">) {
-  if (milestone.status === "in_progress") {
+function productionMilestoneIsBehindSchedule(
+  milestone: Doc<"buildMilestones">,
+  currentDay: number
+) {
+  if (
+    milestone.status === "complete" ||
+    milestone.completionClaim ||
+    milestone.completionReview?.status === "approved"
+  ) {
+    return false;
+  }
+  return currentDay > milestone.dayEnd;
+}
+
+function productionMilestoneDueLabel(
+  milestone: Doc<"buildMilestones">,
+  currentDay: number
+) {
+  const overdueDays = currentDay - milestone.dayEnd;
+  return overdueDays > 0
+    ? `${overdueDays}d overdue`
+    : `Day ${milestone.dayEnd}`;
+}
+
+function productionMilestonePriority(
+  milestone: Doc<"buildMilestones">,
+  currentDay: number
+) {
+  if (
+    milestone.status === "in_progress" ||
+    productionMilestoneIsBehindSchedule(milestone, currentDay)
+  ) {
     return "high";
   }
   return "medium";
@@ -18344,6 +24240,275 @@ async function writeContractorProfileEvent(
     relatedEntityType: "contractorProfile",
     status: "pending",
   });
+}
+
+function builderContractorUnavailable(
+  category: "accessDenied" | "invalidLink" | "notFound"
+) {
+  const referenceByCategory = {
+    accessDenied: "CTR-DETAIL-ACCESS",
+    invalidLink: "CTR-DETAIL-INVALID",
+    notFound: "CTR-DETAIL-NOT-FOUND",
+  } as const;
+  return {
+    availability: {
+      category,
+      reference: referenceByCategory[category],
+    },
+    detail: null,
+  };
+}
+
+async function builderContractorRelationshipScope(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    contractorId: Id<"contractorProfiles">;
+    subject: string;
+  }
+) {
+  const builderProfiles = await getOwnedBuilderProfiles(
+    ctx,
+    input.brokerageId,
+    input.subject
+  );
+  const builderProfileIds = new Set(
+    builderProfiles.map((profile) => String(profile._id))
+  );
+  if (builderProfileIds.size === 0) {
+    return null;
+  }
+
+  const proposalAttachments = await ctx.db
+    .query("proposalContractorAssignments")
+    .withIndex("by_contractor", (q) => q.eq("contractorId", input.contractorId))
+    .collect();
+  const ownedProposalAttachments: Array<{
+    assignment: Doc<"proposalContractorAssignments">;
+    proposal: Doc<"buildProposals">;
+  }> = [];
+  for (const assignment of proposalAttachments) {
+    if (assignment.status !== "active") {
+      continue;
+    }
+    const proposal = await ctx.db.get(assignment.proposalId);
+    if (
+      proposal?.builderProfileId &&
+      builderProfileIds.has(String(proposal.builderProfileId))
+    ) {
+      ownedProposalAttachments.push({ assignment, proposal });
+    }
+  }
+
+  const ownedBuilds = (
+    await ctx.db
+      .query("activeBuilds")
+      .withIndex("by_brokerage", (q) => q.eq("brokerageId", input.brokerageId))
+      .collect()
+  ).filter((build) => builderProfileIds.has(String(build.builderProfileId)));
+  const ownedBuildAttachments: Array<{
+    assignment: Doc<"buildContractorAssignments">;
+    build: Doc<"activeBuilds">;
+  }> = [];
+  for (const build of ownedBuilds) {
+    const assignment = await ctx.db
+      .query("buildContractorAssignments")
+      .withIndex("by_build_contractor", (q) =>
+        q.eq("buildId", build._id).eq("contractorId", input.contractorId)
+      )
+      .unique();
+    if (assignment && assignment.status !== "inactive") {
+      ownedBuildAttachments.push({ assignment, build });
+    }
+  }
+
+  if (
+    ownedProposalAttachments.length === 0 &&
+    ownedBuildAttachments.length === 0
+  ) {
+    return null;
+  }
+
+  const proposalIds = new Set(
+    ownedProposalAttachments.map(({ proposal }) => String(proposal._id))
+  );
+  const buildIds = new Set(
+    ownedBuildAttachments.map(({ build }) => String(build._id))
+  );
+  const proposalMilestoneAssignments = (
+    await ctx.db
+      .query("proposalMilestoneContractorAssignments")
+      .withIndex("by_contractor", (q) =>
+        q.eq("contractorId", input.contractorId)
+      )
+      .collect()
+  ).filter(
+    (assignment) =>
+      assignment.status !== "removed" &&
+      proposalIds.has(String(assignment.proposalId))
+  );
+  const buildMilestoneAssignments = (
+    await ctx.db
+      .query("milestoneContractorAssignments")
+      .withIndex("by_contractor", (q) =>
+        q.eq("contractorId", input.contractorId)
+      )
+      .collect()
+  ).filter(
+    (assignment) =>
+      assignment.status !== "removed" &&
+      buildIds.has(String(assignment.buildId))
+  );
+
+  return {
+    buildIds,
+    buildMilestoneAssignments,
+    proposalMilestoneAssignments,
+    scopes: [
+      ...ownedBuildAttachments.map(({ assignment, build }) => ({
+        buildId: build._id,
+        name: build.buildName,
+        role: assignment.role,
+        status: assignment.status ?? "active",
+        type: "build" as const,
+      })),
+      ...ownedProposalAttachments.map(({ assignment, proposal }) => ({
+        name: proposal.buildName,
+        proposalId: proposal._id,
+        role: assignment.role,
+        status: assignment.status,
+        type: "proposal" as const,
+      })),
+    ],
+  };
+}
+
+function builderVisibleContractorProfile(profile: any) {
+  return {
+    _id: profile._id,
+    accountWorkosUserId: profile.accountWorkosUserId,
+    availabilityWindows: profile.availabilityWindows,
+    capabilities: profile.capabilities,
+    city: profile.city,
+    defaultPayRateCents: profile.defaultPayRateCents,
+    defaultPayRateUnit: profile.defaultPayRateUnit,
+    email: profile.email,
+    equipment: profile.equipment,
+    kind: profile.kind,
+    name: profile.name,
+    onboardingStatus: profile.onboardingStatus,
+    phone: profile.phone,
+    status: profile.status,
+    trades: profile.trades,
+  };
+}
+
+function builderContractorLifecycle(input: {
+  hasActiveContractorMembership: boolean;
+  hasMilestoneAssignment: boolean;
+  hasPendingAcknowledgement: boolean;
+  latestClaim?: Doc<"contractorInviteClaims">;
+  latestReview?: Doc<"contractorOnboardingReviews">;
+  profile: any;
+}) {
+  const now = Date.now();
+  const invitationState =
+    input.latestClaim?.state === "invited" &&
+    input.latestClaim.expiresAt !== undefined &&
+    input.latestClaim.expiresAt <= now
+      ? "expired"
+      : (input.latestClaim?.state ?? "not_invited");
+
+  if (input.latestReview?.status === "changes_requested") {
+    return {
+      invitationState,
+      lifecycleState: "changes_requested",
+      nextAction: "contact_support",
+    };
+  }
+  if (input.latestReview?.status === "pending_backoffice_review") {
+    return {
+      invitationState,
+      lifecycleState: "review_required",
+      nextAction: "wait_for_review",
+    };
+  }
+  if (input.latestReview?.status === "approved_pending_workos") {
+    return {
+      invitationState,
+      lifecycleState: "sync_pending",
+      nextAction: "wait_for_sync",
+    };
+  }
+  if (
+    input.profile.accountWorkosUserId &&
+    input.hasActiveContractorMembership &&
+    input.hasMilestoneAssignment &&
+    input.hasPendingAcknowledgement
+  ) {
+    return {
+      invitationState,
+      lifecycleState: "acknowledgement_pending",
+      nextAction: "wait_for_acknowledgement",
+    };
+  }
+  if (
+    input.profile.accountWorkosUserId &&
+    input.hasActiveContractorMembership
+  ) {
+    return {
+      invitationState,
+      lifecycleState: "active",
+      nextAction: "none",
+    };
+  }
+  if (input.profile.accountWorkosUserId) {
+    return {
+      invitationState,
+      lifecycleState: "sync_pending",
+      nextAction: "wait_for_sync",
+    };
+  }
+  if (invitationState === "accepted_pending_confirmation") {
+    return {
+      invitationState,
+      lifecycleState: "accepted_pending_confirmation",
+      nextAction: "wait_for_confirmation",
+    };
+  }
+  if (invitationState === "claimed") {
+    return {
+      invitationState,
+      lifecycleState: "claimed",
+      nextAction: "wait_for_activation",
+    };
+  }
+  if (invitationState === "invited") {
+    return {
+      invitationState,
+      lifecycleState: "invited",
+      nextAction: "wait_for_claim",
+    };
+  }
+  if (invitationState === "expired" || invitationState === "revoked") {
+    return {
+      invitationState,
+      lifecycleState: invitationState,
+      nextAction: "contact_support",
+    };
+  }
+  if (input.hasMilestoneAssignment) {
+    return {
+      invitationState,
+      lifecycleState: "assigned",
+      nextAction: "invite",
+    };
+  }
+  return {
+    invitationState,
+    lifecycleState: "attached",
+    nextAction: "invite",
+  };
 }
 
 async function assertContractorDetailReadAllowed(
@@ -19262,6 +25427,155 @@ async function findMilestoneContractorAssignment(
   );
 }
 
+async function ensurePendingBuildAssignmentAcknowledgement(
+  ctx: MutationCtx,
+  input: {
+    assignmentId: Id<"milestoneContractorAssignments">;
+    brokerageId: Id<"brokerages">;
+    contractorId: Id<"contractorProfiles">;
+    now: number;
+    organizationId: string;
+  }
+) {
+  const acknowledgements = await ctx.db
+    .query("contractorAcknowledgements")
+    .withIndex("by_build_assignment", (q) =>
+      q.eq("buildAssignmentId", input.assignmentId)
+    )
+    .collect();
+  const existing = acknowledgements.find(
+    (acknowledgement) => acknowledgement.kind === "assignment"
+  );
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      acknowledgedAt: undefined,
+      state: "pending_acknowledgement",
+      updatedAt: input.now,
+    });
+    return existing._id;
+  }
+  return await ctx.db.insert("contractorAcknowledgements", {
+    assignmentType: "build",
+    brokerageId: input.brokerageId,
+    buildAssignmentId: input.assignmentId,
+    contractorId: input.contractorId,
+    kind: "assignment",
+    organizationId: input.organizationId,
+    state: "pending_acknowledgement",
+    createdAt: input.now,
+    updatedAt: input.now,
+  });
+}
+
+async function resolveBuildAssignmentAcknowledgement(
+  ctx: MutationCtx,
+  assignmentId: Id<"milestoneContractorAssignments">,
+  now: number
+) {
+  const acknowledgements = await ctx.db
+    .query("contractorAcknowledgements")
+    .withIndex("by_build_assignment", (q) =>
+      q.eq("buildAssignmentId", assignmentId)
+    )
+    .collect();
+  for (const acknowledgement of acknowledgements) {
+    if (
+      acknowledgement.kind === "assignment" &&
+      acknowledgement.state !== "resolved"
+    ) {
+      await ctx.db.patch(acknowledgement._id, {
+        state: "resolved",
+        updatedAt: now,
+      });
+    }
+  }
+}
+
+async function upsertContractorAssignmentDelivery(
+  ctx: MutationCtx,
+  input: {
+    assignmentId: Id<"milestoneContractorAssignments">;
+    auth: ActiveBuildDeliveryAuth;
+    contractor: Doc<"contractorProfiles">;
+    milestone: Doc<"buildMilestones">;
+    operation: "created" | "updated" | "removed";
+  }
+) {
+  const recipientWorkosUserId = input.contractor.accountWorkosUserId;
+  if (!recipientWorkosUserId) {
+    return;
+  }
+  const now = Date.now();
+  const activeKeys = [
+    `contractor-assignment:${input.assignmentId}:created`,
+    `contractor-assignment:${input.assignmentId}:updated`,
+  ];
+  if (input.operation !== "created") {
+    for (const priorDedupeKey of activeKeys) {
+      const priorDelivery = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_dedupe", (q) =>
+          q
+            .eq("organizationId", input.auth.build.organizationId)
+            .eq("recipientWorkosUserId", recipientWorkosUserId)
+            .eq("dedupeKey", priorDedupeKey)
+        )
+        .first();
+      if (priorDelivery && priorDelivery.status !== "resolved") {
+        await ctx.db.patch(priorDelivery._id, {
+          status: "resolved",
+          updatedAt: now,
+        });
+      }
+    }
+  }
+  const dedupeKey = `contractor-assignment:${input.assignmentId}:${input.operation}`;
+  const existing = await ctx.db
+    .query("recipientDeliveries")
+    .withIndex("by_recipient_dedupe", (q) =>
+      q
+        .eq("organizationId", input.auth.build.organizationId)
+        .eq("recipientWorkosUserId", recipientWorkosUserId)
+        .eq("dedupeKey", dedupeKey)
+    )
+    .first();
+  const removed = input.operation === "removed";
+  const delivery = {
+    actionLabel: removed ? "View current work" : "Review assignment",
+    actionRequired: !removed,
+    body: removed
+      ? `Your ${input.milestone.name} assignment is no longer active.`
+      : `Review the ${input.milestone.name} scope and acknowledge it or request clarification.`,
+    createdAt: now,
+    entityId: String(input.assignmentId),
+    entityLabel: `${input.auth.build.buildName} · ${input.milestone.name}`,
+    entityType: "contractorAssignment",
+    href: removed
+      ? "/contractor/work"
+      : `/contractor/builds/${input.auth.build._id}?assignmentId=${input.assignmentId}`,
+    resolutionMode: "domain" as const,
+    sourceLabel: "Builder",
+    status: "unread" as const,
+    title: removed
+      ? `${input.milestone.name} assignment removed`
+      : input.operation === "updated"
+        ? `${input.milestone.name} assignment updated`
+        : `${input.milestone.name} assignment ready`,
+    updatedAt: now,
+  };
+  if (existing) {
+    await ctx.db.patch(existing._id, delivery);
+  } else {
+    await ctx.db.insert("recipientDeliveries", {
+      ...delivery,
+      brokerageId: input.auth.brokerage._id,
+      dedupeKey,
+      organizationId: input.auth.build.organizationId,
+      recipientWorkosUserId,
+    });
+  }
+}
+
 async function insertContractorQualityRating(
   ctx: MutationCtx,
   input: {
@@ -19762,6 +26076,32 @@ function costItemTotalCents(
   return Math.round(item.costCents * item.quantity);
 }
 
+type CostItemBudgetTreatment = "add" | "logOnly" | "maintain";
+
+type ProposalCostItemBudgetState = Pick<
+  Doc<"proposalCostItems">,
+  | "_id"
+  | "budgetSubmilestoneKey"
+  | "budgetTreatment"
+  | "costCents"
+  | "milestoneKey"
+  | "proposalMilestoneId"
+  | "quantity"
+>;
+
+function normalizeCostItemBudgetTreatment(
+  value: CostItemBudgetTreatment | undefined
+): CostItemBudgetTreatment {
+  return value ?? "add";
+}
+
+function normalizeCostItemBudgetSubmilestoneKey(
+  value: null | string | undefined
+) {
+  const key = value?.trim();
+  return key ? key : undefined;
+}
+
 function proposalCostItemAuditWarnings(proposal: Doc<"buildProposals">) {
   return proposal.status === "draft"
     ? []
@@ -19794,6 +26134,41 @@ async function validateProposalCostItemSubmilestones(
     );
   }
   return normalized;
+}
+
+async function validateProposalCostItemBudgetTarget(
+  ctx: QueryCtx | MutationCtx,
+  milestone: Pick<Doc<"proposalMilestones">, "_id" | "key">,
+  requestedKey: null | string | undefined,
+  treatment: CostItemBudgetTreatment,
+  requireAddTarget: boolean
+) {
+  if (treatment === "logOnly") {
+    return;
+  }
+  const budgetSubmilestoneKey = normalizeCostItemBudgetSubmilestoneKey(
+    requestedKey
+  );
+  if (!budgetSubmilestoneKey) {
+    if (treatment === "maintain" || (treatment === "add" && requireAddTarget)) {
+      throw new Error(
+        `${treatment === "add" ? "Add" : "Maintain"} requires one budget sub-milestone target.`
+      );
+    }
+    return;
+  }
+  const submilestones = await ctx.db
+    .query("proposalSubmilestones")
+    .withIndex("by_milestone", (q) =>
+      q.eq("proposalMilestoneId", milestone._id)
+    )
+    .collect();
+  if (!submilestones.some((row) => row.key === budgetSubmilestoneKey)) {
+    throw new Error(
+      `Budget sub-milestone must belong to ${milestone.key}: ${budgetSubmilestoneKey}.`
+    );
+  }
+  return budgetSubmilestoneKey;
 }
 
 async function nextProposalCostItemKey(
@@ -19851,42 +26226,187 @@ async function getProposalMilestoneByIdOrThrow(
   return milestone;
 }
 
-async function applyProposalCostItemBudgetDelta(
+async function applyProposalCostItemBudgetChange(
   ctx: MutationCtx,
   auth: {
     proposal: Doc<"buildProposals">;
     subject: string;
   },
   input: {
-    deltaCents: number;
-    milestone: Doc<"proposalMilestones">;
+    nextItem?: ProposalCostItemBudgetState;
+    priorItem?: ProposalCostItemBudgetState;
     proposalId: Id<"buildProposals">;
   }
 ) {
-  if (input.deltaCents === 0) {
-    return;
+  const operations = new Map<
+    string,
+    {
+      deltaCents: number;
+      milestoneId: Id<"proposalMilestones">;
+      submilestoneKey?: string;
+    }
+  >();
+  const addOperation = (
+    item: ProposalCostItemBudgetState | undefined,
+    direction: -1 | 1
+  ) => {
+    if (!item || normalizeCostItemBudgetTreatment(item.budgetTreatment) !== "add") {
+      return;
+    }
+    const submilestoneKey = normalizeCostItemBudgetSubmilestoneKey(
+      item.budgetSubmilestoneKey
+    );
+    const operationKey = `${item.proposalMilestoneId}:${submilestoneKey ?? "milestone"}`;
+    const current = operations.get(operationKey);
+    operations.set(operationKey, {
+      deltaCents:
+        (current?.deltaCents ?? 0) + direction * costItemTotalCents(item),
+      milestoneId: item.proposalMilestoneId,
+      submilestoneKey,
+    });
+  };
+  addOperation(input.priorItem, -1);
+  addOperation(input.nextItem, 1);
+
+  const milestoneDeltaById = new Map<Id<"proposalMilestones">, number>();
+  const milestoneById = new Map<
+    Id<"proposalMilestones">,
+    Doc<"proposalMilestones">
+  >();
+  const maintainedTargets = new Set<string>();
+  for (const item of [input.priorItem, input.nextItem]) {
+    const target = normalizeCostItemBudgetSubmilestoneKey(
+      item?.budgetSubmilestoneKey
+    );
+    if (item && target) {
+      maintainedTargets.add(`${item.proposalMilestoneId}:${target}`);
+    }
   }
   const now = Date.now();
-  const nextMilestoneBudgetCents = Math.max(
-    0,
-    input.milestone.budgetCents + input.deltaCents
+  for (const operation of operations.values()) {
+    if (operation.deltaCents === 0) {
+      continue;
+    }
+    const milestone = await getProposalMilestoneByIdOrThrow(
+      ctx,
+      operation.milestoneId
+    );
+    milestoneById.set(milestone._id, milestone);
+    milestoneDeltaById.set(
+      milestone._id,
+      (milestoneDeltaById.get(milestone._id) ?? 0) + operation.deltaCents
+    );
+    if (operation.submilestoneKey) {
+      const submilestones = await ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_milestone", (q) =>
+          q.eq("proposalMilestoneId", milestone._id)
+        )
+        .collect();
+      const submilestone = submilestones.find(
+        (row) => row.key === operation.submilestoneKey
+      );
+      if (!submilestone) {
+        throw new Error(
+          `Budget sub-milestone not found: ${operation.submilestoneKey}.`
+        );
+      }
+      await ctx.db.patch(submilestone._id, {
+        budgetCents: Math.max(
+          0,
+          Math.round((submilestone.budgetCents ?? 0) + operation.deltaCents)
+        ),
+        updatedAt: now,
+      });
+    }
+  }
+
+  for (const [milestoneId, deltaCents] of milestoneDeltaById) {
+    const milestone = milestoneById.get(milestoneId);
+    if (!milestone) {
+      continue;
+    }
+    const nextMilestoneBudgetCents = Math.max(
+      0,
+      milestone.budgetCents + deltaCents
+    );
+    const nextDrawAvailabilityCents = calculateDrawAvailability(
+      nextMilestoneBudgetCents,
+      auth.proposal.borrowerCoPayBps
+    );
+    await ctx.db.patch(milestone._id, {
+      budgetCents: nextMilestoneBudgetCents,
+      drawAvailabilityCents: nextDrawAvailabilityCents,
+      updatedAt: now,
+    });
+    await syncMilestoneOwnedDrawAmount(ctx, {
+      amountCents: nextDrawAvailabilityCents,
+      milestoneKey: milestone.key,
+      proposalId: input.proposalId,
+      updatedAt: now,
+    });
+  }
+
+  for (const target of maintainedTargets) {
+    const separator = target.indexOf(":");
+    const milestoneId = target.slice(0, separator) as Id<"proposalMilestones">;
+    const submilestoneKey = target.slice(separator + 1);
+    await validateProposalMaintainedCostCoverage(ctx, {
+      milestoneId,
+      proposalId: input.proposalId,
+      submilestoneKey,
+    });
+  }
+
+  if (milestoneDeltaById.size > 0) {
+    await recalculateProposalBudget(ctx, auth, input.proposalId);
+  }
+}
+
+async function validateProposalMaintainedCostCoverage(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    milestoneId: Id<"proposalMilestones">;
+    proposalId: Id<"buildProposals">;
+    submilestoneKey: string;
+  }
+) {
+  const [submilestones, costItems] = await Promise.all([
+    ctx.db
+      .query("proposalSubmilestones")
+      .withIndex("by_milestone", (q) =>
+        q.eq("proposalMilestoneId", input.milestoneId)
+      )
+      .collect(),
+    ctx.db
+      .query("proposalCostItems")
+      .withIndex("by_milestone", (q) =>
+        q.eq("proposalMilestoneId", input.milestoneId)
+      )
+      .collect(),
+  ]);
+  const submilestone = submilestones.find(
+    (row) => row.key === input.submilestoneKey
   );
-  const nextDrawAvailabilityCents = calculateDrawAvailability(
-    nextMilestoneBudgetCents,
-    auth.proposal.borrowerCoPayBps
+  if (!submilestone || submilestone.proposalId !== input.proposalId) {
+    throw new Error(
+      `Budget sub-milestone not found: ${input.submilestoneKey}.`
+    );
+  }
+  const maintainedCents = costItems.reduce(
+    (total, item) =>
+      normalizeCostItemBudgetTreatment(item.budgetTreatment) === "maintain" &&
+      item.budgetSubmilestoneKey === input.submilestoneKey
+        ? total + costItemTotalCents(item)
+        : total,
+    0
   );
-  await ctx.db.patch(input.milestone._id, {
-    budgetCents: nextMilestoneBudgetCents,
-    drawAvailabilityCents: nextDrawAvailabilityCents,
-    updatedAt: now,
-  });
-  await syncMilestoneOwnedDrawAmount(ctx, {
-    amountCents: nextDrawAvailabilityCents,
-    milestoneKey: input.milestone.key,
-    proposalId: input.proposalId,
-    updatedAt: now,
-  });
-  await recalculateProposalBudget(ctx, auth, input.proposalId);
+  const budgetCents = Math.max(0, Math.round(submilestone.budgetCents ?? 0));
+  if (maintainedCents > budgetCents) {
+    throw new Error(
+      `Maintained cost items exceed the ${submilestone.name} budget by ${maintainedCents - budgetCents} cents.`
+    );
+  }
 }
 
 async function syncMilestoneOwnedDrawAmount(
@@ -20044,6 +26564,44 @@ async function replaceProductionSubmilestones(
     }[];
   }
 ) {
+  const nextSubmilestoneByKey = new Map(
+    input.rows.map((row) => [row.key, row] as const)
+  );
+  const targetedCostItems = await ctx.db
+    .query("proposalCostItems")
+    .withIndex("by_milestone", (q) =>
+      q.eq("proposalMilestoneId", input.milestone._id)
+    )
+    .collect();
+  const maintainedCentsByTarget = new Map<string, number>();
+  for (const item of targetedCostItems) {
+    const target = item.budgetSubmilestoneKey;
+    if (!target) {
+      continue;
+    }
+    if (!nextSubmilestoneByKey.has(target)) {
+      throw new Error(
+        `Cannot remove budget sub-milestone ${target} while cost items target it.`
+      );
+    }
+    if (normalizeCostItemBudgetTreatment(item.budgetTreatment) === "maintain") {
+      maintainedCentsByTarget.set(
+        target,
+        (maintainedCentsByTarget.get(target) ?? 0) + costItemTotalCents(item)
+      );
+    }
+  }
+  for (const [target, maintainedCents] of maintainedCentsByTarget) {
+    const budgetCents = Math.max(
+      0,
+      Math.round(nextSubmilestoneByKey.get(target)?.budgetCents ?? 0)
+    );
+    if (maintainedCents > budgetCents) {
+      throw new Error(
+        `Maintained cost items exceed the ${target} budget by ${maintainedCents - budgetCents} cents.`
+      );
+    }
+  }
   const existing = await ctx.db
     .query("proposalSubmilestones")
     .withIndex("by_milestone", (q) =>
@@ -20234,6 +26792,9 @@ async function recalculateProposalBudget(
     totalDrawAmountCents
   );
   await ctx.db.patch(proposalId, {
+    borrowerCoPayCents: Math.round(
+      (totalBudgetCents * proposal.borrowerCoPayBps) / 10_000
+    ),
     lenderDrawPolicyLimitCents,
     totalBudgetCents,
     updatedAt: Date.now(),
@@ -20730,6 +27291,8 @@ async function copyProposalOperationalRowsToActiveBuild(
     }
     await ctx.db.insert("buildCostItems", {
       brokerageId: input.auth.brokerage._id,
+      budgetSubmilestoneKey: item.budgetSubmilestoneKey,
+      budgetTreatment: normalizeCostItemBudgetTreatment(item.budgetTreatment),
       buildId: input.buildId,
       buildMilestoneId: buildMilestone._id,
       costCents: item.costCents,
@@ -21290,6 +27853,42 @@ async function replaceActiveBuildSubmilestones(
     }[];
   }
 ) {
+  const nextSubmilestoneByKey = new Map(
+    input.rows.map((row) => [row.key, row] as const)
+  );
+  const targetedCostItems = await ctx.db
+    .query("buildCostItems")
+    .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", input.milestone._id))
+    .collect();
+  const maintainedCentsByTarget = new Map<string, number>();
+  for (const item of targetedCostItems) {
+    const target = item.budgetSubmilestoneKey;
+    if (!target) {
+      continue;
+    }
+    if (!nextSubmilestoneByKey.has(target)) {
+      throw new Error(
+        `Cannot remove budget sub-milestone ${target} while cost items target it.`
+      );
+    }
+    if (normalizeCostItemBudgetTreatment(item.budgetTreatment) === "maintain") {
+      maintainedCentsByTarget.set(
+        target,
+        (maintainedCentsByTarget.get(target) ?? 0) + costItemTotalCents(item)
+      );
+    }
+  }
+  for (const [target, maintainedCents] of maintainedCentsByTarget) {
+    const budgetCents = Math.max(
+      0,
+      Math.round(nextSubmilestoneByKey.get(target)?.budgetCents ?? 0)
+    );
+    if (maintainedCents > budgetCents) {
+      throw new Error(
+        `Maintained cost items exceed the ${target} budget by ${maintainedCents - budgetCents} cents.`
+      );
+    }
+  }
   const existing = await ctx.db
     .query("buildSubmilestones")
     .withIndex("by_milestone", (q) =>
@@ -21516,6 +28115,38 @@ async function validateBuildCostItemSubmilestones(
   return normalized;
 }
 
+async function validateBuildCostItemBudgetTarget(
+  ctx: QueryCtx | MutationCtx,
+  milestone: Pick<Doc<"buildMilestones">, "_id" | "key">,
+  requestedKey: null | string | undefined,
+  treatment: CostItemBudgetTreatment
+) {
+  if (treatment === "logOnly") {
+    return;
+  }
+  const budgetSubmilestoneKey = normalizeCostItemBudgetSubmilestoneKey(
+    requestedKey
+  );
+  if (!budgetSubmilestoneKey) {
+    if (treatment === "maintain") {
+      throw new Error(
+        "Maintain requires one budget sub-milestone target."
+      );
+    }
+    return;
+  }
+  const submilestones = await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
+    .collect();
+  if (!submilestones.some((row) => row.key === budgetSubmilestoneKey)) {
+    throw new Error(
+      `Budget sub-milestone must belong to ${milestone.key}: ${budgetSubmilestoneKey}.`
+    );
+  }
+  return budgetSubmilestoneKey;
+}
+
 async function nextBuildCostItemKey(
   ctx: QueryCtx | MutationCtx,
   buildId: Id<"activeBuilds">,
@@ -21551,14 +28182,24 @@ async function getBuildCostItemOrThrow(
   return item;
 }
 
+function latestBuildCapitalPlan(
+  plans: readonly Doc<"buildCapitalPlans">[]
+): Doc<"buildCapitalPlans"> | undefined {
+  return plans.reduce<Doc<"buildCapitalPlans"> | undefined>(
+    (latest, candidate) =>
+      !latest || candidate.version > latest.version ? candidate : latest,
+    undefined
+  );
+}
+
 async function activeBuildBorrowerCoPayBps(
   ctx: QueryCtx | MutationCtx,
   buildId: Id<"activeBuilds">,
   proposal: Doc<"buildProposals">
 ) {
-  const capitalPlan = (
+  const capitalPlan = latestBuildCapitalPlan(
     await collectByIndex(ctx, "buildCapitalPlans", "by_build", buildId)
-  )[0] as Doc<"buildCapitalPlans"> | undefined;
+  );
   return capitalPlan?.borrowerCoPayBps ?? proposal.borrowerCoPayBps;
 }
 
@@ -21572,6 +28213,7 @@ async function applyActiveBuildCostItemBudgetDelta(
     buildId: Id<"activeBuilds">;
     deltaCents: number;
     milestone: Doc<"buildMilestones">;
+    submilestoneKey?: string;
   }
 ) {
   if (input.deltaCents === 0) {
@@ -21591,12 +28233,77 @@ async function applyActiveBuildCostItemBudgetDelta(
     nextMilestoneBudgetCents,
     borrowerCoPayBps
   );
+  if (input.submilestoneKey) {
+    const submilestones = await ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (q) =>
+        q.eq("buildMilestoneId", input.milestone._id)
+      )
+      .collect();
+    const submilestone = submilestones.find(
+      (row) => row.key === input.submilestoneKey
+    );
+    if (!submilestone) {
+      throw new Error(
+        `Budget sub-milestone not found: ${input.submilestoneKey}.`
+      );
+    }
+    await ctx.db.patch(submilestone._id, {
+      budgetCents: Math.max(
+        0,
+        Math.round((submilestone.budgetCents ?? 0) + input.deltaCents)
+      ),
+      updatedAt: now,
+    });
+  }
   await ctx.db.patch(input.milestone._id, {
     budgetCents: nextMilestoneBudgetCents,
     drawAvailabilityCents: nextDrawAvailabilityCents,
     updatedAt: now,
   });
   await recalculateActiveBuildBudget(ctx, input.buildId);
+}
+
+async function validateBuildMaintainedCostCoverage(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    milestoneId: Id<"buildMilestones">;
+    submilestoneKey: string;
+  }
+) {
+  const [submilestones, costItems] = await Promise.all([
+    ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", input.milestoneId))
+      .collect(),
+    ctx.db
+      .query("buildCostItems")
+      .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", input.milestoneId))
+      .collect(),
+  ]);
+  const submilestone = submilestones.find(
+    (row) => row.key === input.submilestoneKey
+  );
+  if (!submilestone || submilestone.buildId !== input.buildId) {
+    throw new Error(
+      `Budget sub-milestone not found: ${input.submilestoneKey}.`
+    );
+  }
+  const maintainedCents = costItems.reduce(
+    (total, item) =>
+      normalizeCostItemBudgetTreatment(item.budgetTreatment) === "maintain" &&
+      item.budgetSubmilestoneKey === input.submilestoneKey
+        ? total + costItemTotalCents(item)
+        : total,
+    0
+  );
+  const budgetCents = Math.max(0, Math.round(submilestone.budgetCents ?? 0));
+  if (maintainedCents > budgetCents) {
+    throw new Error(
+      `Maintained cost items exceed the ${submilestone.name} budget by ${maintainedCents - budgetCents} cents.`
+    );
+  }
 }
 
 async function recalculateActiveBuildBudget(
@@ -21779,7 +28486,10 @@ async function getActiveBuildSiteVisitTokenState(
     .withIndex("by_visit", (q) => q.eq("visitId", token))
     .unique();
   const buildView = {
+    address: build.location,
     key: String(build._id),
+    locationLatitude: build.locationLatitude,
+    locationLongitude: build.locationLongitude,
     name: build.buildName,
     subtitle: build.location,
   };
@@ -21827,6 +28537,28 @@ async function getActiveBuildSiteVisitTokenState(
       )
       .collect(),
   ]);
+  const expectedWorkOrderId = `WO-${visit.visitId}`;
+  const expectedEvidencePackageId = `EP-${String(buildId)}-${visit.milestoneKey}`;
+  const scopeIsInvalid =
+    !milestone ||
+    milestone.buildId !== buildId ||
+    milestone.key !== visit.milestoneKey ||
+    visit.organizationId !== build.organizationId ||
+    (visit.workOrderId !== undefined &&
+      visit.workOrderId !== expectedWorkOrderId) ||
+    (visit.evidencePackageId !== undefined &&
+      visit.evidencePackageId !== expectedEvidencePackageId);
+  if (scopeIsInvalid) {
+    return {
+      available: false,
+      build: buildView,
+      files: [],
+      reason: "not_found" as const,
+      status: "invalid" as const,
+      targets: [],
+      visit: null,
+    };
+  }
   const assignedContractorProfiles = await Promise.all(
     contractorAssignments.map((assignment) =>
       ctx.db.get(assignment.contractorId)
@@ -21908,7 +28640,13 @@ async function getActiveBuildSiteVisitTokenState(
   const visitView = {
     completedAt: visit.completedAt ? Date.parse(visit.completedAt) : undefined,
     createdAt: visit.createdAt,
+    evidencePackageId: visit.evidencePackageId ?? expectedEvidencePackageId,
+    organizationId: visit.organizationId,
+    workOrderId: visit.workOrderId ?? expectedWorkOrderId,
+    locationAttempt: visit.locationAttempt,
     milestoneKey: visit.milestoneKey,
+    missingPrerequisites: visit.missingPrerequisites,
+    prerequisiteException: visit.prerequisiteException,
     recommendedOutcome:
       milestone?.completionReview?.siteVisit?.recommendedOutcome,
     requestReason: visit.note,
@@ -22389,6 +29127,87 @@ async function builderStaffProposalWorkspaceRow(
   };
 }
 
+async function activeBuildBudgetGovernanceProjection(
+  ctx: QueryCtx,
+  build: Doc<"activeBuilds">
+) {
+  const [capitalPlans, requests, milestones, drawRequests] = await Promise.all([
+    ctx.db
+      .query("buildCapitalPlans")
+      .withIndex("by_build", (q) => q.eq("buildId", build._id))
+      .take(100),
+    ctx.db
+      .query("activeBuildBudgetRevisionRequests")
+      .withIndex("by_build", (q) => q.eq("buildId", build._id))
+      .take(100),
+    ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build_order", (q) => q.eq("buildId", build._id))
+      .take(100),
+    ctx.db
+      .query("activeBuildDrawRequests")
+      .withIndex("by_build", (q) => q.eq("buildId", build._id))
+      .take(100),
+  ]);
+  const activePlan = latestBuildCapitalPlan(capitalPlans);
+  if (!activePlan) {
+    return null;
+  }
+  const latestRequest = requests.sort(
+    (a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt
+  )[0];
+  const varianceCents = latestRequest?.varianceCents ?? 0;
+  const proposedVersion =
+    latestRequest?.status === "requested"
+      ? latestRequest.baseVersion + 1
+      : null;
+
+  return {
+    activeVersion: activePlan.version,
+    activeVersionLabel: `Capital plan v${activePlan.version}`,
+    affectedDrawRequestCount: drawRequests.filter(
+      (request) => request.status === "requested"
+    ).length,
+    affectedDrawRequestIds: drawRequests
+      .filter((request) => request.status === "requested")
+      .map((request) => String(request._id)),
+    affectedMilestoneCount: milestones.length,
+    affectedMilestoneKeys: milestones.map((milestone) => milestone.key),
+    currentOwner:
+      latestRequest?.status === "requested" ? "Lender Admin" : "Builder",
+    decisionStatus:
+      latestRequest?.status === "requested"
+        ? "pending"
+        : (latestRequest?.status ?? "current"),
+    proposedVersion,
+    proposedVersionLabel: proposedVersion
+      ? `Proposed capital plan v${proposedVersion}`
+      : null,
+    requestId: latestRequest ? String(latestRequest._id) : null,
+    requestReason: latestRequest?.reason ?? null,
+    requestType: latestRequest ? "capitalPlanRevision" : null,
+    revisionDeadline: null,
+    revisionPriority:
+      latestRequest?.status === "requested"
+        ? varianceCents > 0
+          ? "required"
+          : "recommended"
+        : null,
+    varianceBps:
+      latestRequest &&
+      typeof latestRequest.priorState?.lenderDrawPolicyLimitCents ===
+        "number" &&
+      latestRequest.priorState.lenderDrawPolicyLimitCents > 0
+        ? Math.round(
+            (varianceCents /
+              latestRequest.priorState.lenderDrawPolicyLimitCents) *
+              10_000
+          )
+        : 0,
+    varianceCents,
+  };
+}
+
 async function builderStaffActiveBuildWorkspaceRow(
   ctx: QueryCtx,
   brokerage: Doc<"brokerages">,
@@ -22402,27 +29221,56 @@ async function builderStaffActiveBuildWorkspaceRow(
   if (!proposal || proposal.brokerageId !== brokerage._id) {
     return null;
   }
-  const [milestones, draws, facilityChangeRequests] = await Promise.all([
+  const [
+    builder,
+    milestones,
+    draws,
+    drawRequests,
+    facilityChangeRequests,
+    evidence,
+  ] = await Promise.all([
+    ctx.db.get(build.builderProfileId),
     collectByIndex(ctx, "buildMilestones", "by_build", buildId),
     collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
+    collectByIndex(ctx, "activeBuildDrawRequests", "by_build", buildId),
     collectByIndex(
       ctx,
       "activeBuildFacilityChangeRequests",
       "by_build",
       buildId
     ),
+    collectByIndex(ctx, "buildEvidenceAssets", "by_build", buildId),
   ]);
+  const buildMilestones = milestones as Doc<"buildMilestones">[];
   const buildDraws = draws as Doc<"plannedDrawScheduleRows">[];
+  const buildDrawRequests = drawRequests as Doc<"activeBuildDrawRequests">[];
   const buildFacilityChangeRequests =
     facilityChangeRequests as Doc<"activeBuildFacilityChangeRequests">[];
+  const buildEvidence = evidence as Doc<"buildEvidenceAssets">[];
+  const firstImage = buildEvidence.find(
+    (asset) => asset.storageId && asset.mimeType.startsWith("image/")
+  );
+  const currentDay = productionDaysActive(build.startDate);
   return {
+    budgetGovernance: await activeBuildBudgetGovernanceProjection(ctx, build),
     buildKey: String(build._id),
     buildName: build.buildName,
+    buildStatus: build.status,
+    builderName: builder?.displayName ?? "Builder",
     drawCount: buildDraws.length,
+    imageUrl: firstImage?.storageId
+      ? await ctx.storage.getUrl(firstImage.storageId)
+      : null,
     kind: "activeBuild",
-    milestoneCount: milestones.length,
-    pendingDrawRequestCount: buildDraws.filter(
-      (draw) => draw.status === "requested"
+    location: build.location,
+    locationLatitude: build.locationLatitude,
+    locationLongitude: build.locationLongitude,
+    milestoneCount: buildMilestones.length,
+    milestonesBehindSchedule: buildMilestones.filter((milestone) =>
+      productionMilestoneIsBehindSchedule(milestone, currentDay)
+    ).length,
+    pendingDrawRequestCount: buildDrawRequests.filter(
+      (request) => request.status === "requested"
     ).length,
     pendingModificationRequestCount: buildFacilityChangeRequests.filter(
       (request) => request.status === "requested"
@@ -22712,11 +29560,6 @@ async function upsertWorkosProjection(
     )
     .unique();
   if (organization) {
-    await ctx.db.patch(organization._id, {
-      name,
-      status: "active",
-      updatedAt: now,
-    });
     return;
   }
   await ctx.db.insert("workosOrganizations", {
@@ -22805,6 +29648,15 @@ async function ensureBrokerage(
     workosOrganizationId: string;
   }
 ) {
+  const principalBroker = input.principalBrokerWorkosUserId
+    ? await ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (q) =>
+          q.eq("workosUserId", input.principalBrokerWorkosUserId)
+        )
+        .unique()
+    : null;
+  const principalBrokerEmail = principalBroker?.email.trim().toLowerCase();
   const existing = await ctx.db
     .query("brokerages")
     .withIndex("by_workos_organization", (q) =>
@@ -22815,6 +29667,8 @@ async function ensureBrokerage(
     await ctx.db.patch(existing._id, {
       displayName: input.displayName,
       legalName: input.legalName,
+      principalBrokerEmail:
+        principalBrokerEmail || existing.principalBrokerEmail,
       principalBrokerWorkosUserId:
         input.principalBrokerWorkosUserId ??
         existing.principalBrokerWorkosUserId,
@@ -22827,6 +29681,7 @@ async function ensureBrokerage(
     createdAt: input.now,
     displayName: input.displayName,
     legalName: input.legalName,
+    ...(principalBrokerEmail ? { principalBrokerEmail } : {}),
     principalBrokerWorkosUserId: input.principalBrokerWorkosUserId,
     status: "active",
     updatedAt: input.now,
@@ -22911,6 +29766,44 @@ async function ensureBuilderAccountLink(
     status: "active",
     updatedAt: input.now,
     workosUserId: input.workosUserId,
+  });
+}
+
+async function ensureSeedBuilderBrokerAssignment(
+  ctx: MutationCtx,
+  input: {
+    assignedBrokerWorkosUserId: string;
+    brokerageId: Id<"brokerages">;
+    builderProfileId: Id<"builderProfiles">;
+    now: number;
+    organizationId: string;
+  }
+) {
+  const existing = await ctx.db
+    .query("builderBrokerAssignments")
+    .withIndex("by_builderProfileId_and_status_and_effectiveAt", (q) =>
+      q.eq("builderProfileId", input.builderProfileId).eq("status", "active")
+    )
+    .order("desc")
+    .first();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      assignedBrokerWorkosUserId: input.assignedBrokerWorkosUserId,
+      brokerageId: input.brokerageId,
+      organizationId: input.organizationId,
+      updatedAt: input.now,
+    });
+    return existing._id;
+  }
+  return await ctx.db.insert("builderBrokerAssignments", {
+    assignedBrokerWorkosUserId: input.assignedBrokerWorkosUserId,
+    brokerageId: input.brokerageId,
+    builderProfileId: input.builderProfileId,
+    createdAt: input.now,
+    effectiveAt: input.now,
+    organizationId: input.organizationId,
+    status: "active",
+    updatedAt: input.now,
   });
 }
 
@@ -24439,7 +31332,16 @@ function validateProductionScenarioDrawRows(
       throw new Error("Draw percentage must be positive.");
     }
   }
-  void milestones;
+  const includedMilestones = sortedProductionIncludedMilestones(milestones);
+  const firstCompletedWorkDay = productionMilestoneEndDay(
+    includedMilestones,
+    0
+  );
+  if (rows.some((row) => row.timingDay < firstCompletedWorkDay)) {
+    throw new Error(
+      "Reimbursement draws must be scheduled after completed work. Advance funding is not supported."
+    );
+  }
 }
 
 function validateProductionMilestoneHandoffGaps(
@@ -25175,10 +32077,13 @@ async function ensureSeedScenarioProposal(
     return existing._id;
   }
 
+  const { workosUserId: assignedBrokerWorkosUserId } =
+    await requireDefaultBrokerMember(ctx, input.auth.brokerage);
   const proposalId = await ctx.db.insert("buildProposals", {
-    assignedBrokerWorkosUserId: "user_broker",
+    assignedBrokerWorkosUserId,
     brokerageId: input.brokerageId,
     borrowerCoPayBps: 2000,
+    borrowerStartingCashCents: 40_000_000,
     borrowerWorkingCapitalLimitCents: 40_000_000,
     buildName: input.buildName,
     builderProfileId: input.builderProfileId,
@@ -25551,15 +32456,276 @@ async function seedApproveProposal(
   });
 }
 
-async function seedCloseProposal(
+const LEGACY_ACTIVE_BUILD_LOAN_WARNING =
+  "loan_facility_not_reconstructed_missing_authoritative_terms";
+
+async function repairLegacyClosedProposalActiveBuildAggregate(
+  ctx: MutationCtx,
+  input: {
+    auth: {
+      brokerage: Doc<"brokerages">;
+      proposal: Doc<"buildProposals">;
+      roles: RoleSlug[];
+      subject: string;
+    };
+    buildStartDate: string;
+    reason: string;
+    warnings?: string[];
+  }
+) {
+  requireReason(input.reason);
+  const buildStartDate = normalizeIsoDateOnly(
+    input.buildStartDate,
+    "Legacy Active Build start date"
+  );
+  const { brokerage, proposal } = input.auth;
+  if (proposal.status !== "closed") {
+    throw new Error("Legacy Active Build repair requires a closed proposal.");
+  }
+  if (
+    proposal.brokerageId !== brokerage._id ||
+    proposal.organizationId !== brokerage.workosOrganizationId
+  ) {
+    throw new Error("Legacy Active Build repair scope does not match.");
+  }
+
+  const validateExistingBuild = (build: Doc<"activeBuilds">) => {
+    if (
+      build.proposalId !== proposal._id ||
+      build.brokerageId !== brokerage._id ||
+      build.organizationId !== proposal.organizationId
+    ) {
+      throw new Error("Legacy Active Build repair found a cross-scope build.");
+    }
+  };
+  const warningsForBuild = async (buildId: Id<"activeBuilds">) => {
+    const loan = await ctx.db
+      .query("loanFacilities")
+      .withIndex("by_build", (q) => q.eq("buildId", buildId))
+      .first();
+    return loan ? [] : [LEGACY_ACTIVE_BUILD_LOAN_WARNING];
+  };
+
+  if (proposal.activeBuildId) {
+    const linkedBuild = await ctx.db.get(proposal.activeBuildId);
+    if (!linkedBuild) {
+      throw new Error("Legacy proposal references a missing Active Build.");
+    }
+    validateExistingBuild(linkedBuild);
+    return {
+      buildId: linkedBuild._id,
+      operation: "already_repaired" as const,
+      warnings: await warningsForBuild(linkedBuild._id),
+    };
+  }
+
+  const existingBuilds = await ctx.db
+    .query("activeBuilds")
+    .withIndex("by_proposal", (q) => q.eq("proposalId", proposal._id))
+    .take(2);
+  if (existingBuilds.length > 1) {
+    throw new Error("Legacy proposal has multiple Active Build records.");
+  }
+  const existingBuild = existingBuilds[0];
+  if (existingBuild) {
+    validateExistingBuild(existingBuild);
+    const now = Date.now();
+    const warnings = await warningsForBuild(existingBuild._id);
+    await ctx.db.patch(proposal._id, {
+      activeBuildId: existingBuild._id,
+      updatedAt: now,
+      updatedByWorkosUserId: input.auth.subject,
+    });
+    await writeProposalEvent(ctx, {
+      auth: input.auth,
+      command: "repairLegacyClosedProposalActiveBuild",
+      eventType: "proposal.active_build.relinked",
+      newState: JSON.stringify({ activeBuildId: existingBuild._id }),
+      priorState: JSON.stringify({ activeBuildId: null, status: "closed" }),
+      proposalId: proposal._id,
+      reason: input.reason,
+      warnings,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth: { ...input.auth, proposal },
+      build: existingBuild,
+      command: "repairLegacyClosedProposalActiveBuild",
+      eventType: "active_build.relinked_to_legacy_proposal",
+      newState: JSON.stringify({ proposalId: proposal._id }),
+      reason: input.reason,
+      warnings,
+    });
+    return {
+      buildId: existingBuild._id,
+      operation: "relinked" as const,
+      warnings,
+    };
+  }
+
+  const warnings = [
+    ...new Set([
+      LEGACY_ACTIVE_BUILD_LOAN_WARNING,
+      ...(input.warnings ?? [])
+        .map((warning) => warning.trim())
+        .filter(Boolean),
+    ]),
+  ];
+  const buildId = await seedCloseProposal(ctx, {
+    activeBuildEventType: "active_build.created_from_legacy_proposal",
+    auth: input.auth,
+    buildStartDate,
+    command: "repairLegacyClosedProposalActiveBuild",
+    now: Date.now(),
+    organizationId: proposal.organizationId,
+    proposalEventType: "proposal.active_build.repaired",
+    proposalId: proposal._id,
+    proposalNewState: JSON.stringify({
+      activeBuildMaterialized: true,
+      loanFacilityCreated: false,
+      status: "closed",
+    }),
+    reason: input.reason,
+    warnings,
+  });
+  return { buildId, operation: "created" as const, warnings };
+}
+
+async function copyProposalContractorsToActiveBuild(
   ctx: MutationCtx,
   input: {
     auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string };
+    buildId: Id<"activeBuilds">;
+    buildMilestoneIds: Map<string, Id<"buildMilestones">>;
     buildStartDate: string;
-    loanFacility: { interestAnnualBps: number; principalCents: number };
+    buildSubmilestoneIds: Map<string, Id<"buildSubmilestones">>;
     now: number;
     organizationId: string;
     proposalId: Id<"buildProposals">;
+  }
+) {
+  const proposalContractors = await collectByIndex(
+    ctx,
+    "proposalContractorAssignments",
+    "by_proposal",
+    input.proposalId
+  );
+  const buildContractorAssignmentByProposalAssignment = new Map<
+    string,
+    Id<"buildContractorAssignments">
+  >();
+  for (const assignment of proposalContractors) {
+    if (assignment.status !== "active") {
+      continue;
+    }
+    const contractor = (await ctx.db.get(
+      assignment.contractorId
+    )) as Doc<"contractorProfiles"> | null;
+    if (
+      !contractor ||
+      contractor.brokerageId !== input.auth.brokerage._id ||
+      contractor.status !== "active"
+    ) {
+      continue;
+    }
+    const buildContractorAssignmentId = await ctx.db.insert(
+      "buildContractorAssignments",
+      {
+        agreedRateCents:
+          assignment.agreedRateCents ?? contractor.defaultPayRateCents,
+        agreedRateUnit:
+          assignment.agreedRateUnit ?? contractor.defaultPayRateUnit ?? "hour",
+        brokerageId: input.auth.brokerage._id,
+        buildId: input.buildId,
+        contractorId: assignment.contractorId,
+        createdAt: input.now,
+        endDate: undefined,
+        notes: assignment.notes,
+        organizationId: input.organizationId,
+        role: assignment.role,
+        startDate: input.buildStartDate,
+        status: "active",
+        updatedAt: input.now,
+      }
+    );
+    buildContractorAssignmentByProposalAssignment.set(
+      String(assignment._id),
+      buildContractorAssignmentId
+    );
+  }
+  const proposalMilestoneContractors = await collectByIndex(
+    ctx,
+    "proposalMilestoneContractorAssignments",
+    "by_proposal",
+    input.proposalId
+  );
+  for (const assignment of proposalMilestoneContractors) {
+    if (assignment.status === "removed") {
+      continue;
+    }
+    const buildMilestoneId = input.buildMilestoneIds.get(
+      String(assignment.proposalMilestoneId)
+    );
+    const buildContractorAssignmentId =
+      buildContractorAssignmentByProposalAssignment.get(
+        String(assignment.proposalContractorAssignmentId)
+      );
+    if (!(buildMilestoneId && buildContractorAssignmentId)) {
+      continue;
+    }
+    await ctx.db.insert("milestoneContractorAssignments", {
+      actualCostCents: undefined,
+      actualHours: undefined,
+      agreedRateCents: assignment.agreedRateCents,
+      agreedRateUnit: assignment.agreedRateUnit,
+      assignedAt: input.now,
+      assignedByWorkosUserId: assignment.assignedByWorkosUserId,
+      brokerageId: input.auth.brokerage._id,
+      buildContractorAssignmentId,
+      buildId: input.buildId,
+      buildMilestoneId,
+      buildSubmilestoneId: assignment.proposalSubmilestoneId
+        ? input.buildSubmilestoneIds.get(
+            String(assignment.proposalSubmilestoneId)
+          )
+        : undefined,
+      contractorId: assignment.contractorId,
+      costNotes: assignment.note,
+      createdAt: input.now,
+      estimatedCostCents: assignment.estimatedCostCents,
+      estimatedHours: assignment.estimatedHours,
+      milestoneKey: assignment.milestoneKey,
+      note: assignment.note,
+      organizationId: input.organizationId,
+      postHoc: false,
+      role: assignment.role,
+      status:
+        assignment.status === "completed"
+          ? "completed"
+          : new Date(`${input.buildStartDate}T00:00:00Z`).getTime() > input.now
+            ? "planned"
+            : "active",
+      submilestoneKey: assignment.submilestoneKey,
+      updatedAt: input.now,
+    });
+  }
+}
+
+async function seedCloseProposal(
+  ctx: MutationCtx,
+  input: {
+    activeBuildEventType?: string;
+    activeBuildNewState?: string;
+    auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string };
+    buildStartDate: string;
+    command?: string;
+    loanFacility?: { interestAnnualBps: number; principalCents: number };
+    now: number;
+    organizationId: string;
+    proposalId: Id<"buildProposals">;
+    proposalEventType?: string;
+    proposalNewState?: string;
+    reason?: string;
+    warnings?: string[];
   }
 ) {
   const proposal = await ctx.db.get(input.proposalId);
@@ -25571,10 +32737,14 @@ async function seedCloseProposal(
   const assignedBuilderProfileId = assignedBuilderProfileIdOrThrow(proposal);
   const buildId = await ctx.db.insert("activeBuilds", {
     brokerageId: input.auth.brokerage._id,
+    borrowerStartingCashCents: resolveBorrowerStartingCashCents(proposal),
     buildName: proposal.buildName,
     builderProfileId: assignedBuilderProfileId,
     createdAt: input.now,
     location: proposal.location,
+    locationLatitude: proposal.locationLatitude,
+    locationLongitude: proposal.locationLongitude,
+    locationPlaceId: proposal.locationPlaceId,
     organizationId: input.organizationId,
     permitDocumentId: permit?._id,
     permitWaiverId: permitWaiver?._id,
@@ -25592,32 +32762,38 @@ async function seedCloseProposal(
   });
   await ctx.db.insert("buildBrokerAssignments", {
     assignedBrokerWorkosUserId:
-      proposal.assignedBrokerWorkosUserId ?? input.auth.subject,
+      proposal.assignedBrokerWorkosUserId ??
+      (await requireDefaultBrokerMember(ctx, input.auth.brokerage))
+        .workosUserId,
     brokerageId: input.auth.brokerage._id,
     buildId,
     createdAt: input.now,
     organizationId: input.organizationId,
     role: "primary",
   });
-  await ctx.db.insert("loanFacilities", {
-    brokerageId: input.auth.brokerage._id,
-    buildId,
-    createdAt: input.now,
-    interestAnnualBps: input.loanFacility.interestAnnualBps,
-    interestStartsOn: "funds_released",
-    organizationId: input.organizationId,
-    paybackDate: addDaysIso(
-      input.buildStartDate,
-      proposal.timelineRangeMax ?? 365
-    ),
-    principalCents: input.loanFacility.principalCents,
-    proposalId: input.proposalId,
-    status: "active",
-    updatedAt: input.now,
-  });
+  if (input.loanFacility) {
+    await ctx.db.insert("loanFacilities", {
+      brokerageId: input.auth.brokerage._id,
+      buildId,
+      createdAt: input.now,
+      interestAnnualBps: input.loanFacility.interestAnnualBps,
+      interestStartsOn: "funds_released",
+      organizationId: input.organizationId,
+      paybackDate: addDaysIso(
+        input.buildStartDate,
+        proposal.timelineRangeMax ?? 365
+      ),
+      principalCents: input.loanFacility.principalCents,
+      proposalId: input.proposalId,
+      status: "active",
+      updatedAt: input.now,
+    });
+  }
   await ctx.db.insert("buildCapitalPlans", {
     borrowerCoPayBps: proposal.borrowerCoPayBps,
-    borrowerWorkingCapitalLimitCents: proposal.borrowerWorkingCapitalLimitCents,
+    borrowerStartingCashCents: resolveBorrowerStartingCashCents(proposal),
+    borrowerWorkingCapitalLimitCents:
+      resolveBorrowerStartingCashCents(proposal),
     brokerageId: input.auth.brokerage._id,
     buildId,
     createdAt: input.now,
@@ -25630,6 +32806,7 @@ async function seedCloseProposal(
   });
 
   const buildMilestoneIds = new Map<string, Id<"buildMilestones">>();
+  const buildSubmilestoneIds = new Map<string, Id<"buildSubmilestones">>();
   const milestones = await collectByIndex(
     ctx,
     "proposalMilestones",
@@ -25656,6 +32833,9 @@ async function seedCloseProposal(
       organizationId: input.organizationId,
       policyState: milestone.policyState,
       proposalMilestoneId: milestone._id,
+      siteVisitGuidance: milestone.siteVisitGuidance
+        ? normalizeSiteVisitGuidance(milestone.siteVisitGuidance)
+        : undefined,
       status:
         milestone.completionReview?.status === "approved"
           ? "complete"
@@ -25678,7 +32858,7 @@ async function seedCloseProposal(
     if (!buildMilestoneId) {
       continue;
     }
-    await ctx.db.insert("buildSubmilestones", {
+    const buildSubmilestoneId = await ctx.db.insert("buildSubmilestones", {
       brokerageId: input.auth.brokerage._id,
       budgetCents: submilestone.budgetCents,
       buildId,
@@ -25695,6 +32875,7 @@ async function seedCloseProposal(
       status: "planned",
       updatedAt: input.now,
     });
+    buildSubmilestoneIds.set(submilestone._id, buildSubmilestoneId);
   }
 
   const draws = await collectByIndex(
@@ -25727,6 +32908,16 @@ async function seedCloseProposal(
       updatedAt: input.now,
     });
   }
+  await copyProposalContractorsToActiveBuild(ctx, {
+    auth: input.auth,
+    buildId,
+    buildMilestoneIds,
+    buildStartDate: input.buildStartDate,
+    buildSubmilestoneIds,
+    now: input.now,
+    organizationId: input.organizationId,
+    proposalId: input.proposalId,
+  });
   await copyProposalOperationalRowsToActiveBuild(ctx, {
     auth: input.auth,
     buildId,
@@ -25746,7 +32937,7 @@ async function seedCloseProposal(
   });
   await ctx.db.patch(input.proposalId, {
     activeBuildId: buildId,
-    closedAt: input.now,
+    closedAt: proposal.closedAt ?? input.now,
     status: "closed",
     updatedAt: input.now,
     updatedByWorkosUserId: input.auth.subject,
@@ -25754,12 +32945,13 @@ async function seedCloseProposal(
   await upsertKanbanCard(ctx, input.proposalId, input.now);
   await writeProposalEvent(ctx, {
     auth: input.auth,
-    command: "dev_seedProductionProposalScenarios",
-    eventType: "proposal.closed",
-    newState: "closed",
-    priorState: "approved",
+    command: input.command ?? "dev_seedProductionProposalScenarios",
+    eventType: input.proposalEventType ?? "proposal.closed",
+    newState: input.proposalNewState ?? "closed",
+    priorState: proposal.status,
     proposalId: input.proposalId,
-    reason: "Seeded offline loan closing.",
+    reason: input.reason ?? "Seeded offline loan closing.",
+    warnings: input.warnings,
   });
   const build = await ctx.db.get(buildId);
   if (build) {
@@ -25771,10 +32963,13 @@ async function seedCloseProposal(
         subject: input.auth.subject,
       },
       build,
-      command: "dev_seedProductionProposalScenarios",
-      eventType: "active_build.created",
-      newState: JSON.stringify({ buildId, proposalId: input.proposalId }),
-      reason: "Seeded offline loan closing.",
+      command: input.command ?? "dev_seedProductionProposalScenarios",
+      eventType: input.activeBuildEventType ?? "active_build.created",
+      newState:
+        input.activeBuildNewState ??
+        JSON.stringify({ buildId, proposalId: input.proposalId }),
+      reason: input.reason ?? "Seeded offline loan closing.",
+      warnings: input.warnings,
     });
   }
   await ctx.db.insert("eventOutbox", {
@@ -25791,6 +32986,7 @@ async function seedCloseProposal(
     relatedEntityType: "activeBuild",
     status: "pending",
   });
+  return buildId;
 }
 
 async function ensureSeedContractorProfile(
@@ -25828,6 +33024,157 @@ function titleCase(value: string) {
     .split("_")
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
     .join(" ");
+}
+
+const AUDIT_FIELD_PRIORITY = [
+  "status",
+  "name",
+  "label",
+  "title",
+  "amountCents",
+  "requestedAmountCents",
+  "approvedAmountCents",
+  "principalCents",
+  "interestAnnualBps",
+  "progressPercent",
+  "forecastStartDate",
+  "forecastEndDate",
+  "paybackDate",
+  "locationVerified",
+  "note",
+];
+
+function parseAuditState(value?: string): unknown {
+  if (value === undefined) {
+    return;
+  }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function isAuditRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function shouldProjectAuditField(field: string): boolean {
+  const lower = field.toLowerCase();
+  return !(
+    field.startsWith("_") ||
+    lower.endsWith("id") ||
+    lower.endsWith("ids") ||
+    lower.endsWith("at") ||
+    lower.includes("workos") ||
+    lower === "organizationid" ||
+    lower === "brokerageid"
+  );
+}
+
+function auditFieldRank(field: string): number {
+  const rank = AUDIT_FIELD_PRIORITY.indexOf(field);
+  return rank === -1 ? AUDIT_FIELD_PRIORITY.length : rank;
+}
+
+function auditFieldLabel(field: string): string {
+  const withoutUnit = field
+    .replace(/Cents$/, "")
+    .replace(/Bps$/, " rate")
+    .replace(/Percent$/, " percentage");
+  return titleCase(
+    withoutUnit.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()
+  );
+}
+
+function auditValueLabel(field: string, value: unknown): string {
+  if (value === undefined) {
+    return "Not set";
+  }
+  if (value === null) {
+    return "None";
+  }
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+  if (typeof value === "number") {
+    if (field.endsWith("Cents")) {
+      return centsToCurrency(value);
+    }
+    if (field.endsWith("Bps")) {
+      return `${value / 100}%`;
+    }
+    if (field.endsWith("Percent")) {
+      return `${value}%`;
+    }
+    return new Intl.NumberFormat("en-US").format(value);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "Empty";
+    }
+    if (/^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(trimmed)) {
+      return titleCase(trimmed.toLowerCase());
+    }
+    return trimmed.length > 96 ? `${trimmed.slice(0, 93)}...` : trimmed;
+  }
+  if (Array.isArray(value)) {
+    const simpleValues = value.filter((item) =>
+      ["boolean", "number", "string"].includes(typeof item)
+    );
+    if (simpleValues.length === value.length && value.length <= 3) {
+      return simpleValues.map((item) => String(item)).join(", ") || "None";
+    }
+    return `${value.length} item${value.length === 1 ? "" : "s"}`;
+  }
+  if (isAuditRecord(value)) {
+    const identifyingValue = value.label ?? value.name ?? value.status;
+    return identifyingValue === undefined
+      ? `${Object.keys(value).length} recorded fields`
+      : auditValueLabel(field, identifyingValue);
+  }
+  return String(value);
+}
+
+function projectAuditStateChanges(priorState?: string, newState?: string) {
+  const before = parseAuditState(priorState);
+  const after = parseAuditState(newState);
+  if (!(isAuditRecord(before) || isAuditRecord(after))) {
+    if (before === undefined && after === undefined) {
+      return [];
+    }
+    return [
+      {
+        after: auditValueLabel("state", after),
+        before: auditValueLabel("state", before),
+        field: "State",
+      },
+    ];
+  }
+
+  const beforeRecord = isAuditRecord(before) ? before : {};
+  const afterRecord = isAuditRecord(after) ? after : {};
+  const fields = [
+    ...new Set([...Object.keys(beforeRecord), ...Object.keys(afterRecord)]),
+  ]
+    .filter(shouldProjectAuditField)
+    .filter(
+      (field) =>
+        JSON.stringify(beforeRecord[field]) !==
+        JSON.stringify(afterRecord[field])
+    )
+    .sort((left, right) => {
+      const rankDelta = auditFieldRank(left) - auditFieldRank(right);
+      return rankDelta || left.localeCompare(right);
+    })
+    .slice(0, 5);
+
+  return fields.map((field) => ({
+    after: auditValueLabel(field, afterRecord[field]),
+    before: auditValueLabel(field, beforeRecord[field]),
+    field: auditFieldLabel(field),
+  }));
 }
 
 function emptyProposalKanbanColumns() {

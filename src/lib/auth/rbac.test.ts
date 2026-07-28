@@ -5,9 +5,11 @@ import {
   BACKOFFICE_ROLE_SLUGS,
   BUILDER_ROLE_SLUGS,
   DESTRUCTIVE_WRITE_ROLE_SLUGS,
+  getIntegrationAdminAccessDecision,
   getUserManagementAccessDecision,
   getWorkspaceAccessDecision,
   hasBuilderStaffWorkspaceAccess,
+  INTEGRATION_ADMIN_ROLE_SLUGS,
   normalizeRoleSlug,
   normalizeRoleSlugs,
   requireUserManagementWriteAccess,
@@ -41,6 +43,29 @@ describe("DrawFlow frontend RBAC policy", () => {
       "principle-broker",
     ]);
     expect(DESTRUCTIVE_WRITE_ROLE_SLUGS).toEqual(["admin", "principle-broker"]);
+    expect(INTEGRATION_ADMIN_ROLE_SLUGS).toEqual(["admin"]);
+  });
+
+  test("reserves integration operations for organization admins", () => {
+    const input = {
+      isAuthenticated: true,
+      organizationId: "org_123",
+      pathname: "/backoffice/integrations",
+      workspace: "backoffice" as const,
+    };
+
+    expect(
+      getIntegrationAdminAccessDecision({ ...input, roles: ["admin"] })
+    ).toMatchObject({ status: "allowed" });
+    expect(
+      getIntegrationAdminAccessDecision({
+        ...input,
+        roles: ["principle-broker"],
+      })
+    ).toMatchObject({ status: "forbidden", reason: "no-workspace-access" });
+    expect(
+      getIntegrationAdminAccessDecision({ ...input, roles: ["broker"] })
+    ).toMatchObject({ status: "forbidden", reason: "no-workspace-access" });
   });
 
   test("reserves active-build final decisions for lender admins", () => {
@@ -49,6 +74,28 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(canMakeActiveBuildFinalDecision(["broker"])).toBe(false);
     expect(canMakeActiveBuildFinalDecision(["broker-staff"])).toBe(false);
     expect(canMakeActiveBuildFinalDecision(["builder"])).toBe(false);
+  });
+
+  test("fails closed on missing organization even for privileged mixed-role sessions", () => {
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "   ",
+        pathname: "/backoffice",
+        roles: ["admin", "builder"],
+        workspace: "backoffice",
+      })
+    ).toMatchObject({ status: "forbidden", reason: "missing-organization" });
+
+    expect(
+      getUserManagementAccessDecision({
+        isAuthenticated: true,
+        organizationId: "   ",
+        pathname: "/backoffice/user-management",
+        roles: ["admin", "builder"],
+        workspace: "backoffice",
+      })
+    ).toMatchObject({ status: "forbidden", reason: "missing-organization" });
   });
 
   test("routes unauthenticated, allowed, wrong-role, member, and builder demo access centrally", () => {

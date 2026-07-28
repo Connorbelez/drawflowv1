@@ -38,7 +38,7 @@ type ClaimPreview =
       milestoneCount: number;
       proposal: {
         borrowerCoPayBps: number;
-        borrowerWorkingCapitalLimitCents: number;
+        borrowerStartingCashCents: number;
         buildName: string;
         lenderDrawPolicyLimitCents: number;
         location: string;
@@ -183,7 +183,7 @@ function ProposalClaimRoute() {
           <ClaimMetric
             label="Working capital"
             value={formatClaimCents(
-              preview.proposal.borrowerWorkingCapitalLimitCents
+              preview.proposal.borrowerStartingCashCents
             )}
           />
           <ClaimMetric

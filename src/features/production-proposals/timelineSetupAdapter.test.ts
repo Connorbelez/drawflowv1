@@ -174,7 +174,7 @@ describe("production proposal timeline setup adapter", () => {
     expect(payload.draws).toHaveLength(3);
   });
 
-  test("increases saved scenario draw amounts to avoid negative cash on hand", () => {
+  test("keeps scenario draws within reimbursement capacity instead of repairing borrower cash shortfalls", () => {
     const template: TimelineSetupTemplate = {
       description: "Cash constrained",
       rows: [
@@ -208,10 +208,101 @@ describe("production proposal timeline setup adapter", () => {
     });
 
     expect(draws?.map((draw) => draw.amountCents)).toEqual([
-      250_000_00,
-      500_000_00,
-      100_000_00,
+      80_000_00,
+      80_000_00,
+      80_000_00,
     ]);
+    expect(
+      draws?.reduce((total, draw) => total + draw.amountCents, 0)
+    ).toBeLessThanOrEqual(800_000_00);
+  });
+
+  test("fits single-family template draws within completed-work eligibility at 70% LTV", () => {
+    const template: TimelineSetupTemplate = {
+      description: "Ground-up single family",
+      rows: [
+        setupPreset("site-prep", "Site prep & foundation", 1_000, 14),
+        setupPreset("framing", "Framing & structure", 1_280, 18),
+        setupPreset("rough-in", "Rough-in mechanical", 1_960, 20),
+        setupPreset("exterior", "Windows & exterior", 1_680, 18),
+        setupPreset("drywall", "Inspections & drywall", 1_520, 16),
+        setupPreset("finishes", "Finishes & fixtures", 1_280, 12),
+        setupPreset("closeout", "Final inspection & closeout", 1_280, 4),
+      ],
+      scenarios: [
+        {
+          draws: [
+            scenarioDraw("draw-01", 2_000, 16),
+            scenarioDraw("draw-02", 2_500, 39),
+            scenarioDraw("draw-03", 2_500, 64),
+            scenarioDraw("draw-04", 2_000, 108),
+            scenarioDraw("draw-05", 1_000, 125),
+          ],
+          isActive: true,
+          isDefault: true,
+          scenarioKey: "standard-reimbursement",
+        },
+      ],
+      summary: "7 milestones",
+      templateKey: "single-family-full-build",
+      title: "Single Family Full Build",
+    };
+    const budgetCents = 675_000_00;
+    const borrowerCoPayBps = 3_000;
+    const rows = createRowsFromTemplate(template, budgetCents);
+    const items = buildTimelineItemsFromSetupRows(rows, borrowerCoPayBps);
+    const draws = buildTimelineSetupScenarioDraws({
+      budgetCents,
+      items,
+      scenario: selectTimelineSetupScenario(template),
+      startingCashCents: 400_000_00,
+    });
+    const payload = timelineSetupResultToDraftPackage({
+      activeItemId: items[0]?.id ?? "",
+      borrowerCoPayBps,
+      borrowerCoPayCents: Math.round((budgetCents * borrowerCoPayBps) / 10_000),
+      contractorAssignments: [],
+      costItems: [],
+      currentDay: 0,
+      draws,
+      includedCount: items.length,
+      items,
+      permitFiles: [],
+      projectAddress: "Hamilton, ON",
+      redirectToDurableRoute: true,
+      reimbursableBudgetCents: Math.round(
+        (budgetCents * (10_000 - borrowerCoPayBps)) / 10_000
+      ),
+      reimbursementBps: 10_000 - borrowerCoPayBps,
+      startingCash: 400_000,
+      templateKey: "single-family-full-build",
+      templateTitle: "Single Family Full Build",
+      totalBudget: 675_000,
+    });
+
+    expect(draws?.length).toBe(5);
+    let cumulativePlanned = 0;
+    for (const draw of [...(payload.draws ?? [])].sort(
+      (left, right) =>
+        left.timingDay - right.timingDay ||
+        (left.order ?? 0) - (right.order ?? 0)
+    )) {
+      cumulativePlanned += draw.amountCents;
+      const cumulativeEligible = payload.milestones.reduce(
+        (total, milestone) =>
+          milestone.dayEnd <= draw.timingDay
+            ? total +
+              Math.round(
+                (milestone.budgetCents * (10_000 - borrowerCoPayBps)) / 10_000
+              )
+            : total,
+        0
+      );
+      expect(cumulativePlanned).toBeLessThanOrEqual(cumulativeEligible);
+    }
+    expect(
+      (payload.draws ?? []).reduce((total, draw) => total + draw.amountCents, 0)
+    ).toBe(payload.lenderDrawPolicyLimitCents);
   });
 
   test("maps richer production milestone names to the expanded icon set", () => {
@@ -327,12 +418,13 @@ describe("production proposal timeline setup adapter", () => {
 
     expect(payload).toMatchObject({
       borrowerCoPayBps: 2_000,
-      borrowerWorkingCapitalLimitCents: 40_000_000,
+      borrowerStartingCashCents: 40_000_000,
       buildName: "Single Family Full Build Proposal",
       lenderDrawPolicyLimitCents: 100_000_000,
       location: "Hamilton, ON",
       proposedStartDate: "2025-04-15",
     });
+    expect(payload).not.toHaveProperty("borrowerWorkingCapitalLimitCents");
     expect(payload.milestones).toEqual([
       expect.objectContaining({
         budgetCents: 30_000_000,

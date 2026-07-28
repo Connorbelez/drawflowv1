@@ -77,6 +77,7 @@ import {
   shouldLoadProposalReviewBuilders,
   shouldMountProposalStaffPanel,
   validateApprovalStartDate,
+  validateProposalReviewSearch,
 } from "./proposals.$planId";
 
 Object.defineProperty(window, "matchMedia", {
@@ -191,7 +192,7 @@ function productionProposalDetail(status: "draft" | "submitted" = "submitted") {
     permitWaiver: { reason: "Municipal permit waiver accepted." },
     proposal: {
       borrowerCoPayBps: 0,
-      borrowerWorkingCapitalLimitCents: 250_000_00,
+      borrowerStartingCashCents: 250_000_00,
       buildName: "Elm Street proposal",
       interestAnnualBps: 925,
       lenderDrawPolicyLimitCents: 600_000_00,
@@ -579,7 +580,7 @@ describe("ProductionProposalReviewSurface packet CTAs", () => {
     );
   });
 
-  test("renders builder submit proposal CTA on draft packet tab", async () => {
+  test("keeps packet submission disabled until a preferred plan is stored", () => {
     const submitProposal = vi.fn().mockResolvedValue({ ok: true });
 
     render(
@@ -592,24 +593,101 @@ describe("ProductionProposalReviewSurface packet CTAs", () => {
     const packet = screen.getByTestId("production-proposal-packet-tab");
     const submitButton = within(packet).getByRole("button", {
       name: "Submit proposal",
+    }) as HTMLButtonElement;
+    expect(submitButton.disabled).toBe(true);
+    expect(
+      within(packet).getByText(/select a preferred plan before submitting/i),
+    ).toBeTruthy();
+    fireEvent.click(submitButton);
+    expect(submitProposal).not.toHaveBeenCalled();
+  });
+
+  test("renders builder submit proposal CTA on draft packet tab", async () => {
+    const submitProposal = vi.fn().mockResolvedValue({ ok: true });
+    const detail = productionProposalDetail("draft");
+
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...detail,
+          proposal: {
+            ...detail.proposal,
+            selectedPlan: {
+              name: "Capital-Constrained",
+              planKey: "capitalConstrained",
+            },
+          },
+        } as any}
+        onSubmit={submitProposal}
+      />,
+    );
+
+    const packet = screen.getByTestId("production-proposal-packet-tab");
+    const submitButton = within(packet).getByRole("button", {
+      name: "Submit proposal",
     });
     expect(submitButton).toBeTruthy();
+    expect(within(packet).getByText("Capital-Constrained")).toBeTruthy();
+    expect(within(packet).getByText("Builder-selected proposal plan")).toBeTruthy();
 
     fireEvent.click(submitButton);
 
     await waitFor(() => expect(submitProposal).toHaveBeenCalledTimes(1));
   });
+
+  test("keeps lender decision and draw edit controls available for authorized reviewers", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...productionProposalDetail("submitted"),
+          documents: [],
+          permitWaiver: null,
+        } as any}
+        initialActiveTab="review"
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onUpdateDraw={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Request Changes" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Approve Proposal" }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Decision reason")).toBeTruthy();
+    expect(screen.getByLabelText("Audited permit waiver")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Draw schedule" }));
+
+    expect(screen.getByLabelText("draw-01 label")).toBeTruthy();
+    expect(screen.getByLabelText("Amount dollars")).toBeTruthy();
+    expect(screen.getByLabelText("Change reason")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save draw row" })).toBeTruthy();
+  });
 });
 
 describe("proposal review subscription gates", () => {
-  test("keeps the default packet route on lean workspace subscriptions", () => {
+  test("loads builder assignment data for the default merged packet", () => {
     const activeTab = resolveProposalReviewRouteTab({});
 
     expect(activeTab).toBe("packet");
     expect(shouldLoadProposalCalendarWorkspace(activeTab)).toBe(false);
     expect(shouldLoadProposalContractorPlanning(activeTab)).toBe(false);
-    expect(shouldLoadProposalReviewBuilders(activeTab)).toBe(false);
+    expect(shouldLoadProposalReviewBuilders(activeTab)).toBe(true);
     expect(shouldMountProposalStaffPanel(activeTab)).toBe(false);
+  });
+
+  test("round-trips valid backoffice tab and timeframe search", () => {
+    expect(
+      validateProposalReviewSearch({ tab: "calendar", timeframe: "week" }),
+    ).toEqual({ tab: "calendar", timeframe: "week" });
+    expect(
+      validateProposalReviewSearch({ tab: "review", timeframe: "agenda" }),
+    ).toEqual({ tab: "review", timeframe: "agenda" });
   });
 
   test("loads heavyweight subscriptions only for the tabs that need them", () => {
@@ -622,6 +700,7 @@ describe("proposal review subscription gates", () => {
     expect(shouldLoadProposalContractorPlanning("timeline")).toBe(false);
 
     expect(shouldLoadProposalReviewBuilders("review")).toBe(true);
+    expect(shouldLoadProposalReviewBuilders("packet")).toBe(true);
     expect(shouldLoadProposalReviewBuilders("timeline")).toBe(false);
 
     expect(shouldMountProposalStaffPanel("staff")).toBe(true);

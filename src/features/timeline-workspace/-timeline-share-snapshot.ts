@@ -107,19 +107,22 @@ export function getMilestoneEffectiveCashSpendAmount(
 }
 
 export function getMilestoneDrawAvailabilityAmount(
-  milestone: DemoMilestone | undefined
+  milestone: DemoMilestone | undefined,
+  coPayBps: number | undefined = undefined
 ) {
   if (!milestone) {
     return 0;
   }
 
   const approvedBudget = Math.max(0, Math.round(milestone.amount));
-  return Number.isFinite(milestone.drawAvailabilityAmount)
-    ? Math.max(0, Math.round(milestone.drawAvailabilityAmount ?? 0))
-    : calculateDrawAvailabilityAmount(
-        approvedBudget,
-        DEFAULT_BORROWER_CO_PAY_BPS
-      );
+  if (Number.isFinite(milestone.drawAvailabilityAmount)) {
+    return Math.max(0, Math.round(milestone.drawAvailabilityAmount ?? 0));
+  }
+
+  return calculateDrawAvailabilityAmount(
+    approvedBudget,
+    coPayBps ?? DEFAULT_BORROWER_CO_PAY_BPS
+  );
 }
 
 export interface DemoCompletionClaim {

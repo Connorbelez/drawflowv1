@@ -106,6 +106,28 @@ async function createActiveBuild(t: any, seed: any) {
     proposalId,
     workosOrganizationId: ORG,
   });
+  await t.run(async (ctx: any) => {
+    const now = Date.now();
+    await ctx.db.patch(proposalId, {
+      selectedPlan: {
+        metrics: {
+          drawCount: 2,
+          drawFeesCents: 100_000,
+          interestCostCents: 250_000,
+          minimumCashReserveCents: 5_000_000,
+          projectedDurationDays: 48,
+          startingCashCents: 30_000_000,
+          totalCostCents: 350_000,
+          totalDrawAmountCents: 100_000_000,
+        },
+        name: "Cheapest Feasible",
+        planKey: "cheapestFeasible",
+        recommendationReason: "Selected by contractor history test setup.",
+        selectedAt: now,
+        selectedByWorkosUserId: "contractor_history_test_setup",
+      },
+    });
+  });
   await t.mutation((api as any).production_proposals.submitProposal, {
     proposalId,
     workosOrganizationId: ORG,
@@ -405,6 +427,29 @@ describe("contractors v1", () => {
       reason: "Same company with a linked external brokerage profile.",
       status: "verified",
       workosOrganizationId: ORG,
+    });
+
+    await t.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.patch(proposalId, {
+        selectedPlan: {
+          metrics: {
+            drawCount: 1,
+            drawFeesCents: 50_000,
+            interestCostCents: 100_000,
+            minimumCashReserveCents: 5_000_000,
+            projectedDurationDays: 24,
+            startingCashCents: 35_000_000,
+            totalCostCents: 150_000,
+            totalDrawAmountCents: 58_000_000,
+          },
+          name: "Cheapest Feasible",
+          planKey: "cheapestFeasible",
+          recommendationReason: "Selected by contractor planning test setup.",
+          selectedAt: now,
+          selectedByWorkosUserId: "contractor_planning_test_setup",
+        },
+      });
     });
 
     await t.mutation((api as any).production_proposals.submitProposal, {

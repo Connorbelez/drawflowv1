@@ -1,0 +1,295 @@
+"use client";
+
+import { Notification03Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useMutation, useQuery } from "convex/react";
+import { useState } from "react";
+import { Badge } from "#/components/ui/badge.tsx";
+import { Button } from "#/components/ui/button.tsx";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetPanel,
+  SheetTitle,
+  SheetTrigger,
+} from "#/components/ui/sheet.tsx";
+import { cn } from "#/lib/utils.ts";
+import { api } from "../../convex/_generated/api";
+
+type InboxFilter = "actionRequired" | "all";
+type RecipientDelivery = NonNullable<
+  ReturnType<typeof useRecipientInbox>
+>["deliveries"][number];
+
+export function NotificationInbox({
+  workosOrganizationId,
+}: {
+  workosOrganizationId?: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState<InboxFilter>("all");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const inbox = useRecipientInbox(open ? workosOrganizationId : null);
+  const markRead = useMutation(
+    api.production_proposals.markRecipientDeliveryRead
+  );
+  const dismiss = useMutation(
+    api.production_proposals.dismissRecipientDelivery
+  );
+  const resolve = useMutation(
+    api.production_proposals.resolveRecipientDelivery
+  );
+  const unreadCount = inbox?.unreadCount ?? 0;
+  const deliveries =
+    inbox?.deliveries.filter(
+      (delivery) => filter === "all" || delivery.actionRequired
+    ) ?? [];
+
+  const runDeliveryMutation = async (operation: () => Promise<unknown>) => {
+    setErrorMessage(null);
+    try {
+      await operation();
+    } catch {
+      setErrorMessage("Unable to update this notification. Try again.");
+    }
+  };
+
+  return (
+    <Sheet onOpenChange={setOpen} open={open}>
+      <SheetTrigger
+        aria-label={
+          unreadCount > 0
+            ? `Notifications, ${unreadCount} unread`
+            : "Notifications"
+        }
+        className="relative size-11 md:size-8"
+        disabled={!workosOrganizationId}
+        render={<Button size="icon-sm" variant="outline" />}
+      >
+        <HugeiconsIcon icon={Notification03Icon} strokeWidth={2} />
+        {unreadCount > 0 ? (
+          <span
+            aria-hidden="true"
+            className="absolute -top-1 -right-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 font-semibold text-[10px] text-destructive-foreground"
+          >
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        ) : null}
+      </SheetTrigger>
+      <SheetContent
+        aria-describedby="recipient-inbox-description"
+        className="sm:max-w-lg"
+        data-testid="recipient-notification-inbox"
+        side="right"
+      >
+        <SheetHeader>
+          <div className="flex items-start justify-between gap-6 pr-8">
+            <div>
+              <SheetTitle>Notifications</SheetTitle>
+              <SheetDescription id="recipient-inbox-description">
+                Recipient-scoped updates and legal next actions.
+              </SheetDescription>
+            </div>
+            {inbox ? (
+              <Badge
+                variant={inbox.actionRequiredCount > 0 ? "warning" : "outline"}
+              >
+                {inbox.actionRequiredCount} require action
+              </Badge>
+            ) : null}
+          </div>
+        </SheetHeader>
+        <SheetPanel className="grid content-start gap-4">
+          <div
+            aria-label="Notification filters"
+            className="flex gap-2"
+            role="group"
+          >
+            <Button
+              aria-pressed={filter === "all"}
+              onClick={() => setFilter("all")}
+              size="sm"
+              variant={filter === "all" ? "secondary" : "outline"}
+            >
+              All
+            </Button>
+            <Button
+              aria-pressed={filter === "actionRequired"}
+              onClick={() => setFilter("actionRequired")}
+              size="sm"
+              variant={filter === "actionRequired" ? "secondary" : "outline"}
+            >
+              Action required
+            </Button>
+          </div>
+
+          {errorMessage ? (
+            <p
+              aria-live="polite"
+              className="rounded-lg bg-destructive/10 p-3 text-destructive-foreground text-sm"
+            >
+              {errorMessage}
+            </p>
+          ) : null}
+
+          {workosOrganizationId ? (
+            inbox === undefined ? (
+              <InboxState message="Loading notifications…" />
+            ) : deliveries.length === 0 ? (
+              <InboxState
+                message={
+                  filter === "actionRequired"
+                    ? "No notifications require action."
+                    : "No notifications yet."
+                }
+              />
+            ) : (
+              <ol className="grid gap-3">
+                {deliveries.map((delivery) => (
+                  <li key={delivery._id}>
+                    <RecipientDeliveryCard
+                      delivery={delivery}
+                      onDismiss={() =>
+                        runDeliveryMutation(() =>
+                          dismiss({
+                            deliveryId: delivery._id,
+                            workosOrganizationId,
+                          })
+                        )
+                      }
+                      onOpen={() =>
+                        delivery.status === "unread"
+                          ? runDeliveryMutation(() =>
+                              markRead({
+                                deliveryId: delivery._id,
+                                workosOrganizationId,
+                              })
+                            )
+                          : undefined
+                      }
+                      onResolve={() =>
+                        runDeliveryMutation(() =>
+                          resolve({
+                            deliveryId: delivery._id,
+                            workosOrganizationId,
+                          })
+                        )
+                      }
+                    />
+                  </li>
+                ))}
+              </ol>
+            )
+          ) : (
+            <InboxState message="Choose an organization to view notifications." />
+          )}
+        </SheetPanel>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function useRecipientInbox(workosOrganizationId?: string | null) {
+  return useQuery(
+    api.production_proposals.listRecipientInbox,
+    workosOrganizationId ? { workosOrganizationId } : "skip"
+  );
+}
+
+function RecipientDeliveryCard({
+  delivery,
+  onDismiss,
+  onOpen,
+  onResolve,
+}: {
+  delivery: RecipientDelivery;
+  onDismiss: () => void;
+  onOpen: () => void;
+  onResolve: () => void;
+}) {
+  return (
+    <article
+      className={cn(
+        "grid gap-3 rounded-xl border p-4",
+        delivery.status === "unread" ? "bg-primary/5" : "bg-background"
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold text-sm">{delivery.title}</p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            {delivery.entityLabel}
+          </p>
+        </div>
+        <span className="shrink-0 text-muted-foreground text-xs">
+          {formatDeliveryAge(delivery.createdAt)}
+        </span>
+      </div>
+      <p className="text-sm">{delivery.body}</p>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
+        <span>{delivery.sourceLabel}</span>
+        <span aria-hidden="true">·</span>
+        <span>{delivery.actionRequired ? "Action required" : "Update"}</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          data-testid={`recipient-delivery-open-${delivery._id}`}
+          onClick={onOpen}
+          render={<a href={delivery.href} />}
+          size="sm"
+        >
+          {delivery.actionLabel}
+        </Button>
+        {delivery.resolutionMode === "recipient" ? (
+          <Button
+            data-testid={`recipient-delivery-resolve-${delivery._id}`}
+            onClick={onResolve}
+            size="sm"
+            variant="outline"
+          >
+            Resolve
+          </Button>
+        ) : null}
+        <Button
+          data-testid={`recipient-delivery-dismiss-${delivery._id}`}
+          onClick={onDismiss}
+          size="sm"
+          variant="ghost"
+        >
+          Dismiss
+        </Button>
+      </div>
+    </article>
+  );
+}
+
+function InboxState({ message }: { message: string }) {
+  return (
+    <p
+      aria-live="polite"
+      className="rounded-xl border border-dashed p-6 text-center text-muted-foreground text-sm"
+    >
+      {message}
+    </p>
+  );
+}
+
+function formatDeliveryAge(createdAt: number) {
+  const elapsedMinutes = Math.max(
+    0,
+    Math.floor((Date.now() - createdAt) / 60_000)
+  );
+  if (elapsedMinutes < 1) {
+    return "Just now";
+  }
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m ago`;
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return `${elapsedHours}h ago`;
+  }
+  return `${Math.floor(elapsedHours / 24)}d ago`;
+}

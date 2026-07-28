@@ -41,6 +41,19 @@ export interface ProposalPlanningSnapshot {
     order: number;
     x: number;
   }>;
+  costItems?: Array<{
+    budgetSubmilestoneKey?: string;
+    budgetTreatment?: "add" | "logOnly" | "maintain";
+    costCents: number;
+    description?: string;
+    itemKey: string;
+    itemType: "equipment" | "material";
+    milestoneKey: string;
+    quantity: number;
+    relevantSubmilestoneKeys: string[];
+    supplier?: string;
+    title: string;
+  }>;
   draws: Array<{
     amountCents: number;
     customDate?: boolean;
@@ -82,7 +95,7 @@ export interface ProposalPlanningSnapshot {
     tone?: string;
   }>;
   proposal: {
-    borrowerWorkingCapitalLimitCents: number;
+    borrowerStartingCashCents: number;
     lenderDrawPolicyLimitCents: number;
     timelineCurrentDay?: number;
     timelineProgressValue?: number;
@@ -460,24 +473,29 @@ export async function captureProposalPlanningSnapshot(
   if (!proposal) {
     throw new Error("Missing proposal.");
   }
-  const [milestones, submilestones, draws, capitalEvents] = await Promise.all([
-    ctx.db
-      .query("proposalMilestones")
-      .withIndex("by_proposal_order", (q) => q.eq("proposalId", proposalId))
-      .collect(),
-    ctx.db
-      .query("proposalSubmilestones")
-      .withIndex("by_proposal", (q) => q.eq("proposalId", proposalId))
-      .collect(),
-    ctx.db
-      .query("proposalDrawScheduleRows")
-      .withIndex("by_proposal_order", (q) => q.eq("proposalId", proposalId))
-      .collect(),
-    ctx.db
-      .query("proposalCapitalEvents")
-      .withIndex("by_proposal_order", (q) => q.eq("proposalId", proposalId))
-      .collect(),
-  ]);
+  const [milestones, submilestones, draws, capitalEvents, costItems] =
+    await Promise.all([
+      ctx.db
+        .query("proposalMilestones")
+        .withIndex("by_proposal_order", (q) => q.eq("proposalId", proposalId))
+        .collect(),
+      ctx.db
+        .query("proposalSubmilestones")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", proposalId))
+        .collect(),
+      ctx.db
+        .query("proposalDrawScheduleRows")
+        .withIndex("by_proposal_order", (q) => q.eq("proposalId", proposalId))
+        .collect(),
+      ctx.db
+        .query("proposalCapitalEvents")
+        .withIndex("by_proposal_order", (q) => q.eq("proposalId", proposalId))
+        .collect(),
+      ctx.db
+        .query("proposalCostItems")
+        .withIndex("by_proposal", (q) => q.eq("proposalId", proposalId))
+        .collect(),
+    ]);
   const submilestonesByMilestoneKey = new Map<
     string,
     Doc<"proposalSubmilestones">[]
@@ -496,6 +514,19 @@ export async function captureProposalPlanningSnapshot(
       label: event.label,
       order: event.order,
       x: event.x,
+    })),
+    costItems: costItems.map((item) => ({
+      budgetSubmilestoneKey: item.budgetSubmilestoneKey,
+      budgetTreatment: item.budgetTreatment,
+      costCents: item.costCents,
+      description: item.description,
+      itemKey: item.itemKey,
+      itemType: item.itemType,
+      milestoneKey: item.milestoneKey,
+      quantity: item.quantity,
+      relevantSubmilestoneKeys: item.relevantSubmilestoneKeys,
+      supplier: item.supplier,
+      title: item.title,
     })),
     draws: draws.map((draw) => ({
       amountCents: draw.amountCents,
@@ -540,7 +571,9 @@ export async function captureProposalPlanningSnapshot(
       tone: milestone.tone,
     })),
     proposal: {
-      borrowerWorkingCapitalLimitCents:
+      borrowerStartingCashCents:
+        proposal.borrowerStartingCashCents ??
+        proposal.timelineStartingCashCents ??
         proposal.borrowerWorkingCapitalLimitCents,
       lenderDrawPolicyLimitCents: proposal.lenderDrawPolicyLimitCents,
       timelineCurrentDay: proposal.timelineCurrentDay,
@@ -565,6 +598,12 @@ export async function restoreProposalPlanningSnapshot(
   snapshot: ProposalPlanningSnapshot
 ) {
   const now = Date.now();
+  const costItemsToRestore =
+    snapshot.costItems ??
+    (await ctx.db
+      .query("proposalCostItems")
+      .withIndex("by_proposal", (q) => q.eq("proposalId", auth.proposal._id))
+      .collect());
   await deletePlanningRowsForRestore(ctx, auth.proposal._id);
   const milestoneIdByKey = new Map<string, Id<"proposalMilestones">>();
   for (const milestone of snapshot.milestones) {
@@ -609,6 +648,33 @@ export async function restoreProposalPlanningSnapshot(
       });
     }
   }
+  for (const item of costItemsToRestore) {
+    const proposalMilestoneId = milestoneIdByKey.get(item.milestoneKey);
+    if (!proposalMilestoneId) {
+      continue;
+    }
+    await ctx.db.insert("proposalCostItems", {
+      brokerageId: auth.brokerage._id,
+      budgetSubmilestoneKey: item.budgetSubmilestoneKey,
+      budgetTreatment: item.budgetTreatment ?? "add",
+      costCents: item.costCents,
+      createdAt: now,
+      createdByWorkosUserId: auth.subject,
+      description: item.description,
+      itemKey: item.itemKey,
+      itemType: item.itemType,
+      milestoneKey: item.milestoneKey,
+      organizationId: auth.proposal.organizationId,
+      proposalId: auth.proposal._id,
+      proposalMilestoneId,
+      quantity: item.quantity,
+      relevantSubmilestoneKeys: item.relevantSubmilestoneKeys,
+      supplier: item.supplier,
+      title: item.title,
+      updatedAt: now,
+      updatedByWorkosUserId: auth.subject,
+    });
+  }
   for (const draw of snapshot.draws) {
     await ctx.db.insert("proposalDrawScheduleRows", {
       amountCents: draw.amountCents,
@@ -650,8 +716,10 @@ export async function restoreProposalPlanningSnapshot(
     });
   }
   await ctx.db.patch(auth.proposal._id, {
+    borrowerStartingCashCents: snapshot.proposal.borrowerStartingCashCents,
+    // Dual-write until the legacy field is narrowed out after backfill.
     borrowerWorkingCapitalLimitCents:
-      snapshot.proposal.borrowerWorkingCapitalLimitCents,
+      snapshot.proposal.borrowerStartingCashCents,
     lenderDrawPolicyLimitCents: snapshot.proposal.lenderDrawPolicyLimitCents,
     timelineCurrentDay: snapshot.proposal.timelineCurrentDay,
     timelineProgressValue: snapshot.proposal.timelineProgressValue,
@@ -956,6 +1024,7 @@ async function deletePlanningRowsForRestore(
   for (const table of [
     "proposalCapitalEvents",
     "proposalDrawScheduleRows",
+    "proposalCostItems",
     "proposalSubmilestones",
     "proposalMilestones",
   ] as const) {

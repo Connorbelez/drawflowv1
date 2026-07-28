@@ -1253,10 +1253,10 @@ function getTemplateBudgetValidationError({
     return "Enter a positive total project budget.";
   }
   if (!maxCashIsValid) {
-    return "Enter a positive borrower working capital amount.";
+    return "Enter a positive borrower starting cash amount.";
   }
   if (!coPayIsValid) {
-    return "Enter a co-pay amount between $0 and the total budget.";
+    return "Enter a borrower contribution between $0 and the total budget.";
   }
   return "";
 }
@@ -1488,12 +1488,12 @@ function TemplateBudgetScreen({
               </div>
               <div>
                 <label className="pb-inline-label" htmlFor="max-cash-input">
-                  Max Cash on Hand <Info size={14} />
+                  Borrower Starting Cash <Info size={14} />
                 </label>
                 <div className="pb-money-input">
                   <span>$</span>
                   <input
-                    aria-label="Max cash on hand"
+                    aria-label="Borrower starting cash"
                     data-testid="builder-max-cash"
                     id="max-cash-input"
                     onBlur={() => {
@@ -1507,20 +1507,23 @@ function TemplateBudgetScreen({
                   />
                 </div>
                 <p className="pb-field-note">
-                  Cash on hand is how much you can spend on the project before
-                  needing a draw.
+                  The borrower's own cash available at the start of the build,
+                  before any reimbursement draws are released.
                 </p>
               </div>
               <div>
-                <label className="pb-inline-label" htmlFor="co-pay-input">
-                  Co-pay <Info size={14} />
+                <label
+                  className="pb-inline-label"
+                  htmlFor="borrower-contribution-input"
+                >
+                  Borrower Contribution <Info size={14} />
                 </label>
                 <div className="pb-money-input">
                   <span>$</span>
                   <input
-                    aria-label="Borrower co-pay"
-                    data-testid="builder-co-pay"
-                    id="co-pay-input"
+                    aria-label="Borrower contribution"
+                    data-testid="builder-borrower-contribution"
+                    id="borrower-contribution-input"
                     onBlur={() => {
                       const parsed = parseCurrencyToCents(coPayText);
                       if (Number.isFinite(parsed) && parsed >= 0) {
@@ -1532,8 +1535,7 @@ function TemplateBudgetScreen({
                   />
                 </div>
                 <p className="pb-field-note">
-                  Co-pay is the portion of the project budget paid out of pocket
-                  before reimbursement planning.
+                  The portion of the project budget funded by the borrower.
                 </p>
               </div>
             </div>
@@ -1603,17 +1605,17 @@ function TemplateBudgetScreen({
                   <dd>{budgetIsValid ? formatCurrency(budgetCents) : "--"}</dd>
                 </div>
                 <div>
-                  <dt>Max Cash on Hand</dt>
+                  <dt>Borrower Starting Cash</dt>
                   <dd>
                     {maxCashIsValid ? formatCurrency(maxCashCents) : "--"}
                   </dd>
                 </div>
                 <div>
-                  <dt>Co-pay</dt>
+                  <dt>Borrower Contribution</dt>
                   <dd>{coPayIsValid ? formatCurrency(coPayCents) : "--"}</dd>
                 </div>
                 <div>
-                  <dt>Reimbursement Scope</dt>
+                  <dt>Loan Amount</dt>
                   <dd>
                     {budgetIsValid && coPayIsValid
                       ? formatCurrency(lenderBudgetCents)

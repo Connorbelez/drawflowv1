@@ -45,7 +45,7 @@ import "./-timeline-setup-flow.css";
 
 const DEFAULT_SETUP_BUDGET_TEXT = "$1,250,000";
 const DEFAULT_SETUP_CASH_TEXT = "$400,000";
-const DEFAULT_SETUP_CO_PAY_TEXT = "20%";
+const DEFAULT_SETUP_LOAN_PERCENTAGE_TEXT = "80%";
 export const DEFAULT_SETUP_ADDRESS = "Hamilton, ON";
 
 export function resolveTimelineSetupAddress(value: string): string {
@@ -577,7 +577,7 @@ function normalizePercentText(value: string) {
   const bps = parsePercentTextToBps(value);
 
   return Number.isFinite(bps)
-    ? `${normalizeBorrowerCoPayBps(bps) / 100}%`
+    ? `${Math.min(TOTAL_REIMBURSEMENT_BPS, Math.max(0, Math.round(bps))) / 100}%`
     : value;
 }
 
@@ -1092,17 +1092,30 @@ function TemplateStep({
   );
   const budgetCents = validCurrencyCents(budgetText);
   const cashCents = validCurrencyCents(cashText);
-  const coPayBps = validPercentBps(coPayText);
-  const reimbursementBps = getReimbursementBps(coPayBps);
-  const coPayCents =
-    Number.isFinite(budgetCents) && Number.isFinite(coPayBps)
-      ? Math.round((budgetCents * coPayBps) / TOTAL_REIMBURSEMENT_BPS)
+  const loanPercentageBps = validPercentBps(coPayText);
+  const normalizedLoanPercentageBps = Number.isFinite(loanPercentageBps)
+    ? Math.min(
+        TOTAL_REIMBURSEMENT_BPS,
+        Math.max(0, Math.round(loanPercentageBps))
+      )
+    : Number.NaN;
+  const borrowerContributionBps = Number.isFinite(normalizedLoanPercentageBps)
+    ? TOTAL_REIMBURSEMENT_BPS - normalizedLoanPercentageBps
+    : Number.NaN;
+  const borrowerContributionCents =
+    Number.isFinite(budgetCents) && Number.isFinite(borrowerContributionBps)
+      ? Math.round(
+          (budgetCents * borrowerContributionBps) / TOTAL_REIMBURSEMENT_BPS
+        )
       : Number.NaN;
-  const reimbursementCents =
-    Number.isFinite(budgetCents) && Number.isFinite(reimbursementBps)
+  const loanAmountCents =
+    Number.isFinite(budgetCents) && Number.isFinite(normalizedLoanPercentageBps)
       ? Math.max(
           0,
-          Math.round((budgetCents * reimbursementBps) / TOTAL_REIMBURSEMENT_BPS)
+          Math.round(
+            (budgetCents * normalizedLoanPercentageBps) /
+              TOTAL_REIMBURSEMENT_BPS
+          )
         )
       : Number.NaN;
 
@@ -1164,17 +1177,17 @@ function TemplateStep({
             value={budgetText}
           />
           <CurrencySetupField
-            label="Max Cash on Hand"
-            note="Cash on hand is how much the borrower can spend before needing a draw."
+            label="Borrower Starting Cash"
+            note="The borrower's own cash available at the start of the build, before any reimbursement draws are released."
             onChange={onCashTextChange}
             testId="timeline-setup-cash-input"
             value={cashText}
           />
           <PercentSetupField
-            label="Co-pay"
-            note="Percentage paid out of pocket. 20% co-pay means 80% of each completed milestone unlocks as draw availability."
+            label="Loan Percentage"
+            note="Percentage of each completed milestone funded by the loan. An 80% Loan Percentage means the borrower contributes the remaining 20%."
             onChange={onCoPayTextChange}
-            testId="timeline-setup-co-pay-input"
+            testId="timeline-setup-loan-percentage-input"
             value={coPayText}
           />
         </BlueprintPanel>
@@ -1242,13 +1255,13 @@ function TemplateStep({
 
       <aside className="timeline-setup-sidecar">
         <BlueprintSummaryCard
+          borrowerContributionBps={borrowerContributionBps}
+          borrowerContributionCents={borrowerContributionCents}
           budgetCents={budgetCents}
           cashCents={cashCents}
-          coPayBps={coPayBps}
-          coPayCents={coPayCents}
+          loanAmountCents={loanAmountCents}
+          loanPercentageBps={normalizedLoanPercentageBps}
           projectAddress={projectAddress}
-          reimbursementBps={reimbursementBps}
-          reimbursementCents={reimbursementCents}
           selectedTemplateTitle={selectedTemplate?.title}
         />
         <BlueprintAsideCard icon={<ClipboardCheck aria-hidden="true" />}>
@@ -1391,22 +1404,22 @@ function PercentSetupField({
 }
 
 function BlueprintSummaryCard({
+  borrowerContributionBps,
+  borrowerContributionCents,
   budgetCents,
   cashCents,
-  coPayBps,
-  coPayCents,
+  loanAmountCents,
+  loanPercentageBps,
   projectAddress,
-  reimbursementCents,
-  reimbursementBps,
   selectedTemplateTitle,
 }: {
+  borrowerContributionBps: number;
+  borrowerContributionCents: number;
   budgetCents: number;
   cashCents: number;
-  coPayBps: number;
-  coPayCents: number;
+  loanAmountCents: number;
+  loanPercentageBps: number;
   projectAddress: string;
-  reimbursementCents: number;
-  reimbursementBps: number;
   selectedTemplateTitle?: string;
 }) {
   const formatMaybeCurrency = (value: number) =>
@@ -1425,20 +1438,21 @@ function BlueprintSummaryCard({
           <dd>{formatMaybeCurrency(budgetCents)}</dd>
         </div>
         <div>
-          <dt>Max Cash on Hand</dt>
+          <dt>Borrower Starting Cash</dt>
           <dd>{formatMaybeCurrency(cashCents)}</dd>
         </div>
         <div>
-          <dt>Co-pay</dt>
+          <dt>Loan Percentage</dt>
           <dd>
-            {formatBpsPercent(coPayBps)} · {formatMaybeCurrency(coPayCents)}
+            {formatBpsPercent(loanPercentageBps)} ·{" "}
+            {formatMaybeCurrency(loanAmountCents)}
           </dd>
         </div>
         <div>
-          <dt>Reimbursement / LTV</dt>
+          <dt>Borrower Contribution</dt>
           <dd>
-            {formatBpsPercent(reimbursementBps)} ·{" "}
-            {formatMaybeCurrency(reimbursementCents)}
+            {formatBpsPercent(borrowerContributionBps)} ·{" "}
+            {formatMaybeCurrency(borrowerContributionCents)}
           </dd>
         </div>
         <div>
@@ -1649,7 +1663,9 @@ export function TimelineSetupFlow({
   );
   const [budgetText, setBudgetText] = useState(DEFAULT_SETUP_BUDGET_TEXT);
   const [cashText, setCashText] = useState(DEFAULT_SETUP_CASH_TEXT);
-  const [coPayText, setCoPayText] = useState(DEFAULT_SETUP_CO_PAY_TEXT);
+  const [coPayText, setCoPayText] = useState(
+    DEFAULT_SETUP_LOAN_PERCENTAGE_TEXT
+  );
   const [cascadeBudgetEdits, setCascadeBudgetEdits] = useState(false);
   const [projectAddress, setProjectAddress] = useState(DEFAULT_SETUP_ADDRESS);
   const [permitFiles, setPermitFiles] = useState<File[]>([]);
@@ -1721,7 +1737,7 @@ export function TimelineSetupFlow({
     }
 
     if (!(Number.isFinite(cashCents) && cashCents > 0)) {
-      setError("Enter a positive borrower working capital amount.");
+      setError("Enter a positive borrower starting cash amount.");
       return;
     }
 
@@ -1732,7 +1748,7 @@ export function TimelineSetupFlow({
         coPayBps <= TOTAL_REIMBURSEMENT_BPS
       )
     ) {
-      setError("Enter a co-pay percentage between 0% and 100%.");
+      setError("Enter a Loan Percentage between 0% and 100%.");
       return;
     }
 
@@ -1772,7 +1788,7 @@ export function TimelineSetupFlow({
     }
 
     if (!(Number.isFinite(cashCents) && cashCents > 0)) {
-      setError("Enter positive borrower working capital.");
+      setError("Enter positive borrower starting cash.");
       return;
     }
 
@@ -1783,7 +1799,7 @@ export function TimelineSetupFlow({
         coPayBps <= TOTAL_REIMBURSEMENT_BPS
       )
     ) {
-      setError("Enter a co-pay percentage between 0% and 100%.");
+      setError("Enter a Loan Percentage between 0% and 100%.");
       return;
     }
 
@@ -1791,7 +1807,8 @@ export function TimelineSetupFlow({
     const totalBudget = rows
       .filter((row) => !row.excluded)
       .reduce((sum, row) => sum + Math.round(rowBudgetCents(row) / 100), 0);
-    const borrowerCoPayBps = normalizeBorrowerCoPayBps(coPayBps);
+    const borrowerCoPayBps =
+      TOTAL_REIMBURSEMENT_BPS - normalizeBorrowerCoPayBps(coPayBps);
     const reimbursementBps = getReimbursementBps(borrowerCoPayBps);
     const borrowerCoPayCents = Math.round(
       (budgetCents * borrowerCoPayBps) / TOTAL_REIMBURSEMENT_BPS

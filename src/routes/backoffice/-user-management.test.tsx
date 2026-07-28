@@ -122,6 +122,15 @@ function orgMap(
   return new Map(orgs.map((org) => [org.workosOrganizationId, org]));
 }
 
+function roleOptionsMap(
+  orgs: WorkosOrganizationRow[],
+  options: string[]
+): Map<string, string[]> {
+  return new Map(
+    orgs.map((org) => [org.workosOrganizationId, options] as const)
+  );
+}
+
 function renderSheet(
   user: DirectoryUser,
   handlers: UserManagementHandlers,
@@ -134,7 +143,10 @@ function renderSheet(
       onOpenChange={() => undefined}
       organizationsById={orgMap([ORG_ALPHA, ORG_BETA])}
       provisioningByOrg={provisioning ?? new Map()}
-      roleOptions={["broker", "builder", "admin"]}
+      roleOptionsByOrganization={roleOptionsMap(
+        [ORG_ALPHA, ORG_BETA],
+        ["broker", "builder", "admin"]
+      )}
       workspaceOrganizations={[ORG_ALPHA, ORG_BETA]}
     />
   );
@@ -157,7 +169,10 @@ describe("UserDetailSheet role editor", () => {
         onOpenChange={() => undefined}
         organizationsById={orgMap([ORG_ALPHA, ORG_BETA])}
         provisioningByOrg={new Map()}
-        roleOptions={["admin", "broker", "builder"]}
+        roleOptionsByOrganization={roleOptionsMap(
+          [ORG_ALPHA, ORG_BETA],
+          ["admin", "broker", "builder"]
+        )}
         workspaceOrganizations={[ORG_ALPHA, ORG_BETA]}
       />
     );
@@ -197,6 +212,81 @@ describe("UserDetailSheet role editor", () => {
     ).toBe(true);
   });
 
+  test("scopes add-membership roles to the selected organization", () => {
+    const user = directoryUser([
+      membership({
+        roleSlug: "broker",
+        roleSlugs: ["broker"],
+        workosMembershipId: "om_existing",
+        workosOrganizationId: "org_alpha",
+      }),
+    ]);
+    render(
+      <UserDetailSheet
+        directoryUser={user}
+        handlers={noopHandlers()}
+        onOpenChange={() => undefined}
+        organizationsById={orgMap([ORG_ALPHA, ORG_BETA])}
+        provisioningByOrg={new Map()}
+        roleOptionsByOrganization={new Map([
+          ["org_alpha", ["admin", "broker"]],
+          ["org_beta", ["builder"]],
+        ])}
+        workspaceOrganizations={[ORG_ALPHA, ORG_BETA]}
+      />
+    );
+
+    const addSection = screen
+      .getByText("Add to organization")
+      .closest("section");
+    if (!addSection) {
+      throw new Error("add membership section not found");
+    }
+    const addMembershipEditor = within(addSection as HTMLElement);
+
+    expect(
+      addMembershipEditor.getByRole("checkbox", { name: "builder" })
+    ).toBeTruthy();
+    expect(
+      addMembershipEditor.queryByRole("checkbox", { name: "admin" })
+    ).toBeNull();
+    expect(
+      addMembershipEditor.queryByRole("checkbox", { name: "broker" })
+    ).toBeNull();
+  });
+
+  test("disambiguates organizations that share a display name", () => {
+    const duplicateAlpha = { ...ORG_ALPHA, name: "FairLendBrokerage" };
+    const duplicateBeta = { ...ORG_BETA, name: "FairLendBrokerage" };
+    const user = directoryUser([
+      membership({
+        workosMembershipId: "om_existing",
+        workosOrganizationId: "org_alpha",
+      }),
+    ]);
+    render(
+      <UserDetailSheet
+        directoryUser={user}
+        handlers={noopHandlers()}
+        onOpenChange={() => undefined}
+        organizationsById={orgMap([duplicateAlpha, duplicateBeta])}
+        provisioningByOrg={new Map()}
+        roleOptionsByOrganization={roleOptionsMap(
+          [duplicateAlpha, duplicateBeta],
+          ["broker"]
+        )}
+        workspaceOrganizations={[duplicateAlpha, duplicateBeta]}
+      />
+    );
+
+    expect(screen.getByText("FairLendBrokerage · org_alpha")).toBeTruthy();
+    expect(
+      screen.getByRole("option", {
+        name: "FairLendBrokerage · org_beta",
+      })
+    ).toBeTruthy();
+  });
+
   test("renders a unique Primary-role control id per membership", () => {
     const user = directoryUser([
       membership({
@@ -226,6 +316,43 @@ describe("UserDetailSheet role editor", () => {
       // The matching label points at that same control.
       expect(document.querySelector(`label[for="${id ?? ""}"]`)).toBeTruthy();
     }
+  });
+
+  test("renders distinct WorkOS names for memberships and workspace profiles", () => {
+    const user = directoryUser([
+      membership({
+        workosMembershipId: "om_alpha",
+        workosOrganizationId: "org_alpha",
+      }),
+      membership({
+        workosMembershipId: "om_beta",
+        workosOrganizationId: "org_beta",
+      }),
+    ]);
+    const provisioning = new Map<string, OrganizationProvisioning>(
+      [ORG_ALPHA, ORG_BETA].map((organization) => [
+        organization.workosOrganizationId,
+        {
+          brokerage: null,
+          brokerMemberships: [],
+          builderAccountLinks: [],
+          builderMemberships: [],
+          builderProfile: null,
+          hasBrokerageProfile: true,
+          hasBuilderProfile: true,
+          name: organization.name,
+          needsBrokerageProfile: false,
+          needsBuilderProfile: false,
+          status: organization.status,
+          workosOrganizationId: organization.workosOrganizationId,
+        },
+      ])
+    );
+
+    renderSheet(user, noopHandlers(), provisioning);
+
+    expect(screen.getAllByText("Alpha Lending")).toHaveLength(2);
+    expect(screen.getAllByText("Beta Builds")).toHaveLength(2);
   });
 
   test("resets local role draft when the membership's confirmed roles change", () => {
@@ -264,12 +391,96 @@ describe("UserDetailSheet role editor", () => {
         onOpenChange={() => undefined}
         organizationsById={orgMap([ORG_ALPHA, ORG_BETA])}
         provisioningByOrg={new Map()}
-        roleOptions={["broker", "builder", "admin"]}
+        roleOptionsByOrganization={roleOptionsMap(
+          [ORG_ALPHA, ORG_BETA],
+          ["broker", "builder", "admin"]
+        )}
         workspaceOrganizations={[ORG_ALPHA, ORG_BETA]}
       />
     );
 
     expect(adminCheckbox().getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("treats a successful primary-role save as committed while WorkOS sync catches up", async () => {
+    const handlers = noopHandlers();
+    const user = directoryUser([
+      membership({
+        roleSlug: "admin",
+        roleSlugs: ["admin", "broker"],
+        workosMembershipId: "om_primary",
+        workosOrganizationId: "org_alpha",
+      }),
+    ]);
+    renderSheet(user, handlers);
+
+    const card = screen.getByText("Alpha Lending").closest("div.flex-col");
+    if (!card) {
+      throw new Error("membership card not found");
+    }
+    const membershipEditor = within(card as HTMLElement);
+    const saveButton = membershipEditor.getByRole("button", {
+      name: "Save roles",
+    });
+
+    expect(saveButton.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.change(
+      membershipEditor.getByRole("combobox", { name: "Primary role" }),
+      { target: { value: "broker" } }
+    );
+
+    expect(saveButton.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(handlers.onRoleUpdate).toHaveBeenCalledWith({
+        membershipId: "om_primary",
+        primaryRoleSlug: "broker",
+        roleSlugs: ["admin", "broker"],
+      });
+    });
+    await waitFor(() => {
+      expect(saveButton.hasAttribute("disabled")).toBe(true);
+    });
+  });
+
+  test("keeps a rejected role update dirty and retryable", async () => {
+    const handlers = {
+      ...noopHandlers(),
+      onRoleUpdate: vi.fn().mockRejectedValue(new Error("WorkOS unavailable")),
+    };
+    const user = directoryUser([
+      membership({
+        roleSlug: "admin",
+        roleSlugs: ["admin", "broker"],
+        workosMembershipId: "om_retry",
+        workosOrganizationId: "org_alpha",
+      }),
+    ]);
+    renderSheet(user, handlers);
+
+    const card = screen.getByText("Alpha Lending").closest("div.flex-col");
+    if (!card) {
+      throw new Error("membership card not found");
+    }
+    const membershipEditor = within(card as HTMLElement);
+    const saveButton = membershipEditor.getByRole("button", {
+      name: "Save roles",
+    });
+    fireEvent.change(
+      membershipEditor.getByRole("combobox", { name: "Primary role" }),
+      { target: { value: "broker" } }
+    );
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(handlers.onRoleUpdate).toHaveBeenCalledTimes(1);
+    });
+    expect(saveButton.hasAttribute("disabled")).toBe(false);
+    expect(
+      membershipEditor.getByRole("alert").textContent
+    ).toContain("WorkOS unavailable");
   });
 });
 
@@ -391,6 +602,7 @@ describe("UserManagementSurface directory rows", () => {
       brokerageProvisioning: {
         fairLendBootstrap: {
           displayName: "FairLendBrokerage",
+          principalBrokerEmail: "elie@fairlend.ca",
           principalBrokerWorkosUserId: "user_admin",
           workosOrganizationId: "org_alpha",
         },

@@ -338,7 +338,7 @@ Site visit guidance is authored against milestone archetypes. When a site visit 
   - remains mutable by backoffice after submission because the schedule is an execution plan, not a fixed obligation.
 - `proposalKanbanCards`
   - materialized backoffice proposal kanban read model,
-  - includes `brokerageId`, `proposalId`, `column`, assigned broker, builder display fields, total budget, borrower co-pay, permit status, warning count, and sort timestamps.
+  - includes `brokerageId`, `proposalId`, `column`, assigned broker, builder display fields, total budget, Loan Percentage, permit status, warning count, and sort timestamps.
   - Columns for this slice: `draft`, `submitted`, `approved`, `closed`.
   - Cards are progressed by submit, review, approval, and closing actions, not drag-and-drop.
 - `documentFiles`
@@ -382,17 +382,17 @@ Closing an approved proposal creates active build rows:
 - `eventOutbox`
   - integration dispatch foundation.
 
-### 6.7 Co-Pay And Draw Availability
+### 6.7 Loan Percentage And Draw Availability
 
-Co-pay is percentage-based, not cash-based.
+Loan Percentage is the lender-funded percentage of each completed milestone budget.
 
-`borrowerCoPayBps` represents the percentage of each milestone budget the builder is responsible for funding.
+The product accepts and displays Loan Percentage. The legacy `borrowerCoPayBps` field stores the complementary borrower contribution percentage for compatibility.
 
 Example:
 
 - Total budget: `$1,000,000`
 - Approved lender principal: `$800,000`
-- Builder co-pay: `20%`, stored as `2000` bps
+- Loan Percentage: `80%`, represented internally by `borrowerCoPayBps: 2000`
 - A milestone budgeted at `$100,000` unlocks `$80,000` in draw availability.
 
 Formula:
@@ -403,7 +403,7 @@ drawAvailabilityCents = round(
 );
 ```
 
-`loanFacilities.principalLimitCents` stores the lender-approved principal. `buildCapitalPlans.totalBudgetCents` and `borrowerCoPayBps` define builder contribution and per-milestone unlock math. Do not add a separate global `reimbursementBudgetCents` unless implementation proves a cached read model is required.
+`loanFacilities.principalLimitCents` stores the lender-approved principal. `buildCapitalPlans.totalBudgetCents` and the complementary `borrowerCoPayBps` value define borrower contribution and per-milestone unlock math. Do not add a separate global `reimbursementBudgetCents` unless implementation proves a cached read model is required.
 
 Derived cash position is not a separate source-of-truth table in this slice. It should be calculated from `buildCapitalPlans.startingCashCents`, borrower cash infusion events, capital spike/cost events, draw reimbursements, and planned/actual draw timing. Add a materialized read model later only if chart/query performance requires it.
 
@@ -1031,7 +1031,7 @@ Required sections:
    - total budget,
    - approved/requested lender principal context,
    - starting cash on hand,
-   - borrower co-pay percentage.
+   - Loan Percentage.
 4. Template selection
    - milestone template from production settings.
 5. Milestone worksheet
@@ -1062,7 +1062,7 @@ Submission requires:
 - address,
 - build permit PDF or missing-permit warning,
 - total budget greater than zero,
-- borrower co-pay bps between `0` and `10000`,
+- Loan Percentage between `0%` and `100%`, persisted as the complementary `borrowerCoPayBps` value between `0` and `10000`,
 - at least one included milestone,
 - included milestone percentages total `10000` bps where percentage allocation is used,
 - every included milestone has name, budget, duration, and archetype,
@@ -1108,7 +1108,7 @@ Queue rows should show:
 - proposal title,
 - assigned broker,
 - total budget,
-- borrower co-pay,
+- Loan Percentage,
 - requested principal,
 - permit status,
 - milestone count,
@@ -1262,7 +1262,7 @@ These are required for the first production proposal-flow port.
 | ID | Screen | Demo URL | Demo source | Production target | Parity requirement |
 |---|---|---|---|---|---|
 | `VP-001` | Builder Dashboard | `/demo/drawflow/builder-dashboard` | `src/routes/demo/drawflow/builder-dashboard.tsx`, `src/features/builder-dashboard/BuilderTimelineDashboard.tsx` | `/builder` or `/builder/proposals` depending final route split | Preserve dashboard scaffold, status KPIs, live-build/proposal registry sections, table density, action placement, empty states, and builder shell affordances. |
-| `VP-002` | Timeline Setup: Project Setup | `/demo/timeline` initial setup state | `src/routes/demo/timeline/index.tsx`, `src/routes/demo/timeline/-TimelineSetupFlow.tsx`, `src/routes/demo/timeline/-timeline-setup-flow.css` | `/builder/proposals/new` initial proposal package step | Preserve "DrawFlow timeline setup" header, "Reimbursement roadmap generator" title, saved indicator, four-step rail, Step 1 of 4 Project Setup layout, template cards, budget/cash/co-pay/address/permit controls, sidecar summary, validation styling, and primary action hierarchy. |
+| `VP-002` | Timeline Setup: Project Setup | `/demo/timeline` initial setup state | `src/routes/demo/timeline/index.tsx`, `src/routes/demo/timeline/-TimelineSetupFlow.tsx`, `src/routes/demo/timeline/-timeline-setup-flow.css` | `/builder/proposals/new` initial proposal package step | Preserve "DrawFlow timeline setup" header, "Reimbursement roadmap generator" title, saved indicator, four-step rail, Step 1 of 4 Project Setup layout, template cards, budget/cash/Loan Percentage/address/permit controls, sidecar summary, validation styling, and primary action hierarchy. |
 | `VP-003` | Timeline Setup: Milestones & Budget | `/demo/timeline` after Project Setup continue action | `src/routes/demo/timeline/-TimelineSetupFlow.tsx`, `src/routes/demo/timeline/-TimelineMilestoneWorksheetTable.tsx`, `src/routes/demo/timeline/-timeline-setup-flow.css` | `/builder/proposals/new` milestone/budget step or embedded proposal route step | Preserve saved indicator, Step 2 of 4 Milestones & Budget, dark blueprint worksheet treatment, sortable milestone rows, generated milestone icons, budget/duration editing, active/excluded handling, expanded submilestone editor, side panel behavior, and generate-roadmap action. |
 | `VP-004` | DrawFlow Roadmap Workspace | `/demo/timeline/$timelineId?proposal=$proposalId` | `src/routes/demo/timeline/$timelineId.tsx`, `src/routes/demo/timeline/index.tsx`, `src/components/roadmap/AnimatedCurvedTimeline.tsx`, `src/routes/demo/timeline/-MilestoneCard.tsx`, timeline chart/draw components under `src/routes/demo/timeline/` | `/builder/proposals/$proposalId/roadmap` or canonical proposal roadmap workspace route | Preserve curved roadmap canvas, milestone card treatment, timeline controls, draw markers, draw availability and cashflow charts, submitted/read-only behavior, share/proposal link affordances where applicable, milestone detail interactions, responsive framing, and visual grouping of proposed draw timing. |
 
@@ -1290,7 +1290,7 @@ This is the first production proposal intake screen with the highest risk of vis
 
 Production adjustments:
 
-- Co-pay remains percentage/bps, not cents.
+- Loan Percentage remains percentage/bps, not cents. Persist its complement in the legacy `borrowerCoPayBps` field.
 - Permit PDF is expected, but principal broker/admin approval can later proceed with audited waiver.
 - Starting cash/cash infusions belong to build capital planning, not `loanFacilities`.
 
@@ -1382,7 +1382,7 @@ Required coverage:
 - `/backoffice/proposals` requires backoffice access.
 - Proposal package renders all required sections.
 - Permit PDF upload state is visible.
-- Co-pay input stores percentage/bps semantics.
+- Loan Percentage input stores percentage/bps semantics.
 - Admin review page displays proposal package context.
 - Proposal kanban displays draft, submitted, approved, and closed lanes.
 - Approve flow moves submitted proposal to approved without creating a build.
@@ -1412,7 +1412,7 @@ This slice is complete when:
 4. Canonical builder proposal routes are authenticated and role guarded.
 5. Canonical backoffice proposal routes are authenticated and role guarded.
 6. Builder can create, edit, save, and submit a production proposal package.
-7. Proposal package persists permit PDF, budget, co-pay bps, starting cash, selected template, milestones, submilestones, and draw schedule rows.
+7. Proposal package persists permit PDF, budget, Loan Percentage as the complementary legacy bps value, starting cash, selected template, milestones, submilestones, and draw schedule rows.
 8. Backoffice can review submitted proposal package.
 9. Backoffice can edit proposal draw schedule rows after submission without forcing a request-changes cycle.
 10. Principal broker or admin can approve a submitted proposal without creating an active build.

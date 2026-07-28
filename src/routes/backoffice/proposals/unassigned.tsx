@@ -31,7 +31,7 @@ export const Route = createFileRoute("/backoffice/proposals/unassigned")({
 type UnassignedDraft = Pick<
   ProposalKanbanCard,
   | "address"
-  | "borrowerWorkingCapitalLimitCents"
+  | "borrowerStartingCashCents"
   | "builder"
   | "createdAt"
   | "id"
@@ -46,7 +46,7 @@ type UnassignedDraft = Pick<
 const visualDrafts: UnassignedDraft[] = [
   {
     address: "Hamilton, ON",
-    borrowerWorkingCapitalLimitCents: 40_000_000,
+    borrowerStartingCashCents: 40_000_000,
     builder: "Unassigned builder",
     createdAt: Date.UTC(2026, 4, 29, 14, 30),
     id: "proposal_visual_unassigned",

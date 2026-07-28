@@ -9,7 +9,7 @@ import {
   Search,
   UserRound,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -87,6 +87,11 @@ type ContractorQuickAddDrawerProps = {
   initialDraft?: Partial<ContractorProfileDraft>;
   inviteAfterCreateDescription?: string;
   inviteAfterCreateLabel?: string;
+  onAttachAndInviteExisting?: (input: {
+    assignmentCost?: ContractorAssignmentCostDraft;
+    contractorId: string;
+    role: string;
+  }) => Promise<void> | void;
   onAttachExisting?: (input: {
     assignmentCost?: ContractorAssignmentCostDraft;
     contractorId: string;
@@ -134,6 +139,8 @@ type ContractorQuickAddForm = {
   trades: string;
 };
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const EMPTY_FORM: ContractorQuickAddForm = {
   actualCost: "",
   actualHours: "",
@@ -163,6 +170,7 @@ export function ContractorQuickAddDrawer({
   initialDraft,
   inviteAfterCreateDescription = "Send a WorkOS invitation immediately after the profile is created.",
   inviteAfterCreateLabel = "Invite contractor to the platform",
+  onAttachAndInviteExisting,
   onAttachExisting,
   onCreate,
   onInviteCreatedContractor,
@@ -181,6 +189,16 @@ export function ContractorQuickAddDrawer({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [inviteAfterCreate, setInviteAfterCreate] = useState(false);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const previousOpenRef = useRef(open);
+  if (open && !previousOpenRef.current && typeof document !== "undefined") {
+    const activeElement = document.activeElement;
+    returnFocusRef.current =
+      activeElement instanceof HTMLElement && activeElement !== document.body
+        ? activeElement
+        : null;
+  }
+  previousOpenRef.current = open;
   const updateForm = <K extends keyof ContractorQuickAddForm>(
     key: K,
     value: ContractorQuickAddForm[K]
@@ -207,17 +225,36 @@ export function ContractorQuickAddDrawer({
   }, [availableContractors, query]);
 
   const roleReady = !requireRole || form.role.trim().length > 0;
+  const email = form.email.trim();
+  const emailInvalid = email.length > 0 && !isValidEmail(email);
   const hourlyRateCents = parseMoneyCents(form.payRate);
   const canCreate =
     form.name.trim().length > 0 &&
     form.trades.trim().length > 0 &&
     roleReady &&
+    !emailInvalid &&
     !pending;
   const canAttach =
     Boolean(onAttachExisting) &&
     selectedExistingId.length > 0 &&
     roleReady &&
     !pending;
+  const submitGuidance =
+    mode === "existing"
+      ? selectedExistingId.length === 0
+        ? "Attach contractor is unavailable until you select one contractor."
+        : roleReady
+          ? null
+          : "Attach contractor is unavailable until Role on this build is complete."
+      : form.name.trim().length === 0
+        ? `${createLabel} is unavailable until Name is complete.`
+        : form.trades.trim().length === 0
+          ? `${createLabel} is unavailable until Trades includes at least one trade.`
+          : roleReady
+            ? emailInvalid
+              ? `${createLabel} is unavailable because Email needs a valid address such as name@example.com.`
+              : null
+            : `${createLabel} is unavailable until Role on this build is complete.`;
 
   const reset = () => {
     setForm(formFromInitialDraft(initialDraft));
@@ -242,7 +279,8 @@ export function ContractorQuickAddDrawer({
   }, [availableContractors.length, initialDraft, onAttachExisting, open]);
 
   useEffect(() => {
-    if (!form.email.trim()) {
+    const emailValue = form.email.trim();
+    if (!(emailValue && isValidEmail(emailValue))) {
       setInviteAfterCreate(false);
     }
   }, [form.email]);
@@ -295,8 +333,10 @@ export function ContractorQuickAddDrawer({
       }
       reset();
       onOpenChange(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch {
+      setError(
+        "Unable to create this contractor. Review the profile details and try again."
+      );
     } finally {
       setPending(false);
     }
@@ -319,8 +359,10 @@ export function ContractorQuickAddDrawer({
       });
       reset();
       onOpenChange(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch {
+      setError(
+        "Unable to attach this contractor. The current contractor state was preserved; try again."
+      );
     } finally {
       setPending(false);
     }
@@ -329,7 +371,7 @@ export function ContractorQuickAddDrawer({
   const submitExistingWithInvite = async (
     contractor: ContractorDrawerAvailableContractor
   ) => {
-    if (!(onAttachExisting && onInviteCreatedContractor)) {
+    if (!onAttachAndInviteExisting) {
       return;
     }
     const role =
@@ -343,18 +385,19 @@ export function ContractorQuickAddDrawer({
     setPending(true);
     setError("");
     try {
-      await onAttachExisting({
+      await onAttachAndInviteExisting({
         assignmentCost: showAssignmentCost
           ? assignmentCostFromForm({ ...form, role })
           : undefined,
         contractorId: contractor._id,
         role,
       });
-      await onInviteCreatedContractor(contractor._id);
       reset();
       onOpenChange(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch {
+      setError(
+        "Unable to attach and invite this contractor. The current contractor state was preserved; try again."
+      );
     } finally {
       setPending(false);
     }
@@ -362,7 +405,11 @@ export function ContractorQuickAddDrawer({
 
   return (
     <Drawer onOpenChange={onOpenChange} open={open} position="right">
-      <DrawerPopup showCloseButton>
+      <DrawerPopup
+        className="overflow-x-hidden max-sm:w-full max-sm:max-w-none max-sm:rounded-none"
+        finalFocus={returnFocusRef}
+        showCloseButton
+      >
         <DrawerHeader>
           <DrawerTitle>{title}</DrawerTitle>
           <p className="max-w-prose text-muted-foreground text-sm">
@@ -388,10 +435,10 @@ export function ContractorQuickAddDrawer({
           ) : null}
         </DrawerHeader>
 
-        <DrawerPanel className="grid gap-4">
+        <DrawerPanel className="grid min-w-0 gap-4 overflow-x-hidden">
           {mode === "existing" && onAttachExisting ? (
             <form
-              className="grid gap-4"
+              className="grid min-w-0 gap-4"
               id="contractor-existing-form"
               onSubmit={submitExisting}
             >
@@ -421,7 +468,7 @@ export function ContractorQuickAddDrawer({
                     const invitation = contractorInvitationView(contractor);
                     const canAttachAndInvite =
                       selected &&
-                      Boolean(onInviteCreatedContractor) &&
+                      Boolean(onAttachAndInviteExisting) &&
                       invitation.kind === "not_invited" &&
                       Boolean(onAttachExisting) &&
                       roleReady &&
@@ -437,7 +484,8 @@ export function ContractorQuickAddDrawer({
                         key={contractor._id}
                       >
                         <button
-                          className="flex w-full min-w-0 items-center gap-3 p-3 text-left text-sm"
+                          aria-pressed={selected}
+                          className="flex min-h-11 w-full min-w-0 items-center gap-3 p-3 text-left text-sm"
                           onClick={() => {
                             setSelectedExistingId(contractor._id);
                             if (!form.role.trim() && contractor.trades?.[0]) {
@@ -446,12 +494,13 @@ export function ContractorQuickAddDrawer({
                                 role: titleCase(contractor.trades?.[0] ?? ""),
                               }));
                             }
-                            if (contractor.defaultPayRateCents) {
+                            const defaultPayRateCents =
+                              contractor.defaultPayRateCents;
+                            if (defaultPayRateCents !== undefined) {
                               setForm((prev) => ({
                                 ...prev,
-                                assignmentRate: centsToMoney(
-                                  contractor.defaultPayRateCents
-                                ),
+                                assignmentRate:
+                                  centsToMoney(defaultPayRateCents),
                                 assignmentRateUnit:
                                   contractor.defaultPayRateUnit ?? "hour",
                               }));
@@ -518,7 +567,7 @@ export function ContractorQuickAddDrawer({
             </form>
           ) : (
             <form
-              className="grid gap-4"
+              className="grid min-w-0 gap-4"
               id="contractor-new-form"
               onSubmit={submitNew}
             >
@@ -629,6 +678,13 @@ export function ContractorQuickAddDrawer({
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Email">
                   <Input
+                    aria-describedby={
+                      emailInvalid
+                        ? "contractor-email-guidance contractor-email-error"
+                        : "contractor-email-guidance"
+                    }
+                    aria-invalid={emailInvalid || undefined}
+                    id="contractor-email"
                     nativeInput
                     onChange={(event) =>
                       updateForm("email", event.currentTarget.value)
@@ -637,6 +693,21 @@ export function ContractorQuickAddDrawer({
                     type="email"
                     value={form.email}
                   />
+                  <span
+                    className="text-muted-foreground text-xs"
+                    id="contractor-email-guidance"
+                  >
+                    Optional. Use the format name@example.com.
+                  </span>
+                  {emailInvalid ? (
+                    <span
+                      className="text-destructive text-xs"
+                      id="contractor-email-error"
+                      role="alert"
+                    >
+                      Enter an email address in the format name@example.com.
+                    </span>
+                  ) : null}
                 </Field>
                 <Field label="Phone">
                   <Input
@@ -667,39 +738,61 @@ export function ContractorQuickAddDrawer({
                 <AssignmentCostFields form={form} setForm={setForm} />
               ) : null}
               {onInviteCreatedContractor ? (
-                <label
+                <div
                   className={cn(
                     "flex gap-3 rounded-lg border bg-background/70 p-3 text-sm",
-                    form.email.trim()
+                    email && !emailInvalid
                       ? "cursor-pointer"
                       : "cursor-not-allowed opacity-70"
                   )}
                 >
                   <Checkbox
+                    aria-describedby="contractor-invite-after-create-description"
+                    aria-labelledby="contractor-invite-after-create-label"
                     checked={inviteAfterCreate}
-                    disabled={!form.email.trim() || pending}
+                    disabled={!email || emailInvalid || pending}
                     onCheckedChange={(checked) =>
                       setInviteAfterCreate(checked === true)
                     }
                   />
                   <span className="grid gap-1">
-                    <span className="font-medium">
+                    <span
+                      className="font-medium"
+                      id="contractor-invite-after-create-label"
+                    >
                       {inviteAfterCreateLabel}
                     </span>
-                    <span className="text-muted-foreground text-xs">
-                      {form.email.trim()
-                        ? inviteAfterCreateDescription
-                        : "Add an email address to send a platform invite."}
+                    <span
+                      className="text-muted-foreground text-xs"
+                      id="contractor-invite-after-create-description"
+                    >
+                      {emailInvalid
+                        ? "Enter a valid email address before sending a platform invite."
+                        : email
+                          ? inviteAfterCreateDescription
+                          : "Add an email address to send a platform invite."}
                     </span>
                   </span>
-                </label>
+                </div>
               ) : null}
             </form>
           )}
 
           {error ? (
-            <p className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-destructive text-sm">
+            <p
+              className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-destructive text-sm"
+              role="alert"
+            >
               {error}
+            </p>
+          ) : null}
+
+          {submitGuidance ? (
+            <p
+              className="text-muted-foreground text-sm"
+              id="contractor-submit-requirements"
+            >
+              {submitGuidance}
             </p>
           ) : null}
 
@@ -710,10 +803,22 @@ export function ContractorQuickAddDrawer({
         </DrawerPanel>
 
         <DrawerFooter>
-          <DrawerClose render={<Button type="button" variant="outline" />}>
+          <DrawerClose
+            render={
+              <Button
+                className="min-h-11 flex-1 sm:min-h-0 sm:flex-none"
+                type="button"
+                variant="outline"
+              />
+            }
+          >
             Cancel
           </DrawerClose>
           <Button
+            aria-describedby={
+              submitGuidance ? "contractor-submit-requirements" : undefined
+            }
+            className="min-h-11 flex-1 sm:min-h-0 sm:flex-none"
             disabled={mode === "existing" ? !canAttach : !canCreate}
             form={
               mode === "existing"
@@ -782,7 +887,8 @@ function contractorInvitationView(
     };
   }
   return {
-    description: "Attach this contractor to the proposal and send their platform invite.",
+    description:
+      "Attach this contractor to the proposal and send their platform invite.",
     kind: "not_invited",
     label: "Not invited",
   };
@@ -958,8 +1064,9 @@ function ModeButton({
 }) {
   return (
     <button
+      aria-pressed={active}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm",
+        "inline-flex min-h-11 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm sm:min-h-0",
         active ? "bg-background shadow-xs/5" : "text-muted-foreground"
       )}
       onClick={onClick}
@@ -977,6 +1084,10 @@ function AvatarIcon({ label }: { label: string }) {
       <Icon className="size-4" />
     </span>
   );
+}
+
+function isValidEmail(value: string) {
+  return EMAIL_PATTERN.test(value);
 }
 
 function splitList(value: string) {

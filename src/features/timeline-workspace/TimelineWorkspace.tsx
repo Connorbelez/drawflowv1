@@ -118,6 +118,7 @@ import {
 import {
   type ActiveMilestoneSelection,
   buildMilestoneSpendEvents,
+  DEFAULT_DRAW_REVIEW_LAG_DAYS,
   DEFAULT_MILESTONE_DURATION_DAYS,
   getMilestoneEndX,
   getMilestonePaymentSchedule,
@@ -213,7 +214,15 @@ export interface DrawAvailabilityDatum {
   name: string;
   totalAvailableDraw: number;
   totalInterestAccrued: number;
+  totalUnlockedDraw: number;
   [key: string]: unknown;
+}
+
+export interface CumulativeDrawPosition {
+  availableToDraw: number;
+  day: number;
+  totalDrawn: number;
+  totalUnlocked: number;
 }
 
 export interface CashShortfallPoint {
@@ -249,7 +258,7 @@ const MINIMUM_POST_MILESTONE_CASH_RESERVE = 0;
 const STARTING_CASH = 400_000;
 const INITIAL_CURRENT_DAY = 86;
 const GENERATED_TIMELINE_CURRENT_DAY = 0;
-const TIMELINE_END_PADDING_DAYS = 5;
+const TIMELINE_END_PADDING_DAYS = DEFAULT_DRAW_REVIEW_LAG_DAYS;
 const INITIAL_CAPITAL_SPIKES: DemoCapitalSpike[] = [];
 const INITIAL_COMPLETION_SUBMITTED_AT = "2026-05-01T14:00:00.000Z";
 export const LOCAL_TIMELINE_SHARE_PREFIX = "local-timeline-";
@@ -651,6 +660,45 @@ export interface TimelineModificationRequestView {
   status: "approved" | "rejected" | "requested";
 }
 
+export interface TimelinePlanStatePersistenceInput {
+  currentDay: number;
+  minimumCashReserveCents?: number;
+  progressValue: number;
+  rangeMax: number;
+  rangeMin: number;
+  routeState: {
+    activeCapitalSpikeId?: string;
+    activeDrawId?: string;
+    activeMilestoneKey?: string;
+    selectedPanelOpen: boolean;
+    straightLine: boolean;
+  };
+  startingCashCents: number;
+}
+
+type DemoTimelinePlanStateMutationInput = Omit<
+  TimelinePlanStatePersistenceInput,
+  "minimumCashReserveCents"
+>;
+
+export function toDemoTimelinePlanStateMutationInput(
+  input: TimelinePlanStatePersistenceInput
+): DemoTimelinePlanStateMutationInput {
+  const { minimumCashReserveCents: _productionOnlyReserve, ...demoInput } =
+    input;
+  return demoInput;
+}
+
+function createTimelineSaveReference(): string {
+  const randomPart =
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `TL-${randomPart
+    .replace(/[^a-z0-9-]/gi, "")
+    .slice(0, 12)
+    .toUpperCase()}`;
+}
+
 export interface TimelineWorkspacePersistence {
   createCapitalEvent?: (input: any) => Promise<unknown>;
   createCashInfusion?: (input: any) => Promise<unknown>;
@@ -677,7 +725,9 @@ export interface TimelineWorkspacePersistence {
   updateDraw?: (input: any) => Promise<unknown>;
   updateEvidenceAsset?: (input: any) => Promise<unknown>;
   updateMilestone?: (input: any) => Promise<unknown>;
-  updatePlanState?: (input: any) => Promise<unknown>;
+  updatePlanState?: (
+    input: TimelinePlanStatePersistenceInput
+  ) => Promise<unknown>;
 }
 
 interface TimelineCompletionClaimInput {
@@ -956,6 +1006,14 @@ export function TimelineWorkspace({
   const [durableSaveStatus, setDurableSaveStatus] = useState<
     "idle" | "saved" | "error"
   >("idle");
+  const [durableSaveReference, setDurableSaveReference] = useState<
+    string | null
+  >(null);
+  const durableSaveAttemptSequence = useRef(0);
+  const durableSaveRetry = useRef<{
+    label: string;
+    operation: () => Promise<unknown> | unknown;
+  } | null>(null);
   const [timelineRole, setTimelineRole] = useState<TimelineDemoRole>(
     initialRole ?? "builder"
   );
@@ -1113,32 +1171,56 @@ export function TimelineWorkspace({
   const resolvedRange = useMemo(() => normalizeDemoRange(range), [range]);
   const durablePlanStateInitialized = useRef(false);
   const runDurableMutation = useCallback(
-    (operation: unknown, label: string) => {
+    (operation: () => Promise<unknown> | unknown, label: string) => {
       if (!(durablePlanId && !readOnly)) {
         return;
       }
+      const attemptId = durableSaveAttemptSequence.current + 1;
+      durableSaveAttemptSequence.current = attemptId;
+      durableSaveRetry.current = { label, operation };
       setDurableSavePendingCount((count) => count + 1);
+      setDurableSaveReference(null);
       setDurableSaveStatus("idle");
-      Promise.resolve(operation)
-        .catch((error) => {
-          const message =
-            error instanceof Error
-              ? error.message
-              : `Unable to persist ${label}.`;
+      const handleFailure = () => {
+        const reference = createTimelineSaveReference();
+        if (durableSaveAttemptSequence.current === attemptId) {
+          setDurableSaveReference(reference);
           setDurableSaveStatus("error");
-          toast.error(message);
-        })
+        }
+        toast.error(
+          `Unable to save ${label}. Changes are still local. Reference ${reference}.`
+        );
+      };
+      let result: Promise<unknown> | unknown;
+      try {
+        result = operation();
+      } catch {
+        handleFailure();
+        setDurableSavePendingCount((count) => Math.max(0, count - 1));
+        return;
+      }
+      void Promise.resolve(result)
         .then(() => {
-          setDurableSaveStatus((status) =>
-            status === "error" ? "error" : "saved"
-          );
+          if (durableSaveAttemptSequence.current !== attemptId) {
+            return;
+          }
+          durableSaveRetry.current = null;
+          setDurableSaveReference(null);
+          setDurableSaveStatus("saved");
         })
+        .catch(handleFailure)
         .finally(() => {
           setDurableSavePendingCount((count) => Math.max(0, count - 1));
         });
     },
     [durablePlanId, readOnly]
   );
+  const retryDurableMutation = useCallback(() => {
+    const pendingRetry = durableSaveRetry.current;
+    if (pendingRetry) {
+      runDurableMutation(pendingRetry.operation, pendingRetry.label);
+    }
+  }, [runDurableMutation]);
   const persistSubmitPlan = useCallback(
     () =>
       persistence?.submitPlan?.() ??
@@ -1146,12 +1228,15 @@ export function TimelineWorkspace({
     [durablePlanId, persistence, submitTimelinePlan]
   );
   const persistUpdatePlanState = useCallback(
-    (input: any) =>
-      persistence?.updatePlanState?.(input) ??
-      updateTimelinePlanState({
-        ...input,
+    (input: TimelinePlanStatePersistenceInput) => {
+      if (persistence?.updatePlanState) {
+        return persistence.updatePlanState(input);
+      }
+      return updateTimelinePlanState({
+        ...toDemoTimelinePlanStateMutationInput(input),
         planId: durablePlanId as Id<"demo_timelinePlans">,
-      }),
+      });
+    },
     [durablePlanId, persistence, updateTimelinePlanState]
   );
   const persistCreateDraw = useCallback(
@@ -1217,11 +1302,12 @@ export function TimelineWorkspace({
         }
 
         runDurableMutation(
-          persistUpdateDraw({
-            drawKey: draw.id,
-            label: draw.label,
-            order: nextOrder,
-          }),
+          () =>
+            persistUpdateDraw({
+              drawKey: draw.id,
+              label: draw.label,
+              order: nextOrder,
+            }),
           "draw sequence update"
         );
       });
@@ -1610,11 +1696,10 @@ export function TimelineWorkspace({
         borrowerCoPayCents: result.borrowerCoPayCents,
         rangeMax: nextRange.max,
         rangeMin: nextRange.min,
-        lenderDrawPolicyLimitCents: dollarsToCents(result.startingCash),
+        lenderDrawPolicyLimitCents: result.reimbursableBudgetCents,
         startingCashCents: dollarsToCents(result.startingCash),
         templateTitle: result.templateTitle,
         totalBudgetCents: dollarsToCents(result.totalBudget),
-        workingCapitalLimitCents: dollarsToCents(result.startingCash),
       })
         .then((created) => {
           console.info("Durable timeline plan created", created);
@@ -1706,26 +1791,37 @@ export function TimelineWorkspace({
     setActiveCapitalSpikeId(null);
     setDrawEditDraft({ amount: "", x: "" });
     setDraws(nextDraws);
+    const optimizedRangeMax = Math.max(
+      resolvedRange.max,
+      ...nextDraws.map((draw) => Math.ceil(draw.x + 1))
+    );
+    if (optimizedRangeMax > resolvedRange.max) {
+      setRange((currentRange) => ({
+        ...currentRange,
+        max: optimizedRangeMax,
+      }));
+    }
 
     if (durablePlanId) {
       for (const draw of draws) {
         runDurableMutation(
-          persistDeleteDraw({ drawKey: draw.id }),
+          () => persistDeleteDraw({ drawKey: draw.id }),
           "optimized draw replacement"
         );
       }
 
       nextDraws.forEach((draw, index) => {
         runDurableMutation(
-          persistCreateDraw({
-            amountCents: dollarsToCents(draw.amount),
-            customDate: true,
-            drawKey: draw.id,
-            ...(draw.itemId ? { itemMilestoneKey: draw.itemId } : {}),
-            label: draw.label,
-            order: index + 1,
-            x: draw.x,
-          }),
+          () =>
+            persistCreateDraw({
+              amountCents: dollarsToCents(draw.amount),
+              customDate: true,
+              drawKey: draw.id,
+              ...(draw.itemId ? { itemMilestoneKey: draw.itemId } : {}),
+              label: draw.label,
+              order: index + 1,
+              x: draw.x,
+            }),
           "optimized draw"
         );
       });
@@ -1816,21 +1912,22 @@ export function TimelineWorkspace({
     }
     const timeout = window.setTimeout(() => {
       runDurableMutation(
-        persistUpdatePlanState({
-          currentDay,
-          progressValue,
-          rangeMax: resolvedRange.max,
-          rangeMin: resolvedRange.min,
-          routeState: {
-            activeCapitalSpikeId: activeCapitalSpikeId ?? undefined,
-            activeDrawId: activeDrawId ?? undefined,
-            activeMilestoneKey: activeSelection.itemId,
-            selectedPanelOpen,
-            straightLine,
-          },
-          minimumCashReserveCents: dollarsToCents(minimumCashReserve),
-          startingCashCents: dollarsToCents(startingCash),
-        }),
+        () =>
+          persistUpdatePlanState({
+            currentDay,
+            progressValue,
+            rangeMax: resolvedRange.max,
+            rangeMin: resolvedRange.min,
+            routeState: {
+              activeCapitalSpikeId: activeCapitalSpikeId ?? undefined,
+              activeDrawId: activeDrawId ?? undefined,
+              activeMilestoneKey: activeSelection.itemId,
+              selectedPanelOpen,
+              straightLine,
+            },
+            minimumCashReserveCents: dollarsToCents(minimumCashReserve),
+            startingCashCents: dollarsToCents(startingCash),
+          }),
         "timeline state"
       );
     }, 450);
@@ -1929,6 +2026,9 @@ export function TimelineWorkspace({
   const endingAvailability = interpolateDrawAvailability(
     drawAvailabilityData,
     resolvedRange.max
+  );
+  const cashflowDrawPosition = getCumulativeDrawPosition(
+    probeDrawAvailability ?? endingAvailability
   );
   const timelineSizing = useMemo(
     () => getTimelineResponsiveSizing(isCompactLayout, isPhoneLayout),
@@ -2154,6 +2254,7 @@ export function TimelineWorkspace({
     setActiveCapitalSpikeId(null);
     setActiveDrawId(draw.id);
     setSelectedPanelOpen(true);
+    setProbeValue(Math.round(draw.x));
     setDrawEditDraft({
       amount: String(draw.amount),
       x: String(Math.round(draw.x)),
@@ -2213,11 +2314,12 @@ export function TimelineWorkspace({
     addLocalModificationRequest(optimisticRequest);
     if (durablePlanId) {
       runDurableMutation(
-        persistRequestModification({
-          reason: "Builder requested a live-build milestone change.",
-          requestedPayload: { milestone },
-          requestType: "createMilestone",
-        }),
+        () =>
+          persistRequestModification({
+            reason: "Builder requested a live-build milestone change.",
+            requestedPayload: { milestone },
+            requestType: "createMilestone",
+          }),
         "milestone modification request"
       );
     }
@@ -2288,14 +2390,15 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistCreateMilestone({
-          milestone: timelineItemToMilestoneMutationInput(
-            normalizedInsertedItem,
-            normalizedItems.findIndex(
-              (item) => item.id === normalizedInsertedItem.id
-            ) + 1
-          ),
-        }),
+        () =>
+          persistCreateMilestone({
+            milestone: timelineItemToMilestoneMutationInput(
+              normalizedInsertedItem,
+              normalizedItems.findIndex(
+                (item) => item.id === normalizedInsertedItem.id
+              ) + 1
+            ),
+          }),
         "milestone creation"
       );
     }
@@ -2308,10 +2411,23 @@ export function TimelineWorkspace({
     drawInsertionCount.current += 1;
     const count = drawInsertionCount.current;
     const owner = findTimelineItemForDay(items, requestedX);
+    const nextDrawId = `manual-draw-${Date.now()}-${count}`;
+    const maxSchedulableAmount = getMaxSchedulableDrawAmount(
+      requestedX,
+      items,
+      draws,
+      { proposedDrawId: nextDrawId }
+    );
+
+    if (maxSchedulableAmount <= 0) {
+      toast.error(DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE);
+      return;
+    }
+
     const nextDraw = {
-      amount: 100_000,
+      amount: Math.min(100_000, maxSchedulableAmount),
       customDate: true,
-      id: `manual-draw-${Date.now()}-${count}`,
+      id: nextDrawId,
       ...(owner ? { itemId: owner.id } : {}),
       label: `Draw ${draws.length + 1}`,
       x: requestedX,
@@ -2327,17 +2443,18 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistCreateDraw({
-          amountCents: dollarsToCents(sequencedNextDraw.amount),
-          customDate: true,
-          drawKey: sequencedNextDraw.id,
-          ...(sequencedNextDraw.itemId
-            ? { itemMilestoneKey: sequencedNextDraw.itemId }
-            : {}),
-          label: sequencedNextDraw.label,
-          order: nextDraws.findIndex((draw) => draw.id === nextDraw.id) + 1,
-          x: sequencedNextDraw.x,
-        }),
+        () =>
+          persistCreateDraw({
+            amountCents: dollarsToCents(sequencedNextDraw.amount),
+            customDate: true,
+            drawKey: sequencedNextDraw.id,
+            ...(sequencedNextDraw.itemId
+              ? { itemMilestoneKey: sequencedNextDraw.itemId }
+              : {}),
+            label: sequencedNextDraw.label,
+            order: nextDraws.findIndex((draw) => draw.id === nextDraw.id) + 1,
+            x: sequencedNextDraw.x,
+          }),
         "draw"
       );
       persistDrawSequenceUpdates(draws, nextDraws, new Set([nextDraw.id]));
@@ -2367,14 +2484,15 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistCreateCapitalEvent({
-          amountCents: dollarsToCents(nextSpike.amount),
-          capitalEventKey: nextSpike.id,
-          eventKind: "cost",
-          label: nextSpike.label,
-          order: capitalSpikes.length + 1,
-          x: nextSpike.x,
-        }),
+        () =>
+          persistCreateCapitalEvent({
+            amountCents: dollarsToCents(nextSpike.amount),
+            capitalEventKey: nextSpike.id,
+            eventKind: "cost",
+            label: nextSpike.label,
+            order: capitalSpikes.length + 1,
+            x: nextSpike.x,
+          }),
         "capital event"
       );
     }
@@ -2403,13 +2521,14 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistCreateCashInfusion({
-          amountCents: dollarsToCents(nextInfusion.amount),
-          cashInfusionKey: nextInfusion.id,
-          label: nextInfusion.label,
-          order: capitalSpikes.length + 1,
-          x: nextInfusion.x,
-        }),
+        () =>
+          persistCreateCashInfusion({
+            amountCents: dollarsToCents(nextInfusion.amount),
+            cashInfusionKey: nextInfusion.id,
+            label: nextInfusion.label,
+            order: capitalSpikes.length + 1,
+            x: nextInfusion.x,
+          }),
         "cash infusion"
       );
     }
@@ -2435,7 +2554,7 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistDeleteDraw({ drawKey: drawId }),
+        () => persistDeleteDraw({ drawKey: drawId }),
         "draw deletion"
       );
       persistDrawSequenceUpdates(draws, nextDraws);
@@ -2453,9 +2572,10 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistDeleteCapitalEvent({
-          capitalEventKey: spikeId,
-        }),
+        () =>
+          persistDeleteCapitalEvent({
+            capitalEventKey: spikeId,
+          }),
         "capital event deletion"
       );
     }
@@ -2477,12 +2597,13 @@ export function TimelineWorkspace({
       addLocalModificationRequest(optimisticRequest);
       if (durablePlanId) {
         runDurableMutation(
-          persistRequestModification({
-            milestoneKey: itemId,
-            reason: "Builder requested milestone deletion.",
-            requestedPayload: {},
-            requestType: "deleteMilestone",
-          }),
+          () =>
+            persistRequestModification({
+              milestoneKey: itemId,
+              reason: "Builder requested milestone deletion.",
+              requestedPayload: {},
+              requestType: "deleteMilestone",
+            }),
           "milestone deletion request"
         );
       }
@@ -2509,9 +2630,10 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistDeleteMilestone({
-          milestoneKey: targetItem.id,
-        }),
+        () =>
+          persistDeleteMilestone({
+            milestoneKey: targetItem.id,
+          }),
         "milestone deletion"
       );
     }
@@ -2551,12 +2673,13 @@ export function TimelineWorkspace({
       addLocalModificationRequest(optimisticRequest);
       if (durablePlanId) {
         runDurableMutation(
-          persistRequestModification({
-            milestoneKey: itemId,
-            reason: "Builder requested milestone budget change.",
-            requestedPayload: { budgetCents: dollarsToCents(patch.amount) },
-            requestType: "updateMilestoneBudget",
-          }),
+          () =>
+            persistRequestModification({
+              milestoneKey: itemId,
+              reason: "Builder requested milestone budget change.",
+              requestedPayload: { budgetCents: dollarsToCents(patch.amount) },
+              requestType: "updateMilestoneBudget",
+            }),
           "milestone budget request"
         );
       }
@@ -2603,12 +2726,13 @@ export function TimelineWorkspace({
       const nextItem = nextItems.find((item) => item.id === itemId);
       if (nextItem) {
         runDurableMutation(
-          persistUpdateMilestone({
-            ...timelineItemToMilestoneMutationInput(
-              nextItem,
-              nextItems.findIndex((item) => item.id === itemId) + 1
-            ),
-          }),
+          () =>
+            persistUpdateMilestone({
+              ...timelineItemToMilestoneMutationInput(
+                nextItem,
+                nextItems.findIndex((item) => item.id === itemId) + 1
+              ),
+            }),
           "milestone update"
         );
       }
@@ -2701,12 +2825,13 @@ export function TimelineWorkspace({
       const nextItem = nextItems.find((item) => item.id === itemId);
       if (nextItem) {
         runDurableMutation(
-          persistUpdateMilestone({
-            ...timelineItemToMilestoneMutationInput(
-              nextItem,
-              nextItems.findIndex((item) => item.id === itemId) + 1
-            ),
-          }),
+          () =>
+            persistUpdateMilestone({
+              ...timelineItemToMilestoneMutationInput(
+                nextItem,
+                nextItems.findIndex((item) => item.id === itemId) + 1
+              ),
+            }),
           "sub-milestone budget update"
         );
       }
@@ -2780,12 +2905,13 @@ export function TimelineWorkspace({
       const nextItem = nextItems.find((item) => item.id === itemId);
       if (nextItem) {
         runDurableMutation(
-          persistUpdateMilestone({
-            ...timelineItemToMilestoneMutationInput(
-              nextItem,
-              nextItems.findIndex((item) => item.id === itemId) + 1
-            ),
-          }),
+          () =>
+            persistUpdateMilestone({
+              ...timelineItemToMilestoneMutationInput(
+                nextItem,
+                nextItems.findIndex((item) => item.id === itemId) + 1
+              ),
+            }),
           "sub-milestone duration update"
         );
       }
@@ -2829,17 +2955,18 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistSubmitMilestoneCompletion({
-          actualCostCents:
-            claim.actualCost === undefined
-              ? undefined
-              : dollarsToCents(claim.actualCost),
-          completedDay: claim.completedDay,
-          milestoneKey: itemId,
-          note: claim.note,
-          qualityNote: claim.qualityNote,
-          qualityRating: claim.qualityRating,
-        }),
+        () =>
+          persistSubmitMilestoneCompletion({
+            actualCostCents:
+              claim.actualCost === undefined
+                ? undefined
+                : dollarsToCents(claim.actualCost),
+            completedDay: claim.completedDay,
+            milestoneKey: itemId,
+            note: claim.note,
+            qualityNote: claim.qualityNote,
+            qualityRating: claim.qualityRating,
+          }),
         "milestone completion"
       );
     }
@@ -2992,11 +3119,12 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistUpdateEvidenceAsset({
-          evidenceKey: assetId,
-          label: patch.label,
-          tag: patch.tag,
-        }),
+        () =>
+          persistUpdateEvidenceAsset({
+            evidenceKey: assetId,
+            label: patch.label,
+            tag: patch.tag,
+          }),
         "evidence asset"
       );
     }
@@ -3033,9 +3161,10 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistDeleteEvidenceAsset({
-          evidenceKey: assetId,
-        }),
+        () =>
+          persistDeleteEvidenceAsset({
+            evidenceKey: assetId,
+          }),
         "evidence deletion"
       );
     }
@@ -3069,6 +3198,25 @@ export function TimelineWorkspace({
       return;
     }
 
+    const maxSchedulableAmount = getMaxSchedulableDrawAmount(
+      nextX,
+      items,
+      draws,
+      {
+        excludeDrawId: drawId,
+        proposedDrawId: drawId,
+      }
+    );
+
+    if (nextAmount > maxSchedulableAmount) {
+      toast.error(
+        maxSchedulableAmount <= 0
+          ? DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE
+          : `Only ${money(maxSchedulableAmount)} is unlocked and available to draw by day ${nextX}.`
+      );
+      return;
+    }
+
     const nextDraws = relabelTimelineDraws(
       draws.map((draw) =>
         draw.id === drawId
@@ -3081,6 +3229,7 @@ export function TimelineWorkspace({
           : draw
       )
     );
+
     const sequencedTargetDraw =
       nextDraws.find((draw) => draw.id === drawId) ?? targetDraw;
 
@@ -3100,14 +3249,15 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistUpdateDraw({
-          amountCents: dollarsToCents(nextAmount),
-          customDate: true,
-          drawKey: drawId,
-          label: sequencedTargetDraw.label,
-          order: nextDraws.findIndex((draw) => draw.id === drawId) + 1,
-          x: nextX,
-        }),
+        () =>
+          persistUpdateDraw({
+            amountCents: dollarsToCents(nextAmount),
+            customDate: true,
+            drawKey: drawId,
+            label: sequencedTargetDraw.label,
+            order: nextDraws.findIndex((draw) => draw.id === drawId) + 1,
+            x: nextX,
+          }),
         "draw update"
       );
       persistDrawSequenceUpdates(draws, nextDraws, new Set([drawId]));
@@ -3203,12 +3353,13 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistSubmitDrawRequest({
-          amountCents: dollarsToCents(nextAmount),
-          drawKey: drawId,
-          note: request.note,
-          x: nextX,
-        }),
+        () =>
+          persistSubmitDrawRequest({
+            amountCents: dollarsToCents(nextAmount),
+            drawKey: drawId,
+            note: request.note,
+            x: nextX,
+          }),
         "draw request"
       );
     }
@@ -3232,11 +3383,12 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistReviewDrawRequest({
-          drawKey: drawId,
-          note: review.note,
-          status: review.status,
-        }),
+        () =>
+          persistReviewDrawRequest({
+            drawKey: drawId,
+            note: review.note,
+            status: review.status,
+          }),
         "draw review"
       );
     }
@@ -3300,11 +3452,12 @@ export function TimelineWorkspace({
 
     if (durablePlanId && request._id) {
       runDurableMutation(
-        persistReviewModificationRequest({
-          note: review.note,
-          requestId: request._id,
-          status: review.status,
-        }),
+        () =>
+          persistReviewModificationRequest({
+            note: review.note,
+            requestId: request._id,
+            status: review.status,
+          }),
         "timeline modification review"
       );
     }
@@ -3336,11 +3489,12 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistReviewMilestoneCompletion({
-          milestoneKey: itemId,
-          note: review.note,
-          status: review.status,
-        }),
+        () =>
+          persistReviewMilestoneCompletion({
+            milestoneKey: itemId,
+            note: review.note,
+            status: review.status,
+          }),
         "milestone review"
       );
     }
@@ -3468,15 +3622,16 @@ export function TimelineWorkspace({
     );
     if (durablePlanId) {
       runDurableMutation(
-        persistUpdateCapitalEvent({
-          amountCents: dollarsToCents(nextAmount),
-          capitalEventKey: activeCapitalSpikeId,
-          eventKind:
-            capitalSpikes.find((spike) => spike.id === activeCapitalSpikeId)
-              ?.eventKind ?? "cost",
-          label: nextLabel,
-          x: nextX,
-        }),
+        () =>
+          persistUpdateCapitalEvent({
+            amountCents: dollarsToCents(nextAmount),
+            capitalEventKey: activeCapitalSpikeId,
+            eventKind:
+              capitalSpikes.find((spike) => spike.id === activeCapitalSpikeId)
+                ?.eventKind ?? "cost",
+            label: nextLabel,
+            x: nextX,
+          }),
         "capital event update"
       );
     }
@@ -3744,11 +3899,33 @@ export function TimelineWorkspace({
                       {durableSavePendingCount > 0
                         ? "Saving"
                         : durableSaveStatus === "error"
-                          ? "Save failed"
+                          ? "Unsaved changes"
                           : durableSaveStatus === "saved"
                             ? "Saved"
                             : "Ready"}
                     </Badge>
+                    {durableSaveStatus === "error" ? (
+                      <>
+                        <Button
+                          onClick={retryDurableMutation}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Retry save
+                        </Button>
+                        <span
+                          aria-live="polite"
+                          className="text-muted-foreground text-xs"
+                          data-testid="timeline-durable-save-reference"
+                        >
+                          Changes remain local
+                          {durableSaveReference
+                            ? `. Reference ${durableSaveReference}.`
+                            : "."}
+                        </span>
+                      </>
+                    ) : null}
                   </>
                 ) : null}
                 <ShareStatusBadges
@@ -3990,253 +4167,292 @@ export function TimelineWorkspace({
             className="grid min-w-0 gap-1 overflow-x-clip"
             data-testid="timeline-workspace-main"
           >
-            <motion.section
-              className="min-w-0 rounded-none border border-border border-x-0 bg-background/92 p-0 shadow-sm backdrop-blur sm:rounded-lg sm:border-x sm:px-4 sm:pt-4 sm:pb-1"
-              data-ixc-ref={
-                statusReadOnly ? "UI-SUBMITTED-PANEL-CASHFLOW" : undefined
-              }
-              data-testid="timeline-cashflow-chart"
-              id="timeline-submitted-panel-cashflow"
-              variants={routeSectionVariants}
+            <ResponsiveAnalyticsDisclosure
+              compact={isCompactLayout}
+              label="Cash flow analytics"
             >
-              <div className="flex min-w-0 flex-col gap-1 sm:gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <div className="mb-1 flex flex-wrap items-center gap-2 sm:mb-2">
-                    <Badge variant="outline">Controlled graph</Badge>
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                    <span
-                      className="font-medium text-muted-foreground text-xs"
-                      data-testid="timeline-cashflow-series-milestone-cost"
-                    >
-                      Milestone cost
-                    </span>
-                    <span className="ml-2 h-2 w-2 rounded-full bg-amber-500" />
-                    <span
-                      className="font-medium text-muted-foreground text-xs"
-                      data-testid="timeline-cashflow-series-cash-on-hand"
-                    >
-                      Cash on hand
-                    </span>
-                  </div>
-                  <h2 className="font-semibold text-lg sm:text-xl">
-                    Cash requirement vs draw recovery
-                  </h2>
-                </div>
-                <div className="grid w-full min-w-0 max-w-full gap-1 sm:gap-3 lg:ml-auto lg:w-full lg:max-w-2xl 2xl:max-w-4xl">
-                  <div className="rounded-md border border-primary/25 bg-primary/10 px-2 py-1.5 sm:hidden">
-                    <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                      Initial cash on hand
-                    </p>
-                    <p className="mt-1 font-semibold text-sm tabular-nums">
-                      {money(startingCash)}
-                    </p>
-                  </div>
-                  <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 sm:hidden">
-                    <p className="font-medium text-[10px] text-muted-foreground uppercase">
-                      Minimum cash reserve
-                    </p>
-                    <p className="mt-1 font-semibold text-sm tabular-nums">
-                      {money(minimumCashReserve)}
-                    </p>
-                  </div>
-                  <div className="hidden gap-2 sm:ml-auto sm:grid sm:grid-cols-2">
-                    <div className="grid gap-1.5">
-                      <Label
-                        className="text-xs"
-                        htmlFor="timeline-starting-cash"
+              <motion.section
+                aria-label="Cash flow analytics detail"
+                className="min-w-0 rounded-none border border-border border-x-0 bg-background/92 p-0 shadow-sm backdrop-blur sm:rounded-lg sm:border-x sm:px-4 sm:pt-4 sm:pb-1"
+                data-ixc-ref={
+                  statusReadOnly ? "UI-SUBMITTED-PANEL-CASHFLOW" : undefined
+                }
+                data-testid="timeline-cashflow-chart"
+                id="timeline-submitted-panel-cashflow"
+                variants={routeSectionVariants}
+              >
+                <div className="flex min-w-0 flex-col gap-1 sm:gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="mb-1 flex flex-wrap items-center gap-2 sm:mb-2">
+                      <Badge variant="outline">Controlled graph</Badge>
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                      <span
+                        className="font-medium text-muted-foreground text-xs"
+                        data-testid="timeline-cashflow-series-milestone-cost"
                       >
+                        Milestone cost
+                      </span>
+                      <span className="ml-2 h-2 w-2 rounded-full bg-amber-500" />
+                      <span
+                        className="font-medium text-muted-foreground text-xs"
+                        data-testid="timeline-cashflow-series-cash-on-hand"
+                      >
+                        Cash on hand
+                      </span>
+                    </div>
+                    <h2 className="font-semibold text-lg sm:text-xl">
+                      Cash requirement vs draw recovery
+                    </h2>
+                  </div>
+                  <div className="grid w-full min-w-0 max-w-full gap-1 sm:gap-3 lg:ml-auto lg:w-full lg:max-w-2xl 2xl:max-w-4xl">
+                    <div className="rounded-md border border-primary/25 bg-primary/10 px-2 py-1.5 sm:hidden">
+                      <p className="font-medium text-[10px] text-muted-foreground uppercase">
                         Initial cash on hand
-                      </Label>
-                      <Input
-                        aria-disabled={!canEditPlanStructure}
-                        data-testid="timeline-starting-cash-input"
-                        disabled={!canEditPlanStructure}
-                        id="timeline-starting-cash"
-                        min={0}
-                        nativeInput
-                        onChange={(event) => {
-                          const nextValue = Math.max(
-                            0,
-                            Math.round(Number(event.currentTarget.value))
-                          );
-
-                          if (Number.isFinite(nextValue)) {
-                            setStartingCash(nextValue);
-                          }
-                        }}
-                        size="sm"
-                        step={5000}
-                        type="number"
-                        value={startingCash}
-                      />
+                      </p>
+                      <p className="mt-1 font-semibold text-sm tabular-nums">
+                        {money(startingCash)}
+                      </p>
                     </div>
-                    <div className="grid gap-1.5">
-                      <Label
-                        className="text-xs"
-                        htmlFor="timeline-minimum-cash-reserve"
-                      >
+                    <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 sm:hidden">
+                      <p className="font-medium text-[10px] text-muted-foreground uppercase">
                         Minimum cash reserve
-                      </Label>
-                      <Input
-                        aria-disabled={!canEditPlanStructure}
-                        data-testid="timeline-minimum-cash-reserve-input"
-                        disabled={!canEditPlanStructure}
-                        id="timeline-minimum-cash-reserve"
-                        min={0}
-                        nativeInput
-                        onChange={(event) => {
-                          const nextValue = Math.max(
-                            0,
-                            Math.round(Number(event.currentTarget.value))
-                          );
+                      </p>
+                      <p className="mt-1 font-semibold text-sm tabular-nums">
+                        {money(minimumCashReserve)}
+                      </p>
+                    </div>
+                    <div className="hidden gap-2 sm:ml-auto sm:grid sm:grid-cols-2">
+                      <div className="grid gap-1.5">
+                        <Label
+                          className="text-xs"
+                          htmlFor="timeline-starting-cash"
+                        >
+                          Initial cash on hand
+                        </Label>
+                        <Input
+                          aria-disabled={!canEditPlanStructure}
+                          data-testid="timeline-starting-cash-input"
+                          disabled={!canEditPlanStructure}
+                          id="timeline-starting-cash"
+                          min={0}
+                          nativeInput
+                          onChange={(event) => {
+                            const nextValue = Math.max(
+                              0,
+                              Math.round(Number(event.currentTarget.value))
+                            );
 
-                          if (Number.isFinite(nextValue)) {
-                            setMinimumCashReserve(nextValue);
-                          }
-                        }}
-                        size="sm"
-                        step={5000}
-                        type="number"
-                        value={minimumCashReserve}
-                      />
+                            if (Number.isFinite(nextValue)) {
+                              setStartingCash(nextValue);
+                            }
+                          }}
+                          size="sm"
+                          step={5000}
+                          type="number"
+                          value={startingCash}
+                        />
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label
+                          className="text-xs"
+                          htmlFor="timeline-minimum-cash-reserve"
+                        >
+                          Minimum cash reserve
+                        </Label>
+                        <Input
+                          aria-disabled={!canEditPlanStructure}
+                          data-testid="timeline-minimum-cash-reserve-input"
+                          disabled={!canEditPlanStructure}
+                          id="timeline-minimum-cash-reserve"
+                          min={0}
+                          nativeInput
+                          onChange={(event) => {
+                            const nextValue = Math.max(
+                              0,
+                              Math.round(Number(event.currentTarget.value))
+                            );
+
+                            if (Number.isFinite(nextValue)) {
+                              setMinimumCashReserve(nextValue);
+                            }
+                          }}
+                          size="sm"
+                          step={5000}
+                          type="number"
+                          value={minimumCashReserve}
+                        />
+                      </div>
                     </div>
-                  </div>
-                  <div className="grid min-w-0 grid-cols-2 gap-1.5 text-xs sm:grid-cols-4 sm:gap-2 sm:text-sm 2xl:grid-cols-8">
-                    <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                        Probe
-                      </p>
-                      <p
-                        className="mt-0.5 truncate font-semibold text-foreground text-xs sm:mt-1 sm:text-sm"
-                        data-testid="timeline-cashflow-probe-day"
+                    <div className="grid min-w-0 grid-cols-2 gap-1.5 text-xs sm:grid-cols-4 sm:gap-2 sm:text-sm xl:grid-cols-6 2xl:grid-cols-6">
+                      <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Probe
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-probe-day"
+                        >
+                          {probeValue === null
+                            ? "Hover chart"
+                            : `Day ${Math.round(probeValue)}`}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Cash
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-probe-cash"
+                        >
+                          {probeCashOnHand === null
+                            ? "-"
+                            : money(probeCashOnHand)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Interest paid
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-probe-interest-paid"
+                        >
+                          {probeInterestPaid === null
+                            ? "-"
+                            : money(probeInterestPaid)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Ending cash
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-ending-cash"
+                        >
+                          {money(endingCashOnHand)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Total unlocked
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-total-unlocked"
+                        >
+                          {money(cashflowDrawPosition.totalUnlocked)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Total drawn
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-total-drawn"
+                        >
+                          {money(cashflowDrawPosition.totalDrawn)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Available to draw
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-available-to-draw"
+                        >
+                          {money(cashflowDrawPosition.availableToDraw)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Lender cash
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-lender-cash-used"
+                        >
+                          {money(cashUseSummary.lenderCashUsed)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Builder cash
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-builder-cash-used"
+                        >
+                          {money(cashUseSummary.builderCashUsed)}
+                        </p>
+                      </div>
+                      <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Total interest
+                        </p>
+                        <p
+                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
+                          data-testid="timeline-cashflow-total-interest-paid"
+                        >
+                          {money(endingAvailability.totalInterestAccrued)}
+                        </p>
+                      </div>
+                      <div
+                        className={cn(
+                          "min-w-0 overflow-hidden rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
+                          cashShortfalls.length > 0
+                            ? "border-rose-500/30 bg-rose-500/10"
+                            : "border-border bg-muted/30"
+                        )}
+                        data-testid="timeline-cashflow-risk-summary"
                       >
-                        {probeValue === null
-                          ? "Hover chart"
-                          : `Day ${Math.round(probeValue)}`}
-                      </p>
-                    </div>
-                    <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                        Cash
-                      </p>
-                      <p
-                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                        data-testid="timeline-cashflow-probe-cash"
-                      >
-                        {probeCashOnHand === null
-                          ? "-"
-                          : money(probeCashOnHand)}
-                      </p>
-                    </div>
-                    <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                        Interest paid
-                      </p>
-                      <p
-                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                        data-testid="timeline-cashflow-probe-interest-paid"
-                      >
-                        {probeInterestPaid === null
-                          ? "-"
-                          : money(probeInterestPaid)}
-                      </p>
-                    </div>
-                    <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                        Ending cash
-                      </p>
-                      <p
-                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                        data-testid="timeline-cashflow-ending-cash"
-                      >
-                        {money(endingCashOnHand)}
-                      </p>
-                    </div>
-                    <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                        Lender cash
-                      </p>
-                      <p
-                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                        data-testid="timeline-cashflow-lender-cash-used"
-                      >
-                        {money(cashUseSummary.lenderCashUsed)}
-                      </p>
-                    </div>
-                    <div className="min-w-0 overflow-hidden rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                        Builder cash
-                      </p>
-                      <p
-                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                        data-testid="timeline-cashflow-builder-cash-used"
-                      >
-                        {money(cashUseSummary.builderCashUsed)}
-                      </p>
-                    </div>
-                    <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                        Total interest
-                      </p>
-                      <p
-                        className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                        data-testid="timeline-cashflow-total-interest-paid"
-                      >
-                        {money(endingAvailability.totalInterestAccrued)}
-                      </p>
-                    </div>
-                    <div
-                      className={cn(
-                        "min-w-0 overflow-hidden rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
-                        cashShortfalls.length > 0
-                          ? "border-rose-500/30 bg-rose-500/10"
-                          : "border-border bg-muted/30"
-                      )}
-                      data-testid="timeline-cashflow-risk-summary"
-                    >
-                      <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                        Cash risk
-                      </p>
-                      <p className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm">
-                        {cashShortfalls.length > 0
-                          ? `${cashShortfalls.length} flagged`
-                          : `Above ${money(minimumCashReserve)}`}
-                      </p>
+                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
+                          Cash risk
+                        </p>
+                        <p className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm">
+                          {cashShortfalls.length > 0
+                            ? `${cashShortfalls.length} flagged`
+                            : `Above ${money(minimumCashReserve)}`}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-              {cashShortfalls.length > 0 && (
-                <div className="mt-1 flex flex-wrap gap-1 sm:mt-3 sm:gap-2">
-                  {cashShortfalls.slice(0, 4).map((point) => (
-                    <div
-                      className="inline-flex max-w-full items-center gap-2 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-rose-700 text-xs dark:text-rose-100"
-                      data-testid="timeline-cash-shortfall-point"
-                      key={`${point.day}-${point.milestone}`}
-                    >
-                      <AlertTriangle className="size-3.5" />
-                      <span className="font-medium">
-                        {formatTimelineDay(point.day)}
-                      </span>
-                      <span className="min-w-0 truncate text-muted-foreground">
-                        {formatCashShortfallMessage(point)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <TimelineCashflowCompoundChart
-                barSize={timelineSizing.barSize}
-                data={cashflowChartData}
-                onHotspotDaySelect={handleChartHotspotDaySelect}
-                onProbeChange={setProbeValue}
-                referenceLines={cashflowReferenceLines}
-                xDomain={[resolvedRange.min, resolvedRange.max]}
-                xTicks={cashflowTicks}
-                yAxisWidth={timelineSizing.yAxisWidth}
-                yDomain={[cashflowExtent.min, cashflowExtent.max]}
-              />
-            </motion.section>
+                {cashShortfalls.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1 sm:mt-3 sm:gap-2">
+                    {cashShortfalls.slice(0, 4).map((point) => (
+                      <div
+                        className="inline-flex max-w-full items-center gap-2 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-rose-700 text-xs dark:text-rose-100"
+                        data-testid="timeline-cash-shortfall-point"
+                        key={`${point.day}-${point.milestone}`}
+                      >
+                        <AlertTriangle className="size-3.5" />
+                        <span className="font-medium">
+                          {formatTimelineDay(point.day)}
+                        </span>
+                        <span className="min-w-0 truncate text-muted-foreground">
+                          {formatCashShortfallMessage(point)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <TimelineCashflowCompoundChart
+                  barSize={timelineSizing.barSize}
+                  data={cashflowChartData}
+                  onHotspotDaySelect={handleChartHotspotDaySelect}
+                  onProbeChange={setProbeValue}
+                  referenceLines={cashflowReferenceLines}
+                  xDomain={[resolvedRange.min, resolvedRange.max]}
+                  xTicks={cashflowTicks}
+                  yAxisWidth={timelineSizing.yAxisWidth}
+                  yDomain={[cashflowExtent.min, cashflowExtent.max]}
+                />
+              </motion.section>
+            </ResponsiveAnalyticsDisclosure>
 
             <motion.section
               className="relative z-30 min-w-0 overflow-visible"
@@ -4415,15 +4631,16 @@ export function TimelineWorkspace({
                       if (durablePlanId) {
                         if (normalizedInsertedItem) {
                           runDurableMutation(
-                            persistCreateMilestone({
-                              milestone: timelineItemToMilestoneMutationInput(
-                                normalizedInsertedItem,
-                                normalizedItems.findIndex(
-                                  (item) =>
-                                    item.id === normalizedInsertedItem.id
-                                ) + 1
-                              ),
-                            }),
+                            () =>
+                              persistCreateMilestone({
+                                milestone: timelineItemToMilestoneMutationInput(
+                                  normalizedInsertedItem,
+                                  normalizedItems.findIndex(
+                                    (item) =>
+                                      item.id === normalizedInsertedItem.id
+                                  ) + 1
+                                ),
+                              }),
                             "milestone creation"
                           );
                         } else {
@@ -4432,12 +4649,13 @@ export function TimelineWorkspace({
                             item,
                           ] of normalizedItems.entries()) {
                             runDurableMutation(
-                              persistUpdateMilestone({
-                                ...timelineItemToMilestoneMutationInput(
-                                  item,
-                                  index + 1
-                                ),
-                              }),
+                              () =>
+                                persistUpdateMilestone({
+                                  ...timelineItemToMilestoneMutationInput(
+                                    item,
+                                    index + 1
+                                  ),
+                                }),
                               "milestone position"
                             );
                           }
@@ -4608,13 +4826,34 @@ export function TimelineWorkspace({
                         >
                           <DrawTimelineMarker
                             active={draw.id === activeDrawId}
+                            availableAmount={getMaxSchedulableDrawAmount(
+                              Math.round(
+                                Number(
+                                  draw.id === activeDrawId
+                                    ? drawEditDraft.x
+                                    : draw.x
+                                )
+                              ) || draw.x,
+                              items,
+                              draws,
+                              {
+                                excludeDrawId: draw.id,
+                                proposedDrawId: draw.id,
+                              }
+                            )}
                             currentDay={currentDay}
                             draft={drawEditDraft}
                             draw={draw}
                             inlineEditorEnabled={!liveBuildMode}
                             onApply={applyDrawEdit}
                             onCancel={() => setActiveDrawId(null)}
-                            onDraftChange={setDrawEditDraft}
+                            onDraftChange={(draft) => {
+                              setDrawEditDraft(draft);
+                              const nextDay = Math.round(Number(draft.x));
+                              if (Number.isFinite(nextDay)) {
+                                setProbeValue(nextDay);
+                              }
+                            }}
                             onOpen={() => openDrawEditor(draw)}
                             reducedMotion={Boolean(prefersReducedMotion)}
                           />
@@ -4676,6 +4915,7 @@ export function TimelineWorkspace({
               addEvidenceFiles={addEvidenceFiles}
               canApproveMilestoneCompletion={canApproveMilestoneCompletion}
               contractorPlanning={contractorPlanning}
+              drawAvailabilityData={drawAvailabilityData}
               draws={draws}
               items={items}
               liveExecutionEnabled={canUseLiveExecution}
@@ -4768,60 +5008,66 @@ export function TimelineWorkspace({
               }
             />
 
-            <motion.section
-              className="relative z-0 min-w-0 rounded-none border border-border border-x-0 bg-background/92 p-0 shadow-sm backdrop-blur sm:rounded-lg sm:border-x sm:px-4 sm:pt-1 sm:pb-4"
-              data-ixc-ref={
-                statusReadOnly ? "UI-SUBMITTED-PANEL-DRAWS" : undefined
-              }
-              data-testid="timeline-draw-availability-chart"
-              id="timeline-submitted-panel-draws"
-              variants={routeSectionVariants}
+            <ResponsiveAnalyticsDisclosure
+              compact={isCompactLayout}
+              label="Draw availability analytics"
             >
-              <div className="flex flex-col gap-0.5">
-                <div className="mb-1 flex flex-wrap items-center gap-2 sm:mb-2">
-                  <Badge variant="outline">Draw availability</Badge>
-                  <span className="h-2 w-2 rounded-full bg-violet-500" />
-                  <span
-                    className="font-medium text-muted-foreground text-xs"
-                    data-testid="timeline-draw-series-interest-bearing"
-                  >
-                    Interest-bearing draw
-                  </span>
-                  <span className="ml-2 h-2 w-2 rounded-full bg-sky-500" />
-                  <span
-                    className="font-medium text-muted-foreground text-xs"
-                    data-testid="timeline-draw-series-additional-available"
-                  >
-                    Additional available draw
-                  </span>
-                </div>
-                <div>
-                  {/*<h2 className="font-semibold text-xl">Draw capacity envelope</h2>*/}
-                  {/*<p className="mt-1 max-w-2xl text-muted-foreground text-sm">
+              <motion.section
+                aria-label="Draw availability analytics detail"
+                className="relative z-0 min-w-0 rounded-none border border-border border-x-0 bg-background/92 p-0 shadow-sm backdrop-blur sm:rounded-lg sm:border-x sm:px-4 sm:pt-1 sm:pb-4"
+                data-ixc-ref={
+                  statusReadOnly ? "UI-SUBMITTED-PANEL-DRAWS" : undefined
+                }
+                data-testid="timeline-draw-availability-chart"
+                id="timeline-submitted-panel-draws"
+                variants={routeSectionVariants}
+              >
+                <div className="flex flex-col gap-0.5">
+                  <div className="mb-1 flex flex-wrap items-center gap-2 sm:mb-2">
+                    <Badge variant="outline">Draw availability</Badge>
+                    <span className="h-2 w-2 rounded-full bg-violet-500" />
+                    <span
+                      className="font-medium text-muted-foreground text-xs"
+                      data-testid="timeline-draw-series-interest-bearing"
+                    >
+                      Interest-bearing draw
+                    </span>
+                    <span className="ml-2 h-2 w-2 rounded-full bg-sky-500" />
+                    <span
+                      className="font-medium text-muted-foreground text-xs"
+                      data-testid="timeline-draw-series-additional-available"
+                    >
+                      Additional available draw
+                    </span>
+                  </div>
+                  <div>
+                    {/*<h2 className="font-semibold text-xl">Draw capacity envelope</h2>*/}
+                    {/*<p className="mt-1 max-w-2xl text-muted-foreground text-sm">
                 Top line is interest-bearing principal plus available draw;
                 lower line is interest-bearing principal.
               </p>*/}
+                  </div>
                 </div>
-              </div>
-              <TimelineDrawAvailabilityChart
-                data={drawAvailabilityChartData}
-                formatMoney={formatCompactMoney}
-                formatTimelineDay={formatTimelineDay}
-                onProbeChange={setProbeValue}
-                referenceLines={drawAvailabilityReferenceLines}
-                xDomain={[resolvedRange.min, resolvedRange.max]}
-                xTicks={cashflowTicks}
-                yAxisWidth={timelineSizing.yAxisWidth}
-                yDomain={[0, drawAvailabilityExtent.max]}
-              />
-              <DrawAvailabilityMetrics
-                endingAvailability={endingAvailability}
-                probeDrawAvailability={probeDrawAvailability}
-              />
-              <DrawAvailabilityDeltaReadout
-                probeDrawAvailability={probeDrawAvailability}
-              />
-            </motion.section>
+                <TimelineDrawAvailabilityChart
+                  data={drawAvailabilityChartData}
+                  formatMoney={formatCompactMoney}
+                  formatTimelineDay={formatTimelineDay}
+                  onProbeChange={setProbeValue}
+                  referenceLines={drawAvailabilityReferenceLines}
+                  xDomain={[resolvedRange.min, resolvedRange.max]}
+                  xTicks={cashflowTicks}
+                  yAxisWidth={timelineSizing.yAxisWidth}
+                  yDomain={[0, drawAvailabilityExtent.max]}
+                />
+                <DrawAvailabilityMetrics
+                  endingAvailability={endingAvailability}
+                  probeDrawAvailability={probeDrawAvailability}
+                />
+                <DrawAvailabilityDeltaReadout
+                  probeDrawAvailability={probeDrawAvailability}
+                />
+              </motion.section>
+            </ResponsiveAnalyticsDisclosure>
           </div>
 
           <AnimatePresence initial={false} mode="popLayout">
@@ -4858,6 +5104,7 @@ export function TimelineWorkspace({
                         canApproveMilestoneCompletion
                       }
                       contractorPlanning={contractorPlanning}
+                      drawAvailabilityData={drawAvailabilityData}
                       draws={draws}
                       items={items}
                       liveExecutionEnabled={canUseLiveExecution}
@@ -4904,6 +5151,51 @@ export function TimelineWorkspace({
         </motion.div>
       </motion.div>
     </WorkspaceRoot>
+  );
+}
+
+function ResponsiveAnalyticsDisclosure({
+  children,
+  compact,
+  label,
+}: {
+  children: ReactNode;
+  compact: boolean;
+  label: string;
+}) {
+  const [expanded, setExpanded] = useState(!compact);
+  const contentId = `timeline-${label.toLowerCase().replace(/\s+/g, "-")}-content`;
+
+  useEffect(() => {
+    setExpanded(!compact);
+  }, [compact]);
+
+  if (!compact) {
+    return children;
+  }
+
+  return (
+    <section
+      aria-label={`${label} disclosure`}
+      className="min-w-0 px-2 sm:px-0"
+    >
+      <Button
+        aria-controls={contentId}
+        aria-expanded={expanded}
+        className="min-h-11 w-full justify-between"
+        onClick={() => setExpanded((current) => !current)}
+        type="button"
+        variant="outline"
+      >
+        {label}
+        <span aria-hidden="true" className="text-muted-foreground text-xs">
+          {expanded ? "Hide" : "Show"}
+        </span>
+      </Button>
+      <div className="mt-2 min-w-0" hidden={!expanded} id={contentId}>
+        {children}
+      </div>
+    </section>
   );
 }
 
@@ -5536,7 +5828,6 @@ function drawSchedulesMatchForOptimization(
   const optimized = sortTimelineDraws(optimizedDraws).map(
     normalizeDrawForOptimizationComparison
   );
-
   return current.every((draw, index) => {
     const optimizedDraw = optimized[index];
     return (
@@ -5633,10 +5924,14 @@ export function expandTimelineRangeForMilestones(
   );
   const max = Number.isFinite(lastCompletionX)
     ? Math.max(
+        resolvedRange.max,
         resolvedRange.min + 1,
         lastCompletionX + TIMELINE_END_PADDING_DAYS
       )
-    : resolvedRange.min + TIMELINE_END_PADDING_DAYS;
+    : Math.max(
+        resolvedRange.max,
+        resolvedRange.min + TIMELINE_END_PADDING_DAYS
+      );
 
   return {
     ...resolvedRange,
@@ -5911,6 +6206,73 @@ export function calculateApprovedDrawRequestLimit(
     totalUnlocked,
   };
 }
+
+export function findDrawUnlockCapacityViolation(
+  items: TimelineItem<DemoMilestone>[],
+  draws: DemoDraw[]
+): { draw: DemoDraw; limit: DrawRequestLimit } | null {
+  const orderedDraws = [...draws].sort(
+    (a, b) => a.x - b.x || a.id.localeCompare(b.id)
+  );
+
+  for (const draw of orderedDraws) {
+    const limit = calculateDrawRequestLimit(draw, items, draws);
+    if (draw.amount > limit.availableLimit) {
+      return { draw, limit };
+    }
+  }
+
+  return null;
+}
+
+export function getMaxSchedulableDrawAmount(
+  requestedDay: number,
+  items: TimelineItem<DemoMilestone>[],
+  draws: DemoDraw[],
+  options: { excludeDrawId?: string; proposedDrawId?: string } = {}
+): number {
+  const proposedDrawId =
+    options.proposedDrawId ?? `__proposed-draw-${requestedDay}`;
+  const drawsWithoutExcluded = options.excludeDrawId
+    ? draws.filter((draw) => draw.id !== options.excludeDrawId)
+    : draws;
+  const probeDraw: DemoDraw = {
+    amount: Number.MAX_SAFE_INTEGER,
+    id: proposedDrawId,
+    label: "Proposed draw",
+    x: requestedDay,
+  };
+  let maxAmount = calculateDrawRequestLimit(probeDraw, items, [
+    ...drawsWithoutExcluded,
+    probeDraw,
+  ]).availableLimit;
+
+  for (const laterDraw of drawsWithoutExcluded) {
+    const proposedComesBeforeLater =
+      requestedDay < laterDraw.x ||
+      (requestedDay === laterDraw.x &&
+        proposedDrawId.localeCompare(laterDraw.id) < 0);
+
+    if (!proposedComesBeforeLater) {
+      continue;
+    }
+
+    const limitWithoutProposed = calculateDrawRequestLimit(
+      laterDraw,
+      items,
+      drawsWithoutExcluded
+    );
+    maxAmount = Math.min(
+      maxAmount,
+      Math.max(0, limitWithoutProposed.availableLimit - laterDraw.amount)
+    );
+  }
+
+  return Math.max(0, Math.floor(maxAmount));
+}
+
+const DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE =
+  "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.";
 
 export function buildTimelineCashflowData(
   items: TimelineItem<DemoMilestone>[],
@@ -6513,6 +6875,7 @@ export function buildDrawAvailabilityData(
       name: point.name,
       totalInterestAccrued,
       totalAvailableDraw: interestBearingDraw + additionalAvailableDraw,
+      totalUnlockedDraw: unlockedDraw,
     };
   });
 
@@ -6808,8 +7171,50 @@ export function interpolateLinearCashOnHand(
   return previous.cashOnHand;
 }
 
+export function resolveMilestoneDrawPositionDay(
+  item: TimelineItem<DemoMilestone>,
+  range: Required<TimelineRange>
+): number {
+  const unlockDay =
+    buildMilestoneDrawCapacityEvents(item)[0]?.day ?? getMilestoneEndX(item);
+
+  return clampNumber(Math.round(unlockDay), range.min, range.max);
+}
+
+export function getCumulativeDrawPosition(
+  availability: DrawAvailabilityDatum | null | undefined
+): CumulativeDrawPosition {
+  const totalDrawn = Math.max(0, availability?.interestBearingDraw ?? 0);
+  const totalUnlocked = Math.max(
+    0,
+    availability?.totalUnlockedDraw ??
+      // Fallback for sparse fixtures: never prefer policy-inflated additional
+      // available draw over explicit unlocked capacity.
+      totalDrawn
+  );
+
+  return {
+    availableToDraw: Math.max(0, totalUnlocked - totalDrawn),
+    day: availability?.day ?? 0,
+    totalDrawn,
+    totalUnlocked,
+  };
+}
+
+export function resolveMilestoneCumulativeDrawPosition(
+  item: TimelineItem<DemoMilestone>,
+  drawAvailabilityData: DrawAvailabilityDatum[] | null | undefined,
+  range: Required<TimelineRange>
+): CumulativeDrawPosition {
+  const day = resolveMilestoneDrawPositionDay(item, range);
+
+  return getCumulativeDrawPosition(
+    interpolateDrawAvailability(drawAvailabilityData ?? [], day)
+  );
+}
+
 export function interpolateDrawAvailability(
-  data: DrawAvailabilityDatum[],
+  data: DrawAvailabilityDatum[] | null | undefined,
   value: number
 ): DrawAvailabilityDatum {
   const fallback = {
@@ -6819,9 +7224,10 @@ export function interpolateDrawAvailability(
     name: "No draw capacity",
     totalInterestAccrued: 0,
     totalAvailableDraw: 0,
+    totalUnlockedDraw: 0,
   };
 
-  if (data.length === 0) {
+  if (!data || data.length === 0) {
     return fallback;
   }
 
@@ -7106,6 +7512,7 @@ function SelectedDrawMobileDrawer({
   addEvidenceFiles,
   activeItem,
   contractorPlanning,
+  drawAvailabilityData,
   draws,
   items,
   onOpenChange,
@@ -7138,6 +7545,7 @@ function SelectedDrawMobileDrawer({
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone> | null;
   contractorPlanning?: ContractorPlanningModel | null;
+  drawAvailabilityData: DrawAvailabilityDatum[];
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
   modificationRequests: TimelineModificationRequestView[];
@@ -7205,11 +7613,14 @@ function SelectedDrawMobileDrawer({
   return (
     <Drawer onOpenChange={onOpenChange} open={open} position="bottom">
       <DrawerPopup
-        className="max-h-[86svh]"
+        className="max-h-[86svh] overflow-x-hidden max-sm:w-full max-sm:max-w-none"
         data-testid="selected-draw-mobile-drawer"
         showBar
       >
-        <DrawerPanel className="px-4 pt-5 pb-6" scrollFade>
+        <DrawerPanel
+          className="min-w-0 overflow-x-hidden px-4 pt-5 pb-[calc(env(safe-area-inset-bottom,0px)+1.5rem)]"
+          scrollFade
+        >
           <DrawerTitle className="sr-only">
             Selected timeline action
           </DrawerTitle>
@@ -7222,6 +7633,7 @@ function SelectedDrawMobileDrawer({
               addEvidenceFiles={addEvidenceFiles}
               canApproveMilestoneCompletion={canApproveMilestoneCompletion}
               contractorPlanning={contractorPlanning}
+              drawAvailabilityData={drawAvailabilityData}
               draws={draws}
               items={items}
               liveExecutionEnabled={liveExecutionEnabled}
@@ -7262,6 +7674,7 @@ function SelectedContextPanel({
   addEvidenceFiles,
   activeItem,
   contractorPlanning,
+  drawAvailabilityData,
   draws,
   items,
   onCompleteMilestone,
@@ -7292,6 +7705,7 @@ function SelectedContextPanel({
   addEvidenceFiles: (itemId: string, files: File[]) => void;
   activeItem: TimelineItem<DemoMilestone>;
   contractorPlanning?: ContractorPlanningModel | null;
+  drawAvailabilityData: DrawAvailabilityDatum[];
   draws: DemoDraw[];
   items: TimelineItem<DemoMilestone>[];
   modificationRequests: TimelineModificationRequestView[];
@@ -7370,6 +7784,7 @@ function SelectedContextPanel({
         activeDraw={activeDraw}
         activeItem={activeItem}
         contractorPlanning={contractorPlanning}
+        drawAvailabilityData={drawAvailabilityData}
         onUpdateMilestoneDrawAvailability={onUpdateMilestoneDrawAvailability}
         onUpdateSubmilestoneBudget={onUpdateSubmilestoneBudget}
         onUpdateSubmilestoneDuration={onUpdateSubmilestoneDuration}
@@ -7497,6 +7912,7 @@ function MilestonePlanSummaryPanel({
   activeDraw,
   activeItem,
   contractorPlanning,
+  drawAvailabilityData,
   onUpdateMilestoneDrawAvailability,
   onUpdateSubmilestoneBudget,
   onUpdateSubmilestoneDuration,
@@ -7506,6 +7922,7 @@ function MilestonePlanSummaryPanel({
   activeDraw: DemoDraw | null;
   activeItem: TimelineItem<DemoMilestone>;
   contractorPlanning?: ContractorPlanningModel | null;
+  drawAvailabilityData: DrawAvailabilityDatum[];
   onUpdateMilestoneDrawAvailability?: (itemId: string, amount: number) => void;
   onUpdateSubmilestoneBudget?: (
     itemId: string,
@@ -7526,6 +7943,11 @@ function MilestonePlanSummaryPanel({
     return null;
   }
   const drawAvailabilityAmount = getMilestoneDrawAvailabilityAmount(milestone);
+  const cumulativeDrawPosition = resolveMilestoneCumulativeDrawPosition(
+    activeItem,
+    drawAvailabilityData,
+    range
+  );
 
   return (
     <div className="grid gap-4" data-testid="selected-milestone-plan-summary">
@@ -7590,6 +8012,53 @@ function MilestonePlanSummaryPanel({
           </dd>
         </div>
       </dl>
+
+      <section
+        aria-label="Cumulative draw position at milestone unlock"
+        className="grid gap-2 rounded-lg border border-sky-500/25 bg-sky-500/10 p-3"
+        data-testid="selected-milestone-cumulative-draw-position"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-semibold text-[10px] text-sky-700 uppercase dark:text-sky-200">
+              Cumulative through unlock
+            </p>
+            <p className="mt-0.5 text-muted-foreground text-xs">
+              As of {formatTimelineDay(cumulativeDrawPosition.day)} (includes
+              this milestone&apos;s unlock)
+            </p>
+          </div>
+        </div>
+        <dl className="grid gap-2 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Total unlocked</dt>
+            <dd
+              className="font-semibold tabular-nums"
+              data-testid="selected-milestone-total-unlocked"
+            >
+              {money(cumulativeDrawPosition.totalUnlocked)}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Total drawn</dt>
+            <dd
+              className="font-semibold tabular-nums"
+              data-testid="selected-milestone-total-drawn"
+            >
+              {money(cumulativeDrawPosition.totalDrawn)}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Available to draw</dt>
+            <dd
+              className="font-semibold tabular-nums"
+              data-testid="selected-milestone-available-to-draw"
+            >
+              {money(cumulativeDrawPosition.availableToDraw)}
+            </dd>
+          </div>
+        </dl>
+      </section>
 
       <TimelineMilestoneSubmilestoneList
         fallbackBudgetCents={dollarsToCents(milestone.amount)}
@@ -8853,7 +9322,7 @@ export function DrawRequestPanel({
   );
 }
 
-function LenderDrawReviewPanel({
+export function LenderDrawReviewPanel({
   draw,
   drawItem,
   draws,
@@ -8875,6 +9344,16 @@ function LenderDrawReviewPanel({
     draw.requestStatus === "approved" ||
     draw.requestStatus === "rejected";
   const requestedAmountOverLimit = draw.amount > limit.availableLimit;
+  const drawDomId = getDrawDomId(draw);
+  const reviewTitleId = `lender-draw-review-title-${drawDomId}`;
+  const decisionTitleId = `lender-draw-decision-title-${drawDomId}`;
+  const reviewNoteId = `lender-draw-review-note-${drawDomId}`;
+  const approvalGuidanceId = `lender-draw-approval-guidance-${drawDomId}`;
+  const approvalGuidance = hasBuilderRequest
+    ? requestedAmountOverLimit
+      ? "Approve is unavailable because the requested amount exceeds the available draw limit."
+      : ""
+    : "Approve is unavailable until the builder files a draw request.";
   const submitReview = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
@@ -8890,9 +9369,10 @@ function LenderDrawReviewPanel({
   };
 
   return (
-    <div
+    <section
+      aria-labelledby={reviewTitleId}
       className="grid gap-4"
-      data-testid={`lender-draw-review-panel-${getDrawDomId(draw)}`}
+      data-testid={`lender-draw-review-panel-${drawDomId}`}
     >
       <div>
         <div className="mb-3 grid size-10 place-items-center rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-200">
@@ -8901,7 +9381,9 @@ function LenderDrawReviewPanel({
         <p className="font-semibold text-[10px] text-muted-foreground uppercase">
           Lender draw review
         </p>
-        <h2 className="mt-1 font-semibold text-lg">{draw.label}</h2>
+        <h2 className="mt-1 font-semibold text-lg" id={reviewTitleId}>
+          {draw.label} lender draw review
+        </h2>
         <p className="mt-1 text-muted-foreground text-sm">
           {drawItem?.data?.name ?? "Reimbursement draw event"} ·{" "}
           {formatTimelineDay(draw.x)}
@@ -8914,7 +9396,10 @@ function LenderDrawReviewPanel({
         </Badge>
       </div>
 
-      <dl className="grid gap-2 border-border border-t pt-3 text-sm">
+      <dl
+        aria-label={`${draw.label} review financial summary`}
+        className="grid gap-2 border-border border-t pt-3 text-sm"
+      >
         <div className="flex items-center justify-between gap-3">
           <dt className="text-muted-foreground">Requested amount</dt>
           <dd
@@ -8948,20 +9433,28 @@ function LenderDrawReviewPanel({
       </dl>
 
       {requestedAmountOverLimit ? (
-        <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-amber-800 text-xs dark:text-amber-100">
+        <div
+          aria-label="Requested amount exceeds the available draw limit."
+          className="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-amber-800 text-xs dark:text-amber-100"
+          role="alert"
+        >
           Requested amount exceeds the available draw limit at this point in the
           schedule.
         </div>
       ) : null}
 
       <form
+        aria-labelledby={decisionTitleId}
         className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3"
-        data-testid={`lender-draw-review-form-${getDrawDomId(draw)}`}
+        data-testid={`lender-draw-review-form-${drawDomId}`}
         onSubmit={submitReview}
       >
         <div>
-          <p className="font-medium text-[10px] text-muted-foreground uppercase">
-            Draw approval
+          <p
+            className="font-medium text-[10px] text-muted-foreground uppercase"
+            id={decisionTitleId}
+          >
+            Draw approval decision
           </p>
           <p className="mt-1 text-muted-foreground text-xs">
             Review the builder request against unlocked capacity and release
@@ -8980,16 +9473,23 @@ function LenderDrawReviewPanel({
             stay disabled until a request exists.
           </div>
         )}
-        <Textarea
-          className="min-h-20 resize-none text-sm"
-          data-testid={`lender-draw-review-note-${getDrawDomId(draw)}`}
-          defaultValue={draw.requestReviewNote ?? ""}
-          name="drawReviewNote"
-          placeholder="Approval condition, holdback reason, or audit note"
-        />
+        <label className="grid gap-1.5" htmlFor={reviewNoteId}>
+          <span className="font-medium text-xs">
+            Review reason or condition
+          </span>
+          <Textarea
+            className="min-h-20 resize-none text-sm"
+            data-testid={`lender-draw-review-note-${drawDomId}`}
+            defaultValue={draw.requestReviewNote ?? ""}
+            id={reviewNoteId}
+            name="drawReviewNote"
+            placeholder="Approval condition, holdback reason, or audit note"
+          />
+        </label>
         <div className="grid grid-cols-2 gap-2">
           <Button
-            data-testid={`lender-draw-reject-${getDrawDomId(draw)}`}
+            className="max-sm:min-h-11"
+            data-testid={`lender-draw-reject-${drawDomId}`}
             disabled={!hasBuilderRequest}
             name="drawReviewStatus"
             size="sm"
@@ -9001,7 +9501,9 @@ function LenderDrawReviewPanel({
             Reject
           </Button>
           <Button
-            data-testid={`lender-draw-approve-${getDrawDomId(draw)}`}
+            aria-describedby={approvalGuidance ? approvalGuidanceId : undefined}
+            className="max-sm:min-h-11"
+            data-testid={`lender-draw-approve-${drawDomId}`}
             disabled={!hasBuilderRequest || requestedAmountOverLimit}
             name="drawReviewStatus"
             size="sm"
@@ -9012,6 +9514,11 @@ function LenderDrawReviewPanel({
             Approve
           </Button>
         </div>
+        {approvalGuidance ? (
+          <p className="text-muted-foreground text-xs" id={approvalGuidanceId}>
+            {approvalGuidance}
+          </p>
+        ) : null}
       </form>
 
       <div className="rounded-lg border border-border bg-muted/20 p-3">
@@ -9024,7 +9531,7 @@ function LenderDrawReviewPanel({
           completion evidence are reviewed from the milestone panel.
         </p>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -9709,6 +10216,7 @@ function MilestoneRequestBadges({
 
 function DrawTimelineMarker({
   active,
+  availableAmount,
   currentDay,
   draw,
   draft,
@@ -9720,6 +10228,7 @@ function DrawTimelineMarker({
   reducedMotion,
 }: {
   active: boolean;
+  availableAmount?: number;
   currentDay: number;
   draw: DemoDraw;
   draft: DrawEditDraft;
@@ -9734,6 +10243,11 @@ function DrawTimelineMarker({
   const amountInputId = `draw-amount-${draw.id}`;
   const markerState = getDrawTimelineMarkerState(draw, currentDay);
   const stateCopy = getDrawTimelineMarkerCopy(markerState);
+  const draftDay = Math.round(Number(draft.x));
+  const resolvedAvailableAmount =
+    typeof availableAmount === "number" && Number.isFinite(availableAmount)
+      ? Math.max(0, Math.round(availableAmount))
+      : null;
   const markerClasses = {
     happened:
       "border-emerald-300 hover:border-emerald-400 hover:bg-emerald-50 dark:border-emerald-500/35 dark:hover:bg-emerald-500/10",
@@ -9823,6 +10337,16 @@ function DrawTimelineMarker({
               <p className="text-muted-foreground text-xs">
                 Update release date and reimbursement amount.
               </p>
+              {resolvedAvailableAmount === null ? null : (
+                <p
+                  className="mt-1 text-muted-foreground text-xs tabular-nums"
+                  data-testid={`timeline-draw-available-${getDrawDomId(draw)}`}
+                >
+                  {Number.isFinite(draftDay)
+                    ? `${money(resolvedAvailableAmount)} unlocked by day ${draftDay}`
+                    : `${money(resolvedAvailableAmount)} unlocked`}
+                </p>
+              )}
             </div>
             <div className="grid gap-3">
               <div className="grid gap-1.5">

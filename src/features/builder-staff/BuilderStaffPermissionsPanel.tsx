@@ -72,7 +72,7 @@ type StaffMember = {
   workosUserId: string;
 };
 
-type StaffDirectory = {
+export type StaffDirectory = {
   actions: PermissionAction[];
   canManage: boolean;
   resources: BuilderStaffPermissionResource[];
@@ -80,7 +80,7 @@ type StaffDirectory = {
   staff: StaffMember[];
 };
 
-type BuilderStaffPermissionsPanelProps =
+type BuilderStaffPermissionsPanelProps = (
   | {
       proposalId: Id<"buildProposals">;
       scope: "proposal";
@@ -90,7 +90,10 @@ type BuilderStaffPermissionsPanelProps =
       buildId: Id<"activeBuilds">;
       scope: "activeBuild";
       workosOrganizationId: string;
-    };
+    }
+) & {
+  fixtureDirectory?: StaffDirectory;
+};
 
 const ACTIONS: Array<{
   field: PermissionField;
@@ -126,20 +129,23 @@ export function BuilderStaffPermissionsPanel(
   >({});
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
-  const directory = useQuery(
+  const directoryQuery = useQuery(
     props.scope === "proposal"
       ? api.production_proposals.listProposalBuilderStaffPermissions
       : api.production_proposals.listActiveBuildBuilderStaffPermissions,
-    props.scope === "proposal"
-      ? {
-          proposalId: props.proposalId,
-          workosOrganizationId: props.workosOrganizationId,
-        }
-      : {
-          buildId: props.buildId,
-          workosOrganizationId: props.workosOrganizationId,
-        }
+    props.fixtureDirectory
+      ? "skip"
+      : props.scope === "proposal"
+        ? {
+            proposalId: props.proposalId,
+            workosOrganizationId: props.workosOrganizationId,
+          }
+        : {
+            buildId: props.buildId,
+            workosOrganizationId: props.workosOrganizationId,
+          }
   ) as StaffDirectory | undefined;
+  const directory = props.fixtureDirectory ?? directoryQuery;
   const saveProposalStaff = useMutation(
     api.production_proposals.saveProposalBuilderStaffPermissions
   );
@@ -392,8 +398,13 @@ export function BuilderStaffPermissionsPanel(
                 type="button"
               >
                 <span className="block truncate font-medium">
-                  {member.name ?? member.email ?? member.workosUserId}
+                  {staffMemberDisplayName(member)}
                 </span>
+                {shouldShowStaffMemberEmail(member) ? (
+                  <span className="block truncate text-muted-foreground text-xs">
+                    {member.email}
+                  </span>
+                ) : null}
                 <span className="block truncate text-muted-foreground text-xs">
                   {staffMemberSecondaryLabel(member)}
                 </span>
@@ -410,6 +421,11 @@ export function BuilderStaffPermissionsPanel(
                   <p className="truncate font-medium text-sm">
                     {staffMemberDisplayName(selectedMember)}
                   </p>
+                  {shouldShowStaffMemberEmail(selectedMember) ? (
+                    <p className="truncate text-muted-foreground text-xs">
+                      {selectedMember.email}
+                    </p>
+                  ) : null}
                   <p className="truncate text-muted-foreground text-xs">
                     {selectedMember.role === "owner"
                       ? "Owner accounts always have full access."
@@ -601,14 +617,19 @@ function staffMemberDisplayName(member: StaffMember) {
   return member.name ?? member.email ?? member.workosUserId;
 }
 
+function shouldShowStaffMemberEmail(member: StaffMember) {
+  return Boolean(
+    member.email && member.email !== staffMemberDisplayName(member)
+  );
+}
+
 function staffMemberSecondaryLabel(member: StaffMember) {
   if (member.role === "owner") {
     return "Owner · full access";
   }
-  const identity = member.email ?? member.workosUserId;
   return member.identityStatus === "pending"
-    ? `${identity} · Pending WorkOS sync`
-    : identity;
+    ? "Staff · Pending WorkOS sync"
+    : "Staff · limited access";
 }
 
 function actionErrorMessage(error: unknown) {

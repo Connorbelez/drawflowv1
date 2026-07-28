@@ -92,7 +92,7 @@ export interface BuildSummary {
 }
 
 export interface BudgetSummary {
-  borrowerWorkingCapitalLimit: number;
+  borrowerStartingCash: number;
   drawFeeBps: number;
   interestRatePct: number;
   lenderDrawPolicyLimit: number;
@@ -234,9 +234,11 @@ export interface MilestoneDependency {
 export interface OptimizationPlan {
   durationDays: number;
   id: OptimizationPlanId;
+  infeasibleReason?: string;
   label: string;
   peakWorkingCapital: number;
   projectedInterest: number;
+  recommended?: boolean;
   summary: string;
   totalFees: number;
   warning: string;
@@ -427,6 +429,7 @@ export interface BuildWorkspaceActions {
 
 export interface BuildWorkspaceState {
   activePlanId: OptimizationPlanId;
+  selectedPlanId?: OptimizationPlanId;
   auditEvents: AuditEvent[];
   budget: BudgetSummary;
   build: BuildSummary;

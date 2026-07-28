@@ -43,7 +43,54 @@ export type BuilderProposalSearch = {
   timeframe?: CalendarTimeframe;
 };
 
+const BUILDER_PROPOSAL_TABS = new Set<ProductionReviewTab>([
+  "calendar",
+  "closing",
+  "contractors",
+  "draws",
+  "gantt",
+  "milestones",
+  "materials",
+  "packet",
+  "review",
+  "staff",
+  "timeline",
+]);
+const CALENDAR_TIMEFRAMES = new Set<CalendarTimeframe>([
+  "agenda",
+  "day",
+  "month",
+  "quarter",
+  "week",
+]);
+
 type BuilderProposalRouteTab = ProductionReviewTab;
+
+export function validateBuilderProposalSearch(
+  search: Record<string, unknown>
+): BuilderProposalSearch {
+  const candidateTab =
+    typeof search.tab === "string"
+      ? (search.tab as ProductionReviewTab)
+      : undefined;
+  const tab =
+    candidateTab && BUILDER_PROPOSAL_TABS.has(candidateTab)
+      ? candidateTab
+      : undefined;
+  const candidateTimeframe =
+    typeof search.timeframe === "string"
+      ? (search.timeframe as CalendarTimeframe)
+      : undefined;
+  const timeframe =
+    candidateTimeframe && CALENDAR_TIMEFRAMES.has(candidateTimeframe)
+      ? candidateTimeframe
+      : undefined;
+
+  return {
+    ...(tab ? { tab } : {}),
+    ...(timeframe ? { timeframe } : {}),
+  };
+}
 
 export function resolveBuilderProposalRouteTab(
   search: BuilderProposalSearch
@@ -75,34 +122,7 @@ export function shouldMountBuilderProposalStaffPanel(
 
 export const Route = createFileRoute("/builder/proposals/$proposalId/")({
   ssr: false,
-  validateSearch: (search: Record<string, unknown>): BuilderProposalSearch => {
-    const tab =
-      search.tab === "calendar" ||
-      search.tab === "closing" ||
-      search.tab === "contractors" ||
-      search.tab === "draws" ||
-      search.tab === "gantt" ||
-      search.tab === "milestones" ||
-      search.tab === "materials" ||
-      search.tab === "packet" ||
-      search.tab === "review" ||
-      search.tab === "staff" ||
-      search.tab === "timeline"
-        ? (search.tab as BuilderProposalSearch["tab"])
-        : undefined;
-    const timeframe =
-      search.timeframe === "day" ||
-      search.timeframe === "week" ||
-      search.timeframe === "month" ||
-      search.timeframe === "quarter" ||
-      search.timeframe === "agenda"
-        ? (search.timeframe as CalendarTimeframe)
-        : undefined;
-    return {
-      ...(tab ? { tab } : {}),
-      ...(timeframe ? { timeframe } : {}),
-    };
-  },
+  validateSearch: validateBuilderProposalSearch,
   component: BuilderProductionProposalRoute,
 });
 
@@ -249,14 +269,8 @@ export function BuilderProductionProposalWorkspace({
   const deleteProposalCostItem = useMutation(
     api.production_proposals.deleteProposalCostItem
   );
-  const updateProductionDrawScheduleRow = useMutation(
-    api.production_proposals.updateSubmittedProposalDrawScheduleRow
-  );
   const submitProductionProposal = useMutation(
     api.production_proposals.submitProposal
-  );
-  const updateProductionTimelineDraw = useMutation(
-    api.production_proposals.updateProductionTimelineDraw
   );
   const createProductionTimelineMilestone = useMutation(
     api.production_proposals.createProductionTimelineMilestone
@@ -275,9 +289,6 @@ export function BuilderProductionProposalWorkspace({
   );
   const reviseProposalMilestoneSchedule = useMutation(
     (api as any).production_proposals.reviseProposalMilestoneSchedule
-  );
-  const reviseProposalDrawTiming = useMutation(
-    (api as any).production_proposals.reviseProposalDrawTiming
   );
   const setEvidenceDueDate = useMutation(
     (api as any).production_proposals.setEvidenceDueDate
@@ -316,102 +327,94 @@ export function BuilderProductionProposalWorkspace({
   }
 
   const appPermissions = detail.appPermissions;
-  const canMutateContractors = hasAnyAppPermission(appPermissions, [
-    ["contractor", "create"],
-    ["contractor", "update"],
-  ]);
+  const isDraftProposal = detail.proposal.status === "draft";
+  const canMutateContractors =
+    isDraftProposal &&
+    hasAnyAppPermission(appPermissions, [
+      ["contractor", "create"],
+      ["contractor", "update"],
+    ]);
   const canViewContractors = canUseAppPermission(
     appPermissions,
     "contractor",
     "view"
   );
-  const canEditProposalMilestones = hasAnyAppPermission(appPermissions, [
-    ["milestone", "create"],
-    ["milestone", "delete"],
-    ["milestone", "update"],
-    ["submilestone", "create"],
-    ["submilestone", "delete"],
-    ["submilestone", "update"],
-  ]);
-  const canUploadProposalDocuments = canUseAppPermission(
-    appPermissions,
-    "evidence",
-    "create"
-  );
+  const canEditProposalMilestones =
+    isDraftProposal &&
+    hasAnyAppPermission(appPermissions, [
+      ["milestone", "create"],
+      ["milestone", "delete"],
+      ["milestone", "update"],
+      ["submilestone", "create"],
+      ["submilestone", "delete"],
+      ["submilestone", "update"],
+    ]);
+  const canUploadProposalDocuments =
+    isDraftProposal &&
+    canUseAppPermission(appPermissions, "evidence", "create");
   const proposalEditorPersistenceMode =
     visualFixtureEnabled || !canEditProposalMilestones ? "noop" : "convex";
-  const materialPlanningActions = filterMaterialPlanningActionsForPermissions(
-    appPermissions,
-    visualFixtureEnabled
-      ? visualMaterialPlanningActions
-      : {
-          create: (payload) =>
-            createProposalCostItem({
-              ...payload,
-              proposalId: typedProposalId,
-              workosOrganizationId,
-            }).then(() => toast.success("Cost item added.")),
-          delete: (item, reason) =>
-            deleteProposalCostItem({
-              itemId: item._id as any,
-              proposalId: typedProposalId,
-              reason,
-              workosOrganizationId,
-            }).then(() => toast.success("Cost item removed.")),
-          update: (item, payload) =>
-            updateProposalCostItem({
-              ...payload,
-              itemId: item._id as any,
-              proposalId: typedProposalId,
-              workosOrganizationId,
-            }).then(() => toast.success("Cost item updated.")),
-        }
-  );
+  const materialPlanningActions = isDraftProposal
+    ? filterMaterialPlanningActionsForPermissions(
+        appPermissions,
+        visualFixtureEnabled
+          ? visualMaterialPlanningActions
+          : {
+              create: (payload) =>
+                createProposalCostItem({
+                  ...payload,
+                  proposalId: typedProposalId,
+                  workosOrganizationId,
+                }).then(() => toast.success("Cost item added.")),
+              delete: (item, reason) =>
+                deleteProposalCostItem({
+                  itemId: item._id as any,
+                  proposalId: typedProposalId,
+                  reason,
+                  workosOrganizationId,
+                }).then(() => toast.success("Cost item removed.")),
+              update: (item, payload) =>
+                updateProposalCostItem({
+                  ...payload,
+                  itemId: item._id as any,
+                  proposalId: typedProposalId,
+                  workosOrganizationId,
+                }).then(() => toast.success("Cost item updated.")),
+            }
+      )
+    : undefined;
   const calendarAdapterActions: ProposalCalendarAdapterActions = {
-    addEvidenceDueDate: canUseAppPermission(
-      appPermissions,
-      "evidence",
-      "update"
-    )
-      ? (input) =>
-          setEvidenceDueDate({
-            ...input,
-            proposalId: typedProposalId,
-            workosOrganizationId,
-          }).then(() => toast.success("Evidence due date set."))
-      : undefined,
-    addReviewTargetDate: canUseAppPermission(
-      appPermissions,
-      "reminder",
-      "create"
-    )
-      ? (input) =>
-          setReviewTargetDate({
-            ...input,
-            proposalId: typedProposalId,
-            workosOrganizationId,
-          }).then(() => toast.success("Review target date set."))
-      : undefined,
-    reviseDrawTiming: canUseAppPermission(appPermissions, "draw", "update")
-      ? (input) =>
-          reviseProposalDrawTiming({
-            ...input,
-            proposalId: typedProposalId,
-            workosOrganizationId,
-          }).then(() => toast.success("Draw timing revised."))
-      : undefined,
-    reviseMilestoneSchedule: canUseAppPermission(
-      appPermissions,
-      "milestone",
-      "update"
-    )
-      ? (input) =>
-          reviseProposalMilestoneSchedule({
-            ...input,
-            proposalId: typedProposalId,
-            workosOrganizationId,
-          }).then(() => toast.success("Milestone schedule revised."))
-      : undefined,
+    addEvidenceDueDate:
+      isDraftProposal &&
+      canUseAppPermission(appPermissions, "evidence", "update")
+        ? (input) =>
+            setEvidenceDueDate({
+              ...input,
+              proposalId: typedProposalId,
+              workosOrganizationId,
+            }).then(() => toast.success("Evidence due date set."))
+        : undefined,
+    addReviewTargetDate:
+      isDraftProposal &&
+      canUseAppPermission(appPermissions, "reminder", "create")
+        ? (input) =>
+            setReviewTargetDate({
+              ...input,
+              proposalId: typedProposalId,
+              workosOrganizationId,
+            }).then(() => toast.success("Review target date set."))
+        : undefined,
+    reviseDrawTiming: undefined,
+    reviseMilestoneSchedule:
+      isDraftProposal &&
+      canUseAppPermission(appPermissions, "milestone", "update")
+        ? (input) =>
+            reviseProposalMilestoneSchedule({
+              ...input,
+              proposalId: typedProposalId,
+              workosOrganizationId,
+            }).then(() => toast.success("Milestone schedule revised."))
+        : undefined,
   };
   const commitCalendarEdit = createProposalCalendarEditHandler({
     actions: calendarAdapterActions,
@@ -440,7 +443,9 @@ export function BuilderProductionProposalWorkspace({
             <ProductionContractorPlanningTab
               canMutate={canMutateContractors}
               initialRole="builder"
-              persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+              persistenceMode={
+                visualFixtureEnabled || !isDraftProposal ? "noop" : "convex"
+              }
               proposalId={typedProposalId}
               workosOrganizationId={workosOrganizationId}
               workspace={workspace}
@@ -451,7 +456,9 @@ export function BuilderProductionProposalWorkspace({
       detail={detail}
       gantt={
         <ProductionProposalTimelineGanttWorkspace
-          persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+          persistenceMode={
+            visualFixtureEnabled || !isDraftProposal ? "noop" : "convex"
+          }
           proposalId={typedProposalId}
           workosOrganizationId={workosOrganizationId}
           workspace={workspace}
@@ -461,8 +468,10 @@ export function BuilderProductionProposalWorkspace({
       materialPlanningActions={materialPlanningActions}
       milestones={
         <ProductionProposalMilestoneWorksheetContainer
+          canMutateContractors={!visualFixtureEnabled && isDraftProposal}
           contractorPlanning={workspace.contractorPlanning}
           detail={detail}
+          materialPlanningActions={materialPlanningActions}
           persistenceMode={proposalEditorPersistenceMode}
           proposalId={typedProposalId}
           showHeading
@@ -475,16 +484,16 @@ export function BuilderProductionProposalWorkspace({
           params: { proposalId },
           replace: true,
           search: { ...search, timeframe },
-          to: `${routeBase}/proposals/$proposalId` as never,
-        })
+          to: `${routeBase}/proposals/$proposalId`,
+        } as never)
       }
       onChangeReviewTab={(tab) =>
         void navigate({
           params: { proposalId },
           replace: true,
           search: { ...search, tab },
-          to: `${routeBase}/proposals/$proposalId` as never,
-        })
+          to: `${routeBase}/proposals/$proposalId`,
+        } as never)
       }
       onCommitCalendarEdit={commitCalendarEdit}
       onCreateCalendarReminderEvent={
@@ -514,7 +523,7 @@ export function BuilderProductionProposalWorkspace({
         }) as Promise<CalendarSyncSubscriptionResult>
       }
       onCreatePacketMilestone={
-        canUseAppPermission(appPermissions, "milestone", "create")
+        canEditProposalMilestones
           ? (milestone) =>
               createProductionTimelineMilestone({
                 milestone,
@@ -553,7 +562,9 @@ export function BuilderProductionProposalWorkspace({
               submitProductionProposal({
                 proposalId: typedProposalId,
                 workosOrganizationId,
-              }).then(() => toast.success("Proposal submitted to lender review."))
+              }).then(() =>
+                toast.success("Proposal submitted to lender review.")
+              )
           : undefined
       }
       onUpdateCalendarReminderEvent={
@@ -567,32 +578,9 @@ export function BuilderProductionProposalWorkspace({
               })
           : undefined
       }
-      onUpdateDraw={
-        canUseAppPermission(appPermissions, "draw", "update")
-          ? (drawKey, patch) =>
-              (detail.proposal.status === "draft"
-                ? updateProductionTimelineDraw({
-                    amountCents: patch.amountCents,
-                    drawKey,
-                    label: patch.label,
-                    proposalId: typedProposalId,
-                    workosOrganizationId,
-                    x: patch.timingDay,
-                  })
-                : updateProductionDrawScheduleRow({
-                    amountCents: patch.amountCents,
-                    drawKey,
-                    label: patch.label,
-                    proposalId: typedProposalId,
-                    reason: patch.reason,
-                    timingDay: patch.timingDay,
-                    workosOrganizationId,
-                  })
-              ).then(() => toast.success("Draw schedule updated."))
-          : undefined
-      }
+      onUpdateDraw={undefined}
       onUpdatePacketMilestone={
-        canUseAppPermission(appPermissions, "milestone", "update")
+        canEditProposalMilestones
           ? (milestoneKey, patch) =>
               updateProductionTimelineMilestone({
                 ...patch,
@@ -603,7 +591,7 @@ export function BuilderProductionProposalWorkspace({
           : undefined
       }
       onUpdateProposedStartDate={
-        canUseAppPermission(appPermissions, "milestone", "update")
+        canEditProposalMilestones
           ? (proposedStartDate) =>
               updateProductionProposalProposedStartDate({
                 proposalId: typedProposalId,
@@ -665,7 +653,9 @@ export function BuilderProductionProposalWorkspace({
           backofficeHref={`/backoffice/proposals/${proposalId}`}
           embedded
           initialRole="builder"
-          persistenceMode={visualFixtureEnabled ? "noop" : "convex"}
+          persistenceMode={
+            visualFixtureEnabled || !isDraftProposal ? "noop" : "convex"
+          }
           proposalHref={`${routeBase}/proposals/${proposalId}`}
           proposalId={typedProposalId}
           workosOrganizationId={workosOrganizationId}

@@ -1,4 +1,3 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   ClientOnly,
   createFileRoute,
@@ -10,7 +9,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
   ArrowUpDown,
   CalendarClock,
@@ -21,7 +20,6 @@ import {
   ClipboardCheck,
   Eye,
   FileText,
-  Filter,
   Loader2,
   MoreHorizontal,
   PanelRightClose,
@@ -32,7 +30,13 @@ import {
   UserRound,
   UserRoundX,
 } from "lucide-react";
-import { type ReactElement, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactElement,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import {
@@ -117,43 +121,40 @@ import {
 } from "#/features/backoffice-dashboard/kanban-card-detail-sheet.tsx";
 import { MetricDetailSheet } from "#/features/backoffice-dashboard/metric-detail-sheet.tsx";
 import { getMetricDrilldownItems } from "#/features/backoffice-dashboard/metric-drilldown.ts";
+import { MILESTONE_KANBAN_COLUMNS } from "#/features/backoffice-dashboard/mock-data.ts";
 import type {
   ActiveBuild,
   BackofficeDashboardData,
   DashboardKanbanColumn,
   DashboardMetric,
   MilestoneKanbanCard,
+  OperationsHandoffReturnDecision,
   ProposalKanbanCard,
   QuickAction,
   ScheduleEvent,
 } from "#/features/backoffice-dashboard/mock-data.ts";
+import { BuildIdentityCell } from "#/features/builds/BuildIdentityCell.tsx";
+import {
+  ProposalDirectoryControls,
+  type ProposalDirectoryFilterOptions,
+  useBackofficeProposalDirectory,
+} from "#/features/production-proposals/ProposalDirectoryControls.tsx";
+import type { ProductionKanbanCard } from "#/features/production-proposals/ProductionProposalSurfaces.tsx";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/backoffice/")({
-  loader: async ({ context }) => {
-    const workosOrganizationId = context.organizationId;
-    if (!workosOrganizationId) {
+  ssr: false,
+  loader: ({ context }) => {
+    if (!context.organizationId) {
       throw new Error("Backoffice route requires an active organization.");
     }
-    const asOfDate = new Date().toISOString().slice(0, 10);
-
-    await Promise.all([
-      context.queryClient.ensureQueryData(
-        context.convexQueryClient.queryOptions(
-          api.production_proposals.getBackofficeDashboard,
-          { asOfDate, workosOrganizationId }
-        )
-      ),
-      context.queryClient.ensureQueryData(
-        context.convexQueryClient.queryOptions(
-          api.production_proposals.listActiveBrokerageBuilderOptions,
-          { workosOrganizationId }
-        )
-      ),
-    ]);
-    return { asOfDate };
+    // Do not prefetch authenticated Convex queries here. ensureQueryData /
+    // useSuspenseQuery throw Unauthorized into the route match during the
+    // brief client auth-token race; sibling backoffice routes use useQuery
+    // and wait for data in-component instead.
+    return { asOfDate: new Date().toISOString().slice(0, 10) };
   },
   staticData: {
     breadcrumb: {
@@ -197,8 +198,10 @@ const priorityVariant: Record<
 };
 
 const actionIcon = {
+  build: CircleAlert,
   drawRequest: FileText,
   milestone: CheckCircle2,
+  proposal: FileText,
   siteVisit: ClipboardCheck,
 } satisfies Record<QuickAction["type"], typeof FileText>;
 
@@ -221,19 +224,86 @@ export interface ClosingConfirmationInput {
   reason: string;
 }
 
+export interface OperationsEscalationInput {
+  decisionPreview: string;
+  evidenceSummary: string;
+  reason: string;
+  recommendation: string;
+  requiredAction: string;
+  warnings: string[];
+}
+
+export interface OperationsReturnDecisionInput {
+  decision: OperationsHandoffReturnDecision;
+  followUpAssignment: string;
+  reason: string;
+}
+
 export interface ProductionBuilderOption {
   _id: string;
   displayName: string;
+  email?: string;
+  workosUserIds?: string[];
 }
 
 export function normalizeProductionBackofficeDashboard(
   result: ProductionDashboardQueryResult
 ): ProductionBackofficeDashboardData {
+  const milestoneColumnsById = new Map(
+    result.milestoneColumns.map((column) => [column.id, column])
+  );
+  const canonicalMilestoneColumnIds = new Set(
+    MILESTONE_KANBAN_COLUMNS.map((column) => column.id)
+  );
+  const milestoneColumns = [
+    ...MILESTONE_KANBAN_COLUMNS.map((column) => ({
+      ...column,
+      ...milestoneColumnsById.get(column.id),
+    })),
+    ...result.milestoneColumns.filter(
+      (column) => !canonicalMilestoneColumnIds.has(column.id)
+    ),
+  ];
+
   return {
     ...result,
     approvedPendingClosing: result.approvedPendingClosing ?? [],
+    milestoneColumns,
     scheduleDate: new Date(result.scheduleDate),
     submittedProposals: result.submittedProposals ?? [],
+  };
+}
+
+function dashboardProposalDirectoryCard(
+  card: ProductionKanbanCard
+): ProposalKanbanCard {
+  return {
+    address: card.location ?? card.subtitle ?? "Location unavailable",
+    approvedAt: card.approvedAt,
+    borrowerStartingCashCents: card.borrowerStartingCashCents,
+    builder: card.builderName ?? "Unassigned builder",
+    builderAssigned: card.builderAssigned,
+    builderEmail: card.builderEmail,
+    builderProfileId: card.builderProfileId,
+    closeLabel:
+      card.column === "approved" && !card.activeBuildId
+        ? "Pending closing"
+        : undefined,
+    column: card.column,
+    createdAt: card.createdAt,
+    href: card.href,
+    id: card.proposalId,
+    lenderDrawPolicyLimitCents: card.lenderDrawPolicyLimitCents,
+    loanAmount: centsToCurrency(card.totalBudgetCents),
+    ltv: 0,
+    name: card.title,
+    proposalId: card.proposalId,
+    reviewOutcome: card.reviewOutcome,
+    statusLabel: card.statusLabel,
+    submittedAt: card.submittedAt,
+    tag: "production",
+    totalBudgetCents: card.totalBudgetCents,
+    updatedAt: card.updatedAt,
   };
 }
 
@@ -241,11 +311,13 @@ function RouteComponent() {
   const context = Route.useRouteContext();
   const { asOfDate } = Route.useLoaderData();
   const workosOrganizationId = context.organizationId as string;
-  const { data: dashboardResult } = useSuspenseQuery(
-    context.convexQueryClient.queryOptions(
-      api.production_proposals.getBackofficeDashboard,
-      { asOfDate, workosOrganizationId }
-    )
+  const dashboardResult = useQuery(
+    api.production_proposals.getBackofficeDashboard,
+    workosOrganizationId ? { asOfDate, workosOrganizationId } : "skip"
+  );
+  const buildersResult = useQuery(
+    api.production_proposals.listBackofficeProposalFilterOptions,
+    workosOrganizationId ? { workosOrganizationId } : "skip"
   );
   const recordClosing = useMutation(
     api.production_proposals.recordOfflineClosing
@@ -258,11 +330,17 @@ function RouteComponent() {
     api.production_proposals.deleteActiveBuild
   );
   const archiveProposal = useMutation(api.production_proposals.rejectProposal);
-  const { data: buildersResult } = useSuspenseQuery(
-    context.convexQueryClient.queryOptions(
-      api.production_proposals.listActiveBrokerageBuilderOptions,
-      { workosOrganizationId }
-    )
+  const escalateOperationsQueueItem = useMutation(
+    api.production_proposals.escalateOperationsQueueItem
+  );
+  const returnOperationsEscalationDecision = useMutation(
+    api.production_proposals.returnOperationsEscalationDecision
+  );
+  const acknowledgeOperationsEscalationReturn = useMutation(
+    api.production_proposals.acknowledgeOperationsEscalationReturn
+  );
+  const proposalDirectory = useBackofficeProposalDirectory(
+    workosOrganizationId
   );
   const navigate = useNavigate();
 
@@ -274,10 +352,27 @@ function RouteComponent() {
     [dashboardResult]
   );
 
+  if (!(dashboard && buildersResult)) {
+    return (
+      <div className="grid min-h-[24rem] place-items-center p-4">
+        <div className="flex items-center gap-2 rounded-lg border bg-background p-4 text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          Loading lender operations dashboard...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <BackofficeDashboard
-      builders={buildersResult ?? []}
+      builders={buildersResult.builders ?? []}
       dashboard={dashboard}
+      onAcknowledgeHandoff={(handoffId) =>
+        acknowledgeOperationsEscalationReturn({
+          handoffId: handoffId as Id<"operationsQueueHandoffs">,
+          workosOrganizationId,
+        })
+      }
       onArchiveProposal={(proposal, reason) =>
         archiveProposal({
           proposalId: (proposal.proposalId ??
@@ -308,6 +403,13 @@ function RouteComponent() {
           workosOrganizationId,
         })
       }
+      onEscalate={(action, input) =>
+        escalateOperationsQueueItem({
+          ...input,
+          queueItemId: action.id,
+          workosOrganizationId,
+        })
+      }
       onOpenUnassignedDrafts={() =>
         navigate({ to: "/backoffice/proposals/unassigned" })
       }
@@ -324,9 +426,18 @@ function RouteComponent() {
           workosOrganizationId,
         })
       }
+      onReturnDecision={(handoffId, input) =>
+        returnOperationsEscalationDecision({
+          ...input,
+          handoffId: handoffId as Id<"operationsQueueHandoffs">,
+          workosOrganizationId,
+        })
+      }
       onStartNewBuildWorkflow={() =>
         navigate({ to: "/backoffice/proposals/new" })
       }
+      proposalDirectory={proposalDirectory}
+      proposalFilterOptions={buildersResult}
     />
   );
 }
@@ -334,16 +445,22 @@ function RouteComponent() {
 export function BackofficeDashboard({
   builders,
   dashboard,
+  onAcknowledgeHandoff,
   onArchiveProposal,
   onAssignBuilder,
   onDeleteActiveBuild,
   onDeleteDraft,
+  onEscalate,
   onOpenUnassignedDrafts,
   onStartNewBuildWorkflow,
   onRecordClosing,
+  onReturnDecision,
+  proposalDirectory,
+  proposalFilterOptions,
 }: {
   builders: ProductionBuilderOption[];
   dashboard: ProductionBackofficeDashboardData;
+  onAcknowledgeHandoff: (handoffId: string) => Promise<unknown>;
   onArchiveProposal: (
     proposal: ProposalKanbanCard,
     reason: string
@@ -354,12 +471,22 @@ export function BackofficeDashboard({
   ) => Promise<unknown>;
   onDeleteActiveBuild: (build: ActiveBuild, reason: string) => Promise<unknown>;
   onDeleteDraft: (proposal: ProposalKanbanCard) => Promise<unknown>;
+  onEscalate: (
+    action: QuickAction,
+    input: OperationsEscalationInput
+  ) => Promise<unknown>;
   onOpenUnassignedDrafts: () => Promise<unknown> | unknown;
   onStartNewBuildWorkflow: () => Promise<unknown> | unknown;
   onRecordClosing: (
     proposal: ProposalKanbanCard,
     input: ClosingConfirmationInput
   ) => Promise<unknown>;
+  onReturnDecision: (
+    handoffId: string,
+    input: OperationsReturnDecisionInput
+  ) => Promise<unknown>;
+  proposalDirectory: ReturnType<typeof useBackofficeProposalDirectory>;
+  proposalFilterOptions: ProposalDirectoryFilterOptions;
 }) {
   const [sidebarProposal, setSidebarProposal] =
     useState<ProposalKanbanCard | null>(null);
@@ -423,19 +550,45 @@ export function BackofficeDashboard({
           <ProposalKanban
             builders={builders}
             columns={dashboard.proposalColumns}
+            controls={
+              <ProposalDirectoryControls
+                activeFilterCount={proposalDirectory.activeFilterCount}
+                filters={proposalDirectory.filters}
+                loading={proposalDirectory.isLoading}
+                onFiltersChange={proposalDirectory.setFilters}
+                onReset={proposalDirectory.reset}
+                onSearchChange={proposalDirectory.setSearch}
+                options={proposalFilterOptions}
+                resultCount={proposalDirectory.cards.length}
+                search={proposalDirectory.search}
+              />
+            }
+            loadingMore={proposalDirectory.status === "LoadingMore"}
             onArchiveProposal={onArchiveProposal}
             onAssignBuilder={onAssignBuilder}
             onDeleteDraft={onDeleteDraft}
+            onLoadMore={
+              proposalDirectory.status === "CanLoadMore"
+                ? proposalDirectory.loadMore
+                : undefined
+            }
             onOpenApprovedProposal={setSidebarProposal}
             onRecordClosing={setClosingProposal}
-            proposals={dashboard.proposals}
+            onStartNewBuildWorkflow={onStartNewBuildWorkflow}
+            proposals={proposalDirectory.cards.map(
+              dashboardProposalDirectoryCard
+            )}
           />
         </section>
         <ScheduleRail
+          canMakeFinalDecision={dashboard.canMakeFinalDecision ?? false}
           collapsed={scheduleCalendarCollapsed}
           date={dashboard.scheduleDate}
           events={dashboard.scheduleEvents}
+          onAcknowledgeHandoff={onAcknowledgeHandoff}
           onCollapsedChange={setScheduleCalendarCollapsed}
+          onEscalate={onEscalate}
+          onReturnDecision={onReturnDecision}
           quickActions={dashboard.quickActions}
         />
       </main>
@@ -611,30 +764,45 @@ export function ActiveBuildsCard({
   const columns = useMemo<ColumnDef<ActiveBuild>[]>(
     () => [
       {
-        accessorKey: "id",
-        header: "ID",
+        accessorKey: "buildName",
+        header: "Build",
         cell: ({ row }) => (
-          <span className="font-medium text-foreground">{row.original.id}</span>
+          <BuildIdentityCell
+            buildName={row.original.buildName ?? row.original.id}
+            imageUrl={row.original.imageUrl}
+            latitude={row.original.locationLatitude}
+            location={row.original.address}
+            longitude={row.original.locationLongitude}
+            metadata={
+              <span className="block max-w-56 truncate text-muted-foreground text-xs">
+                {row.original.id} · {row.original.address}
+              </span>
+            }
+          />
         ),
-      },
-      {
-        accessorKey: "address",
-        header: "Address",
       },
       {
         accessorKey: "builder",
         header: "Builder",
       },
       {
-        accessorKey: "daysActive",
-        header: () => (
-          <span className="inline-flex items-center gap-1">T+days</span>
-        ),
+        id: "milestonesDraws",
+        header: "Milestones / draws",
         cell: ({ row }) => (
-          <span className="font-medium tabular-nums">
-            {row.original.daysActive}
+          <span className="tabular-nums">
+            {row.original.milestoneCount ?? 0} / {row.original.drawCount ?? 0}
           </span>
         ),
+      },
+      {
+        id: "openRequests",
+        header: "Open requests",
+        cell: ({ row }) => {
+          const count = row.original.pendingDrawRequestCount ?? 0;
+          return count > 0
+            ? `${count} ${count === 1 ? "draw" : "draws"}`
+            : "None";
+        },
       },
       {
         accessorKey: "statusLabel",
@@ -655,6 +823,17 @@ export function ActiveBuildsCard({
               {formatMilestoneState(row.original.milestoneState)}
             </Badge>
           </div>
+        ),
+      },
+      {
+        accessorKey: "daysActive",
+        header: () => (
+          <span className="inline-flex items-center gap-1">T+days</span>
+        ),
+        cell: ({ row }) => (
+          <span className="font-medium tabular-nums">
+            {row.original.daysActive}
+          </span>
         ),
       },
       {
@@ -986,6 +1165,11 @@ function ProposalQueueTable({
                     <div className="text-muted-foreground text-xs">
                       {proposal.builder}
                     </div>
+                    {proposal.builderEmail ? (
+                      <div className="text-muted-foreground text-xs">
+                        {proposal.builderEmail}
+                      </div>
+                    ) : null}
                   </TableCell>
                   <TableCell>{proposal.address}</TableCell>
                   <TableCell>{proposal.loanAmount}</TableCell>
@@ -1063,7 +1247,7 @@ function ProposalQueueTable({
   );
 }
 
-function MilestoneKanban({
+export function MilestoneKanban({
   columns,
   milestones,
 }: {
@@ -1106,11 +1290,19 @@ function MilestoneKanban({
             >
               {(column) => (
                 <KanbanBoard
-                  className="rounded-none border-0 border-r bg-card shadow-none ring-0 last:border-r-0"
+                  className={cn(
+                    "rounded-none border-0 border-r bg-card shadow-none ring-0 last:border-r-0",
+                    column.id === "behindSchedule" && "bg-destructive/5"
+                  )}
                   id={column.id}
                   key={column.id}
                 >
-                  <KanbanHeader className="space-y-1 border-b p-4">
+                  <KanbanHeader
+                    className={cn(
+                      "space-y-1 border-b p-4",
+                      column.id === "behindSchedule" && "bg-destructive/8"
+                    )}
+                  >
                     <div className="flex items-center gap-2">
                       <span>{column.name}</span>
                       <Badge variant="outline">
@@ -1200,15 +1392,21 @@ function MilestoneCard({
 export function ProposalKanban({
   builders,
   columns,
+  controls,
+  loadingMore = false,
   onArchiveProposal,
   onAssignBuilder,
   onDeleteDraft,
+  onLoadMore,
   onOpenApprovedProposal,
   onRecordClosing,
+  onStartNewBuildWorkflow = () => undefined,
   proposals,
 }: {
   builders: ProductionBuilderOption[];
   columns: DashboardKanbanColumn[];
+  controls?: ReactElement;
+  loadingMore?: boolean;
   onArchiveProposal: (
     proposal: ProposalKanbanCard,
     reason: string
@@ -1218,8 +1416,10 @@ export function ProposalKanban({
     builderProfileId: string
   ) => Promise<unknown>;
   onDeleteDraft: (proposal: ProposalKanbanCard) => Promise<unknown>;
+  onLoadMore?: () => void;
   onOpenApprovedProposal: (proposal: ProposalKanbanCard) => void;
   onRecordClosing: (proposal: ProposalKanbanCard) => void;
+  onStartNewBuildWorkflow?: () => Promise<unknown> | unknown;
   proposals: ProposalKanbanCard[];
 }) {
   const [assignTarget, setAssignTarget] = useState<ProposalKanbanCard | null>(
@@ -1249,19 +1449,24 @@ export function ProposalKanban({
   return (
     <>
       <Card id="proposals-kanban">
-        <CardHeader className="gap-3 border-b p-4">
-          <CardTitle className="text-base">Builds - Proposals</CardTitle>
-          <CardDescription>Pipeline by stage</CardDescription>
-          <CardAction className="row-span-1 flex flex-wrap gap-2">
-            <Button variant="outline">
-              <Filter />
-              Filter
-            </Button>
-            <Button variant="outline">
+        <CardHeader className="flex flex-col items-stretch gap-3 border-b p-4">
+          <div className="flex w-full items-start justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="text-base">Builds - Proposals</CardTitle>
+              <CardDescription>Pipeline by stage</CardDescription>
+            </div>
+            <Button
+              className="shrink-0"
+              onClick={onStartNewBuildWorkflow}
+              variant="outline"
+            >
               <Plus />
               Draft new
             </Button>
-          </CardAction>
+          </div>
+          {controls ? (
+            <div className="w-full min-w-0 border-t pt-3">{controls}</div>
+          ) : null}
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
           <ClientOnly fallback={<div className="min-h-96 min-w-4xl" />}>
@@ -1282,18 +1487,22 @@ export function ProposalKanban({
                         <span>{column.name}</span>
                         <Badge variant="outline">
                           {
-                            proposals.filter((card) => card.column === column.id)
-                              .length
+                            proposals.filter(
+                              (card) => card.column === column.id
+                            ).length
                           }
                         </Badge>
                       </div>
-                      <Button
-                        aria-label={`Add ${column.name} proposal`}
-                        size="icon-xs"
-                        variant="ghost"
-                      >
-                        <Plus />
-                      </Button>
+                      {column.id === "draft" ? (
+                        <Button
+                          aria-label="Draft new proposal"
+                          onClick={onStartNewBuildWorkflow}
+                          size="icon-xs"
+                          variant="ghost"
+                        >
+                          <Plus />
+                        </Button>
+                      ) : null}
                     </div>
                   </KanbanHeader>
                   <KanbanCards<ProposalKanbanCard>
@@ -1336,6 +1545,17 @@ export function ProposalKanban({
             </KanbanProvider>
           </ClientOnly>
         </CardContent>
+        {onLoadMore ? (
+          <div className="flex justify-center border-t p-3">
+            <Button
+              loading={loadingMore}
+              onClick={onLoadMore}
+              variant="outline"
+            >
+              Load more proposals
+            </Button>
+          </div>
+        ) : null}
       </Card>
       <ProposalCardDetailSheet
         card={activeProposal}
@@ -1422,7 +1642,14 @@ function ProposalCard({
             {assigned ? (
               <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
                 <UserRound aria-hidden className="size-3.5 shrink-0" />
-                <span className="truncate">{card.builder}</span>
+                <span className="grid min-w-0">
+                  <span className="truncate">{card.builder}</span>
+                  {card.builderEmail ? (
+                    <span className="truncate text-muted-foreground">
+                      {card.builderEmail}
+                    </span>
+                  ) : null}
+                </span>
               </span>
             ) : (
               <span
@@ -2234,16 +2461,30 @@ export function ClosingConfirmationDialog({
 }
 
 export function ScheduleRail({
+  canMakeFinalDecision = false,
   collapsed,
   date,
   events,
+  onAcknowledgeHandoff,
   onCollapsedChange,
+  onEscalate,
+  onReturnDecision,
   quickActions,
 }: {
+  canMakeFinalDecision?: boolean;
   collapsed: boolean;
   date: Date;
   events: ScheduleEvent[];
+  onAcknowledgeHandoff?: (handoffId: string) => Promise<unknown>;
   onCollapsedChange: (collapsed: boolean) => void;
+  onEscalate?: (
+    action: QuickAction,
+    input: OperationsEscalationInput
+  ) => Promise<unknown>;
+  onReturnDecision?: (
+    handoffId: string,
+    input: OperationsReturnDecisionInput
+  ) => Promise<unknown>;
   quickActions: QuickAction[];
 }) {
   const eventDays = useMemo(
@@ -2336,12 +2577,22 @@ export function ScheduleRail({
           </div>
         </CardHeader>
         <CardContent className="space-y-3 p-4">
-          {quickActions.map((action) => (
-            <QuickActionCard action={action} key={action.id} />
-          ))}
-          <Button className="w-full" variant="outline">
-            View all events
-          </Button>
+          {quickActions.length === 0 ? (
+            <p className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-sm">
+              No operational items need action.
+            </p>
+          ) : (
+            quickActions.map((action) => (
+              <QuickActionCard
+                action={action}
+                canMakeFinalDecision={canMakeFinalDecision}
+                key={action.id}
+                onAcknowledgeHandoff={onAcknowledgeHandoff}
+                onEscalate={onEscalate}
+                onReturnDecision={onReturnDecision}
+              />
+            ))
+          )}
         </CardContent>
       </Card>
     </aside>
@@ -2367,44 +2618,444 @@ function ScheduleEventRow({ event }: { event: ScheduleEvent }) {
   );
 }
 
-function QuickActionCard({ action }: { action: QuickAction }) {
+function QuickActionCard({
+  action,
+  canMakeFinalDecision,
+  onAcknowledgeHandoff,
+  onEscalate,
+  onReturnDecision,
+}: {
+  action: QuickAction;
+  canMakeFinalDecision: boolean;
+  onAcknowledgeHandoff?: (handoffId: string) => Promise<unknown>;
+  onEscalate?: (
+    action: QuickAction,
+    input: OperationsEscalationInput
+  ) => Promise<unknown>;
+  onReturnDecision?: (
+    handoffId: string,
+    input: OperationsReturnDecisionInput
+  ) => Promise<unknown>;
+}) {
   const Icon = actionIcon[action.type];
+  const [dialogMode, setDialogMode] = useState<"escalate" | "return" | null>(
+    null
+  );
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [returnDecision, setReturnDecision] =
+    useState<OperationsHandoffReturnDecision>("continue");
+  const handoff = action.handoff;
+
+  async function handleEscalationSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!onEscalate) {
+      return;
+    }
+    const formData = new FormData(event.currentTarget);
+    setPending(true);
+    setError(null);
+    try {
+      await onEscalate(action, {
+        decisionPreview: String(formData.get("decisionPreview") ?? ""),
+        evidenceSummary: String(formData.get("evidenceSummary") ?? ""),
+        reason: String(formData.get("reason") ?? ""),
+        recommendation: String(formData.get("recommendation") ?? ""),
+        requiredAction: String(formData.get("requiredAction") ?? ""),
+        warnings: String(formData.get("warnings") ?? "")
+          .split("\n")
+          .map((warning) => warning.trim())
+          .filter(Boolean),
+      });
+      setDialogMode(null);
+    } catch {
+      setError("Unable to send this escalation. Try again.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleReturnSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!(handoff && onReturnDecision)) {
+      return;
+    }
+    const formData = new FormData(event.currentTarget);
+    setPending(true);
+    setError(null);
+    try {
+      await onReturnDecision(handoff._id, {
+        decision: returnDecision,
+        followUpAssignment: String(formData.get("followUpAssignment") ?? ""),
+        reason: String(formData.get("returnReason") ?? ""),
+      });
+      setDialogMode(null);
+    } catch {
+      setError("Unable to return this decision. Try again.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleAcknowledge() {
+    if (!(handoff && onAcknowledgeHandoff)) {
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onAcknowledgeHandoff(handoff._id);
+    } catch {
+      setError("Unable to acknowledge this return. Try again.");
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
-    <div className="space-y-3 rounded-lg border bg-background p-3">
-      <div className="flex items-start gap-3">
-        <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-secondary-foreground">
-          <Icon className="size-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide">
-              {formatActionType(action.type)}
-            </p>
-            <span className="text-muted-foreground text-xs">
-              {action.dueLabel}
-            </span>
+    <>
+      <article className="space-y-3 rounded-lg border bg-background p-3">
+        <div className="flex items-start gap-3">
+          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-secondary-foreground">
+            <Icon aria-hidden="true" className="size-4" />
           </div>
-          <p className="text-muted-foreground text-xs">
-            {action.buildId} · {action.address}
-          </p>
-          <p className="font-medium text-sm">{action.title}</p>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-medium text-sm">{action.title}</p>
+              <span className="shrink-0 text-muted-foreground text-xs">
+                {action.ageLabel}
+              </span>
+            </div>
+            <p className="mt-1 text-muted-foreground text-xs">
+              {action.entityLabel}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {action.buildId} · {action.address}
+            </p>
+          </div>
         </div>
-      </div>
-      <div className="flex gap-2">
-        <Button className="flex-1" size="sm">
-          {action.actionLabel}
-        </Button>
-        <Button
-          aria-label={`More actions for ${action.title}`}
-          size="icon-sm"
-          variant="outline"
-        >
-          <ChevronDown />
-        </Button>
-      </div>
-    </div>
+        <dl className="grid gap-2 text-xs">
+          <div className="flex items-start justify-between gap-3">
+            <dt className="text-muted-foreground">Owner</dt>
+            <dd className="text-right font-medium">{action.ownerLabel}</dd>
+          </div>
+          <div className="flex items-start justify-between gap-3">
+            <dt className="text-muted-foreground">Blocker</dt>
+            <dd className="max-w-44 text-right">{action.blocker}</dd>
+          </div>
+          <div className="flex items-start justify-between gap-3">
+            <dt className="text-muted-foreground">Recommendation</dt>
+            <dd className="max-w-44 text-right">
+              {action.recommendationLabel}
+            </dd>
+          </div>
+        </dl>
+
+        {handoff ? <OperationsHandoffSummary action={action} /> : null}
+        {error ? (
+          <p className="text-destructive text-xs" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+          <div>
+            <p className="font-medium text-xs">{action.authorityLabel}</p>
+            <p className="text-muted-foreground text-xs">{action.dueLabel}</p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              render={<a href={action.href}>{action.actionLabel}</a>}
+              size="sm"
+              variant="outline"
+            >
+              {action.actionLabel}
+            </Button>
+            {!handoff && onEscalate ? (
+              <Button onClick={() => setDialogMode("escalate")} size="sm">
+                Prepare escalation
+              </Button>
+            ) : null}
+            {handoff?.acknowledgementState === "pending_decision" &&
+            canMakeFinalDecision &&
+            onReturnDecision ? (
+              <Button onClick={() => setDialogMode("return")} size="sm">
+                Record return decision
+              </Button>
+            ) : null}
+            {handoff?.acknowledgementState === "pending_decision" &&
+            !canMakeFinalDecision ? (
+              <Badge variant="warning">Awaiting Lender Admin</Badge>
+            ) : null}
+            {handoff?.acknowledgementState === "returned" &&
+            action.canAcknowledgeHandoff &&
+            onAcknowledgeHandoff ? (
+              <Button
+                loading={pending}
+                onClick={handleAcknowledge}
+                size="sm"
+                variant="secondary"
+              >
+                Acknowledge return
+              </Button>
+            ) : null}
+            {handoff?.acknowledgementState === "acknowledged" ? (
+              <Badge variant="success">Return acknowledged</Badge>
+            ) : null}
+          </div>
+        </div>
+      </article>
+
+      <Dialog
+        onOpenChange={(open) => {
+          if (!(open || pending)) {
+            setDialogMode(null);
+            setError(null);
+          }
+        }}
+        open={dialogMode === "escalate"}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <form onSubmit={handleEscalationSubmit}>
+            <DialogHeader>
+              <DialogTitle>Escalate {action.title.toLowerCase()}</DialogTitle>
+              <DialogDescription>
+                Package the evidence, recommendation, warnings, required action,
+                and decision preview before handing this item to Lender Admin.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogPanel className="grid gap-4">
+              <OperationsHandoffTextarea
+                label="Evidence summary"
+                name="evidenceSummary"
+              />
+              <OperationsHandoffTextarea
+                label="Recommendation"
+                name="recommendation"
+              />
+              <OperationsHandoffTextarea
+                description="Enter one warning per line."
+                label="Warnings"
+                name="warnings"
+                required={false}
+              />
+              <OperationsHandoffTextarea
+                label="Required action"
+                name="requiredAction"
+              />
+              <OperationsHandoffTextarea
+                label="Decision preview"
+                name="decisionPreview"
+              />
+              <OperationsHandoffTextarea
+                label="Escalation reason"
+                name="reason"
+              />
+              {error ? (
+                <p className="text-destructive text-sm" role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </DialogPanel>
+            <DialogFooter>
+              <DialogClose render={<Button type="button" variant="outline" />}>
+                Cancel
+              </DialogClose>
+              <Button loading={pending} type="submit">
+                Send to Lender Admin
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        onOpenChange={(open) => {
+          if (!(open || pending)) {
+            setDialogMode(null);
+            setError(null);
+          }
+        }}
+        open={dialogMode === "return"}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <form onSubmit={handleReturnSubmit}>
+            <DialogHeader>
+              <DialogTitle>Return operations decision</DialogTitle>
+              <DialogDescription>
+                Record the decision, reason, and follow-up assignment. This does
+                not replace the canonical approval or release action.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogPanel className="grid gap-4">
+              <label
+                className="grid gap-1.5 text-sm"
+                htmlFor={`decision-${action.id}`}
+              >
+                <span className="font-medium">Return decision</span>
+                <select
+                  className="h-9 rounded-lg border bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  id={`decision-${action.id}`}
+                  onChange={(event) =>
+                    setReturnDecision(
+                      event.target.value as OperationsHandoffReturnDecision
+                    )
+                  }
+                  value={returnDecision}
+                >
+                  <option value="continue">Continue</option>
+                  <option value="reroute">Reroute</option>
+                  <option value="close">Close</option>
+                </select>
+              </label>
+              <OperationsHandoffTextarea
+                label="Return reason"
+                name="returnReason"
+              />
+              <OperationsHandoffTextarea
+                label="Follow-up assignment"
+                name="followUpAssignment"
+              />
+              {error ? (
+                <p className="text-destructive text-sm" role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </DialogPanel>
+            <DialogFooter>
+              <DialogClose render={<Button type="button" variant="outline" />}>
+                Cancel
+              </DialogClose>
+              <Button loading={pending} type="submit">
+                Return to operations
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
+}
+
+function OperationsHandoffSummary({ action }: { action: QuickAction }) {
+  const handoff = action.handoff;
+  if (!handoff) {
+    return null;
+  }
+  return (
+    <section
+      aria-label="Operations handoff"
+      className="grid gap-2 rounded-lg bg-muted/60 p-3 text-xs"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-medium">Operations handoff</p>
+        <Badge variant="outline">
+          {formatHandoffState(handoff.acknowledgementState)}
+        </Badge>
+      </div>
+      <p>
+        <span className="text-muted-foreground">Evidence: </span>
+        {handoff.evidenceSummary}
+      </p>
+      <p>
+        <span className="text-muted-foreground">Recommendation: </span>
+        {handoff.recommendation}
+      </p>
+      <p>
+        <span className="text-muted-foreground">Required action: </span>
+        {handoff.requiredAction}
+      </p>
+      <p>
+        <span className="text-muted-foreground">Decision preview: </span>
+        {handoff.decisionPreview}
+      </p>
+      {handoff.warnings.length > 0 ? (
+        <div>
+          <p className="text-muted-foreground">Warnings</p>
+          <ul className="list-disc pl-4">
+            {handoff.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {handoff.returnReason ? (
+        <div className="grid gap-1 border-t pt-2">
+          <p className="font-medium">
+            Returned: {formatReturnDecision(handoff.returnDecision)}
+          </p>
+          <p>{handoff.returnReason}</p>
+          {handoff.followUpAssignment ? (
+            <p>
+              <span className="text-muted-foreground">Follow-up: </span>
+              {handoff.followUpAssignment}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function OperationsHandoffTextarea({
+  description,
+  label,
+  name,
+  required = true,
+}: {
+  description?: string;
+  label: string;
+  name: string;
+  required?: boolean;
+}) {
+  const id = `operations-handoff-${name}`;
+  const descriptionId = description ? `${id}-description` : undefined;
+  return (
+    <label className="grid gap-1.5 text-sm" htmlFor={id}>
+      <span className="font-medium">{label}</span>
+      {description ? (
+        <span className="text-muted-foreground text-xs" id={descriptionId}>
+          {description}
+        </span>
+      ) : null}
+      <Textarea
+        aria-describedby={descriptionId}
+        aria-label={label}
+        id={id}
+        minLength={required ? 8 : undefined}
+        name={name}
+        required={required}
+        rows={3}
+      />
+    </label>
+  );
+}
+
+function formatHandoffState(
+  state: NonNullable<QuickAction["handoff"]>["acknowledgementState"]
+) {
+  const labels = {
+    acknowledged: "Acknowledged",
+    pending_decision: "Awaiting decision",
+    returned: "Returned",
+  } satisfies Record<
+    NonNullable<QuickAction["handoff"]>["acknowledgementState"],
+    string
+  >;
+  return labels[state];
+}
+
+function formatReturnDecision(
+  decision: OperationsHandoffReturnDecision | undefined
+) {
+  if (!decision) {
+    return "Decision recorded";
+  }
+  return {
+    close: "Close",
+    continue: "Continue",
+    reroute: "Reroute",
+  }[decision];
 }
 
 function formatMilestoneState(state: ActiveBuild["milestoneState"]) {
@@ -2426,16 +3077,6 @@ function formatBuildStatusFilter(status: ActiveBuild["status"] | "all") {
   };
 
   return labels[status];
-}
-
-function formatActionType(type: QuickAction["type"]) {
-  const labels: Record<QuickAction["type"], string> = {
-    drawRequest: "Draw request",
-    milestone: "Milestone",
-    siteVisit: "Site visit",
-  };
-
-  return labels[type];
 }
 
 function centsToCurrency(value: number) {

@@ -9,17 +9,19 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 
 const ORG = "org_01KSNW6JHW9P9YS41DZX1YHHGS";
+const OTHER_ORG = "org_other_merge_scope";
 const PRINCIPAL_BROKER = "user_01KR207FRFHQT46EV9N538XBF3";
 
 function withIdentity(
   t: ReturnType<typeof convexTest>,
   roles: string[],
   subject: string,
+  organizationId = ORG,
 ) {
   return t.withIdentity({
     email: `${subject}@example.com`,
     name: subject,
-    organizationId: ORG,
+    organizationId,
     role: roles[0],
     roles,
     subject,
@@ -107,6 +109,28 @@ describe("contractor duplicate merge (PRD §6.3)", () => {
         workosOrganizationId: ORG,
       },
     );
+    await admin.run(async (ctx: any) => {
+      const now = Date.now();
+      await ctx.db.patch(proposalId, {
+        selectedPlan: {
+          metrics: {
+            drawCount: 1,
+            drawFeesCents: 50_000,
+            interestCostCents: 100_000,
+            minimumCashReserveCents: 5_000_000,
+            projectedDurationDays: 24,
+            startingCashCents: 35_000_000,
+            totalCostCents: 150_000,
+            totalDrawAmountCents: 50_000_000,
+          },
+          name: "Cheapest Feasible",
+          planKey: "cheapestFeasible",
+          recommendationReason: "Selected by contractor merge test setup.",
+          selectedAt: now,
+          selectedByWorkosUserId: "contractor_merge_test_setup",
+        },
+      });
+    });
     await admin.mutation((api as any).production_proposals.submitProposal, {
       proposalId,
       workosOrganizationId: ORG,
@@ -195,6 +219,62 @@ describe("contractor duplicate merge (PRD §6.3)", () => {
     ).rejects.toThrow(/cannot be in the loser set/);
   });
 
+  test("merge rejects loser profiles from another brokerage organization", async () => {
+    const base = convexTest(schema, modules);
+    const admin = withIdentity(
+      base,
+      ["admin", "principle-broker"],
+      PRINCIPAL_BROKER,
+    );
+    const otherAdmin = withIdentity(
+      base,
+      ["admin"],
+      "user_other_admin",
+      OTHER_ORG,
+    );
+    const seed = await admin.mutation(
+      (api as any).production_proposals.dev_seedProductionFoundation,
+      { workosOrganizationId: ORG },
+    );
+    const otherSeed = await otherAdmin.mutation(
+      (api as any).production_proposals.dev_seedProductionFoundation,
+      { workosOrganizationId: OTHER_ORG },
+    );
+    const mergeApi = (api as any).contractorMerge;
+
+    const canonicalId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "canonical-cross-org@example.com",
+        kind: "company",
+        name: "Canonical Cross Org",
+        trades: ["roofing"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const otherLoserId = await otherAdmin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: otherSeed.brokerageId,
+        email: "other-org@example.com",
+        kind: "company",
+        name: "Other Org Loser",
+        trades: ["roofing"],
+        workosOrganizationId: OTHER_ORG,
+      },
+    );
+
+    await expect(
+      admin.mutation(mergeApi.mergeContractorProfiles, {
+        canonicalContractorId: canonicalId,
+        loserContractorIds: [otherLoserId],
+        reason: "cross-org should fail",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/Loser contractor not found in brokerage/);
+  });
+
   test("duplicate hints surface exact email + fuzzy phone/name matches without auto-merge", async () => {
     const { admin, seed } = await seedFoundation();
     const mergeApi = (api as any).contractorMerge;
@@ -264,5 +344,49 @@ describe("contractor deactivate / unlink (PRD §8.8, user story 68)", () => {
     profile = await admin.run(async (ctx: any) => ctx.db.get(contractorId));
     expect(profile.accountWorkosUserId).toBeUndefined();
     expect(profile.onboardingStatus).toBe("profile_only");
+  });
+
+  test("merging a linked loser revokes that loser account's workspace access", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const mergeApi = (api as any).contractorMerge;
+    const canonicalId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "canonical-linked-loser@example.com",
+        kind: "company",
+        name: "Canonical Survivor",
+        trades: ["masonry"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const loserId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        accountWorkosUserId: "user_linked_loser",
+        brokerageId: seed.brokerageId,
+        email: "linked-loser@example.com",
+        kind: "company",
+        name: "Linked Loser",
+        trades: ["masonry"],
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const loser = withIdentity(base, ["contractor"], "user_linked_loser");
+    await expect(
+      loser.query((api as any).contractorWorkspace.getContractorProfile, {}),
+    ).resolves.toMatchObject({ profile: { name: "Linked Loser" } });
+
+    await admin.mutation(mergeApi.mergeContractorProfiles, {
+      canonicalContractorId: canonicalId,
+      loserContractorIds: [loserId],
+      reason: "dedupe linked loser",
+      workosOrganizationId: ORG,
+    });
+
+    await expect(
+      loser.query((api as any).contractorWorkspace.getContractorProfile, {}),
+    ).rejects.toThrow(/not linked/);
   });
 });

@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Banknote,
+  Building2,
   CalendarClock,
   Check,
   CheckCircle2,
@@ -18,12 +19,21 @@ import {
   Trash2,
   UserPlus,
   UserRound,
+  UserRoundCog,
   UserRoundX,
+  UsersRound,
   WalletCards,
   X,
   XCircle,
 } from "lucide-react";
-import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { GoogleAddressAutocomplete } from "#/components/address/GoogleAddressAutocomplete.tsx";
 import {
@@ -41,14 +51,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "#/components/ui/alert-dialog.tsx";
-import {
-  Autocomplete,
-  AutocompleteEmpty,
-  AutocompleteInput,
-  AutocompleteItem,
-  AutocompleteList,
-  AutocompletePopup,
-} from "#/components/ui/autocomplete.tsx";
+import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -58,6 +61,14 @@ import {
   CardHeader,
   CardTitle,
 } from "#/components/ui/card.tsx";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+} from "#/components/ui/combobox.tsx";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -123,6 +134,10 @@ import {
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
 import {
+  type BrokerAssignmentBrokerage,
+  BrokerAssignmentDialog,
+} from "#/features/broker-assignments/BrokerAssignmentDialog.tsx";
+import {
   type BuildPermitViewerDocument,
   BuildPermitViewerDrawer,
   firstPermitDocument,
@@ -172,6 +187,10 @@ import {
   dateFromProposalDayOffset,
   isValidIsoDateOnly,
 } from "./proposalScheduleDates.ts";
+import {
+  ScheduleWindowPicker,
+  type ScheduleWindowValue,
+} from "#/features/timeline-workspace/-ScheduleWindowPicker.tsx";
 
 export type ProductionProposalStatus =
   | "draft"
@@ -183,12 +202,28 @@ interface ProductionProposal {
   _id?: string;
   borrowerCoPayBps: number;
   borrowerCoPayCents?: number;
-  borrowerWorkingCapitalLimitCents: number;
+  borrowerStartingCashCents: number;
   buildName: string;
   interestAnnualBps?: number;
   lenderDrawPolicyLimitCents: number;
   location: string;
   proposedStartDate?: string;
+  selectedPlan?: {
+    metrics?: {
+      drawCount: number;
+      drawFeesCents: number;
+      interestCostCents: number;
+      minimumCashReserveCents: number;
+      projectedDurationDays: number;
+      requiredWorkingCapitalCents?: number;
+      startingCashCents: number;
+      totalCostCents: number;
+      totalDrawAmountCents: number;
+    };
+    name: string;
+    planKey: "cheapestFeasible" | "fastest" | "capitalConstrained";
+    recommendationReason?: string;
+  };
   status: ProductionProposalStatus;
   totalBudgetCents: number;
 }
@@ -359,17 +394,62 @@ type PacketMilestoneGroup = {
   submilestones: ProductionSubmilestone[];
 };
 
+type PacketSubmilestoneTableRow = {
+  budgetCents: number;
+  budgetDollars: string;
+  dayEndDraft: string;
+  durationDays: number;
+  key: string;
+  name: string;
+  startDay: number;
+  startDayDraft: string;
+};
+
 export interface ProductionKanbanCard {
   activeBuildId?: string;
+  approvedAt?: number;
+  assignedBrokerEmail?: string;
+  assignedBrokerName?: string;
+  assignedBrokerWorkosUserId?: string;
+  borrowerCoPayBps?: number;
+  borrowerCoPayCents?: number;
+  borrowerStartingCashCents?: number;
+  budgetGovernance?: TimelinePlanRow["budgetGovernance"];
   builderAssigned?: boolean;
+  builderEmail?: string;
+  builderLegalName?: string;
   builderName?: string;
+  builderProfileId?: string;
+  buildName?: string;
+  buildStatus?: TimelinePlanRow["buildStatus"];
   column: ProductionProposalStatus;
+  createdAt?: number;
+  createdByEmail?: string;
+  createdByName?: string;
+  createdByWorkosUserId?: string;
+  drawCount?: number;
   href?: string;
+  imageUrl?: string | null;
+  location?: string;
+  locationLatitude?: number;
+  locationLongitude?: number;
+  milestoneCount?: number;
+  milestonesBehindSchedule?: number;
+  pendingDrawRequestCount?: number;
+  pendingModificationRequestCount?: number;
+  planKey?: "capitalConstrained" | "cheapestFeasible" | "fastest";
+  planName?: string;
+  proposedStartDate?: string;
   proposalId: string;
+  reviewOutcome?: "approved" | "none" | "rejected" | "requested_changes";
+  statusLabel?: string;
+  submittedAt?: number;
   subtitle?: string;
   title: string;
   totalBudgetCents: number;
   updatedAt: number;
+  updatedByWorkosUserId?: string;
+  lenderDrawPolicyLimitCents?: number;
 }
 
 export interface ProductionBuilderOption {
@@ -430,7 +510,7 @@ export interface ProductionProposalSettings {
 
 export interface ProductionProposalDraftSavePayload {
   borrowerCoPayBps: number;
-  borrowerWorkingCapitalLimitCents: number;
+  borrowerStartingCashCents: number;
   buildName: string;
   contractorAssignments?: Array<{
     contractorId?: string;
@@ -442,6 +522,8 @@ export interface ProductionProposalDraftSavePayload {
     submilestoneKeys: string[];
   }>;
   costItems?: Array<{
+    budgetSubmilestoneKey?: string;
+    budgetTreatment?: "add" | "logOnly" | "maintain";
     costCents: number;
     description?: string;
     itemType: "equipment" | "material";
@@ -501,10 +583,9 @@ export function ProductionProposalDraftEditorSurface({
   );
   const [buildName, setBuildName] = useState(proposal.buildName);
   const [location, setLocation] = useState(proposal.location);
-  const [
-    borrowerWorkingCapitalLimitCents,
-    setBorrowerWorkingCapitalLimitCents,
-  ] = useState(String(proposal.borrowerWorkingCapitalLimitCents));
+  const [borrowerStartingCashCents, setBorrowerStartingCashCents] = useState(
+    String(proposal.borrowerStartingCashCents)
+  );
   const [lenderDrawPolicyLimitCents, setLenderDrawPolicyLimitCents] = useState(
     String(proposal.lenderDrawPolicyLimitCents)
   );
@@ -552,22 +633,16 @@ export function ProductionProposalDraftEditorSurface({
       draws: draftDrawsForAvailabilityRecalculation(draftDraws),
       milestones: draftMilestones,
     });
-    const nextApprovedAmountCents = Math.max(
-      draftApprovedAmountCents,
-      calculateProposalTotalDrawAmountCents(normalizedDraftDraws)
-    );
     onSave({
       borrowerCoPayBps: calculateUnapprovedBudgetBps(
         draftTotalBudgetCents,
-        nextApprovedAmountCents
+        draftApprovedAmountCents
       ),
-      borrowerWorkingCapitalLimitCents: parseInteger(
-        borrowerWorkingCapitalLimitCents
-      ),
+      borrowerStartingCashCents: parseInteger(borrowerStartingCashCents),
       buildName,
       documents,
       draws: normalizedDraftDraws,
-      lenderDrawPolicyLimitCents: nextApprovedAmountCents,
+      lenderDrawPolicyLimitCents: draftApprovedAmountCents,
       location,
       milestones: draftMilestones,
       proposedStartDate: proposal.proposedStartDate,
@@ -656,8 +731,8 @@ export function ProductionProposalDraftEditorSurface({
             <ProductionProposalGanttWorkspace
               baseDate={proposedStartDate}
               borrowerCoPayBps={draftBorrowerCoPayBps}
-              borrowerWorkingCapitalLimitCents={parseInteger(
-                borrowerWorkingCapitalLimitCents
+              borrowerStartingCashCents={parseInteger(
+                borrowerStartingCashCents
               )}
               buildName={buildName}
               draws={draftDraws}
@@ -696,9 +771,9 @@ export function ProductionProposalDraftEditorSurface({
           <div className="grid gap-3">
             <LabeledInput
               inputMode="numeric"
-              label="Builder working capital cents"
-              onChange={setBorrowerWorkingCapitalLimitCents}
-              value={borrowerWorkingCapitalLimitCents}
+              label="Borrower starting cash cents"
+              onChange={setBorrowerStartingCashCents}
+              value={borrowerStartingCashCents}
             />
             <LabeledInput
               inputMode="numeric"
@@ -1107,8 +1182,8 @@ export function ProductionProposalPackageSurface({
               rows={[
                 ["Total budget", formatCents(proposal.totalBudgetCents)],
                 [
-                  "Builder working capital",
-                  formatCents(proposal.borrowerWorkingCapitalLimitCents),
+                  "Borrower starting cash",
+                  formatCents(proposal.borrowerStartingCashCents),
                 ],
                 [
                   "Approved amount",
@@ -1156,13 +1231,19 @@ export function ProductionProposalPackageSurface({
 
 export function ProductionProposalKanbanSurface({
   builders = [],
+  controls,
   kanban,
+  loadingMore = false,
+  onLoadMore,
   onAssignBuilder,
   onDeleteDraft,
   onOpen,
 }: {
   builders?: ProductionBuilderOption[];
+  controls?: ReactNode;
   kanban: ProductionKanban;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
   onAssignBuilder?: (
     card: ProductionKanbanCard,
     builderProfileId: string
@@ -1188,6 +1269,7 @@ export function ProductionProposalKanbanSurface({
             Production Build Proposals move only through workflow mutations.
             Right-click a card to assign a builder or delete a draft.
           </p>
+          {controls ? <div className="mt-4 border-t pt-4">{controls}</div> : null}
         </FramePanel>
       </Frame>
       <div className="grid gap-3 lg:grid-cols-4">
@@ -1216,6 +1298,13 @@ export function ProductionProposalKanbanSurface({
           </Card>
         ))}
       </div>
+      {onLoadMore ? (
+        <div className="flex justify-center">
+          <Button loading={loadingMore} onClick={onLoadMore} variant="outline">
+            Load more proposals
+          </Button>
+        </div>
+      ) : null}
       <AssignBuilderDialog
         builders={builders}
         card={assignCard}
@@ -1280,12 +1369,19 @@ function ProposalKanbanCard({
         ) : null}
         <div className="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
           {assigned ? (
-            <span className="flex min-w-0 items-center gap-1.5 text-foreground text-xs">
+            <span className="flex min-w-0 items-start gap-1.5 text-foreground text-xs">
               <UserRound
                 aria-hidden
-                className="size-3.5 shrink-0 text-muted-foreground"
+                className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
               />
-              <span className="truncate font-medium">{card.builderName}</span>
+              <span className="grid min-w-0">
+                <span className="truncate font-medium">{card.builderName}</span>
+                {card.builderEmail ? (
+                  <span className="truncate text-muted-foreground">
+                    {card.builderEmail}
+                  </span>
+                ) : null}
+              </span>
             </span>
           ) : (
             <span
@@ -1636,6 +1732,8 @@ export function ProductionProposalSettingsSurface({
 }
 
 export function ProductionProposalReviewSurface({
+  assignableBrokerages = [],
+  brokerOptionsPending = false,
   builders = [],
   calendarAdapterActions,
   calendarAssignableParticipants = [],
@@ -1656,7 +1754,9 @@ export function ProductionProposalReviewSurface({
   onReject,
   onRequestChanges,
   onSubmit,
+  onAssignBroker,
   onAssignBuilder,
+  onOnboardBuilder,
   onUnassignBuilder,
   onCreatePacketMilestone,
   onUploadPermitDocument,
@@ -1674,6 +1774,8 @@ export function ProductionProposalReviewSurface({
   staff,
   timeline,
 }: {
+  assignableBrokerages?: BrokerAssignmentBrokerage[];
+  brokerOptionsPending?: boolean;
   builders?: ProductionBuilderOption[];
   contractors?: ReactNode;
   gantt?: ReactNode;
@@ -1720,7 +1822,12 @@ export function ProductionProposalReviewSurface({
   onReject?: (reason: string) => Promise<unknown> | unknown;
   onRequestChanges?: (reason: string) => Promise<unknown> | unknown;
   onSubmit?: () => Promise<unknown> | unknown;
+  onAssignBroker?: (
+    assignedBrokerWorkosUserId: string,
+    reason: string
+  ) => Promise<unknown> | unknown;
   onAssignBuilder?: (builderProfileId: string) => Promise<unknown> | unknown;
+  onOnboardBuilder?: () => void;
   onUnassignBuilder?: () => Promise<unknown> | unknown;
   onCreatePacketMilestone?: (
     milestone: PacketMilestoneCreatePayload
@@ -1921,6 +2028,15 @@ export function ProductionProposalReviewSurface({
     }
   }, [detail.activeBuild, proposal.status, proposedStartDate]);
 
+  const activeTabLabel =
+    tabs.find((tab) => tab.value === activeTab)?.label ?? "Proposal stage";
+  const compactStageState = proposalCompactStageState(proposal.status);
+  const changeReviewTab = (value: string) => {
+    const next = value as ProductionReviewTab;
+    setActiveTab(next);
+    onChangeReviewTab?.(next);
+  };
+
   const runReviewDecision = async (
     decision: "approve" | "reject" | "requestChanges"
   ) => {
@@ -1976,6 +2092,10 @@ export function ProductionProposalReviewSurface({
       toast.error("This proposal is no longer in draft.");
       return;
     }
+    if (!proposal.selectedPlan) {
+      toast.error("Select a preferred plan before submitting the proposal.");
+      return;
+    }
     setSubmitPending(true);
     try {
       await onSubmit?.();
@@ -1988,19 +2108,109 @@ export function ProductionProposalReviewSurface({
 
   const renderReviewDecisionPanel = (idPrefix: string) => (
     <ProposalReviewDecisionPanel
-      detail={detail}
       idPrefix={idPrefix}
-      onPermitWaiverReasonChange={setPermitWaiverReason}
       onReasonChange={setReason}
       onReviewDecision={runReviewDecision}
       pendingDecision={pendingDecision}
-      permitFileName={permit?.fileName}
-      permitViewerDocument={permitViewerDocument}
-      permitWaiverReason={permitWaiverReason}
       proposal={proposal}
       reason={reason}
-      showReadiness
     />
+  );
+
+  const renderReviewOverview = ({
+    idPrefix,
+    includePermitUpload = false,
+  }: {
+    idPrefix: string;
+    includePermitUpload?: boolean;
+  }) => (
+    <div
+      className="grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(22rem,1fr)]"
+      data-testid="proposal-review-overview"
+    >
+      <div
+        className="grid min-w-0 gap-4"
+        data-testid="proposal-review-primary-column"
+      >
+        {proposal.status === "approved" ? (
+          <ApprovedProposalConfirmation detail={detail} />
+        ) : canRunReviewDecision ? (
+          renderReviewDecisionPanel(idPrefix)
+        ) : (
+          <Section title="Review summary">
+            <div className="grid gap-3">
+              <div>
+                <Badge variant="outline">{statusLabel(proposal.status)}</Badge>
+                <h2 className="mt-2 font-semibold text-xl tracking-tight">
+                  {proposal.buildName}
+                </h2>
+                <p className="mt-1 text-muted-foreground text-sm">
+                  {proposal.location}
+                </p>
+              </div>
+              <p className="text-muted-foreground text-sm">
+                Review decisions are limited to authorized lender approval
+                surfaces.
+              </p>
+            </div>
+          </Section>
+        )}
+
+        <Section title="Readiness">
+          <ProposalReadinessList
+            canRecordPermitWaiverReason={canRunReviewDecision}
+            detail={detail}
+            onPermitWaiverReasonChange={setPermitWaiverReason}
+            onUploadPermitDocument={
+              includePermitUpload ? onUploadPermitDocument : undefined
+            }
+            permitFileName={permit?.fileName}
+            permitViewerDocument={permitViewerDocument}
+            permitWaiverReason={permitWaiverReason}
+            proposalStatus={proposal.status}
+          />
+        </Section>
+      </div>
+
+      <div
+        className="grid min-w-0 gap-4"
+        data-testid="proposal-review-context-column"
+      >
+        <Section title="Review snapshot">
+          <DetailGrid
+            rows={[
+              ["Total budget", formatCents(proposal.totalBudgetCents)],
+              [
+                "Borrower starting cash",
+                formatCents(proposal.borrowerStartingCashCents),
+              ],
+              [
+                "Approved amount",
+                formatCents(
+                  calculateProposalApprovedAmountCents(
+                    proposal,
+                    detail.draws ?? detail.plannedDraws
+                  )
+                ),
+              ],
+            ]}
+          />
+        </Section>
+
+        <BuilderAssignmentSection
+          assignableBrokerages={assignableBrokerages}
+          assignment={detail.assignment}
+          brokerOptionsPending={brokerOptionsPending}
+          builders={builders}
+          onAssignBroker={onAssignBroker}
+          onAssignBuilder={onAssignBuilder}
+          onCreateClaimLink={onCreateClaimLink}
+          onOnboardBuilder={onOnboardBuilder}
+          onUnassignBuilder={onUnassignBuilder}
+          proposal={proposal}
+        />
+      </div>
+    </div>
   );
 
   const reviewTabPanelClassName = "w-full min-w-0";
@@ -2012,18 +2222,43 @@ export function ProductionProposalReviewSurface({
     >
       <Tabs
         className="flex w-full min-w-0 flex-col gap-4"
-        onValueChange={(value) => {
-          const next = value as ProductionReviewTab;
-          setActiveTab(next);
-          onChangeReviewTab?.(next);
-        }}
+        onValueChange={changeReviewTab}
         value={activeTab}
       >
         <Frame className="w-full min-w-0">
-          <FramePanel className="flex w-full min-w-0 flex-col gap-3 p-3 lg:flex-row lg:items-center lg:justify-between">
+          <FramePanel className="flex w-full min-w-0 flex-col gap-3 p-3">
+            <div
+              className="grid w-full min-w-0 gap-2 xl:hidden"
+              data-testid="proposal-compact-stage-picker"
+            >
+              <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-muted-foreground text-xs">Current stage</p>
+                  <p
+                    className="break-words font-semibold text-base"
+                    data-testid="proposal-compact-active-stage"
+                  >
+                    {activeTabLabel}
+                  </p>
+                </div>
+                <Badge variant="outline">{compactStageState}</Badge>
+              </div>
+              <NativeSelect
+                aria-label="Proposal workspace stage"
+                className="w-full"
+                onChange={(event) => changeReviewTab(event.target.value)}
+                value={activeTab}
+              >
+                {tabs.map((tab) => (
+                  <NativeSelectOption key={tab.value} value={tab.value}>
+                    {tab.label}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </div>
             <TabsList
               aria-label="Proposal workspace sections"
-              className="max-w-full justify-start overflow-x-auto"
+              className="hidden w-full max-w-full flex-wrap justify-start overflow-visible xl:flex"
               variant="underline"
             >
               {tabs.map((tab) => (
@@ -2126,56 +2361,7 @@ export function ProductionProposalReviewSurface({
             data-testid="production-proposal-review-tab"
             value="review"
           >
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-              {proposal.status === "approved" ? (
-                <ApprovedProposalConfirmation detail={detail} />
-              ) : (
-                renderReviewDecisionPanel("production-review-tab")
-              )}
-
-              <div className="grid gap-4">
-                <BuilderAssignmentSection
-                  assignment={detail.assignment}
-                  builders={builders}
-                  onAssignBuilder={onAssignBuilder}
-                  onCreateClaimLink={onCreateClaimLink}
-                  onUnassignBuilder={onUnassignBuilder}
-                  proposal={proposal}
-                />
-
-                <Section title="Review snapshot">
-                  <DetailGrid
-                    rows={[
-                      ["Total budget", formatCents(proposal.totalBudgetCents)],
-                      [
-                        "Builder working capital",
-                        formatCents(proposal.borrowerWorkingCapitalLimitCents),
-                      ],
-                      [
-                        "Approved amount",
-                        formatCents(
-                          calculateProposalApprovedAmountCents(
-                            proposal,
-                            detail.draws
-                          )
-                        ),
-                      ],
-                    ]}
-                  />
-                </Section>
-
-                <Section title="Readiness">
-                  <ProposalReadinessList
-                    detail={detail}
-                    onPermitWaiverReasonChange={setPermitWaiverReason}
-                    permitFileName={permit?.fileName}
-                    permitViewerDocument={permitViewerDocument}
-                    permitWaiverReason={permitWaiverReason}
-                    proposalStatus={proposal.status}
-                  />
-                </Section>
-              </div>
-            </div>
+            {renderReviewOverview({ idPrefix: "production-review-tab" })}
           </TabsPanel>
 
           {editableDraws.length > 0 ? (
@@ -2184,90 +2370,96 @@ export function ProductionProposalReviewSurface({
               data-testid="production-proposal-draws-tab"
               value="draws"
             >
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-                <Section title="Backoffice draw schedule">
-                  <ProductionProposalDrawScheduleEditor
-                    canEditDraws={canEditDraws}
-                    drawAmounts={drawAmounts}
-                    drawLabels={drawLabels}
-                    draws={editableDraws}
-                    drawTimingDays={drawTimingDays}
-                    onAmountChange={(drawKey, value) =>
-                      setDrawAmounts((current) => ({
-                        ...current,
-                        [drawKey]: value,
-                      }))
-                    }
-                    onCommit={(drawKey, patch) => {
-                      if (drawEditReasonRequired && !reviewReason) {
-                        toast.error("Draw edit reason required.", {
-                          description:
-                            "Enter a change reason before saving a draw schedule row.",
-                        });
-                        return;
+              {canEditDraws ? (
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+                  <Section title="Backoffice draw schedule">
+                    <ProductionProposalDrawScheduleEditor
+                      canEditDraws={canEditDraws}
+                      drawAmounts={drawAmounts}
+                      drawLabels={drawLabels}
+                      draws={editableDraws}
+                      drawTimingDays={drawTimingDays}
+                      onAmountChange={(drawKey, value) =>
+                        setDrawAmounts((current) => ({
+                          ...current,
+                          [drawKey]: value,
+                        }))
                       }
-                      void Promise.resolve(
-                        onUpdateDraw?.(drawKey, {
-                          ...patch,
-                          reason: drawEditReasonRequired
-                            ? reason
-                            : reason || "Draft draw schedule edit.",
-                        })
-                      )
-                        .then(() => {
-                          setDrawAmounts((current) => {
-                            const next = { ...current };
-                            delete next[drawKey];
-                            return next;
+                      onCommit={(drawKey, patch) => {
+                        if (drawEditReasonRequired && !reviewReason) {
+                          toast.error("Draw edit reason required.", {
+                            description:
+                              "Enter a change reason before saving a draw schedule row.",
                           });
-                          setDrawLabels((current) => {
-                            const next = { ...current };
-                            delete next[drawKey];
-                            return next;
+                          return;
+                        }
+                        void Promise.resolve(
+                          onUpdateDraw?.(drawKey, {
+                            ...patch,
+                            reason: drawEditReasonRequired
+                              ? reason
+                              : reason || "Draft draw schedule edit.",
+                          })
+                        )
+                          .then(() => {
+                            setDrawAmounts((current) => {
+                              const next = { ...current };
+                              delete next[drawKey];
+                              return next;
+                            });
+                            setDrawLabels((current) => {
+                              const next = { ...current };
+                              delete next[drawKey];
+                              return next;
+                            });
+                            setDrawTimingDays((current) => {
+                              const next = { ...current };
+                              delete next[drawKey];
+                              return next;
+                            });
+                          })
+                          .catch((error) => {
+                            toast.error(
+                              productionProposalActionErrorMessage(error)
+                            );
                           });
-                          setDrawTimingDays((current) => {
-                            const next = { ...current };
-                            delete next[drawKey];
-                            return next;
-                          });
-                        })
-                        .catch((error) => {
-                          toast.error(
-                            productionProposalActionErrorMessage(error)
-                          );
-                        });
-                    }}
-                    onLabelChange={(drawKey, value) =>
-                      setDrawLabels((current) => ({
-                        ...current,
-                        [drawKey]: value,
-                      }))
-                    }
-                    onTimingChange={(drawKey, value) =>
-                      setDrawTimingDays((current) => ({
-                        ...current,
-                        [drawKey]: value,
-                      }))
-                    }
-                  />
-                </Section>
-                <Section title="Draw edit reason">
-                  <div className="grid gap-2">
-                    <Label htmlFor="production-draw-edit-reason">
-                      Change reason
-                    </Label>
-                    <Input
-                      id="production-draw-edit-reason"
-                      onChange={(event) => setReason(event.target.value)}
-                      placeholder="Required before saving draw rows"
-                      value={reason}
+                      }}
+                      onLabelChange={(drawKey, value) =>
+                        setDrawLabels((current) => ({
+                          ...current,
+                          [drawKey]: value,
+                        }))
+                      }
+                      onTimingChange={(drawKey, value) =>
+                        setDrawTimingDays((current) => ({
+                          ...current,
+                          [drawKey]: value,
+                        }))
+                      }
                     />
-                    <p className="text-muted-foreground text-xs">
-                      Draw schedule edits are audited with this reason.
-                    </p>
-                  </div>
+                  </Section>
+                  <Section title="Draw edit reason">
+                    <div className="grid gap-2">
+                      <Label htmlFor="production-draw-edit-reason">
+                        Change reason
+                      </Label>
+                      <Input
+                        id="production-draw-edit-reason"
+                        onChange={(event) => setReason(event.target.value)}
+                        placeholder="Required before saving draw rows"
+                        value={reason}
+                      />
+                      <p className="text-muted-foreground text-xs">
+                        Draw schedule edits are audited with this reason.
+                      </p>
+                    </div>
+                  </Section>
+                </div>
+              ) : (
+                <Section title="Draw schedule">
+                  <ProposalDrawScheduleSnapshot draws={editableDraws} />
                 </Section>
-              </div>
+              )}
             </TabsPanel>
           ) : null}
 
@@ -2278,6 +2470,12 @@ export function ProductionProposalReviewSurface({
           >
             <MaterialPlanningTab
               actions={materialPlanningActions}
+              budgetImpact={{
+                borrowerCoPayBps: proposal.borrowerCoPayBps,
+                proposalBudgetCents: proposal.totalBudgetCents,
+              }}
+              budgetTreatmentEnabled
+              defaultBudgetTreatment="logOnly"
               items={detail.costItems ?? []}
               milestones={materialPlanningMilestones(detail)}
               readOnly={!materialPlanningActions}
@@ -2301,21 +2499,78 @@ export function ProductionProposalReviewSurface({
             value="packet"
           >
             <div className="grid gap-4">
+              {renderReviewOverview({
+                idPrefix: "production-packet-tab",
+                includePermitUpload: true,
+              })}
+              {proposal.selectedPlan ? (
+                <Section title="Selected plan">
+                  <div className="grid gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge>{proposal.selectedPlan.name}</Badge>
+                      <span className="text-muted-foreground text-sm">
+                        Builder-selected proposal plan
+                      </span>
+                    </div>
+                    {proposal.selectedPlan.recommendationReason ? (
+                      <p className="text-muted-foreground text-sm">
+                        {proposal.selectedPlan.recommendationReason}
+                      </p>
+                    ) : null}
+                    {proposal.selectedPlan.metrics ? (
+                      <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+                        <ProposalPlanMetric
+                          label="Duration"
+                          value={`${proposal.selectedPlan.metrics.projectedDurationDays} days`}
+                        />
+                        <ProposalPlanMetric
+                          label="Draw fees"
+                          value={formatCents(
+                            proposal.selectedPlan.metrics.drawFeesCents
+                          )}
+                        />
+                        <ProposalPlanMetric
+                          label="Projected interest"
+                          value={formatCents(
+                            proposal.selectedPlan.metrics.interestCostCents
+                          )}
+                        />
+                        <ProposalPlanMetric
+                          label="Borrower starting cash"
+                          value={formatCents(
+                            proposal.selectedPlan.metrics.startingCashCents
+                          )}
+                        />
+                        {proposal.selectedPlan.metrics
+                          .requiredWorkingCapitalCents === undefined ? null : (
+                          <ProposalPlanMetric
+                            label="Required working capital"
+                            value={formatCents(
+                              proposal.selectedPlan.metrics
+                                .requiredWorkingCapitalCents
+                            )}
+                          />
+                        )}
+                      </dl>
+                    ) : null}
+                  </div>
+                </Section>
+              ) : null}
               {proposal.status === "draft" && canSubmitProposal ? (
                 <Section title="Submit proposal">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <Badge variant="outline">Draft</Badge>
                       <p className="mt-2 text-muted-foreground text-sm">
-                        Submit this reimbursement draw plan for lender review
-                        when the packet, milestones, and draw schedule are
-                        ready.
+                        {proposal.selectedPlan
+                          ? "Submit the builder-selected reimbursement plan for lender review when the packet, milestones, and draw schedule are ready."
+                          : "Select a preferred plan before submitting this proposal for lender review."}
                       </p>
                     </div>
                     <Button
                       className="w-full sm:w-auto"
                       data-testid="production-proposal-submit-cta"
-                      disabled={submitPending}
+                      disabled={submitPending || !proposal.selectedPlan}
                       onClick={() => void submitProposal()}
                     >
                       <Send />
@@ -2324,11 +2579,9 @@ export function ProductionProposalReviewSurface({
                   </div>
                 </Section>
               ) : null}
-              {proposal.status === "submitted" && canRunReviewDecision
-                ? renderReviewDecisionPanel("production-packet-tab")
-                : null}
               <ProposalPacketSnapshot
                 detail={detail}
+                mergedWithReview
                 onCreateMilestone={onCreatePacketMilestone}
                 onUpdateMilestone={onUpdatePacketMilestone}
                 onUpdatePermitDocument={onUploadPermitDocument}
@@ -2397,6 +2650,31 @@ function productionProposalActionErrorMessage(error: unknown) {
   }
   const uncaughtMatch = message.match(/Uncaught Error:\s*([^\n]+)/);
   return uncaughtMatch?.[1]?.trim() || message;
+}
+
+function ProposalDrawScheduleSnapshot({ draws }: { draws: ProductionDraw[] }) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Draw</TableHead>
+          <TableHead>Timing</TableHead>
+          <TableHead className="text-right">Available</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {draws.map((draw) => (
+          <TableRow key={draw.drawKey}>
+            <TableCell>{draw.label}</TableCell>
+            <TableCell>Day {draw.timingDay}</TableCell>
+            <TableCell className="text-right">
+              {formatCents(draw.amountCents)}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
 }
 
 function ProposalReviewHeaderSummary({
@@ -2614,18 +2892,29 @@ function HeaderFinancialMetric({
 
 function BuilderAssignmentSection({
   assignment,
+  assignableBrokerages,
+  brokerOptionsPending,
   builders,
+  onAssignBroker,
   onAssignBuilder,
   onCreateClaimLink,
+  onOnboardBuilder,
   onUnassignBuilder,
   proposal,
 }: {
   assignment?: ProductionProposalAssignment | null;
+  assignableBrokerages: BrokerAssignmentBrokerage[];
+  brokerOptionsPending: boolean;
   builders: ProductionBuilderOption[];
+  onAssignBroker?: (
+    assignedBrokerWorkosUserId: string,
+    reason: string
+  ) => Promise<unknown> | unknown;
   onAssignBuilder?: (builderProfileId: string) => Promise<unknown> | unknown;
   onCreateClaimLink?: () =>
     | Promise<{ claimPath: string; claimToken: string; expiresAt: number }>
     | { claimPath: string; claimToken: string; expiresAt: number };
+  onOnboardBuilder?: () => void;
   onUnassignBuilder?: () => Promise<unknown> | unknown;
   proposal: ProductionProposal;
 }) {
@@ -2633,6 +2922,7 @@ function BuilderAssignmentSection({
     assignment?.builderAssigned ?? Boolean(assignment?.builder);
   const [selectedBuilderId, setSelectedBuilderId] = useState("");
   const [assigning, setAssigning] = useState(false);
+  const [brokerDialogOpen, setBrokerDialogOpen] = useState(false);
   const [creatingLink, setCreatingLink] = useState(false);
   const [unassigning, setUnassigning] = useState(false);
   const [claimLink, setClaimLink] = useState("");
@@ -2640,14 +2930,33 @@ function BuilderAssignmentSection({
   const { copyToClipboard, isCopied } = useCopyToClipboard({
     onCopy: () => toast.success("Builder claim link copied."),
   });
-  const canManageAssignment =
+  const canCreateClaimLink =
     proposal.status === "draft" &&
     !builderAssigned &&
-    Boolean(onAssignBuilder || onCreateClaimLink);
+    Boolean(onCreateClaimLink);
+  const canManageAssignment =
+    proposal.status !== "closed" &&
+    !builderAssigned &&
+    Boolean(onAssignBuilder || onOnboardBuilder || canCreateClaimLink);
   const canUnassignBuilder =
     proposal.status === "draft" &&
     builderAssigned &&
     Boolean(onUnassignBuilder);
+  const canAssignBroker =
+    proposal.status !== "closed" &&
+    Boolean(onAssignBroker) &&
+    Boolean(assignment?.brokerage?._id);
+  const brokerAssignmentTarget = {
+    _id: assignment?.builder?._id ?? proposal._id ?? "proposal",
+    brokerage: assignment?.brokerage?._id
+      ? { _id: assignment.brokerage._id }
+      : null,
+    brokerAssignment: {
+      assignedBrokerWorkosUserId: assignment?.broker?.workosUserId,
+      broker: assignment?.broker,
+    },
+    displayName: assignment?.builder?.displayName ?? proposal.buildName,
+  };
 
   useEffect(() => {
     if (builderAssigned) {
@@ -2707,34 +3016,137 @@ function BuilderAssignmentSection({
     }
   }
 
+  const builderAccounts = proposalBuilderAccounts(assignment?.builder);
+
   return (
-    <Section title="Parties & assignment">
-      <div className="grid gap-4">
-        <dl className="grid gap-3 text-sm">
-          <AssignmentIdentityRow
-            label="Builder"
-            secondary={assignment?.builder?.ownerEmail}
-            value={
-              assignment?.builder
-                ? assignment.builder.displayName
-                : "Unassigned"
-            }
-          />
-          <AssignmentIdentityRow
-            label="Broker"
-            secondary={assignment?.broker?.email}
-            value={formatProposalIdentity(assignment?.broker)}
-          />
-          <AssignmentIdentityRow
-            label="Brokerage"
-            secondary={assignment?.brokerage?.workosOrganizationId}
-            value={
-              assignment?.brokerage?.displayName ??
-              assignment?.brokerage?.legalName ??
-              "Unknown brokerage"
-            }
-          />
-        </dl>
+    <Section
+      action={
+        builderAssigned && assignment?.builder?.status ? (
+          <Badge variant="success">
+            {assignment.builder.status === "active"
+              ? "Active builder"
+              : assignment.builder.status}
+          </Badge>
+        ) : undefined
+      }
+      title="Parties & assignment"
+    >
+      <div className="grid gap-5">
+        {assignment?.builder ? (
+          <>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar className="size-10 border">
+                  <AvatarFallback className="bg-muted text-foreground">
+                    <Building2 aria-hidden className="size-4" />
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-base">
+                    {assignment.builder.displayName}
+                  </p>
+                  <p className="truncate text-muted-foreground text-sm">
+                    {assignment.builder.legalName ??
+                      assignment.builder.ownerEmail ??
+                      "Builder organization"}
+                  </p>
+                </div>
+              </div>
+              <Badge variant="outline">
+                <UsersRound aria-hidden />
+                {builderAccounts.length}{" "}
+                {builderAccounts.length === 1 ? "member" : "members"}
+              </Badge>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="font-medium text-sm">Owner and staff</h3>
+                <span className="text-muted-foreground text-xs">
+                  Active builder accounts
+                </span>
+              </div>
+              {builderAccounts.length > 0 ? (
+                <ul className="grid gap-2">
+                  {builderAccounts.map((account) => (
+                    <BuilderTeamMember
+                      key={account.workosUserId}
+                      member={account}
+                    />
+                  ))}
+                </ul>
+              ) : (
+                <div className="border-border border-y py-4 text-muted-foreground text-sm">
+                  No active owner or staff accounts are linked to this builder.
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="grid gap-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <Avatar className="size-10 border border-dashed">
+                <AvatarFallback>
+                  <UsersRound
+                    aria-hidden
+                    className="size-4 text-muted-foreground"
+                  />
+                </AvatarFallback>
+              </Avatar>
+              <div className="grid gap-1">
+                <p className="font-semibold">No builder attached</p>
+                <p className="max-w-[62ch] text-muted-foreground text-sm">
+                  Link an onboarded builder, or create a new builder account and
+                  attach it to this Build Proposal automatically.
+                </p>
+              </div>
+            </div>
+
+            {canManageAssignment ? (
+              <div className="grid gap-3">
+                {onAssignBuilder ? (
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                    <div className="grid gap-1">
+                      <Label htmlFor="production-builder-assignee">
+                        Existing builder
+                      </Label>
+                      <BuilderProfileAutocomplete
+                        disabled={assigning}
+                        id="production-builder-assignee"
+                        onValueChange={setSelectedBuilderId}
+                        options={builders}
+                        value={selectedBuilderId}
+                      />
+                    </div>
+                    <Button
+                      disabled={!selectedBuilderId}
+                      loading={assigning}
+                      onClick={handleAssignBuilder}
+                      size="sm"
+                    >
+                      <Link2 aria-hidden />
+                      Link builder
+                    </Button>
+                  </div>
+                ) : null}
+                {onOnboardBuilder ? (
+                  <Button
+                    onClick={onOnboardBuilder}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <UserPlus aria-hidden />
+                    Onboard new builder
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                Builder assignment is locked at this proposal stage.
+              </p>
+            )}
+          </div>
+        )}
 
         {canUnassignBuilder ? (
           <div className="border-t pt-4">
@@ -2750,41 +3162,12 @@ function BuilderAssignmentSection({
           </div>
         ) : null}
 
-        {canManageAssignment ? (
+        {canCreateClaimLink ? (
           <div className="grid gap-3 border-t pt-4">
-            {onAssignBuilder ? (
-              <>
-                <div className="grid gap-1">
-                  <Label htmlFor="production-builder-assignee">
-                    Assign to onboarded builder
-                  </Label>
-                  <BuilderProfileAutocomplete
-                    disabled={assigning}
-                    id="production-builder-assignee"
-                    onValueChange={setSelectedBuilderId}
-                    options={builders}
-                    value={selectedBuilderId}
-                  />
-                </div>
-                <Button
-                  disabled={!selectedBuilderId}
-                  loading={assigning}
-                  onClick={handleAssignBuilder}
-                  size="sm"
-                >
-                  <UserPlus aria-hidden />
-                  Assign builder
-                </Button>
-              </>
-            ) : null}
             {onCreateClaimLink ? (
-              <div
-                className={
-                  onAssignBuilder ? "grid gap-2 border-t pt-3" : "grid gap-2"
-                }
-              >
+              <div className="grid gap-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Label>Unclaimed builder link</Label>
+                  <Label>Builder self-claim link</Label>
                   {assignment?.claimLinkActive && !claimLink ? (
                     <Badge variant="outline">Active link exists</Badge>
                   ) : null}
@@ -2798,8 +3181,8 @@ function BuilderAssignmentSection({
                 >
                   <Link2 aria-hidden />
                   {assignment?.claimLinkActive || claimLink
-                    ? "Regenerate claim link"
-                    : "Create claim link"}
+                    ? "Regenerate self-claim link"
+                    : "Create self-claim link"}
                 </Button>
                 {claimLink ? (
                   <div className="grid gap-2">
@@ -2826,24 +3209,136 @@ function BuilderAssignmentSection({
             ) : null}
           </div>
         ) : null}
+
+        <dl className="grid gap-3 border-t pt-4 text-sm">
+          <AssignmentIdentityRow
+            action={
+              canAssignBroker ? (
+                <Button
+                  aria-label={`${assignment?.broker ? "Change" : "Assign"} broker for ${brokerAssignmentTarget.displayName}`}
+                  onClick={() => setBrokerDialogOpen(true)}
+                  size="sm"
+                  variant="outline"
+                >
+                  <UserRoundCog aria-hidden />
+                  {assignment?.broker ? "Change broker" : "Assign broker"}
+                </Button>
+              ) : undefined
+            }
+            label="Broker"
+            secondary={assignment?.broker?.email}
+            value={formatProposalIdentity(assignment?.broker)}
+          />
+          <AssignmentIdentityRow
+            label="Brokerage"
+            secondary={assignment?.brokerage?.workosOrganizationId}
+            value={
+              assignment?.brokerage?.displayName ??
+              assignment?.brokerage?.legalName ??
+              "Unknown brokerage"
+            }
+          />
+        </dl>
+
+        <BrokerAssignmentDialog
+          brokerages={assignableBrokerages}
+          brokerOptionsPending={brokerOptionsPending}
+          description={
+            assignment?.builder
+              ? "Choose the broker accountable for this Build Proposal and its attached Builder relationship. Existing active assignments are transferred, not deleted."
+              : "Choose the broker accountable for this Build Proposal and record the assignment reason."
+          }
+          onAssign={async ({ assignedBrokerWorkosUserId, reason }) => {
+            if (!onAssignBroker) {
+              return;
+            }
+            await onAssignBroker(assignedBrokerWorkosUserId, reason);
+          }}
+          onAssigned={() => {
+            setBrokerDialogOpen(false);
+            toast.success(
+              assignment?.broker ? "Broker reassigned." : "Broker assigned."
+            );
+          }}
+          onOpenChange={setBrokerDialogOpen}
+          open={brokerDialogOpen}
+          reasonHelpText="Required. This reason is written to the proposal audit trail and, when attached, the Builder assignment history."
+          reasonPlaceholder="Explain why this broker should own this Build Proposal."
+          targetLabel={assignment?.builder ? "Builder" : "Build Proposal"}
+          targets={[brokerAssignmentTarget]}
+        />
       </div>
     </Section>
   );
 }
 
+type BuilderTeamMemberIdentity = ProductionProposalIdentity & {
+  role?: string;
+};
+
+function proposalBuilderAccounts(
+  builder: ProductionProposalAssignment["builder"]
+): BuilderTeamMemberIdentity[] {
+  if (!builder) {
+    return [];
+  }
+  const accounts = [...(builder.accounts ?? [])];
+  if (accounts.length === 0 && builder.ownerEmail) {
+    accounts.push({
+      email: builder.ownerEmail,
+      role: "owner",
+      workosUserId: `owner:${builder.ownerEmail}`,
+    });
+  }
+  return accounts.sort((left, right) => {
+    const roleOrder =
+      Number(right.role === "owner") - Number(left.role === "owner");
+    if (roleOrder !== 0) {
+      return roleOrder;
+    }
+    return builderTeamMemberName(left).localeCompare(
+      builderTeamMemberName(right)
+    );
+  });
+}
+
+function BuilderTeamMember({ member }: { member: BuilderTeamMemberIdentity }) {
+  const displayName = builderTeamMemberName(member);
+  return (
+    <li className="flex min-w-0 items-center gap-3 border-border border-t pt-2 first:border-t-0 first:pt-0">
+      <Avatar className="size-8 border">
+        <AvatarFallback>
+          {builderTeamMemberInitials(displayName)}
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-medium text-sm">{displayName}</p>
+        <p className="truncate text-muted-foreground text-xs">
+          {member.email ?? member.workosUserId}
+        </p>
+      </div>
+      <Badge size="sm" variant={member.role === "owner" ? "info" : "outline"}>
+        {member.role === "owner" ? "Owner" : "Staff"}
+      </Badge>
+    </li>
+  );
+}
+
 function AssignmentIdentityRow({
+  action,
   label,
   secondary,
   value,
 }: {
+  action?: ReactNode;
   label: string;
   secondary?: string | null;
   value: string;
 }) {
   return (
-    <div className="grid gap-1">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0">
+      <dd className="col-start-1 min-w-0">
         <span className="block truncate font-medium">{value}</span>
         {secondary ? (
           <span className="block truncate text-muted-foreground text-xs">
@@ -2851,7 +3346,29 @@ function AssignmentIdentityRow({
           </span>
         ) : null}
       </dd>
+      {action ? (
+        <dd className="col-start-2 row-span-2 row-start-1 self-center">
+          {action}
+        </dd>
+      ) : null}
     </div>
+  );
+}
+
+function builderTeamMemberName(member: BuilderTeamMemberIdentity) {
+  return member.name?.trim() || member.email?.trim() || member.workosUserId;
+}
+
+function builderTeamMemberInitials(value: string) {
+  const segments = value
+    .replace(/@.*$/, "")
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+  return (
+    segments
+      .slice(0, 2)
+      .map((segment) => segment[0]?.toUpperCase())
+      .join("") || "BT"
   );
 }
 
@@ -2888,40 +3405,46 @@ function BuilderProfileAutocomplete({
     [options, query]
   );
 
-  function selectOption(option: ProductionBuilderOption) {
-    onValueChange(option._id);
-    setQuery(formatBuilderOptionInputValue(option));
-    setOpen(false);
-  }
-
-  function handleInputValueChange(nextQuery: string) {
+  function handleInputValueChange(
+    nextQuery: string,
+    eventDetails: { reason: string }
+  ) {
     setQuery(nextQuery);
-    if (!nextQuery.trim()) {
-      onValueChange("");
-    } else if (
-      selectedOption &&
-      nextQuery !== formatBuilderOptionInputValue(selectedOption)
-    ) {
-      onValueChange("");
+    if (eventDetails.reason === "input-change") {
+      if (
+        selectedOption &&
+        nextQuery !== formatBuilderOptionInputValue(selectedOption)
+      ) {
+        onValueChange("");
+      }
+      setOpen(!disabled);
     }
-    setOpen(!disabled);
   }
 
   return (
-    <Autocomplete
-      autoHighlight="always"
+    <Combobox<ProductionBuilderOption>
+      autoHighlight
       filter={null}
+      inputValue={query}
       items={filteredOptions}
-      itemToStringValue={formatBuilderOptionInputValue}
-      keepHighlight
+      isItemEqualToValue={(option, currentValue) =>
+        option._id === currentValue._id
+      }
+      itemToStringLabel={formatBuilderOptionInputValue}
+      itemToStringValue={(option) => option._id}
       modal={false}
+      onInputValueChange={handleInputValueChange}
       onOpenChange={(nextOpen) => setOpen(nextOpen && !disabled)}
-      onValueChange={handleInputValueChange}
+      onValueChange={(option) => {
+        onValueChange(option?._id ?? "");
+        setQuery(option ? formatBuilderOptionInputValue(option) : "");
+        setOpen(false);
+      }}
       open={open && !disabled}
       openOnInputClick
-      value={query}
+      value={selectedOption ?? null}
     >
-      <AutocompleteInput
+      <ComboboxInput
         aria-label="Builder assignee"
         disabled={disabled}
         id={id}
@@ -2932,38 +3455,39 @@ function BuilderProfileAutocomplete({
         showTrigger
         startAddon={<Search aria-hidden />}
       />
-      <AutocompletePopup>
-        <AutocompleteEmpty>
+      <ComboboxPopup>
+        <ComboboxEmpty>
           {options.length === 0
             ? "No active builders are available in this brokerage."
             : "No builders match this search."}
-        </AutocompleteEmpty>
-        <AutocompleteList>
+        </ComboboxEmpty>
+        <ComboboxList>
           {(option: ProductionBuilderOption) => (
-            <AutocompleteItem
-              className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2.5 py-2"
+            <ComboboxItem
+              className="min-h-12 px-2.5 py-2"
               key={option._id}
-              onClick={() => selectOption(option)}
               value={option}
             >
-              <span className="min-w-0">
-                <span className="block truncate font-medium">
-                  {option.displayName}
+              <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">
+                    {option.displayName}
+                  </span>
+                  <span className="block truncate text-muted-foreground text-xs">
+                    {option.email ??
+                      option.workosUserIds?.[0] ??
+                      "Builder profile"}
+                  </span>
                 </span>
-                <span className="block truncate text-muted-foreground text-xs">
-                  {option.email ??
-                    option.workosUserIds?.[0] ??
-                    "Builder profile"}
-                </span>
+                <Badge className="max-w-28 truncate" variant="outline">
+                  Builder
+                </Badge>
               </span>
-              <Badge className="max-w-28 truncate" variant="outline">
-                Builder
-              </Badge>
-            </AutocompleteItem>
+            </ComboboxItem>
           )}
-        </AutocompleteList>
-      </AutocompletePopup>
-    </Autocomplete>
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
   );
 }
 
@@ -3144,42 +3668,31 @@ function ApprovedProposalConfirmation({
 }
 
 function ProposalReviewDecisionPanel({
-  detail,
   idPrefix,
-  onPermitWaiverReasonChange,
   onReasonChange,
   onReviewDecision,
   pendingDecision,
-  permitFileName,
-  permitViewerDocument,
-  permitWaiverReason,
   proposal,
   reason,
-  showReadiness = false,
 }: {
-  detail: ProductionProposalDetail;
   idPrefix: string;
-  onPermitWaiverReasonChange: (value: string) => void;
   onReasonChange: (value: string) => void;
   onReviewDecision: (
     decision: "approve" | "reject" | "requestChanges"
   ) => Promise<void> | void;
   pendingDecision: "approve" | "reject" | "requestChanges" | null;
-  permitFileName?: string;
-  permitViewerDocument?: BuildPermitViewerDocument | null;
-  permitWaiverReason: string;
   proposal: ProductionProposal;
   reason: string;
-  showReadiness?: boolean;
 }) {
-  const disabled = proposal.status !== "submitted" || pendingDecision !== null;
+  const reviewAvailable = proposal.status === "submitted";
+  const disabled = pendingDecision !== null;
   const reasonId = `${idPrefix}-decision-reason`;
   const reasonHelpId = `${idPrefix}-decision-reason-help`;
 
   return (
-    <Section title="Review decision">
+    <Section title={reviewAvailable ? "Review decision" : "Proposal status"}>
       <div className="grid gap-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <Badge variant="outline">{statusLabel(proposal.status)}</Badge>
             <h2 className="mt-2 font-semibold text-xl tracking-tight">
@@ -3189,75 +3702,80 @@ function ProposalReviewDecisionPanel({
               {proposal.location}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2 sm:justify-end">
-            <Button
-              disabled={disabled}
-              onClick={() => void onReviewDecision("requestChanges")}
-              size="sm"
-              variant="outline"
-            >
-              {pendingDecision === "requestChanges"
-                ? "Requesting..."
-                : "Request Changes"}
-            </Button>
-            <Button
-              disabled={disabled}
-              onClick={() => void onReviewDecision("reject")}
-              size="sm"
-              variant="destructive"
-            >
-              {pendingDecision === "reject" ? "Rejecting..." : "Reject"}
-            </Button>
-            <Button
-              data-testid={`${idPrefix}-approve-proposal`}
-              disabled={disabled}
-              onClick={() => void onReviewDecision("approve")}
-              size="sm"
-            >
-              {pendingDecision === "approve" ? "Approving..." : "Approve Proposal"}
-            </Button>
+          {reviewAvailable ? (
+            <div className="grid min-w-0 grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+              <Button
+                disabled={disabled}
+                onClick={() => void onReviewDecision("requestChanges")}
+                size="sm"
+                variant="outline"
+              >
+                {pendingDecision === "requestChanges"
+                  ? "Requesting..."
+                  : "Request Changes"}
+              </Button>
+              <Button
+                disabled={disabled}
+                onClick={() => void onReviewDecision("reject")}
+                size="sm"
+                variant="destructive"
+              >
+                {pendingDecision === "reject" ? "Rejecting..." : "Reject"}
+              </Button>
+              <Button
+                data-testid={`${idPrefix}-approve-proposal`}
+                disabled={disabled}
+                onClick={() => void onReviewDecision("approve")}
+                size="sm"
+              >
+                {pendingDecision === "approve"
+                  ? "Approving..."
+                  : "Approve Proposal"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+
+        {reviewAvailable ? (
+          <div className="grid gap-2">
+            <Label htmlFor={reasonId}>Decision reason</Label>
+            <Input
+              aria-describedby={reasonHelpId}
+              id={reasonId}
+              onChange={(event) => onReasonChange(event.target.value)}
+              placeholder="Required for material decisions"
+              value={reason}
+            />
+            <p className="text-muted-foreground text-xs" id={reasonHelpId}>
+              Stored on the audit event for approval, rejection, or requested
+              changes.
+            </p>
           </div>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor={reasonId}>Decision reason</Label>
-          <Input
-            aria-describedby={reasonHelpId}
-            id={reasonId}
-            onChange={(event) => onReasonChange(event.target.value)}
-            placeholder="Required for material decisions"
-            value={reason}
-          />
-          <p className="text-muted-foreground text-xs" id={reasonHelpId}>
-            Stored on the audit event for approval, rejection, or requested
-            changes.
+        ) : (
+          <p className="max-w-[65ch] text-muted-foreground text-sm">
+            {proposal.status === "draft"
+              ? "Decision controls unlock after the builder submits this proposal for lender review."
+              : "This proposal is not currently awaiting a lender review decision."}
           </p>
-        </div>
-
-        {showReadiness ? (
-          <ProposalReadinessList
-            detail={detail}
-            onPermitWaiverReasonChange={onPermitWaiverReasonChange}
-            permitFileName={permitFileName}
-            permitViewerDocument={permitViewerDocument}
-            permitWaiverReason={permitWaiverReason}
-            proposalStatus={proposal.status}
-          />
-        ) : null}
+        )}
       </div>
     </Section>
   );
 }
 
 function ProposalReadinessList({
+  canRecordPermitWaiverReason = false,
   detail,
+  onUploadPermitDocument,
   permitFileName,
   permitViewerDocument,
   permitWaiverReason,
   proposalStatus,
   onPermitWaiverReasonChange,
 }: {
+  canRecordPermitWaiverReason?: boolean;
   detail: ProductionProposalDetail;
+  onUploadPermitDocument?: (file: File) => Promise<unknown> | unknown;
   permitFileName?: string;
   permitViewerDocument?: BuildPermitViewerDocument | null;
   permitWaiverReason: string;
@@ -3271,6 +3789,24 @@ function ProposalReadinessList({
   const hasRecordedWaiver = Boolean(detail.permitWaiver);
   const permitGateReady =
     hasPermit || hasRecordedWaiver || pendingWaiverReason.length > 0;
+  const canUploadPermit =
+    Boolean(onUploadPermitDocument) &&
+    !hasPermit &&
+    proposalStatus !== "closed";
+
+  async function uploadPermitDocument(files: File[]) {
+    const file = files[0];
+    if (!(file && onUploadPermitDocument)) {
+      return;
+    }
+    try {
+      await onUploadPermitDocument(file);
+      toast.success("Permit uploaded.");
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+      throw error;
+    }
+  }
 
   return (
     <div className="grid gap-4 text-sm">
@@ -3344,7 +3880,9 @@ function ProposalReadinessList({
           ) : null}
         </div>
 
-        {hasPermit || hasRecordedWaiver ? null : (
+        {hasPermit ||
+        hasRecordedWaiver ||
+        !canRecordPermitWaiverReason ? null : (
           <div className="grid gap-2">
             <Label htmlFor="production-permit-waiver-readiness">
               Audited permit waiver
@@ -3369,6 +3907,19 @@ function ProposalReadinessList({
             </p>
           </div>
         )}
+
+        {canUploadPermit ? (
+          <FileUploader
+            accept="application/pdf,.pdf,.png,.jpg,.jpeg"
+            actionLabel="Upload permit"
+            description="Drop the issued permit or browse from your device."
+            helperText="PDF preferred. Images are accepted when the municipality issued the permit as an image."
+            inputLabel="Select permit document"
+            multiple={false}
+            onUpload={uploadPermitDocument}
+            title="Permit packet"
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -3376,12 +3927,14 @@ function ProposalReadinessList({
 
 function ProposalPacketSnapshot({
   detail,
+  mergedWithReview = false,
   onCreateMilestone,
   onUpdateMilestone,
   onUpdatePermitDocument,
   onUpdateProposedStartDate,
 }: {
   detail: ProductionProposalDetail;
+  mergedWithReview?: boolean;
   onCreateMilestone?: (
     milestone: PacketMilestoneCreatePayload
   ) => Promise<unknown> | unknown;
@@ -3552,6 +4105,83 @@ function ProposalPacketSnapshot({
     );
   }
 
+  /**
+   * Commits a window-only edit (start day + duration) for an individual
+   * submilestone by rebuilding the full PacketMilestonePatch from the current
+   * group. Mirrors the exclusive-end semantics of the packet table
+   * (dayEnd = startDay + durationDays) and reuses ScheduleWindowPicker so the
+   * existing-proposal packet surface matches the worksheet-table interaction.
+   */
+  async function commitSubmilestoneWindow(
+    group: PacketMilestoneGroup,
+    window: ScheduleWindowValue,
+    submilestoneKey: string
+  ) {
+    if (!onUpdateMilestone) {
+      return;
+    }
+    const nextStartDay = Math.round(window.startDay);
+    const nextDurationDays = Math.max(1, Math.round(window.durationDays));
+    const milestone = group.milestone;
+
+    const submilestonePatches: PacketSubmilestonePatch[] =
+      group.submilestones.map((submilestone, index) => {
+        const currentStartDay =
+          submilestone.startDay ??
+          milestone.dayStart + group.fallbackStartOffsets[index];
+        const currentDurationDays =
+          submilestone.durationDays ?? group.fallbackDurations[index] ?? 1;
+        const budgetCents =
+          submilestone.budgetCents ?? group.fallbackBudgets[index] ?? 0;
+        if (submilestone.key !== submilestoneKey) {
+          return {
+            budgetCents,
+            durationDays: currentDurationDays,
+            key: submilestone.key,
+            name: submilestone.name,
+            order: submilestone.order ?? index + 1,
+            startDay: currentStartDay,
+          };
+        }
+        return {
+          budgetCents,
+          durationDays: nextDurationDays,
+          key: submilestone.key,
+          name: submilestone.name,
+          order: submilestone.order ?? index + 1,
+          startDay: nextStartDay,
+        };
+      });
+
+    // The milestone window is always recomputed from the (now-updated)
+    // submilestone windows. dayEnd uses exclusive-end semantics to match the
+    // packet labels and the save path's validation.
+    const windows = submilestonePatches.map((submilestone) => ({
+      dayEnd: (submilestone.startDay ?? 0) + (submilestone.durationDays ?? 1),
+      dayStart: submilestone.startDay ?? 0,
+    }));
+    const dayStart = Math.min(...windows.map((w) => w.dayStart));
+    const dayEnd = Math.max(...windows.map((w) => w.dayEnd));
+
+    const patch: PacketMilestonePatch = {
+      budgetCents: milestone.budgetCents,
+      dayEnd,
+      dayStart,
+      durationDays: Math.max(1, dayEnd - dayStart),
+      name: milestone.name,
+      submilestones: submilestonePatches,
+    };
+
+    setPendingMilestoneKey(milestone.key);
+    try {
+      await onUpdateMilestone(milestone.key, patch);
+    } catch (error) {
+      toast.error(productionProposalActionErrorMessage(error));
+    } finally {
+      setPendingMilestoneKey(null);
+    }
+  }
+
   function updateSubmilestoneOverlayStartDay(value: string) {
     setSubmilestoneOverlayDraft((current) => {
       if (!current) {
@@ -3643,7 +4273,6 @@ function ProposalPacketSnapshot({
       toast.error("Submilestone end day is invalid.");
       return;
     }
-    const durationDays = dayEnd - startDay;
     const budgetCents = dollarsInputToOptionalCents(
       submilestoneOverlayDraft.budgetDollars
     );
@@ -3659,16 +4288,21 @@ function ProposalPacketSnapshot({
     const targetGroup = milestoneGroups.find(
       (group) => group.milestone.key === submilestoneOverlayDraft.milestoneKey
     );
-    if (!(targetGroup || creatingMilestone)) {
+    let targetDraft = creatingMilestone;
+    if (
+      !targetDraft &&
+      milestoneDraft?.mode === "edit" &&
+      milestoneDraft.milestoneKey === submilestoneOverlayDraft.milestoneKey
+    ) {
+      targetDraft = milestoneDraft;
+    }
+    if (!targetDraft && targetGroup) {
+      targetDraft = packetMilestoneFormDraftFromGroup(targetGroup);
+    }
+    if (!targetDraft) {
       toast.error("Milestone was not found.");
       return;
     }
-    const targetDraft =
-      creatingMilestone ??
-      (milestoneDraft?.mode === "edit" &&
-      milestoneDraft.milestoneKey === submilestoneOverlayDraft.milestoneKey
-        ? milestoneDraft
-        : packetMilestoneFormDraftFromGroup(targetGroup!));
     const existingKeys = new Set(
       targetDraft.submilestones.map((submilestone) => submilestone.key)
     );
@@ -3820,9 +4454,13 @@ function ProposalPacketSnapshot({
             <div className="grid gap-3 md:grid-cols-2">
               <DetailGrid
                 rows={[
-                  ["Build", proposal.buildName],
-                  ["Location", proposal.location],
-                  ["Status", statusLabel(proposal.status)],
+                  ...(mergedWithReview
+                    ? []
+                    : ([
+                        ["Build", proposal.buildName],
+                        ["Location", proposal.location],
+                        ["Status", statusLabel(proposal.status)],
+                      ] as [string, ReactNode][])),
                   [
                     "Proposed start date",
                     <PacketProposedStartDateControl
@@ -3841,19 +4479,31 @@ function ProposalPacketSnapshot({
                     />,
                   ],
                   ["Planned duration", `${projectDurationDays} days`],
+                  ...(mergedWithReview
+                    ? ([
+                        [
+                          "Submilestones",
+                          String(detail.submilestones?.length ?? 0),
+                        ],
+                      ] as [string, ReactNode][])
+                    : []),
                 ]}
               />
               <DetailGrid
                 rows={[
-                  ["Loan principal", formatCents(approvedAmountCents)],
-                  [
-                    "Interest rate",
-                    formatInterestAnnualBps(
-                      detail.loanFacility?.interestAnnualBps ??
-                        proposal.interestAnnualBps ??
-                        925
-                    ),
-                  ],
+                  ...(mergedWithReview
+                    ? []
+                    : ([
+                        ["Loan principal", formatCents(approvedAmountCents)],
+                        [
+                          "Interest rate",
+                          formatInterestAnnualBps(
+                            detail.loanFacility?.interestAnnualBps ??
+                              proposal.interestAnnualBps ??
+                              925
+                          ),
+                        ],
+                      ] as [string, ReactNode][])),
                   ["Interest trigger", "Funds released"],
                   ["Reimbursement model", "Work complete before release"],
                 ]}
@@ -4083,27 +4733,10 @@ function ProposalPacketSnapshot({
                         </TableCell>
                       ) : null}
                     </TableRow>
-                    {(editing?.submilestones ?? group.submilestones).map(
+                    {packetSubmilestoneTableRows(group, editing).map(
                       (submilestone, index) => {
-                        const budgetCents = editing
-                          ? dollarsInputToCents(submilestone.budgetDollars)
-                          : (submilestone.budgetCents ??
-                            group.fallbackBudgets[index] ??
-                            0);
-                        const startDay = editing
-                          ? parseInteger(submilestone.startDay)
-                          : (submilestone.startDay ??
-                            group.milestone.dayStart +
-                              group.fallbackStartOffsets[index]);
-                        const durationDays = editing
-                          ? Math.max(
-                              1,
-                              parseInteger(
-                                (submilestone as PacketSubmilestoneFormDraft)
-                                  .dayEnd
-                              ) - startDay
-                            )
-                          : (submilestone.durationDays ?? 1);
+                        const { budgetCents, durationDays, startDay } =
+                          submilestone;
                         return (
                           <TableRow
                             className="h-14 bg-muted/30"
@@ -4140,7 +4773,7 @@ function ProposalPacketSnapshot({
                                         event.currentTarget.value
                                       )
                                     }
-                                    value={submilestone.startDay}
+                                    value={submilestone.startDayDraft}
                                   />
                                   <span className="text-muted-foreground text-xs">
                                     to
@@ -4155,13 +4788,28 @@ function ProposalPacketSnapshot({
                                         event.currentTarget.value
                                       )
                                     }
-                                    value={String(
-                                      (
-                                        submilestone as PacketSubmilestoneFormDraft
-                                      ).dayEnd
-                                    )}
+                                    value={submilestone.dayEndDraft}
                                   />
                                 </div>
+                              ) : canEditMilestones && canShowRealDates ? (
+                                <PacketSubmilestoneWindowCell
+                                  dateDisplayMode={dateDisplayMode}
+                                  durationDays={durationDays}
+                                  onCommit={(window) =>
+                                    void commitSubmilestoneWindow(
+                                      group,
+                                      window,
+                                      submilestone.key
+                                    )
+                                  }
+                                  pending={
+                                    pendingMilestoneKey === group.milestone.key
+                                  }
+                                  proposedStartDate={proposedStartDate}
+                                  startDay={startDay}
+                                  submilestoneName={submilestone.name}
+                                  testId={`packet-submilestone-window-${group.milestone.key}-${submilestone.key}`}
+                                />
                               ) : (
                                 <>
                                   {formatPacketWindow({
@@ -4272,35 +4920,40 @@ function ProposalPacketSnapshot({
           <PacketClosingFinancialsSummary
             approvedAmountCents={approvedAmountCents}
             borrowerCoPayCents={borrowerCoPayCents}
+            borrowerStartingCashCents={proposal.borrowerStartingCashCents}
             closingGapCents={closingGapCents}
             closingState={closingState}
             lenderDrawPolicyLimitCents={proposal.lenderDrawPolicyLimitCents}
+            mergedWithReview={mergedWithReview}
             scheduledReimbursementsCents={totalDrawAmountCents}
             totalBudgetCents={proposal.totalBudgetCents}
-            workingCapitalLimitCents={proposal.borrowerWorkingCapitalLimitCents}
           />
         </Section>
 
-        <Section title="Build details">
-          <PacketBuildDetailsSummary
-            drawCount={draws.length}
-            milestoneCount={detail.milestones?.length ?? 0}
-            permitFileName={permit?.fileName}
-            permitWaiverReason={detail.permitWaiver?.reason}
-            projectDurationDays={projectDurationDays}
-            submilestoneCount={detail.submilestones?.length ?? 0}
-          />
-        </Section>
+        {mergedWithReview ? null : (
+          <>
+            <Section title="Build details">
+              <PacketBuildDetailsSummary
+                drawCount={draws.length}
+                milestoneCount={detail.milestones?.length ?? 0}
+                permitFileName={permit?.fileName}
+                permitWaiverReason={detail.permitWaiver?.reason}
+                projectDurationDays={projectDurationDays}
+                submilestoneCount={detail.submilestones?.length ?? 0}
+              />
+            </Section>
 
-        <Section title="Documents">
-          <PacketPermitUploadPanel
-            canUpload={canUploadPermit}
-            onUpload={uploadPermitDocument}
-            permit={permit}
-            permitViewerDocument={permitViewerDocument}
-            permitWaiverReason={detail.permitWaiver?.reason}
-          />
-        </Section>
+            <Section title="Documents">
+              <PacketPermitUploadPanel
+                canUpload={canUploadPermit}
+                onUpload={uploadPermitDocument}
+                permit={permit}
+                permitViewerDocument={permitViewerDocument}
+                permitWaiverReason={detail.permitWaiver?.reason}
+              />
+            </Section>
+          </>
+        )}
       </div>
     </div>
   );
@@ -4312,55 +4965,61 @@ function PacketClosingFinancialsSummary({
   closingGapCents,
   closingState,
   lenderDrawPolicyLimitCents,
+  mergedWithReview = false,
   scheduledReimbursementsCents,
   totalBudgetCents,
-  workingCapitalLimitCents,
+  borrowerStartingCashCents,
 }: {
   approvedAmountCents: number;
   borrowerCoPayCents: number;
   closingGapCents: number;
   closingState: string;
   lenderDrawPolicyLimitCents: number;
+  mergedWithReview?: boolean;
   scheduledReimbursementsCents: number;
   totalBudgetCents: number;
-  workingCapitalLimitCents: number;
+  borrowerStartingCashCents: number;
 }) {
   return (
     <div className="grid gap-4">
-      <div className="grid gap-2 sm:grid-cols-3">
-        <PacketSummaryMetric
-          icon={<Banknote className="size-4" />}
-          label="Budget"
-          value={formatCents(totalBudgetCents)}
-        />
-        <PacketSummaryMetric
-          icon={<Landmark className="size-4" />}
-          label="Approved principal"
-          value={formatCents(approvedAmountCents)}
-        />
-        <PacketSummaryMetric
-          icon={<ReceiptText className="size-4" />}
-          label="Scheduled reimbursements"
-          value={formatCents(scheduledReimbursementsCents)}
-        />
-      </div>
+      {mergedWithReview ? null : (
+        <div className="grid gap-2 sm:grid-cols-3">
+          <PacketSummaryMetric
+            icon={<Banknote className="size-4" />}
+            label="Budget"
+            value={formatCents(totalBudgetCents)}
+          />
+          <PacketSummaryMetric
+            icon={<Landmark className="size-4" />}
+            label="Approved principal"
+            value={formatCents(approvedAmountCents)}
+          />
+          <PacketSummaryMetric
+            icon={<ReceiptText className="size-4" />}
+            label="Scheduled reimbursements"
+            value={formatCents(scheduledReimbursementsCents)}
+          />
+        </div>
+      )}
 
       <div className="grid gap-3">
         <PacketFinancialProgress
-          label="Reimbursements scheduled"
+          label="Scheduled reimbursements"
           referenceCents={totalBudgetCents}
           valueCents={scheduledReimbursementsCents}
         />
         <PacketFinancialProgress
-          label="Borrower co-pay"
+          label="Borrower Contribution"
           referenceCents={totalBudgetCents}
           valueCents={borrowerCoPayCents}
         />
-        <PacketFinancialProgress
-          label="Working capital limit"
-          referenceCents={totalBudgetCents}
-          valueCents={workingCapitalLimitCents}
-        />
+        {mergedWithReview ? null : (
+          <PacketFinancialProgress
+            label="Borrower starting cash"
+            referenceCents={totalBudgetCents}
+            valueCents={borrowerStartingCashCents}
+          />
+        )}
       </div>
 
       <dl className="grid gap-3 border-t pt-3 text-sm sm:grid-cols-3">
@@ -5117,6 +5776,109 @@ function packetMilestoneFormDraftFromGroup(
   };
 }
 
+function packetSubmilestoneTableRows(
+  group: PacketMilestoneGroup,
+  draft: PacketMilestoneFormDraft | null
+): PacketSubmilestoneTableRow[] {
+  if (draft) {
+    return draft.submilestones.map((submilestone) => {
+      const startDay = parseInteger(submilestone.startDay);
+      return {
+        budgetCents: dollarsInputToCents(submilestone.budgetDollars),
+        budgetDollars: submilestone.budgetDollars,
+        dayEndDraft: submilestone.dayEnd,
+        durationDays: Math.max(1, parseInteger(submilestone.dayEnd) - startDay),
+        key: submilestone.key,
+        name: submilestone.name,
+        startDay,
+        startDayDraft: submilestone.startDay,
+      };
+    });
+  }
+
+  return group.submilestones.map((submilestone, index) => {
+    const budgetCents =
+      submilestone.budgetCents ?? group.fallbackBudgets[index] ?? 0;
+    const durationDays = submilestone.durationDays ?? 1;
+    const startDay =
+      submilestone.startDay ??
+      group.milestone.dayStart + group.fallbackStartOffsets[index];
+    return {
+      budgetCents,
+      budgetDollars: centsToDollarsInput(budgetCents),
+      dayEndDraft: String(startDay + durationDays),
+      durationDays,
+      key: submilestone.key,
+      name: submilestone.name,
+      startDay,
+      startDayDraft: String(startDay),
+    };
+  });
+}
+
+/**
+ * Clickable window cell for a packet submilestone row. Holds the transient
+ * ScheduleWindowValue while the picker is open and commits the rebuilt
+ * PacketMilestonePatch on close. Exclusive-end semantics match the packet
+ * labels ("Day X to Y" where Y = start + duration) and the save path.
+ */
+function PacketSubmilestoneWindowCell({
+  dateDisplayMode,
+  durationDays,
+  onCommit,
+  pending,
+  proposedStartDate,
+  startDay,
+  submilestoneName,
+  testId,
+}: {
+  dateDisplayMode: "relative" | "real";
+  durationDays: number;
+  onCommit: (window: ScheduleWindowValue) => void;
+  pending: boolean;
+  proposedStartDate: string;
+  startDay: number;
+  submilestoneName: string;
+  testId: string;
+}) {
+  const pendingWindowRef = useRef<ScheduleWindowValue | null>(null);
+
+  return (
+    <ScheduleWindowPicker
+      durationDays={durationDays}
+      label={submilestoneName}
+      minDayOffset={0}
+      onCommit={() => {
+        const next = pendingWindowRef.current;
+        if (next && !pending) {
+          onCommit(next);
+        }
+        pendingWindowRef.current = null;
+      }}
+      onWindowChange={(next) => {
+        pendingWindowRef.current = next;
+      }}
+      proposedStartDate={proposedStartDate}
+      startDay={startDay}
+      testId={testId}
+      trigger={
+        <span className="text-left underline-offset-2 hover:underline">
+          {formatPacketWindow({
+            dateDisplayMode,
+            dayEnd: startDay + durationDays,
+            dayStart: startDay,
+            proposedStartDate,
+          })}
+          <span className="ml-1 text-muted-foreground text-xs">
+            {durationDays}d
+          </span>
+        </span>
+      }
+      triggerClassName="inline-flex items-center gap-1 text-sm tabular-nums rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+    />
+  );
+}
+
 function formatPacketWindow({
   dateDisplayMode,
   dayEnd,
@@ -5239,7 +6001,7 @@ function normalizePacketMilestoneFormDraft(
     return null;
   }
   const submilestones = draft.submilestones
-    .map((submilestone, index) => {
+    .map<PacketSubmilestonePatch | null>((submilestone, index) => {
       const submilestoneName = submilestone.name.trim();
       if (!submilestoneName) {
         return null;
@@ -5278,28 +6040,20 @@ function normalizePacketMilestoneFormDraft(
     .filter((submilestone): submilestone is PacketSubmilestonePatch =>
       Boolean(submilestone)
     );
-  const submilestoneWindows = submilestones
-    .map((submilestone) => {
-      const startDay = submilestone.startDay;
-      const durationDays = submilestone.durationDays;
-      if (startDay === undefined || durationDays === undefined) {
-        return null;
-      }
-      return {
+  const submilestoneWindows = submilestones.flatMap((submilestone) => {
+    const startDay = submilestone.startDay;
+    const durationDays = submilestone.durationDays;
+    if (startDay === undefined || durationDays === undefined) {
+      return [];
+    }
+    return [
+      {
         budgetCents: submilestone.budgetCents ?? 0,
         dayEnd: startDay + durationDays,
         dayStart: startDay,
-      };
-    })
-    .filter(
-      (
-        submilestone
-      ): submilestone is {
-        budgetCents: number;
-        dayEnd: number;
-        dayStart: number;
-      } => Boolean(submilestone)
-    );
+      },
+    ];
+  });
   const computedDayStart =
     submilestoneWindows.length === 0
       ? draftDayStart
@@ -5436,10 +6190,21 @@ export function toTimelineRows(
   cards: ProductionKanbanCard[]
 ): TimelinePlanRow[] {
   return cards.map((card) => ({
-    buildName: card.title,
+    budgetGovernance: card.budgetGovernance,
+    buildName: card.buildName ?? card.title,
+    buildStatus: card.buildStatus,
     buildKey: card.activeBuildId,
-    drawCount: 0,
-    milestoneCount: 0,
+    builderName: card.builderName,
+    drawCount: card.drawCount ?? 0,
+    imageUrl: card.imageUrl,
+    kind: card.activeBuildId ? "activeBuild" : "proposal",
+    location: card.location,
+    locationLatitude: card.locationLatitude,
+    locationLongitude: card.locationLongitude,
+    milestoneCount: card.milestoneCount ?? 0,
+    milestonesBehindSchedule: card.milestonesBehindSchedule,
+    pendingDrawRequestCount: card.pendingDrawRequestCount,
+    pendingModificationRequestCount: card.pendingModificationRequestCount,
     planId: card.proposalId,
     status: card.column === "closed" ? "approved" : card.column,
     totalBudgetCents: card.totalBudgetCents,
@@ -5532,6 +6297,21 @@ function iconForMilestoneKey(key: string, name?: string): IsometricIconKey {
   return "change";
 }
 
+function ProposalPlanMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="grid gap-1">
+      <dt className="text-muted-foreground text-xs">{label}</dt>
+      <dd className="font-medium">{value}</dd>
+    </div>
+  );
+}
+
 function Section({
   action,
   children,
@@ -5604,6 +6384,19 @@ function statusLabel(status: ProductionProposalStatus) {
     .split("_")
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
     .join(" ");
+}
+
+function proposalCompactStageState(status: ProductionProposalStatus) {
+  switch (status) {
+    case "draft":
+      return "Incomplete draft";
+    case "submitted":
+      return "Editing blocked while submitted";
+    case "approved":
+      return "Approved";
+    case "closed":
+      return "Closed";
+  }
 }
 
 function formatCents(cents: number) {

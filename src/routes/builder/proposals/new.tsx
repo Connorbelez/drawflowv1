@@ -63,10 +63,14 @@ function NewProductionProposalRoute() {
     try {
       const packagePayload = timelineSetupResultToDraftPackage(result);
       const proposalId = await createDraft({
+        assignedBrokerWorkosUserId: result.assignedBrokerWorkosUserId,
         brokerageId: createContext.brokerage._id,
         builderProfileId: createContext.builderProfile._id,
         buildName: packagePayload.buildName,
         location: packagePayload.location,
+        locationLatitude: result.projectAddressLatitude,
+        locationLongitude: result.projectAddressLongitude,
+        locationPlaceId: result.projectAddressPlaceId,
         proposedStartDate: packagePayload.proposedStartDate,
         workosOrganizationId,
       });
@@ -98,7 +102,7 @@ function NewProductionProposalRoute() {
           };
         })
       );
-      await saveDraft({
+      const saveResult = await saveDraft({
         ...packagePayload,
         documents: [
           ...(packagePayload.documents ?? []),
@@ -107,6 +111,12 @@ function NewProductionProposalRoute() {
         proposalId,
         workosOrganizationId,
       });
+      if (saveResult.warnings.length > 0) {
+        console.warn(
+          "Draft proposal saved with schedule warnings",
+          saveResult.warnings
+        );
+      }
       await navigate({
         params: { proposalId },
         to: result.redirectToDurableRoute
@@ -151,7 +161,11 @@ function NewProductionProposalRoute() {
       <div className="timeline-setup-app-shell-route">
         <TimelineSetupFlow
           baseItems={PRODUCTION_SETUP_BASE_ITEMS}
+          brokerOptions={createContext?.brokers ?? []}
           contractorOptions={createContext?.availableContractors ?? []}
+          defaultAssignedBrokerWorkosUserId={
+            createContext?.defaultAssignedBrokerWorkosUserId
+          }
           onComplete={(result) => void createProductionProposal(result)}
           settingsTemplates={setupTemplates}
         />

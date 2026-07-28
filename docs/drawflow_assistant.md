@@ -40,11 +40,26 @@ Optional fallback:
 
 ```bash
 OPENROUTER_API_KEY=...
+DRAWFLOW_ASSISTANT_MODEL=openai/gpt-5.4-mini
 ```
 
 OpenAI is the first-class provider. OpenRouter is only used when OpenAI is not
 configured. If neither key is configured, the assistant degrades to read-only
 help and the UI states that model-backed actions are unavailable.
+
+OpenRouter model IDs must include their provider namespace. DrawFlow normalizes
+unqualified OpenAI model IDs such as `gpt-5.4-mini` to
+`openai/gpt-5.4-mini` when OpenRouter is selected, but an explicit canonical ID
+is preferred in deployment configuration.
+
+Provider credentials are Convex deployment environment variables, not Vite
+client variables. Validate an OpenRouter key against
+`https://openrouter.ai/api/v1/auth/key` after provisioning it; a `401` means the
+key must be rotated. Site-visit guidance is intentionally fail-soft: missing,
+invalid, rate-limited, or unavailable model providers return deterministic,
+scope-aware field guidance instead of failing the site-visit workflow. The
+server logs only the provider and HTTP status, never the credential or provider
+response body.
 
 ## Closed Action Catalog
 

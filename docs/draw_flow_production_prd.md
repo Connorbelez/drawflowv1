@@ -544,7 +544,7 @@ Builder actions:
 
 1. Enter build identity and site.
 2. Upload permits/documents.
-3. Enter budget, borrower working capital, and co-pay assumptions.
+3. Enter budget, borrower working capital, and Loan Percentage assumptions.
 4. Select construction template.
 5. Edit milestones, durations, dependencies, and costs.
 6. Add contractors to project or milestone by creating/searching contractor profiles.

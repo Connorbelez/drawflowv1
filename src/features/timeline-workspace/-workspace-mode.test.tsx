@@ -1,12 +1,19 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import {
   buildCashUseSummary,
+  toDemoTimelinePlanStateMutationInput,
   TimelineWorkspace,
   type TimelineWorkspaceProps,
 } from "./index.tsx";
@@ -51,11 +58,21 @@ vi.mock("sonner", () => ({
 vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
   AnimatedCurvedTimeline: ({ insertion, markers = [], renderMarker }: any) => (
     <div data-testid="mock-animated-timeline">
-      {insertion?.actions?.map((action: { id: string; label: string }) => (
-        <button key={action.id} type="button">
-          {action.label}
-        </button>
-      ))}
+      {insertion?.actions?.map(
+        (action: {
+          id: string;
+          label: string;
+          onSelect?: (input: { requestedX: number }) => void;
+        }) => (
+          <button
+            key={action.id}
+            onClick={() => action.onSelect?.({ requestedX: 10 })}
+            type="button"
+          >
+            {action.label}
+          </button>
+        ),
+      )}
       {insertion?.label ? <span>{insertion.label}</span> : null}
       {markers.map((marker: any) => (
         <div data-testid={`mock-marker-${marker.id}`} key={marker.id}>
@@ -129,7 +146,7 @@ const draw: DemoDraw = {
   id: "draw-01",
   itemId: "foundation",
   label: "Draw 01",
-  x: 21,
+  x: 22,
 };
 
 test("cash use summary separates lender draws from builder cash exposure", () => {
@@ -334,6 +351,34 @@ function workspaceProps({
   };
 }
 
+test("removes production-only reserve data from demo timeline plan persistence", () => {
+  expect(
+    toDemoTimelinePlanStateMutationInput({
+      currentDay: 12,
+      minimumCashReserveCents: 5_000_000,
+      progressValue: 12,
+      rangeMax: 90,
+      rangeMin: 0,
+      routeState: {
+        activeMilestoneKey: "foundation",
+        selectedPanelOpen: true,
+        straightLine: true,
+      },
+      startingCashCents: 40_000_000,
+    }),
+  ).toEqual({
+    currentDay: 12,
+    progressValue: 12,
+    rangeMax: 90,
+    rangeMin: 0,
+    routeState: {
+      activeMilestoneKey: "foundation",
+      selectedPanelOpen: true,
+      straightLine: true,
+    },
+    startingCashCents: 40_000_000,
+  });
+});
 describe("TimelineWorkspace mode split", () => {
   test("keeps approved production proposals in proposal mode without live execution controls", () => {
     renderWorkspace({ workspaceMode: "proposal" });
@@ -360,7 +405,7 @@ describe("TimelineWorkspace mode split", () => {
           amount: 100,
           id: "supplier-deposit",
           label: "supplier-deposit",
-          x: 20,
+          x: 25,
         },
       ],
       startingCash: 120,
@@ -379,7 +424,6 @@ describe("TimelineWorkspace mode split", () => {
 
     expect(optimizeButton.disabled).toBe(false);
     fireEvent.click(optimizeButton);
-
     expect(deleteDraw).toHaveBeenCalledWith({ drawKey: "draw-01" });
     expect(createDraw).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -389,7 +433,7 @@ describe("TimelineWorkspace mode split", () => {
         order: 1,
       }),
     );
-    expect(createDraw.mock.calls[0]?.[0].x).toBeLessThan(20);
+    expect(createDraw.mock.calls[0]?.[0].x).toBeLessThan(25);
   });
 
   test("optimizes when same-day borrower cash funds milestone deposits", () => {
@@ -410,7 +454,7 @@ describe("TimelineWorkspace mode split", () => {
           amount: 50,
           id: "supplier-deposit",
           label: "supplier-deposit",
-          x: 10,
+          x: 15,
         },
       ],
       items: baseline.items.map((item) => ({
@@ -444,10 +488,10 @@ describe("TimelineWorkspace mode split", () => {
         order: 1,
       }),
     );
-    expect(createDraw.mock.calls[0]?.[0].x).toBe(9);
+    expect(createDraw.mock.calls[0]?.[0].x).toBe(14);
   });
 
-  test("optimizes draft proposal with in-milestone draws instead of cash infusions", () => {
+  test("rejects a draft proposal that would require an in-milestone advance", () => {
     const createCashInfusion = vi.fn().mockResolvedValue(undefined);
     const createDraw = vi.fn().mockResolvedValue(undefined);
     const deleteDraw = vi.fn().mockResolvedValue(undefined);
@@ -476,18 +520,10 @@ describe("TimelineWorkspace mode split", () => {
     fireEvent.click(screen.getByTestId("timeline-optimize-scenario"));
 
     expect(createCashInfusion).not.toHaveBeenCalled();
-    expect(toast.error).not.toHaveBeenCalled();
-    expect(createDraw).toHaveBeenCalledWith(
-      expect.objectContaining({
-        amountCents: 5_000,
-        customDate: true,
-        itemMilestoneKey: "foundation",
-        label: "Draw 01",
-        order: 1,
-      }),
+    expect(createDraw).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      expect.stringContaining("only $0 is unlocked"),
     );
-    expect(createDraw.mock.calls[0]?.[0].x).toBeGreaterThan(0);
-    expect(createDraw.mock.calls[0]?.[0].x).toBeLessThan(10);
   });
 
   test("reports when draft proposal draws are already optimized", () => {
@@ -508,7 +544,7 @@ describe("TimelineWorkspace mode split", () => {
           amount: 50,
           id: "supplier-deposit",
           label: "supplier-deposit",
-          x: 10,
+          x: 15,
         },
       ],
       draws: [
@@ -516,8 +552,9 @@ describe("TimelineWorkspace mode split", () => {
           amount: 50,
           customDate: true,
           id: "existing-optimized-draw",
+          itemId: "foundation",
           label: "Draw 01",
-          x: 9,
+          x: 14,
         },
       ],
       items: baseline.items.map((item) => ({
@@ -542,8 +579,8 @@ describe("TimelineWorkspace mode split", () => {
 
     fireEvent.click(screen.getByTestId("timeline-optimize-scenario"));
 
-    expect(deleteDraw).not.toHaveBeenCalled();
     expect(createDraw).not.toHaveBeenCalled();
+    expect(deleteDraw).not.toHaveBeenCalled();
     expect(toast.success).toHaveBeenCalledWith(
       expect.stringContaining("already optimized"),
     );
@@ -681,6 +718,28 @@ describe("TimelineWorkspace mode split", () => {
       screen.getByTestId("selected-milestone-plan-summary").textContent,
     ).toContain("Draw availability unlocked");
     expect(
+      screen.getByTestId("selected-milestone-cumulative-draw-position")
+        .textContent,
+    ).toContain("Cumulative through unlock");
+    expect(
+      screen.getByTestId("selected-milestone-total-unlocked").textContent,
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("selected-milestone-total-drawn").textContent,
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("selected-milestone-available-to-draw").textContent,
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-cashflow-total-unlocked").textContent,
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-cashflow-total-drawn").textContent,
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("timeline-cashflow-available-to-draw").textContent,
+    ).toBeTruthy();
+    expect(
       screen.getByTestId("timeline-cashflow-lender-cash-used").textContent,
     ).toContain("$96,000");
 
@@ -773,7 +832,7 @@ describe("TimelineWorkspace mode split", () => {
     expect(screen.getByText("Request site visit")).toBeTruthy();
   });
 
-  test("accepts any positive draw amount in the inline draw editor", () => {
+  test("accepts draw amounts within unlocked capacity and blocks overages", () => {
     const updateDraw = vi.fn().mockResolvedValue(undefined);
     renderWorkspace({
       persistence: { updateDraw },
@@ -801,6 +860,109 @@ describe("TimelineWorkspace mode split", () => {
         drawKey: "draw-01",
       }),
     );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Draw 01 date and amount",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Draw amount"), {
+      target: { value: "100000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Only $96,000 is unlocked and available to draw by day 22.",
+    );
+    expect(updateDraw).toHaveBeenCalledTimes(1);
+  });
+
+  test("blocks adding a draw before reimbursement capacity unlocks", () => {
+    renderWorkspace({
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add draw" }));
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Edit Draw 02 date and amount" }),
+    ).toBeNull();
+  });
+
+  test("contains raw timeline persistence failures in a safe status message", async () => {
+    const updateDraw = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error(
+          "ConvexError demo_timeline_plans.updateDraw requestId=req-secret payload={drawKey:draw-01} /srv/convex/demo_timeline_plans.ts",
+        ),
+      )
+      .mockResolvedValueOnce(undefined);
+    renderWorkspace({
+      persistence: { updateDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Draw 01 date and amount",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Draw amount"), {
+      target: { value: "87965" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /^Unable to save draw update\. Changes are still local\. Reference TL-[A-Z0-9-]+\.$/,
+        ),
+      ),
+    );
+    expect(screen.getByTestId("timeline-durable-save-status").textContent).toBe(
+      "Unsaved changes",
+    );
+    expect(
+      vi.mocked(toast.error).mock.calls.some(([message]) =>
+        /ConvexError|requestId=req-secret|payload=|\/srv\//i.test(String(message)),
+      ),
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+    await waitFor(() => expect(updateDraw).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("timeline-durable-save-status").textContent).toBe(
+        "Saved",
+      ),
+    );
+  });
+
+  test("collapses secondary financial charts behind compact disclosures", () => {
+    mediaQueryMockState.isMobile = true;
+    renderWorkspace({ initialRole: "lender", workspaceMode: "live" });
+
+    const cashflowDisclosure = screen.getByRole("button", {
+      name: "Cash flow analytics",
+    });
+    const availabilityDisclosure = screen.getByRole("button", {
+      name: "Draw availability analytics",
+    });
+    expect(cashflowDisclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(availabilityDisclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      screen.queryByRole("region", { name: "Cash flow analytics detail" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("region", {
+        name: "Draw availability analytics detail",
+      }),
+    ).toBeNull();
   });
 
   test("opens mobile milestone cards in the existing drawer", async () => {

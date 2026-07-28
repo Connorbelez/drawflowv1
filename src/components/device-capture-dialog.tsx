@@ -15,6 +15,9 @@ import {
 
 export type DeviceCaptureKind = "photo" | "video";
 
+const VIDEO_DURATION_LIMIT_SECONDS = 90;
+const VIDEO_MEMORY_LIMIT_BYTES = 200_000_000;
+
 export function DeviceCaptureDialog({
   kind,
   onCapture,
@@ -33,9 +36,12 @@ export function DeviceCaptureDialog({
   const chunksRef = useRef<Blob[]>([]);
   const discardRecordingRef = useRef(false);
   const fallbackInputRef = useRef<HTMLInputElement>(null);
+  const recordingIntervalRef = useRef<number | null>(null);
+  const recordingTimeoutRef = useRef<number | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [error, setError] = useState("");
   const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [starting, setStarting] = useState(false);
 
   const stopStream = useCallback((discardRecording = true) => {
@@ -54,7 +60,16 @@ export function DeviceCaptureDialog({
     }
     setCameraReady(false);
     setRecording(false);
+    setRecordingSeconds(0);
     setStarting(false);
+    if (recordingIntervalRef.current !== null) {
+      window.clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+    if (recordingTimeoutRef.current !== null) {
+      window.clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -64,6 +79,7 @@ export function DeviceCaptureDialog({
     }
 
     let disposed = false;
+    let startupTimedOut = false;
     setError("");
     setStarting(true);
     setCameraReady(false);
@@ -75,6 +91,15 @@ export function DeviceCaptureDialog({
       );
       return;
     }
+    const startupTimeout = window.setTimeout(() => {
+      if (!disposed) {
+        startupTimedOut = true;
+        setStarting(false);
+        setError(
+          "The live camera did not start. Use the device camera now or retry the live preview."
+        );
+      }
+    }, 12_000);
 
     getUserMedia
       .call(navigator.mediaDevices, {
@@ -82,7 +107,8 @@ export function DeviceCaptureDialog({
         video: { facingMode: { ideal: "environment" } },
       })
       .then(async (stream) => {
-        if (disposed) {
+        window.clearTimeout(startupTimeout);
+        if (disposed || startupTimedOut) {
           for (const track of stream.getTracks()) {
             track.stop();
           }
@@ -97,7 +123,8 @@ export function DeviceCaptureDialog({
         setCameraReady(true);
       })
       .catch(() => {
-        if (!disposed) {
+        window.clearTimeout(startupTimeout);
+        if (!(disposed || startupTimedOut)) {
           setError(
             "Camera access was blocked or unavailable. Check browser permissions or use the fallback."
           );
@@ -111,6 +138,7 @@ export function DeviceCaptureDialog({
 
     return () => {
       disposed = true;
+      window.clearTimeout(startupTimeout);
       stopStream();
     };
   }, [kind, open, stopStream]);
@@ -172,6 +200,19 @@ export function DeviceCaptureDialog({
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
         chunksRef.current.push(event.data);
+        const capturedBytes = chunksRef.current.reduce(
+          (sum, chunk) => sum + chunk.size,
+          0
+        );
+        if (
+          capturedBytes >= VIDEO_MEMORY_LIMIT_BYTES &&
+          recorder.state === "recording"
+        ) {
+          setError(
+            "Recording stopped at the mobile memory limit. The captured video is ready to review."
+          );
+          recorder.stop();
+        }
       }
     };
     recorder.onerror = () => {
@@ -200,6 +241,20 @@ export function DeviceCaptureDialog({
     };
     recorderRef.current = recorder;
     recorder.start(250);
+    const startedAt = Date.now();
+    setRecordingSeconds(0);
+    recordingIntervalRef.current = window.setInterval(
+      () => setRecordingSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      1000
+    );
+    recordingTimeoutRef.current = window.setTimeout(() => {
+      if (recorder.state === "recording") {
+        setError(
+          `Recording stopped at the ${VIDEO_DURATION_LIMIT_SECONDS}-second field-video limit.`
+        );
+        recorder.stop();
+      }
+    }, VIDEO_DURATION_LIMIT_SECONDS * 1000);
     setRecording(true);
   };
 
@@ -247,7 +302,7 @@ export function DeviceCaptureDialog({
               ref={videoRef}
             />
             {starting ? (
-              <div className="absolute inset-0 grid place-items-center bg-black/60 text-white">
+              <div className="absolute inset-0 grid place-items-center bg-foreground/70 text-background">
                 <span className="flex items-center gap-2 text-sm">
                   <LoaderCircle
                     aria-hidden="true"
@@ -258,9 +313,9 @@ export function DeviceCaptureDialog({
               </div>
             ) : null}
             {recording ? (
-              <div className="absolute top-3 left-3 flex items-center gap-2 rounded-full bg-red-600 px-3 py-1.5 font-medium text-white text-xs">
-                <span className="size-2 animate-pulse rounded-full bg-white" />
-                Recording
+              <div className="absolute top-3 left-3 flex items-center gap-2 rounded-full bg-destructive px-3 py-1.5 font-medium text-destructive-foreground text-xs">
+                <span className="size-2 animate-pulse rounded-full bg-destructive-foreground" />
+                Recording {formatRecordingDuration(recordingSeconds)} / 1:30
               </div>
             ) : null}
           </div>
@@ -293,15 +348,13 @@ export function DeviceCaptureDialog({
           <Button onClick={close} type="button" variant="outline">
             Cancel
           </Button>
-          {error ? (
-            <Button
-              onClick={() => fallbackInputRef.current?.click()}
-              type="button"
-              variant="outline"
-            >
-              Use device fallback
-            </Button>
-          ) : null}
+          <Button
+            onClick={() => fallbackInputRef.current?.click()}
+            type="button"
+            variant="outline"
+          >
+            Use device camera
+          </Button>
           {kind === "photo" ? (
             <Button
               disabled={!cameraReady || starting}
@@ -349,4 +402,9 @@ function preferredVideoMimeType() {
 
 function videoExtension(mimeType: string) {
   return mimeType.includes("mp4") ? "mp4" : "webm";
+}
+
+function formatRecordingDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }

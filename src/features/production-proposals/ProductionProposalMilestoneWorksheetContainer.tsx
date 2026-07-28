@@ -2,7 +2,11 @@ import { useMutation } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import type { ContractorPlanningModel } from "#/features/contractors/ContractorPlanningPanel.tsx";
-import type { TimelineMilestoneWorksheetRow } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
+import type { MaterialPlanningActions } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import type {
+  TimelineMilestoneWorksheetRow,
+  WorksheetContractorActions,
+} from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
@@ -15,18 +19,22 @@ import {
 } from "./productionMilestoneWorksheetAdapter.ts";
 
 export function ProductionProposalMilestoneWorksheetContainer({
+  canMutateContractors = true,
   contractorPlanning,
   detail,
   footerExtra,
+  materialPlanningActions,
   persistenceMode = "noop",
   proposalId,
   showHeading = false,
   templateTitle,
   workosOrganizationId,
 }: {
+  canMutateContractors?: boolean;
   contractorPlanning?: ContractorPlanningModel | null;
   detail: ProductionProposalWorksheetDetail;
   footerExtra?: React.ReactNode;
+  materialPlanningActions?: MaterialPlanningActions;
   persistenceMode?: "convex" | "noop";
   proposalId: Id<"buildProposals">;
   showHeading?: boolean;
@@ -41,6 +49,18 @@ export function ProductionProposalMilestoneWorksheetContainer({
   );
   const deleteMilestone = useMutation(
     api.production_proposals.deleteProductionTimelineMilestone
+  );
+  const attachProposalContractor = useMutation(
+    (api as any).production_proposals.attachProposalContractor
+  );
+  const attachAndInviteProposalContractor = useMutation(
+    (api as any).production_proposals.attachAndInviteProposalContractor
+  );
+  const createAndAttachProposalContractor = useMutation(
+    (api as any).production_proposals.createAndAttachProposalContractor
+  );
+  const sendContractorInvite = useMutation(
+    (api as any).contractorOnboarding.sendContractorProfileInvite
   );
 
   const projectedMilestones = useMemo(
@@ -63,6 +83,58 @@ export function ProductionProposalMilestoneWorksheetContainer({
 
   const canPersist =
     persistenceMode === "convex" && detail.proposal.status !== "closed";
+  // Keep create/attach available whenever the surface is live. Server-side
+  // authorization still enforces contractor permissions on each mutation.
+  // Do not couple this to milestone worksheet persistenceMode — milestone
+  // edits can be locked while crew creation remains valid.
+  const allowContractorMutations =
+    canMutateContractors && detail.proposal.status !== "closed";
+
+  const contractorActions = useMemo<WorksheetContractorActions | undefined>(
+    () =>
+      allowContractorMutations
+        ? {
+            availableContractors:
+              contractorPlanning?.availableContractors ?? [],
+            onAttachAndInviteExisting: ({ contractorId, role }) =>
+              attachAndInviteProposalContractor({
+                contractorId: contractorId as Id<"contractorProfiles">,
+                proposalId,
+                role,
+                workosOrganizationId,
+              }),
+            onAttachExisting: ({ contractorId, role }) =>
+              attachProposalContractor({
+                contractorId: contractorId as Id<"contractorProfiles">,
+                proposalId,
+                role,
+                workosOrganizationId,
+              }),
+            onCreate: ({ contractor, role }) =>
+              createAndAttachProposalContractor({
+                contractor,
+                proposalId,
+                role,
+                workosOrganizationId,
+              }),
+            onInviteCreatedContractor: (contractorId) =>
+              sendContractorInvite({
+                contractorId: contractorId as Id<"contractorProfiles">,
+                workosOrganizationId,
+              }),
+          }
+        : undefined,
+    [
+      allowContractorMutations,
+      attachAndInviteProposalContractor,
+      attachProposalContractor,
+      contractorPlanning?.availableContractors,
+      createAndAttachProposalContractor,
+      proposalId,
+      sendContractorInvite,
+      workosOrganizationId,
+    ]
+  );
 
   const onPersistRows = useCallback(
     async (nextRows: TimelineMilestoneWorksheetRow[]) => {
@@ -133,9 +205,11 @@ export function ProductionProposalMilestoneWorksheetContainer({
 
   return (
     <ProductionProposalMilestoneWorksheet
+      contractorActions={contractorActions}
       contractorPlanning={contractorPlanning}
       detail={detail}
       footerExtra={footer}
+      materialPlanningActions={materialPlanningActions}
       onPersistRows={canPersist ? onPersistRows : undefined}
       showHeading={showHeading}
       templateTitle={templateTitle}

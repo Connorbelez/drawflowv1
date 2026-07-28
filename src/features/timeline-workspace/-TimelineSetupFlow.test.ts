@@ -57,6 +57,8 @@ describe("buildPlanningPayloadFromSetupRows", () => {
       ],
       costItems: [
         {
+          budgetSubmilestoneKey: "forms",
+          budgetTreatment: "add",
           costCents: 8_000_00,
           description: "<p>Concrete mix</p>",
           id: "cost-item-1",
@@ -101,6 +103,8 @@ describe("buildPlanningPayloadFromSetupRows", () => {
       ],
       costItems: [
         {
+          budgetSubmilestoneKey: "forms",
+          budgetTreatment: "add",
           costCents: 8_000_00,
           description: "<p>Concrete mix</p>",
           itemType: "material",
@@ -115,13 +119,13 @@ describe("buildPlanningPayloadFromSetupRows", () => {
   });
 });
 
-describe("TimelineSetupFlow reimbursement percentage", () => {
-  test("parses co-pay percentages into basis points", () => {
+describe("TimelineSetupFlow loan percentage", () => {
+  test("parses percentages into basis points", () => {
     expect(parsePercentTextToBps("20%")).toBe(2_000);
     expect(parsePercentTextToBps("10")).toBe(1_000);
   });
 
-  test("uses 20% co-pay fallback and custom percentages for draw availability", () => {
+  test("uses an 80% loan percentage fallback for draw availability", () => {
     expect(buildTimelineItemsFromSetupRows([row])[0]?.data).toMatchObject({
       amount: 100_000,
       drawAvailabilityAmount: 80_000,

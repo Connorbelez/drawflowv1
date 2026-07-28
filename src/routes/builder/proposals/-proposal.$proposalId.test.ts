@@ -1,11 +1,235 @@
-import { describe, expect, test } from "vitest";
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createElement, type ReactNode } from "react";
+import { afterEach, describe, expect, test, vi } from "vitest";
+
+const mockNavigate = vi.fn();
+const builderVisualProposalDetail = {
+  activeBuild: null,
+  appPermissions: {
+    "contractor:create": true,
+    "contractor:update": true,
+    "contractor:view": true,
+    "evidence:create": true,
+    "milestone:create": true,
+    "milestone:delete": true,
+    "milestone:update": true,
+    "submilestone:create": true,
+    "submilestone:delete": true,
+    "submilestone:update": true,
+  },
+  costItems: [],
+  draws: [
+    {
+      amountCents: 400_000_00,
+      drawKey: "draw-01",
+      label: "Foundation reimbursement",
+      timingDay: 30,
+    },
+  ],
+  proposal: {
+    buildName: "Elm Street proposal",
+    proposedStartDate: "2026-07-01",
+    status: "submitted",
+  },
+};
+
+vi.mock("@tanstack/react-router", () => ({
+  createFileRoute: () =>
+    () => ({
+      useParams: () => ({ proposalId: "proposal-01" }),
+      useRouteContext: () => ({ organizationId: "org-01" }),
+      useSearch: () => ({}),
+    }),
+  useNavigate: () => mockNavigate,
+}));
+
+vi.mock("convex/react", () => ({
+  useMutation: () => vi.fn().mockResolvedValue(undefined),
+  useQuery: () => undefined,
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: vi.fn(),
+    success: vi.fn(),
+  },
+}));
+
+vi.mock("#/features/builder-staff/app-permissions.ts", () => ({
+  canUseAppPermission: (
+    permissions: Record<string, boolean> | undefined,
+    resource: string,
+    action: string,
+  ) => Boolean(permissions?.[`${resource}:${action}`]),
+  filterMaterialPlanningActionsForPermissions: (
+    _permissions: unknown,
+    actions: unknown,
+  ) => actions,
+  hasAnyAppPermission: (
+    permissions: Record<string, boolean> | undefined,
+    requirements: Array<[string, string]>,
+  ) => requirements.some(([resource, action]) => permissions?.[`${resource}:${action}`]),
+}));
+
+vi.mock("#/features/calendar-workspace/adapters/proposalCalendarAdapter.ts", () => ({
+  createProposalCalendarEditHandler: () => vi.fn(),
+}));
+
+vi.mock("#/features/production-proposals/ProductionContractorPlanningTab.tsx", () => ({
+  ProductionContractorPlanningTab: ({ canMutate }: { canMutate: boolean }) =>
+    createElement("output", { "data-testid": "contractor-mutation-mode" }, String(canMutate)),
+}));
+
+vi.mock("#/features/production-proposals/ProductionProposalGanttWorkspace.tsx", () => ({
+  ProductionProposalTimelineGanttWorkspace: ({
+    persistenceMode,
+  }: {
+    persistenceMode: string;
+  }) => createElement("output", { "data-testid": "gantt-persistence-mode" }, persistenceMode),
+}));
+
+vi.mock(
+  "#/features/production-proposals/ProductionProposalMilestoneWorksheetContainer.tsx",
+  () => ({
+    ProductionProposalMilestoneWorksheetContainer: ({
+      persistenceMode,
+    }: {
+      persistenceMode: string;
+    }) =>
+      createElement(
+        "output",
+        { "data-testid": "milestone-persistence-mode" },
+        persistenceMode
+      ),
+  })
+);
+
+vi.mock("#/features/production-proposals/ProductionTimelineWorkspace.tsx", () => ({
+  ProductionTimelineWorkspace: ({ persistenceMode }: { persistenceMode: string }) =>
+    createElement("output", { "data-testid": "timeline-persistence-mode" }, persistenceMode),
+}));
+
+vi.mock("#/features/production-proposals/visualParityFixtures.ts", () => ({
+  createVisualParityCostItem: vi.fn(),
+  getVisualParityProposalDetail: () => builderVisualProposalDetail,
+  getVisualParityTimelineWorkspace: () => ({ contractorPlanning: undefined }),
+  isProductionVisualParityFixtureEnabled: () => true,
+}));
+
+vi.mock("#/features/production-proposals/ProductionProposalSurfaces.tsx", () => ({
+  ProductionProposalReviewSurface: (props: {
+    materialPlanningActions?: unknown;
+    onApprove?: unknown;
+    onChangeCalendarTimeframe?: (timeframe: string) => void;
+    onChangeReviewTab?: (tab: string) => void;
+    onCreatePacketMilestone?: unknown;
+    onReject?: unknown;
+    onRequestChanges?: unknown;
+    onSubmit?: unknown;
+    onUpdateDraw?: unknown;
+    onUpdatePacketMilestone?: unknown;
+    onUpdateProposedStartDate?: unknown;
+    onUploadPermitDocument?: unknown;
+    contractors?: ReactNode;
+    gantt?: ReactNode;
+    milestones?: ReactNode;
+    timeline?: ReactNode;
+  }) =>
+    createElement(
+      "div",
+      {},
+      props.onApprove || props.onReject || props.onRequestChanges
+        ? createElement(
+            "section",
+            { "aria-label": "Lender review controls" },
+            createElement("button", {}, "Request Changes"),
+            createElement("button", {}, "Reject"),
+            createElement("button", {}, "Approve Proposal"),
+            createElement(
+              "label",
+              {},
+              "Decision reason",
+              createElement("input", { "aria-label": "Decision reason" }),
+            ),
+            createElement(
+              "label",
+              {},
+              "Audited permit waiver",
+              createElement("textarea", {
+                "aria-label": "Audited permit waiver",
+              }),
+            ),
+          )
+        : null,
+      props.onUpdateDraw
+        ? createElement(
+            "section",
+            { "aria-label": "Backoffice draw editor" },
+            createElement(
+              "label",
+              {},
+              "draw-01 label",
+              createElement("input", { "aria-label": "draw-01 label" }),
+            ),
+            createElement(
+              "label",
+              {},
+              "Amount dollars",
+              createElement("input", { "aria-label": "Amount dollars" }),
+            ),
+            createElement(
+              "label",
+              {},
+              "Change reason",
+              createElement("input", { "aria-label": "Change reason" }),
+            ),
+            createElement("button", {}, "Save draw row"),
+          )
+        : null,
+      props.onChangeReviewTab
+        ? createElement(
+            "button",
+            { onClick: () => props.onChangeReviewTab?.("materials") },
+            "Open materials stage",
+          )
+        : null,
+      props.onChangeCalendarTimeframe
+        ? createElement(
+            "button",
+            { onClick: () => props.onChangeCalendarTimeframe?.("month") },
+            "Show calendar month",
+          )
+        : null,
+      props.materialPlanningActions ||
+      props.onCreatePacketMilestone ||
+      props.onSubmit ||
+      props.onUpdatePacketMilestone ||
+      props.onUpdateProposedStartDate ||
+      props.onUploadPermitDocument
+        ? createElement("button", {}, "Proposal mutations wired")
+        : null,
+      props.contractors,
+      props.gantt,
+      props.milestones,
+      props.timeline,
+    ),
+}));
 
 import {
+  BuilderProductionProposalWorkspace,
   resolveBuilderProposalRouteTab,
+  validateBuilderProposalSearch,
   shouldLoadBuilderProposalCalendarWorkspace,
   shouldLoadBuilderProposalContractorPlanning,
   shouldMountBuilderProposalStaffPanel,
 } from "./$proposalId/index.tsx";
+
+afterEach(() => {
+  cleanup();
+  mockNavigate.mockReset();
+});
 
 describe("builder proposal detail subscription gates", () => {
   test("uses the shared packet-first proposal tab contract", () => {
@@ -15,6 +239,15 @@ describe("builder proposal detail subscription gates", () => {
     expect(shouldLoadBuilderProposalCalendarWorkspace(activeTab)).toBe(false);
     expect(shouldLoadBuilderProposalContractorPlanning(activeTab)).toBe(false);
     expect(shouldMountBuilderProposalStaffPanel(activeTab)).toBe(false);
+  });
+
+  test("round-trips valid builder tab and timeframe search", () => {
+    expect(
+      validateBuilderProposalSearch({ tab: "calendar", timeframe: "week" }),
+    ).toEqual({ tab: "calendar", timeframe: "week" });
+    expect(
+      validateBuilderProposalSearch({ tab: "milestones", timeframe: "agenda" }),
+    ).toEqual({ tab: "milestones", timeframe: "agenda" });
   });
 
   test("loads heavyweight subscriptions only for matching shared tabs", () => {
@@ -32,5 +265,86 @@ describe("builder proposal detail subscription gates", () => {
 
     expect(shouldMountBuilderProposalStaffPanel("staff")).toBe(true);
     expect(shouldMountBuilderProposalStaffPanel("packet")).toBe(false);
+  });
+});
+
+describe("BuilderProductionProposalWorkspace route search", () => {
+  test("preserves timeframe while changing stage and preserves stage while changing timeframe", () => {
+    render(
+      createElement(BuilderProductionProposalWorkspace, {
+        includeStaffTab: false,
+        proposalId: "proposal-01",
+        routeBase: "/builder-staff",
+        search: { tab: "calendar", timeframe: "week" },
+        workosOrganizationId: "org-01",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open materials stage" }));
+    expect(mockNavigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        search: { tab: "materials", timeframe: "week" },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show calendar month" }));
+    expect(mockNavigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        search: { tab: "calendar", timeframe: "month" },
+      }),
+    );
+  });
+});
+
+describe("BuilderProductionProposalWorkspace authorization gates", () => {
+  test("does not wire lender-only review or backoffice draw controls into the builder workspace", () => {
+    render(
+      createElement(BuilderProductionProposalWorkspace, {
+        includeStaffTab: false,
+        proposalId: "proposal-01",
+        routeBase: "/builder",
+        search: { tab: "review" },
+        workosOrganizationId: "org-01",
+      }),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Request Changes" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Approve Proposal" }),
+    ).toBeNull();
+    expect(screen.queryByLabelText("Decision reason")).toBeNull();
+    expect(screen.queryByLabelText("Audited permit waiver")).toBeNull();
+    expect(screen.queryByLabelText("draw-01 label")).toBeNull();
+    expect(screen.queryByLabelText("Amount dollars")).toBeNull();
+    expect(screen.queryByLabelText("Change reason")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save draw row" })).toBeNull();
+  });
+
+  test("keeps submitted Builder proposals read-only despite broad app permissions", () => {
+    render(
+      createElement(BuilderProductionProposalWorkspace, {
+        includeStaffTab: false,
+        proposalId: "proposal-01",
+        routeBase: "/builder",
+        search: { tab: "contractors" },
+        workosOrganizationId: "org-01",
+      })
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Proposal mutations wired" })
+    ).toBeNull();
+    expect(screen.getByTestId("gantt-persistence-mode").textContent).toBe(
+      "noop"
+    );
+    expect(screen.getByTestId("milestone-persistence-mode").textContent).toBe(
+      "noop"
+    );
+    expect(screen.getByTestId("timeline-persistence-mode").textContent).toBe(
+      "noop"
+    );
   });
 });

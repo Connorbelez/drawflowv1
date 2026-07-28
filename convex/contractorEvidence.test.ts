@@ -82,6 +82,28 @@ async function createApprovedBuild(admin: ReturnType<typeof withIdentity>, seed:
       workosOrganizationId: ORG,
     },
   );
+  await admin.run(async (ctx: any) => {
+    const now = Date.now();
+    await ctx.db.patch(proposalId, {
+      selectedPlan: {
+        metrics: {
+          drawCount: 2,
+          drawFeesCents: 100_000,
+          interestCostCents: 250_000,
+          minimumCashReserveCents: 5_000_000,
+          projectedDurationDays: 55,
+          startingCashCents: 35_000_000,
+          totalCostCents: 350_000,
+          totalDrawAmountCents: 100_000_000,
+        },
+        name: "Cheapest Feasible",
+        planKey: "cheapestFeasible",
+        recommendationReason: "Selected by contractor evidence test setup.",
+        selectedAt: now,
+        selectedByWorkosUserId: "contractor_evidence_test_setup",
+      },
+    });
+  });
   await admin.mutation((api as any).production_proposals.submitProposal, {
     proposalId,
     workosOrganizationId: ORG,
@@ -268,6 +290,40 @@ describe("contractor evidence (PRD §8.7)", () => {
     ).rejects.toThrow(/Unsupported evidence file type/);
   });
 
+  test("retrying the same evidence upload keeps one authoritative evidence row", async () => {
+    const { admin, me, buildId, assignmentId } =
+      await seedContractorWithBuildAssignment();
+    const evidenceApi = (api as any).contractorEvidence;
+    const storageId = await storeBlob(admin, "same-evidence");
+    const input = {
+      assignmentType: "build" as const,
+      buildAssignmentId: assignmentId,
+      caption: "Same pour photo",
+      fileName: "same-pour.jpg",
+      milestoneKey: "foundation",
+      mimeType: "image/jpeg",
+      sizeBytes: 1024,
+      storageId,
+      workosOrganizationId: ORG,
+    };
+
+    const first = await me.mutation(
+      evidenceApi.uploadContractorSupportingEvidence,
+      input,
+    );
+    const retry = await me.mutation(
+      evidenceApi.uploadContractorSupportingEvidence,
+      input,
+    );
+    expect(retry).toBe(first);
+
+    const list = await me.query(evidenceApi.listContractorEvidence, {
+      buildId,
+      workosOrganizationId: ORG,
+    });
+    expect(list).toHaveLength(1);
+  });
+
   test("backoffice reviews evidence and contractor addresses feedback (PRD §14.4)", async () => {
     const { admin, me, buildId, assignmentId } =
       await seedContractorWithBuildAssignment();
@@ -309,11 +365,66 @@ describe("contractor evidence (PRD §8.7)", () => {
     });
     expect(list[0].feedbackState).toBe("addressed");
   });
+
+  test("evidence feedback preserves contractor, build, and evidence identity through the return path", async () => {
+    const { admin, me, buildId, contractorId, assignmentId } =
+      await seedContractorWithBuildAssignment();
+    const evidenceApi = (api as any).contractorEvidence;
+    const storageId = await storeBlob(admin, "identity-handoff");
+    const evidenceId = await me.mutation(
+      evidenceApi.uploadContractorSupportingEvidence,
+      {
+        assignmentType: "build",
+        buildAssignmentId: assignmentId,
+        caption: "Identity handoff",
+        fileName: "identity.jpg",
+        milestoneKey: "foundation",
+        mimeType: "image/jpeg",
+        sizeBytes: 1,
+        storageId,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.mutation(evidenceApi.reviewContractorEvidence, {
+      evidenceId,
+      feedbackState: "replacement_requested",
+      note: "Need a wider shot.",
+      workosOrganizationId: ORG,
+    });
+
+    const notification = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("contractorNotifications")
+        .withIndex("by_contractor", (q: any) => q.eq("contractorId", contractorId))
+        .first(),
+    );
+    expect(notification.kind).toBe("evidence_feedback");
+    expect(notification.contractorId).toBe(contractorId);
+    expect(notification.buildId).toBe(buildId);
+    expect(notification.evidenceId).toBe(evidenceId);
+    expect(notification.milestoneKey).toBe("foundation");
+
+    await me.mutation(evidenceApi.addressContractorEvidenceFeedback, {
+      evidenceId,
+      note: "Replacement uploaded.",
+      workosOrganizationId: ORG,
+    });
+
+    const list = await me.query(evidenceApi.listContractorEvidence, {
+      buildId,
+      workosOrganizationId: ORG,
+    });
+    expect(list[0]._id).toBe(evidenceId);
+    expect(list[0].feedbackState).toBe("addressed");
+    expect(list[0].feedbackNote).toBe("Replacement uploaded.");
+  });
 });
 
 describe("contractor acknowledgements + scope issues (PRD §13.6, §14.3)", () => {
   test("contractor acknowledges an assignment and a schedule change", async () => {
-    const { me, assignmentId } = await seedContractorWithBuildAssignment();
+    const { admin, me, assignmentId } =
+      await seedContractorWithBuildAssignment();
     const evidenceApi = (api as any).contractorEvidence;
 
     const ackId = await me.mutation(
@@ -326,6 +437,41 @@ describe("contractor acknowledgements + scope issues (PRD §13.6, §14.3)", () =
       },
     );
     expect(ackId).toBeDefined();
+    const handoffState = await admin.run(async (ctx: any) => {
+      const contractorDelivery = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_dedupe", (q: any) =>
+          q
+            .eq("organizationId", ORG)
+            .eq("recipientWorkosUserId", CONTRACTOR_USER)
+            .eq(
+              "dedupeKey",
+              `contractor-assignment:${assignmentId}:created`,
+            ),
+        )
+        .first();
+      const builderDeliveries = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient", (q: any) =>
+          q.eq("organizationId", ORG).eq("recipientWorkosUserId", "user_builder"),
+        )
+        .collect();
+      const audits = (await ctx.db.query("auditEvents").collect()).filter(
+        (event: any) =>
+          event.eventType === "contractor.assignment.acknowledged",
+      );
+      return { audits, builderDeliveries, contractorDelivery };
+    });
+    expect(handoffState.contractorDelivery.status).toBe("resolved");
+    expect(handoffState.builderDeliveries).toEqual([
+      expect.objectContaining({
+        actionRequired: false,
+        entityId: String(assignmentId),
+        sourceLabel: "Contractor",
+        status: "unread",
+      }),
+    ]);
+    expect(handoffState.audits).toHaveLength(1);
 
     const schedId = await me.mutation(
       evidenceApi.acknowledgeContractorScheduleChange,
@@ -355,6 +501,15 @@ describe("contractor acknowledgements + scope issues (PRD §13.6, §14.3)", () =
       },
     );
     expect(issueId).toBeDefined();
+    const disputedAcknowledgement = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("contractorAcknowledgements")
+        .withIndex("by_build_assignment", (q: any) =>
+          q.eq("buildAssignmentId", assignmentId),
+        )
+        .first(),
+    );
+    expect(disputedAcknowledgement.state).toBe("scope_disputed");
 
     let issues = await me.query(evidenceApi.listContractorScopeIssues, {});
     expect(issues[0].status).toBe("open");
@@ -367,5 +522,29 @@ describe("contractor acknowledgements + scope issues (PRD §13.6, §14.3)", () =
 
     issues = await me.query(evidenceApi.listContractorScopeIssues, {});
     expect(issues[0].status).toBe("resolved");
+    const resolvedState = await admin.run(async (ctx: any) => {
+      const acknowledgement = await ctx.db
+        .query("contractorAcknowledgements")
+        .withIndex("by_build_assignment", (q: any) =>
+          q.eq("buildAssignmentId", assignmentId),
+        )
+        .first();
+      const delivery = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_dedupe", (q: any) =>
+          q
+            .eq("organizationId", ORG)
+            .eq("recipientWorkosUserId", CONTRACTOR_USER)
+            .eq("dedupeKey", `contractor-scope-resolution:${issueId}`),
+        )
+        .first();
+      return { acknowledgement, delivery };
+    });
+    expect(resolvedState.acknowledgement.state).toBe("resolved");
+    expect(resolvedState.delivery).toMatchObject({
+      actionRequired: false,
+      status: "unread",
+      title: "Assignment scope response ready",
+    });
   });
 });

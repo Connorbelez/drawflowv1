@@ -159,11 +159,12 @@ export function MilestoneKanban({
   }
   return (
     <Frame
+      className="min-w-0 max-w-full"
       data-ixc-ref="UI-KANBAN"
       data-testid="build-detail-kanban"
       id="kanban"
     >
-      <FramePanel className="p-3 sm:p-4">
+      <FramePanel className="min-w-0 overflow-hidden p-3 sm:p-4">
         <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="font-semibold text-sm">
@@ -190,7 +191,10 @@ export function MilestoneKanban({
             </button>
           </label>
         </header>
-        <div className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
+        <div
+          className="-mx-3 min-w-0 overflow-x-auto px-3 sm:mx-0 sm:px-0"
+          data-testid="kanban-horizontal-scroll"
+        >
           <div className="grid min-w-[72rem] grid-cols-6 gap-2 rounded-xl border border-border bg-background/30 p-2.5">
             {COLUMNS.map((col) => {
               const list = byColumn.get(col.key) ?? [];
@@ -301,7 +305,7 @@ function MilestoneCard({
         ) : null}
       </CardHeader>
 
-      <CardPanel className="px-3 pb-2 pt-0">
+      <CardPanel className="px-3 pt-0 pb-2">
         <div className="flex items-center gap-2">
           <div
             aria-hidden
@@ -385,10 +389,9 @@ function MilestoneCard({
 
       <CardFooter className="relative z-10 flex min-h-11 items-center justify-between gap-1.5 border-t px-3 py-2">
         {card.contractors.length > 0 ? (
-          <div
+          <fieldset
             aria-label="Assigned contractors"
-            className="flex items-center -space-x-1.5"
-            role="group"
+            className="m-0 flex min-w-0 items-center -space-x-1.5 border-0 p-0"
           >
             {card.contractors.slice(0, 3).map((c) => (
               <span
@@ -406,7 +409,7 @@ function MilestoneCard({
                 +{card.contractors.length - 3}
               </span>
             ) : null}
-          </div>
+          </fieldset>
         ) : onAssign ? null : (
           <span className="text-[10px] text-muted-foreground">Unassigned</span>
         )}

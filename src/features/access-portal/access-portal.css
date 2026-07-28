@@ -47,6 +47,7 @@
   display: inline-flex;
   align-items: center;
   gap: 1rem;
+  min-height: 2.75rem;
   color: var(--foreground);
   text-decoration: none;
   view-transition-name: access-brand;
@@ -408,6 +409,7 @@
   .access-header {
     min-height: 4.5rem;
     padding-inline: 1rem;
+    padding-block: 0.5rem;
   }
 
   .access-brand span,

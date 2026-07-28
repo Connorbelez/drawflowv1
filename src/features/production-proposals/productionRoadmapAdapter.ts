@@ -133,7 +133,7 @@ function buildCashflowProjection(
   xTicks: number[]
 ) {
   let cashOnHand = centsToDollars(
-    detail.proposal.borrowerWorkingCapitalLimitCents
+    detail.proposal.borrowerStartingCashCents
   );
   const derivedCapitalSupportEvents: DerivedCapitalSupportEvent[] = [];
   const data: TimelineCashflowCompoundDatum[] = [
@@ -364,7 +364,7 @@ function buildTimelineMarkers(
   capitalSupportEvents: DerivedCapitalSupportEvent[]
 ): TimelineMarker[] {
   const borrowerWorkingCapital = centsToDollars(
-    detail.proposal.borrowerWorkingCapitalLimitCents
+    detail.proposal.borrowerStartingCashCents
   );
   const lenderPolicyLimit = centsToDollars(
     detail.proposal.lenderDrawPolicyLimitCents

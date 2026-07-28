@@ -324,7 +324,7 @@ export function DrawControlRoom({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4">
       <header className="flex flex-col gap-1">
         <h1 className="font-display font-semibold text-2xl tracking-tight">
           Draws
@@ -344,8 +344,8 @@ export function DrawControlRoom({
       ) : null}
 
       <Frame>
-        <FramePanel className="grid gap-4 xl:grid-cols-2">
-          <div className="flex min-h-[280px] flex-col gap-2">
+        <FramePanel className="grid min-w-0 gap-4 overflow-hidden xl:grid-cols-2">
+          <div className="flex min-h-[280px] min-w-0 flex-col gap-2">
             <div>
               <h2 className="font-medium text-sm">Scheduled draw pipeline</h2>
               <p className="text-muted-foreground text-xs">
@@ -388,7 +388,7 @@ export function DrawControlRoom({
               <ChartPlaceholder message="Draw schedule chart appears when active builds have planned rows." />
             )}
           </div>
-          <div className="flex min-h-[280px] flex-col gap-2">
+          <div className="flex min-h-[280px] min-w-0 flex-col gap-2">
             <div>
               <h2 className="font-medium text-sm">Capital by state</h2>
               <p className="text-muted-foreground text-xs">
@@ -458,11 +458,12 @@ export function DrawControlRoom({
             </div>
             <ToggleGroup
               onValueChange={(value) => {
-                if (value === "by_build" || value === "table") {
-                  setViewMode(value);
+                const nextValue = value.at(-1);
+                if (nextValue === "by_build" || nextValue === "table") {
+                  setViewMode(nextValue);
                 }
               }}
-              value={viewMode}
+              value={[viewMode]}
               variant="outline"
             >
               <ToggleGroupItem value="by_build">By build</ToggleGroupItem>
@@ -482,7 +483,7 @@ export function DrawControlRoom({
                   : "Try clearing filters or widening your search."}
               </EmptyDescription>
               {draws.length === 0 ? (
-                <Button nativeButton={false} render={<Link to="/backoffice" />}>
+                <Button render={<Link to="/backoffice" />}>
                   Open backoffice home
                 </Button>
               ) : null}
@@ -512,12 +513,12 @@ export function DrawControlRoom({
             Boolean(onApproveDraw && onRejectDraw))
         }
         draw={selectedDraw}
-        onApprove={() => void handleApprove()}
+        onApprove={handleApprove}
         onClose={() => {
           setSelectedDrawId(null);
           setReviewNote("");
         }}
-        onReject={() => void handleReject()}
+        onReject={handleReject}
         onReviewNoteChange={setReviewNote}
         open={selectedDraw !== null}
         reviewNote={reviewNote}
@@ -823,7 +824,6 @@ function BuildDrawGroup({
           </p>
         </div>
         <Button
-          nativeButton={false}
           render={
             <Link
               params={{ buildId: String(group.buildId) }}
@@ -961,7 +961,6 @@ function DrawDetailSheet({
         ) : null}
         <SheetFooter className="flex-col gap-2 sm:flex-col">
           <Button
-            nativeButton={false}
             render={
               draw ? (
                 <Link

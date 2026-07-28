@@ -38,6 +38,26 @@ async function seedFoundation() {
   return { admin, base, seed };
 }
 
+async function acceptPendingContractorClaim(
+  admin: ReturnType<typeof withIdentity>,
+  contractorId: string,
+  workosUserId: string,
+) {
+  await admin.run(async (ctx: any) => {
+    const claim = await ctx.db
+      .query("contractorInviteClaims")
+      .withIndex("by_contractor_state", (q: any) =>
+        q.eq("contractorId", contractorId).eq("state", "invited"),
+      )
+      .first();
+    await ctx.db.patch(claim._id, {
+      acceptedWorkosUserId: workosUserId,
+      state: "accepted_pending_confirmation",
+      updatedAt: Date.now(),
+    });
+  });
+}
+
 describe("contractor self-service onboarding (PRD §7.1)", () => {
   test("a member can save a draft, submit, and backoffice approves with role promotion request", async () => {
     const { admin, base, seed } = await seedFoundation();
@@ -260,6 +280,158 @@ describe("contractor invite/claim (PRD §7.3)", () => {
     ).rejects.toThrow(/no email/);
   });
 
+  test("a builder can invite a contractor attached to an owned proposal before milestone assignment", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const onboardingApi = (api as any).contractorOnboarding;
+    const contractorId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "attached-before-assignment@example.com",
+        kind: "company",
+        name: "Attached Before Assignment Co",
+        trades: ["electrical"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Builder Owned Proposal",
+        location: "10 Builder Scope Way",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.attachProposalContractor,
+      {
+        contractorId,
+        proposalId,
+        role: "Electrical crew",
+        workosOrganizationId: ORG,
+      },
+    );
+    const builder = withIdentity(base, ["builder"], "user_builder");
+
+    const claimId = await builder.mutation(
+      onboardingApi.sendContractorProfileInvite,
+      {
+        contractorId,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const persisted = await admin.run(async (ctx: any) => ({
+      claim: await ctx.db.get(claimId),
+      contractor: await ctx.db.get(contractorId),
+    }));
+    expect(persisted.claim).toMatchObject({
+      contractorId,
+      inviterWorkosUserId: "user_builder",
+      state: "invited",
+    });
+    expect(persisted.contractor.onboardingStatus).toBe("invited");
+  });
+
+  test("a builder cannot invite a contractor attached only to another builder scope", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const onboardingApi = (api as any).contractorOnboarding;
+    const contractorId = await admin.mutation(
+      (api as any).production_proposals.createContractorProfile,
+      {
+        brokerageId: seed.brokerageId,
+        email: "other-builder-only@example.com",
+        kind: "company",
+        name: "Other Builder Only Co",
+        trades: ["electrical"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const otherBuilderProfileId = await admin.run(async (ctx: any) => {
+      const now = Date.now();
+      const builderProfileId = await ctx.db.insert("builderProfiles", {
+        brokerageId: seed.brokerageId,
+        createdAt: now,
+        displayName: "Other Builder",
+        legalName: "Other Builder LLC",
+        organizationId: ORG,
+        status: "active",
+        updatedAt: now,
+      });
+      await ctx.db.insert("builderAccountLinks", {
+        brokerageId: seed.brokerageId,
+        builderProfileId,
+        createdAt: now,
+        role: "owner",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_other_builder",
+      });
+      return builderProfileId;
+    });
+    const proposalId = await admin.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: otherBuilderProfileId,
+        buildName: "Other Builder Proposal",
+        location: "55 Scoped Way",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 35_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 1024,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 100_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 24,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 24,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.assignProposalContractorToMilestone,
+      {
+        contractorId,
+        milestoneKey: "foundation",
+        proposalId,
+        role: "mason",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await expect(
+      builder.mutation(onboardingApi.sendContractorProfileInvite, {
+        contractorId,
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/not attached to any of your proposals\/builds/);
+  });
+
   test("confirming a claim links the canonical profile to the WorkOS user", async () => {
     const { admin, base, seed } = await seedFoundation();
     const onboardingApi = (api as any).contractorOnboarding;
@@ -288,8 +460,23 @@ describe("contractor invite/claim (PRD §7.3)", () => {
       contractorId,
       workosOrganizationId: ORG,
     });
-
     const claimer = withIdentity(base, ["member"], "user_claimer");
+    const beforeAcceptance = await claimer.query(
+      onboardingApi.getContractorClaimForConfirmation,
+      { workosOrganizationId: ORG },
+    );
+    expect(beforeAcceptance.claim).toBeNull();
+    await expect(
+      claimer.mutation(onboardingApi.confirmContractorProfileClaim, {
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow(/No pending contractor claim/i);
+    await acceptPendingContractorClaim(
+      admin,
+      String(contractorId),
+      "user_claimer",
+    );
+
     const confirmation = await claimer.query(
       onboardingApi.getContractorClaimForConfirmation,
       { workosOrganizationId: ORG },
@@ -308,6 +495,75 @@ describe("contractor invite/claim (PRD §7.3)", () => {
     );
     expect(profile.accountWorkosUserId).toBe("user_claimer");
     expect(profile.onboardingStatus).toBe("account_linked");
+  });
+
+  test("finalize role sync does not overwrite a contractor already claimed by another user", async () => {
+    const { admin, base } = await seedFoundation();
+    const onboardingApi = (api as any).contractorOnboarding;
+    const member = withIdentity(base, ["member"], APPLICANT);
+
+    const reviewId = await member.mutation(
+      onboardingApi.saveContractorOnboardingDraft,
+      {
+        draftFields: {
+          email: "claim-collision@example.com",
+          kind: "company",
+          name: "Claim Collision Co",
+          trades: ["plumbing"],
+        },
+        workosOrganizationId: ORG,
+      },
+    );
+    await member.mutation(onboardingApi.submitContractorOnboarding, {
+      workosOrganizationId: ORG,
+    });
+    await admin.mutation(onboardingApi.approveContractorOnboarding, {
+      reviewId,
+      workosOrganizationId: ORG,
+    });
+
+    const review = await admin.run(async (ctx: any) => ctx.db.get(reviewId));
+    await admin.run(async (ctx: any) => {
+      await ctx.db.insert("users", {
+        authId: "auth_claim_collision",
+        email: "claim-collision@example.com",
+        name: "Claim Collision",
+        workosUserId: "user_claim_collision",
+      });
+    });
+    await admin.mutation(onboardingApi.sendContractorProfileInvite, {
+      contractorId: review.contractorId,
+      workosOrganizationId: ORG,
+    });
+    await acceptPendingContractorClaim(
+      admin,
+      String(review.contractorId),
+      "user_claim_collision",
+    );
+
+    const claimer = withIdentity(base, ["member"], "user_claim_collision");
+    const confirmation = await claimer.query(
+      onboardingApi.getContractorClaimForConfirmation,
+      { workosOrganizationId: ORG },
+    );
+    expect(confirmation.claim.state).toBe("accepted_pending_confirmation");
+    await claimer.mutation(onboardingApi.confirmContractorProfileClaim, {
+      workosOrganizationId: ORG,
+    });
+
+    const finalized = await admin.mutation(
+      onboardingApi.finalizeContractorOnboardingRoleSync,
+      { applicantWorkosUserId: APPLICANT, workosOrganizationId: ORG },
+    );
+    expect(finalized).toBe(false);
+
+    const profile = await admin.run(async (ctx: any) =>
+      ctx.db.get(review.contractorId),
+    );
+    expect(profile.accountWorkosUserId).toBe("user_claim_collision");
+
+    const afterReview = await admin.run(async (ctx: any) => ctx.db.get(reviewId));
+    expect(afterReview.status).toBe("approved_pending_workos");
   });
 });
 
