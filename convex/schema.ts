@@ -276,13 +276,20 @@ const productionBuildDrawStatusValidator = v.union(
   v.literal("planned"),
   v.literal("requested"),
   v.literal("approved"),
+  v.literal("in_review"),
+  v.literal("ready_for_admin"),
+  v.literal("approved_for_release"),
   v.literal("rejected"),
+  v.literal("withdrawn"),
   v.literal("released")
 );
 
 const activeBuildDrawRequestStatusValidator = v.union(
   v.literal("requested"),
   v.literal("approved"),
+  v.literal("in_review"),
+  v.literal("ready_for_admin"),
+  v.literal("approved_for_release"),
   v.literal("rejected"),
   v.literal("withdrawn"),
   v.literal("released")
@@ -3010,11 +3017,16 @@ export default defineSchema({
     requestKey: v.string(),
     displayId: v.string(),
     clientOperationId: v.string(),
+    workOrderKey: v.optional(v.string()),
     plannedDrawKey: v.optional(v.string()),
     label: v.string(),
     amountCents: v.number(),
     status: activeBuildDrawRequestStatusValidator,
     note: v.optional(v.string()),
+    operationsRecommendationNote: v.optional(v.string()),
+    operationsReviewStartedAt: v.optional(v.string()),
+    operationsReviewerWorkosUserId: v.optional(v.string()),
+    readyForAdminAt: v.optional(v.string()),
     reviewNote: v.optional(v.string()),
     releaseNote: v.optional(v.string()),
     withdrawalNote: v.optional(v.string()),
@@ -3033,6 +3045,21 @@ export default defineSchema({
     .index("by_build_status", ["buildId", "status"])
     .index("by_build_operation", ["buildId", "clientOperationId"])
     .index("by_build_request_key", ["buildId", "requestKey"]),
+  activeBuildDrawRequestAllocations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    drawRequestId: v.id("activeBuildDrawRequests"),
+    buildMilestoneId: v.id("buildMilestones"),
+    milestoneKey: v.string(),
+    drawGroupKey: v.string(),
+    amountCents: v.number(),
+    sourceOrder: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_build", ["buildId"])
+    .index("by_request", ["drawRequestId"])
+    .index("by_build_milestone", ["buildId", "buildMilestoneId"]),
   buildSiteVisits: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

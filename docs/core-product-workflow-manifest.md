@@ -43,7 +43,7 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
 | `WF-BLD-001` | Active Build Schedule, Progress, Cost, and Participant Management | Cross-persona parent | Build execution | — | Builder; Contractor; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
 | `WF-CTR-002` | Contractor Assignment, Schedule Acknowledgement, Scope Clarification, and Supporting Evidence | Cross-persona parent | Contractor execution | — | Builder; Contractor; Lender Operations / Backoffice Staff; DrawFlow System | `SUPPORTED` |
 | `WF-CTR-001` | Contractor Profile, Invitation, Onboarding, Claim, and Review | Cross-persona parent | Contractor identity | — | Builder; Lender Operations / Backoffice Staff; Contractor; DrawFlow System | `SUPPORTED` |
-| `WF-DRW-001` | Draw Request, Review, Approval, Release, and Receipt Confirmation | Cross-persona parent | Draw disbursement | — | Builder; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `NEEDS_VALIDATION` |
+| `WF-DRW-001` | Draw Request, Review, Approval, Release, and Receipt Confirmation | Cross-persona parent | Draw disbursement | — | Builder; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
 | `WF-INT-001` | API/Webhook Configuration, Lifecycle Delivery, and Failure Review | Cross-persona parent | Integrations | — | Technical / Organization Admin; DrawFlow System | `NEEDS_VALIDATION` |
 | `WF-OPS-001` | Backoffice Portfolio and Work-Queue Triage | Cross-persona parent | Lender operations | — | Broker; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
 | `WF-MIL-001` | Milestone Completion, Evidence Review, Site Visit, and Final Decision | Cross-persona parent | Milestone verification | — | Builder; Lender Operations / Backoffice Staff; Site Visit Staff / Inspector; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
@@ -59,7 +59,7 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
 | `WF-TEN-003.BRKR.01` | Accept reassigned builder workload | Broker | Relationship ownership | `WF-TEN-003` | Lender Admin / Principal Broker; Platform Admin; Broker; DrawFlow System | `NEEDS_VALIDATION` |
 | `WF-BUD-001.BLDR.01` | Draft and submit Budget Revision | Builder | Budget revision | `WF-BUD-001` | Builder; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
 | `WF-BLD-001.BLDR.01` | Maintain live Build execution | Builder | Build workspace management | `WF-BLD-001` | Builder; Contractor; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
-| `WF-DRW-001.BLDR.01` | Request reimbursement and confirm receipt | Builder | Builder draws | `WF-DRW-001` | Builder; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `NEEDS_VALIDATION` |
+| `WF-DRW-001.BLDR.01` | Request reimbursement and confirm receipt | Builder | Builder draws | `WF-DRW-001` | Builder; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
 | `WF-COM-001.BLDR.01` | Triage builder notifications | Builder | Builder inbox | `WF-COM-001` | DrawFlow System; Builder; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; Contractor | `SUPPORTED` |
 | `WF-TEN-002.BLDR.01` | Accept onboarding and establish builder profile | Builder | Builder onboarding | `WF-TEN-002` | Broker; Builder; DrawFlow System | `SUPPORTED` |
 | `WF-CAL-001.BLDR.01` | Plan and adjust builder schedule | Builder | Calendar planning | `WF-CAL-001` | Builder; Contractor; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; Site Visit Staff / Inspector; DrawFlow System | `SUPPORTED` |
@@ -79,7 +79,7 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
 | `WF-MAT-001.SYS.01` | Recalculate and copy material cost plan | DrawFlow System | Budget projection | `WF-MAT-001` | Builder; Lender Operations / Backoffice Staff; DrawFlow System | `SUPPORTED` |
 | `WF-BLD-001.SYS.01` | Project Build state and route variances | DrawFlow System | Build state orchestration | `WF-BLD-001` | Builder; Contractor; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
 | `WF-CAL-001.SYS.01` | Project events, validate edits, and deliver reminders/exports | DrawFlow System | Calendar projection | `WF-CAL-001` | Builder; Contractor; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; Site Visit Staff / Inspector; DrawFlow System | `SUPPORTED` |
-| `WF-DRW-001.SYS.01` | Calculate availability and record release | DrawFlow System | Draw ledger orchestration | `WF-DRW-001` | Builder; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `NEEDS_VALIDATION` |
+| `WF-DRW-001.SYS.01` | Calculate availability and record release | DrawFlow System | Draw ledger orchestration | `WF-DRW-001` | Builder; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
 | `WF-TEN-002.SYS.01` | Link profile and materialize assignment | DrawFlow System | Identity and assignment projection | `WF-TEN-002` | Broker; Builder; DrawFlow System | `SUPPORTED` |
 | `WF-CTR-001.SYS.01` | Resolve canonical profile and synchronize contractor access | DrawFlow System | Identity synchronization | `WF-CTR-001` | Builder; Lender Operations / Backoffice Staff; Contractor; DrawFlow System | `SUPPORTED` |
 | `WF-TEN-001.SYS.01` | Synchronize principal membership and activate tenant | DrawFlow System | Identity synchronization | `WF-TEN-001` | Platform Admin; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
@@ -104,7 +104,7 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
 | `WF-TEN-004.LOPS.01` | Accept or respond to backoffice access change | Lender Operations / Backoffice Staff | Backoffice membership | `WF-TEN-004` | Lender Admin / Principal Broker; Broker; Lender Operations / Backoffice Staff; DrawFlow System | `SUPPORTED` |
 | `WF-CTR-002.LOPS.01` | Review contractor evidence in operational context | Lender Operations / Backoffice Staff | Contractor evidence review | `WF-CTR-002` | Builder; Contractor; Lender Operations / Backoffice Staff; DrawFlow System | `SUPPORTED` |
 | `WF-CTR-001.LOPS.01` | Review contractor onboarding, claim, or duplicate | Lender Operations / Backoffice Staff | Contractor operations | `WF-CTR-001` | Builder; Lender Operations / Backoffice Staff; Contractor; DrawFlow System | `SUPPORTED` |
-| `WF-DRW-001.LOPS.01` | Review request and resolve settlement exceptions | Lender Operations / Backoffice Staff | Draw operations | `WF-DRW-001` | Builder; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `NEEDS_VALIDATION` |
+| `WF-DRW-001.LOPS.01` | Review request and resolve settlement exceptions | Lender Operations / Backoffice Staff | Draw operations | `WF-DRW-001` | Builder; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
 | `WF-MIL-001.LOPS.01` | Review completion evidence and recommend | Lender Operations / Backoffice Staff | Evidence review | `WF-MIL-001` | Builder; Lender Operations / Backoffice Staff; Site Visit Staff / Inspector; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
 | `WF-CAL-001.LOPS.01` | Schedule operational work and visits | Lender Operations / Backoffice Staff | Operations calendar | `WF-CAL-001` | Builder; Contractor; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; Site Visit Staff / Inspector; DrawFlow System | `SUPPORTED` |
 | `WF-BLD-001.LOPS.01` | Monitor and triage Build execution risk | Lender Operations / Backoffice Staff | Portfolio operations | `WF-BLD-001` | Builder; Contractor; Lender Operations / Backoffice Staff; Lender Admin / Principal Broker; DrawFlow System | `SUPPORTED` |
@@ -448,32 +448,34 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   - Available-now balance is positive.
 8. **Trigger:** Builder requests any valid amount up to available-now balance, or configured planning logic exposes an eligible draw action.
 9. **Ordered workflow steps:**
-  1. `WF-DRW-001.PARENT.00.STEP-01` — Calculate unlocked, reserved, and available value separately from planned forecast rows.
+  1. `WF-DRW-001.PARENT.00.STEP-01` — Calculate facility-capped source-bucket availability in deterministic Milestone order, separately from planned forecast rows.
   2. `WF-DRW-001.PARENT.00.STEP-02` — Builder enters amount, reviews, and submits with idempotent operation ID.
-  3. `WF-DRW-001.PARENT.00.STEP-03` — Operations reviews/prepares recommendation; builder may withdraw while requested.
-  4. `WF-DRW-001.PARENT.00.STEP-04` — Lender Admin approves/rejects requested record.
-  5. `WF-DRW-001.PARENT.00.STEP-05` — Only approved record is released/executed or recorded.
-  6. `WF-DRW-001.PARENT.00.STEP-06` — Record release date/amount/fee treatment and start interest at funds_released.
-  7. `WF-DRW-001.PARENT.00.STEP-07` — Notify builder and create receipt confirmation.
-  8. `WF-DRW-001.PARENT.00.STEP-08` — Builder confirms, reports non-receipt, or reports discrepancy; operations resolves exceptions.
+  3. `WF-DRW-001.PARENT.00.STEP-03` — Create one Draw Release Work Order and immutable Milestone / Draw Group allocations whose sum equals the request.
+  4. `WF-DRW-001.PARENT.00.STEP-04` — Operations transitions requested → in_review → ready_for_admin and records its recommendation; builder may withdraw while requested.
+  5. `WF-DRW-001.PARENT.00.STEP-05` — Lender Admin transitions ready_for_admin → approved_for_release or rejected.
+  6. `WF-DRW-001.PARENT.00.STEP-06` — Only approved_for_release is released/executed or recorded.
+  7. `WF-DRW-001.PARENT.00.STEP-07` — Record release date/amount/fee treatment and start interest at funds_released.
+  8. `WF-DRW-001.PARENT.00.STEP-08` — Notify builder and create receipt confirmation.
+  9. `WF-DRW-001.PARENT.00.STEP-09` — Builder confirms, reports non-receipt, or reports discrepancy; operations resolves exceptions.
 10. **Inputs and required artifacts:**
-  - Approved milestone drawAvailability, facility principal/balance, reserved requests.
+  - Approved Milestone drawAvailability source buckets, Draw Group attribution, facility principal/balance, persisted allocations.
   - Requested amount/note/client operation ID.
   - Evidence/milestone context, fees, interest implications, release result.
 11. **Outputs and generated artifacts:**
-  - Independent activeBuildDrawRequest and immutable request key/history.
+  - Authoritative activeBuildDrawRequest / Draw Release Work Order and immutable work-order key/history.
+  - Organization-scoped activeBuildDrawRequestAllocations with exact Milestone, Draw Group, amount, and order.
   - Approval/rejection/withdrawal/release capital event.
   - Receipt confirmation/exception task.
   - Webhooks/audit/notifications.
 12. **System states and state transitions:**
-  - request: requested → approved → released; requested → rejected/withdrawn
-  - draw PRD projection: not_eligible/partially_eligible/pending_review/pending_visit/ready_for_admin/approved_for_release/released/rejected/replanned
+  - requested → in_review → ready_for_admin → approved_for_release → released
+  - requested → withdrawn; ready_for_admin → rejected
   - forecast plannedDrawScheduleRows remain planning-only
 13. **Decisions, validations, and approval gates:**
-  - Amount ≤ available now and uses whole cents.
+  - Amount ≤ available now, uses whole cents, and allocation sum equals amount.
   - Operation ID is idempotent and cannot be reused for a different amount.
-  - Only requested can withdraw/approve/reject; only approved can release.
-  - Lender Admin final release; interest starts only when funds released.
+  - Only requested can withdraw/start review; only in_review can become ready_for_admin; only ready_for_admin can approve/reject; only approved_for_release can release.
+  - Operations prepares/recommends; Lender Admin decides/releases; interest starts only when funds released.
 14. **Exceptions, rejection paths, and recovery flows:**
   - Over-limit/invalid amount, duplicate ID mismatch, loan availability block, rejection/withdrawal, payment execution failure, non-receipt, amount discrepancy.
 15. **Permissions and role constraints:**
@@ -485,14 +487,13 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   - Upstream: `WF-MIL-001`, `WF-PRP-001`
   - Downstream: `WF-COM-001`, `WF-INT-001`, `WF-OPS-001`
 17. **Cross-persona handoffs:**
-  - `WF-DRW-001.HO-01` — **Builder → Lender Operations / Backoffice Staff.** Trigger: Idempotent draw request is submitted. Artifacts: Request ID/key, amount, note, available/reserved/unlocked reconciliation, eligible milestone context. Required acknowledgement/next action: Operations claims/reviews and prepares recommendation or requests correction.
-  - `WF-DRW-001.HO-02` — **Lender Operations / Backoffice Staff → Lender Admin / Principal Broker.** Trigger: Request/release package is ready for final decision. Artifacts: Request, approved milestones/evidence summary, amount, fee treatment, facility availability, interest implications, recommendation/warnings. Required acknowledgement/next action: Lender Admin approves, rejects, or leaves blocked with reason.
+  - `WF-DRW-001.HO-01` — **Builder → Lender Operations / Backoffice Staff.** Trigger: Idempotent Draw Release Work Order is submitted. Artifacts: Request/work-order keys, amount, note, available/reserved/unlocked reconciliation, immutable Milestone / Draw Group source allocations. Required acknowledgement/next action: Operations claims/reviews and prepares recommendation or requests correction.
+  - `WF-DRW-001.HO-02` — **Lender Operations / Backoffice Staff → Lender Admin / Principal Broker.** Trigger: Work order is ready_for_admin. Artifacts: Work order, source allocations, approved milestones/evidence summary, amount, fee treatment, facility availability, interest implications, recommendation/warnings. Required acknowledgement/next action: Lender Admin approves, rejects, or leaves blocked with reason.
   - `WF-DRW-001.HO-03` — **Lender Admin / Principal Broker → DrawFlow System.** Trigger: Release is authorized or rejection is recorded. Artifacts: Decision, actor/reason, approved amount, fee treatment, execution/recording instruction. Required acknowledgement/next action: System records final state/capital event or returns execution failure without duplicate money-out.
   - `WF-DRW-001.HO-04` — **DrawFlow System → Builder.** Trigger: Funds release is recorded. Artifacts: Released amount/date, fee treatment, request/reference, receipt-confirmation task; interest-start fact (not pre-release interest). Required acknowledgement/next action: Builder confirms receipt or reports non-receipt/discrepancy.
   - `WF-DRW-001.HO-05` — **Builder → Lender Operations / Backoffice Staff.** Trigger: Builder reports non-receipt or amount discrepancy. Artifacts: Request/release reference, expected/received amount, receipt status, notes/supporting proof. Required acknowledgement/next action: Operations claims settlement exception, investigates, and records resolution/escalation.
 18. **Audit, notification, and integration events:**
-  - draw_request.submitted/approved/rejected/withdrawn
-  - draw approved_for_release/released
+  - draw requested/review_started/ready_for_admin/approved_for_release/rejected/withdrawn/released
   - capital event
   - fee/interest start
   - receipt confirmed/exception
@@ -504,9 +505,9 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
     - Request is rejected/withdrawn/blocked or settlement exception remains assigned; balance/history remain correct.
 20. **Source references:**
   - `docs/builder-draw-request-workspace.md §Domain separation–§Request lifecycle`
-  - `docs/draw_flow_prd.md §8.1–8.3, §18.3.9–18.3.12`
+  - `docs/draw_flow_prd.md §8.1–8.3, §18.3.9–18.3.12, §23.1`
   - `docs/notification-system-prd.md §8`
-**Support status:** `NEEDS_VALIDATION` — The newer production request ledger allows builder-selected partial requests against pooled approved-milestone value; the original PRD models Draw Group readiness creating a Draw Release Work Order. Product policy must confirm whether requests consume pooled value, a specific Draw Group, or both, and when operations preparation is mandatory.
+**Support status:** `SUPPORTED`
 
 ### WF-BUD-001 — Budget Revision and Draw Plan Recalculation
 
@@ -1515,11 +1516,11 @@ Organization-scoped final authority for proposal closing, milestone decisions, p
   3. `WF-DRW-001.LADM.01.STEP-03` — Authorize release of approved request.
   4. `WF-DRW-001.LADM.01.STEP-04` — Review execution result.
 10. **Inputs and required artifacts:**
-  - Release package and decision/release instruction.
+  - Ready-for-admin work order, source allocations, and decision/release instruction.
 11. **Outputs and generated artifacts:**
   - Approval/rejection/release authorization.
 12. **System states and state transitions:**
-  - requested → approved/rejected; approved → released
+  - ready_for_admin → approved_for_release/rejected; approved_for_release → released
 13. **Decisions, validations, and approval gates:**
   - Lender Admin only; facility/eligibility; only legal state transitions.
 14. **Exceptions, rejection paths, and recovery flows:**
@@ -2209,7 +2210,7 @@ Brokerage operators who claim queues, review evidence, request information or vi
   - `WF-DRW-001.HO-02` — Lender Operations / Backoffice Staff → Lender Admin / Principal Broker; see parent handoff registry for the shared trigger, artifacts, and acknowledgement contract.
   - `WF-DRW-001.HO-05` — Builder → Lender Operations / Backoffice Staff; see parent handoff registry for the shared trigger, artifacts, and acknowledgement contract.
 18. **Audit, notification, and integration events:**
-  - work claimed/recommended/exception resolved
+  - review started/recommendation submitted/exception resolved
 19. **Terminal success and failure states:**
   - Success:
     - Authority package complete or exception resolved.
@@ -2218,7 +2219,7 @@ Brokerage operators who claim queues, review evidence, request information or vi
 20. **Source references:**
   - `docs/draw_flow_production_prd.md §8.9`
   - `docs/draw_flow_prd.md §18.3.9–18.3.12`
-**Support status:** `NEEDS_VALIDATION` — Exact relationship between builder request review and legacy Draw Release Work Order is not fully specified.
+**Support status:** `SUPPORTED`
 
 ### Functional category: Evidence review
 
@@ -2637,13 +2638,13 @@ Builder/developer principal and permissioned builder staff. Role constraints wit
 10. **Inputs and required artifacts:**
   - Amount/note/idempotency ID and receipt result.
 11. **Outputs and generated artifacts:**
-  - Request/withdrawal/receipt response.
+  - Request/work-order key, exact source allocations, withdrawal/receipt response.
 12. **System states and state transitions:**
-  - requested → withdrawn/approved/rejected → released → receipt confirmed/exception
+  - requested → withdrawn or operations review; approved_for_release → released → receipt confirmed/exception
 13. **Decisions, validations, and approval gates:**
-  - Draw permission, whole cents, within available balance.
+  - Draw permission, whole cents, within facility-capped approved Milestone availability.
 14. **Exceptions, rejection paths, and recovery flows:**
-  - Over-limit, retry failure preserves input/ID, blocked user receives reason, non-receipt/discrepancy.
+  - Over-limit, attribution mismatch, retry failure preserves input/ID, blocked user receives reason, non-receipt/discrepancy.
 15. **Permissions and role constraints:**
   - Builder Lead/authorized Builder Staff on own Build.
 16. **Upstream and downstream workflow dependencies:**
@@ -2662,7 +2663,7 @@ Builder/developer principal and permissioned builder staff. Role constraints wit
     - Closed rejection/withdrawal or open settlement exception.
 20. **Source references:**
   - `docs/builder-draw-request-workspace.md`
-**Support status:** `NEEDS_VALIDATION` — Draw Group attribution remains unresolved across source documents.
+**Support status:** `SUPPORTED`
 
 ### Functional category: Builder inbox
 
@@ -3759,27 +3760,28 @@ Automated actor for validation, optimization, state projection, notification, au
 3. **Persona:** DrawFlow System (`SYS`)
 4. **Functional category:** Draw ledger orchestration
 5. **Parent workflow ID:** `WF-DRW-001`
-6. **Purpose and intended outcome:** Maintain separate forecast/request ledgers, enforce idempotency/availability, record capital once, and drive receipt/webhook events.
+6. **Purpose and intended outcome:** Maintain separate forecast and request/allocation ledgers, enforce idempotency and deterministic availability, record capital once, and drive receipt/webhook events.
 7. **Preconditions:**
   - The actor is authenticated in the correct WorkOS organization and the target record is organization-scoped.
-8. **Trigger:** Availability query, request/decision/release/receipt command.
+8. **Trigger:** Availability query, request/review/decision/release/receipt command.
 9. **Ordered workflow steps:**
-  1. `WF-DRW-001.SYS.01.STEP-01` — Calculate approved/unlocked/reserved/available.
-  2. `WF-DRW-001.SYS.01.STEP-02` — Validate/idempotently create request.
-  3. `WF-DRW-001.SYS.01.STEP-03` — Apply legal decision transition.
-  4. `WF-DRW-001.SYS.01.STEP-04` — Execute/record release once.
-  5. `WF-DRW-001.SYS.01.STEP-05` — Record fee/date/interest start.
-  6. `WF-DRW-001.SYS.01.STEP-06` — Create receipt task and emit events.
+  1. `WF-DRW-001.SYS.01.STEP-01` — Order approved Milestone source buckets and apply the facility cap.
+  2. `WF-DRW-001.SYS.01.STEP-02` — Subtract persisted allocations for reserving states.
+  3. `WF-DRW-001.SYS.01.STEP-03` — Validate/idempotently create the Draw Release Work Order and exact FIFO allocations.
+  4. `WF-DRW-001.SYS.01.STEP-04` — Apply legal review/decision transitions.
+  5. `WF-DRW-001.SYS.01.STEP-05` — Execute/record release once.
+  6. `WF-DRW-001.SYS.01.STEP-06` — Record fee/date/interest start.
+  7. `WF-DRW-001.SYS.01.STEP-07` — Create receipt task and emit events.
 10. **Inputs and required artifacts:**
-  - Milestone/facility/request ledgers and authorized commands.
+  - Organization-scoped Milestone/Draw Group/facility/request/allocation ledgers and authorized commands.
 11. **Outputs and generated artifacts:**
-  - Request/capital/receipt records and events.
+  - Work-order/allocation/capital/receipt records and events.
 12. **System states and state transitions:**
-  - requested → approved/rejected/withdrawn; approved → released
+  - requested → in_review → ready_for_admin → approved_for_release → released; requested → withdrawn; ready_for_admin → rejected
 13. **Decisions, validations, and approval gates:**
-  - Forecast never mutates into request; released remains reserved; no duplicate capital event.
+  - Forecast never mutates into request; allocations sum exactly to request; released remains reserved; no duplicate capital event.
 14. **Exceptions, rejection paths, and recovery flows:**
-  - ID mismatch, over-limit, concurrent reservation, execution failure.
+  - ID mismatch, over-limit, attribution invariant failure, concurrent reservation, execution failure.
 15. **Permissions and role constraints:**
   - System under scoped authorized actor.
 16. **Upstream and downstream workflow dependencies:**
@@ -3797,8 +3799,8 @@ Automated actor for validation, optimization, state projection, notification, au
     - No duplicate/partial money-out; actionable failure recorded.
 20. **Source references:**
   - `docs/builder-draw-request-workspace.md §Domain separation–§Request lifecycle`
-  - `docs/draw_flow_prd.md §18.3.10–11`
-**Support status:** `NEEDS_VALIDATION` — Draw Group attribution/release-work-order policy requires confirmation.
+  - `docs/draw_flow_prd.md §18.3.9–11, §23.1`
+**Support status:** `SUPPORTED`
 
 ### Functional category: Identity and assignment projection
 
@@ -4234,13 +4236,16 @@ Automated actor for validation, optimization, state projection, notification, au
   - `docs/uiManifest/screenManifest.md SCR-028`
 **Support status:** `NEEDS_VALIDATION` — Backoff/dead-letter and exact payload schema are unresolved.
 
+# Resolved product conflicts
+
+- RESOLVED — `WF-DRW-001` uses a pooled builder-facing balance backed by deterministic, immutable FIFO allocations to lender-admin-approved Milestones and their Draw Groups. The request record is the Draw Release Work Order; operations prepares `ready_for_admin`, lender admin decides/releases, and every transition is organization-scoped and audited.
+- RESOLVED — v1 permits partial request amounts against fully approved Milestone value. Subtask-based or partially completed-work reimbursement remains out of scope.
+
 # Unresolved gaps and explicitly excluded unsupported workflows
 
-- NEEDS_VALIDATION — Draw request attribution: reconcile pooled approved-milestone availability in `builder-draw-request-workspace.md` with Draw Group readiness/Draw Release Work Orders in `draw_flow_prd.md`.
 - NEEDS_VALIDATION — Cross-brokerage transfer: define source/destination consent, document ownership, historical visibility, and active-work repair/atomicity policy.
 - NEEDS_VALIDATION — Lender Policy administration: configuration values are required and a Policy entity is organization-scoped, but no complete create/version/approve/activate workflow is specified; therefore no unsupported workflow was invented.
 - NEEDS_VALIDATION — Webhook operations: define payload/version contract, retry/backoff, dead-letter/replay, secret rotation, and MVP event depth.
-- NEEDS_VALIDATION — Partial draw policy: production requests support partial amounts, while the core PRD still lists partial draws as an open decision.
 - NEEDS_VALIDATION — Notification preferences: V1 has a schema foundation but explicitly no preference UI, so preference-management is not modeled as a user workflow.
 - NEEDS_VALIDATION — Material procurement: documentation supports planning and closing copy only; purchasing, delivery, receipt, and supplier-payment workflows are intentionally excluded.
 
@@ -4248,4 +4253,4 @@ Automated actor for validation, optimization, state projection, notification, au
 
 Run `bun run scripts/core-workflow-manifest.ts --check`. The validator proves unique IDs; valid identifier formats; existing parent, dependency, and handoff references; both sender and receiver references for every handoff; parent/segment traceability; nonempty required fields; unique parent names; source-file existence; and exact generated-file parity.
 
-**Last generated validation result:** 16 parent workflows, 63 persona segments, 52 handoffs, and 409 unique workflow steps passed all invariants.
+**Last generated validation result:** 16 parent workflows, 63 persona segments, 52 handoffs, and 411 unique workflow steps passed all invariants.

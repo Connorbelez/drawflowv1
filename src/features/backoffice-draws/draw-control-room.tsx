@@ -111,6 +111,12 @@ const exposureChartConfig = {
 } satisfies ChartConfig;
 
 export interface DrawControlRoomHandlers {
+  onAdvanceDraw?: (input: {
+    buildId: string;
+    drawKey: string;
+    note: string;
+    status: "requested" | "in_review";
+  }) => Promise<void>;
   onApproveDraw?: (input: {
     buildId: string;
     drawKey: string;
@@ -131,6 +137,13 @@ interface DrawControlRoomProps extends DrawControlRoomHandlers {
 function matchesPulseFilter(draw: BrokerageDrawRow, filter: DrawPulseFilter) {
   if (filter === "all") {
     return true;
+  }
+  if (filter === "requested") {
+    return (
+      draw.status === "requested" ||
+      draw.status === "in_review" ||
+      draw.status === "ready_for_admin"
+    );
   }
   return draw.status === filter;
 }
@@ -167,6 +180,7 @@ function filterDraws(
 
 export function DrawControlRoom({
   data,
+  onAdvanceDraw,
   onApproveDraw,
   onRejectDraw,
   pending,
@@ -184,7 +198,13 @@ export function DrawControlRoom({
     [draws, pulseFilter, search]
   );
   const requestQueue = useMemo(
-    () => draws.filter((draw) => draw.status === "requested"),
+    () =>
+      draws.filter(
+        (draw) =>
+          draw.status === "requested" ||
+          draw.status === "in_review" ||
+          draw.status === "ready_for_admin"
+      ),
     [draws]
   );
 
@@ -231,17 +251,37 @@ export function DrawControlRoom({
     (summary?.exposureRequestedCents ?? 0);
 
   async function handleApprove() {
-    if (!(selectedDraw && onApproveDraw) || reviewNote.trim().length < 3) {
+    if (!selectedDraw || reviewNote.trim().length < 3) {
       return;
     }
     setReviewPending(true);
     try {
-      await onApproveDraw({
-        buildId: String(selectedDraw.buildId),
-        drawKey: selectedDraw.drawKey,
-        note: reviewNote.trim(),
-      });
-      toast.success("Draw approved");
+      if (
+        (selectedDraw.status === "requested" ||
+          selectedDraw.status === "in_review") &&
+        onAdvanceDraw
+      ) {
+        await onAdvanceDraw({
+          buildId: String(selectedDraw.buildId),
+          drawKey: selectedDraw.drawKey,
+          note: reviewNote.trim(),
+          status: selectedDraw.status,
+        });
+        toast.success(
+          selectedDraw.status === "requested"
+            ? "Draw review started"
+            : "Draw sent to admin"
+        );
+      } else if (selectedDraw.status === "ready_for_admin" && onApproveDraw) {
+        await onApproveDraw({
+          buildId: String(selectedDraw.buildId),
+          drawKey: selectedDraw.drawKey,
+          note: reviewNote.trim(),
+        });
+        toast.success("Draw approved for release");
+      } else {
+        return;
+      }
       setSelectedDrawId(null);
       setReviewNote("");
     } catch (error) {
@@ -465,8 +505,11 @@ export function DrawControlRoom({
 
       <DrawDetailSheet
         canReview={
-          selectedDraw?.status === "requested" &&
-          Boolean(onApproveDraw && onRejectDraw)
+          ((selectedDraw?.status === "requested" ||
+            selectedDraw?.status === "in_review") &&
+            Boolean(onAdvanceDraw)) ||
+          (selectedDraw?.status === "ready_for_admin" &&
+            Boolean(onApproveDraw && onRejectDraw))
         }
         draw={selectedDraw}
         onApprove={() => void handleApprove()}
@@ -650,8 +693,8 @@ function PulseStrip({
       value: summary.requested,
     },
     {
-      filter: "approved",
-      label: "Approved",
+      filter: "approved_for_release",
+      label: "Approved to release",
       tone: summary.approved > 0 ? "default" : "default",
       value: summary.approved,
     },
@@ -878,7 +921,30 @@ function DrawDetailSheet({
               {draw.requestReviewNote ? (
                 <DetailRow label="Review note" value={draw.requestReviewNote} />
               ) : null}
+              {draw.workOrderKey ? (
+                <DetailRow label="Work order" value={draw.workOrderKey} />
+              ) : null}
             </dl>
+            {draw.sourceAllocations?.length ? (
+              <div className="border-t pt-3 text-sm">
+                <p className="font-medium">Attributed reimbursement sources</p>
+                <ul className="mt-2 grid gap-1 text-muted-foreground text-xs">
+                  {draw.sourceAllocations.map((allocation) => (
+                    <li
+                      className="flex items-start justify-between gap-3"
+                      key={`${allocation.drawGroupKey}:${allocation.milestoneKey}`}
+                    >
+                      <span>
+                        {allocation.milestoneName} · {allocation.drawGroupKey}
+                      </span>
+                      <span className="shrink-0 tabular-nums">
+                        {formatCurrency(allocation.amountCents)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {canReview ? (
               <div className="grid gap-2">
                 <Label htmlFor="draw-review-note">Review note</Label>
@@ -913,14 +979,16 @@ function DrawDetailSheet({
           </Button>
           {canReview ? (
             <div className="flex w-full gap-2">
-              <Button
-                className="flex-1"
-                disabled={reviewNote.trim().length < 3 || reviewPending}
-                onClick={onReject}
-                variant="outline"
-              >
-                Reject
-              </Button>
+              {draw?.status === "ready_for_admin" ? (
+                <Button
+                  className="flex-1"
+                  disabled={reviewNote.trim().length < 3 || reviewPending}
+                  onClick={onReject}
+                  variant="outline"
+                >
+                  Reject
+                </Button>
+              ) : null}
               <Button
                 className="flex-1"
                 disabled={reviewNote.trim().length < 3 || reviewPending}
@@ -929,7 +997,7 @@ function DrawDetailSheet({
                 {reviewPending ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (
-                  "Approve"
+                  drawPrimaryActionLabel(draw?.status)
                 )}
               </Button>
             </div>
@@ -949,4 +1017,17 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <dd>{value}</dd>
     </div>
   );
+}
+
+function drawPrimaryActionLabel(status?: BrokerageDrawRow["status"]) {
+  if (status === "requested") {
+    return "Start review";
+  }
+  if (status === "in_review") {
+    return "Send to admin";
+  }
+  if (status === "ready_for_admin") {
+    return "Approve for release";
+  }
+  return "Continue";
 }

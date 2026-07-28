@@ -6608,13 +6608,17 @@ function calendarDrawStatus(status?: string) {
   if (status === "released") {
     return "released";
   }
-  if (status === "approved") {
+  if (status === "approved" || status === "approved_for_release") {
     return "approved";
   }
-  if (status === "rejected") {
+  if (status === "rejected" || status === "withdrawn") {
     return "rejected";
   }
-  if (status === "requested") {
+  if (
+    status === "requested" ||
+    status === "in_review" ||
+    status === "ready_for_admin"
+  ) {
     return "submitted";
   }
   return "proposed";
@@ -6723,7 +6727,9 @@ function activeBuildCalendarDrawRequestEvent(input: {
       canChangeAssignee: false,
       canChangeStatus:
         input.request.status === "requested" ||
-        input.request.status === "approved",
+        input.request.status === "in_review" ||
+        input.request.status === "ready_for_admin" ||
+        input.request.status === "approved_for_release",
       canMove: false,
       canResizeEnd: false,
       canResizeStart: false,
@@ -6741,9 +6747,7 @@ function activeBuildCalendarDrawRequestEvent(input: {
     organizationId: input.request.organizationId,
     relatedEntityIds: [String(input.build._id)],
     startsAt: eventDate,
-    status: calendarDrawStatus(
-      input.request.status === "withdrawn" ? "rejected" : input.request.status
-    ),
+    status: calendarDrawStatus(input.request.status),
     subtitle: `${input.request.displayId} · actual draw request`,
     surface: "activeBuild" as const,
     timeBucket: "endOfDay" as const,
@@ -9549,8 +9553,11 @@ export const listBrokerageSiteVisits = authenticatedQuery
 const productionBuildDrawStatusValidator = v.union(
   v.literal("planned"),
   v.literal("requested"),
-  v.literal("approved"),
+  v.literal("in_review"),
+  v.literal("ready_for_admin"),
+  v.literal("approved_for_release"),
   v.literal("rejected"),
+  v.literal("withdrawn"),
   v.literal("released")
 );
 
@@ -9576,11 +9583,23 @@ const brokerageDrawRowValidator = v.object({
   reviewedAt: v.optional(v.string()),
   releaseDate: v.optional(v.string()),
   releasedAt: v.optional(v.string()),
+  sourceAllocations: v.optional(
+    v.array(
+      v.object({
+        amountCents: v.number(),
+        drawGroupKey: v.string(),
+        milestoneKey: v.string(),
+        milestoneName: v.string(),
+        sourceOrder: v.number(),
+      })
+    )
+  ),
   scheduledDateIso: v.string(),
   scheduledDateLabel: v.string(),
   status: productionBuildDrawStatusValidator,
   timingDay: v.number(),
   updatedAt: v.number(),
+  workOrderKey: v.optional(v.string()),
 });
 
 export const listBrokerageDraws = authenticatedQuery
@@ -9685,11 +9704,19 @@ export const listBrokerageDraws = authenticatedQuery
       reviewedAt?: string;
       releaseDate?: string;
       releasedAt?: string;
+      sourceAllocations?: Array<{
+        amountCents: number;
+        drawGroupKey: string;
+        milestoneKey: string;
+        milestoneName: string;
+        sourceOrder: number;
+      }>;
       scheduledDateIso: string;
       scheduledDateLabel: string;
-      status: Doc<"plannedDrawScheduleRows">["status"];
+      status: Exclude<Doc<"plannedDrawScheduleRows">["status"], "approved">;
       timingDay: number;
       updatedAt: number;
+      workOrderKey?: string;
     }> = [];
 
     for (const build of scopedBuilds) {
@@ -9757,6 +9784,10 @@ export const listBrokerageDraws = authenticatedQuery
         });
       }
       for (const request of requestRows) {
+        const sourceAllocations = await activeBuildDrawAllocationViews(
+          ctx,
+          request._id
+        );
         const planned = request.plannedDrawKey
           ? plannedByKey.get(request.plannedDrawKey)
           : undefined;
@@ -9781,16 +9812,19 @@ export const listBrokerageDraws = authenticatedQuery
                 ?.name
             : undefined,
           requestNote: request.note,
-          requestReviewNote: request.reviewNote,
+          requestReviewNote:
+            request.reviewNote ?? request.operationsRecommendationNote,
           requestedAt: request.requestedAt,
           reviewedAt: request.reviewedAt,
           releaseDate: request.releaseDate,
           releasedAt: request.releasedAt,
+          sourceAllocations,
           scheduledDateIso,
           scheduledDateLabel: scheduledDateIso,
-          status: request.status === "withdrawn" ? "rejected" : request.status,
+          status: activeBuildDrawCanonicalStatus(request.status),
           timingDay: planned?.timingDay ?? 0,
           updatedAt: request.updatedAt,
+          workOrderKey: activeBuildDrawWorkOrderKey(request),
         });
       }
     }
@@ -9801,19 +9835,30 @@ export const listBrokerageDraws = authenticatedQuery
       if (urgency !== urgencyB) {
         return urgency - urgencyB;
       }
-      if (a.status === "requested" || a.status === "approved") {
+      if (
+        a.status === "requested" ||
+        a.status === "in_review" ||
+        a.status === "ready_for_admin" ||
+        a.status === "approved_for_release"
+      ) {
         return b.updatedAt - a.updatedAt;
       }
       return a.scheduledDateIso.localeCompare(b.scheduledDateIso);
     });
 
     const summary = {
-      approved: draws.filter((draw) => draw.status === "approved").length,
+      approved: draws.filter((draw) => draw.status === "approved_for_release")
+        .length,
       exposureApprovedCents: draws
-        .filter((draw) => draw.status === "approved")
+        .filter((draw) => draw.status === "approved_for_release")
         .reduce((sum, draw) => sum + draw.amountCents, 0),
       exposureRequestedCents: draws
-        .filter((draw) => draw.status === "requested")
+        .filter(
+          (draw) =>
+            draw.status === "requested" ||
+            draw.status === "in_review" ||
+            draw.status === "ready_for_admin"
+        )
         .reduce((sum, draw) => sum + draw.amountCents, 0),
       planned: draws.filter((draw) => draw.status === "planned").length,
       rejected: draws.filter((draw) => draw.status === "rejected").length,
@@ -9821,7 +9866,12 @@ export const listBrokerageDraws = authenticatedQuery
       releasedCents: draws
         .filter((draw) => draw.status === "released")
         .reduce((sum, draw) => sum + draw.amountCents, 0),
-      requested: draws.filter((draw) => draw.status === "requested").length,
+      requested: draws.filter(
+        (draw) =>
+          draw.status === "requested" ||
+          draw.status === "in_review" ||
+          draw.status === "ready_for_admin"
+      ).length,
       total: draws.length,
       upcomingPlannedCents: draws
         .filter((draw) => draw.status === "planned")
@@ -9831,7 +9881,7 @@ export const listBrokerageDraws = authenticatedQuery
     const exposureSnapshot = (
       [
         ["requested", "Under review"],
-        ["approved", "Approved to release"],
+        ["approved_for_release", "Approved to release"],
         ["planned", "Upcoming planned"],
         ["released", "Released"],
         ["rejected", "Rejected"],
@@ -9863,7 +9913,9 @@ export const listBrokerageDraws = authenticatedQuery
       const key = String(draw.buildId);
       const isOpen =
         draw.status === "requested" ||
-        draw.status === "approved" ||
+        draw.status === "in_review" ||
+        draw.status === "ready_for_admin" ||
+        draw.status === "approved_for_release" ||
         draw.status === "planned";
       const existing = buildsGrouped.get(key);
       if (existing) {
@@ -10807,6 +10859,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
       costItems,
       plannedDraws,
       drawRequests,
+      drawAllocations,
       facilityChangeRequests,
       proposalMilestones,
     ] = await Promise.all([
@@ -10817,6 +10870,12 @@ export const getActiveBuildDetailByString = authenticatedQuery
       collectByIndex(ctx, "buildCostItems", "by_build", buildId),
       collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
       collectByIndex(ctx, "activeBuildDrawRequests", "by_build", buildId),
+      collectByIndex(
+        ctx,
+        "activeBuildDrawRequestAllocations",
+        "by_build",
+        buildId
+      ),
       collectByIndex(
         ctx,
         "activeBuildFacilityChangeRequests",
@@ -10893,6 +10952,41 @@ export const getActiveBuildDetailByString = authenticatedQuery
         };
       }
     );
+    const milestoneById = new Map(
+      hydratedMilestones.map((milestone) => [String(milestone._id), milestone])
+    );
+    const drawAllocationsByRequest = new Map<
+      string,
+      Array<{
+        amountCents: number;
+        drawGroupKey: string;
+        milestoneKey: string;
+        milestoneName: string;
+        sourceOrder: number;
+      }>
+    >();
+    for (const allocation of drawAllocations as Doc<"activeBuildDrawRequestAllocations">[]) {
+      const requestId = String(allocation.drawRequestId);
+      const list = drawAllocationsByRequest.get(requestId) ?? [];
+      list.push({
+        amountCents: allocation.amountCents,
+        drawGroupKey: allocation.drawGroupKey,
+        milestoneKey: allocation.milestoneKey,
+        milestoneName:
+          milestoneById.get(String(allocation.buildMilestoneId))?.name ??
+          allocation.milestoneKey,
+        sourceOrder: allocation.sourceOrder,
+      });
+      drawAllocationsByRequest.set(requestId, list);
+    }
+    for (const allocations of drawAllocationsByRequest.values()) {
+      allocations.sort(
+        (a, b) =>
+          a.sourceOrder - b.sourceOrder ||
+          a.milestoneKey.localeCompare(b.milestoneKey)
+      );
+    }
+    const drawFunding = await activeBuildDrawFundingSnapshot(ctx, buildId);
     const contractorById = new Map(
       contractorProfiles.map((contractor) => [
         String(contractor._id),
@@ -10923,6 +11017,17 @@ export const getActiveBuildDetailByString = authenticatedQuery
       capitalPlan: capitalPlans[0] ?? null,
       displayId: productionBuildDisplayId(build),
       documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
+      drawFunding: {
+        approvedMilestoneCents: drawFunding.approvedMilestoneCents,
+        availableCents: drawFunding.availableCents,
+        facilityCents: drawFunding.facilityCents,
+        reservedCents: drawFunding.reservedCents,
+        sources: drawFunding.sources.map(({ buildMilestoneId, ...source }) => ({
+          ...source,
+          buildMilestoneId: String(buildMilestoneId),
+        })),
+        unlockedCents: drawFunding.unlockedCents,
+      },
       draws: canUseAppPermission(appPermissions, "draw", "view")
         ? (drawRequests as Doc<"activeBuildDrawRequests">[])
             .slice()
@@ -10937,6 +11042,10 @@ export const getActiveBuildDetailByString = authenticatedQuery
               note: request.note,
               order: index + 1,
               plannedDrawKey: request.plannedDrawKey,
+              operationsRecommendationNote:
+                request.operationsRecommendationNote,
+              operationsReviewStartedAt: request.operationsReviewStartedAt,
+              readyForAdminAt: request.readyForAdminAt,
               releaseDate: request.releaseDate,
               releasedAt: request.releasedAt,
               releaseNote: request.releaseNote,
@@ -10944,8 +11053,11 @@ export const getActiveBuildDetailByString = authenticatedQuery
               requestNote: request.note,
               requestReviewNote: request.reviewNote,
               reviewedAt: request.reviewedAt,
-              status: request.status,
+              sourceAllocations:
+                drawAllocationsByRequest.get(String(request._id)) ?? [],
+              status: activeBuildDrawCanonicalStatus(request.status),
               timingDay: 0,
+              workOrderKey: activeBuildDrawWorkOrderKey(request),
               withdrawnAt: request.withdrawnAt,
               withdrawalNote: request.withdrawalNote,
             }))
@@ -11416,6 +11528,7 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
       submilestones,
       draws,
       drawRequests,
+      drawAllocations,
       evidenceAssets,
       capitalPlanRows,
       siteVisits,
@@ -11427,6 +11540,12 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
       collectByIndex(ctx, "buildSubmilestones", "by_build", args.buildId),
       collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", args.buildId),
       collectByIndex(ctx, "activeBuildDrawRequests", "by_build", args.buildId),
+      collectByIndex(
+        ctx,
+        "activeBuildDrawRequestAllocations",
+        "by_build",
+        args.buildId
+      ),
       collectByIndex(ctx, "buildEvidenceAssets", "by_build", args.buildId),
       collectByIndex(ctx, "buildCapitalPlans", "by_build", args.buildId),
       collectByIndex(ctx, "buildSiteVisits", "by_build", args.buildId),
@@ -11450,6 +11569,36 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
     )
       .slice()
       .sort((a, b) => a.createdAt - b.createdAt);
+    const milestoneNameById = new Map(
+      sortedMilestones.map((milestone) => [
+        String(milestone._id),
+        milestone.name,
+      ])
+    );
+    const drawAllocationsByRequest = new Map<
+      string,
+      Array<{
+        amountCents: number;
+        drawGroupKey: string;
+        milestoneKey: string;
+        milestoneName: string;
+        sourceOrder: number;
+      }>
+    >();
+    for (const allocation of drawAllocations as Doc<"activeBuildDrawRequestAllocations">[]) {
+      const requestId = String(allocation.drawRequestId);
+      const list = drawAllocationsByRequest.get(requestId) ?? [];
+      list.push({
+        amountCents: allocation.amountCents,
+        drawGroupKey: allocation.drawGroupKey,
+        milestoneKey: allocation.milestoneKey,
+        milestoneName:
+          milestoneNameById.get(String(allocation.buildMilestoneId)) ??
+          allocation.milestoneKey,
+        sourceOrder: allocation.sourceOrder,
+      });
+      drawAllocationsByRequest.set(requestId, list);
+    }
     const plannedDrawByKey = new Map(
       sortedDraws.map((draw) => [draw.drawKey, draw])
     );
@@ -11566,17 +11715,20 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
                 requestNote: request.note,
                 requestReviewNote:
                   request.reviewNote ??
+                  request.operationsRecommendationNote ??
                   request.releaseNote ??
                   request.withdrawalNote,
-                requestStatus:
-                  request.status === "withdrawn"
-                    ? ("rejected" as const)
-                    : request.status,
+                requestStatus: activeBuildTimelineRequestStatus(request.status),
                 reviewedAt:
                   request.reviewedAt ??
+                  request.readyForAdminAt ??
+                  request.operationsReviewStartedAt ??
                   request.releasedAt ??
                   request.withdrawnAt,
                 requestedAt: request.requestedAt,
+                sourceAllocations:
+                  drawAllocationsByRequest.get(String(request._id)) ?? [],
+                workOrderKey: activeBuildDrawWorkOrderKey(request),
                 x: planned?.timingDay ?? currentDay,
               };
             }),
@@ -12417,7 +12569,7 @@ export const deleteActiveBuildTimelineDraw = authenticatedMutation
       args.buildId,
       args.drawKey
     );
-    if (draw.status === "approved" || draw.status === "released") {
+    if (draw.status === "approved_for_release" || draw.status === "released") {
       throw new Error(
         "Approved or released reimbursement draws cannot be deleted."
       );
@@ -13775,7 +13927,17 @@ export const requestActiveBuildDraw = authenticatedMutation
       displayId: v.string(),
       requestKey: v.string(),
       requestedAt: v.string(),
+      sourceAllocations: v.array(
+        v.object({
+          amountCents: v.number(),
+          drawGroupKey: v.string(),
+          milestoneKey: v.string(),
+          milestoneName: v.string(),
+          sourceOrder: v.number(),
+        })
+      ),
       status: v.literal("requested"),
+      workOrderKey: v.string(),
     })
   )
   .handler(async (ctx, args) => {
@@ -13817,26 +13979,26 @@ export const requestActiveBuildDraw = authenticatedMutation
           "This operation ID was already used for a different draw amount."
         );
       }
-      const availableAfterCents = await calculateActiveBuildAvailableNowCents(
+      const funding = await activeBuildDrawFundingSnapshot(ctx, args.buildId);
+      const sourceAllocations = await activeBuildDrawAllocationViews(
         ctx,
-        args.buildId
+        existing._id
       );
       return {
         amountCents: existing.amountCents,
-        availableAfterCents,
+        availableAfterCents: funding.availableCents,
         displayId: existing.displayId,
         requestKey: existing.requestKey,
         requestedAt: existing.requestedAt,
+        sourceAllocations,
         status: "requested" as const,
+        workOrderKey: activeBuildDrawWorkOrderKey(existing),
       };
     }
-    const availableCents = await calculateActiveBuildAvailableNowCents(
-      ctx,
-      args.buildId
-    );
-    if (amountCents > availableCents) {
+    const funding = await activeBuildDrawFundingSnapshot(ctx, args.buildId);
+    if (amountCents > funding.availableCents) {
       throw new Error(
-        `Requested draw exceeds the available draw limit of ${availableCents} cents.`
+        `Requested draw exceeds the available draw limit of ${funding.availableCents} cents.`
       );
     }
     const plannedDraw = await ctx.db
@@ -13855,6 +14017,11 @@ export const requestActiveBuildDraw = authenticatedMutation
     const requestedAt = new Date(now).toISOString();
     const displayId = `DR-${String(sequence).padStart(4, "0")}`;
     const requestKey = `${displayId.toLowerCase()}-${String(now)}`;
+    const workOrderKey = `DRWO-${String(sequence).padStart(4, "0")}`;
+    const sourceAllocations = allocateActiveBuildDrawSources(
+      funding.sources,
+      amountCents
+    );
     const request = {
       amountCents,
       brokerageId: auth.brokerage._id,
@@ -13871,23 +14038,50 @@ export const requestActiveBuildDraw = authenticatedMutation
       requestKey,
       status: "requested" as const,
       updatedAt: now,
+      workOrderKey,
     };
-    await ctx.db.insert("activeBuildDrawRequests", request);
+    const drawRequestId = await ctx.db.insert(
+      "activeBuildDrawRequests",
+      request
+    );
+    for (const allocation of sourceAllocations) {
+      await ctx.db.insert("activeBuildDrawRequestAllocations", {
+        amountCents: allocation.amountCents,
+        brokerageId: auth.brokerage._id,
+        buildId: args.buildId,
+        buildMilestoneId: allocation.buildMilestoneId,
+        createdAt: now,
+        drawGroupKey: allocation.drawGroupKey,
+        drawRequestId,
+        milestoneKey: allocation.milestoneKey,
+        organizationId: args.workosOrganizationId,
+        sourceOrder: allocation.sourceOrder,
+      });
+    }
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
       command: "requestActiveBuildDraw",
       eventType: "active_build.draw.requested",
-      newState: JSON.stringify(request),
+      newState: JSON.stringify({
+        ...request,
+        sourceAllocations: sourceAllocations.map(
+          ({ buildMilestoneId: _, ...allocation }) => allocation
+        ),
+      }),
       reason: note,
     });
     return {
       amountCents,
-      availableAfterCents: availableCents - amountCents,
+      availableAfterCents: funding.availableCents - amountCents,
       displayId,
       requestKey,
       requestedAt,
+      sourceAllocations: sourceAllocations.map(
+        ({ buildMilestoneId: _, ...allocation }) => allocation
+      ),
       status: "requested" as const,
+      workOrderKey,
     };
   })
   .public();
@@ -13958,7 +14152,7 @@ export const withdrawActiveBuildDraw = authenticatedMutation
   })
   .public();
 
-export const approveActiveBuildDraw = authenticatedMutation
+export const startActiveBuildDrawReview = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
     drawKey: v.string(),
@@ -13979,13 +14173,121 @@ export const approveActiveBuildDraw = authenticatedMutation
       args.drawKey
     );
     if (draw.status !== "requested") {
-      throw new Error("Only submitted draw requests can be approved.");
+      throw new Error("Only submitted draw requests can enter review.");
+    }
+    const note = args.note?.trim();
+    if (note && note.length > 500) {
+      throw new Error("Draw review note must be 500 characters or fewer.");
+    }
+    const operationsReviewStartedAt = new Date().toISOString();
+    const patch = {
+      operationsReviewStartedAt,
+      operationsReviewerWorkosUserId: auth.subject,
+      status: "in_review" as const,
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(draw._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "startActiveBuildDrawReview",
+      eventType: "active_build.draw.review_started",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(draw),
+      reason: note,
+    });
+    return null;
+  })
+  .public();
+
+export const submitActiveBuildDrawForAdmin = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    drawKey: v.string(),
+    note: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireBackofficeActiveBuildWrite(auth);
+    const draw = await getActiveBuildDrawRequestOrThrow(
+      ctx,
+      args.buildId,
+      args.drawKey
+    );
+    if (draw.status !== "in_review") {
+      throw new Error(
+        "Only draw requests under operations review can be sent to admin."
+      );
+    }
+    const note = args.note.trim();
+    if (note.length < 3 || note.length > 500) {
+      throw new Error(
+        "Draw recommendation note must be between 3 and 500 characters."
+      );
     }
     const patch = {
-      reviewNote: args.note,
+      operationsRecommendationNote: note,
+      operationsReviewerWorkosUserId: auth.subject,
+      readyForAdminAt: new Date().toISOString(),
+      status: "ready_for_admin" as const,
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(draw._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "submitActiveBuildDrawForAdmin",
+      eventType: "active_build.draw.ready_for_admin",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(draw),
+      reason: note,
+    });
+    return null;
+  })
+  .public();
+
+export const approveActiveBuildDraw = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    drawKey: v.string(),
+    note: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    requireApproverActiveBuildWrite(auth);
+    const draw = await getActiveBuildDrawRequestOrThrow(
+      ctx,
+      args.buildId,
+      args.drawKey
+    );
+    if (draw.status !== "ready_for_admin") {
+      throw new Error(
+        "Only draw requests prepared for admin can be approved for release."
+      );
+    }
+    const note = args.note.trim();
+    if (note.length < 3 || note.length > 500) {
+      throw new Error(
+        "Draw approval reason must be between 3 and 500 characters."
+      );
+    }
+    const patch = {
+      reviewNote: note,
       reviewedByWorkosUserId: auth.subject,
       reviewedAt: new Date().toISOString(),
-      status: "approved" as const,
+      status: "approved_for_release" as const,
       updatedAt: Date.now(),
     };
     await ctx.db.patch(draw._id, patch);
@@ -13993,10 +14295,10 @@ export const approveActiveBuildDraw = authenticatedMutation
       auth,
       build: auth.build,
       command: "approveActiveBuildDraw",
-      eventType: "active_build.draw.approved",
+      eventType: "active_build.draw.approved_for_release",
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(draw),
-      reason: args.note,
+      reason: note,
     });
     return null;
   })
@@ -14006,7 +14308,7 @@ export const rejectActiveBuildDraw = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
     drawKey: v.string(),
-    note: v.optional(v.string()),
+    note: v.string(),
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
@@ -14016,17 +14318,23 @@ export const rejectActiveBuildDraw = authenticatedMutation
       args.buildId,
       args.workosOrganizationId
     );
-    requireBackofficeActiveBuildWrite(auth);
+    requireApproverActiveBuildWrite(auth);
     const draw = await getActiveBuildDrawRequestOrThrow(
       ctx,
       args.buildId,
       args.drawKey
     );
-    if (draw.status !== "requested") {
-      throw new Error("Only submitted draw requests can be rejected.");
+    if (draw.status !== "ready_for_admin") {
+      throw new Error("Only draw requests prepared for admin can be rejected.");
+    }
+    const note = args.note.trim();
+    if (note.length < 3 || note.length > 500) {
+      throw new Error(
+        "Draw rejection reason must be between 3 and 500 characters."
+      );
     }
     const patch = {
-      reviewNote: args.note,
+      reviewNote: note,
       reviewedAt: new Date().toISOString(),
       reviewedByWorkosUserId: auth.subject,
       status: "rejected" as const,
@@ -14040,7 +14348,7 @@ export const rejectActiveBuildDraw = authenticatedMutation
       eventType: "active_build.draw.rejected",
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(draw),
-      reason: args.note,
+      reason: note,
     });
     return null;
   })
@@ -14050,7 +14358,7 @@ export const releaseActiveBuildDraw = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
     drawKey: v.string(),
-    note: v.optional(v.string()),
+    note: v.string(),
     releaseDate: v.string(),
     workosOrganizationId: v.string(),
   })
@@ -14067,12 +14375,18 @@ export const releaseActiveBuildDraw = authenticatedMutation
       args.buildId,
       args.drawKey
     );
-    if (draw.status !== "approved") {
-      throw new Error("Only approved draw requests can be released.");
+    if (draw.status !== "approved_for_release") {
+      throw new Error("Only draws approved for release can be released.");
+    }
+    const note = args.note.trim();
+    if (note.length < 3 || note.length > 500) {
+      throw new Error(
+        "Draw release reason must be between 3 and 500 characters."
+      );
     }
     const patch = {
       releaseDate: args.releaseDate,
-      releaseNote: args.note,
+      releaseNote: note,
       releasedAt: new Date().toISOString(),
       status: "released" as const,
       updatedAt: Date.now(),
@@ -14095,18 +14409,638 @@ export const releaseActiveBuildDraw = authenticatedMutation
       eventType: "active_build.draw.released",
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(draw),
-      reason: args.note,
+      reason: note,
     });
     return null;
   })
   .public();
 
+const ACTIVE_BUILD_DRAW_MIGRATION_VERSION =
+  "draw-release-work-order-attribution-v1";
+const ACTIVE_BUILD_DRAW_MIGRATION_ROW_LIMIT = 256;
+const ACTIVE_BUILD_DRAW_MIGRATION_ALLOCATION_LIMIT = 2_048;
+
+type ActiveBuildDrawMigrationStatus = Exclude<
+  Doc<"plannedDrawScheduleRows">["status"],
+  "planned"
+>;
+
+type ActiveBuildDrawMigrationExistingRequestPlan = {
+  allocations: ActiveBuildDrawSourceAllocation[];
+  nextStatus: Doc<"activeBuildDrawRequests">["status"];
+  request: Doc<"activeBuildDrawRequests">;
+  workOrderKey: string;
+};
+
+type ActiveBuildDrawMigrationLegacyRowPlan = {
+  amountCents: number;
+  clientOperationId: string;
+  displayId: string;
+  originalProposalAmountCents: number;
+  requestedAt: string;
+  requestKey: string;
+  row: Doc<"plannedDrawScheduleRows">;
+  sourceAllocations: ActiveBuildDrawSourceAllocation[];
+  status: ActiveBuildDrawMigrationStatus;
+  workOrderKey: string;
+};
+
+type ActiveBuildDrawMigrationRestorePlan = {
+  originalProposalAmountCents: number;
+  row: Doc<"plannedDrawScheduleRows">;
+};
+
+type ActiveBuildDrawMigrationPlan = {
+  attributed: number;
+  availableCents: number;
+  existingRequestPlans: ActiveBuildDrawMigrationExistingRequestPlan[];
+  migrated: number;
+  newRequestPlans: ActiveBuildDrawMigrationLegacyRowPlan[];
+  normalized: number;
+  planToken: string;
+  reservedCents: number;
+  restorePlans: ActiveBuildDrawMigrationRestorePlan[];
+  restoredForecasts: number;
+  skipped: number;
+  unlockedCents: number;
+  warnings: string[];
+  wouldChange: boolean;
+};
+
+function assertActiveBuildDrawMigrationScope(
+  label: string,
+  row: {
+    brokerageId: Id<"brokerages">;
+    buildId: Id<"activeBuilds">;
+    organizationId: string;
+  },
+  expected: {
+    brokerageId: Id<"brokerages">;
+    buildId: Id<"activeBuilds">;
+    organizationId: string;
+  }
+) {
+  if (
+    String(row.buildId) !== String(expected.buildId) ||
+    String(row.brokerageId) !== String(expected.brokerageId) ||
+    row.organizationId !== expected.organizationId
+  ) {
+    throw new Error(
+      `Cannot migrate ${label}: organization, brokerage, or build attribution is inconsistent.`
+    );
+  }
+}
+
+function assertActiveBuildDrawMigrationBound(
+  label: string,
+  rows: readonly unknown[],
+  limit: number
+) {
+  if (rows.length > limit) {
+    throw new Error(
+      `Cannot migrate this build atomically: ${label} exceeds the production safety limit of ${limit}.`
+    );
+  }
+}
+
+function activeBuildDrawMigrationRequestStatus(
+  status: ActiveBuildDrawMigrationStatus
+): Doc<"activeBuildDrawRequests">["status"] {
+  return status === "approved" ? "approved_for_release" : status;
+}
+
+function reserveActiveBuildDrawMigrationAllocations(
+  sources: ActiveBuildDrawFundingSource[],
+  allocations: readonly ActiveBuildDrawSourceAllocation[]
+) {
+  const sourcesByMilestoneId = new Map(
+    sources.map((source) => [String(source.buildMilestoneId), source])
+  );
+  for (const allocation of allocations) {
+    const source = sourcesByMilestoneId.get(
+      String(allocation.buildMilestoneId)
+    );
+    if (!source || source.availableCents < allocation.amountCents) {
+      throw new Error(
+        "Draw attribution integrity failure: migration reservations exceed an approved source bucket."
+      );
+    }
+    source.availableCents -= allocation.amountCents;
+    source.reservedCents += allocation.amountCents;
+  }
+}
+
+function activeBuildDrawMigrationSequence(value?: string) {
+  const match = value?.match(/(\d+)(?!.*\d)/);
+  return match ? Number.parseInt(match[1], 10) : 0;
+}
+
+async function activeBuildDrawMigrationPlanToken(value: unknown) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(value))
+  );
+  return `${ACTIVE_BUILD_DRAW_MIGRATION_VERSION}:${Array.from(
+    new Uint8Array(digest)
+  )
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+async function planActiveBuildDrawRequestMigration(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    buildId: Id<"activeBuilds">;
+    organizationId: string;
+  }
+): Promise<ActiveBuildDrawMigrationPlan> {
+  const [
+    plannedDraws,
+    existingRequests,
+    existingAllocations,
+    milestones,
+    facilities,
+  ] = await Promise.all([
+    ctx.db
+      .query("plannedDrawScheduleRows")
+      .withIndex("by_build", (q) => q.eq("buildId", input.buildId))
+      .take(ACTIVE_BUILD_DRAW_MIGRATION_ROW_LIMIT + 1),
+    ctx.db
+      .query("activeBuildDrawRequests")
+      .withIndex("by_build", (q) => q.eq("buildId", input.buildId))
+      .take(ACTIVE_BUILD_DRAW_MIGRATION_ROW_LIMIT + 1),
+    ctx.db
+      .query("activeBuildDrawRequestAllocations")
+      .withIndex("by_build", (q) => q.eq("buildId", input.buildId))
+      .take(ACTIVE_BUILD_DRAW_MIGRATION_ALLOCATION_LIMIT + 1),
+    ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build", (q) => q.eq("buildId", input.buildId))
+      .take(ACTIVE_BUILD_DRAW_MIGRATION_ROW_LIMIT + 1),
+    ctx.db
+      .query("loanFacilities")
+      .withIndex("by_build", (q) => q.eq("buildId", input.buildId))
+      .take(ACTIVE_BUILD_DRAW_MIGRATION_ROW_LIMIT + 1),
+  ]);
+  assertActiveBuildDrawMigrationBound(
+    "planned draw rows",
+    plannedDraws,
+    ACTIVE_BUILD_DRAW_MIGRATION_ROW_LIMIT
+  );
+  assertActiveBuildDrawMigrationBound(
+    "draw release work orders",
+    existingRequests,
+    ACTIVE_BUILD_DRAW_MIGRATION_ROW_LIMIT
+  );
+  assertActiveBuildDrawMigrationBound(
+    "draw source allocations",
+    existingAllocations,
+    ACTIVE_BUILD_DRAW_MIGRATION_ALLOCATION_LIMIT
+  );
+  assertActiveBuildDrawMigrationBound(
+    "milestones",
+    milestones,
+    ACTIVE_BUILD_DRAW_MIGRATION_ROW_LIMIT
+  );
+  assertActiveBuildDrawMigrationBound(
+    "loan facilities",
+    facilities,
+    ACTIVE_BUILD_DRAW_MIGRATION_ROW_LIMIT
+  );
+
+  const scopedRows = [
+    ...plannedDraws,
+    ...existingRequests,
+    ...existingAllocations,
+    ...milestones,
+    ...facilities,
+  ];
+  for (const row of scopedRows) {
+    assertActiveBuildDrawMigrationScope(
+      `${row._id}`,
+      row,
+      input
+    );
+  }
+
+  const requestsById = new Map(
+    existingRequests.map((request) => [String(request._id), request])
+  );
+  const allocationsByRequestId = new Map<
+    string,
+    Doc<"activeBuildDrawRequestAllocations">[]
+  >();
+  const approvedMilestonesById = new Map(
+    milestones
+      .filter(
+        (milestone) => milestone.completionReview?.status === "approved"
+      )
+      .map((milestone) => [String(milestone._id), milestone])
+  );
+  for (const allocation of existingAllocations) {
+    const request = requestsById.get(String(allocation.drawRequestId));
+    if (!request) {
+      throw new Error(
+        `Cannot migrate allocation ${allocation._id}: its Draw Release Work Order is missing from this build.`
+      );
+    }
+    const milestone = approvedMilestonesById.get(
+      String(allocation.buildMilestoneId)
+    );
+    if (
+      !milestone ||
+      milestone.key !== allocation.milestoneKey ||
+      !Number.isSafeInteger(allocation.amountCents) ||
+      allocation.amountCents <= 0
+    ) {
+      throw new Error(
+        `Cannot migrate ${request.requestKey}: a persisted allocation is not attributable to an approved reimbursement milestone.`
+      );
+    }
+    const requestAllocations =
+      allocationsByRequestId.get(String(request._id)) ?? [];
+    requestAllocations.push(allocation);
+    allocationsByRequestId.set(String(request._id), requestAllocations);
+  }
+
+  const sortedRequests = existingRequests.slice().sort(
+    (a, b) =>
+      a.createdAt - b.createdAt ||
+      a.requestKey.localeCompare(b.requestKey) ||
+      String(a._id).localeCompare(String(b._id))
+  );
+  const unattributedRequestIds = new Set<string>();
+  for (const request of sortedRequests) {
+    if (
+      !Number.isSafeInteger(request.amountCents) ||
+      request.amountCents <= 0
+    ) {
+      throw new Error(
+        `Cannot migrate ${request.requestKey}: reimbursement amount must be a positive whole number of cents.`
+      );
+    }
+    const attributedCents = (
+      allocationsByRequestId.get(String(request._id)) ?? []
+    ).reduce((total, allocation) => total + allocation.amountCents, 0);
+    if (attributedCents !== 0 && attributedCents !== request.amountCents) {
+      throw new Error(
+        `Cannot migrate ${request.requestKey}: persisted source allocations total ${attributedCents} cents for a ${request.amountCents}-cent request.`
+      );
+    }
+    if (attributedCents === 0) {
+      unattributedRequestIds.add(String(request._id));
+    }
+  }
+
+  const funding = activeBuildDrawFundingSnapshotFromRows({
+    allocations: existingAllocations,
+    facilities,
+    ignoreUnattributedRequestIds: unattributedRequestIds,
+    milestones,
+    plannedDraws,
+    requests: existingRequests,
+  });
+  const simulatedSources = funding.sources.map((source) => ({ ...source }));
+  const workOrderOwners = new Map<string, string>();
+  for (const request of sortedRequests) {
+    const explicitKey = request.workOrderKey?.trim();
+    if (!explicitKey) {
+      continue;
+    }
+    const owner = workOrderOwners.get(explicitKey);
+    if (owner && owner !== String(request._id)) {
+      throw new Error(
+        `Cannot migrate ${request.requestKey}: Draw Release Work Order key ${explicitKey} is duplicated in this build.`
+      );
+    }
+    workOrderOwners.set(explicitKey, String(request._id));
+  }
+
+  const existingRequestPlans: ActiveBuildDrawMigrationExistingRequestPlan[] =
+    [];
+  for (const request of sortedRequests) {
+    const explicitKey = request.workOrderKey?.trim();
+    const derivedKey = activeBuildDrawWorkOrderKey({
+      ...request,
+      workOrderKey: undefined,
+    });
+    const workOrderKey =
+      explicitKey ??
+      (workOrderOwners.has(derivedKey)
+        ? `DRWO-LEGACY-${String(request._id)}`
+        : derivedKey);
+    const keyOwner = workOrderOwners.get(workOrderKey);
+    if (keyOwner && keyOwner !== String(request._id)) {
+      throw new Error(
+        `Cannot migrate ${request.requestKey}: no unique deterministic Draw Release Work Order key is available.`
+      );
+    }
+    workOrderOwners.set(workOrderKey, String(request._id));
+    const allocations = unattributedRequestIds.has(String(request._id))
+      ? allocateActiveBuildDrawSources(
+          activeBuildDrawRequestReservesAvailability(request.status)
+            ? simulatedSources
+            : simulatedSources.map((source) => ({
+                ...source,
+                availableCents: source.unlockedCents,
+              })),
+          request.amountCents
+        )
+      : [];
+    if (
+      allocations.length > 0 &&
+      activeBuildDrawRequestReservesAvailability(request.status)
+    ) {
+      reserveActiveBuildDrawMigrationAllocations(
+        simulatedSources,
+        allocations
+      );
+    }
+    existingRequestPlans.push({
+      allocations,
+      nextStatus:
+        request.status === "approved"
+          ? ("approved_for_release" as const)
+          : request.status,
+      request,
+      workOrderKey,
+    });
+  }
+
+  const existingByOperationId = new Map<string, Doc<"activeBuildDrawRequests">>();
+  for (const request of sortedRequests) {
+    const duplicate = existingByOperationId.get(request.clientOperationId);
+    if (duplicate) {
+      throw new Error(
+        `Cannot migrate ${request.requestKey}: client operation ID ${request.clientOperationId} is duplicated by ${duplicate.requestKey}.`
+      );
+    }
+    existingByOperationId.set(request.clientOperationId, request);
+  }
+  const priorMigrationRequests = sortedRequests.filter((request) =>
+    request.clientOperationId.startsWith("migration:")
+  );
+  const lifecycleRows = plannedDraws
+    .filter(
+      (
+        row
+      ): row is Doc<"plannedDrawScheduleRows"> & {
+        status: ActiveBuildDrawMigrationStatus;
+      } => row.status !== "planned"
+    )
+    .sort(
+      (a, b) =>
+        a.updatedAt - b.updatedAt ||
+        a.order - b.order ||
+        String(a._id).localeCompare(String(b._id))
+    );
+  const proposalRows = await Promise.all(
+    lifecycleRows.map((row) => ctx.db.get(row.proposalDrawScheduleRowId))
+  );
+  const proposalRowsById = new Map(
+    proposalRows
+      .filter(
+        (row): row is Doc<"proposalDrawScheduleRows"> => row !== null
+      )
+      .map((row) => [String(row._id), row])
+  );
+  for (const proposalRow of proposalRowsById.values()) {
+    if (
+      String(proposalRow.brokerageId) !== String(input.brokerageId) ||
+      proposalRow.organizationId !== input.organizationId
+    ) {
+      throw new Error(
+        `Cannot migrate proposal draw row ${proposalRow._id}: organization or brokerage attribution is inconsistent.`
+      );
+    }
+  }
+
+  const usedDisplayIds = new Set(
+    sortedRequests.map((request) => request.displayId)
+  );
+  let sequence = sortedRequests.reduce(
+    (maximum, request) =>
+      Math.max(
+        maximum,
+        activeBuildDrawMigrationSequence(request.displayId),
+        activeBuildDrawMigrationSequence(request.workOrderKey)
+      ),
+    0
+  );
+  const newRequestPlans: ActiveBuildDrawMigrationLegacyRowPlan[] = [];
+  const restorePlans: ActiveBuildDrawMigrationRestorePlan[] = [];
+  for (const row of lifecycleRows) {
+    if (
+      !Number.isSafeInteger(row.amountCents) ||
+      row.amountCents <= 0
+    ) {
+      throw new Error(
+        `Cannot migrate ${row.drawKey}: reimbursement amount must be a positive whole number of cents.`
+      );
+    }
+    const proposalRow = proposalRowsById.get(
+      String(row.proposalDrawScheduleRowId)
+    );
+    if (!proposalRow) {
+      throw new Error(
+        `Cannot migrate ${row.drawKey}: its original proposal forecast row is missing.`
+      );
+    }
+    const clientOperationId = `migration:${String(row._id)}`;
+    const priorRequest = existingByOperationId.get(clientOperationId);
+    if (priorRequest) {
+      if (priorRequest.amountCents !== row.amountCents) {
+        throw new Error(
+          `Cannot replay ${row.drawKey}: its existing Draw Release Work Order amount does not match the legacy lifecycle row.`
+        );
+      }
+      restorePlans.push({
+        originalProposalAmountCents: proposalRow.amountCents,
+        row,
+      });
+      continue;
+    }
+
+    let displayId: string;
+    let workOrderKey: string;
+    do {
+      sequence += 1;
+      displayId = `DR-${String(sequence).padStart(4, "0")}`;
+      workOrderKey = `DRWO-${String(sequence).padStart(4, "0")}`;
+    } while (
+      usedDisplayIds.has(displayId) ||
+      workOrderOwners.has(workOrderKey)
+    );
+    usedDisplayIds.add(displayId);
+    workOrderOwners.set(workOrderKey, `planned:${String(row._id)}`);
+    const status = activeBuildDrawMigrationRequestStatus(row.status);
+    const sourceAllocations = allocateActiveBuildDrawSources(
+      activeBuildDrawRequestReservesAvailability(status)
+        ? simulatedSources
+        : simulatedSources.map((source) => ({
+            ...source,
+            availableCents: source.unlockedCents,
+          })),
+      row.amountCents
+    );
+    if (activeBuildDrawRequestReservesAvailability(status)) {
+      reserveActiveBuildDrawMigrationAllocations(
+        simulatedSources,
+        sourceAllocations
+      );
+    }
+    newRequestPlans.push({
+      amountCents: row.amountCents,
+      clientOperationId,
+      displayId,
+      originalProposalAmountCents: proposalRow.amountCents,
+      requestedAt:
+        row.requestedAt ?? new Date(row.updatedAt).toISOString(),
+      requestKey: `${displayId.toLowerCase()}-migration-${String(row._id)}`,
+      row,
+      sourceAllocations,
+      status,
+      workOrderKey,
+    });
+  }
+
+  const attributed = existingRequestPlans.filter(
+    (plan) => plan.allocations.length > 0
+  ).length;
+  const normalized = existingRequestPlans.filter(
+    (plan) =>
+      plan.nextStatus !== plan.request.status ||
+      plan.workOrderKey !== plan.request.workOrderKey
+  ).length;
+  const migrated = newRequestPlans.length;
+  const restoredForecasts = migrated + restorePlans.length;
+  const wouldChange =
+    attributed > 0 ||
+    normalized > 0 ||
+    migrated > 0 ||
+    restorePlans.length > 0;
+  const reservedCents =
+    funding.unlockedCents -
+    simulatedSources.reduce(
+      (total, source) => total + source.availableCents,
+      0
+    );
+  const availableCents = Math.max(0, funding.unlockedCents - reservedCents);
+  const warnings = [
+    ...(migrated > 0
+      ? [
+          `${migrated} legacy lifecycle row(s) do not preserve the original requester identity; the authenticated migration operator is recorded with an audit warning.`,
+        ]
+      : []),
+    ...(existingRequestPlans.some(
+      (plan) => plan.nextStatus !== plan.request.status
+    )
+      ? [
+          "Legacy approved statuses will be normalized to approved_for_release without releasing funds or changing the interest start date.",
+        ]
+      : []),
+  ];
+  const planToken = await activeBuildDrawMigrationPlanToken({
+    allocations: existingAllocations
+      .slice()
+      .sort((a, b) => String(a._id).localeCompare(String(b._id)))
+      .map((allocation) => ({
+        amountCents: allocation.amountCents,
+        buildMilestoneId: allocation.buildMilestoneId,
+        drawRequestId: allocation.drawRequestId,
+        id: allocation._id,
+        milestoneKey: allocation.milestoneKey,
+      })),
+    buildId: input.buildId,
+    fundingSources: funding.sources.map((source) => ({
+      availableCents: source.availableCents,
+      buildMilestoneId: source.buildMilestoneId,
+      milestoneKey: source.milestoneKey,
+      unlockedCents: source.unlockedCents,
+    })),
+    lifecycleRows: lifecycleRows.map((row) => ({
+      amountCents: row.amountCents,
+      id: row._id,
+      originalProposalAmountCents: proposalRowsById.get(
+        String(row.proposalDrawScheduleRowId)
+      )?.amountCents,
+      status: row.status,
+      updatedAt: row.updatedAt,
+    })),
+    organizationId: input.organizationId,
+    requests: sortedRequests.map((request) => ({
+      amountCents: request.amountCents,
+      clientOperationId: request.clientOperationId,
+      id: request._id,
+      status: request.status,
+      updatedAt: request.updatedAt,
+      workOrderKey: request.workOrderKey,
+    })),
+    version: ACTIVE_BUILD_DRAW_MIGRATION_VERSION,
+  });
+  return {
+    attributed,
+    availableCents,
+    existingRequestPlans,
+    migrated,
+    newRequestPlans,
+    normalized,
+    planToken,
+    reservedCents,
+    restorePlans,
+    restoredForecasts,
+    skipped: priorMigrationRequests.length,
+    unlockedCents: funding.unlockedCents,
+    warnings,
+    wouldChange,
+  };
+}
+
+async function restoreActiveBuildPlannedDrawAfterMigration(
+  ctx: MutationCtx,
+  plan: ActiveBuildDrawMigrationRestorePlan,
+  now: number
+) {
+  await ctx.db.patch(plan.row._id, {
+    amountCents: plan.originalProposalAmountCents,
+    releaseDate: undefined,
+    releasedAt: undefined,
+    releaseNote: undefined,
+    requestedAt: undefined,
+    requestNote: undefined,
+    requestReviewNote: undefined,
+    reviewedAt: undefined,
+    status: "planned",
+    updatedAt: now,
+  });
+}
+
 export const migrateActiveBuildDrawRequests = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
+    dryRun: v.boolean(),
+    expectedPlanToken: v.optional(v.string()),
+    reason: v.string(),
     workosOrganizationId: v.string(),
   })
-  .returns(v.object({ migrated: v.number(), skipped: v.number() }))
+  .returns(
+    v.object({
+      applied: v.boolean(),
+      attributed: v.number(),
+      availableCents: v.number(),
+      dryRun: v.boolean(),
+      migrated: v.number(),
+      normalized: v.number(),
+      planToken: v.string(),
+      replayed: v.boolean(),
+      reservedCents: v.number(),
+      restoredForecasts: v.number(),
+      skipped: v.number(),
+      unlockedCents: v.number(),
+      warnings: v.array(v.string()),
+    })
+  )
   .handler(async (ctx, args) => {
     const auth = await authorizeActiveBuildOrThrow(
       ctx,
@@ -14114,45 +15048,80 @@ export const migrateActiveBuildDrawRequests = authenticatedMutation
       args.workosOrganizationId
     );
     requireBackofficeActiveBuildWrite(auth);
-    const rows = await collectByIndex(
-      ctx,
-      "plannedDrawScheduleRows",
-      "by_build",
-      args.buildId
-    );
-    const existing = await collectByIndex(
-      ctx,
-      "activeBuildDrawRequests",
-      "by_build",
-      args.buildId
-    );
-    let migrated = 0;
-    let skipped = 0;
-    for (const row of rows as Doc<"plannedDrawScheduleRows">[]) {
-      if (row.status === "planned") {
-        continue;
+    const reason = args.reason.trim();
+    if (reason.length < 3 || reason.length > 500) {
+      throw new Error(
+        "Draw migration reason must be between 3 and 500 characters."
+      );
+    }
+    const plan = await planActiveBuildDrawRequestMigration(ctx, {
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      organizationId: args.workosOrganizationId,
+    });
+    const result = {
+      applied: false,
+      attributed: plan.attributed,
+      availableCents: plan.availableCents,
+      dryRun: args.dryRun,
+      migrated: plan.migrated,
+      normalized: plan.normalized,
+      planToken: plan.planToken,
+      replayed: false,
+      reservedCents: plan.reservedCents,
+      restoredForecasts: plan.restoredForecasts,
+      skipped: plan.skipped,
+      unlockedCents: plan.unlockedCents,
+      warnings: plan.warnings,
+    };
+    if (args.dryRun) {
+      return result;
+    }
+    if (!plan.wouldChange) {
+      return { ...result, replayed: true };
+    }
+    if (args.expectedPlanToken !== plan.planToken) {
+      throw new Error(
+        "Draw migration plan changed or was not confirmed. Run dryRun=true again and execute with its exact planToken."
+      );
+    }
+
+    const now = Date.now();
+    for (const requestPlan of plan.existingRequestPlans) {
+      for (const allocation of requestPlan.allocations) {
+        await ctx.db.insert("activeBuildDrawRequestAllocations", {
+          amountCents: allocation.amountCents,
+          brokerageId: requestPlan.request.brokerageId,
+          buildId: requestPlan.request.buildId,
+          buildMilestoneId: allocation.buildMilestoneId,
+          createdAt: requestPlan.request.createdAt,
+          drawGroupKey: allocation.drawGroupKey,
+          drawRequestId: requestPlan.request._id,
+          milestoneKey: allocation.milestoneKey,
+          organizationId: requestPlan.request.organizationId,
+          sourceOrder: allocation.sourceOrder,
+        });
       }
-      const clientOperationId = `migration:${String(row._id)}`;
       if (
-        (existing as Doc<"activeBuildDrawRequests">[]).some(
-          (request) => request.clientOperationId === clientOperationId
-        )
+        requestPlan.nextStatus !== requestPlan.request.status ||
+        requestPlan.workOrderKey !== requestPlan.request.workOrderKey
       ) {
-        skipped += 1;
-        continue;
+        await ctx.db.patch(requestPlan.request._id, {
+          status: requestPlan.nextStatus,
+          updatedAt: now,
+          workOrderKey: requestPlan.workOrderKey,
+        });
       }
-      const proposalRow = await ctx.db.get(row.proposalDrawScheduleRowId);
-      const sequence = existing.length + migrated + 1;
-      const displayId = `DR-${String(sequence).padStart(4, "0")}`;
-      const requestedAt =
-        row.requestedAt ?? new Date(row.updatedAt).toISOString();
-      await ctx.db.insert("activeBuildDrawRequests", {
-        amountCents: Math.max(0, Math.round(row.amountCents)),
+    }
+    for (const requestPlan of plan.newRequestPlans) {
+      const row = requestPlan.row;
+      const drawRequestId = await ctx.db.insert("activeBuildDrawRequests", {
+        amountCents: requestPlan.amountCents,
         brokerageId: row.brokerageId,
         buildId: row.buildId,
-        clientOperationId,
+        clientOperationId: requestPlan.clientOperationId,
         createdAt: row.updatedAt,
-        displayId,
+        displayId: requestPlan.displayId,
         label: row.label,
         note: row.requestNote,
         organizationId: row.organizationId,
@@ -14160,36 +15129,79 @@ export const migrateActiveBuildDrawRequests = authenticatedMutation
         releaseDate: row.releaseDate,
         releasedAt: row.releasedAt,
         releaseNote: row.releaseNote,
-        requestedAt,
+        requestedAt: requestPlan.requestedAt,
         requestedByWorkosUserId: auth.subject,
-        requestKey: `${displayId.toLowerCase()}-migration-${String(row._id)}`,
+        requestKey: requestPlan.requestKey,
         reviewedAt: row.reviewedAt,
         reviewNote: row.requestReviewNote,
-        status: row.status,
+        status: requestPlan.status,
         updatedAt: row.updatedAt,
+        workOrderKey: requestPlan.workOrderKey,
       });
-      await ctx.db.patch(row._id, {
-        amountCents: proposalRow?.amountCents ?? row.amountCents,
-        releaseDate: undefined,
-        releasedAt: undefined,
-        releaseNote: undefined,
-        requestedAt: undefined,
-        requestNote: undefined,
-        requestReviewNote: undefined,
-        reviewedAt: undefined,
-        status: "planned",
-        updatedAt: Date.now(),
-      });
-      migrated += 1;
+      for (const allocation of requestPlan.sourceAllocations) {
+        await ctx.db.insert("activeBuildDrawRequestAllocations", {
+          amountCents: allocation.amountCents,
+          brokerageId: row.brokerageId,
+          buildId: row.buildId,
+          buildMilestoneId: allocation.buildMilestoneId,
+          createdAt: row.updatedAt,
+          drawGroupKey: allocation.drawGroupKey,
+          drawRequestId,
+          milestoneKey: allocation.milestoneKey,
+          organizationId: row.organizationId,
+          sourceOrder: allocation.sourceOrder,
+        });
+      }
+      await restoreActiveBuildPlannedDrawAfterMigration(
+        ctx,
+        {
+          originalProposalAmountCents:
+            requestPlan.originalProposalAmountCents,
+          row,
+        },
+        now
+      );
     }
+    for (const restorePlan of plan.restorePlans) {
+      await restoreActiveBuildPlannedDrawAfterMigration(ctx, restorePlan, now);
+    }
+
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
       command: "migrateActiveBuildDrawRequests",
       eventType: "active_build.draw_requests.migrated",
-      newState: JSON.stringify({ migrated, skipped }),
+      newState: JSON.stringify({
+        attributed: plan.attributed,
+        availableCents: plan.availableCents,
+        migrated: plan.migrated,
+        normalized: plan.normalized,
+        planToken: plan.planToken,
+        reservedCents: plan.reservedCents,
+        restoredForecasts: plan.restoredForecasts,
+        skipped: plan.skipped,
+        unlockedCents: plan.unlockedCents,
+        version: ACTIVE_BUILD_DRAW_MIGRATION_VERSION,
+      }),
+      priorState: JSON.stringify({
+        legacyLifecycleRows: plan.newRequestPlans.map((requestPlan) => ({
+          amountCents: requestPlan.amountCents,
+          drawKey: requestPlan.row.drawKey,
+          rowId: requestPlan.row._id,
+          status: requestPlan.row.status,
+        })),
+        requestsNeedingAttribution: plan.existingRequestPlans
+          .filter((requestPlan) => requestPlan.allocations.length > 0)
+          .map((requestPlan) => ({
+            amountCents: requestPlan.request.amountCents,
+            requestKey: requestPlan.request.requestKey,
+            status: requestPlan.request.status,
+          })),
+      }),
+      reason,
+      warnings: plan.warnings,
     });
-    return { migrated, skipped };
+    return { ...result, applied: true };
   })
   .public();
 
@@ -16326,14 +17338,18 @@ function productionDrawUrgencyRank(
   switch (status) {
     case "requested":
       return 0;
-    case "approved":
+    case "in_review":
       return 1;
-    case "planned":
+    case "ready_for_admin":
       return 2;
-    case "released":
+    case "approved_for_release":
       return 3;
+    case "planned":
+      return 4;
+    case "released":
+      return 5;
   }
-  return 4;
+  return 6;
 }
 
 function productionDrawMonthLabel(monthKey: string) {
@@ -16379,9 +17395,13 @@ function buildBrokerageDrawChartSeries(
     };
     if (draw.status === "planned") {
       existing.plannedCents += draw.amountCents;
-    } else if (draw.status === "requested") {
+    } else if (
+      draw.status === "requested" ||
+      draw.status === "in_review" ||
+      draw.status === "ready_for_admin"
+    ) {
       existing.requestedCents += draw.amountCents;
-    } else if (draw.status === "approved") {
+    } else if (draw.status === "approved_for_release") {
       existing.approvedCents += draw.amountCents;
     } else if (draw.status === "released") {
       existing.releasedCents += draw.amountCents;
@@ -16544,16 +17564,49 @@ function normalizePositiveCents(value: unknown, message: string) {
 function activeBuildTimelineDrawStatus(
   status: Doc<"plannedDrawScheduleRows">["status"]
 ) {
-  if (status === "requested") {
+  if (
+    status === "requested" ||
+    status === "in_review" ||
+    status === "ready_for_admin"
+  ) {
     return "requested" as const;
   }
-  if (status === "approved" || status === "released") {
+  if (status === "approved_for_release" || status === "released") {
     return "approved" as const;
   }
-  if (status === "rejected") {
+  if (status === "rejected" || status === "withdrawn") {
     return "rejected" as const;
   }
   return "draft" as const;
+}
+
+function activeBuildTimelineRequestStatus(
+  status: Doc<"activeBuildDrawRequests">["status"]
+) {
+  if (
+    status === "requested" ||
+    status === "in_review" ||
+    status === "ready_for_admin"
+  ) {
+    return "requested" as const;
+  }
+  if (
+    status === "approved" ||
+    status === "approved_for_release" ||
+    status === "released"
+  ) {
+    return "approved" as const;
+  }
+  return "rejected" as const;
+}
+
+function activeBuildDrawCanonicalStatus(
+  status: Doc<"activeBuildDrawRequests">["status"]
+): Exclude<Doc<"activeBuildDrawRequests">["status"], "approved"> {
+  if (status === "approved") {
+    return "approved_for_release";
+  }
+  return status;
 }
 
 function activeBuildTimelineMilestoneStatus(
@@ -19702,11 +20755,10 @@ async function copyProposalOperationalRowsToActiveBuild(
 function activeBuildDrawStatusFromProposal(
   status: Doc<"proposalDrawScheduleRows">["requestStatus"]
 ): Doc<"plannedDrawScheduleRows">["status"] {
-  if (
-    status === "approved" ||
-    status === "rejected" ||
-    status === "requested"
-  ) {
+  if (status === "approved") {
+    return "approved_for_release";
+  }
+  if (status === "rejected" || status === "requested") {
     return status;
   }
   return "planned";
@@ -19749,38 +20801,287 @@ async function calculateActiveBuildAvailableNowCents(
   ctx: QueryCtx | MutationCtx,
   buildId: Id<"activeBuilds">
 ) {
-  const [milestones, requests, facilities] = await Promise.all([
-    collectByIndex(ctx, "buildMilestones", "by_build", buildId),
-    collectByIndex(ctx, "activeBuildDrawRequests", "by_build", buildId),
-    collectByIndex(ctx, "loanFacilities", "by_build", buildId),
-  ]);
-  const approvedMilestoneCents = (
-    milestones as Doc<"buildMilestones">[]
-  ).reduce(
+  return (await activeBuildDrawFundingSnapshot(ctx, buildId)).availableCents;
+}
+
+function activeBuildDrawWorkOrderKey(
+  request: Pick<
+    Doc<"activeBuildDrawRequests">,
+    "_id" | "displayId" | "workOrderKey"
+  >
+) {
+  if (request.workOrderKey) {
+    return request.workOrderKey;
+  }
+  const displaySequence = request.displayId.match(/\d+/)?.[0];
+  return displaySequence
+    ? `DRWO-${displaySequence.padStart(4, "0")}`
+    : `DRWO-LEGACY-${String(request._id)}`;
+}
+
+function activeBuildDrawRequestReservesAvailability(
+  status: Doc<"activeBuildDrawRequests">["status"]
+) {
+  return (
+    status === "requested" ||
+    status === "approved" ||
+    status === "in_review" ||
+    status === "ready_for_admin" ||
+    status === "approved_for_release" ||
+    status === "released"
+  );
+}
+
+type ActiveBuildDrawFundingSource = {
+  availableCents: number;
+  buildMilestoneId: Id<"buildMilestones">;
+  drawGroupKey: string;
+  milestoneKey: string;
+  milestoneName: string;
+  reservedCents: number;
+  sourceOrder: number;
+  unlockedCents: number;
+};
+
+type ActiveBuildDrawSourceAllocation = {
+  amountCents: number;
+  buildMilestoneId: Id<"buildMilestones">;
+  drawGroupKey: string;
+  milestoneKey: string;
+  milestoneName: string;
+  sourceOrder: number;
+};
+
+function activeBuildDrawFundingSnapshotFromRows(input: {
+  allocations: readonly Doc<"activeBuildDrawRequestAllocations">[];
+  facilities: readonly Doc<"loanFacilities">[];
+  ignoreUnattributedRequestIds?: ReadonlySet<string>;
+  milestones: readonly Doc<"buildMilestones">[];
+  plannedDraws: readonly Doc<"plannedDrawScheduleRows">[];
+  requests: readonly Doc<"activeBuildDrawRequests">[];
+}) {
+  const approvedMilestones = input.milestones
+    .filter((milestone) => milestone.completionReview?.status === "approved")
+    .sort(
+      (a, b) =>
+        a.order - b.order ||
+        a.key.localeCompare(b.key) ||
+        String(a._id).localeCompare(String(b._id))
+    );
+  const approvedMilestoneCents = approvedMilestones.reduce(
     (total, milestone) =>
-      milestone.completionReview?.status === "approved"
-        ? total + activeBuildMilestoneEffectiveDrawAvailabilityCents(milestone)
-        : total,
+      total + activeBuildMilestoneEffectiveDrawAvailabilityCents(milestone),
     0
   );
   const facilityCents = Math.max(
     0,
-    Math.round((facilities as Doc<"loanFacilities">[])[0]?.principalCents ?? 0)
+    Math.round(input.facilities[0]?.principalCents ?? 0)
   );
-  const unlockedCents =
-    facilityCents > 0
-      ? Math.min(approvedMilestoneCents, facilityCents)
-      : approvedMilestoneCents;
-  const reservedCents = (requests as Doc<"activeBuildDrawRequests">[]).reduce(
-    (total, request) =>
-      request.status === "requested" ||
-      request.status === "approved" ||
-      request.status === "released"
-        ? total + Math.max(0, Math.round(request.amountCents))
-        : total,
+  const requestsById = new Map(
+    input.requests.map((request) => [String(request._id), request])
+  );
+  const activeAllocations = input.allocations.filter((allocation) => {
+    const request = requestsById.get(String(allocation.drawRequestId));
+    return (
+      request !== undefined &&
+      activeBuildDrawRequestReservesAvailability(request.status) &&
+      !input.ignoreUnattributedRequestIds?.has(String(request._id))
+    );
+  });
+  const allocationTotalsByRequest = new Map<string, number>();
+  const reservedByMilestone = new Map<string, number>();
+  for (const allocation of activeAllocations) {
+    const requestId = String(allocation.drawRequestId);
+    allocationTotalsByRequest.set(
+      requestId,
+      (allocationTotalsByRequest.get(requestId) ?? 0) + allocation.amountCents
+    );
+    const milestoneId = String(allocation.buildMilestoneId);
+    reservedByMilestone.set(
+      milestoneId,
+      (reservedByMilestone.get(milestoneId) ?? 0) + allocation.amountCents
+    );
+  }
+  const reservingRequests = input.requests.filter(
+    (request) =>
+      activeBuildDrawRequestReservesAvailability(request.status) &&
+      !input.ignoreUnattributedRequestIds?.has(String(request._id))
+  );
+  for (const request of reservingRequests) {
+    if (
+      (allocationTotalsByRequest.get(String(request._id)) ?? 0) !==
+      request.amountCents
+    ) {
+      throw new Error(
+        `Draw attribution integrity failure for ${request.requestKey}; run the active-build draw attribution migration before accepting another request.`
+      );
+    }
+  }
+  const plannedDrawGroupByMilestone = new Map(
+    input.plannedDraws
+      .filter(
+        (
+          draw
+        ): draw is Doc<"plannedDrawScheduleRows"> & { milestoneKey: string } =>
+          Boolean(draw.milestoneKey)
+      )
+      .sort((a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey))
+      .map((draw) => [draw.milestoneKey, draw.drawKey])
+  );
+  let facilityRemainingCents =
+    input.facilities.length > 0 ? facilityCents : approvedMilestoneCents;
+  const sources: ActiveBuildDrawFundingSource[] = approvedMilestones.map(
+    (milestone, sourceOrder) => {
+      const milestoneValueCents =
+        activeBuildMilestoneEffectiveDrawAvailabilityCents(milestone);
+      const unlockedCents = Math.min(
+        milestoneValueCents,
+        facilityRemainingCents
+      );
+      facilityRemainingCents = Math.max(
+        0,
+        facilityRemainingCents - unlockedCents
+      );
+      const reservedCents = reservedByMilestone.get(String(milestone._id)) ?? 0;
+      return {
+        availableCents: Math.max(0, unlockedCents - reservedCents),
+        buildMilestoneId: milestone._id,
+        drawGroupKey:
+          plannedDrawGroupByMilestone.get(milestone.key) ??
+          `milestone:${milestone.key}`,
+        milestoneKey: milestone.key,
+        milestoneName: milestone.name,
+        reservedCents,
+        sourceOrder,
+        unlockedCents,
+      };
+    }
+  );
+  const unlockedCents = sources.reduce(
+    (total, source) => total + source.unlockedCents,
     0
   );
-  return Math.max(0, unlockedCents - reservedCents);
+  const reservedCents = reservingRequests.reduce(
+    (total, request) => total + Math.max(0, Math.round(request.amountCents)),
+    0
+  );
+  const availableCents = Math.max(0, unlockedCents - reservedCents);
+  let availableRemainingCents = availableCents;
+  const reconciledSources = sources.map((source) => {
+    const sourceAvailableCents = Math.min(
+      source.availableCents,
+      availableRemainingCents
+    );
+    availableRemainingCents -= sourceAvailableCents;
+    return { ...source, availableCents: sourceAvailableCents };
+  });
+  return {
+    approvedMilestoneCents,
+    availableCents,
+    facilityCents,
+    reservedCents,
+    sources: reconciledSources,
+    unlockedCents,
+  };
+}
+
+async function activeBuildDrawFundingSnapshot(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">,
+  options?: { ignoreUnattributedRequestIds?: ReadonlySet<string> }
+) {
+  const [milestones, requests, allocations, facilities, plannedDraws] =
+    await Promise.all([
+      collectByIndex(ctx, "buildMilestones", "by_build", buildId),
+      collectByIndex(ctx, "activeBuildDrawRequests", "by_build", buildId),
+      collectByIndex(
+        ctx,
+        "activeBuildDrawRequestAllocations",
+        "by_build",
+        buildId
+      ),
+      collectByIndex(ctx, "loanFacilities", "by_build", buildId),
+      collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
+    ]);
+  return activeBuildDrawFundingSnapshotFromRows({
+    allocations: allocations as Doc<"activeBuildDrawRequestAllocations">[],
+    facilities: facilities as Doc<"loanFacilities">[],
+    ignoreUnattributedRequestIds: options?.ignoreUnattributedRequestIds,
+    milestones: milestones as Doc<"buildMilestones">[],
+    plannedDraws: plannedDraws as Doc<"plannedDrawScheduleRows">[],
+    requests: requests as Doc<"activeBuildDrawRequests">[],
+  });
+}
+
+function allocateActiveBuildDrawSources(
+  sources: readonly ActiveBuildDrawFundingSource[],
+  amountCents: number
+): ActiveBuildDrawSourceAllocation[] {
+  let remainingCents = amountCents;
+  const allocations: ActiveBuildDrawSourceAllocation[] = [];
+  for (const source of sources) {
+    if (remainingCents <= 0) {
+      break;
+    }
+    const allocatedCents = Math.min(source.availableCents, remainingCents);
+    if (allocatedCents <= 0) {
+      continue;
+    }
+    allocations.push({
+      amountCents: allocatedCents,
+      buildMilestoneId: source.buildMilestoneId,
+      drawGroupKey: source.drawGroupKey,
+      milestoneKey: source.milestoneKey,
+      milestoneName: source.milestoneName,
+      sourceOrder: source.sourceOrder,
+    });
+    remainingCents -= allocatedCents;
+  }
+  if (remainingCents !== 0) {
+    throw new Error(
+      "Draw attribution integrity failure: available source buckets do not cover the requested amount."
+    );
+  }
+  return allocations;
+}
+
+async function activeBuildDrawAllocationViews(
+  ctx: QueryCtx | MutationCtx,
+  drawRequestId: Id<"activeBuildDrawRequests">
+) {
+  const allocations = await ctx.db
+    .query("activeBuildDrawRequestAllocations")
+    .withIndex("by_request", (q) => q.eq("drawRequestId", drawRequestId))
+    .take(256);
+  const milestoneIds = allocations.map(
+    (allocation) => allocation.buildMilestoneId
+  );
+  const milestoneRows = await Promise.all(
+    milestoneIds.map((milestoneId) => ctx.db.get(milestoneId))
+  );
+  const milestoneNameById = new Map(
+    milestoneRows
+      .filter((milestone): milestone is Doc<"buildMilestones"> =>
+        Boolean(milestone)
+      )
+      .map((milestone) => [String(milestone._id), milestone.name])
+  );
+  return allocations
+    .slice()
+    .sort(
+      (a, b) =>
+        a.sourceOrder - b.sourceOrder ||
+        a.milestoneKey.localeCompare(b.milestoneKey)
+    )
+    .map((allocation) => ({
+      amountCents: allocation.amountCents,
+      drawGroupKey: allocation.drawGroupKey,
+      milestoneKey: allocation.milestoneKey,
+      milestoneName:
+        milestoneNameById.get(String(allocation.buildMilestoneId)) ??
+        allocation.milestoneKey,
+      sourceOrder: allocation.sourceOrder,
+    }));
 }
 
 async function getActiveBuildMilestoneOrThrow(

@@ -811,13 +811,12 @@ describe("ProductionBuildDetailSurface", () => {
   });
 
   test("shows lender approval controls instead of request controls in draw overview", async () => {
-    const approveDraw = vi.fn().mockResolvedValue(null);
-    const rejectDraw = vi.fn().mockResolvedValue(null);
     const releaseDraw = vi.fn().mockResolvedValue(null);
+    const startDrawReview = vi.fn().mockResolvedValue(null);
 
     render(
       <ProductionBuildDetailSurface
-        actions={{ approveDraw, rejectDraw, releaseDraw }}
+        actions={{ releaseDraw, startDrawReview }}
         activeTab="details"
         detail={{
           ...detail,
@@ -839,7 +838,7 @@ describe("ProductionBuildDetailSurface", () => {
               label: "Approved framing reimbursement",
               order: 2,
               reviewedAt: "2026-06-25T12:00:00.000Z",
-              status: "approved",
+              status: "approved_for_release",
             },
           ],
         }}
@@ -857,9 +856,9 @@ describe("ProductionBuildDetailSurface", () => {
       "Draw approval queue",
     );
 
-    fireEvent.click(screen.getByTestId("draw-overview-approve-draw-requested"));
-    await waitFor(() => expect(approveDraw).toHaveBeenCalledTimes(1));
-    expect(approveDraw.mock.calls[0]?.[0]).toMatchObject({
+    fireEvent.click(screen.getByTestId("draw-overview-start-draw-requested"));
+    await waitFor(() => expect(startDrawReview).toHaveBeenCalledTimes(1));
+    expect(startDrawReview.mock.calls[0]?.[0]).toMatchObject({
       drawKey: "draw-requested",
     });
 
@@ -873,9 +872,8 @@ describe("ProductionBuildDetailSurface", () => {
   });
 
   test("runs the B4 lender funding review workflow against production draw actions", async () => {
-    const approveDraw = vi.fn().mockResolvedValue(null);
-    const rejectDraw = vi.fn().mockResolvedValue(null);
     const releaseDraw = vi.fn().mockResolvedValue(null);
+    const startDrawReview = vi.fn().mockResolvedValue(null);
     const requestedDraw = {
       ...detail.draws[0],
       _id: "draw-requested-b4",
@@ -893,12 +891,12 @@ describe("ProductionBuildDetailSurface", () => {
       label: "Approved framing reimbursement",
       order: 2,
       reviewedAt: "2026-07-15T12:00:00.000Z",
-      status: "approved" as const,
+      status: "approved_for_release" as const,
     };
 
     render(
       <ProductionBuildDetailSurface
-        actions={{ approveDraw, rejectDraw, releaseDraw }}
+        actions={{ releaseDraw, startDrawReview }}
         activeTab="details"
         detail={{
           ...detail,
@@ -953,14 +951,11 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.queryByRole("button", { name: /request a draw/i })).toBeNull();
 
     fireEvent.click(
-      screen.getByTestId("lender-review-approve-draw-requested-b4")
+      screen.getByTestId("lender-review-start-draw-requested-b4")
     );
-    await waitFor(() => expect(approveDraw).toHaveBeenCalledWith(requestedDraw));
-
-    fireEvent.click(
-      screen.getByTestId("lender-review-reject-draw-requested-b4")
+    await waitFor(() =>
+      expect(startDrawReview).toHaveBeenCalledWith(requestedDraw),
     );
-    await waitFor(() => expect(rejectDraw).toHaveBeenCalledWith(requestedDraw));
 
     fireEvent.click(
       screen.getByTestId("lender-review-release-draw-approved-b4")

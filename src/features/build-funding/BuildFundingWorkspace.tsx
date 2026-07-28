@@ -68,7 +68,8 @@ const DRAW_NETWORK_ERROR_PATTERN =
   /network|offline|timed? out|timeout|failed to fetch/i;
 const DRAW_PERMISSION_ERROR_PATTERN =
   /permission|not authorized|unauthorized|forbidden/i;
-const DRAW_STATUS_ERROR_PATTERN = /only a submitted draw|only submitted draw/i;
+const DRAW_STATUS_ERROR_PATTERN =
+  /only a submitted draw|only submitted draw|only draw requests|only draws approved/i;
 const CAD_FORMATTER = new Intl.NumberFormat("en-CA", {
   currency: "CAD",
   currencyDisplay: "narrowSymbol",
@@ -87,23 +88,38 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-CA", {
 
 export type FundingRequestStatus =
   | "requested"
-  | "approved"
+  | "in_review"
+  | "ready_for_admin"
+  | "approved_for_release"
   | "rejected"
   | "withdrawn"
   | "released";
+
+export interface FundingSourceAllocation {
+  amountCents: number;
+  drawGroupKey: string;
+  milestoneKey: string;
+  milestoneName: string;
+  sourceOrder: number;
+}
 
 export interface FundingRequestRecord {
   amountCents: number;
   displayId?: string;
   drawKey: string;
   label: string;
+  operationsRecommendationNote?: string;
+  operationsReviewStartedAt?: string;
+  readyForAdminAt?: string;
   releaseDate?: string;
   releasedAt?: string;
   requestedAt?: string;
   requestNote?: string;
   reviewedAt?: string;
+  sourceAllocations?: FundingSourceAllocation[];
   status: FundingRequestStatus;
   withdrawnAt?: string;
+  workOrderKey?: string;
 }
 
 export interface FundingMilestoneRecord {
@@ -145,7 +161,9 @@ export interface DrawRequestReceipt {
   displayId: string;
   requestedAt: string;
   requestKey: string;
+  sourceAllocations: FundingSourceAllocation[];
   status: "requested";
+  workOrderKey: string;
 }
 
 type FundingRequestAction = (
@@ -153,6 +171,12 @@ type FundingRequestAction = (
 ) => Promise<unknown> | unknown;
 
 export function projectBuildFunding(input: {
+  availability?: {
+    approvedMilestoneCents: number;
+    availableCents: number;
+    facilityCents: number;
+    reservedCents: number;
+  };
   canRequest: boolean;
   facilityCents?: number;
   milestones: FundingMilestoneRecord[];
@@ -161,7 +185,7 @@ export function projectBuildFunding(input: {
   startDate: string;
 }): BuildFundingModel {
   const today = todayIso();
-  const approvedMilestoneCents = input.milestones.reduce(
+  const projectedApprovedMilestoneCents = input.milestones.reduce(
     (total, milestone) =>
       completionReviewStatus(milestone) === "approved"
         ? total + positiveCents(milestone.drawAvailabilityCents)
@@ -185,24 +209,36 @@ export function projectBuildFunding(input: {
       ? total + positiveCents(milestone.drawAvailabilityCents)
       : total;
   }, 0);
-  const reservedCents = input.requests.reduce(
+  const projectedReservedCents = input.requests.reduce(
     (total, request) =>
       request.status === "requested" ||
-      request.status === "approved" ||
+      request.status === "in_review" ||
+      request.status === "ready_for_admin" ||
+      request.status === "approved_for_release" ||
       request.status === "released"
         ? total + positiveCents(request.amountCents)
         : total,
     0
   );
-  const facilityCents = positiveCents(input.facilityCents ?? 0);
-  const unlockedCents =
-    facilityCents > 0
-      ? Math.min(approvedMilestoneCents, facilityCents)
-      : approvedMilestoneCents;
+  const projectedFacilityCents = positiveCents(input.facilityCents ?? 0);
+  const projectedUnlockedCents =
+    projectedFacilityCents > 0
+      ? Math.min(projectedApprovedMilestoneCents, projectedFacilityCents)
+      : projectedApprovedMilestoneCents;
+  const approvedMilestoneCents =
+    input.availability?.approvedMilestoneCents ??
+    projectedApprovedMilestoneCents;
+  const facilityCents =
+    input.availability?.facilityCents ?? projectedFacilityCents;
+  const reservedCents =
+    input.availability?.reservedCents ?? projectedReservedCents;
+  const availableCents =
+    input.availability?.availableCents ??
+    Math.max(0, projectedUnlockedCents - projectedReservedCents);
   return {
     access: input.canRequest ? "full" : "read-only",
     approvedMilestoneCents,
-    availableCents: Math.max(0, unlockedCents - reservedCents),
+    availableCents,
     backlogMilestoneCents,
     facilityCents,
     forecastDraws: (input.plannedDraws ?? [])
@@ -223,6 +259,8 @@ export function BuildFundingWorkspace({
   onRejectDraw,
   onReleaseDraw,
   onRequestDraw,
+  onStartDrawReview,
+  onSubmitDrawForAdmin,
   onWithdrawDraw,
   viewerRole = "builder",
 }: {
@@ -237,13 +275,20 @@ export function BuildFundingWorkspace({
     drawKey: string;
     note?: string;
   }) => Promise<DrawRequestReceipt>;
+  onStartDrawReview?: FundingRequestAction;
+  onSubmitDrawForAdmin?: FundingRequestAction;
   onWithdrawDraw?: (requestKey: string) => Promise<unknown>;
   viewerRole?: "builder" | "lender";
 }) {
   const [density, setDensity] = useState<"guided" | "compact">("guided");
-  const submitted = model.requests.filter((row) => row.status === "requested");
+  const submitted = model.requests.filter(
+    (row) =>
+      row.status === "requested" ||
+      row.status === "in_review" ||
+      row.status === "ready_for_admin"
+  );
   const completed = model.requests.filter(
-    (row) => row.status === "approved" || row.status === "released"
+    (row) => row.status === "approved_for_release" || row.status === "released"
   );
   const closed = model.requests.filter(
     (row) => row.status === "withdrawn" || row.status === "rejected"
@@ -255,7 +300,7 @@ export function BuildFundingWorkspace({
     (row) => milestoneState(row, model.startDate) === "pending"
   );
   const approvedAwaitingRelease = model.requests.filter(
-    (row) => row.status === "approved"
+    (row) => row.status === "approved_for_release"
   );
   const released = model.requests.filter((row) => row.status === "released");
   const requestSource = model.forecastDraws[0];
@@ -403,6 +448,8 @@ export function BuildFundingWorkspace({
             onOpenMilestone={onOpenMilestone}
             onRejectDraw={onRejectDraw}
             onReleaseDraw={onReleaseDraw}
+            onStartDrawReview={onStartDrawReview}
+            onSubmitDrawForAdmin={onSubmitDrawForAdmin}
             released={released}
             startDate={model.startDate}
             submitted={submitted}
@@ -554,6 +601,8 @@ function LenderReviewSidebar({
   onOpenMilestone,
   onRejectDraw,
   onReleaseDraw,
+  onStartDrawReview,
+  onSubmitDrawForAdmin,
   released,
   startDate,
   submitted,
@@ -566,6 +615,8 @@ function LenderReviewSidebar({
   onOpenMilestone: (milestoneKey: string) => void;
   onRejectDraw?: FundingRequestAction;
   onReleaseDraw?: FundingRequestAction;
+  onStartDrawReview?: FundingRequestAction;
+  onSubmitDrawForAdmin?: FundingRequestAction;
   released: FundingRequestRecord[];
   startDate: string;
   submitted: FundingRequestRecord[];
@@ -577,7 +628,7 @@ function LenderReviewSidebar({
     submitted.length +
     approvedAwaitingRelease.length;
   const runReviewAction = async (
-    action: "approve" | "reject" | "release",
+    action: "approve" | "reject" | "release" | "start" | "submit",
     request: FundingRequestRecord,
     handler: FundingRequestAction | undefined
   ) => {
@@ -685,6 +736,8 @@ function LenderReviewSidebar({
           {submitted.map((request) => {
             const approveKey = `approve:${request.drawKey}`;
             const rejectKey = `reject:${request.drawKey}`;
+            const startKey = `start:${request.drawKey}`;
+            const submitKey = `submit:${request.drawKey}`;
             return (
               <article className="py-3" key={request.drawKey}>
                 <div className="flex items-start justify-between gap-3">
@@ -693,15 +746,18 @@ function LenderReviewSidebar({
                       {request.displayId ?? request.drawKey}
                     </p>
                     <p className="mt-1 text-muted-foreground text-xs">
-                      Submitted {relativeDate(request.requestedAt)}
+                      {drawReviewStageCopy(request)}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="font-medium text-xs tabular-nums">
                       {formatCad(request.amountCents)}
                     </p>
-                    <Badge className="mt-1" variant="info">
-                      Submitted
+                    <Badge
+                      className="mt-1"
+                      variant={requestBadgeTone(request.status)}
+                    >
+                      {requestStatusLabel(request.status)}
                     </Badge>
                   </div>
                 </div>
@@ -710,33 +766,66 @@ function LenderReviewSidebar({
                     {request.requestNote}
                   </p>
                 ) : null}
-                <div className="mt-3 flex flex-wrap gap-2">
+                <DrawSourceAttribution request={request} />
+                {request.status === "requested" ? (
                   <Button
-                    data-testid={`lender-review-approve-${request.drawKey}`}
-                    disabled={!onApproveDraw || Boolean(pendingAction)}
-                    loading={pendingAction === approveKey}
+                    className="mt-3"
+                    data-testid={`lender-review-start-${request.drawKey}`}
+                    disabled={!onStartDrawReview || Boolean(pendingAction)}
+                    loading={pendingAction === startKey}
                     onClick={() =>
-                      runReviewAction("approve", request, onApproveDraw)
+                      runReviewAction("start", request, onStartDrawReview)
                     }
                     size="sm"
                     variant="outline"
                   >
-                    Approve
+                    Start review
                   </Button>
+                ) : null}
+                {request.status === "in_review" ? (
                   <Button
-                    className="text-destructive-text"
-                    data-testid={`lender-review-reject-${request.drawKey}`}
-                    disabled={!onRejectDraw || Boolean(pendingAction)}
-                    loading={pendingAction === rejectKey}
+                    className="mt-3"
+                    data-testid={`lender-review-submit-${request.drawKey}`}
+                    disabled={!onSubmitDrawForAdmin || Boolean(pendingAction)}
+                    loading={pendingAction === submitKey}
                     onClick={() =>
-                      runReviewAction("reject", request, onRejectDraw)
+                      runReviewAction("submit", request, onSubmitDrawForAdmin)
                     }
                     size="sm"
                     variant="outline"
                   >
-                    Reject
+                    Send to admin
                   </Button>
-                </div>
+                ) : null}
+                {request.status === "ready_for_admin" ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      data-testid={`lender-review-approve-${request.drawKey}`}
+                      disabled={!onApproveDraw || Boolean(pendingAction)}
+                      loading={pendingAction === approveKey}
+                      onClick={() =>
+                        runReviewAction("approve", request, onApproveDraw)
+                      }
+                      size="sm"
+                      variant="outline"
+                    >
+                      Approve for release
+                    </Button>
+                    <Button
+                      className="text-destructive-text"
+                      data-testid={`lender-review-reject-${request.drawKey}`}
+                      disabled={!onRejectDraw || Boolean(pendingAction)}
+                      loading={pendingAction === rejectKey}
+                      onClick={() =>
+                        runReviewAction("reject", request, onRejectDraw)
+                      }
+                      size="sm"
+                      variant="outline"
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                ) : null}
               </article>
             );
           })}
@@ -760,6 +849,7 @@ function LenderReviewSidebar({
                   </Badge>
                 </div>
               </div>
+              <DrawSourceAttribution request={request} />
               <ReleaseDrawDialog
                 disabled={!onReleaseDraw || Boolean(pendingAction)}
                 loading={pendingAction === `release:${request.drawKey}`}
@@ -808,19 +898,22 @@ function LenderReviewSidebar({
                   <Badge variant="success">Released</Badge>
                 </CardAction>
               </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-2 px-3 pb-3 text-xs">
-                <div>
-                  <p className="text-muted-foreground">Approved</p>
-                  <p className="mt-0.5 font-medium">
-                    {formatDate(request.reviewedAt)}
-                  </p>
+              <CardContent className="grid gap-2 px-3 pb-3 text-xs">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-muted-foreground">Approved</p>
+                    <p className="mt-0.5 font-medium">
+                      {formatDate(request.reviewedAt)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Released</p>
+                    <p className="mt-0.5 font-medium">
+                      {formatDate(request.releaseDate ?? request.releasedAt)}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-muted-foreground">Released</p>
-                  <p className="mt-0.5 font-medium">
-                    {formatDate(request.releaseDate ?? request.releasedAt)}
-                  </p>
-                </div>
+                <DrawSourceAttribution request={request} />
               </CardContent>
             </Card>
           ))}
@@ -1022,16 +1115,53 @@ function RequestCardGrid({ requests }: { requests: FundingRequestRecord[] }) {
               </Badge>
             </CardAction>
           </CardHeader>
-          <CardContent className="flex items-end justify-between gap-3 px-3 pb-3 pt-0">
-            <p className="min-w-0 text-muted-foreground text-xs">
-              {request.label}
-            </p>
-            <p className="shrink-0 font-heading font-semibold text-base tabular-nums">
-              {formatCad(request.amountCents)}
-            </p>
+          <CardContent className="grid gap-2 px-3 pt-0 pb-3">
+            <div className="flex items-end justify-between gap-3">
+              <p className="min-w-0 text-muted-foreground text-xs">
+                {request.label}
+              </p>
+              <p className="shrink-0 font-heading font-semibold text-base tabular-nums">
+                {formatCad(request.amountCents)}
+              </p>
+            </div>
+            <DrawSourceAttribution request={request} />
           </CardContent>
         </Card>
       ))}
+    </div>
+  );
+}
+
+function DrawSourceAttribution({ request }: { request: FundingRequestRecord }) {
+  const allocations = request.sourceAllocations ?? [];
+  if (allocations.length === 0) {
+    return null;
+  }
+  return (
+    <div
+      className="border-t pt-2 text-xs"
+      data-testid={`draw-source-attribution-${request.drawKey}`}
+    >
+      <p className="font-medium">
+        {request.workOrderKey
+          ? `Work order ${request.workOrderKey}`
+          : "Reimbursement sources"}
+      </p>
+      <ul className="mt-1 grid gap-1 text-muted-foreground">
+        {allocations.map((allocation) => (
+          <li
+            className="flex items-start justify-between gap-3"
+            key={`${allocation.drawGroupKey}:${allocation.milestoneKey}`}
+          >
+            <span className="min-w-0">
+              {allocation.milestoneName} · {allocation.drawGroupKey}
+            </span>
+            <span className="shrink-0 tabular-nums">
+              {formatCad(allocation.amountCents)}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1061,7 +1191,7 @@ function MilestoneSourceCard({
           </Badge>
         </CardAction>
       </CardHeader>
-      <CardContent className="px-3 pb-2 pt-0">
+      <CardContent className="px-3 pt-0 pb-2">
         <p className="font-heading font-semibold text-base tabular-nums">
           +{formatCad(milestone.drawAvailabilityCents)}
         </p>
@@ -1195,7 +1325,7 @@ function MilestoneFundingCard({
             </span>
           </CardAction>
         </CardHeader>
-        <CardContent className="px-3 pb-2 pt-0">
+        <CardContent className="px-3 pt-0 pb-2">
           <p
             className={cn(
               "text-xs",
@@ -1414,6 +1544,26 @@ function DrawRequestComposer({
                 Submitted {formatDateTime(receipt.requestedAt)}. Fairlend will
                 review this request.
               </p>
+              <p className="mt-3 font-medium text-xs">
+                Work order {receipt.workOrderKey}
+              </p>
+              <ul className="mt-1 grid gap-1 text-muted-foreground text-xs">
+                {receipt.sourceAllocations.map((allocation) => (
+                  <li
+                    aria-label={`${allocation.milestoneName}, Draw Group ${allocation.drawGroupKey}, ${formatCad(allocation.amountCents)}`}
+                    className="flex items-start justify-between gap-3"
+                    key={`${allocation.drawGroupKey}:${allocation.milestoneKey}`}
+                  >
+                    <span>
+                      {allocation.milestoneName} · Draw Group{" "}
+                      {allocation.drawGroupKey}
+                    </span>
+                    <span className="shrink-0 tabular-nums">
+                      {formatCad(allocation.amountCents)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
           {error ? (
@@ -1666,10 +1816,10 @@ function requestBadgeTone(status: FundingRequestStatus) {
   if (status === "released") {
     return "success" as const;
   }
-  if (status === "requested") {
+  if (status === "requested" || status === "in_review") {
     return "info" as const;
   }
-  if (status === "approved") {
+  if (status === "ready_for_admin" || status === "approved_for_release") {
     return "warning" as const;
   }
   if (status === "rejected") {
@@ -1682,8 +1832,14 @@ function requestStatusLabel(status: FundingRequestStatus) {
   if (status === "requested") {
     return "Submitted";
   }
-  if (status === "approved") {
-    return "Approved";
+  if (status === "in_review") {
+    return "In review";
+  }
+  if (status === "ready_for_admin") {
+    return "Ready for admin";
+  }
+  if (status === "approved_for_release") {
+    return "Approved for release";
   }
   if (status === "released") {
     return "Released";
@@ -1698,8 +1854,14 @@ function requestStatusDate(request: FundingRequestRecord) {
   if (request.status === "released") {
     return `Released ${formatDate(request.releaseDate ?? request.releasedAt)}`;
   }
-  if (request.status === "approved") {
-    return `Approved ${formatDate(request.reviewedAt)}`;
+  if (request.status === "approved_for_release") {
+    return `Approved for release ${formatDate(request.reviewedAt)}`;
+  }
+  if (request.status === "ready_for_admin") {
+    return `Ready for admin ${formatDate(request.readyForAdminAt)}`;
+  }
+  if (request.status === "in_review") {
+    return `Review started ${formatDate(request.operationsReviewStartedAt)}`;
   }
   if (request.status === "withdrawn") {
     return `Withdrawn ${formatDate(request.withdrawnAt)}`;
@@ -1708,6 +1870,16 @@ function requestStatusDate(request: FundingRequestRecord) {
     return `Rejected ${formatDate(request.reviewedAt)}`;
   }
   return `Submitted ${formatDate(request.requestedAt)}`;
+}
+
+function drawReviewStageCopy(request: FundingRequestRecord) {
+  if (request.status === "in_review") {
+    return `Review started ${relativeDate(request.operationsReviewStartedAt)}`;
+  }
+  if (request.status === "ready_for_admin") {
+    return `Prepared for admin ${relativeDate(request.readyForAdminAt)}`;
+  }
+  return `Submitted ${relativeDate(request.requestedAt)}`;
 }
 
 function sumCents(rows: FundingRequestRecord[]) {
@@ -1804,12 +1976,18 @@ function drawRequestErrorMessage(
 }
 
 function drawReviewSuccessMessage(
-  action: "approve" | "reject" | "release",
+  action: "approve" | "reject" | "release" | "start" | "submit",
   request: FundingRequestRecord
 ) {
   const requestId = request.displayId ?? request.drawKey;
+  if (action === "start") {
+    return `${requestId} review started.`;
+  }
+  if (action === "submit") {
+    return `${requestId} sent to admin.`;
+  }
   if (action === "approve") {
-    return `${requestId} approved.`;
+    return `${requestId} approved for release.`;
   }
   if (action === "reject") {
     return `${requestId} rejected.`;

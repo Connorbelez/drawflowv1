@@ -99,6 +99,12 @@ function RouteComponent() {
   const approveDraw = useMutation(
     api.production_proposals.approveActiveBuildDraw
   );
+  const startDrawReview = useMutation(
+    api.production_proposals.startActiveBuildDrawReview
+  );
+  const submitDrawForAdmin = useMutation(
+    api.production_proposals.submitActiveBuildDrawForAdmin
+  );
   const approveMilestone = useMutation(
     api.production_proposals.approveActiveBuildMilestone
   );
@@ -329,15 +335,17 @@ function RouteComponent() {
           visibility,
           workosOrganizationId,
         }),
-      approveDraw: canUseAppPermission(appPermissions, "draw", "update")
-        ? (draw) =>
-            approveDraw({
-              buildId: activeBuildId,
-              drawKey: draw.drawKey,
-              note: "Approved from build detail workspace.",
-              workosOrganizationId,
-            })
-        : undefined,
+      approveDraw:
+        canMakeFinalDecision &&
+        canUseAppPermission(appPermissions, "draw", "update")
+          ? (draw) =>
+              approveDraw({
+                buildId: activeBuildId,
+                drawKey: draw.drawKey,
+                note: "Approved for release from build detail workspace.",
+                workosOrganizationId,
+              })
+          : undefined,
       approveMilestone:
         canMakeFinalDecision &&
         canUseAppPermission(appPermissions, "milestone", "update")
@@ -467,15 +475,17 @@ function RouteComponent() {
               workosOrganizationId,
             })
         : undefined,
-      rejectDraw: canUseAppPermission(appPermissions, "draw", "update")
-        ? (draw) =>
-            rejectDraw({
-              buildId: activeBuildId,
-              drawKey: draw.drawKey,
-              note: "Rejected from build detail workspace.",
-              workosOrganizationId,
-            })
-        : undefined,
+      rejectDraw:
+        canMakeFinalDecision &&
+        canUseAppPermission(appPermissions, "draw", "update")
+          ? (draw) =>
+              rejectDraw({
+                buildId: activeBuildId,
+                drawKey: draw.drawKey,
+                note: "Rejected from build detail workspace.",
+                workosOrganizationId,
+              })
+          : undefined,
       rejectMilestone:
         canMakeFinalDecision &&
         canUseAppPermission(appPermissions, "milestone", "update")
@@ -499,6 +509,24 @@ function RouteComponent() {
                 workosOrganizationId,
               })
           : undefined,
+      startDrawReview: canUseAppPermission(appPermissions, "draw", "update")
+        ? (draw) =>
+            startDrawReview({
+              buildId: activeBuildId,
+              drawKey: draw.drawKey,
+              note: "Review started from build detail workspace.",
+              workosOrganizationId,
+            })
+        : undefined,
+      submitDrawForAdmin: canUseAppPermission(appPermissions, "draw", "update")
+        ? (draw) =>
+            submitDrawForAdmin({
+              buildId: activeBuildId,
+              drawKey: draw.drawKey,
+              note: "Operations review complete; recommend admin approval.",
+              workosOrganizationId,
+            })
+        : undefined,
       reviseMilestoneSchedule: canUseAppPermission(
         appPermissions,
         "milestone",

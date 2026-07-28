@@ -13,7 +13,12 @@ export default defineConfig({
   test: {
     environment: "node",
     environmentMatchGlobs: [["convex/**/*.test.ts", "edge-runtime"]],
-    exclude: ["**/node_modules/**", "**/dist/**", "tests/e2e/**"],
+    exclude: [
+      "**/.claude/**",
+      "**/node_modules/**",
+      "**/dist/**",
+      "tests/e2e/**",
+    ],
     testTimeout: 15_000,
     server: {
       deps: {

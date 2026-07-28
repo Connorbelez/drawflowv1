@@ -134,7 +134,9 @@ type ProductionMilestoneStatus = "planned" | "in_progress" | "complete";
 type ProductionDrawStatus =
   | "planned"
   | "requested"
-  | "approved"
+  | "in_review"
+  | "ready_for_admin"
+  | "approved_for_release"
   | "rejected"
   | "withdrawn"
   | "released";
@@ -331,10 +333,12 @@ export interface ProductionBuildDetailActions {
     targetDate: string;
     targetTime?: string;
   }) => Promise<unknown> | unknown;
+  startDrawReview?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   startMilestoneWork?: (input: {
     milestoneKey: string;
     note?: string;
   }) => Promise<unknown> | unknown;
+  submitDrawForAdmin?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   updateNonFinancialDetails?: (input: {
     buildName: string;
     location: string;
@@ -375,6 +379,13 @@ export interface ProductionBuildDetail {
   costItems?: MaterialPlanningItem[];
   displayId?: string;
   documents?: ProductionDocument[];
+  drawFunding?: {
+    approvedMilestoneCents: number;
+    availableCents: number;
+    facilityCents: number;
+    reservedCents: number;
+    unlockedCents: number;
+  };
   draws: ProductionDraw[];
   evidenceAssets?: ProductionEvidenceAsset[];
   facilityChangeRequests?: ProductionFacilityChangeRequest[];
@@ -447,10 +458,18 @@ interface ProductionDraw {
   requestNote?: string;
   requestReviewNote?: string;
   reviewedAt?: string;
+  sourceAllocations?: Array<{
+    amountCents: number;
+    drawGroupKey: string;
+    milestoneKey: string;
+    milestoneName: string;
+    sourceOrder: number;
+  }>;
   status: ProductionDrawStatus;
   timingDay: number;
   withdrawalNote?: string;
   withdrawnAt?: string;
+  workOrderKey?: string;
 }
 
 interface ProductionPlannedDraw {
@@ -1323,6 +1342,7 @@ function ProductionBuildDetailsCard({
                   detail.plannedDraws !== undefined)) ? (
                 <BuildFundingWorkspace
                   model={projectBuildFunding({
+                    availability: detail.drawFunding,
                     canRequest: Boolean(actions?.requestDrawAmount),
                     facilityCents: detail.loanFacility?.principalCents,
                     milestones: detail.milestones,
@@ -1352,6 +1372,14 @@ function ProductionBuildDetailsCard({
                     actions?.releaseDraw
                   )}
                   onRequestDraw={actions?.requestDrawAmount}
+                  onStartDrawReview={fundingRequestAction(
+                    detail.draws,
+                    actions?.startDrawReview
+                  )}
+                  onSubmitDrawForAdmin={fundingRequestAction(
+                    detail.draws,
+                    actions?.submitDrawForAdmin
+                  )}
                   onWithdrawDraw={actions?.withdrawDraw}
                   viewerRole={viewerRole}
                 />
@@ -1626,11 +1654,21 @@ function DrawOverviewPanel({
     currentOverview.requestableAmountCents > 0 &&
     !pendingDrawAction;
   const inFlightDraws = projection.draws
-    .filter((draw) => draw.status === "requested" || draw.status === "approved")
+    .filter(
+      (draw) =>
+        draw.status === "requested" ||
+        draw.status === "in_review" ||
+        draw.status === "ready_for_admin" ||
+        draw.status === "approved_for_release"
+    )
     .slice()
     .sort(compareDrawsMostRecentFirst);
   const approvalQueueDraws = inFlightDraws.filter(
-    (draw) => draw.status === "requested" || draw.status === "approved"
+    (draw) =>
+      draw.status === "requested" ||
+      draw.status === "in_review" ||
+      draw.status === "ready_for_admin" ||
+      draw.status === "approved_for_release"
   );
   const pastDraws = projection.draws
     .filter((draw) => draw.status === "released")
@@ -2000,10 +2038,32 @@ function DrawActionGroup({
 
   if (draw.status === "requested") {
     return (
+      <DrawActionButton
+        disabled={!actions?.startDrawReview || Boolean(pendingActionKey)}
+        label={isPending("start") ? "Starting..." : "Start review"}
+        onClick={() => onRunAction("start", draw, actions?.startDrawReview)}
+        testId={`draw-overview-start-${draw.drawKey}`}
+      />
+    );
+  }
+
+  if (draw.status === "in_review") {
+    return (
+      <DrawActionButton
+        disabled={!actions?.submitDrawForAdmin || Boolean(pendingActionKey)}
+        label={isPending("submit") ? "Sending..." : "Send to admin"}
+        onClick={() => onRunAction("submit", draw, actions?.submitDrawForAdmin)}
+        testId={`draw-overview-submit-${draw.drawKey}`}
+      />
+    );
+  }
+
+  if (draw.status === "ready_for_admin") {
+    return (
       <div className="flex flex-wrap gap-1 sm:justify-end">
         <DrawActionButton
           disabled={!actions?.approveDraw || Boolean(pendingActionKey)}
-          label={isPending("approve") ? "Approving..." : "Approve"}
+          label={isPending("approve") ? "Approving..." : "Approve for release"}
           onClick={() => onRunAction("approve", draw, actions?.approveDraw)}
           testId={`draw-overview-approve-${draw.drawKey}`}
         />
@@ -2017,7 +2077,7 @@ function DrawActionGroup({
     );
   }
 
-  if (draw.status === "approved") {
+  if (draw.status === "approved_for_release") {
     return (
       <DrawActionButton
         disabled={!actions?.releaseDraw || Boolean(pendingActionKey)}
@@ -2393,7 +2453,7 @@ function MilestoneCompletionReviewSheet({
                 </Badge>
               </CardAction>
             </CardHeader>
-            <CardPanel className="px-4 pb-4 pt-0">
+            <CardPanel className="px-4 pt-0 pb-4">
               <dl className="grid divide-y border-y text-sm sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                 <ReviewFact
                   label="Submitted"
@@ -2459,7 +2519,7 @@ function MilestoneCompletionReviewSheet({
                     </Badge>
                   </CardAction>
                 </CardHeader>
-                <CardPanel className="px-4 pb-4 pt-0">
+                <CardPanel className="px-4 pt-0 pb-4">
                   {scopeRows.length > 0 ? (
                     <ul className="divide-y border-y">
                       {scopeRows.map((row) => (
@@ -2519,7 +2579,7 @@ function MilestoneCompletionReviewSheet({
                     </Badge>
                   </CardAction>
                 </CardHeader>
-                <CardPanel className="grid gap-3 px-4 pb-3 pt-0">
+                <CardPanel className="grid gap-3 px-4 pt-0 pb-3">
                   {builderRows.length > 0 ? (
                     builderRows.map((row) => (
                       <div
@@ -2568,7 +2628,7 @@ function MilestoneCompletionReviewSheet({
                     Contractors assigned to deliver or verify this scope.
                   </CardDescription>
                 </CardHeader>
-                <CardPanel className="px-4 pb-4 pt-0">
+                <CardPanel className="px-4 pt-0 pb-4">
                   {contractorRows.length > 0 ? (
                     <ul className="divide-y border-y">
                       {contractorRows.map((row) => (
@@ -2601,7 +2661,7 @@ function MilestoneCompletionReviewSheet({
                     Cost items attached to this milestone and its submilestones.
                   </CardDescription>
                 </CardHeader>
-                <CardPanel className="px-4 pb-4 pt-0">
+                <CardPanel className="px-4 pt-0 pb-4">
                   {materialRows.length > 0 ? (
                     <ul className="divide-y border-y">
                       {materialRows.map((item) => (
@@ -2647,7 +2707,7 @@ function MilestoneCompletionReviewSheet({
                     </CardAction>
                   ) : null}
                 </CardHeader>
-                <CardPanel className="px-4 pb-3 pt-0">
+                <CardPanel className="px-4 pt-0 pb-3">
                   {latestVisit ? (
                     <SiteVisitReviewState
                       canCancel={Boolean(actions?.cancelSiteVisit)}
@@ -2702,7 +2762,7 @@ function MilestoneCompletionReviewSheet({
                 for more information.
               </CardDescription>
             </CardHeader>
-            <CardPanel className="px-4 pb-4 pt-0">
+            <CardPanel className="px-4 pt-0 pb-4">
               <label
                 className="sr-only"
                 htmlFor="milestone-completion-review-note"
@@ -2762,7 +2822,7 @@ function MilestoneCompletionReviewSheet({
 
 function ReviewFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 px-3 py-2.5 first:pl-0 last:pr-0 sm:first:pl-3 sm:last:pr-3">
+    <div className="min-w-0 px-3 py-2.5 first:pl-0 last:pr-0 sm:last:pr-3 sm:first:pl-3">
       <dt className="text-muted-foreground text-xs uppercase">{label}</dt>
       <dd className="truncate font-medium tabular-nums">{value}</dd>
     </div>
@@ -3326,7 +3386,9 @@ function ProductionDrawsTable({
                     </Td>
                     <Td className="tabular-nums">
                       {draw.status === "requested" ||
-                      draw.status === "approved" ||
+                      draw.status === "in_review" ||
+                      draw.status === "ready_for_admin" ||
+                      draw.status === "approved_for_release" ||
                       draw.status === "released"
                         ? formatCents(draw.amountCents)
                         : "-"}
@@ -3356,10 +3418,32 @@ function ProductionDrawsTable({
                         ) : null}
                         {viewerRole === "lender" &&
                         draw.status === "requested" ? (
+                          <DrawActionButton
+                            disabled={!actions?.startDrawReview || pending}
+                            label={pending ? "Starting..." : "Start review"}
+                            onClick={() => run(draw, actions?.startDrawReview)}
+                            testId={`build-detail-draw-start-${draw.drawKey}`}
+                          />
+                        ) : null}
+                        {viewerRole === "lender" &&
+                        draw.status === "in_review" ? (
+                          <DrawActionButton
+                            disabled={!actions?.submitDrawForAdmin || pending}
+                            label={pending ? "Sending..." : "Send to admin"}
+                            onClick={() =>
+                              run(draw, actions?.submitDrawForAdmin)
+                            }
+                            testId={`build-detail-draw-submit-${draw.drawKey}`}
+                          />
+                        ) : null}
+                        {viewerRole === "lender" &&
+                        draw.status === "ready_for_admin" ? (
                           <>
                             <DrawActionButton
                               disabled={!actions?.approveDraw || pending}
-                              label={pending ? "Approving..." : "Approve"}
+                              label={
+                                pending ? "Approving..." : "Approve for release"
+                              }
                               onClick={() => run(draw, actions?.approveDraw)}
                               testId={`build-detail-draw-approve-${draw.drawKey}`}
                             />
@@ -3372,7 +3456,7 @@ function ProductionDrawsTable({
                           </>
                         ) : null}
                         {viewerRole === "lender" &&
-                        draw.status === "approved" ? (
+                        draw.status === "approved_for_release" ? (
                           <DrawActionButton
                             disabled={!actions?.releaseDraw || pending}
                             label={pending ? "Releasing..." : "Release"}
@@ -3393,13 +3477,15 @@ function ProductionDrawsTable({
                           </span>
                         ) : null}
                         {viewerRole === "builder" &&
-                        draw.status === "requested" ? (
+                        (draw.status === "requested" ||
+                          draw.status === "in_review" ||
+                          draw.status === "ready_for_admin") ? (
                           <span className="text-muted-foreground text-xs">
-                            Awaiting approval
+                            In lender review
                           </span>
                         ) : null}
                         {viewerRole === "builder" &&
-                        draw.status === "approved" ? (
+                        draw.status === "approved_for_release" ? (
                           <span className="text-muted-foreground text-xs">
                             Awaiting release
                           </span>
@@ -5062,7 +5148,9 @@ function buildProductionKanbanCards(
       progressPercent,
       requestedAmountCents:
         draw?.status === "requested" ||
-        draw?.status === "approved" ||
+        draw?.status === "in_review" ||
+        draw?.status === "ready_for_admin" ||
+        draw?.status === "approved_for_release" ||
         draw?.status === "released"
           ? draw.amountCents
           : undefined,
@@ -5188,7 +5276,9 @@ function productionMilestoneHasStartedWorkflow(
   }
   if (
     draw?.status === "requested" ||
-    draw?.status === "approved" ||
+    draw?.status === "in_review" ||
+    draw?.status === "ready_for_admin" ||
+    draw?.status === "approved_for_release" ||
     draw?.status === "released"
   ) {
     return true;
@@ -5463,7 +5553,11 @@ function isMilestoneApprovedForDrawAvailability(
 
 function isCommittedDrawStatus(status: ProductionDrawStatus): boolean {
   return (
-    status === "requested" || status === "approved" || status === "released"
+    status === "requested" ||
+    status === "in_review" ||
+    status === "ready_for_admin" ||
+    status === "approved_for_release" ||
+    status === "released"
   );
 }
 
@@ -5675,10 +5769,16 @@ function upcomingDrawStatusPriority(status: ProductionDrawStatus): number {
   if (status === "requested") {
     return 1;
   }
-  if (status === "approved") {
+  if (status === "in_review") {
     return 2;
   }
-  return 3;
+  if (status === "ready_for_admin") {
+    return 3;
+  }
+  if (status === "approved_for_release") {
+    return 4;
+  }
+  return 5;
 }
 
 function buildPercentComplete(milestones: ProductionMilestone[]): number {
@@ -5736,8 +5836,12 @@ function statusLabel(status: ProductionBuildStatus): string {
 
 function drawStatusLabel(status: ProductionDrawStatus): string {
   switch (status) {
-    case "approved":
-      return "Approved";
+    case "approved_for_release":
+      return "Approved for release";
+    case "in_review":
+      return "In review";
+    case "ready_for_admin":
+      return "Ready for admin";
     case "rejected":
       return "Rejected";
     case "requested":
@@ -6076,7 +6180,10 @@ function drawBadgeVariant(
   if (status === "requested") {
     return "warning";
   }
-  if (status === "approved") {
+  if (status === "in_review") {
+    return "info";
+  }
+  if (status === "ready_for_admin" || status === "approved_for_release") {
     return "info";
   }
   if (status === "rejected") {

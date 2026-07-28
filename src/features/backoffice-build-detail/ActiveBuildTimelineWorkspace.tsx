@@ -112,6 +112,10 @@ export function ActiveBuildTimelineWorkspace({
     productionApi.requestActiveBuildMilestoneInfo
   );
   const requestDraw = useMutation(productionApi.requestActiveBuildDraw);
+  const startDrawReview = useMutation(productionApi.startActiveBuildDrawReview);
+  const submitDrawForAdmin = useMutation(
+    productionApi.submitActiveBuildDrawForAdmin
+  );
   const approveDraw = useMutation(productionApi.approveActiveBuildDraw);
   const rejectDraw = useMutation(productionApi.rejectActiveBuildDraw);
   const recordMilestoneSiteVisit = useMutation(
@@ -290,22 +294,38 @@ export function ActiveBuildTimelineWorkspace({
               workosOrganizationId,
             })
           : rejectForbidden(),
-      reviewDrawRequest: (input) =>
-        canReviewDraws && canUpdateDraw
-          ? input.status === "rejected"
-            ? rejectDraw({
-                buildId,
-                drawKey: input.drawKey,
-                note: input.note,
-                workosOrganizationId,
-              })
-            : approveDraw({
-                buildId,
-                drawKey: input.drawKey,
-                note: input.note,
-                workosOrganizationId,
-              })
-          : rejectForbidden(),
+      reviewDrawRequest: async (input) => {
+        if (!(canReviewDraws && canUpdateDraw)) {
+          return rejectForbidden();
+        }
+        const note =
+          input.note?.trim() || "Evidence and source attribution reviewed.";
+        await startDrawReview({
+          buildId,
+          drawKey: input.drawKey,
+          note,
+          workosOrganizationId,
+        });
+        await submitDrawForAdmin({
+          buildId,
+          drawKey: input.drawKey,
+          note,
+          workosOrganizationId,
+        });
+        return input.status === "rejected"
+          ? rejectDraw({
+              buildId,
+              drawKey: input.drawKey,
+              note,
+              workosOrganizationId,
+            })
+          : approveDraw({
+              buildId,
+              drawKey: input.drawKey,
+              note,
+              workosOrganizationId,
+            });
+      },
       reviewMilestoneCompletion: (input) =>
         input.status === "approved"
           ? canApproveMilestones && canUpdateMilestone
@@ -422,7 +442,9 @@ export function ActiveBuildTimelineWorkspace({
       requestDraw,
       requestMilestoneInfo,
       onRequestSiteVisit,
+      startDrawReview,
       submitMilestoneCompletion,
+      submitDrawForAdmin,
       updateCapitalEvent,
       updateDraw,
       updateEvidenceAsset,

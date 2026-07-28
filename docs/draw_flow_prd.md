@@ -429,7 +429,8 @@ A Draw includes:
 - draw ID,
 - associated Build,
 - associated Loan,
-- included milestones,
+- Draw Release Work Order key,
+- immutable Milestone and Draw Group source allocations,
 - planned amount,
 - requested reimbursement amount,
 - approved reimbursement amount,
@@ -547,12 +548,15 @@ Rules:
 - Lender staff reviews evidence.
 - Site visit occurs where required or requested.
 - Lender admin approves milestone completion.
-- Draw becomes eligible only after included milestones satisfy approval requirements.
+- Each approved Milestone contributes its approved reimbursement amount to an organization-scoped availability source bucket.
+- Builder may request a partial or full reimbursement from the pooled available balance.
+- System creates one Draw Release Work Order for the request and deterministically attributes its exact amount across approved Milestone / Draw Group source buckets.
+- Lender operations reviews the work order and submits a recommendation.
 - Lender admin approves draw release.
 - Funds are released after approval.
 - Interest begins only after release.
 
-No v1 workflow should allow proactive advance funding before work completion.
+No v1 workflow should allow proactive advance funding before work completion. A partial draw means a partial request against fully approved Milestone value; it never means reimbursement for partially completed or unapproved work.
 
 ## 8.2 Interest Accrual
 
@@ -1042,12 +1046,14 @@ The product should avoid splitting roadmap, draw, evidence, and approval state i
 4. Admin reviews staff report/recommendation.
 5. Admin reviews site visit report if applicable.
 6. Admin approves or rejects milestone completion.
-7. Once all milestones in a Draw Group are approved, Draw becomes eligible for release.
-8. Admin opens draw release approval screen.
-9. Admin reviews draw amount, fee treatment, loan availability, and interest implications.
-10. Admin approves release.
-11. System records draw release, draw fee, and interest accrual start date.
-12. Webhook events are emitted where configured.
+7. Approved Milestone value enters the pooled reimbursement balance with its Draw Group source attribution.
+8. Builder submits a partial or full request; system creates the Draw Release Work Order and deterministic allocations.
+9. Lender operations reviews the request and submits it for admin decision.
+10. Admin opens the `ready_for_admin` Draw Release Work Order.
+11. Admin reviews amount, allocations, fee treatment, loan availability, and interest implications.
+12. Admin approves the work order for release.
+13. System records draw release, draw fee, and interest accrual start date.
+14. Webhook events are emitted where configured.
 
 ## 11.7 Budget Revision Flow
 
@@ -1312,18 +1318,17 @@ Recommended milestone statuses:
 
 ## 15.2 Draw Statuses
 
-Recommended draw statuses:
+Canonical Draw Release Work Order statuses:
 
-1. Planned.
-2. Not Yet Eligible.
-3. Partially Eligible.
-4. Pending Evidence Review.
-5. Pending Site Visit.
-6. Ready for Admin Approval.
-7. Approved for Release.
-8. Released.
-9. Rejected.
-10. Replanned.
+1. `requested` — builder submitted; availability is reserved.
+2. `in_review` — lender operations is reviewing evidence, attribution, policy, and availability.
+3. `ready_for_admin` — operations recommendation is complete.
+4. `approved_for_release` — lender admin approved the final release decision.
+5. `released` — funds were released; interest starts according to lender configuration.
+6. `rejected` — lender admin rejected the work order; its allocations no longer reserve availability.
+7. `withdrawn` — builder withdrew before review; its allocations no longer reserve availability.
+
+`planned` belongs to mutable draw schedule forecasts, not the Draw Release Work Order lifecycle.
 
 ## 15.3 Site Visit Statuses
 
@@ -1530,10 +1535,13 @@ The core operational flow is:
 6. Staff submit recommendation.
 7. Lender admin reviews the complete approval package.
 8. Admin approves milestone completion.
-9. When all milestones in a Draw Group are approved, the draw becomes ready for release.
-10. Admin approves and releases the draw.
-11. Builder confirms receipt of funds.
-12. System closes the draw workflow or routes exceptions if receipt is disputed/missing.
+9. Approved Milestone value enters the pooled reimbursement balance with its Draw Group attribution.
+10. Builder submits a partial or full reimbursement request.
+11. System creates the Draw Release Work Order and exact source allocations.
+12. Lender operations reviews the work order and submits a recommendation.
+13. Lender admin approves and releases the draw.
+14. Builder confirms receipt of funds.
+15. System closes the draw workflow or routes exceptions if receipt is disputed/missing.
 
 ### 18.3.2 Operational Objects
 
@@ -1602,12 +1610,14 @@ Contains:
 
 #### Draw Release Work Order
 
-Created when every milestone in a Draw Group has been approved.
+Created when a builder submits a reimbursement request against available value from one or more fully approved Milestones.
 
-Owned by lender admin.
+Reviewed by lender operations; final decision and release are owned by lender admin.
 
 Purpose:
 
+- preserve the builder's exact requested amount,
+- preserve deterministic source allocations back to approved Milestones and Draw Groups,
 - review draw amount,
 - review draw fee treatment,
 - verify loan availability,
@@ -1711,7 +1721,7 @@ Recommended columns:
 
 4. **Milestone Approved**
    - Admin approved milestone completion.
-   - System checks whether associated Draw Group is now ready.
+   - System adds the Milestone's approved amount to the attributed reimbursement availability ledger.
 
 5. **Milestone Rejected**
    - Admin rejected completion claim.
@@ -1726,15 +1736,16 @@ Used by lender admins and finance/ops users where applicable.
 
 Recommended columns:
 
-1. **Not Yet Eligible**
-   - Draw Group exists but included milestones are not all approved.
+1. **Requested**
+   - Builder submitted a Draw Release Work Order.
+   - Exact source allocations reserve approved availability.
 
-2. **Ready for Release Review**
-   - All included milestones are approved.
-   - Draw Release Work Order is created.
+2. **In Review**
+   - Lender operations is reviewing evidence, source attribution, policy, and loan availability.
 
-3. **Release Review In Progress**
-   - Admin is reviewing amount, fee treatment, loan availability, and release details.
+3. **Ready for Admin**
+   - Operations recommendation is complete.
+   - Lender admin can make the final approve/reject decision.
 
 4. **Approved for Release**
    - Admin has approved the draw release.
@@ -1958,7 +1969,7 @@ System actions:
 - Update milestone status.
 - Close or route operational work orders.
 - Update Build Workspace.
-- If milestone approved, recompute Draw Group readiness.
+- If milestone approved, recompute the facility-capped reimbursement source ledger while retaining its Draw Group attribution.
 
 Acceptance criteria:
 
@@ -1967,33 +1978,37 @@ Acceptance criteria:
 - Overrides require audited reason.
 - Milestone approval immediately updates associated Draw Group eligibility.
 
-### 18.3.9 Flow 6 — Draw Becomes Ready for Release
+### 18.3.9 Flow 6 — Draw Release Work Order Is Requested and Reviewed
 
 Trigger:
 
-- All milestones in a Draw Group are approved.
+- Builder submits an amount no greater than the current pooled balance from lender-admin-approved Milestones.
 
 System actions:
 
-1. Mark Draw Group as Ready for Release Review.
-2. Create Draw Release Work Order.
-3. Place work order in Draw Release Board.
-4. Calculate planned/recommended draw release amount.
-5. Calculate draw fee according to lender configuration.
-6. Show interest accrual implications.
-7. Notify lender admin.
+1. Recalculate source-bucket availability in deterministic Milestone order.
+2. Create one organization-scoped Draw Release Work Order in `requested`.
+3. Persist immutable source allocations whose sum exactly equals the requested amount.
+4. Place the work order in the Draw Release Board.
+5. Lender operations transitions it to `in_review`, reviews the package, and submits a recommendation.
+6. Transition the work order to `ready_for_admin`.
+7. Calculate draw fee according to lender configuration.
+8. Show interest accrual implications.
+9. Notify lender admin.
 
 Acceptance criteria:
 
-- Draw cannot become ready if any included milestone is unapproved, rejected, or under review.
-- Draw readiness is visible in Build Workspace.
-- Draw Release Work Order links back to every included approved milestone.
+- Unapproved, rejected, or under-review Milestones contribute no availability.
+- The request cannot exceed current availability or consume the facility beyond its principal cap.
+- Source ordering and allocation are deterministic for the same committed ledger state.
+- The Draw Release Work Order links to every contributing approved Milestone and Draw Group.
+- The Build Workspace shows pooled totals and the exact persisted source attribution.
 
 ### 18.3.10 Flow 7 — Admin Approves and Releases Draw
 
 Trigger:
 
-- Draw Release Work Order is Ready for Release Review.
+- Draw Release Work Order is `ready_for_admin`.
 
 Admin actions:
 
@@ -2306,18 +2321,20 @@ The MVP is complete when:
 
 ---
 
-## 23. Open Decisions Before Technical Spec
+## 23. Product Decisions
 
-Most major product ambiguities are now resolved. The remaining decisions should be finalized before technical implementation.
+The following decisions are authoritative for v1 unless superseded by a later approved product decision.
 
 ## 23.1 Partial Draws
 
-Decision needed:
+Resolved:
 
-- Should v1 milestones be atomic for reimbursement?
-- Or should v1 support subtask-based partial reimbursement when lender policy allows?
-
-Recommendation: keep v1 milestone-atomic unless partial reimbursement is required for first customer demos.
+- Milestones are atomic for reimbursement eligibility: only lender-admin-approved Milestone value enters availability.
+- Builders may submit a partial or full Draw Release Work Order against the pooled approved balance.
+- Every request is attributed FIFO across approved Milestone source buckets ordered by Milestone order, key, and ID; the facility cap is applied in the same order.
+- Each allocation records the source Milestone, Draw Group, amount, and order. Allocation amounts must sum exactly to the request amount.
+- Request and allocation records are organization-scoped and remain the source of truth through operations review, admin decision, and release.
+- Subtask-based or partially completed-work reimbursement is out of v1 scope.
 
 ## 23.2 Geofence Strictness
 
@@ -2378,5 +2395,3 @@ The next document should be a technical specification covering:
 11. audit/event model,
 12. implementation phases,
 13. acceptance criteria by subsystem.
-
-

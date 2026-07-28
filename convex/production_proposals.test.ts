@@ -153,13 +153,30 @@ function productionTemplateSettingsArgs(
   };
 }
 
-async function createClosedSingleMilestoneBuild(t: any, seed: any) {
+async function createClosedSingleMilestoneBuild(
+  t: any,
+  seed: any,
+  options?: {
+    buildName?: string;
+    milestones?: Array<{
+      budgetCents: number;
+      dayEnd: number;
+      dayStart: number;
+      dependencyKeys: string[];
+      durationDays: number;
+      key: string;
+      name: string;
+      order: number;
+      submilestones: never[];
+    }>;
+  },
+) {
   const proposalId = await t.mutation(
     (api as any).production_proposals.createDraftProposal,
     {
       brokerageId: seed.brokerageId,
       builderProfileId: seed.builderProfileId,
-      buildName: "Actual cost active build",
+      buildName: options?.buildName ?? "Actual cost active build",
       location: "44 Actual Cost Lane",
       workosOrganizationId: ORG,
     },
@@ -177,7 +194,7 @@ async function createClosedSingleMilestoneBuild(t: any, seed: any) {
       },
     ],
     lenderDrawPolicyLimitCents: 55_000_000,
-    milestones: [
+    milestones: options?.milestones ?? [
       {
         budgetCents: 50_000_000,
         dayEnd: 20,
@@ -4608,10 +4625,24 @@ describe("production proposal foundation", () => {
       note: "Foundation reimbursement requested.",
       workosOrganizationId: ORG,
     });
+    await t.mutation((api as any).production_proposals.startActiveBuildDrawReview, {
+      buildId: closing.buildId,
+      drawKey: drawReceipt.requestKey,
+      workosOrganizationId: ORG,
+    });
+    await t.mutation(
+      (api as any).production_proposals.submitActiveBuildDrawForAdmin,
+      {
+        buildId: closing.buildId,
+        drawKey: drawReceipt.requestKey,
+        note: "Evidence and policy review complete.",
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation((api as any).production_proposals.approveActiveBuildDraw, {
       buildId: closing.buildId,
       drawKey: drawReceipt.requestKey,
-      note: "Evidence and policy review complete.",
+      note: "Approved for release after operations review.",
       workosOrganizationId: ORG,
     });
     await t.mutation((api as any).production_proposals.releaseActiveBuildDraw, {
@@ -4776,7 +4807,7 @@ describe("production proposal foundation", () => {
     expect(workspace.draws[0]).toMatchObject({
       amountCents: 20_000_000,
       requestNote: "Foundation reimbursement requested.",
-      requestReviewNote: "Evidence and policy review complete.",
+      requestReviewNote: "Approved for release after operations review.",
       releaseNote: "Released after admin approval.",
       status: "released",
     });
@@ -4824,7 +4855,9 @@ describe("production proposal foundation", () => {
         "active_build.document.created",
         "active_build.contractor.attached",
         "active_build.draw.requested",
-        "active_build.draw.approved",
+        "active_build.draw.review_started",
+        "active_build.draw.ready_for_admin",
+        "active_build.draw.approved_for_release",
         "active_build.draw.released",
         "active_build.milestone.info_requested",
         "active_build.site_visit.requested",
@@ -5428,6 +5461,23 @@ describe("production proposal foundation", () => {
       },
     );
 
+    await t.mutation(
+      (api as any).production_proposals.startActiveBuildDrawReview,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.submitActiveBuildDrawForAdmin,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Evidence and policy review complete.",
+        workosOrganizationId: ORG,
+      },
+    );
     await expect(
       t.mutation((api as any).production_proposals.approveActiveBuildDraw, {
         buildId: closing.buildId,
@@ -5728,6 +5778,21 @@ describe("production proposal foundation", () => {
       input,
     );
     expect(retry).toEqual(receipt);
+    expect(receipt).toMatchObject({
+      amountCents: 1_234_567,
+      availableAfterCents: 38_765_433,
+      sourceAllocations: [
+        {
+          amountCents: 1_234_567,
+          drawGroupKey: "draw-01",
+          milestoneKey: "foundation",
+          milestoneName: "Foundation",
+          sourceOrder: 0,
+        },
+      ],
+      status: "requested",
+    });
+    expect(receipt.workOrderKey).toMatch(/^DRWO-\d{4}$/);
 
     let detail = await builder.query(
       (api as any).production_proposals.getActiveBuildDetailByString,
@@ -5738,8 +5803,34 @@ describe("production proposal foundation", () => {
     expect(detail.draws[0]).toMatchObject({
       amountCents: 1_234_567,
       drawKey: receipt.requestKey,
+      sourceAllocations: receipt.sourceAllocations,
       status: "requested",
+      workOrderKey: receipt.workOrderKey,
     });
+    expect(detail.drawFunding).toMatchObject({
+      approvedMilestoneCents: 40_000_000,
+      availableCents: 38_765_433,
+      reservedCents: 1_234_567,
+      unlockedCents: 40_000_000,
+    });
+    const persistedAttribution = await t.run(async (ctx: any) =>
+      ctx.db
+        .query("activeBuildDrawRequestAllocations")
+        .withIndex("by_request", (q: any) =>
+          q.eq("drawRequestId", detail.draws[0]._id),
+        )
+        .collect(),
+    );
+    expect(persistedAttribution).toEqual([
+      expect.objectContaining({
+        amountCents: 1_234_567,
+        brokerageId: seed.brokerageId,
+        drawGroupKey: "draw-01",
+        milestoneKey: "foundation",
+        organizationId: ORG,
+        sourceOrder: 0,
+      }),
+    ]);
 
     await expect(
       builder.mutation(
@@ -5781,6 +5872,361 @@ describe("production proposal foundation", () => {
     expect(detail.plannedDraws[0]).toMatchObject({
       amountCents: 40_000_000,
       status: "planned",
+    });
+    expect(detail.drawFunding).toMatchObject({
+      availableCents: 40_000_000,
+      reservedCents: 0,
+    });
+    const drawAuditEvents = await t.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "activeBuild")
+            .eq("entityId", String(closing.buildId)),
+        )
+        .collect(),
+    );
+    expect(
+      drawAuditEvents
+        .filter((event: any) =>
+          ["requestActiveBuildDraw", "withdrawActiveBuildDraw"].includes(
+            event.command,
+          ),
+        )
+        .map((event: any) => ({
+          actorRoles: event.actorRoles,
+          actorWorkosUserId: event.actorWorkosUserId,
+          command: event.command,
+          organizationId: event.organizationId,
+          reason: event.reason,
+        })),
+    ).toEqual([
+      {
+        actorRoles: ["builder"],
+        actorWorkosUserId: "user_builder",
+        command: "requestActiveBuildDraw",
+        organizationId: ORG,
+        reason: "Exact partial reimbursement.",
+      },
+      {
+        actorRoles: ["builder"],
+        actorWorkosUserId: "user_builder",
+        command: "withdrawActiveBuildDraw",
+        organizationId: ORG,
+        reason: "Correcting the request amount.",
+      },
+    ]);
+  });
+
+  test("deterministically allocates pooled availability and audits the complete draw work-order lifecycle", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Pooled draw attribution build",
+      milestones: [
+        {
+          budgetCents: 25_000_000,
+          dayEnd: 20,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [],
+        },
+        {
+          budgetCents: 25_000_000,
+          dayEnd: 40,
+          dayStart: 20,
+          dependencyKeys: ["foundation"],
+          durationDays: 20,
+          key: "framing",
+          name: "Framing",
+          order: 2,
+          submilestones: [],
+        },
+      ],
+    });
+    await unlockActiveBuildMilestoneForDraw(
+      admin,
+      closing.buildId,
+      "foundation",
+    );
+    await unlockActiveBuildMilestoneForDraw(admin, closing.buildId, "framing");
+    await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      await ctx.db.patch(build.proposalId, {
+        assignedBrokerWorkosUserId: "user_broker",
+      });
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const staff = withIdentity(base, ["broker"], "user_broker");
+    const initialWorkspace = await builder.query(
+      (api as any).production_proposals.getActiveBuildTimelineWorkspace,
+      { buildId: closing.buildId, workosOrganizationId: ORG },
+    );
+
+    const receipt = await builder.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      {
+        amountCents: 30_000_000,
+        buildId: closing.buildId,
+        clientOperationId: "pooled-attribution-01",
+        drawKey: initialWorkspace.draws[0].drawKey,
+        note: "Reimburse completed foundation and framing work.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(receipt.sourceAllocations).toEqual([
+      expect.objectContaining({
+        amountCents: 20_000_000,
+        milestoneKey: "foundation",
+        milestoneName: "Foundation",
+        sourceOrder: 0,
+      }),
+      expect.objectContaining({
+        amountCents: 10_000_000,
+        milestoneKey: "framing",
+        milestoneName: "Framing",
+        sourceOrder: 1,
+      }),
+    ]);
+    expect(
+      receipt.sourceAllocations.reduce(
+        (sum: number, allocation: any) => sum + allocation.amountCents,
+        0,
+      ),
+    ).toBe(receipt.amountCents);
+
+    let detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.drawFunding).toMatchObject({
+      approvedMilestoneCents: 40_000_000,
+      availableCents: 10_000_000,
+      reservedCents: 30_000_000,
+      unlockedCents: 40_000_000,
+    });
+    expect(detail.draws[0]).toMatchObject({
+      sourceAllocations: receipt.sourceAllocations,
+      status: "requested",
+      workOrderKey: receipt.workOrderKey,
+    });
+    await admin.run(async (ctx: any) => {
+      const facility = await ctx.db
+        .query("loanFacilities")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .unique();
+      await ctx.db.patch(facility._id, { principalCents: 35_000_000 });
+    });
+    detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.drawFunding).toMatchObject({
+      availableCents: 5_000_000,
+      reservedCents: 30_000_000,
+      unlockedCents: 35_000_000,
+    });
+    expect(
+      detail.drawFunding.sources.reduce(
+        (sum: number, source: any) => sum + source.availableCents,
+        0,
+      ),
+    ).toBe(5_000_000);
+
+    await staff.mutation(
+      (api as any).production_proposals.startActiveBuildDrawReview,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Operations review started.",
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.draws[0].status).toBe("in_review");
+
+    await staff.mutation(
+      (api as any).production_proposals.submitActiveBuildDrawForAdmin,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Evidence, allocation, and lender policy checks passed.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      staff.mutation(
+        (api as any).production_proposals.approveActiveBuildDraw,
+        {
+          buildId: closing.buildId,
+          drawKey: receipt.requestKey,
+          note: "Staff cannot make the final release decision.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("Forbidden: role");
+    await admin.mutation(
+      (api as any).production_proposals.approveActiveBuildDraw,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Admin approved the attributed reimbursement.",
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.draws[0].status).toBe("approved_for_release");
+
+    await admin.mutation(
+      (api as any).production_proposals.releaseActiveBuildDraw,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Funds released against the approved source allocation.",
+        releaseDate: "2026-07-27",
+        workosOrganizationId: ORG,
+      },
+    );
+    detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.draws[0]).toMatchObject({
+      sourceAllocations: receipt.sourceAllocations,
+      status: "released",
+    });
+
+    const lifecycleEvents = await admin.run(async (ctx: any) =>
+      (
+        await ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (q: any) =>
+            q
+              .eq("entityType", "activeBuild")
+              .eq("entityId", String(closing.buildId)),
+          )
+          .collect()
+      ).filter((event: any) =>
+        [
+          "requestActiveBuildDraw",
+          "startActiveBuildDrawReview",
+          "submitActiveBuildDrawForAdmin",
+          "approveActiveBuildDraw",
+          "releaseActiveBuildDraw",
+        ].includes(event.command),
+      ),
+    );
+    expect(lifecycleEvents.map((event: any) => event.command)).toEqual([
+      "requestActiveBuildDraw",
+      "startActiveBuildDrawReview",
+      "submitActiveBuildDrawForAdmin",
+      "approveActiveBuildDraw",
+      "releaseActiveBuildDraw",
+    ]);
+    expect(
+      lifecycleEvents.every(
+        (event: any) =>
+          event.organizationId === ORG &&
+          event.actorWorkosUserId &&
+          event.actorRoles.length > 0 &&
+          event.newState,
+      ),
+    ).toBe(true);
+    expect(
+      lifecycleEvents
+        .slice(1)
+        .every((event: any) => event.priorState && event.reason),
+    ).toBe(true);
+  });
+
+  test("backfills legacy request attribution and normalizes approved work orders", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    await unlockActiveBuildMilestoneForDraw(admin, closing.buildId);
+    const legacyRequestId = await admin.run(async (ctx: any) =>
+      ctx.db.insert("activeBuildDrawRequests", {
+        amountCents: 10_000_000,
+        brokerageId: seed.brokerageId,
+        buildId: closing.buildId,
+        clientOperationId: "legacy-request-0042",
+        createdAt: 42,
+        displayId: "DR-0042",
+        label: "Legacy approved reimbursement",
+        organizationId: ORG,
+        requestedAt: "2026-07-01T12:00:00.000Z",
+        requestedByWorkosUserId: "user_builder",
+        requestKey: "dr-0042-legacy",
+        status: "approved",
+        updatedAt: 42,
+      }),
+    );
+
+    await expect(
+      admin.query(
+        (api as any).production_proposals.getActiveBuildDetailByString,
+        { buildId: String(closing.buildId), workosOrganizationId: ORG },
+      ),
+    ).rejects.toThrow("run the active-build draw attribution migration");
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.migrateActiveBuildDrawRequests,
+        {
+          buildId: closing.buildId,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toEqual({ attributed: 1, migrated: 0, skipped: 0 });
+
+    const migrated = await admin.run(async (ctx: any) => ({
+      allocations: await ctx.db
+        .query("activeBuildDrawRequestAllocations")
+        .withIndex("by_request", (q: any) =>
+          q.eq("drawRequestId", legacyRequestId),
+        )
+        .collect(),
+      request: await ctx.db.get(legacyRequestId),
+    }));
+    expect(migrated.request).toMatchObject({
+      status: "approved_for_release",
+      workOrderKey: "DRWO-0042",
+    });
+    expect(migrated.allocations).toEqual([
+      expect.objectContaining({
+        amountCents: 10_000_000,
+        drawGroupKey: "draw-01",
+        milestoneKey: "foundation",
+        organizationId: ORG,
+      }),
+    ]);
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.drawFunding).toMatchObject({
+      availableCents: 30_000_000,
+      reservedCents: 10_000_000,
+    });
+    expect(detail.draws[0]).toMatchObject({
+      sourceAllocations: [
+        expect.objectContaining({
+          amountCents: 10_000_000,
+          milestoneKey: "foundation",
+        }),
+      ],
+      status: "approved_for_release",
+      workOrderKey: "DRWO-0042",
     });
   });
 

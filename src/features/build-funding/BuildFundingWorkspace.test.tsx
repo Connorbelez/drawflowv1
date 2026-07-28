@@ -118,7 +118,17 @@ describe("BuildFundingWorkspace", () => {
       displayId: "DR-0003",
       requestKey: "dr-0003-1",
       requestedAt: "2026-07-15T18:30:00.000Z",
+      sourceAllocations: [
+        {
+          amountCents: 1_250_025,
+          drawGroupKey: "draw-01",
+          milestoneKey: "foundation",
+          milestoneName: "Underground, framing & roof",
+          sourceOrder: 0,
+        },
+      ],
       status: "requested",
+      workOrderKey: "DRWO-0003",
     });
     render(
       <BuildFundingWorkspace
@@ -166,6 +176,12 @@ describe("BuildFundingWorkspace", () => {
       }),
     );
     expect(await screen.findByText("DR-0003")).toBeTruthy();
+    expect(screen.getByText("Work order DRWO-0003")).toBeTruthy();
+    expect(
+      screen.getByLabelText(
+        "Underground, framing & roof, Draw Group draw-01, $12,500.25",
+      ),
+    ).toBeTruthy();
   });
 
   test("reuses one idempotency key when a timed-out request is retried", async () => {
@@ -178,7 +194,17 @@ describe("BuildFundingWorkspace", () => {
         displayId: "DR-0004",
         requestKey: "dr-0004-1",
         requestedAt: "2026-07-15T18:30:00.000Z",
+        sourceAllocations: [
+          {
+            amountCents: 5_632_900,
+            drawGroupKey: "draw-01",
+            milestoneKey: "foundation",
+            milestoneName: "Underground, framing & roof",
+            sourceOrder: 0,
+          },
+        ],
         status: "requested",
+        workOrderKey: "DRWO-0004",
       });
     render(
       <BuildFundingWorkspace
@@ -315,10 +341,9 @@ describe("BuildFundingWorkspace", () => {
   });
 
   test("gives lenders one review queue for milestone, draw, and release decisions", async () => {
-    const onApproveDraw = vi.fn().mockResolvedValue(null);
     const onOpenMilestone = vi.fn();
-    const onRejectDraw = vi.fn().mockResolvedValue(null);
     const onReleaseDraw = vi.fn().mockResolvedValue(null);
+    const onStartDrawReview = vi.fn().mockResolvedValue(null);
     const submittedRequest = {
       amountCents: 3_200_000,
       displayId: "DR-1042",
@@ -334,7 +359,7 @@ describe("BuildFundingWorkspace", () => {
       drawKey: "approved",
       label: "Permit reimbursement",
       reviewedAt: "2026-07-15T12:00:00.000Z",
-      status: "approved" as const,
+      status: "approved_for_release" as const,
     };
 
     render(
@@ -355,10 +380,9 @@ describe("BuildFundingWorkspace", () => {
           requests: [submittedRequest, approvedRequest],
           startDate: "2026-06-20",
         })}
-        onApproveDraw={onApproveDraw}
         onOpenMilestone={onOpenMilestone}
-        onRejectDraw={onRejectDraw}
         onReleaseDraw={onReleaseDraw}
+        onStartDrawReview={onStartDrawReview}
         viewerRole="lender"
       />
     );
@@ -387,11 +411,10 @@ describe("BuildFundingWorkspace", () => {
     );
     expect(onOpenMilestone).toHaveBeenCalledWith("permits");
 
-    fireEvent.click(screen.getByTestId("lender-review-approve-submitted"));
-    await waitFor(() => expect(onApproveDraw).toHaveBeenCalledWith(submittedRequest));
-
-    fireEvent.click(screen.getByTestId("lender-review-reject-submitted"));
-    await waitFor(() => expect(onRejectDraw).toHaveBeenCalledWith(submittedRequest));
+    fireEvent.click(screen.getByTestId("lender-review-start-submitted"));
+    await waitFor(() =>
+      expect(onStartDrawReview).toHaveBeenCalledWith(submittedRequest),
+    );
 
     fireEvent.click(screen.getByTestId("lender-review-release-approved"));
     expect(

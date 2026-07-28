@@ -4,6 +4,7 @@ import { useCallback } from "react";
 
 import { DrawControlRoom } from "#/features/backoffice-draws/draw-control-room.tsx";
 import type { BrokerageDrawsResult } from "#/features/backoffice-draws/draw-types.ts";
+import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -25,6 +26,12 @@ function RouteComponent() {
   }) as BrokerageDrawsResult | undefined;
   const approveDraw = useMutation(
     api.production_proposals.approveActiveBuildDraw
+  );
+  const startDrawReview = useMutation(
+    api.production_proposals.startActiveBuildDrawReview
+  );
+  const submitDrawForAdmin = useMutation(
+    api.production_proposals.submitActiveBuildDrawForAdmin
   );
   const rejectDraw = useMutation(
     api.production_proposals.rejectActiveBuildDraw
@@ -53,12 +60,35 @@ function RouteComponent() {
     },
     [rejectDraw, workosOrganizationId]
   );
+  const onAdvanceDraw = useCallback(
+    async (input: {
+      buildId: string;
+      drawKey: string;
+      note: string;
+      status: "requested" | "in_review";
+    }) => {
+      const mutation =
+        input.status === "requested" ? startDrawReview : submitDrawForAdmin;
+      await mutation({
+        buildId: input.buildId as Id<"activeBuilds">,
+        drawKey: input.drawKey,
+        note: input.note,
+        workosOrganizationId,
+      });
+    },
+    [startDrawReview, submitDrawForAdmin, workosOrganizationId]
+  );
+  const canMakeFinalDecision = canMakeActiveBuildFinalDecision([
+    context.role,
+    ...(context.roles ?? []),
+  ]);
 
   return (
     <DrawControlRoom
       data={draws}
-      onApproveDraw={onApproveDraw}
-      onRejectDraw={onRejectDraw}
+      onAdvanceDraw={onAdvanceDraw}
+      onApproveDraw={canMakeFinalDecision ? onApproveDraw : undefined}
+      onRejectDraw={canMakeFinalDecision ? onRejectDraw : undefined}
       pending={draws === undefined}
     />
   );

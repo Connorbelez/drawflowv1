@@ -119,6 +119,8 @@ const MUTATION_ACTION_KEYS = [
   "cancel_active_build_site_visit",
   "record_active_build_site_visit",
   "request_active_build_draw",
+  "start_active_build_draw_review",
+  "submit_active_build_draw_for_admin",
   "approve_active_build_draw",
   "reject_active_build_draw",
   "release_active_build_draw",
@@ -182,6 +184,7 @@ const GENERIC_REASON_REQUIRED_ACTION_KEYS = [
   "delete_active_build_draw",
   "delete_active_build_capital_event",
   "delete_active_build_evidence_asset",
+  "submit_active_build_draw_for_admin",
   "approve_active_build_draw",
   "reject_active_build_draw",
   "release_active_build_draw",
@@ -1865,9 +1868,11 @@ async function assistantOperationalQueues(ctx: QueryCtx, auth: AssistantAuth) {
     for (const draw of draws) {
       drawRows.push({
         actionLabel:
-          draw.status === "requested"
+          draw.status === "requested" ||
+          draw.status === "in_review" ||
+          draw.status === "ready_for_admin"
             ? "Review draw"
-            : draw.status === "approved"
+            : draw.status === "approved_for_release"
               ? "Open release controls"
               : "Open draw",
         amountCents: draw.amountCents,
@@ -2266,18 +2271,23 @@ async function appendBuildBriefingItems(
     }
   }
   for (const draw of draws as Doc<"activeBuildDrawRequests">[]) {
-    if (draw.status === "requested" || draw.status === "approved") {
+    if (
+      draw.status === "requested" ||
+      draw.status === "in_review" ||
+      draw.status === "ready_for_admin" ||
+      draw.status === "approved_for_release"
+    ) {
+      const approvedForRelease = draw.status === "approved_for_release";
       push("draws", {
         detail: `${formatCents(draw.amountCents)} · ${draw.status}`,
         href: hrefBase,
         id: `active-draw:${String(draw._id)}`,
-        kind: draw.status === "approved" ? "drawRelease" : "drawRequest",
-        priority: draw.status === "approved" ? "high" : "critical",
+        kind: approvedForRelease ? "drawRelease" : "drawRequest",
+        priority: approvedForRelease ? "high" : "critical",
         source: "activeBuildDrawRequests.status",
-        title:
-          draw.status === "approved"
-            ? `Approved draw needs release: ${build.buildName} · ${draw.label}`
-            : `Draw request needs approval: ${build.buildName} · ${draw.label}`,
+        title: approvedForRelease
+          ? `Approved draw needs release: ${build.buildName} · ${draw.label}`
+          : `Draw request needs review: ${build.buildName} · ${draw.label}`,
       });
     }
   }
@@ -4963,6 +4973,20 @@ async function applyCatalogDomainMutation(
         amountCents: input.amountCents,
         buildId: input.buildId,
         clientOperationId: optionalString(input.clientOperationId),
+        drawKey: input.drawKey,
+        note: optionalString(input.note ?? input.reason),
+        workosOrganizationId: org,
+      });
+    case "start_active_build_draw_review":
+      return await runDomainMutation(ctx, "startActiveBuildDrawReview", {
+        buildId: input.buildId,
+        drawKey: input.drawKey,
+        note: optionalString(input.note ?? input.reason),
+        workosOrganizationId: org,
+      });
+    case "submit_active_build_draw_for_admin":
+      return await runDomainMutation(ctx, "submitActiveBuildDrawForAdmin", {
+        buildId: input.buildId,
         drawKey: input.drawKey,
         note: optionalString(input.note ?? input.reason),
         workosOrganizationId: org,

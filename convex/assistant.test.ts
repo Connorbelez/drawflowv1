@@ -1052,6 +1052,24 @@ describe("DrawFlow assistant HITL backend", () => {
           },
         },
         {
+          actionKey: "start_active_build_draw_review",
+          clientRequestId: "start_draw_review",
+          input: {
+            buildId,
+            drawKey: draw.drawKey,
+            note: "Operations review started.",
+          },
+        },
+        {
+          actionKey: "submit_active_build_draw_for_admin",
+          clientRequestId: "submit_draw_for_admin",
+          input: {
+            buildId,
+            drawKey: draw.drawKey,
+            reason: "Evidence and source attribution reviewed.",
+          },
+        },
+        {
           actionKey: "approve_active_build_draw",
           clientRequestId: "approve_draw",
           input: {
@@ -1075,7 +1093,13 @@ describe("DrawFlow assistant HITL backend", () => {
       workosOrganizationId: ORG,
     });
     const outcome = await t.mutation((api as any).assistant.commitActionPlan, {
-      acceptedClientRequestIds: ["request_draw", "approve_draw", "release_draw"],
+      acceptedClientRequestIds: [
+        "request_draw",
+        "start_draw_review",
+        "submit_draw_for_admin",
+        "approve_draw",
+        "release_draw",
+      ],
       editedInputs: {},
       planId,
       rejectedClientRequestIds: [],
@@ -1095,6 +1119,7 @@ describe("DrawFlow assistant HITL backend", () => {
       plannedDraw: await ctx.db.get(draw._id),
     }));
     expect(state.actualDraw).toMatchObject({
+      operationsRecommendationNote: "Evidence and source attribution reviewed.",
       releaseDate: "2026-06-30",
       status: "released",
     });
