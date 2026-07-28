@@ -9228,22 +9228,82 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    expect(migrationPlan).toMatchObject({
+      applied: false,
+      attributed: 1,
+      availableCents: 30_000_000,
+      dryRun: true,
+      migrated: 0,
+      normalized: 1,
+      replayed: false,
+      reservedCents: 10_000_000,
+      restoredForecasts: 0,
+      skipped: 0,
+      unlockedCents: 40_000_000,
+    });
+    expect(migrationPlan.planToken).toMatch(
+      /^draw-release-work-order-attribution-v1:[a-f0-9]{64}$/,
+    );
+    const afterDryRun = await admin.run(async (ctx: any) => ({
+      allocations: await ctx.db
+        .query("activeBuildDrawRequestAllocations")
+        .withIndex("by_request", (q: any) =>
+          q.eq("drawRequestId", legacyRequestId),
+        )
+        .collect(),
+      migrationAudits: (
+        await ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (q: any) =>
+            q
+              .eq("entityType", "activeBuild")
+              .eq("entityId", String(closing.buildId)),
+          )
+          .collect()
+      ).filter(
+        (event: any) =>
+          event.command === "migrateActiveBuildDrawRequests",
+      ),
+      request: await ctx.db.get(legacyRequestId),
+    }));
+    expect(afterDryRun.request.workOrderKey).toBeUndefined();
+    expect(afterDryRun.allocations).toHaveLength(0);
+    expect(afterDryRun.migrationAudits).toHaveLength(0);
+
     await expect(
       admin.mutation(
         (api as any).production_proposals.migrateActiveBuildDrawRequests,
         {
           buildId: closing.buildId,
           dryRun: false,
-          expectedPlanToken: migrationPlan.planToken,
-          reason: migrationReason,
+          reason: "Execute legacy Draw Release Work Order attribution.",
           workosOrganizationId: ORG,
         },
       ),
-    ).resolves.toMatchObject({
+    ).rejects.toThrow("Run dryRun=true again");
+
+    const applied = await admin.mutation(
+      (api as any).production_proposals.migrateActiveBuildDrawRequests,
+        {
+          buildId: closing.buildId,
+          dryRun: false,
+          expectedPlanToken: migrationPlan.planToken,
+          reason: "Execute legacy Draw Release Work Order attribution.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(applied).toMatchObject({
       applied: true,
       attributed: 1,
+      availableCents: 30_000_000,
+      dryRun: false,
       migrated: 0,
+      normalized: 1,
+      replayed: false,
+      reservedCents: 10_000_000,
+      restoredForecasts: 0,
       skipped: 0,
+      unlockedCents: 40_000_000,
     });
 
     const migrated = await admin.run(async (ctx: any) => ({
@@ -9286,6 +9346,311 @@ describe("production proposal foundation", () => {
       status: "approved_for_release",
       workOrderKey: "DRWO-0042",
     });
+
+    const replay = await admin.mutation(
+      (api as any).production_proposals.migrateActiveBuildDrawRequests,
+      {
+        buildId: closing.buildId,
+        dryRun: false,
+        expectedPlanToken: migrationPlan.planToken,
+        reason: "Replay the confirmed migration command safely.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(replay).toMatchObject({
+      applied: false,
+      attributed: 0,
+      availableCents: 30_000_000,
+      dryRun: false,
+      migrated: 0,
+      normalized: 0,
+      replayed: true,
+      reservedCents: 10_000_000,
+      restoredForecasts: 0,
+      skipped: 0,
+      unlockedCents: 40_000_000,
+    });
+    const afterReplay = await admin.run(async (ctx: any) => ({
+      allocations: await ctx.db
+        .query("activeBuildDrawRequestAllocations")
+        .withIndex("by_request", (q: any) =>
+          q.eq("drawRequestId", legacyRequestId),
+        )
+        .collect(),
+      migrationAudits: (
+        await ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (q: any) =>
+            q
+              .eq("entityType", "activeBuild")
+              .eq("entityId", String(closing.buildId)),
+          )
+          .collect()
+      ).filter(
+        (event: any) =>
+          event.command === "migrateActiveBuildDrawRequests",
+      ),
+    }));
+    expect(afterReplay.allocations).toHaveLength(1);
+    expect(afterReplay.migrationAudits).toHaveLength(1);
+    expect(afterReplay.migrationAudits[0]).toMatchObject({
+      actorWorkosUserId: "user_admin",
+      organizationId: ORG,
+      reason: "Execute legacy Draw Release Work Order attribution.",
+    });
+    expect(afterReplay.migrationAudits[0].actorRoles).toContain("admin");
+    expect(afterReplay.migrationAudits[0].newState).toContain(
+      migrationPlan.planToken,
+    );
+  });
+
+  test("dry-runs, applies, and idempotently replays legacy lifecycle-row migration", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    await unlockActiveBuildMilestoneForDraw(admin, closing.buildId);
+    const legacy = await admin.run(async (ctx: any) => {
+      const row = await ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build", (q: any) =>
+          q.eq("buildId", closing.buildId),
+        )
+        .unique();
+      if (!row) throw new Error("Test planned draw row not found.");
+      const proposalRow = await ctx.db.get(row.proposalDrawScheduleRowId);
+      if (!proposalRow) throw new Error("Test proposal draw row not found.");
+      await ctx.db.patch(row._id, {
+        amountCents: 12_000_000,
+        requestNote: "Legacy foundation reimbursement.",
+        requestedAt: "2026-07-01T12:00:00.000Z",
+        status: "requested",
+        updatedAt: 100,
+      });
+      return {
+        originalProposalAmountCents: proposalRow.amountCents,
+        rowId: row._id,
+      };
+    });
+    const args = {
+      buildId: closing.buildId,
+      dryRun: true,
+      reason: "Preview legacy lifecycle-row work order migration.",
+      workosOrganizationId: ORG,
+    };
+    const preview = await admin.mutation(
+      (api as any).production_proposals.migrateActiveBuildDrawRequests,
+      args,
+    );
+    expect(preview).toMatchObject({
+      applied: false,
+      attributed: 0,
+      availableCents: 28_000_000,
+      dryRun: true,
+      migrated: 1,
+      normalized: 0,
+      replayed: false,
+      reservedCents: 12_000_000,
+      restoredForecasts: 1,
+      skipped: 0,
+      unlockedCents: 40_000_000,
+    });
+    expect(preview.warnings).toEqual([
+      expect.stringContaining("original requester identity"),
+    ]);
+    const dryRunState = await admin.run(async (ctx: any) => ({
+      requests: await ctx.db
+        .query("activeBuildDrawRequests")
+        .withIndex("by_build", (q: any) =>
+          q.eq("buildId", closing.buildId),
+        )
+        .collect(),
+      row: await ctx.db.get(legacy.rowId),
+    }));
+    expect(dryRunState.requests).toHaveLength(0);
+    expect(dryRunState.row).toMatchObject({
+      amountCents: 12_000_000,
+      status: "requested",
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.migrateActiveBuildDrawRequests,
+        {
+          ...args,
+          dryRun: false,
+          expectedPlanToken: `${preview.planToken}-stale`,
+        },
+      ),
+    ).rejects.toThrow("plan changed or was not confirmed");
+
+    const applyArgs = {
+      ...args,
+      dryRun: false,
+      expectedPlanToken: preview.planToken,
+      reason: "Execute approved legacy lifecycle-row work order migration.",
+    };
+    const applied = await admin.mutation(
+      (api as any).production_proposals.migrateActiveBuildDrawRequests,
+      applyArgs,
+    );
+    expect(applied).toMatchObject({
+      applied: true,
+      migrated: 1,
+      replayed: false,
+      restoredForecasts: 1,
+    });
+    const migratedState = await admin.run(async (ctx: any) => ({
+      allocations: await ctx.db
+        .query("activeBuildDrawRequestAllocations")
+        .withIndex("by_build", (q: any) =>
+          q.eq("buildId", closing.buildId),
+        )
+        .collect(),
+      capitalEvents: (
+        await ctx.db
+          .query("capitalEvents")
+          .withIndex("by_build", (q: any) =>
+            q.eq("buildId", closing.buildId),
+          )
+          .collect()
+      ).filter((event: any) => event.eventType === "draw_release"),
+      requests: await ctx.db
+        .query("activeBuildDrawRequests")
+        .withIndex("by_build", (q: any) =>
+          q.eq("buildId", closing.buildId),
+        )
+        .collect(),
+      row: await ctx.db.get(legacy.rowId),
+    }));
+    expect(migratedState.requests).toHaveLength(1);
+    expect(migratedState.requests[0]).toMatchObject({
+      amountCents: 12_000_000,
+      clientOperationId: `migration:${String(legacy.rowId)}`,
+      organizationId: ORG,
+      requestedByWorkosUserId: "user_admin",
+      status: "requested",
+      workOrderKey: "DRWO-0001",
+    });
+    expect(migratedState.allocations).toEqual([
+      expect.objectContaining({
+        amountCents: 12_000_000,
+        milestoneKey: "foundation",
+        organizationId: ORG,
+      }),
+    ]);
+    expect(migratedState.row).toMatchObject({
+      amountCents: legacy.originalProposalAmountCents,
+      status: "planned",
+    });
+    expect(migratedState.capitalEvents).toHaveLength(0);
+
+    const replay = await admin.mutation(
+      (api as any).production_proposals.migrateActiveBuildDrawRequests,
+      applyArgs,
+    );
+    expect(replay).toMatchObject({
+      applied: false,
+      attributed: 0,
+      availableCents: 28_000_000,
+      migrated: 0,
+      normalized: 0,
+      replayed: true,
+      reservedCents: 12_000_000,
+      restoredForecasts: 0,
+      skipped: 1,
+      unlockedCents: 40_000_000,
+    });
+    const replayCounts = await admin.run(async (ctx: any) => ({
+      allocations: await ctx.db
+        .query("activeBuildDrawRequestAllocations")
+        .withIndex("by_build", (q: any) =>
+          q.eq("buildId", closing.buildId),
+        )
+        .collect(),
+      migrationAudits: (
+        await ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (q: any) =>
+            q
+              .eq("entityType", "activeBuild")
+              .eq("entityId", String(closing.buildId)),
+          )
+          .collect()
+      ).filter(
+        (event: any) =>
+          event.command === "migrateActiveBuildDrawRequests",
+      ),
+      requests: await ctx.db
+        .query("activeBuildDrawRequests")
+        .withIndex("by_build", (q: any) =>
+          q.eq("buildId", closing.buildId),
+        )
+        .collect(),
+    }));
+    expect(replayCounts.requests).toHaveLength(1);
+    expect(replayCounts.allocations).toHaveLength(1);
+    expect(replayCounts.migrationAudits).toHaveLength(1);
+  });
+
+  test("rejects non-reimbursement and cross-organization legacy draw migration", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const legacyRowId = await admin.run(async (ctx: any) => {
+      const row = await ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build", (q: any) =>
+          q.eq("buildId", closing.buildId),
+        )
+        .unique();
+      if (!row) throw new Error("Test planned draw row not found.");
+      await ctx.db.patch(row._id, {
+        amountCents: 1_000_000,
+        requestedAt: "2026-07-01T12:00:00.000Z",
+        status: "requested",
+      });
+      return row._id;
+    });
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.migrateActiveBuildDrawRequests,
+        {
+          buildId: closing.buildId,
+          dryRun: true,
+          reason: "Verify reimbursement eligibility enforcement.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("available source buckets");
+    await unlockActiveBuildMilestoneForDraw(admin, closing.buildId);
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(legacyRowId, { organizationId: "org_other" });
+    });
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.migrateActiveBuildDrawRequests,
+        {
+          buildId: closing.buildId,
+          dryRun: true,
+          reason: "Verify organization attribution enforcement.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow("organization, brokerage, or build attribution");
+    const state = await admin.run(async (ctx: any) => ({
+      allocations: await ctx.db
+        .query("activeBuildDrawRequestAllocations")
+        .withIndex("by_build", (q: any) =>
+          q.eq("buildId", closing.buildId),
+        )
+        .collect(),
+      requests: await ctx.db
+        .query("activeBuildDrawRequests")
+        .withIndex("by_build", (q: any) =>
+          q.eq("buildId", closing.buildId),
+        )
+        .collect(),
+    }));
+    expect(state.requests).toHaveLength(0);
+    expect(state.allocations).toHaveLength(0);
   });
 
   test("serializes competing draw reservations without over-allocating capacity", async () => {
