@@ -1,7 +1,8 @@
 # Builder Milestone Start Interface Manifest
 
-**Status:** Approved product contract and implementation manifest
+**Status:** Grilling complete; approved product contract, selected interaction, and implementation manifest
 **Decision date:** 2026-07-22
+**Interaction decision date:** 2026-07-28
 **Scope:** Builder and Builder Staff interactions with proposal milestones and active-build milestones
 **Primary implementation route:** `/builder/builds/$buildId` and its `/builder-staff/builds/$buildId` mirror
 
@@ -76,6 +77,18 @@ Backdated starts preserve the later `reportedAt`; they do not rewrite history. C
 - The flow is responsive on mobile but requires connectivity.
 - If completion is submitted before a start was recorded, the completion flow requires the missing actual start date/time and atomically records both transitions.
 - Conversational assistant requests prepare the same structured confirmation; free-form text never commits the mutation by itself.
+
+### 2.6 Selected interaction design
+
+**Variant A — Compact confirmation** is the selected production direction.
+
+- The workflow opens as a focused dialog over the current Build Workspace context rather than navigating to a separate page or replacing the workspace with a full-height task flow.
+- The same dialog serves milestone and submilestone triggers. A submilestone invocation preserves and displays both the selected submilestone and its parent milestone context.
+- The default view prioritizes the selected scope, actual start date/time, planned start, schedule variance, dependency status, and one explicit confirmation action.
+- Dependency detail and the override reason appear conditionally only when configured predecessor milestones are incomplete.
+- Backdating changes the variance preview but does not reveal or require a reason field by itself.
+- Every source—milestone sheet, milestone card, calendar, Gantt, submilestone, and assistant—opens this same interaction with source and scope context preselected.
+- The wider context-split and guided field-check-in prototype variants are not production interaction patterns. They remain prototype evidence only until the prototype is captured off the implementation branch.
 
 ## 3. Action Placement Rules
 
@@ -349,3 +362,22 @@ Demo E2E tests such as `tests/e2e/drawflow-demo.spec.ts` may verify visual parit
 - Offline queued lifecycle mutations.
 - Start-work controls on proposal-planning surfaces.
 - Treating demo/prototype behavior as production acceptance.
+
+## 12. Grilling Session Closeout
+
+**Status:** Closed on 2026-07-28.
+
+The grilling session has no outstanding product or interaction questions. The approved contract resolves:
+
+- milestone and submilestone trigger placement;
+- lifecycle transitions and concurrent in-progress milestones;
+- actual versus reported timestamps and backdating;
+- dependency exceptions and the conditionally required reason;
+- builder, Builder Staff, contractor, lender staff, and lender-admin authority;
+- audit history, lender exception alerts, and integration events;
+- completion submitted without a prior recorded start;
+- shared confirmation behavior across sheet, card, calendar, Gantt, submilestone, and assistant entry points;
+- dashboard, proposal-planning, demo, and read-only projection exclusions; and
+- Variant A as the shared production interaction.
+
+Unchecked items in Section 10 are implementation work, not unresolved product decisions.

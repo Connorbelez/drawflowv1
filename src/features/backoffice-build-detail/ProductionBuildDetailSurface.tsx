@@ -790,6 +790,7 @@ export function ProductionBuildDetailSurface({
   onChangeCalendarTimeframe,
   onChangeRail,
   onChangeTab,
+  prototypeMilestoneStartTrigger = false,
   rail,
   staff,
   timelineWorkspace,
@@ -814,6 +815,8 @@ export function ProductionBuildDetailSurface({
   onChangeMilestone?: (milestoneKey?: string) => void;
   onChangeRail: (rail: "open" | "closed") => void;
   onChangeTab: (tab: BuildDetailSubTab) => void;
+  /** PROTOTYPE — exposes the real trigger for planned milestones before the production state model changes. */
+  prototypeMilestoneStartTrigger?: boolean;
   rail?: "open" | "closed";
   staff?: React.ReactNode;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
@@ -851,18 +854,28 @@ export function ProductionBuildDetailSurface({
     setLocalActiveMilestoneKey(next);
     onChangeMilestone?.(next ?? undefined);
   };
-  const sheetData = useMemo(
-    () =>
-      activeMilestoneKey
-        ? buildMilestoneSheetData(
-            detail,
-            projection,
-            activeMilestoneKey,
-            currentDay
-          )
-        : null,
-    [activeMilestoneKey, currentDay, detail, projection]
-  );
+  const sheetData = useMemo(() => {
+    const data = activeMilestoneKey
+      ? buildMilestoneSheetData(
+          detail,
+          projection,
+          activeMilestoneKey,
+          currentDay
+        )
+      : null;
+    return data &&
+      prototypeMilestoneStartTrigger &&
+      activeMilestone?.status === "planned"
+      ? { ...data, canStartWork: true }
+      : data;
+  }, [
+    activeMilestone?.status,
+    activeMilestoneKey,
+    currentDay,
+    detail,
+    projection,
+    prototypeMilestoneStartTrigger,
+  ]);
   const siteVisitOrderMilestone = siteVisitOrderRequest
     ? (detail.milestones.find(
         (milestone) => milestone.key === siteVisitOrderRequest.milestoneKey
@@ -1074,6 +1087,7 @@ export function ProductionBuildDetailSurface({
           onSubmitCompletion={actions?.submitMilestoneCompletion}
           onUpdateSubmilestone={actions?.updateSubmilestoneExecution}
           onUploadEvidence={actions?.uploadSubmilestoneEvidence}
+          prototypeSubmilestoneStartTrigger={prototypeMilestoneStartTrigger}
         />
       )}
       <SiteVisitOrderDialog
@@ -1774,8 +1788,7 @@ function CurrentActiveDrawRequestsSection({
             <div className="min-w-0">
               <h4 className="font-semibold text-sm">Active draw requests</h4>
               <p className="mt-0.5 max-w-[65ch] text-muted-foreground text-xs">
-                Reimbursement requests awaiting lender approval or fund
-                release.
+                Reimbursement requests awaiting lender approval or fund release.
               </p>
             </div>
           </div>
@@ -2712,9 +2725,7 @@ function LoanMetadataPanel({
       <dl className="grid grid-cols-[minmax(0,1fr)] gap-y-1.5 text-sm sm:grid-cols-[120px_1fr]">
         <Label>Borrower starting cash</Label>
         <span className="min-w-0 break-words">
-          {formatCents(
-            detail.capitalPlan?.borrowerStartingCashCents ?? 0
-          )}
+          {formatCents(detail.capitalPlan?.borrowerStartingCashCents ?? 0)}
         </span>
         <Label>Lender policy limit</Label>
         <span className="min-w-0 break-words">
@@ -4490,9 +4501,7 @@ function BudgetRevisionCard({
     run("request", () =>
       actions?.requestBudgetRevision?.({
         borrowerCoPayBps: 10_000 - Math.round(Number(loanPercentage) * 100),
-        borrowerStartingCashCents: Math.round(
-          Number(workingCapital) * 100
-        ),
+        borrowerStartingCashCents: Math.round(Number(workingCapital) * 100),
         lenderDrawPolicyLimitCents: Math.round(Number(policyLimit) * 100),
         reason: reason.trim(),
       })

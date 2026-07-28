@@ -50,6 +50,7 @@ import {
 } from "#/components/ui/autocomplete.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -96,6 +97,8 @@ import {
   type MaterialPlanningPayload,
   MaterialPlanningTab,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
+import { toggleSubmilestoneSelection } from "#/features/assistant/assistantPlanningFocus.ts";
+import { usePlanningFocus } from "#/features/assistant/assistantPlanningFocus.ts";
 import {
   dateFromProposalDayOffset,
   dayOffsetFromProposalDate,
@@ -218,21 +221,12 @@ export interface WorksheetContractorActions {
     contractorId: string;
     role: string;
   }) => Promise<unknown> | unknown;
-  onAttachExisting?: (input: {
-    contractorId: string;
-    role: string;
-  }) => Promise<unknown> | unknown;
+  onAttachExisting?: (input: { contractorId: string; role: string }) => unknown;
   onCreate: (input: {
     contractor: ContractorProfileDraft;
     role?: string;
-  }) =>
-    | Promise<{ contractorId?: string } | string | void>
-    | { contractorId?: string }
-    | string
-    | void;
-  onInviteCreatedContractor?: (
-    contractorId: string
-  ) => Promise<unknown> | unknown;
+  }) => unknown;
+  onInviteCreatedContractor?: (contractorId: string) => unknown;
 }
 
 export interface TimelineMilestoneWorksheetContractorAssignment {
@@ -330,6 +324,7 @@ export function TimelineMilestoneWorksheetTable({
   onReset,
   onRowsChange,
   onScheduleDisplayModeChange,
+  planningFocusScopeKey,
   projectAddress,
   proposedStartDate,
   rows,
@@ -358,6 +353,7 @@ export function TimelineMilestoneWorksheetTable({
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void;
   onScheduleDisplayModeChange?: (mode: TimelineScheduleDisplayMode) => void;
+  planningFocusScopeKey?: string;
   projectAddress?: string;
   proposedStartDate?: string;
   rows: TimelineMilestoneWorksheetRow[];
@@ -1270,6 +1266,7 @@ export function TimelineMilestoneWorksheetTable({
             onOpenDetails={openDetailsSheet}
             onUpdateRow={updateRow}
             onUpdateSubMilestone={updateSubMilestone}
+            planningFocusScopeKey={planningFocusScopeKey}
             proposedStartDate={proposedStartDate}
             rows={rows}
             scheduleDisplayMode={scheduleDisplayMode}
@@ -1426,6 +1423,7 @@ function MilestoneSummaryTable({
   rows,
   scheduleDisplayMode,
   templateTitle,
+  planningFocusScopeKey,
 }: {
   customMilestoneName: string;
   mode: WorksheetMode;
@@ -1447,6 +1445,7 @@ function MilestoneSummaryTable({
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
     meta?: TimelineMilestoneWorksheetRowsChangeMeta
   ) => void;
+  planningFocusScopeKey?: string;
   proposedStartDate?: string;
   rows: TimelineMilestoneWorksheetRow[];
   scheduleDisplayMode: TimelineScheduleDisplayMode;
@@ -1454,6 +1453,9 @@ function MilestoneSummaryTable({
 }) {
   const valueHeader = mode === "settings" ? "PoC" : "Budget";
   const dragItems = timelineSummaryDragItems(rows);
+  const assistantFocusEnabled = Boolean(planningFocusScopeKey);
+  const planningFocus = usePlanningFocus(planningFocusScopeKey ?? "");
+  const selectedSubMilestoneKeys = planningFocus.selectedSubmilestoneKeys;
 
   return (
     <div className="timeline-blueprint-summary-table-wrap">
@@ -1501,6 +1503,11 @@ function MilestoneSummaryTable({
         </TableCaption>
         <TableHeader>
           <TableRow>
+            {assistantFocusEnabled ? (
+              <TableHead className="w-9" scope="col">
+                <span className="sr-only">Assistant focus</span>
+              </TableHead>
+            ) : null}
             <TableHead scope="col">Scope</TableHead>
             <TableHead scope="col">Window</TableHead>
             <TableHead scope="col">Duration</TableHead>
@@ -1541,6 +1548,7 @@ function MilestoneSummaryTable({
                 render={<TableRow />}
                 value={summaryGroupItemId(row.key)}
               >
+                {assistantFocusEnabled ? <TableCell className="w-9" /> : null}
                 <TableCell>
                   <div className="timeline-blueprint-summary-scope">
                     <strong>{row.name}</strong>
@@ -1646,13 +1654,33 @@ function MilestoneSummaryTable({
                   <SortableItem
                     className={cn(
                       "timeline-blueprint-summary-row is-submilestone",
-                      row.excluded && "is-excluded"
+                      row.excluded && "is-excluded",
+                      assistantFocusEnabled &&
+                        selectedSubMilestoneKeys.includes(subMilestone.id) &&
+                        "is-assistant-focus"
                     )}
                     data-testid={`timeline-setup-table-subrow-${subMilestone.id}`}
                     key={`${row.key}:${subMilestone.id}`}
                     render={<TableRow />}
                     value={summarySubMilestoneItemId(subMilestone.id)}
                   >
+                    {assistantFocusEnabled ? (
+                      <TableCell className="w-9">
+                        <Checkbox
+                          aria-label={`Focus ${subMilestoneName} for the DrawFlow assistant`}
+                          checked={selectedSubMilestoneKeys.includes(
+                            subMilestone.id
+                          )}
+                          data-testid={`timeline-setup-table-subrow-focus-${subMilestone.id}`}
+                          onCheckedChange={() =>
+                            toggleSubmilestoneSelection(
+                              planningFocusScopeKey ?? "",
+                              subMilestone.id
+                            )
+                          }
+                        />
+                      </TableCell>
+                    ) : null}
                     <TableCell>
                       <div className="timeline-blueprint-summary-scope is-submilestone">
                         <SortableItemHandle
@@ -3936,16 +3964,14 @@ function SubMilestoneFocusedTabs({
     assignment: Omit<TimelineMilestoneWorksheetContractorAssignment, "id">
   ) => void;
   onCommitField: () => void;
-  onCreateCostItem: (
-    payload: MaterialPlanningPayload
-  ) => Promise<unknown> | void;
-  onDeleteCostItem: (itemId: string) => Promise<unknown> | void;
+  onCreateCostItem: (payload: MaterialPlanningPayload) => unknown;
+  onDeleteCostItem: (itemId: string) => unknown;
   onRemoveContractorAssignment: (assignmentId: string) => void;
   onRemoveSubMilestone: (subMilestoneId: string) => void;
   onUpdateCostItem: (
     itemId: string,
     payload: MaterialPlanningPayload
-  ) => Promise<unknown> | void;
+  ) => unknown;
   onUpdateSubMilestone: (
     subMilestoneId: string,
     patch: Partial<TimelineMilestoneWorksheetSubMilestone>,
@@ -4143,17 +4169,15 @@ function MilestoneExpandedTabs({
   ) => void;
   onAddSubMilestone: (item?: SubMilestoneBankItem) => void;
   onCommitField: () => void;
-  onCreateCostItem: (
-    payload: MaterialPlanningPayload
-  ) => Promise<unknown> | void;
-  onDeleteCostItem: (itemId: string) => Promise<unknown> | void;
+  onCreateCostItem: (payload: MaterialPlanningPayload) => unknown;
+  onDeleteCostItem: (itemId: string) => unknown;
   onMoveSubMilestone: (subMilestoneId: string, targetRowKey: string) => void;
   onRemoveContractorAssignment: (assignmentId: string) => void;
   onRemoveSubMilestone: (subMilestoneId: string) => void;
   onUpdateCostItem: (
     itemId: string,
     payload: MaterialPlanningPayload
-  ) => Promise<unknown> | void;
+  ) => unknown;
   onUpdateFieldGuidance: (guidance: SiteVisitGuidanceHtml) => void;
   onUpdateSubMilestone: (
     subMilestoneId: string,
@@ -4263,14 +4287,12 @@ function MaterialCostItemsEditor({
   scopeName,
   scopeSubMilestoneId,
 }: {
-  onCreateCostItem: (
-    payload: MaterialPlanningPayload
-  ) => Promise<unknown> | void;
-  onDeleteCostItem: (itemId: string) => Promise<unknown> | void;
+  onCreateCostItem: (payload: MaterialPlanningPayload) => unknown;
+  onDeleteCostItem: (itemId: string) => unknown;
   onUpdateCostItem: (
     itemId: string,
     payload: MaterialPlanningPayload
-  ) => Promise<unknown> | void;
+  ) => unknown;
   row: TimelineMilestoneWorksheetRow;
   scopeName?: string;
   scopeSubMilestoneId?: string;
@@ -4391,16 +4413,7 @@ function ContractorAssignmentEditor({
   );
   const normalizedContractorQuery = contractorName.trim().toLowerCase();
   const visibleContractorOptions = useMemo(
-    () =>
-      contractorOptions.filter((option) => {
-        if (!normalizedContractorQuery) {
-          return true;
-        }
-        return [option.name, option.city ?? "", ...(option.trades ?? [])].some(
-          (value) =>
-            value.trim().toLowerCase().includes(normalizedContractorQuery)
-        );
-      }),
+    () => filterContractorOptions(contractorOptions, normalizedContractorQuery),
     [contractorOptions, normalizedContractorQuery]
   );
   const selectedContractor = contractorOptions.find(
@@ -4430,22 +4443,19 @@ function ContractorAssignmentEditor({
   };
 
   const addAssignment = () => {
-    const normalizedName = contractorName.trim();
-    if (!normalizedName) {
+    const draft = buildContractorAssignmentDraft({
+      contractorName,
+      estimatedCostText,
+      estimatedHoursText,
+      role,
+      scopeSubMilestoneId,
+      selectedContractor,
+      subMilestoneIds,
+    });
+    if (!draft) {
       return;
     }
-    const normalizedRole =
-      role.trim() || selectedContractor?.trades?.[0]?.trim() || "Contractor";
-    onAddAssignment({
-      contractorId: selectedContractor?.contractorId,
-      contractorName: selectedContractor?.name ?? normalizedName,
-      estimatedCostCents: parseOptionalCurrencyCents(estimatedCostText),
-      estimatedHours: parseOptionalHours(estimatedHoursText),
-      role: normalizedRole,
-      subMilestoneIds: scopeSubMilestoneId
-        ? [scopeSubMilestoneId]
-        : subMilestoneIds,
-    });
+    onAddAssignment(draft);
     setContractorName("");
     setEstimatedCostText("");
     setEstimatedHoursText("");
@@ -4587,23 +4597,11 @@ function ContractorAssignmentEditor({
                   </AutocompleteEmpty>
                   <AutocompleteList className="timeline-contractor-autocomplete-list">
                     {(option: TimelineMilestoneWorksheetContractorOption) => (
-                      <AutocompleteItem
-                        className="timeline-contractor-autocomplete-item"
+                      <ContractorOptionItem
                         key={option.contractorId}
-                        onClick={() => selectContractorOption(option)}
-                        value={option}
-                      >
-                        <span>
-                          <strong>{option.name}</strong>
-                          <small>
-                            {option.trades?.length
-                              ? option.trades.join(", ")
-                              : "Contractor"}
-                            {option.city ? ` / ${option.city}` : ""}
-                          </small>
-                        </span>
-                        <em>{option.trades?.[0] ?? "Crew"}</em>
-                      </AutocompleteItem>
+                        onSelect={selectContractorOption}
+                        option={option}
+                      />
                     )}
                   </AutocompleteList>
                 </AutocompletePopup>
@@ -4649,49 +4647,13 @@ function ContractorAssignmentEditor({
             />
           </label>
         </div>
-        {scopeSubMilestoneId ? (
-          <div className="grid gap-2">
-            <p className="font-medium text-sm">Sub-milestone scope</p>
-            <div className="flex flex-wrap gap-2">
-              <span className="timeline-blueprint-planning-scope-chip is-locked">
-                {scopeName ?? subMilestoneNameById(row, scopeSubMilestoneId)}
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-2">
-            <p className="font-medium text-sm">Sub-milestone scope</p>
-            <div className="flex flex-wrap gap-2">
-              {row.subMilestoneDetails.length > 0 ? (
-                row.subMilestoneDetails.map((subMilestone) => {
-                  const checked = subMilestoneIds.includes(subMilestone.id);
-                  return (
-                    <label
-                      className="timeline-blueprint-planning-scope-chip"
-                      key={subMilestone.id}
-                    >
-                      <input
-                        checked={checked}
-                        onChange={(event) =>
-                          toggleSubMilestone(
-                            subMilestone.id,
-                            event.currentTarget.checked
-                          )
-                        }
-                        type="checkbox"
-                      />
-                      <span>{sanitizeSubMilestoneName(subMilestone.name)}</span>
-                    </label>
-                  );
-                })
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  No sub-milestones are defined for this milestone.
-                </p>
-              )}
-            </div>
-          </div>
-        )}
+        <ContractorScopeSelector
+          onToggle={toggleSubMilestone}
+          row={row}
+          scopeName={scopeName}
+          scopeSubMilestoneId={scopeSubMilestoneId}
+          subMilestoneIds={subMilestoneIds}
+        />
         <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             className="timeline-blueprint-planning-action"
@@ -4706,135 +4668,309 @@ function ContractorAssignmentEditor({
         </div>
       </div>
 
-      <div className="grid gap-2">
-        {assignments.length > 0 ? (
-          assignments.map((assignment) => (
-            <article
-              className="timeline-blueprint-planning-card"
-              data-testid={`timeline-setup-contractor-assignment-${assignment.id}`}
-              key={assignment.id}
-            >
-              <div className="timeline-blueprint-planning-card-header">
-                <div>
-                  <strong>{assignment.contractorName}</strong>
-                  <small>{assignment.role}</small>
-                </div>
-                <button
-                  aria-label={`Remove ${assignment.contractorName}`}
-                  className="timeline-submilestone-remove"
-                  onClick={() => onRemoveAssignment(assignment.id)}
-                  type="button"
-                >
-                  <Trash2 aria-hidden="true" />
-                </button>
-              </div>
-              <div className="timeline-blueprint-planning-card-meta">
-                <span>
-                  {assignment.subMilestoneIds.length > 0
-                    ? assignment.subMilestoneIds
-                        .map((id) => subMilestoneNameById(row, id))
-                        .join(", ")
-                    : "Milestone-level"}
-                </span>
-                {assignment.estimatedCostCents ? (
-                  <span>{formatCurrency(assignment.estimatedCostCents)}</span>
-                ) : null}
-                {assignment.estimatedHours ? (
-                  <span>
-                    {assignment.estimatedHours} hr
-                    {assignment.estimatedHours === 1 ? "" : "s"}
-                  </span>
-                ) : null}
-              </div>
-            </article>
-          ))
-        ) : (
-          <p className="timeline-blueprint-planning-empty">
-            No contractors assigned yet.
-          </p>
-        )}
-      </div>
+      <ContractorAssignmentList
+        assignments={assignments}
+        onRemoveAssignment={onRemoveAssignment}
+        row={row}
+      />
 
       {contractorActions ? (
-        <ContractorQuickAddDrawer
-          availableContractors={drawerAvailableContractors}
-          createLabel="Create and add"
-          description="Create a contractor profile for this proposal, then finish the milestone assignment below."
-          initialDraft={
-            contractorName.trim()
-              ? {
-                  name: contractorName.trim(),
-                  trades: role.trim() ? [role.trim()] : [],
-                }
-              : undefined
-          }
-          onAttachAndInviteExisting={
-            contractorActions.onAttachAndInviteExisting
-              ? async ({ contractorId, role: attachRole }) => {
-                  await contractorActions.onAttachAndInviteExisting?.({
-                    contractorId,
-                    role: attachRole,
-                  });
-                  const existing = drawerAvailableContractors.find(
-                    (contractor) => contractor._id === contractorId
-                  );
-                  selectCreatedOrAttachedContractor({
-                    contractorId,
-                    name: existing?.name ?? contractorName,
-                    role: attachRole,
-                    trades: existing?.trades,
-                  });
-                }
-              : undefined
-          }
-          onAttachExisting={
-            contractorActions.onAttachExisting
-              ? async ({ contractorId, role: attachRole }) => {
-                  await contractorActions.onAttachExisting?.({
-                    contractorId,
-                    role: attachRole,
-                  });
-                  const existing = drawerAvailableContractors.find(
-                    (contractor) => contractor._id === contractorId
-                  );
-                  selectCreatedOrAttachedContractor({
-                    contractorId,
-                    name: existing?.name ?? contractorName,
-                    role: attachRole,
-                    trades: existing?.trades,
-                  });
-                }
-              : undefined
-          }
-          onCreate={async ({ contractor, role: createRole }) => {
-            const result = await contractorActions.onCreate({
-              contractor,
-              role: createRole,
-            });
-            const contractorId =
-              typeof result === "string"
-                ? result
-                : result && typeof result === "object"
-                  ? result.contractorId
-                  : undefined;
-            selectCreatedOrAttachedContractor({
-              contractorId,
-              name: contractor.name,
-              role: createRole,
-              trades: contractor.trades,
-            });
-            return result;
-          }}
-          onInviteCreatedContractor={
-            contractorActions.onInviteCreatedContractor
-          }
+        <ContractorCreateDrawer
+          contractorActions={contractorActions}
+          contractorName={contractorName}
+          createDrawerOpen={createDrawerOpen}
+          drawerAvailableContractors={drawerAvailableContractors}
           onOpenChange={setCreateDrawerOpen}
-          open={createDrawerOpen}
-          requireRole
-          title="Add contractor to proposal"
+          onSelectCreatedOrAttached={selectCreatedOrAttachedContractor}
+          role={role}
         />
       ) : null}
     </section>
+  );
+}
+
+type ContractorCreateDrawerActions = NonNullable<WorksheetContractorActions>;
+
+function ContractorCreateDrawer({
+  contractorActions,
+  contractorName,
+  createDrawerOpen,
+  drawerAvailableContractors,
+  onOpenChange,
+  onSelectCreatedOrAttached,
+  role,
+}: {
+  contractorActions: ContractorCreateDrawerActions;
+  contractorName: string;
+  createDrawerOpen: boolean;
+  drawerAvailableContractors: ContractorDrawerAvailableContractor[];
+  onOpenChange: (open: boolean) => void;
+  onSelectCreatedOrAttached: (input: {
+    contractorId?: string;
+    name: string;
+    role?: string;
+    trades?: string[];
+  }) => void;
+  role: string;
+}) {
+  const makeAttachHandler =
+    (action: (input: { contractorId: string; role: string }) => unknown) =>
+    async ({
+      contractorId,
+      role: attachRole,
+    }: {
+      contractorId: string;
+      role: string;
+    }) => {
+      await action({ contractorId, role: attachRole });
+      const existing = drawerAvailableContractors.find(
+        (contractor) => contractor._id === contractorId
+      );
+      onSelectCreatedOrAttached({
+        contractorId,
+        name: existing?.name ?? contractorName,
+        role: attachRole,
+        trades: existing?.trades,
+      });
+    };
+  const handleAttachAndInvite = contractorActions.onAttachAndInviteExisting
+    ? makeAttachHandler(contractorActions.onAttachAndInviteExisting)
+    : undefined;
+  const handleAttach = contractorActions.onAttachExisting
+    ? makeAttachHandler(contractorActions.onAttachExisting)
+    : undefined;
+  return (
+    <ContractorQuickAddDrawer
+      availableContractors={drawerAvailableContractors}
+      createLabel="Create and add"
+      description="Create a contractor profile for this proposal, then finish the milestone assignment below."
+      initialDraft={
+        contractorName.trim()
+          ? {
+              name: contractorName.trim(),
+              trades: role.trim() ? [role.trim()] : [],
+            }
+          : undefined
+      }
+      onAttachAndInviteExisting={handleAttachAndInvite}
+      onAttachExisting={handleAttach}
+      onCreate={async ({ contractor, role: createRole }) => {
+        const result = await contractorActions.onCreate({
+          contractor,
+          role: createRole,
+        });
+        const contractorId =
+          typeof result === "string"
+            ? result
+            : result && typeof result === "object"
+              ? result.contractorId
+              : undefined;
+        onSelectCreatedOrAttached({
+          contractorId,
+          name: contractor.name,
+          role: createRole,
+          trades: contractor.trades,
+        });
+        return result;
+      }}
+      onInviteCreatedContractor={contractorActions.onInviteCreatedContractor}
+      onOpenChange={onOpenChange}
+      open={createDrawerOpen}
+      requireRole
+      title="Add contractor to proposal"
+    />
+  );
+}
+
+function buildContractorAssignmentDraft({
+  contractorName,
+  estimatedCostText,
+  estimatedHoursText,
+  role,
+  scopeSubMilestoneId,
+  selectedContractor,
+  subMilestoneIds,
+}: {
+  contractorName: string;
+  estimatedCostText: string;
+  estimatedHoursText: string;
+  role: string;
+  scopeSubMilestoneId?: string;
+  selectedContractor?: TimelineMilestoneWorksheetContractorOption;
+  subMilestoneIds: string[];
+}): Omit<TimelineMilestoneWorksheetContractorAssignment, "id"> | null {
+  const normalizedName = contractorName.trim();
+  if (!normalizedName) {
+    return null;
+  }
+  return {
+    contractorId: selectedContractor?.contractorId,
+    contractorName: selectedContractor?.name ?? normalizedName,
+    estimatedCostCents: parseOptionalCurrencyCents(estimatedCostText),
+    estimatedHours: parseOptionalHours(estimatedHoursText),
+    role:
+      role.trim() || selectedContractor?.trades?.[0]?.trim() || "Contractor",
+    subMilestoneIds: scopeSubMilestoneId
+      ? [scopeSubMilestoneId]
+      : subMilestoneIds,
+  };
+}
+
+function filterContractorOptions(
+  contractorOptions: TimelineMilestoneWorksheetContractorOption[],
+  normalizedQuery: string
+) {
+  if (!normalizedQuery) {
+    return contractorOptions;
+  }
+  return contractorOptions.filter((option) =>
+    [option.name, option.city ?? "", ...(option.trades ?? [])].some((value) =>
+      value.trim().toLowerCase().includes(normalizedQuery)
+    )
+  );
+}
+
+function ContractorOptionItem({
+  onSelect,
+  option,
+}: {
+  onSelect: (option: TimelineMilestoneWorksheetContractorOption) => void;
+  option: TimelineMilestoneWorksheetContractorOption;
+}) {
+  return (
+    <AutocompleteItem
+      className="timeline-contractor-autocomplete-item"
+      onClick={() => onSelect(option)}
+      value={option}
+    >
+      <span>
+        <strong>{option.name}</strong>
+        <small>
+          {option.trades?.length ? option.trades.join(", ") : "Contractor"}
+          {option.city ? ` / ${option.city}` : ""}
+        </small>
+      </span>
+      <em>{option.trades?.[0] ?? "Crew"}</em>
+    </AutocompleteItem>
+  );
+}
+
+function ContractorScopeSelector({
+  onToggle,
+  row,
+  scopeName,
+  scopeSubMilestoneId,
+  subMilestoneIds,
+}: {
+  onToggle: (subMilestoneId: string, checked: boolean) => void;
+  row: TimelineMilestoneWorksheetRow;
+  scopeName?: string;
+  scopeSubMilestoneId?: string;
+  subMilestoneIds: string[];
+}) {
+  if (scopeSubMilestoneId) {
+    return (
+      <div className="grid gap-2">
+        <p className="font-medium text-sm">Sub-milestone scope</p>
+        <div className="flex flex-wrap gap-2">
+          <span className="timeline-blueprint-planning-scope-chip is-locked">
+            {scopeName ?? subMilestoneNameById(row, scopeSubMilestoneId)}
+          </span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="grid gap-2">
+      <p className="font-medium text-sm">Sub-milestone scope</p>
+      <div className="flex flex-wrap gap-2">
+        {row.subMilestoneDetails.length > 0 ? (
+          row.subMilestoneDetails.map((subMilestone) => {
+            const checked = subMilestoneIds.includes(subMilestone.id);
+            return (
+              <label
+                className="timeline-blueprint-planning-scope-chip"
+                key={subMilestone.id}
+              >
+                <input
+                  checked={checked}
+                  onChange={(event) =>
+                    onToggle(subMilestone.id, event.currentTarget.checked)
+                  }
+                  type="checkbox"
+                />
+                <span>{sanitizeSubMilestoneName(subMilestone.name)}</span>
+              </label>
+            );
+          })
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            No sub-milestones are defined for this milestone.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ContractorAssignmentList({
+  assignments,
+  onRemoveAssignment,
+  row,
+}: {
+  assignments: TimelineMilestoneWorksheetContractorAssignment[];
+  onRemoveAssignment: (assignmentId: string) => void;
+  row: TimelineMilestoneWorksheetRow;
+}) {
+  return (
+    <div className="grid gap-2">
+      {assignments.length > 0 ? (
+        assignments.map((assignment) => (
+          <article
+            className="timeline-blueprint-planning-card"
+            data-testid={`timeline-setup-contractor-assignment-${assignment.id}`}
+            key={assignment.id}
+          >
+            <div className="timeline-blueprint-planning-card-header">
+              <div>
+                <strong>{assignment.contractorName}</strong>
+                <small>{assignment.role}</small>
+              </div>
+              <button
+                aria-label={`Remove ${assignment.contractorName}`}
+                className="timeline-submilestone-remove"
+                onClick={() => onRemoveAssignment(assignment.id)}
+                type="button"
+              >
+                <Trash2 aria-hidden="true" />
+              </button>
+            </div>
+            <div className="timeline-blueprint-planning-card-meta">
+              <span>
+                {assignment.subMilestoneIds.length > 0
+                  ? assignment.subMilestoneIds
+                      .map((id) => subMilestoneNameById(row, id))
+                      .join(", ")
+                  : "Milestone-level"}
+              </span>
+              {assignment.estimatedCostCents ? (
+                <span>{formatCurrency(assignment.estimatedCostCents)}</span>
+              ) : null}
+              {assignment.estimatedHours ? (
+                <span>
+                  {assignment.estimatedHours} hr
+                  {assignment.estimatedHours === 1 ? "" : "s"}
+                </span>
+              ) : null}
+            </div>
+          </article>
+        ))
+      ) : (
+        <p className="timeline-blueprint-planning-empty">
+          No contractors assigned yet.
+        </p>
+      )}
+    </div>
   );
 }
 

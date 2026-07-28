@@ -887,6 +887,9 @@ export const getAssistantContext = authenticatedQuery
         proposalId: optionalString(routeContext.proposalId),
         selectedDrawKey: optionalString(routeContext.selectedDrawKey),
         selectedMilestoneKey: optionalString(routeContext.selectedMilestoneKey),
+        selectedSubmilestoneKeys: optionalStringArray(
+          routeContext.selectedSubmilestoneKeys
+        ),
         selectedPanel: optionalString(routeContext.selectedPanel),
       },
       target: await assistantCurrentTargetContext(ctx, auth, routeContext),
@@ -6512,6 +6515,16 @@ function requiredString(value: unknown, field: string) {
 
 function optionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function optionalStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return;
+  }
+  const items = value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+  return items.length > 0 ? items : undefined;
 }
 
 function requiredNumber(value: unknown, field: string) {

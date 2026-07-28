@@ -48,6 +48,10 @@ import {
 } from "./assistantRouteRegistry.ts";
 import type { DrawFlowAssistantRouteContext } from "./assistantRouteContext.ts";
 import {
+  planningFocusScopeKey,
+  usePlanningFocus,
+} from "./assistantPlanningFocus.ts";
+import {
   AssistantGenerativeUI,
   type AssistantCostItemDraft,
   type AssistantGeneratedUiPart,
@@ -121,9 +125,7 @@ export function DrawFlowAssistant({
   }, [onOpenChange]);
 
   if (!open) {
-    return (
-      <DrawFlowAssistantLauncher onOpen={() => onOpenChange(true)} />
-    );
+    return <DrawFlowAssistantLauncher onOpen={() => onOpenChange(true)} />;
   }
 
   return (
@@ -137,15 +139,32 @@ export function DrawFlowAssistant({
 
 function DrawFlowAssistantSession({
   onClose,
-  routeContext,
+  routeContext: baseRouteContext,
 }: {
   onClose: () => void;
   routeContext: DrawFlowAssistantRouteContext;
 }) {
+  // Merge conversational focus (sub-milestone checkbox selection) into the
+  // route context so every planner turn sees the current deictic target.
+  const planningFocus = usePlanningFocus(
+    planningFocusScopeKey({
+      pathname: baseRouteContext.pathname,
+      proposalId: baseRouteContext.proposalId,
+    })
+  );
+  const routeContext = useMemo<DrawFlowAssistantRouteContext>(
+    () =>
+      planningFocus.selectedSubmilestoneKeys.length > 0
+        ? {
+            ...baseRouteContext,
+            selectedSubmilestoneKeys: planningFocus.selectedSubmilestoneKeys,
+          }
+        : baseRouteContext,
+    [baseRouteContext, planningFocus.selectedSubmilestoneKeys]
+  );
   const [threadId, setThreadId] = useState<string | null>(null);
   const [planId, setPlanId] = useState<string | null>(null);
-  const [commitState, setCommitState] =
-    useState<AssistantCommitState>("idle");
+  const [commitState, setCommitState] = useState<AssistantCommitState>("idle");
   const [commitMessage, setCommitMessage] = useState<string | null>(null);
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([]);
   const [selectionRequest, setSelectionRequest] =
@@ -193,7 +212,9 @@ function DrawFlowAssistantSession({
   const [workflowHeartbeat, setWorkflowHeartbeat] = useState(0);
 
   useEffect(() => {
-    if (!routeContext.organizationId || !routeContext.authDiagnostics.hasToken) {
+    if (
+      !(routeContext.organizationId && routeContext.authDiagnostics.hasToken)
+    ) {
       return;
     }
     let cancelled = false;
@@ -323,7 +344,9 @@ function DrawFlowAssistantSession({
           threadId: threadId ?? undefined,
           workosOrganizationId: organizationId,
         });
-        const plannerActions = normalizePlannerActions(plannerResponse?.actions);
+        const plannerActions = normalizePlannerActions(
+          plannerResponse?.actions
+        );
         if (plannerActions.length > 0) {
           const nextPlanId = await createActionPlan({
             actions: plannerActions,
@@ -336,7 +359,9 @@ function DrawFlowAssistantSession({
           setCommitState("idle");
           setPreviewItems(actionsToPreviewItems(plannerActions));
           setSelectionRequest(null);
-          setGeneratedUiParts(normalizeGeneratedUiParts(plannerResponse?.uiParts));
+          setGeneratedUiParts(
+            normalizeGeneratedUiParts(plannerResponse?.uiParts)
+          );
           return assistantText(
             plannerResponse?.text ??
               "I prepared a persisted HITL action batch. Review it, edit it if needed, then confirm the accepted set."
@@ -360,10 +385,14 @@ function DrawFlowAssistantSession({
               threadId: threadId ?? undefined,
               workosOrganizationId: organizationId,
             });
-            setGeneratedUiParts(normalizeGeneratedUiParts(plannerResponse?.uiParts));
+            setGeneratedUiParts(
+              normalizeGeneratedUiParts(plannerResponse?.uiParts)
+            );
             return assistantText(enrichedWorkflow.message);
           }
-          const plannerUiParts = normalizeGeneratedUiParts(plannerResponse?.uiParts);
+          const plannerUiParts = normalizeGeneratedUiParts(
+            plannerResponse?.uiParts
+          );
           if (requiresPostNavigationWorkflow(prompt, plannerUiParts)) {
             const navigationWorkflow = buildNavigationResumeWorkflowPlan({
               finalSummary: plannerResponse?.text,
@@ -409,12 +438,13 @@ function DrawFlowAssistantSession({
               `I can take you to ${plannerNavigation.label}.`
           );
         }
-        const plannerUiParts = normalizeGeneratedUiParts(plannerResponse?.uiParts);
+        const plannerUiParts = normalizeGeneratedUiParts(
+          plannerResponse?.uiParts
+        );
         if (plannerUiParts.length > 0) {
           setGeneratedUiParts(plannerUiParts);
           return assistantText(
-            plannerResponse?.text ??
-              "I put together the next step below."
+            plannerResponse?.text ?? "I put together the next step below."
           );
         }
         const readonlyAction = buildReadonlyClientAction(prompt, routeContext);
@@ -488,13 +518,13 @@ function DrawFlowAssistantSession({
     }
     const timeout = window.setTimeout(
       () => setWorkflowHeartbeat((value) => value + 1),
-      2_000
+      2000
     );
     return () => window.clearTimeout(timeout);
   }, [currentWorkflowRun, workflowHeartbeat]);
 
   useEffect(() => {
-    if (!currentWorkflowRun || !routeContext.organizationId) {
+    if (!(currentWorkflowRun && routeContext.organizationId)) {
       return;
     }
     const step = nextRunnableWorkflowStep(currentWorkflowRun);
@@ -539,7 +569,7 @@ function DrawFlowAssistantSession({
 
   const handleSelectReminderTarget = useCallback(
     async (target: AssistantSelectionOption) => {
-      if (!selectionRequest || !routeContext.organizationId) {
+      if (!(selectionRequest && routeContext.organizationId)) {
         return;
       }
       const action = buildReminderActionForTarget(
@@ -609,7 +639,7 @@ function DrawFlowAssistantSession({
 
   const handleWorkflowRepair = useCallback(
     async (step: AssistantWorkflowStep) => {
-      if (!currentWorkflowRun || !routeContext.organizationId) {
+      if (!(currentWorkflowRun && routeContext.organizationId)) {
         return;
       }
       const repairAction = workflowRepairAction(step);
@@ -632,7 +662,10 @@ function DrawFlowAssistantSession({
               : "Repair action could not be completed."
             : undefined,
         result: result.result,
-        status: result.handled && resultRecord.ok !== false ? "succeeded" : "needs_input",
+        status:
+          result.handled && resultRecord.ok !== false
+            ? "succeeded"
+            : "needs_input",
         stepId: step.id,
         workflowRunId: currentWorkflowRun._id,
         workosOrganizationId: routeContext.organizationId,
@@ -648,7 +681,10 @@ function DrawFlowAssistantSession({
       type: "choice" | "navigate" | "select" | "submit";
       workflowRunId: string;
     }) => {
-      if (!routeContext.organizationId || event.workflowRunId !== currentWorkflowRun?._id) {
+      if (
+        !routeContext.organizationId ||
+        event.workflowRunId !== currentWorkflowRun?._id
+      ) {
         return;
       }
       const step = currentWorkflowRun.steps.find(
@@ -656,7 +692,8 @@ function DrawFlowAssistantSession({
       );
       if (!isValidWorkflowUiEventForStep(step, event)) {
         await updateWorkflowStep({
-          error: "Choose or submit a valid generated UI value before I continue.",
+          error:
+            "Choose or submit a valid generated UI value before I continue.",
           result: {
             payload: event.payload,
             type: event.type,
@@ -705,20 +742,20 @@ function DrawFlowAssistantSession({
     []
   );
   const handleCommitAccepted = useCallback(async () => {
-      if (!routeContext.organizationId) {
-        setCommitMessage(
-          "Join an organization before confirming assistant actions."
-        );
-        setCommitState("failed");
-        return;
-      }
-      if (!planId) {
-        setCommitMessage(
-          "Ask the assistant to prepare a persisted action batch first."
-        );
-        setCommitState("failed");
-        return;
-      }
+    if (!routeContext.organizationId) {
+      setCommitMessage(
+        "Join an organization before confirming assistant actions."
+      );
+      setCommitState("failed");
+      return;
+    }
+    if (!planId) {
+      setCommitMessage(
+        "Ask the assistant to prepare a persisted action batch first."
+      );
+      setCommitState("failed");
+      return;
+    }
     const acceptedItems = previewItems.filter(
       (item) => item.status !== "rejected"
     );
@@ -730,15 +767,15 @@ function DrawFlowAssistantSession({
       if (item.status !== "edited") {
         continue;
       }
-        if (!isRecord(item.after)) {
-          setCommitMessage(
-            `Fix ${item.entityLabel}: edited after value must be a JSON object.`
-          );
-          setCommitState("failed");
-          return;
-        }
-        editedInputs[item.clientRequestId] = item.after;
+      if (!isRecord(item.after)) {
+        setCommitMessage(
+          `Fix ${item.entityLabel}: edited after value must be a JSON object.`
+        );
+        setCommitState("failed");
+        return;
       }
+      editedInputs[item.clientRequestId] = item.after;
+    }
     setCommitState("committing");
     setCommitMessage("Committing accepted assistant batch...");
     let outcome: any;
@@ -757,7 +794,9 @@ function DrawFlowAssistantSession({
     } catch (error) {
       setCommitState("failed");
       setCommitMessage(
-        error instanceof Error ? error.message : "Assistant batch commit failed."
+        error instanceof Error
+          ? error.message
+          : "Assistant batch commit failed."
       );
       return;
     }
@@ -812,108 +851,104 @@ function DrawFlowAssistantSession({
         data-testid="drawflow-assistant-surface"
         role="dialog"
       >
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                <Sparkles className="size-4" />
-              </span>
-              <div className="min-w-0">
-                <h2 className="truncate font-semibold text-sm">DrawFlow AI</h2>
-                <p className="truncate text-muted-foreground text-xs">
-                  Route-aware HITL assistant
-                </p>
-              </div>
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <Sparkles className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="truncate font-semibold text-sm">DrawFlow AI</h2>
+              <p className="truncate text-muted-foreground text-xs">
+                Route-aware HITL assistant
+              </p>
             </div>
-            <Button
-              aria-label="Close assistant"
-              onClick={onClose}
-              size="icon"
-              variant="ghost"
-            >
-              <X className="size-4" />
-            </Button>
           </div>
+          <Button
+            aria-label="Close assistant"
+            onClick={onClose}
+            size="icon"
+            variant="ghost"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
 
-          <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
-            <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
-              <Frame data-testid="assistant-route-context">
-                <FramePanel className="space-y-3 p-4">
-                  <div className="flex items-center gap-2 font-medium text-sm">
-                    <Bot className="size-4" />
-                    Current context
-                  </div>
-                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-                    <dt className="text-muted-foreground">Route</dt>
-                    <dd className="truncate">{routeContext.pathname}</dd>
-                    <dt className="text-muted-foreground">Proposal</dt>
-                    <dd>{routeContext.proposalId ?? "None"}</dd>
-                    <dt className="text-muted-foreground">Build</dt>
-                    <dd>{routeContext.activeBuildId ?? "None"}</dd>
-                    <dt className="text-muted-foreground">Panel</dt>
-                    <dd>{routeContext.selectedPanel ?? "Default"}</dd>
-                    <dt className="text-muted-foreground">Org</dt>
-                    <dd>
-                      {routeContext.authDiagnostics.hasOrganization
-                        ? routeContext.organizationId
-                        : "Missing organization claim"}
-                    </dd>
-                  </dl>
-                </FramePanel>
-              </Frame>
-              <ThreadPrimitive.Messages>
-                {({ message }) =>
-                  message.role === "user" ? (
-                    <UserMessage />
-                  ) : (
-                    <AssistantMessage />
-                  )
-                }
-              </ThreadPrimitive.Messages>
-              <AssistantPreviewBatch
-                commitMessage={commitMessage}
-                commitState={commitState}
-                items={previewItems}
-                onAfterChange={handlePreviewAfterChange}
-                onCommitAccepted={handleCommitAccepted}
-                onStatusChange={handlePreviewStatus}
+        <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
+          <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+            <Frame data-testid="assistant-route-context">
+              <FramePanel className="space-y-3 p-4">
+                <div className="flex items-center gap-2 font-medium text-sm">
+                  <Bot className="size-4" />
+                  Current context
+                </div>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                  <dt className="text-muted-foreground">Route</dt>
+                  <dd className="truncate">{routeContext.pathname}</dd>
+                  <dt className="text-muted-foreground">Proposal</dt>
+                  <dd>{routeContext.proposalId ?? "None"}</dd>
+                  <dt className="text-muted-foreground">Build</dt>
+                  <dd>{routeContext.activeBuildId ?? "None"}</dd>
+                  <dt className="text-muted-foreground">Panel</dt>
+                  <dd>{routeContext.selectedPanel ?? "Default"}</dd>
+                  <dt className="text-muted-foreground">Org</dt>
+                  <dd>
+                    {routeContext.authDiagnostics.hasOrganization
+                      ? routeContext.organizationId
+                      : "Missing organization claim"}
+                  </dd>
+                </dl>
+              </FramePanel>
+            </Frame>
+            <ThreadPrimitive.Messages>
+              {({ message }) =>
+                message.role === "user" ? <UserMessage /> : <AssistantMessage />
+              }
+            </ThreadPrimitive.Messages>
+            <AssistantPreviewBatch
+              commitMessage={commitMessage}
+              commitState={commitState}
+              items={previewItems}
+              onAfterChange={handlePreviewAfterChange}
+              onCommitAccepted={handleCommitAccepted}
+              onStatusChange={handlePreviewStatus}
+            />
+            <AssistantWorkflowStatus
+              onRepair={handleWorkflowRepair}
+              run={currentWorkflowRun}
+            />
+            <AssistantGenerativeUI
+              onNavigate={handleGeneratedNavigation}
+              onSubmitCostItem={handleSubmitCostItemDraft}
+              onWorkflowUiEvent={handleWorkflowUiEvent}
+              parts={generatedUiParts}
+              selectionLoading={reminderTargets === undefined}
+              selectionOptions={reminderTargets?.targets ?? []}
+            />
+            {selectionRequest ? (
+              <AssistantAutocompleteSelection
+                emptyText="No build or proposal matches that search."
+                loading={reminderTargets === undefined}
+                onSelect={handleSelectReminderTarget}
+                options={reminderTargets?.targets ?? []}
+                title={selectionRequest.title}
               />
-              <AssistantWorkflowStatus
-                onRepair={handleWorkflowRepair}
-                run={currentWorkflowRun}
+            ) : null}
+          </ThreadPrimitive.Viewport>
+          <ComposerPrimitive.Root className="border-t p-3">
+            <div className="flex items-end gap-2 rounded-lg border bg-background p-2">
+              <ComposerPrimitive.Input
+                className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
+                placeholder="Ask about this build, proposal, draw, or calendar..."
+                rows={1}
               />
-              <AssistantGenerativeUI
-                onNavigate={handleGeneratedNavigation}
-                onSubmitCostItem={handleSubmitCostItemDraft}
-                onWorkflowUiEvent={handleWorkflowUiEvent}
-                parts={generatedUiParts}
-                selectionLoading={reminderTargets === undefined}
-                selectionOptions={reminderTargets?.targets ?? []}
-              />
-              {selectionRequest ? (
-                <AssistantAutocompleteSelection
-                  emptyText="No build or proposal matches that search."
-                  loading={reminderTargets === undefined}
-                  onSelect={handleSelectReminderTarget}
-                  options={reminderTargets?.targets ?? []}
-                  title={selectionRequest.title}
-                />
-              ) : null}
-            </ThreadPrimitive.Viewport>
-            <ComposerPrimitive.Root className="border-t p-3">
-              <div className="flex items-end gap-2 rounded-lg border bg-background p-2">
-                <ComposerPrimitive.Input
-                  className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
-                  placeholder="Ask about this build, proposal, draw, or calendar..."
-                  rows={1}
-                />
-                <ComposerPrimitive.Send asChild>
-                  <Button aria-label="Send assistant message" size="icon">
-                    <Send className="size-4" />
-                  </Button>
-                </ComposerPrimitive.Send>
-              </div>
-            </ComposerPrimitive.Root>
-          </ThreadPrimitive.Root>
+              <ComposerPrimitive.Send asChild>
+                <Button aria-label="Send assistant message" size="icon">
+                  <Send className="size-4" />
+                </Button>
+              </ComposerPrimitive.Send>
+            </div>
+          </ComposerPrimitive.Root>
+        </ThreadPrimitive.Root>
       </section>
     </AssistantRuntimeProvider>
   );
@@ -1142,7 +1177,8 @@ async function runWorkflowStep({
         error: undefined,
         result: {
           startedAt: workflowStepStartedAt(step) ?? Date.now(),
-          waitingFor: step.input?.selectorKind ?? step.input?.formKind ?? "agui",
+          waitingFor:
+            step.input?.selectorKind ?? step.input?.formKind ?? "agui",
         },
         status: "needs_input",
         stepId: step.id,
@@ -1214,7 +1250,8 @@ async function runWorkflowStep({
     const actions = workflowActionsForHitlStep(step, run);
     if (actions.length === 0) {
       await updateWorkflowStep({
-        error: "I could not derive a valid HITL action preview from the workflow state.",
+        error:
+          "I could not derive a valid HITL action preview from the workflow state.",
         status: "needs_input",
         stepId: step.id,
         workflowRunId,
@@ -1263,7 +1300,9 @@ async function runWorkflowStep({
       const renderedStep = renderedStepId
         ? run.steps.find((candidate) => candidate.id === renderedStepId)
         : null;
-      const rendered = renderedStepId ? renderedStep?.status === "succeeded" : true;
+      const rendered = renderedStepId
+        ? renderedStep?.status === "succeeded"
+        : true;
       const renderedResult = isRecord(renderedStep?.result)
         ? renderedStep.result
         : {};
@@ -1300,7 +1339,9 @@ async function runWorkflowStep({
       typeof step.input?.resultStepId === "string"
         ? step.input.resultStepId
         : undefined;
-    const resultStep = run.steps.find((candidate) => candidate.id === resultStepId);
+    const resultStep = run.steps.find(
+      (candidate) => candidate.id === resultStepId
+    );
     const result = isRecord(resultStep?.result) ? resultStep?.result : {};
     const complete =
       expectedTemplateKey &&
@@ -1372,9 +1413,7 @@ async function workflowUiPartsForStep({
   step: AssistantWorkflowStep;
   threadId: string | null;
 }) {
-  const rawParts = Array.isArray(step.input?.uiParts)
-    ? step.input.uiParts
-    : [];
+  const rawParts = Array.isArray(step.input?.uiParts) ? step.input.uiParts : [];
   const submitStepId =
     typeof step.input?.submitStepId === "string"
       ? step.input.submitStepId
@@ -1463,11 +1502,13 @@ function workflowActionsForHitlStep(
     typeof step.input.sourceStepId === "string"
       ? step.input.sourceStepId
       : undefined;
-  const sourceStep = run.steps.find((candidate) => candidate.id === sourceStepId);
+  const sourceStep = run.steps.find(
+    (candidate) => candidate.id === sourceStepId
+  );
   const result = isRecord(sourceStep?.result) ? sourceStep.result : {};
   const payload = isRecord(result.payload) ? result.payload : {};
   const option = isRecord(payload.option) ? payload.option : null;
-  if (!intent || !isAssistantSelectionOption(option)) {
+  if (!(intent && isAssistantSelectionOption(option))) {
     return [];
   }
   return [buildReminderActionForTarget(intent, option)];
@@ -1728,7 +1769,9 @@ function AssistantPreviewBatch({
         <p
           className={cn(
             "text-xs",
-            commitState === "failed" ? "text-destructive" : "text-muted-foreground"
+            commitState === "failed"
+              ? "text-destructive"
+              : "text-muted-foreground"
           )}
           data-testid="assistant-commit-state"
         >
@@ -2173,7 +2216,9 @@ function isValidWorkflowUiEventForStep(
   }
   const payload = isRecord(event.payload) ? event.payload : null;
   if (step.input?.selectorKind === "reminderTarget") {
-    return event.type === "select" && isAssistantSelectionOption(payload?.option);
+    return (
+      event.type === "select" && isAssistantSelectionOption(payload?.option)
+    );
   }
   if (step.input?.formKind === "costItem") {
     return (
@@ -2241,7 +2286,10 @@ export function buildCostItemActionFromDraft(
   };
 }
 
-function withUnitDescription(description: string | undefined, unit: string | undefined) {
+function withUnitDescription(
+  description: string | undefined,
+  unit: string | undefined
+) {
   if (!unit) {
     return description;
   }
@@ -2295,7 +2343,7 @@ export function buildReminderActions(
     normalized.includes("reminder") ||
     normalized.includes("remind me") ||
     normalized.includes("calendar");
-  if (!isReminderRequest || !normalized.includes("remind")) {
+  if (!(isReminderRequest && normalized.includes("remind"))) {
     return null;
   }
   const reminderDateTime = extractReminderDateTime(prompt);
@@ -2320,7 +2368,7 @@ export function buildReminderActions(
     timezone: "America/Toronto",
     title,
   };
-  if (!routeContext.proposalId && !routeContext.activeBuildId) {
+  if (!(routeContext.proposalId || routeContext.activeBuildId)) {
     return {
       kind: "select",
       message:
@@ -2335,10 +2383,9 @@ export function buildReminderActions(
   return {
     actions: [buildReminderActionForRoute(intent, routeContext)],
     kind: "actions",
-    message:
-      routeContext.activeBuildId
-        ? "I prepared a HITL reminder for the live Build calendar. Review it, edit it if needed, then confirm the accepted batch."
-        : "I prepared a HITL reminder for the Build Proposal calendar. Review it, edit it if needed, then confirm the accepted batch.",
+    message: routeContext.activeBuildId
+      ? "I prepared a HITL reminder for the live Build calendar. Review it, edit it if needed, then confirm the accepted batch."
+      : "I prepared a HITL reminder for the Build Proposal calendar. Review it, edit it if needed, then confirm the accepted batch.",
   };
 }
 
@@ -2427,8 +2474,7 @@ export function extractReminderDateTime(prompt: string) {
 }
 
 function extractReminderTitle(prompt: string) {
-  const withoutDate = stripReminderDateAndTime(prompt)
-    .trim();
+  const withoutDate = stripReminderDateAndTime(prompt).trim();
   const match =
     /\bremind(?:er)?(?:\s+me)?\s+to\s+(.+)$/i.exec(withoutDate) ??
     /\badd\s+(?:a\s+)?(?:builder\s+)?reminder\s+(?:for\s+me\s+)?to\s+(.+)$/i.exec(
@@ -2469,7 +2515,13 @@ function extractReminderTime(prompt: string) {
         ? "pm"
         : "am";
       const normalizedHour =
-        period === "pm" ? (hour === 12 ? 12 : hour + 12) : hour === 12 ? 0 : hour;
+        period === "pm"
+          ? hour === 12
+            ? 12
+            : hour + 12
+          : hour === 12
+            ? 0
+            : hour;
       return `${String(normalizedHour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
     }
   }
