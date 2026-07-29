@@ -4,6 +4,7 @@ import {
   CircleDollarSign,
   ClipboardCheck,
   Clock3,
+  History,
   Mail,
   Phone,
   RotateCcw,
@@ -110,19 +111,19 @@ export interface FundingRequestRecord {
   displayId?: string;
   drawKey: string;
   label: string;
+  nextAction?: string;
   operationsRecommendationNote?: string;
   operationsReviewStartedAt?: string;
   readyForAdminAt?: string;
-  nextAction?: string;
   releaseDate?: string;
   releasedAt?: string;
   requestedAt?: string;
   requestNote?: string;
   requestReviewNote?: string;
   reviewedAt?: string;
-  sourceAllocations?: FundingSourceAllocation[];
   reviewedByWorkosUserId?: string;
   reviewerRole?: string;
+  sourceAllocations?: FundingSourceAllocation[];
   status: FundingRequestStatus;
   withdrawnAt?: string;
   workOrderKey?: string;
@@ -158,6 +159,7 @@ export interface BuildFundingModel {
   buildLabel: string;
   facilityCents: number;
   forecastDraws: FundingForecastRecord[];
+  historicalPlannedDraws: FundingForecastRecord[];
   milestones: FundingMilestoneRecord[];
   pendingMilestoneCents: number;
   requests: FundingRequestRecord[];
@@ -264,6 +266,9 @@ export function projectBuildFunding(input: {
     facilityCents,
     forecastDraws: (input.plannedDraws ?? [])
       .filter((draw) => addDays(input.startDate, draw.timingDay) >= today)
+      .sort(byOrder),
+    historicalPlannedDraws: (input.plannedDraws ?? [])
+      .filter((draw) => addDays(input.startDate, draw.timingDay) < today)
       .sort(byOrder),
     milestones: input.milestones.slice().sort(byOrder),
     pendingMilestoneCents,
@@ -472,6 +477,7 @@ export function BuildFundingWorkspace({
             buildLabel={model.buildLabel}
             density={density}
             forecastDraws={model.forecastDraws}
+            historicalPlannedDraws={model.historicalPlannedDraws}
             milestonesPendingReview={milestonesPendingReview}
             onApproveDraw={onApproveDraw}
             onOpenMilestone={onOpenMilestone}
@@ -489,6 +495,7 @@ export function BuildFundingWorkspace({
             density={density}
             drawKey={requestSource?.drawKey ?? "unplanned"}
             forecastDraws={model.forecastDraws}
+            historicalPlannedDraws={model.historicalPlannedDraws}
             modelAccess={model.access}
             onRequestDraw={onRequestDraw}
             onWithdrawDraw={onWithdrawDraw}
@@ -521,6 +528,7 @@ function BuilderRequestSidebar({
   density,
   drawKey,
   forecastDraws,
+  historicalPlannedDraws,
   modelAccess,
   onRequestDraw,
   onWithdrawDraw,
@@ -531,6 +539,7 @@ function BuilderRequestSidebar({
   density: "guided" | "compact";
   drawKey: string;
   forecastDraws: FundingForecastRecord[];
+  historicalPlannedDraws: FundingForecastRecord[];
   modelAccess: BuildFundingModel["access"];
   onRequestDraw?: (input: {
     amountCents: number;
@@ -617,6 +626,7 @@ function BuilderRequestSidebar({
         draws={forecastDraws}
         startDate={startDate}
       />
+      <PastPlannedDraws draws={historicalPlannedDraws} startDate={startDate} />
     </aside>
   );
 }
@@ -626,6 +636,7 @@ function LenderReviewSidebar({
   buildLabel,
   density,
   forecastDraws,
+  historicalPlannedDraws,
   milestonesPendingReview,
   onApproveDraw,
   onOpenMilestone,
@@ -641,6 +652,7 @@ function LenderReviewSidebar({
   buildLabel: string;
   density: "guided" | "compact";
   forecastDraws: FundingForecastRecord[];
+  historicalPlannedDraws: FundingForecastRecord[];
   milestonesPendingReview: FundingMilestoneRecord[];
   onApproveDraw?: FundingRequestAction;
   onOpenMilestone: (milestoneKey: string) => void;
@@ -987,6 +999,7 @@ function LenderReviewSidebar({
         draws={forecastDraws}
         startDate={startDate}
       />
+      <PastPlannedDraws draws={historicalPlannedDraws} startDate={startDate} />
     </aside>
   );
 }
@@ -1079,9 +1092,7 @@ function FuturePlannedDraws({
         {draws.map((draw) => (
           <article
             className="py-3"
-            data-collaboration-focus={
-              draw._id ? `draw:${draw._id}` : undefined
-            }
+            data-collaboration-focus={draw._id ? `draw:${draw._id}` : undefined}
             key={draw.drawKey}
           >
             <div className="flex items-start justify-between gap-3">
@@ -1100,6 +1111,50 @@ function FuturePlannedDraws({
             No future draw dates are currently planned.
           </p>
         ) : null}
+      </div>
+    </section>
+  );
+}
+
+function PastPlannedDraws({
+  draws,
+  startDate,
+}: {
+  draws: FundingForecastRecord[];
+  startDate: string;
+}) {
+  if (draws.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-labelledby="past-planned-draws-heading" className="mt-6">
+      <div className="flex items-center justify-between gap-3">
+        <h3
+          className="flex items-center gap-2 font-semibold text-sm"
+          id="past-planned-draws-heading"
+        >
+          <History aria-hidden="true" className="size-4" /> Planning history
+        </h3>
+        <Badge variant="secondary">{draws.length} past</Badge>
+      </div>
+      <div className="mt-3 divide-y border-y">
+        {draws.map((draw) => (
+          <article
+            className="py-3"
+            data-collaboration-focus={draw._id ? `draw:${draw._id}` : undefined}
+            key={draw.drawKey}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="font-medium text-xs">{draw.label}</p>
+              <p className="shrink-0 font-medium text-xs tabular-nums">
+                {formatCad(draw.amountCents)}
+              </p>
+            </div>
+            <p className="mt-1 text-muted-foreground text-xs">
+              Planned {formatDate(addDays(startDate, draw.timingDay))}
+            </p>
+          </article>
+        ))}
       </div>
     </section>
   );
