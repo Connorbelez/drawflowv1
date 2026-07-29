@@ -1176,6 +1176,8 @@ describe("ProductionBuildDetailSurface", () => {
           .getAttribute("aria-selected"),
       ).toBe("true"),
     );
+    const focusedDraw = screen.getByTestId("draw-overview-draw-draw-01");
+    await waitFor(() => expect(document.activeElement).toBe(focusedDraw));
     expect(screen.getByTestId("draw-overview-scheduled-draws")).toBeTruthy();
   });
 

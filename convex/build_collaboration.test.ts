@@ -1743,6 +1743,56 @@ describe("Build collaboration tenant rollout", () => {
 });
 
 describe("Build collaboration canonical reference authorization", () => {
+  test("resolves an authorized focused Action Item without leaking hidden or forged targets", async () => {
+    const fixture = await seedActiveBuild();
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Site Contractor",
+      role: "contractor",
+      subject: "user_contractor",
+    });
+    const entities = await seedCollaborationReferenceEntities(fixture);
+
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildActionItemContext,
+        {
+          actionItemId: entities.actionItemId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toEqual({ postId: expect.any(String) });
+
+    const contractor = withIdentity(fixture.base, {
+      roles: ["contractor"],
+      subject: "user_contractor",
+    });
+    await expect(
+      contractor.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildActionItemContext,
+        {
+          actionItemId: entities.actionItemId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildActionItemContext,
+        {
+          actionItemId: "forged-action-item-id",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toBeNull();
+  });
+
   test("indexes every canonical kind while omitting restricted fields and entities for lower roles", async () => {
     const fixture = await seedActiveBuild();
     await addBuildParticipant(fixture.base, {
@@ -1786,6 +1836,13 @@ describe("Build collaboration canonical reference authorization", () => {
     ).toBe(true);
     expect(
       adminOptions.find((option: any) => option.entityKind === "actionItem")
+        ?.href,
+    ).toContain("tab=details");
+    expect(
+      adminOptions.find((option: any) => option.entityKind === "draw")?.href,
+    ).toContain("tab=details");
+    expect(
+      adminOptions.find((option: any) => option.entityKind === "participant")
         ?.href,
     ).toContain("tab=details");
 

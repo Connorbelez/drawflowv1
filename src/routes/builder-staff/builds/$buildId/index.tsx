@@ -10,6 +10,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
       search.tab === "milestones" ||

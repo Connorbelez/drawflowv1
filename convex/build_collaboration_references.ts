@@ -702,12 +702,12 @@ function collaborationEntityHref(
   const tabByKind: Record<string, string> = {
     actionItem: "details",
     document: "documents",
-    draw: "draws",
+    draw: "details",
     evidenceAsset: "evidence",
     evidencePackage: "evidence",
     material: "materials",
     milestone: "milestones",
-    participant: "staff",
+    participant: "details",
     siteVisit: "calendar",
     submilestone: "milestones",
   };

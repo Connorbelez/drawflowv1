@@ -65,10 +65,12 @@ export function BuildCollaborationReferenceChip({
 }
 
 export function BuildCollaborationReferenceSheet({
+  focusedWorkspace = false,
   onOpenChange,
   onOpenWorkspace,
   reference,
 }: {
+  focusedWorkspace?: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenWorkspace: () => void;
   reference: FocusedReference | null;
@@ -90,9 +92,15 @@ export function BuildCollaborationReferenceSheet({
               </p>
             </FramePanel>
           </Frame>
-          <Button className="w-full" onClick={onOpenWorkspace} type="button">
-            Open focused workspace
-          </Button>
+          {focusedWorkspace ? (
+            <p className="text-muted-foreground text-sm">
+              Focused participant detail for this Build.
+            </p>
+          ) : (
+            <Button className="w-full" onClick={onOpenWorkspace} type="button">
+              Open focused workspace
+            </Button>
+          )}
         </SheetPanel>
       </SheetPopup>
     </Sheet>

@@ -151,6 +151,8 @@ interface MilestoneDetailSheetProps {
   data: MilestoneSheetData | null;
   errorMessage?: string;
   eventsSourceLabel?: string;
+  focusedSubmilestoneId?: string;
+  focusedSubmilestoneKey?: string;
   onApprove?: (milestoneKey: string, note?: string) => Promise<void> | void;
   onAssignContractor?: (milestoneKey: string, submilestoneKey?: string) => void;
   onAssignVisit?: (milestoneKey: string) => void;
@@ -183,6 +185,8 @@ export function MilestoneDetailSheet({
   data,
   errorMessage,
   eventsSourceLabel,
+  focusedSubmilestoneId,
+  focusedSubmilestoneKey,
   onApprove,
   onAssignContractor,
   onAssignVisit,
@@ -219,6 +223,16 @@ export function MilestoneDetailSheet({
   );
   const selected =
     rows.find((row) => row.key === selectedKey) ?? rows[0] ?? null;
+  useEffect(() => {
+    if (
+      focusedSubmilestoneKey &&
+      rows.some((row) => row.key === focusedSubmilestoneKey)
+    ) {
+      setSelectedKey(focusedSubmilestoneKey);
+      setDetailTab("overview");
+      setView("detail");
+    }
+  }, [focusedSubmilestoneKey, rows]);
   const incomplete = rows.filter((row) => row.status !== "complete");
   const completedCount = rows.length - incomplete.length;
   const eligible = rows.length === 0 || incomplete.length === 0;
@@ -319,6 +333,11 @@ export function MilestoneDetailSheet({
           view === "guided" && "sm:max-w-[900px]"
         )}
         closeProps={{ "data-testid": "milestone-detail-sheet-close" }}
+        data-collaboration-focus={
+          focusedSubmilestoneId
+            ? `submilestone:${focusedSubmilestoneId}`
+            : undefined
+        }
         data-testid="milestone-detail-sheet-panel"
         side="right"
       >

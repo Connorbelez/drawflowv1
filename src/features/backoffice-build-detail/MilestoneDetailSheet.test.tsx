@@ -71,6 +71,22 @@ const sheetData: MilestoneSheetData = {
 };
 
 describe("MilestoneDetailSheet", () => {
+  test("opens the exact collaboration-linked submilestone detail", async () => {
+    render(
+      <MilestoneDetailSheet
+        data={sheetData}
+        focusedSubmilestoneId="submilestone-pour"
+        focusedSubmilestoneKey="pour"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Submilestone detail")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Concrete pour" }),
+    ).toBeTruthy();
+  });
+
   test("keeps the guided escape hatch active for a legacy claim with incomplete scope", () => {
     render(
       <MilestoneDetailSheet

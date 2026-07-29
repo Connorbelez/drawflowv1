@@ -114,6 +114,19 @@ export function BuildCollaborationFeed({
     api.build_collaboration_references.listBuildCollaborationTagOptions,
     organizationId ? { buildId: activeBuildId, organizationId } : "skip"
   );
+  const focusedActionItemId = focusedEntityReference?.startsWith("actionItem:")
+    ? focusedEntityReference.slice("actionItem:".length)
+    : undefined;
+  const focusedActionItemContext = useQuery(
+    (api as any).build_collaboration_focus.getFocusedBuildActionItemContext,
+    organizationId && focusedActionItemId
+      ? {
+          actionItemId: focusedActionItemId,
+          buildId: activeBuildId,
+          organizationId,
+        }
+      : "skip"
+  ) as { postId: Id<"buildCollaborationPosts"> } | null | undefined;
   const notificationPreferences = useQuery(
     api.build_collaboration_notifications
       .getMyBuildCollaborationNotificationPreferences,
@@ -196,6 +209,20 @@ export function BuildCollaborationFeed({
       ),
     [tagOptions]
   );
+  useEffect(() => {
+    if (!focusedEntityReference?.startsWith("participant:")) {
+      return;
+    }
+    const participant = referenceByKey.get(focusedEntityReference);
+    if (participant) {
+      setFocusedReference((current) =>
+        current?.entityKind === participant.entityKind &&
+        current.id === participant.id
+          ? current
+          : participant
+      );
+    }
+  }, [focusedEntityReference, referenceByKey]);
   const participants = tagOptions.filter(
     (option) => option.kind === "participant"
   );
@@ -203,6 +230,20 @@ export function BuildCollaborationFeed({
     () => feed.results as CollaborationFeedEntry[],
     [feed.results]
   );
+  useEffect(() => {
+    if (
+      !focusedActionItemContext ||
+      feedEntries.some(
+        (entry) =>
+          entry.kind === "post" &&
+          entry.post._id === focusedActionItemContext.postId
+      ) ||
+      feed.status !== "CanLoadMore"
+    ) {
+      return;
+    }
+    feed.loadMore(20);
+  }, [feed, feedEntries, focusedActionItemContext]);
   const visibleResults = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     return feedEntries.filter((entry) => {
@@ -842,6 +883,11 @@ export function BuildCollaborationFeed({
       </aside>
 
       <BuildCollaborationReferenceSheet
+        focusedWorkspace={
+          Boolean(focusedReference) &&
+          focusedEntityReference ===
+            `${focusedReference?.entityKind}:${focusedReference?.id}`
+        }
         onOpenChange={(open) => {
           if (!open) {
             setFocusedReference(null);

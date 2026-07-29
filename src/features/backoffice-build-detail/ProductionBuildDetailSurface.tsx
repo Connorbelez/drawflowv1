@@ -950,10 +950,9 @@ export function ProductionBuildDetailSurface({
       effectiveFocusedReference.indexOf(":")
     );
     if (
-      focusKind === "draw" ||
       focusKind === "milestone" ||
-      focusKind === "siteVisit" ||
-      focusKind === "submilestone"
+      focusKind === "participant" ||
+      focusKind === "siteVisit"
     ) {
       return;
     }
@@ -1132,6 +1131,11 @@ export function ProductionBuildDetailSurface({
         <MilestoneCompletionReviewSheet
           actions={actions}
           detail={detail}
+          focusedSubmilestoneId={
+            effectiveFocusedReference?.startsWith("submilestone:")
+              ? effectiveFocusedReference.slice("submilestone:".length)
+              : undefined
+          }
           milestone={activeMilestone}
           onOpenChange={(open) => {
             if (!open) {
@@ -1147,6 +1151,20 @@ export function ProductionBuildDetailSurface({
           assignmentsSourceLabel="buildContractorAssignments"
           data={sheetData}
           eventsSourceLabel="activeBuildAuditEvents"
+          focusedSubmilestoneId={
+            effectiveFocusedReference?.startsWith("submilestone:")
+              ? effectiveFocusedReference.slice("submilestone:".length)
+              : undefined
+          }
+          focusedSubmilestoneKey={
+            effectiveFocusedReference?.startsWith("submilestone:")
+              ? detail.submilestones.find(
+                  (submilestone) =>
+                    submilestone._id ===
+                    effectiveFocusedReference.slice("submilestone:".length)
+                )?.key
+              : undefined
+          }
           key={activeMilestoneKey ?? "milestone-sheet"}
           onAssignContractor={
             actions?.assignContractorToMilestone ||
@@ -1485,7 +1503,7 @@ function ProductionDetailsTab({
               evidenceAsset: "evidence",
               evidencePackage: "evidence",
               material: "materials",
-              participant: "staff",
+              participant: "details",
               siteVisit: "calendar",
             };
             const tab = tabByKind[reference.entityKind];
@@ -2653,6 +2671,7 @@ function DrawSummaryItem({
   return (
     <div
       className="grid gap-2 rounded-md border bg-background/60 p-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+      data-collaboration-focus={`draw:${draw._id}`}
       data-testid={`${actionTestIdPrefix}-draw-${draw.drawKey}`}
     >
       <div className="min-w-0">
@@ -2931,6 +2950,7 @@ function OverviewMetric({
 function MilestoneCompletionReviewSheet({
   actions,
   detail,
+  focusedSubmilestoneId,
   milestone,
   onOpenChange,
   onRequestSiteVisit,
@@ -2939,6 +2959,7 @@ function MilestoneCompletionReviewSheet({
 }: {
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
+  focusedSubmilestoneId?: string;
   milestone: ProductionMilestone;
   onOpenChange: (open: boolean) => void;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
@@ -3268,6 +3289,12 @@ function MilestoneCompletionReviewSheet({
                       {scopeRows.map((row) => (
                         <li
                           className="flex items-center justify-between gap-3 py-2.5"
+                          data-collaboration-focus={`submilestone:${row._id}`}
+                          data-collaboration-focused={
+                            row._id === focusedSubmilestoneId
+                              ? "true"
+                              : undefined
+                          }
                           key={row.key}
                         >
                           <div className="min-w-0">

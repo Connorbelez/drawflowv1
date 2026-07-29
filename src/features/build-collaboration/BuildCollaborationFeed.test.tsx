@@ -12,6 +12,9 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   drafts: [] as Array<Record<string, unknown>>,
+  feedStatus: "Exhausted" as "CanLoadMore" | "Exhausted",
+  focusedPostId: "post-1" as string | null,
+  loadMore: vi.fn(),
   mutate: vi.fn().mockResolvedValue(null),
   onOpenReference: vi.fn(),
 }));
@@ -19,7 +22,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("convex/react", () => ({
   useMutation: () => mocks.mutate,
   usePaginatedQuery: () => ({
-    loadMore: vi.fn(),
+    loadMore: mocks.loadMore,
     results: [
       {
         kind: "restricted",
@@ -83,12 +86,20 @@ vi.mock("convex/react", () => ({
         },
       },
     ],
-    status: "Exhausted",
+    status: mocks.feedStatus,
   }),
   useQuery: (reference: unknown) => {
     const functionName = getFunctionName(
       reference as Parameters<typeof getFunctionName>[0]
     );
+    if (
+      functionName ===
+      "build_collaboration_focus:getFocusedBuildActionItemContext"
+    ) {
+      return mocks.focusedPostId
+        ? { postId: mocks.focusedPostId }
+        : null;
+    }
     if (
       functionName ===
       "build_collaboration_threads:listBuildCollaborationComments"
@@ -113,7 +124,16 @@ vi.mock("convex/react", () => ({
       };
     }
     return [
-          {
+      {
+        entityId: "user-broker",
+        entityKind: "participant",
+        eyebrow: "Broker",
+        href: "?tab=details&focus=participant%3Auser-broker",
+        label: "Priya Raman",
+        searchTerms: ["broker"],
+        summary: "Broker on this Build",
+      },
+      {
             entityId: "evidence-1",
             entityKind: "evidenceAsset",
             eyebrow: "Evidence",
@@ -150,8 +170,11 @@ import { BuildCollaborationFeed } from "./BuildCollaborationFeed";
 afterEach(() => {
   cleanup();
   mocks.mutate.mockClear();
+  mocks.loadMore.mockClear();
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
+  mocks.feedStatus = "Exhausted";
+  mocks.focusedPostId = "post-1";
 });
 
 describe("BuildCollaborationFeed", () => {
@@ -224,6 +247,39 @@ describe("BuildCollaborationFeed", () => {
         '[data-collaboration-focus="actionItem:action-1"]',
       ),
     ).toBeTruthy();
+  });
+
+  test("loads older feed pages until a focused Action Item post is present", async () => {
+    mocks.feedStatus = "CanLoadMore";
+    mocks.focusedPostId = "post-outside-first-page";
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="actionItem:action-older"
+        organizationId="org-1"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.loadMore).toHaveBeenCalledWith(20));
+  });
+
+  test("opens a focused detail sheet for any Build participant role", async () => {
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="participant:user-broker"
+        organizationId="org-1"
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Priya Raman" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Focused participant detail for this Build.")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Open focused workspace" }),
+    ).toBeNull();
   });
 
   test("shows the complete effective bundle before a human approves an agent draft", async () => {
