@@ -16,6 +16,7 @@ import type * as authz from "../authz.js";
 import type * as authzTest from "../authzTest.js";
 import type * as brokerAssignments from "../brokerAssignments.js";
 import type * as brokerageProvisioning from "../brokerageProvisioning.js";
+import type * as build_action_item_rbac from "../build_action_item_rbac.js";
 import type * as build_action_items from "../build_action_items.js";
 import type * as build_collaboration from "../build_collaboration.js";
 import type * as build_collaboration_access from "../build_collaboration_access.js";
@@ -23,6 +24,7 @@ import type * as build_collaboration_acknowledgements from "../build_collaborati
 import type * as build_collaboration_actor from "../build_collaboration_actor.js";
 import type * as build_collaboration_contracts from "../build_collaboration_contracts.js";
 import type * as build_collaboration_drafts from "../build_collaboration_drafts.js";
+import type * as build_collaboration_focus from "../build_collaboration_focus.js";
 import type * as build_collaboration_human from "../build_collaboration_human.js";
 import type * as build_collaboration_migrations from "../build_collaboration_migrations.js";
 import type * as build_collaboration_model from "../build_collaboration_model.js";
@@ -81,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   authzTest: typeof authzTest;
   brokerAssignments: typeof brokerAssignments;
   brokerageProvisioning: typeof brokerageProvisioning;
+  build_action_item_rbac: typeof build_action_item_rbac;
   build_action_items: typeof build_action_items;
   build_collaboration: typeof build_collaboration;
   build_collaboration_access: typeof build_collaboration_access;
@@ -88,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_actor: typeof build_collaboration_actor;
   build_collaboration_contracts: typeof build_collaboration_contracts;
   build_collaboration_drafts: typeof build_collaboration_drafts;
+  build_collaboration_focus: typeof build_collaboration_focus;
   build_collaboration_human: typeof build_collaboration_human;
   build_collaboration_migrations: typeof build_collaboration_migrations;
   build_collaboration_model: typeof build_collaboration_model;

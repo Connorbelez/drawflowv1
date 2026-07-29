@@ -984,6 +984,9 @@ async function createActionItems(
     );
     const actionItemId = await ctx.db.insert("buildActionItems", {
       assigneeWorkosUserId: assignee,
+      assignedByWorkosUserId: assignee
+        ? input.authorization.viewer.subject
+        : undefined,
       assignmentRequestedAt:
         assignmentState === "requested" ? input.now : undefined,
       assignmentState,
@@ -991,6 +994,7 @@ async function createActionItems(
       buildId: input.authorization.build._id,
       createdAt: input.now,
       creatorWorkosUserId: input.authorization.viewer.subject,
+      creatorRole: input.authorization.effectiveRole.role,
       currentRevision: 1,
       descriptionPlainText,
       descriptionTiptapJson,
@@ -1013,6 +1017,7 @@ async function createActionItems(
       buildId: input.authorization.build._id,
       createdAt: input.now,
       eventType: "created",
+      exercisedAuthority: "creator",
       newState: JSON.stringify({
         assigneeWorkosUserId: assignee,
         assignmentState,
@@ -1020,6 +1025,9 @@ async function createActionItems(
         status: "todo",
       }),
       organizationId: input.authorization.organizationId,
+      revision: 1,
+      warnings:
+        assignmentState === "requested" ? ["assignment_requested"] : undefined,
     });
     await persistActionItemReferences(ctx, {
       actionItemId,
