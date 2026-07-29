@@ -1,0 +1,177 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { getFunctionName } from "convex/server";
+import { afterEach, describe, expect, test, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  mutate: vi.fn().mockResolvedValue(null),
+  onOpenReference: vi.fn(),
+}));
+
+vi.mock("convex/react", () => ({
+  useMutation: () => mocks.mutate,
+  usePaginatedQuery: () => ({
+    loadMore: vi.fn(),
+    results: [
+      {
+        kind: "restricted",
+        placeholderKey: "restricted-0",
+      },
+      {
+        acknowledgement: { acknowledged: false, required: false },
+        actionItems: [],
+        following: true,
+        kind: "post",
+        pins: [],
+        post: {
+          _id: "post-1",
+          audienceMode: "build_wide",
+          authorDisplayNameSnapshot: "Alex Chen",
+          authorRole: "builder",
+          createdAt: Date.parse("2026-07-28T12:00:00.000Z"),
+          postType: "update",
+        },
+        reactions: [],
+        receipts: [],
+        references: [
+          {
+            entityId: "evidence-1",
+            entityKind: "evidenceAsset",
+            labelSnapshot: "Foundation completion photo",
+            summarySnapshot: "Location verified · uploaded today",
+          },
+        ],
+        revision: {
+          plainText: "Foundation evidence is ready for review.",
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [
+                  {
+                    text: "Foundation evidence is ready for review.",
+                    type: "text",
+                  },
+                ],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        },
+      },
+    ],
+    status: "Exhausted",
+  }),
+  useQuery: (reference: unknown) => {
+    const functionName = getFunctionName(
+      reference as Parameters<typeof getFunctionName>[0]
+    );
+    if (
+      functionName ===
+        "build_collaboration_threads:listBuildCollaborationComments" ||
+      functionName ===
+        "build_collaboration_drafts:listMyBuildCollaborationDrafts"
+    ) {
+      return [];
+    }
+    if (
+      functionName ===
+      "build_collaboration_notifications:getMyBuildCollaborationNotificationPreferences"
+    ) {
+      return {
+        channels: ["in_app", "email"],
+        digestCadence: "daily",
+        digestEnabled: true,
+        ordinaryMuted: false,
+      };
+    }
+    return [
+          {
+            entityId: "evidence-1",
+            entityKind: "evidenceAsset",
+            eyebrow: "Evidence",
+            href: "/backoffice/builds/build-1?tab=evidence&evidence=evidence-1",
+            label: "Foundation completion photo",
+            searchTerms: ["foundation", "photo"],
+            summary: "Location verified · uploaded today",
+          },
+        ];
+  },
+}));
+
+vi.mock(
+  "../backoffice-build-detail/prototype/CollaborationRichTextEditor.tsx",
+  () => ({
+  CollaborationRichTextEditor: () => <div data-testid="mock-editor" />,
+  CollaborationRichTextPreview: ({
+    value,
+  }: {
+    value: { content?: Array<{ content?: Array<{ text?: string }> }> };
+  }) => (
+    <p>
+      {value.content
+        ?.flatMap((node) => node.content ?? [])
+        .map((node) => node.text ?? "")
+        .join("")}
+    </p>
+  ),
+  }),
+);
+
+import { BuildCollaborationFeed } from "./BuildCollaborationFeed";
+
+afterEach(() => {
+  cleanup();
+  mocks.mutate.mockClear();
+  mocks.onOpenReference.mockClear();
+});
+
+describe("BuildCollaborationFeed", () => {
+  test("keeps restricted posts opaque and filters to followed threads", () => {
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        organizationId="org-1"
+      />,
+    );
+
+    expect(screen.getByText("Restricted update")).toBeTruthy();
+    expect(
+      screen.queryByText(/Alex Chen.*restricted/i),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Following" }));
+
+    expect(
+      screen.getByText("Foundation evidence is ready for review."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Restricted update")).toBeNull();
+  });
+
+  test("opens a typed reference preview and routes its focused workspace", () => {
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        onOpenReference={mocks.onOpenReference}
+        organizationId="org-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Foundation completion photo"));
+    expect(
+      screen.getByRole("heading", {
+        name: "Foundation completion photo",
+      }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open focused workspace" }),
+    );
+
+    expect(mocks.onOpenReference).toHaveBeenCalledWith({
+      entityId: "evidence-1",
+      entityKind: "evidenceAsset",
+      href: "/backoffice/builds/build-1?tab=evidence&evidence=evidence-1",
+    });
+  });
+});

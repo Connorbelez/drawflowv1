@@ -53,6 +53,7 @@ import {
 } from "#/components/ui/sheet.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
+import { BuildCollaborationFeed } from "#/features/build-collaboration/BuildCollaborationFeed.tsx";
 import {
   BuildFundingWorkspace,
   type DrawRequestReceipt,
@@ -941,24 +942,18 @@ export function ProductionBuildDetailSurface({
           {activeTab === "details" ? (
             <ProductionDetailsTab
               actions={actions}
-              contractorDetailHrefFor={contractorDetailHrefFor}
               currentDay={currentDay}
               detail={detail}
               fundingWorkspaceEnabled={fundingWorkspaceEnabled}
-              onAssignContractor={
-                actions?.assignContractorToMilestone ||
-                actions?.createAndAssignContractor
-                  ? (card) =>
-                      setAssignContractorTarget({
-                        milestoneKey: card.milestoneKey,
-                      })
-                  : undefined
-              }
-              onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
+              onChangeTab={onChangeTab}
               onOpenMilestone={setActiveMilestoneKey}
               projection={projection}
               viewerRole={viewerRole}
+              workosOrganizationId={workosOrganizationId}
             />
+          ) : null}
+          {activeTab === "documents" ? (
+            <ProductionDocumentsTab actions={actions} detail={detail} />
           ) : null}
           {activeTab === "milestones" ? (
             <ProductionMilestonesTab
@@ -981,6 +976,7 @@ export function ProductionBuildDetailSurface({
           {activeTab === "contractors" ? (
             <ProductionContractorsTab
               actions={actions}
+              contractorDetailHrefFor={contractorDetailHrefFor}
               detail={detail}
               viewerRole={viewerRole}
             />
@@ -1263,34 +1259,27 @@ function HeaderStat({ label, value }: { label: string; value: string }) {
 
 function ProductionDetailsTab({
   actions,
-  contractorDetailHrefFor,
   currentDay,
   detail,
   fundingWorkspaceEnabled,
-  onAssignContractor,
-  onCardClick,
+  onChangeTab,
   onOpenMilestone,
   projection,
   viewerRole,
+  workosOrganizationId,
 }: {
   actions?: ProductionBuildDetailActions;
-  contractorDetailHrefFor?: (contractorId: string) => string;
   currentDay: number;
   detail: ProductionBuildDetail;
   fundingWorkspaceEnabled: boolean;
-  onAssignContractor?: (card: KanbanCardData) => void;
-  onCardClick: (card: KanbanCardData) => void;
+  onChangeTab: (tab: BuildDetailSubTab) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
   viewerRole: "builder" | "lender";
+  workosOrganizationId?: string;
 }) {
-  const [showCompletedKanban, setShowCompletedKanban] = useState(false);
   const [activeOverviewSection, setActiveOverviewSection] =
     useState<BuildOverviewSection>("current");
-  const kanbanCards = useMemo(
-    () => buildProductionKanbanCards(detail, projection, currentDay),
-    [currentDay, detail, projection]
-  );
 
   return (
     <div className="flex flex-col gap-4" data-testid="production-build-details">
@@ -1324,61 +1313,49 @@ function ProductionDetailsTab({
         )}
       </section>
 
-      {viewerRole === "lender" && !fundingWorkspaceEnabled ? (
-        <ProductionDrawsTable
-          actions={actions}
-          detail={detail}
-          projection={projection}
-          viewerRole={viewerRole}
-        />
-      ) : null}
-
-      <FacilityChangeRequestsCard actions={actions} detail={detail} />
-      <BudgetRevisionCard
-        actions={actions}
-        detail={detail}
-        viewerRole={viewerRole}
+      <BuildCollaborationFeed
+        buildId={detail.build._id}
+        onOpenReference={(reference) => {
+          if (reference.entityKind === "milestone") {
+            const milestone = detail.milestones.find(
+              (candidate) => candidate._id === reference.entityId
+            );
+            if (milestone) {
+              onOpenMilestone(milestone.key);
+              return;
+            }
+          }
+          if (reference.entityKind === "submilestone") {
+            const submilestone = detail.submilestones.find(
+              (candidate) => candidate._id === reference.entityId
+            );
+            if (submilestone) {
+              onOpenMilestone(submilestone.milestoneKey);
+              return;
+            }
+          }
+          if (reference.entityKind === "draw") {
+            setActiveOverviewSection("draws");
+            document
+              .querySelector('[data-testid="production-build-details-card"]')
+              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+          }
+          const tabByKind: Partial<Record<string, BuildDetailSubTab>> = {
+            document: "documents",
+            evidenceAsset: "evidence",
+            evidencePackage: "evidence",
+            material: "materials",
+            participant: "staff",
+            siteVisit: "calendar",
+          };
+          const tab = tabByKind[reference.entityKind];
+          if (tab) {
+            onChangeTab(tab);
+          }
+        }}
+        organizationId={workosOrganizationId}
       />
-
-      <MilestoneKanban
-        cards={kanbanCards}
-        onAssignContractor={onAssignContractor}
-        onCardClick={onCardClick}
-        onToggleShowCompleted={() => setShowCompletedKanban((prev) => !prev)}
-        showCompleted={showCompletedKanban}
-        viewerRole={viewerRole}
-      />
-
-      <section className="grid gap-3 sm:gap-4 xl:grid-cols-2">
-        <ContractorsCard
-          actions={contractorsCardActions(actions)}
-          availableContractors={detail.availableContractors ?? []}
-          buildId={detail.build._id}
-          contractorDetailHrefFor={contractorDetailHrefFor}
-          contractors={detail.contractors ?? []}
-        />
-        <ProductionDocumentsCard
-          actions={actions}
-          documents={detail.documents ?? []}
-        />
-      </section>
-
-      <section className="grid gap-3 sm:gap-4 xl:grid-cols-2">
-        <ProductionNotesCard
-          actions={actions}
-          notes={detail.notes?.internal ?? []}
-          testIdPrefix="internal-notes"
-          title="Internal Notes"
-          variant="internal"
-        />
-        <ProductionNotesCard
-          actions={actions}
-          notes={detail.notes?.public ?? []}
-          testIdPrefix="public-notes"
-          title="Public Notes"
-          variant="public"
-        />
-      </section>
     </div>
   );
 }
@@ -1512,63 +1489,78 @@ function ProductionBuildDetailsCard({
             </TabsPanel>
 
             <TabsPanel value="draws">
-              {fundingWorkspaceEnabled ||
-              (viewerRole === "builder" &&
-                (actions?.requestDrawAmount ||
-                  detail.plannedDraws !== undefined)) ? (
-                <BuildFundingWorkspace
-                  model={projectBuildFunding({
-                    availability: detail.drawFunding,
-                    canRequest: Boolean(actions?.requestDrawAmount),
-                    buildLabel: detail.build.buildName,
-                    facilityCents: detail.loanFacility?.principalCents,
-                    milestones: detail.milestones,
-                    plannedDraws:
-                      detail.plannedDraws ??
-                      detail.draws.filter((draw) => draw.status === "planned"),
-                    requests: detail.draws.filter(
-                      (
-                        draw
-                      ): draw is ProductionDraw & {
-                        status: Exclude<ProductionDrawStatus, "planned">;
-                      } => draw.status !== "planned"
-                    ),
-                    startDate: detail.build.startDate,
-                  })}
-                  onApproveDraw={fundingRequestAction(
-                    detail.draws,
-                    actions?.approveDraw
-                  )}
-                  onOpenMilestone={onOpenMilestone}
-                  onRejectDraw={fundingRejectAction(
-                    detail.draws,
-                    actions?.rejectDraw
-                  )}
-                  onReleaseDraw={fundingRequestAction(
-                    detail.draws,
-                    actions?.releaseDraw
-                  )}
-                  onRequestDraw={actions?.requestDrawAmount}
-                  onStartDrawReview={fundingRequestAction(
-                    detail.draws,
-                    actions?.startDrawReview
-                  )}
-                  onSubmitDrawForAdmin={fundingRequestAction(
-                    detail.draws,
-                    actions?.submitDrawForAdmin
-                  )}
-                  onWithdrawDraw={actions?.withdrawDraw}
-                  viewerRole={viewerRole}
-                />
-              ) : (
-                <DrawOverviewPanel
+              <div className="space-y-4">
+                {fundingWorkspaceEnabled ||
+                (viewerRole === "builder" &&
+                  (actions?.requestDrawAmount ||
+                    detail.plannedDraws !== undefined)) ? (
+                  <BuildFundingWorkspace
+                    model={projectBuildFunding({
+                      availability: detail.drawFunding,
+                      canRequest: Boolean(actions?.requestDrawAmount),
+                      buildLabel: detail.build.buildName,
+                      facilityCents: detail.loanFacility?.principalCents,
+                      milestones: detail.milestones,
+                      plannedDraws:
+                        detail.plannedDraws ??
+                        detail.draws.filter(
+                          (draw) => draw.status === "planned"
+                        ),
+                      requests: detail.draws.filter(
+                        (
+                          draw
+                        ): draw is ProductionDraw & {
+                          status: Exclude<ProductionDrawStatus, "planned">;
+                        } => draw.status !== "planned"
+                      ),
+                      startDate: detail.build.startDate,
+                    })}
+                    onApproveDraw={fundingRequestAction(
+                      detail.draws,
+                      actions?.approveDraw
+                    )}
+                    onOpenMilestone={onOpenMilestone}
+                    onRejectDraw={fundingRejectAction(
+                      detail.draws,
+                      actions?.rejectDraw
+                    )}
+                    onReleaseDraw={fundingRequestAction(
+                      detail.draws,
+                      actions?.releaseDraw
+                    )}
+                    onRequestDraw={actions?.requestDrawAmount}
+                    onStartDrawReview={fundingRequestAction(
+                      detail.draws,
+                      actions?.startDrawReview
+                    )}
+                    onSubmitDrawForAdmin={fundingRequestAction(
+                      detail.draws,
+                      actions?.submitDrawForAdmin
+                    )}
+                    onWithdrawDraw={
+                      actions?.withdrawDraw
+                        ? async (requestKey) =>
+                            await actions.withdrawDraw?.(requestKey)
+                        : undefined
+                    }
+                    viewerRole={viewerRole}
+                  />
+                ) : (
+                  <DrawOverviewPanel
+                    actions={actions}
+                    currentOverview={currentOverview}
+                    detail={detail}
+                    projection={projection}
+                    viewerRole={viewerRole}
+                  />
+                )}
+                <FacilityChangeRequestsCard actions={actions} detail={detail} />
+                <BudgetRevisionCard
                   actions={actions}
-                  currentOverview={currentOverview}
                   detail={detail}
-                  projection={projection}
                   viewerRole={viewerRole}
                 />
-              )}
+              </div>
             </TabsPanel>
 
             <TabsPanel value="build">
@@ -3998,7 +3990,7 @@ function Label({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ProductionDrawsTable({
+export function ProductionDrawsTable({
   actions,
   detail,
   projection,
@@ -4856,7 +4848,7 @@ function ProductionDocumentsCard({
   );
 }
 
-function ProductionNotesCard({
+export function ProductionNotesCard({
   actions,
   notes,
   testIdPrefix,
@@ -4973,12 +4965,31 @@ function ProductionMilestonesTab({
   );
 }
 
+function ProductionDocumentsTab({
+  actions,
+  detail,
+}: {
+  actions?: ProductionBuildDetailActions;
+  detail: ProductionBuildDetail;
+}) {
+  return (
+    <div data-testid="production-build-documents">
+      <ProductionDocumentsCard
+        actions={actions}
+        documents={detail.documents ?? []}
+      />
+    </div>
+  );
+}
+
 function ProductionContractorsTab({
   actions,
+  contractorDetailHrefFor,
   detail,
   viewerRole,
 }: {
   actions?: ProductionBuildDetailActions;
+  contractorDetailHrefFor?: (contractorId: string) => string;
   detail: ProductionBuildDetail;
   viewerRole: "builder" | "lender";
 }) {
@@ -4992,7 +5003,14 @@ function ProductionContractorsTab({
   );
 
   return (
-    <div data-testid="production-build-contractors">
+    <div className="space-y-4" data-testid="production-build-contractors">
+      <ContractorsCard
+        actions={contractorsCardActions(actions)}
+        availableContractors={detail.availableContractors ?? []}
+        buildId={detail.build._id}
+        contractorDetailHrefFor={contractorDetailHrefFor}
+        contractors={detail.contractors ?? []}
+      />
       <ContractorPlanningPanel
         canMutate={Boolean(
           actions?.assignContractorToMilestone ||
@@ -5086,7 +5104,7 @@ function productionBuildMilestonesForContractors(
     }));
 }
 
-function contractorsCardActions(actions?: ProductionBuildDetailActions) {
+export function contractorsCardActions(actions?: ProductionBuildDetailActions) {
   return {
     onAttachAndInviteExisting: actions?.attachAndInviteContractor
       ? async (input: { contractorId: string; role: string }) => {

@@ -43,6 +43,7 @@ export type BuilderBuildSearch = {
     | "calendar"
     | "contractors"
     | "details"
+    | "documents"
     | "evidence"
     | "gantt"
     | "materials"
@@ -128,6 +129,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
       search.tab === "milestones" ||
@@ -851,6 +853,7 @@ export function BuilderBuildWorkspaceRoute({
             ? undefined
             : [
                 "details",
+                "documents",
                 "milestones",
                 "contractors",
                 "materials",

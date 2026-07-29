@@ -3,6 +3,7 @@
 import { mergeAttributes, Node } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { PluginKey } from "@tiptap/pm/state";
+import type { JSONContent } from "@tiptap/react";
 import {
   type NodeViewProps,
   NodeViewWrapper,
@@ -74,6 +75,11 @@ interface CollaborationRichTextEditorProps {
   className?: string;
   editorMinHeightClass?: string;
   onChange: (value: string, references: CollaborationTagReference[]) => void;
+  onDocumentChange?: (
+    document: JSONContent,
+    html: string,
+    references: CollaborationTagReference[]
+  ) => void;
   placeholder: string;
   tagOptions: CollaborationTagOption[];
   value: string;
@@ -84,7 +90,7 @@ interface CollaborationRichTextPreviewProps {
   className?: string;
   onReferenceOpen?: (reference: CollaborationTagReference) => void;
   tagOptions: CollaborationTagOption[];
-  value: string;
+  value: string | JSONContent;
 }
 
 interface TagNodeAttributes {
@@ -107,6 +113,7 @@ export function CollaborationRichTextEditor({
   className,
   editorMinHeightClass,
   onChange,
+  onDocumentChange,
   placeholder,
   tagOptions,
   value,
@@ -124,6 +131,13 @@ export function CollaborationRichTextEditor({
       extensions={[tagExtension]}
       onChange={(nextValue) =>
         onChange(nextValue, extractTagReferences(nextValue, tagOptions))
+      }
+      onDocumentChange={(document, html) =>
+        onDocumentChange?.(
+          document,
+          html,
+          extractTagReferences(html, tagOptions)
+        )
       }
       placeholder={placeholder}
       value={value}

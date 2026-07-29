@@ -2380,6 +2380,34 @@ Decision needed:
 
 Recommendation: build the event model and webhook registry foundation now, but avoid committing to broad third-party integrations until the core product workflow is stable.
 
+## 23.6 Build Collaboration Workspace
+
+Decision:
+
+- The live Build Details tab keeps Build Overview as its operational header and
+  places the Build-local Collaboration feed directly beneath it.
+- Collaboration replaces Public Notes and Internal Notes. Posts never cross
+  Builds.
+- Milestone review remains canonical in the Milestones tab. Documents and
+  Contractors are first-class tabs. Capital and term requests live under Build
+  Overview → Draws.
+- The feed supports rich TipTap posts and replies, nested discussions, personal
+  and Build pins, follows, reactions, timestamped role-safe Seen receipts,
+  required acknowledgements, and Linear-style Action Items.
+- `@` references cover participants, milestones, submilestones, draws,
+  Evidence Packages/assets, Site Visits, Documents, materials, and readable
+  Action Items. Non-person references provide a live preview and route into the
+  existing focused Build workspace or detail sheet.
+- Audience restriction is downward-only. A participant cannot exclude peer or
+  higher authority. Admin and Principal Broker authority applies throughout the
+  tenant organization.
+- The originating brokerage/lender organization permanently owns the Build
+  tenant boundary.
+- Agents may prepare and revise private bundles, but shared publication always
+  requires a human-in-the-loop approval. The approving human is the author.
+- Material publication, moderation, acknowledgement, Action Item, migration,
+  and system-event changes are auditable and organization-scoped.
+
 ---
 
 ## 24. Recommended Next Document

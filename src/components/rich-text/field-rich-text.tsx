@@ -1,6 +1,6 @@
 "use client";
 
-import { useCurrentEditor } from "@tiptap/react";
+import { type JSONContent, useCurrentEditor } from "@tiptap/react";
 import { useEffect, useState } from "react";
 import {
   EditorClearFormatting,
@@ -38,6 +38,7 @@ export interface FieldRichTextEditorProps {
   id?: string;
   imageMaxHeightClass?: string;
   onChange: (value: string) => void;
+  onDocumentChange?: (document: JSONContent, html: string) => void;
   placeholder?: string;
   testId?: string;
   value: string;
@@ -51,6 +52,7 @@ export function FieldRichTextEditor({
   id,
   imageMaxHeightClass = "[&_.ProseMirror_img]:max-h-56",
   onChange,
+  onDocumentChange,
   placeholder,
   testId,
   value,
@@ -68,11 +70,15 @@ export function FieldRichTextEditor({
       editorContainerProps={{
         "aria-label": ariaLabel,
         className: "field-rich-text-editor-content",
-        "data-testid": testId,
         id,
+        ...({ "data-testid": testId } as Record<string, string | undefined>),
       }}
       extensions={extensions}
-      onUpdate={({ editor }) => onChange(editor.getHTML())}
+      onUpdate={({ editor }) => {
+        const html = editor.getHTML();
+        onChange(html);
+        onDocumentChange?.(editor.getJSON(), html);
+      }}
       placeholder={placeholder}
       slotBefore={<FieldRichTextToolbar />}
     >
@@ -102,7 +108,7 @@ export interface FieldRichTextPreviewProps {
   className?: string;
   extensions?: EditorProviderProps["extensions"];
   imageMaxHeightClass?: string;
-  value: string;
+  value: string | JSONContent;
 }
 
 export function FieldRichTextPreview({
@@ -112,7 +118,7 @@ export function FieldRichTextPreview({
   imageMaxHeightClass = "[&_.ProseMirror_img]:max-h-48",
   value,
 }: FieldRichTextPreviewProps) {
-  if (!value.trim()) {
+  if (typeof value === "string" && !value.trim()) {
     return null;
   }
 

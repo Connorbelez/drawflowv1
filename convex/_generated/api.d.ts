@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as activeBuildAccess from "../activeBuildAccess.js";
 import type * as assistant from "../assistant.js";
 import type * as assistantProvider from "../assistantProvider.js";
 import type * as auth from "../auth.js";
@@ -15,6 +16,18 @@ import type * as authz from "../authz.js";
 import type * as authzTest from "../authzTest.js";
 import type * as brokerAssignments from "../brokerAssignments.js";
 import type * as brokerageProvisioning from "../brokerageProvisioning.js";
+import type * as build_action_items from "../build_action_items.js";
+import type * as build_collaboration from "../build_collaboration.js";
+import type * as build_collaboration_access from "../build_collaboration_access.js";
+import type * as build_collaboration_acknowledgements from "../build_collaboration_acknowledgements.js";
+import type * as build_collaboration_drafts from "../build_collaboration_drafts.js";
+import type * as build_collaboration_migrations from "../build_collaboration_migrations.js";
+import type * as build_collaboration_model from "../build_collaboration_model.js";
+import type * as build_collaboration_notifications from "../build_collaboration_notifications.js";
+import type * as build_collaboration_references from "../build_collaboration_references.js";
+import type * as build_collaboration_system_events from "../build_collaboration_system_events.js";
+import type * as build_collaboration_threads from "../build_collaboration_threads.js";
+import type * as build_collaboration_validators from "../build_collaboration_validators.js";
 import type * as builderRoster from "../builderRoster.js";
 import type * as builderStaffIdentity from "../builderStaffIdentity.js";
 import type * as contractorAuth from "../contractorAuth.js";
@@ -55,6 +68,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  activeBuildAccess: typeof activeBuildAccess;
   assistant: typeof assistant;
   assistantProvider: typeof assistantProvider;
   auth: typeof auth;
@@ -62,6 +76,18 @@ declare const fullApi: ApiFromModules<{
   authzTest: typeof authzTest;
   brokerAssignments: typeof brokerAssignments;
   brokerageProvisioning: typeof brokerageProvisioning;
+  build_action_items: typeof build_action_items;
+  build_collaboration: typeof build_collaboration;
+  build_collaboration_access: typeof build_collaboration_access;
+  build_collaboration_acknowledgements: typeof build_collaboration_acknowledgements;
+  build_collaboration_drafts: typeof build_collaboration_drafts;
+  build_collaboration_migrations: typeof build_collaboration_migrations;
+  build_collaboration_model: typeof build_collaboration_model;
+  build_collaboration_notifications: typeof build_collaboration_notifications;
+  build_collaboration_references: typeof build_collaboration_references;
+  build_collaboration_system_events: typeof build_collaboration_system_events;
+  build_collaboration_threads: typeof build_collaboration_threads;
+  build_collaboration_validators: typeof build_collaboration_validators;
   builderRoster: typeof builderRoster;
   builderStaffIdentity: typeof builderStaffIdentity;
   contractorAuth: typeof contractorAuth;

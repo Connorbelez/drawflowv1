@@ -1,6 +1,29 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+import {
+  buildActionAssignmentStateValidator,
+  buildActionItemPriorityValidator,
+  buildActionItemStatusValidator,
+  buildActionRelationKindValidator,
+  buildCollaborationApprovalStateValidator,
+  buildCollaborationAssetStateValidator,
+  buildCollaborationAttachmentKindValidator,
+  buildCollaborationAudienceModeValidator,
+  buildCollaborationContentStateValidator,
+  buildCollaborationDraftStateValidator,
+  buildCollaborationNotificationChannelValidator,
+  buildCollaborationOwnerKindValidator,
+  buildCollaborationPinKindValidator,
+  buildCollaborationPostTypeValidator,
+  buildCollaborationReactionValidator,
+  buildCollaborationReferenceKindValidator,
+  buildCollaborationRoleValidator,
+  buildCollaborationSourceValidator,
+  buildCollaborationThreadStateValidator,
+  buildParticipantStatusValidator,
+} from "./build_collaboration_validators";
+
 const siteVisitLocationAttemptValidator = v.object({
   accuracyMeters: v.optional(v.number()),
   attempted: v.boolean(),
@@ -2950,6 +2973,508 @@ export default defineSchema({
   })
     .index("by_proposal", ["proposalId"])
     .index("by_brokerage", ["brokerageId"]),
+  buildParticipants: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    workosUserId: v.string(),
+    displayNameSnapshot: v.string(),
+    emailSnapshot: v.optional(v.string()),
+    role: buildCollaborationRoleValidator,
+    status: buildParticipantStatusValidator,
+    participationPeriod: v.number(),
+    invitedByWorkosUserId: v.optional(v.string()),
+    joinedAt: v.optional(v.number()),
+    removedAt: v.optional(v.number()),
+    removedByWorkosUserId: v.optional(v.string()),
+    removalReason: v.optional(v.string()),
+    validFrom: v.number(),
+    validUntil: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_status", ["buildId", "status"])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"])
+    .index("by_organizationId_and_workosUserId_and_status", [
+      "organizationId",
+      "workosUserId",
+      "status",
+    ]),
+  buildCollaborationTenantSettings: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    status: v.union(
+      v.literal("disabled"),
+      v.literal("migration_ready"),
+      v.literal("active"),
+    ),
+    retentionPolicyKey: v.optional(v.string()),
+    generousRateLimitMultiplier: v.number(),
+    migrationCompletedAt: v.optional(v.number()),
+    activatedAt: v.optional(v.number()),
+    activatedByWorkosUserId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organizationId", ["organizationId"]),
+  buildCollaborationPosts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    source: buildCollaborationSourceValidator,
+    postType: buildCollaborationPostTypeValidator,
+    authorWorkosUserId: v.optional(v.string()),
+    authorDisplayNameSnapshot: v.string(),
+    authorRole: v.optional(buildCollaborationRoleValidator),
+    authorRolesSnapshot: v.array(v.string()),
+    agentDrafted: v.boolean(),
+    systemEventKey: v.optional(v.string()),
+    importedSourceId: v.optional(v.string()),
+    audienceMode: buildCollaborationAudienceModeValidator,
+    audienceFloorTier: v.number(),
+    currentRevisionId: v.optional(v.id("buildCollaborationPostRevisions")),
+    revision: v.number(),
+    threadState: buildCollaborationThreadStateValidator,
+    contentState: buildCollaborationContentStateValidator,
+    acceptedCommentId: v.optional(v.id("buildCollaborationComments")),
+    decisionOwnerWorkosUserId: v.optional(v.string()),
+    decisionOutcome: v.optional(v.string()),
+    resolutionSummary: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    resolvedByWorkosUserId: v.optional(v.string()),
+    announcementExpiresAt: v.optional(v.number()),
+    primaryReferenceKind: v.optional(
+      buildCollaborationReferenceKindValidator,
+    ),
+    primaryReferenceId: v.optional(v.string()),
+    commentCount: v.number(),
+    openActionItemCount: v.number(),
+    acknowledgementRequired: v.boolean(),
+    lastMeaningfulActivityAt: v.number(),
+    latestActivityActorWorkosUserId: v.optional(v.string()),
+    tombstonedAt: v.optional(v.number()),
+    tombstonedByWorkosUserId: v.optional(v.string()),
+    moderationReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_lastMeaningfulActivityAt", [
+      "buildId",
+      "lastMeaningfulActivityAt",
+    ])
+    .index("by_buildId_and_createdAt", ["buildId", "createdAt"])
+    .index("by_buildId_and_threadState_and_postType", [
+      "buildId",
+      "threadState",
+      "postType",
+    ])
+    .index("by_buildId_and_systemEventKey", ["buildId", "systemEventKey"])
+    .index("by_buildId_and_importedSourceId", ["buildId", "importedSourceId"]),
+  buildCollaborationPostRevisions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    revision: v.number(),
+    tiptapJson: v.string(),
+    plainText: v.string(),
+    contentHash: v.string(),
+    authorWorkosUserId: v.string(),
+    authorRole: buildCollaborationRoleValidator,
+    editReason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_revision", ["postId", "revision"])
+    .index("by_buildId_and_createdAt", ["buildId", "createdAt"])
+    .searchIndex("search_plainText", {
+      searchField: "plainText",
+      filterFields: ["buildId", "organizationId"],
+    }),
+  buildCollaborationAudienceMembers: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    workosUserId: v.string(),
+    addedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
+  buildCollaborationAudienceSnapshots: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    postRevisionId: v.id("buildCollaborationPostRevisions"),
+    workosUserId: v.string(),
+    resolution: v.union(
+      v.literal("reader"),
+      v.literal("excluded"),
+      v.literal("mandatory"),
+    ),
+    reason: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_postRevisionId_and_workosUserId", [
+      "postRevisionId",
+      "workosUserId",
+    ])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
+  buildCollaborationComments: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    parentCommentId: v.optional(v.id("buildCollaborationComments")),
+    logicalDepth: v.number(),
+    authorWorkosUserId: v.string(),
+    authorDisplayNameSnapshot: v.string(),
+    authorRole: buildCollaborationRoleValidator,
+    currentRevisionId: v.optional(v.id("buildCollaborationCommentRevisions")),
+    revision: v.number(),
+    contentState: buildCollaborationContentStateValidator,
+    tombstonedAt: v.optional(v.number()),
+    tombstonedByWorkosUserId: v.optional(v.string()),
+    moderationReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
+    .index("by_parentCommentId_and_createdAt", ["parentCommentId", "createdAt"])
+    .index("by_buildId_and_authorWorkosUserId", [
+      "buildId",
+      "authorWorkosUserId",
+    ]),
+  buildCollaborationCommentRevisions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    commentId: v.id("buildCollaborationComments"),
+    revision: v.number(),
+    tiptapJson: v.string(),
+    plainText: v.string(),
+    contentHash: v.string(),
+    authorWorkosUserId: v.string(),
+    editReason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_commentId_and_revision", ["commentId", "revision"])
+    .searchIndex("search_plainText", {
+      searchField: "plainText",
+      filterFields: ["buildId", "organizationId"],
+    }),
+  buildCollaborationReferences: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    ownerKind: buildCollaborationOwnerKindValidator,
+    ownerRecordId: v.string(),
+    postId: v.id("buildCollaborationPosts"),
+    entityKind: buildCollaborationReferenceKindValidator,
+    entityId: v.string(),
+    primary: v.boolean(),
+    labelSnapshot: v.string(),
+    summarySnapshot: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_ownerKind_and_ownerRecordId", ["ownerKind", "ownerRecordId"])
+    .index("by_buildId_and_entityKind_and_entityId", [
+      "buildId",
+      "entityKind",
+      "entityId",
+    ])
+    .index("by_postId", ["postId"]),
+  buildCollaborationFollows: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    workosUserId: v.string(),
+    reason: v.union(
+      v.literal("author"),
+      v.literal("commenter"),
+      v.literal("mentioned"),
+      v.literal("assigned"),
+      v.literal("manual"),
+    ),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_buildId_and_workosUserId_and_active", [
+      "buildId",
+      "workosUserId",
+      "active",
+    ]),
+  buildCollaborationReactions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    commentId: v.optional(v.id("buildCollaborationComments")),
+    workosUserId: v.string(),
+    reaction: buildCollaborationReactionValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_commentId_and_workosUserId", ["commentId", "workosUserId"]),
+  buildCollaborationReceipts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    workosUserId: v.string(),
+    viewerRole: buildCollaborationRoleValidator,
+    firstViewedAt: v.number(),
+    lastViewedAt: v.number(),
+    latestRevisionViewed: v.number(),
+  })
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
+  buildCollaborationPins: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    commentId: v.optional(v.id("buildCollaborationComments")),
+    workosUserId: v.string(),
+    kind: buildCollaborationPinKindValidator,
+    createdAt: v.number(),
+  })
+    .index("by_buildId_and_kind_and_createdAt", [
+      "buildId",
+      "kind",
+      "createdAt",
+    ])
+    .index("by_postId_and_workosUserId_and_kind", [
+      "postId",
+      "workosUserId",
+      "kind",
+    ]),
+  buildCollaborationAcknowledgementTargets: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    workosUserId: v.string(),
+    dueAt: v.optional(v.number()),
+    waivedAt: v.optional(v.number()),
+    waivedByWorkosUserId: v.optional(v.string()),
+    waiverReason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
+  buildCollaborationAcknowledgements: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    targetId: v.id("buildCollaborationAcknowledgementTargets"),
+    workosUserId: v.string(),
+    acknowledgedRevision: v.number(),
+    acknowledgedAt: v.number(),
+  })
+    .index("by_targetId", ["targetId"])
+    .index("by_postId_and_workosUserId", ["postId", "workosUserId"]),
+  buildActionItems: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    originatingPostId: v.id("buildCollaborationPosts"),
+    parentActionItemId: v.optional(v.id("buildActionItems")),
+    title: v.string(),
+    descriptionTiptapJson: v.string(),
+    descriptionPlainText: v.string(),
+    status: buildActionItemStatusValidator,
+    previousActiveStatus: v.optional(buildActionItemStatusValidator),
+    priority: buildActionItemPriorityValidator,
+    creatorWorkosUserId: v.string(),
+    assigneeWorkosUserId: v.optional(v.string()),
+    assignmentState: buildActionAssignmentStateValidator,
+    assignmentRequestedAt: v.optional(v.number()),
+    dueAt: v.optional(v.number()),
+    requiresAcceptance: v.boolean(),
+    blockedReason: v.optional(v.string()),
+    cancellationReason: v.optional(v.string()),
+    completedAt: v.optional(v.number()),
+    currentRevision: v.number(),
+    primaryReferenceKind: v.optional(
+      buildCollaborationReferenceKindValidator,
+    ),
+    primaryReferenceId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_originatingPostId_and_status", [
+      "originatingPostId",
+      "status",
+    ])
+    .index("by_buildId_and_status_and_updatedAt", [
+      "buildId",
+      "status",
+      "updatedAt",
+    ])
+    .index("by_buildId_and_assigneeWorkosUserId_and_status", [
+      "buildId",
+      "assigneeWorkosUserId",
+      "status",
+    ])
+    .index("by_organizationId_and_assigneeWorkosUserId_and_status", [
+      "organizationId",
+      "assigneeWorkosUserId",
+      "status",
+    ])
+    .index("by_parentActionItemId_and_status", [
+      "parentActionItemId",
+      "status",
+    ]),
+  buildActionItemEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    eventType: v.string(),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    priorState: v.optional(v.string()),
+    newState: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_actionItemId_and_createdAt", ["actionItemId", "createdAt"]),
+  buildActionItemRelations: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    sourceActionItemId: v.id("buildActionItems"),
+    targetActionItemId: v.id("buildActionItems"),
+    kind: buildActionRelationKindValidator,
+    status: v.union(v.literal("active"), v.literal("suspended")),
+    suspensionReason: v.optional(v.string()),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_sourceActionItemId_and_kind", [
+      "sourceActionItemId",
+      "kind",
+    ])
+    .index("by_targetActionItemId_and_kind", [
+      "targetActionItemId",
+      "kind",
+    ]),
+  buildActionItemChecklistItems: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    label: v.string(),
+    required: v.boolean(),
+    completed: v.boolean(),
+    order: v.number(),
+    completedAt: v.optional(v.number()),
+    completedByWorkosUserId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_actionItemId_and_order", ["actionItemId", "order"]),
+  buildCollaborationAssets: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    state: buildCollaborationAssetStateValidator,
+    uploadedByWorkosUserId: v.string(),
+    version: v.number(),
+    supersedesAssetId: v.optional(v.id("buildCollaborationAssets")),
+    maximumAudienceMode: buildCollaborationAudienceModeValidator,
+    scanMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_state_and_createdAt", [
+      "buildId",
+      "state",
+      "createdAt",
+    ])
+    .index("by_supersedesAssetId", ["supersedesAssetId"]),
+  buildCollaborationAttachments: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    ownerKind: buildCollaborationOwnerKindValidator,
+    ownerRecordId: v.string(),
+    attachmentKind: buildCollaborationAttachmentKindValidator,
+    attachmentId: v.string(),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_ownerKind_and_ownerRecordId", ["ownerKind", "ownerRecordId"])
+    .index("by_buildId_and_attachmentKind_and_attachmentId", [
+      "buildId",
+      "attachmentKind",
+      "attachmentId",
+    ]),
+  buildCollaborationDrafts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    ownerWorkosUserId: v.string(),
+    preparedByAgent: v.optional(v.boolean()),
+    state: buildCollaborationDraftStateValidator,
+    bundleJson: v.string(),
+    bundleHash: v.string(),
+    revision: v.number(),
+    scheduledFor: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_buildId_and_ownerWorkosUserId_and_state", [
+    "buildId",
+    "ownerWorkosUserId",
+    "state",
+  ]),
+  buildCollaborationPublicationApprovals: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    draftId: v.id("buildCollaborationDrafts"),
+    approvingWorkosUserId: v.string(),
+    bundleHash: v.string(),
+    readerSummaryJson: v.string(),
+    mutationSummaryJson: v.string(),
+    state: buildCollaborationApprovalStateValidator,
+    scheduledFor: v.optional(v.number()),
+    approvedAt: v.number(),
+    invalidatedAt: v.optional(v.number()),
+    publishedAt: v.optional(v.number()),
+  })
+    .index("by_draftId_and_state", ["draftId", "state"])
+    .index("by_buildId_and_scheduledFor_and_state", [
+      "buildId",
+      "scheduledFor",
+      "state",
+    ]),
+  buildCollaborationNotificationPreferences: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    workosUserId: v.string(),
+    ordinaryMuted: v.boolean(),
+    digestEnabled: v.boolean(),
+    digestCadence: v.union(
+      v.literal("daily"),
+      v.literal("weekly"),
+      v.literal("never"),
+    ),
+    channels: v.array(buildCollaborationNotificationChannelValidator),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
   buildDocuments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

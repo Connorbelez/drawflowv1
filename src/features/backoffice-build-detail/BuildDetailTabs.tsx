@@ -6,6 +6,7 @@ export type BuildDetailSubTab =
   | "calendar"
   | "contractors"
   | "details"
+  | "documents"
   | "evidence"
   | "gantt"
   | "materials"
@@ -16,6 +17,7 @@ export type BuildDetailSubTab =
 export const BUILD_DETAIL_TABS: { value: BuildDetailSubTab; label: string }[] =
   [
     { value: "details", label: "Details" },
+    { value: "documents", label: "Documents" },
     { value: "milestones", label: "Milestones" },
     { value: "contractors", label: "Contractors" },
     { value: "materials", label: "Materials" },

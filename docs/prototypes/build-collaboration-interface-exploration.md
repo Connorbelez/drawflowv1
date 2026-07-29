@@ -4,6 +4,11 @@
 > throwaway prototype and is not production implementation.
 >
 > **Prototype:** `/prototype/build-collaboration?variant=A`
+>
+> **Production contract:** `docs/specs/build-collaboration.md`
+>
+> **Implementation plan:**
+> `docs/superpowers/plans/2026-07-28-build-collaboration-production.md`
 
 ## Approval verdict — Variant A approved
 

@@ -31,6 +31,7 @@ type BuildDetailSearch = {
     | "calendar"
     | "contractors"
     | "details"
+    | "documents"
     | "evidence"
     | "gantt"
     | "materials"
@@ -44,6 +45,7 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
   validateSearch: (search: Record<string, unknown>): BuildDetailSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
       search.tab === "milestones" ||
@@ -95,7 +97,6 @@ function RouteComponent() {
   const addDocument = useMutation(
     api.production_proposals.addActiveBuildDocument
   );
-  const addNote = useMutation(api.production_proposals.addActiveBuildNote);
   const approveDraw = useMutation(
     api.production_proposals.approveActiveBuildDraw
   );
@@ -341,13 +342,6 @@ function RouteComponent() {
               workosOrganizationId,
             })
         : undefined,
-      addNote: ({ body, visibility }) =>
-        addNote({
-          body,
-          buildId: activeBuildId,
-          visibility,
-          workosOrganizationId,
-        }),
       approveDraw:
         canMakeFinalDecision &&
         canUseAppPermission(appPermissions, "draw", "update")

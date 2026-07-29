@@ -140,6 +140,35 @@ This foundation does not enforce WorkOS organization membership for route access
 or Convex RBAC. It also does not migrate demo data, create contractor
 workspaces, or add a WorkOS operation tracking table.
 
+## Build Collaboration RBAC
+
+Build Collaboration resolves access through the active Build, its immutable
+originating WorkOS organization, explicit Build participation, and derived
+Builder/Broker/Contractor assignments.
+
+The collaboration authority order is:
+
+1. Admin
+2. Principal Broker
+3. Broker, Builder, and Broker Staff
+4. Builder Staff and Homeowner
+5. Contractor
+
+Authors may only narrow an audience below their own authority. Peer and higher
+participants remain mandatory readers, and referenced entity ACLs may further
+widen or reject the proposed audience. Contractor-created content therefore
+cannot be hidden from brokerage or Builder authority.
+
+Admin and Principal Broker roles are organization-wide. Other roles remain
+Build- or assignment-scoped. Restricted feed rows are deliberately
+metadata-free.
+
+Seen receipts flow upward for accountability: a viewer can observe receipts
+from their tier and lower, while no lower role can observe that an Admin viewed
+content. Agent-prepared drafts inherit the owning human's private scope. Agents
+cannot publish; approval is an explicit human checkpoint and the approving
+human is recorded as author.
+
 ## Verification
 
 Expected verification commands:

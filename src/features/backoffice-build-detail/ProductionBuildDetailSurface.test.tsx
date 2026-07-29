@@ -12,6 +12,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("convex/react", () => ({
   useMutation: () => vi.fn(),
+  usePaginatedQuery: () => ({
+    loadMore: vi.fn(),
+    results: [],
+    status: "Exhausted",
+  }),
   useQuery: () => undefined,
 }));
 
@@ -770,13 +775,17 @@ describe("ProductionBuildDetailSurface", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText("Review milestone completion")).toBeTruthy();
-    expect(screen.getByTestId("build-detail-kanban")).toBeTruthy();
-    expect(screen.getByTestId("build-detail-draws")).toBeTruthy();
-    expect(screen.getByTestId("facility-change-requests")).toBeTruthy();
+    expect(screen.queryByTestId("build-detail-kanban")).toBeNull();
+    expect(screen.queryByTestId("build-detail-contractors")).toBeNull();
+    expect(screen.queryByTestId("build-detail-documents")).toBeNull();
+    expect(screen.queryByTestId("internal-notes")).toBeNull();
+    expect(screen.queryByTestId("public-notes")).toBeNull();
+    expect(screen.getByTestId("build-collaboration-unavailable")).toBeTruthy();
     expect(screen.getByTestId("build-permit-viewer-trigger")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
     expect(screen.getByTestId("draw-overview-panel")).toBeTruthy();
+    expect(screen.getByTestId("facility-change-requests")).toBeTruthy();
     expect(
       screen.getByTestId("draw-overview-availability").textContent,
     ).toContain("$0");
@@ -1321,16 +1330,17 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
     expect(screen.queryByTestId("build-detail-draw-request-draw-01")).toBeNull();
-    expect(screen.getByText("Awaiting request")).toBeTruthy();
+    expect(screen.getAllByText("Planned").length).toBeGreaterThan(0);
   });
 
-  test("opens the milestone completion review sheet from the current overview", async () => {
+  test("opens the milestone completion review sheet from the milestone kanban", async () => {
     const approveMilestone = vi.fn().mockResolvedValue(null);
     render(
       <ProductionBuildDetailSurface
         actions={{ approveMilestone }}
-        activeTab="details"
+        activeTab="milestones"
         detail={detail}
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
@@ -1338,7 +1348,7 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+    fireEvent.click(screen.getByTestId("kanban-card-foundation"));
     expect(
       screen.getByTestId("milestone-completion-review-summary")
     ).toBeTruthy();
@@ -1359,7 +1369,7 @@ describe("ProductionBuildDetailSurface", () => {
     render(
       <ProductionBuildDetailSurface
         actions={{ approveMilestone }}
-        activeTab="details"
+        activeTab="milestones"
         detail={{
           ...detail,
           evidenceAssets: [
@@ -1398,7 +1408,7 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+    fireEvent.click(screen.getByTestId("kanban-card-foundation"));
 
     const approve = screen.getByRole("button", {
       name: /Approve completion/i,
@@ -1493,7 +1503,7 @@ describe("ProductionBuildDetailSurface", () => {
   test("consolidates milestone scope, people, materials, evidence, and field review context for lenders", () => {
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={{
           ...detail,
           costItems: [
@@ -1543,7 +1553,7 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId("current-milestone-review-foundation"));
+    fireEvent.click(screen.getByTestId("kanban-card-foundation"));
 
     const scope = screen.getByTestId("milestone-review-scope");
     expect(within(scope).getByText("Excavation")).toBeTruthy();
@@ -1564,10 +1574,10 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByText("Reviewer decision")).toBeTruthy();
   });
 
-  test("sorts current milestones with the most recent completion request first", () => {
+  test("keeps milestone review in the canonical milestone kanban", () => {
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={{
           ...detail,
           milestones: [
@@ -1610,11 +1620,10 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
-    const currentMilestones = screen.getByTestId("current-milestones");
-    const text = currentMilestones.textContent ?? "";
-    expect(text.indexOf("Underground, framing & roof")).toBeLessThan(
-      text.indexOf("Foundation"),
-    );
+    expect(screen.getByTestId("build-detail-kanban")).toBeTruthy();
+    expect(screen.getByTestId("kanban-card-foundation")).toBeTruthy();
+    expect(screen.getByTestId("kanban-card-framing")).toBeTruthy();
+    expect(screen.queryByTestId("current-milestones")).toBeNull();
   });
 
   test("reviews builder evidence and orders site visits from the completion sheet", async () => {
@@ -2146,7 +2155,7 @@ describe("ProductionBuildDetailSurface", () => {
   test("exposes the active build permit PDF from the build header", () => {
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="documents"
         detail={detail}
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
@@ -2177,6 +2186,7 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
     fireEvent.change(screen.getByTestId("facility-principal-input"), {
       target: { value: "625000" },
     });
@@ -2220,6 +2230,7 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
     fireEvent.change(screen.getByTestId("budget-working-capital"), {
       target: { value: "190000" },
     });
@@ -2282,6 +2293,7 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
+    fireEvent.click(screen.getByTestId("build-overview-tab-draws"));
     const approve = screen.getByRole("button", { name: "Approve revision" });
     expect(approve.hasAttribute("disabled")).toBe(true);
     fireEvent.change(screen.getByLabelText("Budget revision decision note"), {
@@ -2302,7 +2314,7 @@ describe("ProductionBuildDetailSurface", () => {
 
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={detail}
         milestoneKey="foundation"
         onChangeMilestone={onChangeMilestone}
@@ -2503,7 +2515,7 @@ describe("ProductionBuildDetailSurface", () => {
 
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={detail}
         onChangeMilestone={onChangeMilestone}
         onChangeRail={vi.fn()}
@@ -2522,7 +2534,7 @@ describe("ProductionBuildDetailSurface", () => {
     render(
       <ProductionBuildDetailSurface
         actions={{ assignContractorToMilestone }}
-        activeTab="details"
+        activeTab="milestones"
         detail={detail}
         onChangeRail={vi.fn()}
         onChangeTab={vi.fn()}
@@ -2603,7 +2615,7 @@ describe("ProductionBuildDetailSurface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Add contractor" }));
+    fireEvent.click(screen.getByTestId("contractors-open-add"));
     fireEvent.click(screen.getByRole("button", { name: /Available Concrete/i }));
     fireEvent.click(
       screen.getByRole("button", { name: "Invite Available Concrete" }),
@@ -2620,7 +2632,7 @@ describe("ProductionBuildDetailSurface", () => {
   test("links attached contractors to the provided detail route", () => {
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="contractors"
         contractorDetailHrefFor={(contractorId) =>
           `/builder/contractors/${contractorId}`
         }
@@ -2683,7 +2695,7 @@ describe("ProductionBuildDetailSurface", () => {
   test("derives scheduled ready milestones out of backlog without marking work started", () => {
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={{
           ...detail,
           milestones: [
@@ -2722,7 +2734,7 @@ describe("ProductionBuildDetailSurface", () => {
   test("moves overdue incomplete milestones into the behind schedule review column", () => {
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={{
           ...detail,
           milestones: [
@@ -2764,7 +2776,7 @@ describe("ProductionBuildDetailSurface", () => {
   test("moves builder completion claims into marked complete instead of in progress", () => {
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={{
           ...detail,
           milestones: [
@@ -2812,7 +2824,7 @@ describe("ProductionBuildDetailSurface", () => {
   test("keeps approved milestones out of field review when an old site visit request remains", () => {
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={{
           ...detail,
           milestones: [
@@ -2854,7 +2866,7 @@ describe("ProductionBuildDetailSurface", () => {
   test("uses reconciled scope progress instead of a stale claimed percentage", () => {
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={{
           ...detail,
           milestones: [
@@ -2885,7 +2897,7 @@ describe("ProductionBuildDetailSurface", () => {
   test("keeps future planned milestones in backlog until schedule unlock", () => {
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={{
           ...detail,
           milestones: [
@@ -2983,7 +2995,7 @@ describe("ProductionBuildDetailSurface", () => {
 
     render(
       <ProductionBuildDetailSurface
-        activeTab="details"
+        activeTab="milestones"
         detail={detail}
         onChangeMilestone={onChangeMilestone}
         onChangeRail={vi.fn()}
@@ -2996,7 +3008,7 @@ describe("ProductionBuildDetailSurface", () => {
     expect(onChangeMilestone).toHaveBeenCalledWith("foundation");
   });
 
-  test("renders the migrated production details workspace with demo-route parity regions", () => {
+  test("renders the approved production Details composition without duplicated tab content", () => {
     render(
       <ProductionBuildDetailSurface
         activeTab="details"
@@ -3008,12 +3020,14 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     expect(screen.getByTestId("build-detail-site-photos")).toBeTruthy();
-    expect(screen.getByTestId("build-detail-draws")).toBeTruthy();
-    expect(screen.getByTestId("build-detail-kanban")).toBeTruthy();
-    expect(screen.getByTestId("build-detail-contractors")).toBeTruthy();
-    expect(screen.getByTestId("build-detail-documents")).toBeTruthy();
-    expect(screen.getByTestId("internal-notes")).toBeTruthy();
-    expect(screen.getByTestId("public-notes")).toBeTruthy();
+    expect(screen.getByTestId("production-build-details-card")).toBeTruthy();
+    expect(screen.getByTestId("build-collaboration-unavailable")).toBeTruthy();
+    expect(screen.queryByTestId("build-detail-draws")).toBeNull();
+    expect(screen.queryByTestId("build-detail-kanban")).toBeNull();
+    expect(screen.queryByTestId("build-detail-contractors")).toBeNull();
+    expect(screen.queryByTestId("build-detail-documents")).toBeNull();
+    expect(screen.queryByTestId("internal-notes")).toBeNull();
+    expect(screen.queryByTestId("public-notes")).toBeNull();
     expect(screen.getByTestId("build-detail-events-trigger")).toBeTruthy();
     expect(screen.getByTestId("build-detail-rail")).toBeTruthy();
     expect(screen.queryByTestId("production-build-milestones")).toBeNull();
