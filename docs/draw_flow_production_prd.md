@@ -559,6 +559,7 @@ Acceptance criteria:
 - custom Timeline draw plans can be submitted without selecting an optimizer preset,
 - draw availability unlocks five calendar days after milestone completion,
 - the Timeline and proposal packet both call out any auto-generated draw scheduled above cumulative unlocked draw availability,
+- an existing over-capacity forecast draw can be repaired incrementally by moving it later and/or reducing its amount, while new draws and edits that move earlier or increase the amount remain blocked by cumulative unlocked availability,
 - submitted proposal freezes a review snapshot and audit event.
 
 ### 8.7 Proposal Review

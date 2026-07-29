@@ -3208,8 +3208,8 @@ export function TimelineWorkspace({
       return;
     }
 
-    const isSameDayReduction =
-      nextX === targetDraw.x && nextAmount < targetDraw.amount;
+    const isNonWorseningCapacityEdit =
+      nextAmount <= targetDraw.amount && nextX >= targetDraw.x;
     const maxSchedulableAmount = getMaxSchedulableDrawAmount(
       nextX,
       items,
@@ -3221,7 +3221,7 @@ export function TimelineWorkspace({
       approvedDrawLimit
     );
 
-    if (!isSameDayReduction && nextAmount > maxSchedulableAmount) {
+    if (!isNonWorseningCapacityEdit && nextAmount > maxSchedulableAmount) {
       toast.error(
         maxSchedulableAmount <= 0
           ? DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE

@@ -921,6 +921,65 @@ describe("TimelineWorkspace mode split", () => {
     );
   });
 
+  test("allows deferring an existing draw when the current schedule exceeds unlocked capacity", () => {
+    const updateDraw = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      initialState: timelineState({ milestoneAmount: 0 }),
+      persistence: { updateDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Draw 01 date and amount",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Draw date"), {
+      target: { value: "30" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(toast.error).not.toHaveBeenCalledWith(
+      "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.",
+    );
+    expect(updateDraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 9_600_000,
+        drawKey: "draw-01",
+        x: 30,
+      }),
+    );
+  });
+
+  test("still blocks edits that worsen an existing unlocked-capacity violation", () => {
+    const updateDraw = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      initialState: timelineState({ milestoneAmount: 0 }),
+      persistence: { updateDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Draw 01 date and amount",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Draw date"), {
+      target: { value: "30" },
+    });
+    fireEvent.change(screen.getByLabelText("Draw amount"), {
+      target: { value: "100000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.",
+    );
+    expect(updateDraw).not.toHaveBeenCalled();
+  });
+
   test("calls out a generated schedule that exceeds maximum draw availability", () => {
     renderWorkspace({
       initialState: timelineState({ milestoneAmount: 0 }),

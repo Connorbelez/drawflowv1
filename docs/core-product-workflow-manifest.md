@@ -806,6 +806,7 @@ Identifiers use `WF-{DOMAIN}-{NNN}` for parents, `WF-{DOMAIN}-{NNN}.{PERSONA}.{N
   - Required fields/documents and dependency graph.
   - Planned draw availability unlocks five calendar days after milestone completion.
   - Timeline and packet warnings identify the first auto-generated draw above cumulative unlocked availability, including the available amount and overage.
+  - Existing over-capacity forecast draws may be repaired incrementally by moving later and/or decreasing in amount; new draws and edits that move earlier or increase the amount remain subject to the cumulative unlocked-availability gate.
   - Feasible working-capital/policy constraints or explicit audited override.
   - Permit waiver only by admin/Principal Broker.
   - Closing requires approved proposal, reason, and build start date.

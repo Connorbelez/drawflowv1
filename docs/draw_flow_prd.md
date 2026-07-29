@@ -728,6 +728,10 @@ Each generated plan should output:
 - working-capital feasibility,
 - warnings, including any auto-generated draw scheduled above cumulative
   unlocked draw availability,
+- repair controls that allow an existing over-capacity forecast draw to move
+  later and/or decrease in amount without requiring the intermediate schedule
+  to be feasible; new draws and edits that move earlier or increase the amount
+  remain subject to the unlocked-availability gate,
 - plan explanation.
 
 ## 9.4 Default Recommendation: Cheapest Feasible Plan
