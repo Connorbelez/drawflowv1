@@ -545,6 +545,7 @@ interface ProductionDraw {
 }
 
 interface ProductionPlannedDraw {
+  _id?: string;
   amountCents: number;
   drawKey: string;
   label: string;

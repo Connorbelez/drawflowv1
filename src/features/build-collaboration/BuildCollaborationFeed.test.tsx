@@ -228,6 +228,11 @@ describe("BuildCollaborationFeed", () => {
       entityKind: "evidenceAsset",
       href: "/backoffice/builds/build-1?tab=evidence&evidence=evidence-1",
     });
+    expect(
+      screen.queryByRole("heading", {
+        name: "Foundation completion photo",
+      }),
+    ).toBeNull();
   });
 
   test("opens the containing Action Items tab for a focused Action Item", async () => {

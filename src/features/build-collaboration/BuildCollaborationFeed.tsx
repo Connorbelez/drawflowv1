@@ -885,6 +885,7 @@ export function BuildCollaborationFeed({
       <BuildCollaborationReferenceSheet
         focusedWorkspace={
           Boolean(focusedReference) &&
+          focusedReference?.entityKind === "participant" &&
           focusedEntityReference ===
             `${focusedReference?.entityKind}:${focusedReference?.id}`
         }
@@ -897,14 +898,18 @@ export function BuildCollaborationFeed({
           if (!focusedReference) {
             return;
           }
+          const reference = focusedReference;
+          if (reference.entityKind !== "participant") {
+            setFocusedReference(null);
+          }
           if (onOpenReference) {
             onOpenReference({
-              entityId: focusedReference.id,
-              entityKind: focusedReference.entityKind,
-              href: focusedReference.href,
+              entityId: reference.id,
+              entityKind: reference.entityKind,
+              href: reference.href,
             });
           } else {
-            window.location.assign(focusedReference.href);
+            window.location.assign(reference.href);
           }
         }}
         reference={focusedReference}

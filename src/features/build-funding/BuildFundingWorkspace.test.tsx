@@ -488,6 +488,7 @@ describe("BuildFundingWorkspace", () => {
           milestones,
           plannedDraws: [
             {
+              _id: "planned-draw-1",
               amountCents: 8_944_800,
               drawKey: "future-plan",
               label: "Service upgrade & envelope reimbursement",
@@ -513,6 +514,11 @@ describe("BuildFundingWorkspace", () => {
     );
     expect(screen.queryByRole("button", { name: /request a draw/i })).toBeNull();
     expect(screen.getByText("Future planned draws")).toBeTruthy();
+    expect(
+      document.querySelector(
+        '[data-collaboration-focus="draw:planned-draw-1"]',
+      ),
+    ).toBeTruthy();
     expect(
       within(screen.getByTestId("lender-funding-review")).getByText(
         "No draws have been released for this build."

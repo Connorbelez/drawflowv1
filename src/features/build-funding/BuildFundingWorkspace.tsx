@@ -142,6 +142,7 @@ export interface FundingMilestoneRecord {
 }
 
 export interface FundingForecastRecord {
+  _id?: string;
   amountCents: number;
   drawKey: string;
   label: string;
@@ -1076,7 +1077,13 @@ function FuturePlannedDraws({
       ) : null}
       <div className="mt-3 divide-y border-y">
         {draws.map((draw) => (
-          <article className="py-3" key={draw.drawKey}>
+          <article
+            className="py-3"
+            data-collaboration-focus={
+              draw._id ? `draw:${draw._id}` : undefined
+            }
+            key={draw.drawKey}
+          >
             <div className="flex items-start justify-between gap-3">
               <p className="font-medium text-xs">{draw.label}</p>
               <p className="shrink-0 font-medium text-xs tabular-nums">
