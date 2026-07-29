@@ -14,6 +14,7 @@ import {
   filterMaterialPlanningActionsForPermissions,
 } from "#/features/builder-staff/app-permissions.ts";
 import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
+import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   getVisualParityActiveBuildDetail,
@@ -25,6 +26,7 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 type BuildDetailSearch = {
+  focus?: string;
   timeframe?: CalendarTimeframe;
   milestone?: string;
   tab?:
@@ -58,6 +60,7 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
         : undefined;
     const milestone =
       typeof search.milestone === "string" ? search.milestone : undefined;
+    const focus = normalizeBuildCollaborationFocus(search.focus);
     const rail =
       search.rail === "closed" || search.rail === "open"
         ? (search.rail as BuildDetailSearch["rail"])
@@ -71,6 +74,9 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     const out: BuildDetailSearch = {};
+    if (focus !== undefined) {
+      out.focus = focus;
+    }
     if (milestone !== undefined) {
       out.milestone = milestone;
     }
@@ -250,11 +256,11 @@ function RouteComponent() {
         : "skip"
   );
 
-  const onChangeTab = (tab: BuildDetailSubTab) =>
+  const onChangeTab = (tab: BuildDetailSubTab, focus?: string) =>
     navigate({
       to: "/backoffice/builds/$buildId",
       params: { buildId },
-      search: { ...search, tab },
+      search: { ...search, focus, tab },
       replace: true,
     });
 
@@ -787,6 +793,7 @@ function RouteComponent() {
           `/backoffice/contractors/${contractorId}`
         }
         detail={detail}
+        focusedReference={search.focus}
         fundingWorkspaceEnabled
         milestoneKey={search.milestone}
         onChangeCalendarTimeframe={onChangeCalendarTimeframe}
@@ -798,6 +805,11 @@ function RouteComponent() {
           visualFixtureEnabled ? undefined : (
             <BuilderStaffPermissionsPanel
               buildId={activeBuildId as Id<"activeBuilds">}
+              initialSelectedWorkosUserId={
+                search.focus?.startsWith("participant:")
+                  ? search.focus.slice("participant:".length)
+                  : undefined
+              }
               scope="activeBuild"
               workosOrganizationId={workosOrganizationId}
             />

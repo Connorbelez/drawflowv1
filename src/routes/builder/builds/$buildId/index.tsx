@@ -25,6 +25,7 @@ import {
   BuilderStaffPermissionsPanel,
   type StaffDirectory,
 } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
+import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   getVisualParityActiveBuildDetail,
@@ -36,6 +37,7 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 export type BuilderBuildSearch = {
+  focus?: string;
   timeframe?: CalendarTimeframe;
   milestone?: string;
   variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant;
@@ -142,6 +144,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
         : undefined;
     const milestone =
       typeof search.milestone === "string" ? search.milestone : undefined;
+    const focus = normalizeBuildCollaborationFocus(search.focus);
     const variant =
       search.variant === "ledger" ||
       search.variant === "console" ||
@@ -164,6 +167,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     return {
+      ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
       ...(rail ? { rail } : {}),
@@ -445,11 +449,11 @@ export function BuilderBuildWorkspaceRoute({
     (api as any).production_proposals.createActiveBuildTimelineEvidenceAsset
   );
 
-  const onChangeTab = (tab: BuildDetailSubTab) =>
+  const onChangeTab = (tab: BuildDetailSubTab, focus?: string) =>
     navigate({
       params: { buildId },
       replace: true,
-      search: { ...search, tab },
+      search: { ...search, focus, tab },
       to: `${routeBase}/builds/$buildId`,
     } as never);
   const onChangeRail = (rail: "open" | "closed") =>
@@ -818,6 +822,7 @@ export function BuilderBuildWorkspaceRoute({
             : undefined
         }
         detail={detail}
+        focusedReference={search.focus}
         fundingWorkspaceEnabled
         milestoneKey={
           milestoneStartPrototypeEnabled
@@ -842,6 +847,11 @@ export function BuilderBuildWorkspaceRoute({
                   : undefined
               }
               scope="activeBuild"
+              initialSelectedWorkosUserId={
+                search.focus?.startsWith("participant:")
+                  ? search.focus.slice("participant:".length)
+                  : undefined
+              }
               workosOrganizationId={workosOrganizationId}
             />
           ) : undefined

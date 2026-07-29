@@ -31,7 +31,17 @@ vi.mock("convex/react", () => ({
       },
       {
         acknowledgement: { acknowledged: false, required: false },
-        actionItems: [],
+        actionItems: [
+          {
+            _id: "action-1",
+            assignmentState: "unassigned",
+            currentRevision: 1,
+            priority: "high",
+            requiresAcceptance: false,
+            status: "todo",
+            title: "Upload engineer seal",
+          },
+        ],
         following: true,
         kind: "post",
         pins: [],
@@ -195,6 +205,25 @@ describe("BuildCollaborationFeed", () => {
       entityKind: "evidenceAsset",
       href: "/backoffice/builds/build-1?tab=evidence&evidence=evidence-1",
     });
+  });
+
+  test("opens the containing Action Items tab for a focused Action Item", async () => {
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="actionItem:action-1"
+        organizationId="org-1"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("Upload engineer seal")).toBeTruthy(),
+    );
+    expect(
+      document.querySelector(
+        '[data-collaboration-focus="actionItem:action-1"]',
+      ),
+    ).toBeTruthy();
   });
 
   test("shows the complete effective bundle before a human approves an agent draft", async () => {

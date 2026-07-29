@@ -8,10 +8,12 @@ import { BuildCollaborationFeed } from "./BuildCollaborationFeed.tsx";
 
 export function BuildCollaborationWorkspace({
   buildId,
+  focusedReference,
   organizationId,
   onOpenReference,
 }: {
   buildId: string;
+  focusedReference?: string;
   organizationId?: string;
   onOpenReference?: (reference: {
     entityId: string;
@@ -54,6 +56,7 @@ export function BuildCollaborationWorkspace({
   return (
     <BuildCollaborationFeed
       buildId={buildId}
+      focusedReference={focusedReference}
       onOpenReference={onOpenReference}
       organizationId={organizationId}
     />

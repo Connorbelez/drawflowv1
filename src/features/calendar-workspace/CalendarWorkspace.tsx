@@ -67,6 +67,7 @@ export interface CalendarWorkspaceProps {
   actions?: CalendarAction[];
   assignableParticipants?: CalendarAssignableParticipant[];
   className?: string;
+  initialSelectedEventId?: string;
   initialTimeframe?: CalendarTimeframe;
   onCommitEdit?: (request: CalendarEditRequest) => Promise<unknown> | unknown;
   onCreateReminderEvent?: (
@@ -117,6 +118,7 @@ export function CalendarWorkspace({
   actions = [],
   assignableParticipants = [],
   className,
+  initialSelectedEventId,
   initialTimeframe,
   onCommitEdit,
   onCreateReminderEvent,
@@ -134,7 +136,9 @@ export function CalendarWorkspace({
   );
   const [filters, setFilters] = useState<CalendarFilters>({});
   const [selectedDate, setSelectedDate] = useState<string | undefined>();
-  const [selectedEventId, setSelectedEventId] = useState<string | undefined>();
+  const [selectedEventId, setSelectedEventId] = useState<string | undefined>(
+    initialSelectedEventId
+  );
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
   const [pendingEdit, setPendingEdit] = useState<CalendarEditRequest | null>(
     null
@@ -166,6 +170,15 @@ export function CalendarWorkspace({
       setTimeframe(initialTimeframe);
     }
   }, [initialTimeframe]);
+
+  useEffect(() => {
+    if (
+      initialSelectedEventId &&
+      workspace?.events.some((event) => event.id === initialSelectedEventId)
+    ) {
+      setSelectedEventId(initialSelectedEventId);
+    }
+  }, [initialSelectedEventId, workspace?.events]);
 
   useEffect(() => {
     if (

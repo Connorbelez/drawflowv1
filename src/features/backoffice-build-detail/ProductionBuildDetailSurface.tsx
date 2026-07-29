@@ -786,6 +786,7 @@ export function ProductionBuildDetailSurface({
   breadcrumbSectionHref = "/backoffice/builds",
   breadcrumbSectionLabel = "Builds",
   detail,
+  focusedReference,
   fundingWorkspaceEnabled = false,
   milestoneKey,
   onChangeMilestone,
@@ -807,6 +808,7 @@ export function ProductionBuildDetailSurface({
   calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   contractorDetailHrefFor?: (contractorId: string) => string;
   detail: ProductionBuildDetail;
+  focusedReference?: string;
   fundingWorkspaceEnabled?: boolean;
   breadcrumbRootHref?: string;
   breadcrumbRootLabel?: string;
@@ -816,7 +818,7 @@ export function ProductionBuildDetailSurface({
   onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeMilestone?: (milestoneKey?: string) => void;
   onChangeRail: (rail: "open" | "closed") => void;
-  onChangeTab: (tab: BuildDetailSubTab) => void;
+  onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
   /** PROTOTYPE — exposes the real trigger for planned milestones before the production state model changes. */
   prototypeMilestoneStartTrigger?: boolean;
   rail?: "open" | "closed";
@@ -846,6 +848,13 @@ export function ProductionBuildDetailSurface({
   } | null>(null);
   const [siteVisitOrderRequest, setSiteVisitOrderRequest] =
     useState<SiteVisitOrderRequest | null>(null);
+  const [localFocusedReference, setLocalFocusedReference] = useState<
+    string | undefined
+  >(focusedReference);
+  const effectiveFocusedReference = localFocusedReference ?? focusedReference;
+  useEffect(() => {
+    setLocalFocusedReference(focusedReference);
+  }, [focusedReference]);
   const activeMilestoneKey = milestoneKey ?? localActiveMilestoneKey;
   const activeMilestone = activeMilestoneKey
     ? (projection.milestones.find(
@@ -856,6 +865,24 @@ export function ProductionBuildDetailSurface({
     setLocalActiveMilestoneKey(next);
     onChangeMilestone?.(next ?? undefined);
   };
+  useEffect(() => {
+    if (focusedReference?.startsWith("milestone:")) {
+      const entityId = focusedReference.slice("milestone:".length);
+      setLocalActiveMilestoneKey(
+        detail.milestones.find((milestone) => milestone._id === entityId)
+          ?.key ?? null
+      );
+      return;
+    }
+    if (focusedReference?.startsWith("submilestone:")) {
+      const entityId = focusedReference.slice("submilestone:".length);
+      setLocalActiveMilestoneKey(
+        detail.submilestones.find(
+          (submilestone) => submilestone._id === entityId
+        )?.milestoneKey ?? null
+      );
+    }
+  }, [detail.milestones, detail.submilestones, focusedReference]);
   const sheetData = useMemo(() => {
     const data = activeMilestoneKey
       ? buildMilestoneSheetData(
@@ -914,6 +941,61 @@ export function ProductionBuildDetailSurface({
     });
   };
 
+  useEffect(() => {
+    if (!effectiveFocusedReference) {
+      return;
+    }
+    const focusKind = effectiveFocusedReference.slice(
+      0,
+      effectiveFocusedReference.indexOf(":")
+    );
+    if (
+      focusKind === "draw" ||
+      focusKind === "milestone" ||
+      focusKind === "siteVisit" ||
+      focusKind === "submilestone"
+    ) {
+      return;
+    }
+    let cancelled = false;
+    let attempts = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const focusTarget = () => {
+      if (cancelled) {
+        return;
+      }
+      const target = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-collaboration-focus]")
+      ).find(
+        (candidate) =>
+          candidate.dataset.collaborationFocus === effectiveFocusedReference
+      );
+      if (!target) {
+        attempts += 1;
+        if (attempts < 40) {
+          retryTimer = setTimeout(focusTarget, 80);
+        }
+        return;
+      }
+      target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      target.dataset.collaborationFocused = "true";
+      target.classList.add("ring-2", "ring-primary", "ring-offset-2");
+      retryTimer = setTimeout(() => {
+        delete target.dataset.collaborationFocused;
+        target.classList.remove("ring-2", "ring-primary", "ring-offset-2");
+      }, 1800);
+    };
+    retryTimer = setTimeout(focusTarget, 0);
+    return () => {
+      cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+    };
+  }, [activeTab, effectiveFocusedReference]);
+
   return (
     <main
       className="min-h-[calc(100vh-4rem)] min-w-0 bg-muted/30 px-2"
@@ -945,8 +1027,10 @@ export function ProductionBuildDetailSurface({
               actions={actions}
               currentDay={currentDay}
               detail={detail}
+              focusedReference={effectiveFocusedReference}
               fundingWorkspaceEnabled={fundingWorkspaceEnabled}
               onChangeTab={onChangeTab}
+              onFocusReference={setLocalFocusedReference}
               onOpenMilestone={setActiveMilestoneKey}
               projection={projection}
               viewerRole={viewerRole}
@@ -997,6 +1081,7 @@ export function ProductionBuildDetailSurface({
             <ProductionEvidenceTab
               actions={actions}
               detail={detail}
+              focusedReference={effectiveFocusedReference}
               onOpenMilestone={(milestoneKey) =>
                 setActiveMilestoneKey(milestoneKey)
               }
@@ -1007,6 +1092,7 @@ export function ProductionBuildDetailSurface({
             <ProductionBuildMaterialsTab
               actions={actions?.materialPlanning}
               detail={detail}
+              focusedReference={effectiveFocusedReference}
             />
           ) : null}
           {activeTab === "staff" ? staff : null}
@@ -1016,6 +1102,7 @@ export function ProductionBuildDetailSurface({
               calendarTimeframe={calendarTimeframe}
               calendarWorkspace={calendarWorkspace}
               detail={detail}
+              focusedReference={effectiveFocusedReference}
               onChangeCalendarTimeframe={onChangeCalendarTimeframe}
               onChangeTab={onChangeTab}
               onRequestSiteVisit={requestSiteVisit}
@@ -1289,8 +1376,10 @@ function ProductionDetailsTab({
   actions,
   currentDay,
   detail,
+  focusedReference,
   fundingWorkspaceEnabled,
   onChangeTab,
+  onFocusReference,
   onOpenMilestone,
   projection,
   viewerRole,
@@ -1299,8 +1388,10 @@ function ProductionDetailsTab({
   actions?: ProductionBuildDetailActions;
   currentDay: number;
   detail: ProductionBuildDetail;
+  focusedReference?: string;
   fundingWorkspaceEnabled: boolean;
-  onChangeTab: (tab: BuildDetailSubTab) => void;
+  onChangeTab: (tab: BuildDetailSubTab, focus?: string) => void;
+  onFocusReference: (focus?: string) => void;
   onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
   viewerRole: "builder" | "lender";
@@ -1308,6 +1399,11 @@ function ProductionDetailsTab({
 }) {
   const [activeOverviewSection, setActiveOverviewSection] =
     useState<BuildOverviewSection>("current");
+  useEffect(() => {
+    if (focusedReference?.startsWith("draw:")) {
+      setActiveOverviewSection("draws");
+    }
+  }, [focusedReference]);
 
   return (
     <div className="flex flex-col gap-4" data-testid="production-build-details">
@@ -1349,7 +1445,10 @@ function ProductionDetailsTab({
       >
         <BuildCollaborationWorkspace
           buildId={detail.build._id}
+          focusedReference={focusedReference}
           onOpenReference={(reference) => {
+            const nextFocus = `${reference.entityKind}:${reference.entityId}`;
+            onFocusReference(nextFocus);
             window.history.replaceState(
               window.history.state,
               "",
@@ -1391,7 +1490,7 @@ function ProductionDetailsTab({
             };
             const tab = tabByKind[reference.entityKind];
             if (tab) {
-              onChangeTab(tab);
+              onChangeTab(tab, nextFocus);
             }
           }}
           organizationId={workosOrganizationId}
@@ -4847,6 +4946,7 @@ function ProductionDocumentsCard({
             {documents.map((document) => (
               <li
                 className="flex flex-col items-start gap-1 rounded-md border border-border bg-background/40 p-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+                data-collaboration-focus={`document:${document._id}`}
                 data-testid={`build-detail-document-${document._id}`}
                 key={document._id}
               >
@@ -5232,11 +5332,13 @@ function ProductionTimelineTab({
 function ProductionEvidenceTab({
   actions,
   detail,
+  focusedReference,
   onOpenMilestone,
   projection,
 }: {
   actions?: ProductionBuildDetailActions;
   detail: ProductionBuildDetail;
+  focusedReference?: string;
   onOpenMilestone: (milestoneKey: string) => void;
   projection: ProductionBuildProjection;
 }) {
@@ -5301,12 +5403,14 @@ function ProductionEvidenceTab({
         <EvidenceSourcePanel
           actions={actions}
           emptyLabel="No builder-submitted milestone evidence yet."
+          focusedReference={focusedReference}
           onOpenMilestone={onOpenMilestone}
           rows={builderEvidence}
           title="Builder Submitted Evidence"
         />
         <EvidenceSourcePanel
           emptyLabel="No completed site visits yet."
+          focusedReference={focusedReference}
           onOpenMilestone={onOpenMilestone}
           rows={completedSiteVisits}
           title="Completed Site Visits"
@@ -5339,12 +5443,14 @@ function EvidenceSummaryStat({
 function EvidenceSourcePanel({
   actions,
   emptyLabel,
+  focusedReference,
   onOpenMilestone,
   rows,
   title,
 }: {
   actions?: ProductionBuildDetailActions;
   emptyLabel: string;
+  focusedReference?: string;
   onOpenMilestone: (milestoneKey: string) => void;
   rows: ProductionEvidenceRow[];
   title: string;
@@ -5360,6 +5466,22 @@ function EvidenceSourcePanel({
     }
     setExpandedRowId(rows[0]?.id ?? null);
   }, [expandedRowId, rows]);
+
+  useEffect(() => {
+    if (!focusedReference) {
+      return;
+    }
+    const focusedRow = rows.find((row) =>
+      row.assets.some(
+        (asset) =>
+          focusedReference === `evidenceAsset:${asset._id}` ||
+          focusedReference === `evidencePackage:${asset.evidenceKey}`
+      )
+    );
+    if (focusedRow) {
+      setExpandedRowId(focusedRow.id);
+    }
+  }, [focusedReference, rows]);
 
   const reviewEvidence = async (
     row: ProductionEvidenceRow,
@@ -5609,9 +5731,15 @@ function EvidenceAssetTile({ asset }: { asset: ProductionEvidenceAsset }) {
   return (
     <div
       className="min-w-0 rounded-lg border bg-card p-3"
+      data-collaboration-focus={
+        asset._id ? `evidenceAsset:${asset._id}` : undefined
+      }
       data-testid={`production-evidence-asset-${asset.evidenceKey}`}
     >
-      <div className="overflow-hidden rounded-md border bg-background">
+      <div
+        className="overflow-hidden rounded-md border bg-background"
+        data-collaboration-focus={`evidencePackage:${asset.evidenceKey}`}
+      >
         <EvidenceAssetPreview asset={asset} canOpenAsset={canOpenAsset} />
       </div>
       <div className="mt-3 min-w-0">
@@ -5864,9 +5992,11 @@ function EvidenceAssetPreview({
 function ProductionBuildMaterialsTab({
   actions,
   detail,
+  focusedReference,
 }: {
   actions?: MaterialPlanningActions;
   detail: ProductionBuildDetail;
+  focusedReference?: string;
 }) {
   const submilestonesByMilestone = new Map<string, ProductionSubmilestone[]>();
   for (const submilestone of detail.submilestones) {
@@ -5902,6 +6032,11 @@ function ProductionBuildMaterialsTab({
       milestones={milestones}
       panelLayout="stacked"
       readOnly={!actions}
+      focusedItemId={
+        focusedReference?.startsWith("material:")
+          ? focusedReference.slice("material:".length)
+          : undefined
+      }
       scopeLabel="Active Build"
     />
   );
@@ -5912,6 +6047,7 @@ function ProductionCalendarTab({
   calendarTimeframe,
   calendarWorkspace,
   detail,
+  focusedReference,
   onChangeCalendarTimeframe,
   onChangeTab,
   onRequestSiteVisit,
@@ -5921,6 +6057,7 @@ function ProductionCalendarTab({
   calendarTimeframe?: CalendarTimeframe;
   calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   detail: ProductionBuildDetail;
+  focusedReference?: string;
   onChangeCalendarTimeframe?: (timeframe: CalendarTimeframe) => void;
   onChangeTab: (tab: BuildDetailSubTab) => void;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
@@ -6021,6 +6158,16 @@ function ProductionCalendarTab({
       }),
     [calendarWorkspace, detail, workosOrganizationId]
   );
+  const focusedSiteVisitEventId = useMemo(() => {
+    if (!focusedReference?.startsWith("siteVisit:")) {
+      return;
+    }
+    const siteVisitId = focusedReference.slice("siteVisit:".length);
+    const visit = detail.siteVisits?.find(
+      (candidate) => candidate._id === siteVisitId
+    );
+    return visit ? `activeBuild:siteVisit:${visit.visitId}` : undefined;
+  }, [detail.siteVisits, focusedReference]);
   const calendarActions = useMemo(
     () =>
       buildActiveBuildCalendarActions(adapterActions, {
@@ -6041,6 +6188,7 @@ function ProductionCalendarTab({
     <div data-testid="production-build-calendar">
       <CalendarWorkspace
         actions={calendarActions}
+        initialSelectedEventId={focusedSiteVisitEventId}
         initialTimeframe={
           calendarTimeframe ?? effectiveWorkspace.defaultTimeframe
         }

@@ -1157,6 +1157,28 @@ describe("ProductionBuildDetailSurface", () => {
     ).toContain("Upcoming foundation reimbursement");
   });
 
+  test("restores a collaboration-linked draw in the Draws overview", async () => {
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        focusedReference="draw:draw-01"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId("build-overview-tab-draws")
+          .getAttribute("aria-selected"),
+      ).toBe("true"),
+    );
+    expect(screen.getByTestId("draw-overview-scheduled-draws")).toBeTruthy();
+  });
+
   test("runs lender draw actions from the current overview active draw requests", async () => {
     const approveDraw = vi.fn().mockResolvedValue(null);
     const releaseDraw = vi.fn().mockResolvedValue(null);
@@ -2246,6 +2268,34 @@ describe("ProductionBuildDetailSurface", () => {
         .getByTestId("build-detail-document-document-01-view")
         .getAttribute("href"),
     ).toBe("https://example.com/build-permit.pdf");
+  });
+
+  test("focuses and highlights a collaboration-linked document", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="documents"
+        detail={detail}
+        focusedReference="document:document-01"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />,
+    );
+
+    const documentRow = screen.getByTestId(
+      "build-detail-document-document-01",
+    );
+    await waitFor(() => expect(document.activeElement).toBe(documentRow));
+    expect(documentRow.dataset.collaborationFocused).toBe("true");
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "center",
+    });
   });
 
   test("submits and reviews active build facility change requests", async () => {

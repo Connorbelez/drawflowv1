@@ -105,6 +105,7 @@ interface MaterialPlanningTabProps {
   budgetTreatmentEnabled?: boolean;
   defaultBudgetSubmilestoneKey?: string;
   defaultBudgetTreatment?: MaterialPlanningBudgetTreatment;
+  focusedItemId?: string;
   items: MaterialPlanningItem[];
   lockBudgetTreatment?: boolean;
   milestones: MaterialPlanningMilestone[];
@@ -145,6 +146,7 @@ export function MaterialPlanningTab({
   budgetTreatmentEnabled = false,
   defaultBudgetSubmilestoneKey,
   defaultBudgetTreatment = "logOnly",
+  focusedItemId,
   items,
   lockBudgetTreatment = false,
   panelLayout = "auto",
@@ -196,6 +198,15 @@ export function MaterialPlanningTab({
     }
     return grouped;
   }, [items]);
+  useEffect(() => {
+    if (!focusedItemId) {
+      return;
+    }
+    const focusedItem = items.find((item) => item._id === focusedItemId);
+    if (focusedItem) {
+      setSelectedMilestoneKey(focusedItem.milestoneKey);
+    }
+  }, [focusedItemId, items]);
   const summary = useMemo(() => summarizeItems(items), [items]);
   const selectedMilestone =
     milestoneByKey.get(selectedMilestoneKey) ?? sortedMilestones[0];
@@ -1156,7 +1167,11 @@ function MaterialItemCard({
     : undefined;
 
   return (
-    <Card className="overflow-hidden" data-testid="material-planning-item-card">
+    <Card
+      className="overflow-hidden"
+      data-collaboration-focus={`material:${item._id}`}
+      data-testid="material-planning-item-card"
+    >
       <CardHeader className="gap-3 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

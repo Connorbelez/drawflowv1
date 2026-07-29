@@ -1821,6 +1821,49 @@ describe("Build collaboration canonical reference authorization", () => {
     expect(
       contractorOptions.some((option: any) => option.entityKind === "draw"),
     ).toBe(false);
+    expect(
+      contractorOptions.some(
+        (option: any) => option.entityKind === "actionItem",
+      ),
+    ).toBe(false);
+    await expect(
+      contractor.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        {
+          actionItems: [],
+          audienceMode: "author_tier_and_higher",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "Attempt to disclose a hidden Action Item.",
+          postType: "update",
+          references: [
+            {
+              entityId: entities.actionItemId,
+              entityKind: "actionItem",
+              label: "Forged Action Item",
+            },
+          ],
+          requestedReaderIds: [],
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [
+                  {
+                    text: "Attempt to disclose a hidden Action Item.",
+                    type: "text",
+                  },
+                ],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        },
+      ),
+    ).rejects.toThrow(
+      "The referenced entity is not readable by every publication reader.",
+    );
 
     const homeowner = withIdentity(fixture.base, {
       roles: ["homeowner"],

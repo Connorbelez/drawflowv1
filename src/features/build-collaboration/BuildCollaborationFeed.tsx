@@ -91,10 +91,12 @@ import {
 
 export function BuildCollaborationFeed({
   buildId,
+  focusedReference: focusedEntityReference,
   organizationId,
   onOpenReference,
 }: {
   buildId: string;
+  focusedReference?: string;
   organizationId?: string;
   onOpenReference?: (reference: {
     entityId: string;
@@ -731,6 +733,7 @@ export function BuildCollaborationFeed({
             <CollaborationPostCard
               buildId={activeBuildId}
               entry={entry}
+              focusedReference={focusedEntityReference}
               key={entry.post._id}
               onFocusReference={setFocusedReference}
               organizationId={organizationId}
@@ -867,6 +870,7 @@ export function BuildCollaborationFeed({
 function CollaborationPostCard({
   buildId,
   entry,
+  focusedReference,
   onFocusReference,
   organizationId,
   referenceByKey,
@@ -874,6 +878,7 @@ function CollaborationPostCard({
 }: {
   buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
+  focusedReference?: string;
   onFocusReference: (reference: FocusedReference) => void;
   organizationId: string;
   referenceByKey: Map<string, ReferenceOption>;
@@ -917,6 +922,17 @@ function CollaborationPostCard({
     api.build_collaboration_acknowledgements.acknowledgeBuildCollaborationPost
   );
   const [submittingReply, setSubmittingReply] = useState(false);
+
+  useEffect(() => {
+    if (
+      focusedReference?.startsWith("actionItem:") &&
+      entry.actionItems.some(
+        (item) => item._id === focusedReference.slice("actionItem:".length)
+      )
+    ) {
+      setTab("actions");
+    }
+  }, [entry.actionItems, focusedReference]);
 
   useEffect(() => {
     markViewed({

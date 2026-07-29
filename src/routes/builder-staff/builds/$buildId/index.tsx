@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import {
   type BuilderBuildSearch,
   BuilderBuildWorkspaceRoute,
@@ -20,6 +21,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
         : undefined;
     const milestone =
       typeof search.milestone === "string" ? search.milestone : undefined;
+    const focus = normalizeBuildCollaborationFocus(search.focus);
     const rail =
       search.rail === "closed" || search.rail === "open"
         ? (search.rail as BuilderBuildSearch["rail"])
@@ -33,6 +35,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     return {
+      ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
       ...(rail ? { rail } : {}),

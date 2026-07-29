@@ -452,10 +452,12 @@ async function resolveActionItemReference(
     input.authorization
   );
   const post = await ctx.db.get(item.originatingPostId);
-  if (
-    !post ||
-    input.readers.some((reader) => !canParticipantReadPost(ctx, post, reader))
-  ) {
+  const readerAccess = post
+    ? await Promise.all(
+        input.readers.map((reader) => canParticipantReadPost(ctx, post, reader))
+      )
+    : [];
+  if (!post || readerAccess.includes(false)) {
     throw incompatibleReference();
   }
   return {

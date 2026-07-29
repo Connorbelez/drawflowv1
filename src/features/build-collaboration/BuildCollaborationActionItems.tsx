@@ -119,7 +119,10 @@ function ActionItemCard({
   };
 
   return (
-    <Card className="rounded-xl">
+    <Card
+      className="rounded-xl"
+      data-collaboration-focus={`actionItem:${item._id}`}
+    >
       <CardPanel className="space-y-2 p-3">
         <div className="flex items-start justify-between gap-2">
           <p className="font-medium text-sm">{item.title}</p>
