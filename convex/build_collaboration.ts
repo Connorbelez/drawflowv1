@@ -302,6 +302,9 @@ export const listBuildCollaborationFeed = authenticatedQuery
       .paginate(args.paginationOpts);
     const page = await Promise.all(
       result.page.map(async (post, index) => {
+        const placeholderKey = stableContentHash(
+          `${args.paginationOpts.cursor ?? "initial"}:${index}`
+        );
         const canRead = await canReadCollaborationPost(
           ctx,
           authorization,
@@ -310,7 +313,7 @@ export const listBuildCollaborationFeed = authenticatedQuery
         if (!canRead) {
           return {
             kind: "restricted" as const,
-            placeholderKey: `restricted-${index}`,
+            placeholderKey: `restricted-${placeholderKey}`,
           };
         }
         const revision = post.currentRevisionId
@@ -319,7 +322,7 @@ export const listBuildCollaborationFeed = authenticatedQuery
         if (!revision || revision.postId !== post._id) {
           return {
             kind: "unavailable" as const,
-            placeholderKey: `unavailable-${index}`,
+            placeholderKey: `unavailable-${placeholderKey}`,
           };
         }
         const [

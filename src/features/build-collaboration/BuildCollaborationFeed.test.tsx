@@ -16,7 +16,11 @@ vi.mock("convex/react", () => ({
     results: [
       {
         kind: "restricted",
-        placeholderKey: "restricted-0",
+        placeholderKey: "restricted-first-page-0",
+      },
+      {
+        kind: "restricted",
+        placeholderKey: "restricted-second-page-0",
       },
       {
         acknowledgement: { acknowledged: false, required: false },
@@ -130,6 +134,9 @@ afterEach(() => {
 
 describe("BuildCollaborationFeed", () => {
   test("keeps restricted posts opaque and filters to followed threads", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     render(
       <BuildCollaborationFeed
         buildId="build-1"
@@ -137,7 +144,7 @@ describe("BuildCollaborationFeed", () => {
       />,
     );
 
-    expect(screen.getByText("Restricted update")).toBeTruthy();
+    expect(screen.getAllByText("Restricted update")).toHaveLength(2);
     expect(
       screen.queryByText(/Alex Chen.*restricted/i),
     ).toBeNull();
@@ -148,6 +155,8 @@ describe("BuildCollaborationFeed", () => {
       screen.getByText("Foundation evidence is ready for review."),
     ).toBeTruthy();
     expect(screen.queryByText("Restricted update")).toBeNull();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   test("opens a typed reference preview and routes its focused workspace", () => {

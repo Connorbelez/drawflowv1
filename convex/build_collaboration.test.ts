@@ -431,7 +431,7 @@ describe("Build collaboration publication and feed", () => {
     expect(feed.page).toEqual([
       {
         kind: "restricted",
-        placeholderKey: "restricted-0",
+        placeholderKey: "restricted-djb2-e64cc199",
       },
     ]);
     expect(JSON.stringify(feed.page)).not.toContain("Lender");
