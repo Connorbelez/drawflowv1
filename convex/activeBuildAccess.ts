@@ -79,17 +79,13 @@ export async function authorizeActiveBuildAccess(
       query.eq("buildId", build._id).eq("status", "active")
     )
     .take(500);
-  const viewerParticipationHistory = await ctx.db
+  const latestViewerParticipation = await ctx.db
     .query("buildParticipants")
-    .withIndex("by_buildId_and_workosUserId", (query) =>
+    .withIndex("by_buildId_and_workosUserId_and_participationPeriod", (query) =>
       query.eq("buildId", build._id).eq("workosUserId", ctx.viewer.subject)
     )
-    .take(100);
-  const latestViewerParticipation = viewerParticipationHistory.sort(
-    (left, right) =>
-      right.participationPeriod - left.participationPeriod ||
-      right.updatedAt - left.updatedAt
-  )[0];
+    .order("desc")
+    .first();
   if (
     latestViewerParticipation?.status === "removed" &&
     !viewerRoles.includes("admin") &&
@@ -97,11 +93,10 @@ export async function authorizeActiveBuildAccess(
   ) {
     throw new Error("Forbidden: active build participation revoked");
   }
-  const viewerGrant = grantedParticipants
-    .filter((participant) => participant.workosUserId === ctx.viewer.subject)
-    .sort(
-      (left, right) => right.participationPeriod - left.participationPeriod
-    )[0];
+  const viewerGrant =
+    latestViewerParticipation?.status === "active"
+      ? latestViewerParticipation
+      : undefined;
   await requireOrganizationAccess(ctx, {
     hasActiveBuildGrant: Boolean(viewerGrant),
     organizationId,

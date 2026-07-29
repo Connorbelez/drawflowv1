@@ -10,7 +10,6 @@ export const roleSlugs = [
   "broker-staff",
   "builder",
   "builder-staff",
-  "homeowner",
   "contractor",
 ] as const;
 
@@ -53,7 +52,6 @@ const roleAliases: Record<string, RoleSlug> = {
   builder: "builder",
   "builder-staff": "builder-staff",
   builder_staff: "builder-staff",
-  homeowner: "homeowner",
   contractor: "contractor",
   member: "member",
 };

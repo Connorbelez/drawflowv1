@@ -1,0 +1,20 @@
+{
+  "personas": [
+    {
+      "actionItemText": "Shared Build action",
+      "buildUrl": "/backoffice/builds/ACTIVE_BUILD_ID?tab=details&focus=actionItem:ACTION_ITEM_ID",
+      "expectRestricted": false,
+      "externalOrganization": false,
+      "grantOnly": false,
+      "referenceLabel": "Foundation and footings",
+      "role": "admin",
+      "storageState": "playwright/.auth/admin.json",
+      "visiblePostText": "Visible to every Build participant."
+    }
+  ],
+  "revocation": {
+    "controlToken": "replace-with-one-time-control-token",
+    "controlUrl": "https://replace.invalid/e2e/remove-participant",
+    "role": "homeowner"
+  }
+}

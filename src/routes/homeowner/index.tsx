@@ -9,10 +9,9 @@ export const Route = createFileRoute("/homeowner/")({
 });
 
 function HomeownerBuilds() {
-  const { organizationId } = Route.useRouteContext();
   const participations = useQuery(
     api.build_participants.listMyActiveBuildParticipations,
-    organizationId ? { organizationId } : "skip"
+    {}
   );
 
   return (

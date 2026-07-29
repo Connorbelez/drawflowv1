@@ -11,6 +11,7 @@ import {
 } from "#/features/backoffice-build-detail/MilestoneStartDialog.tsx";
 import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import { normalizeRoleSlugs } from "#/lib/auth/rbac.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -67,9 +68,27 @@ interface ContractorPermitDocument {
 export function ContractorBuildDetail() {
   const { buildId } = Route.useParams();
   const { assignmentId, focus } = Route.useSearch();
-  const detail = useQuery(api.contractorWorkspace.getContractorBuildDetail, {
-    buildId: buildId as Id<"activeBuilds">,
-  });
+  const routeContext = Route.useRouteContext();
+  const roles = normalizeRoleSlugs([
+    routeContext.role,
+    ...(routeContext.roles ?? []),
+  ]);
+  const hasContractorWorkspaceRole = roles.includes("contractor");
+  const participationScope = useQuery(
+    api.build_participants.getMyBuildParticipationScope,
+    {
+      buildId: buildId as Id<"activeBuilds">,
+      organizationId: routeContext.organizationId ?? undefined,
+    }
+  );
+  const detail = useQuery(
+    api.contractorWorkspace.getContractorBuildDetail,
+    hasContractorWorkspaceRole
+      ? {
+          buildId: buildId as Id<"activeBuilds">,
+        }
+      : "skip"
+  );
   const acknowledge = useMutation(
     api.contractorEvidence.acknowledgeContractorAssignment
   );
@@ -94,7 +113,10 @@ export function ContractorBuildDetail() {
     scope: ContractorScope;
   } | null>(null);
 
-  if (detail === undefined) {
+  if (
+    participationScope === undefined ||
+    (hasContractorWorkspaceRole && detail === undefined)
+  ) {
     return (
       <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
         <p className="text-muted-foreground text-sm">Loading build…</p>
@@ -102,25 +124,47 @@ export function ContractorBuildDetail() {
     );
   }
 
+  if (!hasContractorWorkspaceRole) {
+    return (
+      <ContractorCollaborationSurface
+        buildId={buildId}
+        buildName={participationScope.buildName}
+        focus={focus}
+        organizationId={participationScope.organizationId}
+      />
+    );
+  }
+
+  if (!detail) {
+    return null;
+  }
+
   if (!detail.build) {
     return (
-      <main className="grid min-h-svh place-items-center bg-muted/30 p-4 sm:p-6">
-        <Frame className="w-full max-w-lg">
-          <FramePanel className="space-y-4 p-5">
-            <div>
-              <p className="font-semibold">Assignment unavailable</p>
-              <p className="mt-1 text-muted-foreground text-sm">
-                {detail.availability.message}
+      <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+          <Frame>
+            <FramePanel className="space-y-4 p-5">
+              <div>
+                <p className="font-semibold">Assignment unavailable</p>
+                <p className="mt-1 text-muted-foreground text-sm">
+                  {detail.availability.message}
+                </p>
+              </div>
+              <p className="font-mono text-muted-foreground text-xs">
+                Support reference: {detail.availability.reference}
               </p>
-            </div>
-            <p className="font-mono text-muted-foreground text-xs">
-              Support reference: {detail.availability.reference}
-            </p>
-            <Button render={<Link to="/contractor/work" />} variant="outline">
-              Return to current work
-            </Button>
-          </FramePanel>
-        </Frame>
+              <Button render={<Link to="/contractor/work" />} variant="outline">
+                Return to current work
+              </Button>
+            </FramePanel>
+          </Frame>
+          <BuildCollaborationSection
+            buildId={buildId}
+            focus={focus}
+            organizationId={participationScope.organizationId}
+          />
+        </div>
       </main>
     );
   }
@@ -420,19 +464,11 @@ export function ContractorBuildDetail() {
             </Frame>
           </div>
         </div>
-        <section aria-labelledby="contractor-build-collaboration">
-          <h2
-            className="mb-3 font-semibold text-lg"
-            id="contractor-build-collaboration"
-          >
-            Build collaboration
-          </h2>
-          <BuildCollaborationWorkspace
-            buildId={buildId}
-            focusedReference={focus}
-            organizationId={detail.build.organizationId}
-          />
-        </section>
+        <BuildCollaborationSection
+          buildId={buildId}
+          focus={focus}
+          organizationId={participationScope.organizationId}
+        />
       </div>
       {startRequest ? (
         <MilestoneStartDialog
@@ -466,5 +502,61 @@ export function ContractorBuildDetail() {
         />
       ) : null}
     </main>
+  );
+}
+
+function ContractorCollaborationSurface({
+  buildId,
+  buildName,
+  focus,
+  organizationId,
+}: {
+  buildId: string;
+  buildName: string;
+  focus?: string;
+  organizationId: string;
+}) {
+  return (
+    <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+        <header>
+          <p className="text-muted-foreground text-xs uppercase">
+            Active build
+          </p>
+          <h1 className="mt-1 font-semibold text-2xl">{buildName}</h1>
+        </header>
+        <BuildCollaborationSection
+          buildId={buildId}
+          focus={focus}
+          organizationId={organizationId}
+        />
+      </div>
+    </main>
+  );
+}
+
+function BuildCollaborationSection({
+  buildId,
+  focus,
+  organizationId,
+}: {
+  buildId: string;
+  focus?: string;
+  organizationId: string;
+}) {
+  return (
+    <section aria-labelledby="contractor-build-collaboration">
+      <h2
+        className="mb-3 font-semibold text-lg"
+        id="contractor-build-collaboration"
+      >
+        Build collaboration
+      </h2>
+      <BuildCollaborationWorkspace
+        buildId={buildId}
+        focusedReference={focus}
+        organizationId={organizationId}
+      />
+    </section>
   );
 }

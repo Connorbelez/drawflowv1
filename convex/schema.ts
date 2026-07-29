@@ -3002,6 +3002,10 @@ export default defineSchema({
     removedAt: v.optional(v.number()),
     removedByWorkosUserId: v.optional(v.string()),
     removalReason: v.optional(v.string()),
+    revocationCleanupCompletedAt: v.optional(v.number()),
+    revocationCleanupStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("completed"))
+    ),
     validFrom: v.number(),
     validUntil: v.optional(v.number()),
     createdAt: v.number(),
@@ -3009,6 +3013,12 @@ export default defineSchema({
   })
     .index("by_buildId_and_status", ["buildId", "status"])
     .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"])
+    .index("by_buildId_and_workosUserId_and_participationPeriod", [
+      "buildId",
+      "workosUserId",
+      "participationPeriod",
+    ])
+    .index("by_workosUserId_and_status", ["workosUserId", "status"])
     .index("by_organizationId_and_workosUserId_and_status", [
       "organizationId",
       "workosUserId",

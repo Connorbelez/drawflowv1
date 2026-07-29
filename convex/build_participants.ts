@@ -8,17 +8,10 @@ import {
   buildCollaborationRoleValidator,
   buildParticipantStatusValidator,
 } from "./build_collaboration_validators";
-import type { Doc, Id, MutationCtx } from "./types";
+import { processParticipantRevocationCleanupBatch } from "./build_participant_revocation";
+import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
-const MAX_PARTICIPATION_PERIODS = 100;
 const MAX_PARTICIPANTS_PER_BUILD = 500;
-const ACTIVE_ACTION_ITEM_STATUSES = [
-  "todo",
-  "in_progress",
-  "in_review",
-  "blocked",
-] as const;
-
 const participantHistoryRowValidator = v.object({
   displayName: v.string(),
   invitedAt: v.number(),
@@ -36,24 +29,19 @@ const activeBuildParticipationValidator = v.object({
   buildName: v.string(),
   location: v.optional(v.string()),
   organizationId: v.string(),
-  participantId: v.id("buildParticipants"),
+  participantId: v.optional(v.id("buildParticipants")),
   role: buildCollaborationRoleValidator,
 });
 
 export const listMyActiveBuildParticipations = authenticatedQuery
-  .input({
-    organizationId: v.string(),
-  })
+  .input({})
   .returns(v.array(activeBuildParticipationValidator))
-  .handler(async (ctx, args) => {
+  .handler(async (ctx) => {
     requireHumanViewer(ctx.viewer);
     const participations = await ctx.db
       .query("buildParticipants")
-      .withIndex("by_organizationId_and_workosUserId_and_status", (query) =>
-        query
-          .eq("organizationId", args.organizationId)
-          .eq("workosUserId", ctx.viewer.subject)
-          .eq("status", "active")
+      .withIndex("by_workosUserId_and_status", (query) =>
+        query.eq("workosUserId", ctx.viewer.subject).eq("status", "active")
       )
       .take(MAX_PARTICIPANTS_PER_BUILD);
     const builds = await Promise.all(
@@ -61,9 +49,7 @@ export const listMyActiveBuildParticipations = authenticatedQuery
     );
     return participations.flatMap((participant, index) => {
       const build = builds[index];
-      return build &&
-        build.organizationId === args.organizationId &&
-        build.brokerageId === participant.brokerageId
+      return build && build.brokerageId === participant.brokerageId
         ? [
             {
               buildId: build._id,
@@ -76,6 +62,51 @@ export const listMyActiveBuildParticipations = authenticatedQuery
           ]
         : [];
     });
+  })
+  .public();
+
+export const getMyBuildParticipationScope = authenticatedQuery
+  .input({
+    buildId: v.id("activeBuilds"),
+    organizationId: v.optional(v.string()),
+  })
+  .returns(activeBuildParticipationValidator)
+  .handler(async (ctx, args) => {
+    requireHumanViewer(ctx.viewer);
+    const latest = await latestParticipantPeriod(
+      ctx,
+      args.buildId,
+      ctx.viewer.subject
+    );
+    if (latest?.status === "active") {
+      const build = await ctx.db.get(args.buildId);
+      if (!build || build.brokerageId !== latest.brokerageId) {
+        throw new Error("Build participation is unavailable.");
+      }
+      return {
+        buildId: build._id,
+        buildName: build.buildName,
+        location: build.location,
+        organizationId: build.organizationId,
+        participantId: latest._id,
+        role: latest.role,
+      };
+    }
+    if (!args.organizationId) {
+      throw new Error("Forbidden: active build participation");
+    }
+    const authorization = await authorizeActiveBuildCollaborationAccess(ctx, {
+      buildId: args.buildId,
+      organizationId: args.organizationId,
+    });
+    return {
+      buildId: authorization.build._id,
+      buildName: authorization.build.buildName,
+      location: authorization.build.location,
+      organizationId: authorization.organizationId,
+      participantId: latest?._id,
+      role: authorization.effectiveRole.role,
+    };
   })
   .public();
 
@@ -251,22 +282,16 @@ export const removeBuildParticipant = authenticatedMutation
       removedAt: now,
       removedByWorkosUserId: authorization.viewer.subject,
       removalReason: reason,
+      revocationCleanupStatus: "pending",
       status: "removed",
       updatedAt: now,
       validUntil: now,
     });
-    await revokeParticipantFollows(ctx, authorization.build._id, participant);
-    const unassignedActionItemIds = await unassignParticipantActionItems(ctx, {
-      authorization,
-      participant,
+    const cleanup = await processParticipantRevocationCleanupBatch(ctx, {
+      actorRole: authorization.effectiveRole.role,
+      actorWorkosUserId: authorization.viewer.subject,
+      participantId: participant._id,
       reason,
-      now,
-    });
-    await notifyParticipantRemovalCoordinators(ctx, {
-      actionItemIds: unassignedActionItemIds,
-      authorization,
-      participant,
-      now,
     });
     await recordParticipantAudit(ctx, {
       actorRoles: authorization.roles,
@@ -276,7 +301,8 @@ export const removeBuildParticipant = authenticatedMutation
       command: "removeBuildParticipant",
       eventType: "build.participant.removed",
       newState: JSON.stringify({
-        openActionItemsUnassigned: unassignedActionItemIds.length,
+        cleanupComplete: cleanup.complete,
+        openActionItemsUnassignedInInitialBatch: cleanup.actionItemCount,
         participationPeriod: participant.participationPeriod,
         status: "removed",
       }),
@@ -308,19 +334,11 @@ async function createParticipantInvitation(
   if (!workosUserId) {
     throw new Error("A WorkOS user is required.");
   }
-  const priorPeriods = await ctx.db
-    .query("buildParticipants")
-    .withIndex("by_buildId_and_workosUserId", (query) =>
-      query
-        .eq("buildId", input.authorization.build._id)
-        .eq("workosUserId", workosUserId)
-    )
-    .take(MAX_PARTICIPATION_PERIODS);
-  const latest = priorPeriods.sort(
-    (left, right) =>
-      right.participationPeriod - left.participationPeriod ||
-      right.updatedAt - left.updatedAt
-  )[0];
+  const latest = await latestParticipantPeriod(
+    ctx,
+    input.authorization.build._id,
+    workosUserId
+  );
   if (
     input.expectedPriorStatus &&
     latest?.status !== input.expectedPriorStatus
@@ -334,6 +352,7 @@ async function createParticipantInvitation(
         : "This participant already has an active invitation period."
     );
   }
+  await assertParticipantCapacity(ctx, input.authorization.build._id);
   const now = Date.now();
   const participantId = await ctx.db.insert("buildParticipants", {
     brokerageId: input.authorization.brokerage._id,
@@ -443,174 +462,39 @@ async function requireBuildScope(
 }
 
 async function latestParticipantPeriod(
-  ctx: MutationCtx,
+  ctx: MutationCtx | QueryCtx,
   buildId: Id<"activeBuilds">,
   workosUserId: string
 ) {
-  const periods = await ctx.db
+  return await ctx.db
     .query("buildParticipants")
-    .withIndex("by_buildId_and_workosUserId", (query) =>
+    .withIndex("by_buildId_and_workosUserId_and_participationPeriod", (query) =>
       query.eq("buildId", buildId).eq("workosUserId", workosUserId)
     )
-    .take(MAX_PARTICIPATION_PERIODS);
-  return periods.sort(
-    (left, right) =>
-      right.participationPeriod - left.participationPeriod ||
-      right.updatedAt - left.updatedAt
-  )[0];
+    .order("desc")
+    .first();
 }
 
-async function revokeParticipantFollows(
+async function assertParticipantCapacity(
   ctx: MutationCtx,
-  buildId: Id<"activeBuilds">,
-  participant: Doc<"buildParticipants">
+  buildId: Id<"activeBuilds">
 ) {
-  const follows = await ctx.db
-    .query("buildCollaborationFollows")
-    .withIndex("by_buildId_and_workosUserId_and_active", (query) =>
-      query
-        .eq("buildId", buildId)
-        .eq("workosUserId", participant.workosUserId)
-        .eq("active", true)
-    )
-    .take(500);
-  const now = Date.now();
-  await Promise.all(
-    follows.map((follow) =>
-      ctx.db.patch(follow._id, { active: false, updatedAt: now })
-    )
-  );
-}
-
-async function unassignParticipantActionItems(
-  ctx: MutationCtx,
-  input: {
-    authorization: Awaited<
-      ReturnType<typeof authorizeActiveBuildCollaborationAccess>
-    >;
-    now: number;
-    participant: Doc<"buildParticipants">;
-    reason: string;
-  }
-) {
-  const items = (
+  const current = (
     await Promise.all(
-      ACTIVE_ACTION_ITEM_STATUSES.map((status) =>
+      (["active", "invited"] as const).map((status) =>
         ctx.db
-          .query("buildActionItems")
-          .withIndex(
-            "by_buildId_and_assigneeWorkosUserId_and_status",
-            (query) =>
-              query
-                .eq("buildId", input.authorization.build._id)
-                .eq("assigneeWorkosUserId", input.participant.workosUserId)
-                .eq("status", status)
+          .query("buildParticipants")
+          .withIndex("by_buildId_and_status", (query) =>
+            query.eq("buildId", buildId).eq("status", status)
           )
-          .take(500)
+          .take(MAX_PARTICIPANTS_PER_BUILD + 1)
       )
     )
   ).flat();
-  for (const item of items) {
-    const revision = item.currentRevision + 1;
-    await ctx.db.patch(item._id, {
-      assigneeWorkosUserId: undefined,
-      assignedByWorkosUserId: undefined,
-      assignmentRequestedAt: undefined,
-      assignmentState: "unassigned",
-      currentRevision: revision,
-      requiresAcceptance: false,
-      unassignmentReason: "participant_removed",
-      updatedAt: input.now,
-    });
-    await ctx.db.insert("buildActionItemEvents", {
-      actionItemId: item._id,
-      actorRole: input.authorization.effectiveRole.role,
-      actorWorkosUserId: input.authorization.viewer.subject,
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      eventType: "participant_removed_unassigned",
-      exercisedAuthority: "coordinator",
-      newState: JSON.stringify({
-        assigneeWorkosUserId: null,
-        assignmentState: "unassigned",
-        unassignmentReason: "participant_removed",
-      }),
-      organizationId: input.authorization.organizationId,
-      priorState: JSON.stringify({
-        assigneeWorkosUserId: item.assigneeWorkosUserId,
-        assignmentState: item.assignmentState,
-      }),
-      reason: input.reason,
-      revision,
-      warnings: ["participant_removed"],
-    });
-  }
-  return items.map((item) => item._id);
-}
-
-async function notifyParticipantRemovalCoordinators(
-  ctx: MutationCtx,
-  input: {
-    actionItemIds: Id<"buildActionItems">[];
-    authorization: Awaited<
-      ReturnType<typeof authorizeActiveBuildCollaborationAccess>
-    >;
-    now: number;
-    participant: Doc<"buildParticipants">;
-  }
-) {
-  if (input.actionItemIds.length === 0) {
-    return;
-  }
-  const coordinatorIds = new Set([
-    input.authorization.viewer.subject,
-    ...input.authorization.participants
-      .filter((participant) =>
-        [
-          "admin",
-          "principle-broker",
-          "broker",
-          "builder",
-          "broker-staff",
-          "builder-staff",
-        ].includes(participant.role)
-      )
-      .map((participant) => participant.workosUserId),
-  ]);
-  for (const recipientWorkosUserId of coordinatorIds) {
-    const dedupeKey = `participant-removed:${input.participant._id}:${recipientWorkosUserId}`;
-    const existing = await ctx.db
-      .query("recipientDeliveries")
-      .withIndex("by_recipient_dedupe", (query) =>
-        query
-          .eq("organizationId", input.authorization.organizationId)
-          .eq("recipientWorkosUserId", recipientWorkosUserId)
-          .eq("dedupeKey", dedupeKey)
-      )
-      .unique();
-    if (existing) {
-      continue;
-    }
-    await ctx.db.insert("recipientDeliveries", {
-      actionLabel: "Reassign work",
-      actionRequired: true,
-      body: `${input.actionItemIds.length} open Action Item${input.actionItemIds.length === 1 ? "" : "s"} must be reassigned.`,
-      brokerageId: input.authorization.brokerage._id,
-      createdAt: input.now,
-      dedupeKey,
-      entityId: input.participant._id,
-      entityLabel: input.participant.displayNameSnapshot,
-      entityType: "buildParticipant",
-      href: `/backoffice/builds/${input.authorization.build._id}?tab=details`,
-      organizationId: input.authorization.organizationId,
-      recipientWorkosUserId,
-      resolutionMode: "recipient",
-      sourceLabel: input.authorization.build.buildName,
-      status: "unread",
-      title: "Participant removed — Action Items need reassignment",
-      updatedAt: input.now,
-    });
+  if (current.length >= MAX_PARTICIPANTS_PER_BUILD) {
+    throw new Error(
+      `A Build may have at most ${MAX_PARTICIPANTS_PER_BUILD} current participants.`
+    );
   }
 }
 

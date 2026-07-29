@@ -9,6 +9,7 @@ import {
   getUserManagementAccessDecision,
   getWorkspaceAccessDecision,
   hasBuilderStaffWorkspaceAccess,
+  requireHomeownerWorkspaceAccess,
   INTEGRATION_ADMIN_ROLE_SLUGS,
   normalizeRoleSlug,
   normalizeRoleSlugs,
@@ -22,6 +23,7 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(normalizeRoleSlug(" Principal Broker ")).toBe("principle-broker");
     expect(normalizeRoleSlug("principle-broker")).toBe("principle-broker");
     expect(normalizeRoleSlug("builder_staff")).toBe("builder-staff");
+    expect(normalizeRoleSlug("homeowner")).toBeNull();
     expect(normalizeRoleSlug("unknown")).toBeNull();
     expect(normalizeRoleSlugs(["member", "admin", "ADMIN", "contractor"])).toEqual([
       "member",
@@ -188,6 +190,18 @@ describe("DrawFlow frontend RBAC policy", () => {
       })
     ).toMatchObject({ status: "forbidden", reason: "onboarding-required" });
 
+    // A Build-scoped invitation member can enter the exact Build route without
+    // an organization-wide Contractor role; Convex enforces the active grant.
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: null,
+        pathname: "/contractor/builds/build_01",
+        roles: ["member"],
+        workspace: "contractor",
+      })
+    ).toMatchObject({ status: "allowed" });
+
     expect(
       getWorkspaceAccessDecision({
         isAuthenticated: false,
@@ -206,29 +220,26 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(hasBuilderStaffWorkspaceAccess(["broker"])).toBe(false);
   });
 
-  test("homeowner workspace admits homeowner and invitation-member sessions while Build authorization remains backend-enforced", () => {
-    for (const role of ["homeowner", "member"] as const) {
-      expect(
-        getWorkspaceAccessDecision({
-          isAuthenticated: true,
-          organizationId: "org_01",
+  test("homeowner shell requires authentication but delegates tenant and Build scope to the participation grant", () => {
+    expect(
+      requireHomeownerWorkspaceAccess({
+        isAuthenticated: true,
+        pathname: "/homeowner/builds/build_01",
+      })
+    ).toEqual({ status: "allowed" });
+    expectRedirect(
+      () =>
+        requireHomeownerWorkspaceAccess({
+          isAuthenticated: false,
           pathname: "/homeowner/builds/build_01",
-          roles: [role],
-          workspace: "homeowner",
-        })
-      ).toEqual({ status: "allowed" });
-    }
-    for (const role of ["contractor", "builder", "broker"] as const) {
-      expect(
-        getWorkspaceAccessDecision({
-          isAuthenticated: true,
-          organizationId: "org_01",
-          pathname: "/homeowner/builds/build_01",
-          roles: [role],
-          workspace: "homeowner",
-        })
-      ).toEqual({ reason: "no-workspace-access", status: "forbidden" });
-    }
+        }),
+      {
+        options: {
+          search: { returnTo: "/homeowner/builds/build_01" },
+          to: "/api/auth/sign-in",
+        },
+      }
+    );
   });
 
   test("requireWorkspaceAccess redirects unauthenticated and forbidden sessions", () => {

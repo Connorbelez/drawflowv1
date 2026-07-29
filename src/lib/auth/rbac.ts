@@ -8,7 +8,6 @@ export const ROLE_SLUGS = [
   "broker-staff",
   "builder",
   "builder-staff",
-  "homeowner",
   "contractor",
 ] as const;
 
@@ -80,12 +79,7 @@ export const CONTRACTOR_ONBOARDING_ROLE_SLUGS = [
   "contractor",
 ] as const satisfies readonly RoleSlug[];
 
-export const HOMEOWNER_WORKSPACE_ROLE_SLUGS = [
-  "member",
-  "homeowner",
-] as const satisfies readonly RoleSlug[];
-
-export type Workspace = "backoffice" | "builder" | "contractor" | "homeowner";
+export type Workspace = "backoffice" | "builder" | "contractor";
 
 export type WorkspaceAccessDecision =
   | { reason?: "demo-exception"; status: "allowed" }
@@ -109,7 +103,6 @@ const ROLE_ALIASES: Record<string, RoleSlug> = {
   builder: "builder",
   "builder-staff": "builder-staff",
   builder_staff: "builder-staff",
-  homeowner: "homeowner",
   contractor: "contractor",
   member: "member",
 };
@@ -168,41 +161,23 @@ export function getWorkspaceAccessDecision(
     return { reason: "unauthenticated", status: "unauthenticated" };
   }
 
-  if (!input.organizationId?.trim()) {
+  if (
+    !(
+      input.organizationId?.trim() ||
+      (input.workspace === "contractor" &&
+        isContractorBuildPath(input.pathname))
+    )
+  ) {
     return { reason: "missing-organization", status: "forbidden" };
   }
 
   const roles = normalizeRoleSlugs(input.roles);
 
-  // Contractor Workspace has a two-tier policy (PRD §11.1). The onboarding
-  // bridge at /contractor/onboarding is reachable by member OR contractor
-  // roles; the rest of /contractor requires the contractor role. The
-  // linked-profile requirement is enforced by the backend, surfaced here as a
-  // profile-link-required forbidden reason when the contractor role is present
-  // but the caller opts out via the `profileLinked` input (default true so
-  // existing call sites are unaffected).
   if (input.workspace === "contractor") {
-    if (isContractorOnboardingPath(input.pathname)) {
-      return hasAnyRole(roles, CONTRACTOR_ONBOARDING_ROLE_SLUGS)
-        ? { status: "allowed" }
-        : { reason: "no-workspace-access", status: "forbidden" };
-    }
-    if (!hasAnyRole(roles, CONTRACTOR_WORKSPACE_ROLE_SLUGS)) {
-      // A member without the contractor role belongs on the onboarding bridge.
-      return roles.includes("member")
-        ? { reason: "onboarding-required", status: "forbidden" }
-        : { reason: "no-workspace-access", status: "forbidden" };
-    }
-    return input.profileLinked === false
-      ? { reason: "profile-link-required", status: "forbidden" }
-      : { status: "allowed" };
+    return getContractorWorkspaceDecision(input, roles);
   }
 
-  if (
-    input.workspace !== "homeowner" &&
-    roles.length === 1 &&
-    roles.includes("member")
-  ) {
+  if (roles.length === 1 && roles.includes("member")) {
     return { reason: "onboarding-required", status: "forbidden" };
   }
 
@@ -211,16 +186,58 @@ export function getWorkspaceAccessDecision(
     : { reason: "no-workspace-access", status: "forbidden" };
 }
 
+function getContractorWorkspaceDecision(
+  input: AuthAccessInput,
+  roles: readonly RoleSlug[]
+): WorkspaceAccessDecision {
+  // Contractor Workspace has a two-tier policy (PRD §11.1). The onboarding
+  // bridge at /contractor/onboarding is reachable by member OR contractor
+  // roles; the rest of /contractor requires the contractor role. The
+  // linked-profile requirement is enforced by the backend, surfaced here as a
+  // profile-link-required forbidden reason when the contractor role is present
+  // but the caller opts out via the `profileLinked` input (default true so
+  // existing call sites are unaffected).
+  if (
+    isContractorBuildPath(input.pathname) &&
+    (roles.includes("member") || roles.includes("contractor"))
+  ) {
+    return { status: "allowed" };
+  }
+  if (isContractorOnboardingPath(input.pathname)) {
+    return hasAnyRole(roles, CONTRACTOR_ONBOARDING_ROLE_SLUGS)
+      ? { status: "allowed" }
+      : { reason: "no-workspace-access", status: "forbidden" };
+  }
+  if (!hasAnyRole(roles, CONTRACTOR_WORKSPACE_ROLE_SLUGS)) {
+    return roles.includes("member")
+      ? { reason: "onboarding-required", status: "forbidden" }
+      : { reason: "no-workspace-access", status: "forbidden" };
+  }
+  return input.profileLinked === false
+    ? { reason: "profile-link-required", status: "forbidden" }
+    : { status: "allowed" };
+}
+
 function workspaceRoles(
   workspace: Exclude<Workspace, "contractor">
 ): readonly RoleSlug[] {
   if (workspace === "backoffice") {
     return BACKOFFICE_ROLE_SLUGS;
   }
-  if (workspace === "homeowner") {
-    return HOMEOWNER_WORKSPACE_ROLE_SLUGS;
-  }
   return BUILDER_ROLE_SLUGS;
+}
+
+export function requireHomeownerWorkspaceAccess(input: {
+  isAuthenticated: boolean;
+  pathname: string;
+}): { status: "allowed" } {
+  if (!input.isAuthenticated) {
+    throw redirect({
+      search: { returnTo: input.pathname },
+      to: "/api/auth/sign-in",
+    });
+  }
+  return { status: "allowed" };
 }
 
 export function hasBuilderStaffWorkspaceAccess(
@@ -365,6 +382,13 @@ export function isContractorOnboardingPath(pathname: string): boolean {
   return (
     pathname === "/contractor/onboarding" ||
     pathname.startsWith("/contractor/onboarding/")
+  );
+}
+
+export function isContractorBuildPath(pathname: string): boolean {
+  return (
+    pathname === "/contractor/builds" ||
+    pathname.startsWith("/contractor/builds/")
   );
 }
 

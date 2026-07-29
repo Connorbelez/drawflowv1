@@ -3,11 +3,20 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+vi.mock("convex/react", () => ({
+  useQuery: () => ({
+    buildId: "active_build_01",
+    buildName: "Hamilton Build",
+    organizationId: "lender_org_01",
+    participantId: "participant_01",
+    role: "homeowner",
+  }),
+}));
+
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (config: Record<string, unknown>) => ({
     ...config,
     useParams: () => ({ buildId: "active_build_01" }),
-    useRouteContext: () => ({ organizationId: "org_01" }),
     useSearch: () => ({ focus: "actionItem:action_01" }),
   }),
 }));
@@ -40,10 +49,10 @@ describe("HomeownerBuildCollaboration", () => {
     render(<HomeownerBuildCollaboration />);
 
     expect(
-      screen.getByRole("heading", { name: "Build collaboration" })
+      screen.getByRole("heading", { name: "Hamilton Build" })
     ).toBeTruthy();
     expect(
       screen.getByTestId("build-collaboration-workspace").textContent
-    ).toBe("active_build_01:org_01:actionItem:action_01");
+    ).toBe("active_build_01:lender_org_01:actionItem:action_01");
   });
 });

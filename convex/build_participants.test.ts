@@ -3,7 +3,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
   type BuildCollaborationRole,
@@ -22,12 +22,13 @@ function withIdentity(
     subject: string;
   }
 ) {
+  const workosRole = input.role === "homeowner" ? "member" : input.role;
   return testInstance.withIdentity({
     email: `${input.subject}@example.com`,
     name: input.subject,
     organizationId: input.organizationId ?? ORGANIZATION_ID,
-    role: input.role,
-    roles: [input.role],
+    role: workosRole,
+    roles: [workosRole],
     subject: input.subject,
     tokenIdentifier: `https://api.workos.com/|${input.subject}`,
     "https://fairlend.ca/actor_kind": "human",
@@ -240,6 +241,28 @@ describe("Build participant lifecycle and role-complete access", () => {
         organizationId: ORGANIZATION_ID,
       }
     );
+    await expect(
+      homeowner.query(
+        (api as any).build_participants.getMyBuildParticipationScope,
+        { buildId: fixture.buildId }
+      )
+    ).resolves.toMatchObject({
+      buildId: fixture.buildId,
+      organizationId: ORGANIZATION_ID,
+      role: "homeowner",
+    });
+    await expect(
+      homeowner.query(
+        (api as any).build_participants.listMyActiveBuildParticipations,
+        {}
+      )
+    ).resolves.toEqual([
+      expect.objectContaining({
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        role: "homeowner",
+      }),
+    ]);
     await builder.mutation(
       (api as any).build_participants.acceptBuildParticipantInvitation,
       {
@@ -607,5 +630,200 @@ describe("Build participant lifecycle and role-complete access", () => {
         }
       )
     ).resolves.toBeTruthy();
+  });
+
+  test("newest participation lookup remains correct beyond one hundred immutable periods", async () => {
+    const fixture = await seedParticipantLifecycleBuilds();
+    const subject = "user_many_periods";
+    const invitedPeriodId = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const now = Date.now();
+      for (let period = 1; period <= 100; period += 1) {
+        await ctx.db.insert("buildParticipants", {
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          createdAt: now + period,
+          displayNameSnapshot: "Long-running participant",
+          organizationId: ORGANIZATION_ID,
+          participationPeriod: period,
+          removedAt: now + period,
+          role: "contractor",
+          status: "removed",
+          updatedAt: now + period,
+          validFrom: now + period,
+          validUntil: now + period,
+          workosUserId: subject,
+        });
+      }
+      return await ctx.db.insert("buildParticipants", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now + 101,
+        displayNameSnapshot: "Long-running participant",
+        organizationId: ORGANIZATION_ID,
+        participationPeriod: 101,
+        role: "contractor",
+        status: "invited",
+        updatedAt: now + 101,
+        validFrom: now + 101,
+        workosUserId: subject,
+      });
+    });
+    const contractor = withIdentity(fixture.base, {
+      role: "contractor",
+      subject,
+    });
+
+    await expect(
+      contractor.mutation(
+        (api as any).build_participants.acceptBuildParticipantInvitation,
+        { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+      )
+    ).resolves.toBe(invitedPeriodId);
+    await expect(
+      contractor.query(
+        (api as any).build_participants.getMyBuildParticipationScope,
+        { buildId: fixture.buildId }
+      )
+    ).resolves.toMatchObject({
+      participantId: invitedPeriodId,
+      role: "contractor",
+    });
+  });
+
+  test("large revocations are resumable and certified only after every follow and assignment is cleaned", async () => {
+    const fixture = await seedParticipantLifecycleBuilds();
+    const subject = "user_revocation_batch";
+    const contractor = withIdentity(fixture.base, {
+      role: "contractor",
+      subject,
+    });
+    const participantId = await fixture.admin.mutation(
+      (api as any).build_participants.inviteBuildParticipant,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        role: "contractor",
+        workosUserId: subject,
+      }
+    );
+    await contractor.mutation(
+      (api as any).build_participants.acceptBuildParticipantInvitation,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    const postId = await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      publicationInput(fixture.buildId, {
+        plainText: "Revocation cleanup parent.",
+      })
+    );
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const now = Date.now();
+      for (let index = 0; index < 45; index += 1) {
+        await ctx.db.insert("buildCollaborationFollows", {
+          active: true,
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          createdAt: now + index,
+          organizationId: ORGANIZATION_ID,
+          postId,
+          reason: "manual",
+          updatedAt: now + index,
+          workosUserId: subject,
+        });
+        await ctx.db.insert("buildActionItems", {
+          assigneeWorkosUserId: subject,
+          assignedByWorkosUserId: "user_admin",
+          assignmentState: "assigned",
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          createdAt: now + index,
+          creatorRole: "admin",
+          creatorWorkosUserId: "user_admin",
+          currentRevision: 1,
+          descriptionPlainText: "",
+          descriptionTiptapJson: JSON.stringify({
+            content: [],
+            type: "doc",
+          }),
+          originatingPostId: postId,
+          organizationId: ORGANIZATION_ID,
+          priority: "none",
+          requiresAcceptance: false,
+          status: "todo",
+          title: `Batch assignment ${index + 1}`,
+          updatedAt: now + index,
+        });
+      }
+    });
+
+    await fixture.admin.mutation(
+      (api as any).build_participants.removeBuildParticipant,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        participantId,
+        reason: "Contractor removed from the Build.",
+      }
+    );
+    const pending = await fixture.base.run(
+      async (ctx) => await ctx.db.get(participantId)
+    );
+    expect(pending).toMatchObject({
+      revocationCleanupStatus: "pending",
+      status: "removed",
+    });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await fixture.base.mutation(
+        (internal as any).build_participant_revocation
+          .continueBuildParticipantRevocationCleanup,
+        {
+          actorRole: "admin",
+          actorWorkosUserId: "user_admin",
+          participantId,
+          reason: "Contractor removed from the Build.",
+        }
+      );
+    }
+
+    const cleaned = await fixture.base.run(async (ctx) => {
+      const participant = await ctx.db.get(participantId);
+      const follows = await ctx.db
+        .query("buildCollaborationFollows")
+        .withIndex("by_buildId_and_workosUserId_and_active", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", subject)
+            .eq("active", true)
+        )
+        .collect();
+      const assignments = await ctx.db
+        .query("buildActionItems")
+        .withIndex(
+          "by_buildId_and_assigneeWorkosUserId_and_status",
+          (query) =>
+            query
+              .eq("buildId", fixture.buildId)
+              .eq("assigneeWorkosUserId", subject)
+        )
+        .collect();
+      return { assignments, follows, participant };
+    });
+    expect(cleaned.follows).toEqual([]);
+    expect(cleaned.assignments).toEqual([]);
+    expect(cleaned.participant).toMatchObject({
+      revocationCleanupCompletedAt: expect.any(Number),
+      revocationCleanupStatus: "completed",
+      status: "removed",
+    });
   });
 });
