@@ -3325,6 +3325,7 @@ export default defineSchema({
     requiresAcceptance: v.boolean(),
     blockedReason: v.optional(v.string()),
     cancellationReason: v.optional(v.string()),
+    unassignmentReason: v.optional(v.literal("participant_removed")),
     completedAt: v.optional(v.number()),
     currentRevision: v.number(),
     primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),

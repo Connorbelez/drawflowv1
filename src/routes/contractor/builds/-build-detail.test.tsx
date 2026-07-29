@@ -31,6 +31,23 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 
+vi.mock(
+  "#/features/build-collaboration/BuildCollaborationWorkspace.tsx",
+  () => ({
+    BuildCollaborationWorkspace: ({
+      buildId,
+      organizationId,
+    }: {
+      buildId: string;
+      organizationId: string;
+    }) => (
+      <div data-testid="build-collaboration-workspace">
+        {buildId}:{organizationId}
+      </div>
+    ),
+  })
+);
+
 import { ContractorBuildDetail } from "./$buildId";
 
 const detail = {
@@ -91,6 +108,17 @@ describe("ContractorBuildDetail", () => {
     expect(document.querySelector("#assignment-assignment_01")?.className).toContain(
       "ring-2",
     );
+  });
+
+  test("renders the shared production collaboration module in the authorized Build surface", () => {
+    render(<ContractorBuildDetail />);
+
+    expect(
+      screen.getByRole("heading", { name: "Build collaboration" })
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("build-collaboration-workspace").textContent
+    ).toBe("active_build_01:org_01");
   });
 
   test("requires and submits a scoped clarification", async () => {

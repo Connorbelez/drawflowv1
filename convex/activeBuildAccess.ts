@@ -45,11 +45,6 @@ export async function authorizeActiveBuildAccess(
   }
 
   const viewerRoles = normalizeRoleSlugs(ctx.viewer.roles);
-  await requireOrganizationAccess(ctx, {
-    organizationId,
-    viewer: ctx.viewer,
-    viewerRoles,
-  });
 
   const brokerage = await ctx.db
     .query("brokerages")
@@ -84,11 +79,35 @@ export async function authorizeActiveBuildAccess(
       query.eq("buildId", build._id).eq("status", "active")
     )
     .take(500);
+  const viewerParticipationHistory = await ctx.db
+    .query("buildParticipants")
+    .withIndex("by_buildId_and_workosUserId", (query) =>
+      query.eq("buildId", build._id).eq("workosUserId", ctx.viewer.subject)
+    )
+    .take(100);
+  const latestViewerParticipation = viewerParticipationHistory.sort(
+    (left, right) =>
+      right.participationPeriod - left.participationPeriod ||
+      right.updatedAt - left.updatedAt
+  )[0];
+  if (
+    latestViewerParticipation?.status === "removed" &&
+    !viewerRoles.includes("admin") &&
+    !viewerRoles.includes("principle-broker")
+  ) {
+    throw new Error("Forbidden: active build participation revoked");
+  }
   const viewerGrant = grantedParticipants
     .filter((participant) => participant.workosUserId === ctx.viewer.subject)
     .sort(
       (left, right) => right.participationPeriod - left.participationPeriod
     )[0];
+  await requireOrganizationAccess(ctx, {
+    hasActiveBuildGrant: Boolean(viewerGrant),
+    organizationId,
+    viewer: ctx.viewer,
+    viewerRoles,
+  });
   const derivedRole = await resolveDerivedBuildRole(ctx, {
     build,
     proposal,
@@ -159,12 +178,16 @@ export async function authorizeActiveBuildAccess(
 async function requireOrganizationAccess(
   ctx: QueryCtx | MutationCtx,
   input: {
+    hasActiveBuildGrant: boolean;
     organizationId: string;
     viewer: AuthorizedViewer;
     viewerRoles: RoleSlug[];
   }
 ) {
   if (input.viewerRoles.includes("admin")) {
+    return;
+  }
+  if (input.hasActiveBuildGrant) {
     return;
   }
   if (input.viewer.organizationId?.trim() === input.organizationId) {

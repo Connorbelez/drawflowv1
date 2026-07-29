@@ -8,6 +8,7 @@ export const ROLE_SLUGS = [
   "broker-staff",
   "builder",
   "builder-staff",
+  "homeowner",
   "contractor",
 ] as const;
 
@@ -79,7 +80,12 @@ export const CONTRACTOR_ONBOARDING_ROLE_SLUGS = [
   "contractor",
 ] as const satisfies readonly RoleSlug[];
 
-export type Workspace = "backoffice" | "builder" | "contractor";
+export const HOMEOWNER_WORKSPACE_ROLE_SLUGS = [
+  "member",
+  "homeowner",
+] as const satisfies readonly RoleSlug[];
+
+export type Workspace = "backoffice" | "builder" | "contractor" | "homeowner";
 
 export type WorkspaceAccessDecision =
   | { reason?: "demo-exception"; status: "allowed" }
@@ -103,6 +109,7 @@ const ROLE_ALIASES: Record<string, RoleSlug> = {
   builder: "builder",
   "builder-staff": "builder-staff",
   builder_staff: "builder-staff",
+  homeowner: "homeowner",
   contractor: "contractor",
   member: "member",
 };
@@ -191,18 +198,29 @@ export function getWorkspaceAccessDecision(
       : { status: "allowed" };
   }
 
-  if (roles.length === 1 && roles.includes("member")) {
+  if (
+    input.workspace !== "homeowner" &&
+    roles.length === 1 &&
+    roles.includes("member")
+  ) {
     return { reason: "onboarding-required", status: "forbidden" };
   }
 
-  const allowed =
-    input.workspace === "backoffice"
-      ? hasAnyRole(roles, BACKOFFICE_ROLE_SLUGS)
-      : hasAnyRole(roles, BUILDER_ROLE_SLUGS);
-
-  return allowed
+  return hasAnyRole(roles, workspaceRoles(input.workspace))
     ? { status: "allowed" }
     : { reason: "no-workspace-access", status: "forbidden" };
+}
+
+function workspaceRoles(
+  workspace: Exclude<Workspace, "contractor">
+): readonly RoleSlug[] {
+  if (workspace === "backoffice") {
+    return BACKOFFICE_ROLE_SLUGS;
+  }
+  if (workspace === "homeowner") {
+    return HOMEOWNER_WORKSPACE_ROLE_SLUGS;
+  }
+  return BUILDER_ROLE_SLUGS;
 }
 
 export function hasBuilderStaffWorkspaceAccess(

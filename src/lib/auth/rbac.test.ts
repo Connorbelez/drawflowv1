@@ -206,6 +206,31 @@ describe("DrawFlow frontend RBAC policy", () => {
     expect(hasBuilderStaffWorkspaceAccess(["broker"])).toBe(false);
   });
 
+  test("homeowner workspace admits homeowner and invitation-member sessions while Build authorization remains backend-enforced", () => {
+    for (const role of ["homeowner", "member"] as const) {
+      expect(
+        getWorkspaceAccessDecision({
+          isAuthenticated: true,
+          organizationId: "org_01",
+          pathname: "/homeowner/builds/build_01",
+          roles: [role],
+          workspace: "homeowner",
+        })
+      ).toEqual({ status: "allowed" });
+    }
+    for (const role of ["contractor", "builder", "broker"] as const) {
+      expect(
+        getWorkspaceAccessDecision({
+          isAuthenticated: true,
+          organizationId: "org_01",
+          pathname: "/homeowner/builds/build_01",
+          roles: [role],
+          workspace: "homeowner",
+        })
+      ).toEqual({ reason: "no-workspace-access", status: "forbidden" });
+    }
+  });
+
   test("requireWorkspaceAccess redirects unauthenticated and forbidden sessions", () => {
     expectRedirect(
       () =>

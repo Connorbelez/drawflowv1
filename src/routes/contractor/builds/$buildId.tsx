@@ -2,8 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
 import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
@@ -11,23 +9,37 @@ import {
   MilestoneStartDialog,
   type MilestoneStartDialogRequest,
 } from "#/features/backoffice-build-detail/MilestoneStartDialog.tsx";
+import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
+import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import { cn } from "#/lib/utils.ts";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
+
+interface ContractorBuildSearch {
+  assignmentId?: string;
+  focus?: string;
+}
 
 export const Route = createFileRoute("/contractor/builds/$buildId")({
   staticData: {
     breadcrumb: { label: "Build", to: "/contractor/builds" },
   },
-  validateSearch: (search: Record<string, unknown>) => ({
-    assignmentId:
-      typeof search.assignmentId === "string" ? search.assignmentId : undefined,
-  }),
+  validateSearch: (search: Record<string, unknown>): ContractorBuildSearch => {
+    const assignmentId =
+      typeof search.assignmentId === "string" ? search.assignmentId : undefined;
+    const focus = normalizeBuildCollaborationFocus(search.focus);
+    return {
+      ...(assignmentId ? { assignmentId } : {}),
+      ...(focus ? { focus } : {}),
+    };
+  },
   component: ContractorBuildDetail,
 });
 
 type ResponseKind = "clarification" | "dispute";
-type ContractorScope = {
-  actualStartedAt: number | null;
+interface ContractorScope {
   acknowledgement: { state: string } | null;
+  actualStartedAt: number | null;
   assignmentId: Id<"milestoneContractorAssignments">;
   dependencyBlockers: Array<{
     milestoneKey: string;
@@ -41,12 +53,12 @@ type ContractorScope = {
   submilestoneKey: string | null;
   submilestoneName: string | null;
   workStatus: "complete" | "in_progress" | "planned" | null;
-};
+}
 
-type ContractorPermitDocument = {
+interface ContractorPermitDocument {
   _id: string;
   fileName: string;
-};
+}
 
 /**
  * Active build detail (PRD §8.5). Scope-limited; raw ratings and financing
@@ -54,7 +66,7 @@ type ContractorPermitDocument = {
  */
 export function ContractorBuildDetail() {
   const { buildId } = Route.useParams();
-  const { assignmentId } = Route.useSearch();
+  const { assignmentId, focus } = Route.useSearch();
   const detail = useQuery(api.contractorWorkspace.getContractorBuildDetail, {
     buildId: buildId as Id<"activeBuilds">,
   });
@@ -261,10 +273,12 @@ export function ContractorBuildDetail() {
                                   scope: "submilestone",
                                   source: "submilestone_detail",
                                   startParent: false,
-                                  submilestoneKey: scope.submilestoneKey,
+                                  submilestoneKey:
+                                    scope.submilestoneKey ?? undefined,
                                   submilestoneName:
                                     scope.submilestoneName ??
-                                    scope.submilestoneKey,
+                                    scope.submilestoneKey ??
+                                    undefined,
                                 },
                                 scope,
                               })
@@ -406,6 +420,19 @@ export function ContractorBuildDetail() {
             </Frame>
           </div>
         </div>
+        <section aria-labelledby="contractor-build-collaboration">
+          <h2
+            className="mb-3 font-semibold text-lg"
+            id="contractor-build-collaboration"
+          >
+            Build collaboration
+          </h2>
+          <BuildCollaborationWorkspace
+            buildId={buildId}
+            focusedReference={focus}
+            organizationId={detail.build.organizationId}
+          />
+        </section>
       </div>
       {startRequest ? (
         <MilestoneStartDialog
