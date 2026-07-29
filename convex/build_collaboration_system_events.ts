@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { stableContentHash } from "./build_collaboration";
+import { requireActiveBuildCollaborationTenantByScope } from "./build_collaboration_rollout";
 import {
   buildCollaborationPostTypeValidator,
   buildCollaborationReferenceKindValidator,
@@ -23,6 +24,10 @@ export const publishBuildCollaborationSystemEvent = internalMutation
     if (!build || build.organizationId !== args.organizationId) {
       throw new Error("Build not found.");
     }
+    await requireActiveBuildCollaborationTenantByScope(ctx, {
+      brokerageId: build.brokerageId,
+      organizationId: build.organizationId,
+    });
     const existing = await ctx.db
       .query("buildCollaborationPosts")
       .withIndex("by_buildId_and_systemEventKey", (query) =>

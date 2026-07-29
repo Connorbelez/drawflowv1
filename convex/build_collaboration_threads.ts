@@ -1,9 +1,9 @@
 import { v } from "convex/values";
 
-import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { collaborationCommentRowValidator } from "./build_collaboration_contracts";
+import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildCollaborationPinKindValidator,
   buildCollaborationReactionValidator,
@@ -36,7 +36,10 @@ export const addBuildCollaborationComment = authenticatedMutation
   })
   .returns(v.id("buildCollaborationComments"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     assertHumanPublication(authorization.viewer.subject);
     const post = await ctx.db.get(args.postId);
     if (
@@ -163,7 +166,10 @@ export const listBuildCollaborationComments = authenticatedQuery
   })
   .returns(v.array(collaborationCommentRowValidator))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const post = await ctx.db.get(args.postId);
     if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
       throw new Error("Forbidden: collaboration post");
@@ -229,7 +235,10 @@ export const reactToBuildCollaborationPost = authenticatedMutation
   })
   .returns(v.union(v.id("buildCollaborationReactions"), v.null()))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const post = await ctx.db.get(args.postId);
     if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
       throw new Error("Forbidden: collaboration post");
@@ -277,7 +286,10 @@ export const toggleBuildCollaborationPin = authenticatedMutation
   })
   .returns(v.union(v.id("buildCollaborationPins"), v.null()))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const post = await ctx.db.get(args.postId);
     if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
       throw new Error("Forbidden: collaboration post");
@@ -327,7 +339,10 @@ export const toggleBuildCollaborationFollow = authenticatedMutation
   })
   .returns(v.boolean())
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const post = await ctx.db.get(args.postId);
     if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
       throw new Error("Forbidden: collaboration post");
@@ -369,7 +384,10 @@ export const markBuildCollaborationPostViewed = authenticatedMutation
   })
   .returns(v.id("buildCollaborationReceipts"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const post = await ctx.db.get(args.postId);
     if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
       throw new Error("Forbidden: collaboration post");
@@ -408,7 +426,9 @@ export const markBuildCollaborationPostViewed = authenticatedMutation
 async function ensureFollow(
   ctx: MutationCtx,
   input: {
-    authorization: Awaited<ReturnType<typeof authorizeActiveBuildAccess>>;
+    authorization: Awaited<
+      ReturnType<typeof authorizeActiveBuildCollaborationAccess>
+    >;
     now: number;
     postId: Id<"buildCollaborationPosts">;
     reason: "author" | "commenter" | "mentioned" | "assigned" | "manual";

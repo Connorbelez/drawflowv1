@@ -1,10 +1,10 @@
 import { v } from "convex/values";
 
-import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { collaborationRoleTier } from "./build_collaboration_model";
+import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
@@ -24,7 +24,10 @@ export const listBuildActionItems = authenticatedQuery
   })
   .returns(v.array(buildActionItemListRowValidator))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const postId = args.postId;
     const items = postId
       ? await ctx.db
@@ -97,7 +100,10 @@ export const updateBuildActionItem = authenticatedMutation
   .returns(v.id("buildActionItems"))
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: One auditable command validates the full Action Item state transition atomically.
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const item = await requireReadableActionItem(
       ctx,
       authorization,
@@ -216,7 +222,10 @@ export const acceptBuildActionItemAssignment = authenticatedMutation
   })
   .returns(v.id("buildActionItems"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const item = await requireReadableActionItem(
       ctx,
       authorization,
@@ -260,7 +269,10 @@ export const addBuildActionItemChecklistItem = authenticatedMutation
   })
   .returns(v.id("buildActionItemChecklistItems"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const item = await requireReadableActionItem(
       ctx,
       authorization,
@@ -305,7 +317,10 @@ export const toggleBuildActionItemChecklistItem = authenticatedMutation
   })
   .returns(v.boolean())
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const checklist = await ctx.db.get(args.checklistItemId);
     if (!checklist || checklist.buildId !== authorization.build._id) {
       throw new Error("Checklist entry is unavailable.");
@@ -334,7 +349,10 @@ export const linkBuildActionItems = authenticatedMutation
   })
   .returns(v.id("buildActionItemRelations"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const [source, target] = await Promise.all([
       requireReadableActionItem(ctx, authorization, args.sourceActionItemId),
       requireReadableActionItem(ctx, authorization, args.targetActionItemId),
@@ -380,7 +398,9 @@ export const linkBuildActionItems = authenticatedMutation
 
 async function requireReadableActionItem(
   ctx: MutationCtx,
-  authorization: Awaited<ReturnType<typeof authorizeActiveBuildAccess>>,
+  authorization: Awaited<
+    ReturnType<typeof authorizeActiveBuildCollaborationAccess>
+  >,
   actionItemId: Id<"buildActionItems">
 ) {
   const item = await ctx.db.get(actionItemId);

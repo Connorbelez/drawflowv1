@@ -1,5 +1,4 @@
 import { v } from "convex/values";
-import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
   actionItemInputValidator,
@@ -9,6 +8,7 @@ import {
   stableContentHash,
 } from "./build_collaboration";
 import { collaborationDraftSummaryValidator } from "./build_collaboration_contracts";
+import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildCollaborationAudienceModeValidator,
   buildCollaborationPostTypeValidator,
@@ -37,7 +37,10 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
   })
   .returns(v.id("buildCollaborationDrafts"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const now = Date.now();
     const bundle = bundleFromArgs(args);
     const bundleJson = JSON.stringify(bundle);
@@ -92,7 +95,10 @@ export const listMyBuildCollaborationDrafts = authenticatedQuery
   })
   .returns(v.array(collaborationDraftSummaryValidator))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const drafts = await ctx.db
       .query("buildCollaborationDrafts")
       .withIndex("by_buildId_and_ownerWorkosUserId_and_state", (query) =>
@@ -127,7 +133,10 @@ export const discardMyBuildCollaborationDraft = authenticatedMutation
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const draft = await ctx.db.get(args.draftId);
     if (
       !draft ||
@@ -154,7 +163,10 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
   })
   .returns(v.id("buildCollaborationPosts"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     if (
       !authorization.viewer.subject ||
       authorization.viewer.subject.startsWith("agent_")

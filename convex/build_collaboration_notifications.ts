@@ -1,10 +1,8 @@
 import { v } from "convex/values";
-import {
-  type ActiveBuildAuthorization,
-  authorizeActiveBuildAccess,
-} from "./activeBuildAccess";
+import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { collaborationNotificationPreferenceValidator } from "./build_collaboration_contracts";
+import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { buildCollaborationNotificationChannelValidator } from "./build_collaboration_validators";
 import type { MutationCtx } from "./types";
 
@@ -15,7 +13,10 @@ export const getMyBuildCollaborationNotificationPreferences = authenticatedQuery
   })
   .returns(collaborationNotificationPreferenceValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const preference = await ctx.db
       .query("buildCollaborationNotificationPreferences")
       .withIndex("by_buildId_and_workosUserId", (query) =>
@@ -50,7 +51,10 @@ export const updateMyBuildCollaborationNotificationPreferences =
     })
     .returns(v.null())
     .handler(async (ctx, args) => {
-      const authorization = await authorizeActiveBuildAccess(ctx, args);
+      const authorization = await authorizeActiveBuildCollaborationAccess(
+        ctx,
+        args
+      );
       const now = Date.now();
       const existing = await ctx.db
         .query("buildCollaborationNotificationPreferences")

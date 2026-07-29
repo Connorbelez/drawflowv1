@@ -8,9 +8,17 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const convexMocks = vi.hoisted(() => ({
+  collaborationRolloutState: {
+    available: true,
+    status: "active",
+  } as {
+    available: boolean;
+    status: "active" | "disabled" | "migration_ready";
+  },
   paginatedQueryError: null as Error | null,
 }));
 
@@ -26,7 +34,11 @@ vi.mock("convex/react", () => ({
       status: "Exhausted",
     };
   },
-  useQuery: () => undefined,
+  useQuery: (reference: unknown) =>
+    getFunctionName(reference as Parameters<typeof getFunctionName>[0]) ===
+    "build_collaboration_rollout:getBuildCollaborationRolloutState"
+      ? convexMocks.collaborationRolloutState
+      : undefined,
 }));
 
 vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
@@ -191,6 +203,10 @@ import {
 } from "./ProductionBuildDetailSurface";
 
 beforeEach(() => {
+  convexMocks.collaborationRolloutState = {
+    available: true,
+    status: "active",
+  };
   convexMocks.paginatedQueryError = null;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
@@ -840,6 +856,31 @@ describe("ProductionBuildDetailSurface", () => {
     expect(screen.getByTestId("build-collaboration-error")).toBeTruthy();
     expect(screen.getByText("Collaboration is temporarily unavailable")).toBeTruthy();
     expect(consoleError).toHaveBeenCalled();
+  });
+
+  test("keeps Build Overview operational while tenant collaboration is disabled", () => {
+    convexMocks.collaborationRolloutState = {
+      available: false,
+      status: "disabled",
+    };
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        workosOrganizationId="org_fairlend"
+      />,
+    );
+
+    expect(screen.getByTestId("build-overview-current-panel")).toBeTruthy();
+    expect(screen.getByTestId("build-collaboration-unavailable")).toBeTruthy();
+    expect(screen.getByText("Collaboration is unavailable")).toBeTruthy();
+    expect(
+      screen.getByText(/has not been activated for this lender organization/i),
+    ).toBeTruthy();
   });
 
   test("delineates behind, current, and next milestones with schedule ownership and budget facts", () => {

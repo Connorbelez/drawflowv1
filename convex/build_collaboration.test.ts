@@ -97,6 +97,17 @@ async function seedActiveBuild() {
       activeBuildId,
       workflowRuleSnapshotId,
     });
+    await ctx.db.insert("buildCollaborationTenantSettings", {
+      activatedAt: now,
+      activatedByWorkosUserId: "user_admin",
+      brokerageId: foundation.brokerageId,
+      createdAt: now,
+      generousRateLimitMultiplier: 1,
+      migrationCompletedAt: now,
+      organizationId: ORGANIZATION_ID,
+      status: "active",
+      updatedAt: now,
+    });
     return activeBuildId;
   });
 
@@ -556,3 +567,383 @@ describe("Build collaboration publication and feed", () => {
     expect(JSON.stringify(contractorFeed.page[0])).not.toContain("user_admin");
   });
 });
+
+describe("Build collaboration tenant rollout", () => {
+  test("fails closed for both missing and disabled tenant settings", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await deleteCollaborationTenantSetting(base);
+
+    const missingState = await admin.query(
+      (api as any).build_collaboration_rollout
+        .getBuildCollaborationRolloutState,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(missingState).toEqual({
+      activatedAt: undefined,
+      available: false,
+      migrationCompletedAt: undefined,
+      status: "disabled",
+    });
+    await expect(
+      admin.query(
+        (api as any).build_collaboration.listBuildCollaborationFeed,
+        {
+          buildId,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor: null, numItems: 20 },
+        },
+      ),
+    ).rejects.toThrow(
+      "Build collaboration is unavailable until this tenant is active.",
+    );
+
+    await insertDisabledCollaborationTenantSetting(base, buildId);
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        {
+          actionItems: [],
+          audienceMode: "build_wide",
+          buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "This must fail closed.",
+          postType: "update",
+          references: [],
+          requestedReaderIds: [],
+          tiptapJson: JSON.stringify({
+            content: [{ type: "paragraph" }],
+            type: "doc",
+          }),
+        },
+      ),
+    ).rejects.toThrow(
+      "Build collaboration is unavailable until this tenant is active.",
+    );
+  });
+
+  test("records parity and audits the only legal activation sequence", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await deleteCollaborationTenantSetting(base);
+
+    const evidenceId = await admin.mutation(
+      (api as any).build_collaboration_rollout
+        .recordBuildCollaborationMigrationParityEvidence,
+      {
+        buildId,
+        importedPostCount: 4,
+        mismatchCount: 0,
+        organizationId: ORGANIZATION_ID,
+        reason: "Legacy notes matched imported collaboration posts.",
+        reportHash: "sha256:parity-report",
+        sourceRecordCount: 4,
+      },
+    );
+    const settingId = await admin.mutation(
+      (api as any).build_collaboration_rollout
+        .transitionBuildCollaborationTenantStatus,
+      {
+        buildId,
+        expectedStatus: "disabled",
+        nextStatus: "migration_ready",
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_rollout
+        .transitionBuildCollaborationTenantStatus,
+      {
+        buildId,
+        expectedStatus: "migration_ready",
+        nextStatus: "active",
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+
+    const state = await admin.query(
+      (api as any).build_collaboration_rollout
+        .getBuildCollaborationRolloutState,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(state).toMatchObject({
+      available: true,
+      status: "active",
+    });
+    expect(state.activatedAt).toEqual(expect.any(Number));
+    expect(state.migrationCompletedAt).toEqual(expect.any(Number));
+
+    const evidenceAndAudits = await base.run(async (ctx) => {
+      const evidence = await ctx.db.get(evidenceId);
+      const audits = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query.eq("entityType", "buildCollaborationTenantSettings"),
+        )
+        .collect();
+      return { audits, evidence };
+    });
+    expect(evidenceAndAudits.evidence).toMatchObject({
+      parityPassed: true,
+      reportHash: "sha256:parity-report",
+      verifiedByWorkosUserId: "user_admin",
+    });
+    expect(evidenceAndAudits.audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorRoles: expect.arrayContaining(["admin"]),
+          actorWorkosUserId: "user_admin",
+          command: "recordBuildCollaborationMigrationParityEvidence",
+          createdAt: expect.any(Number),
+          entityId: evidenceId,
+        }),
+        expect.objectContaining({
+          actorWorkosUserId: "user_admin",
+          command: "transitionBuildCollaborationTenantStatus",
+          entityId: settingId,
+          newState: expect.stringContaining('"status":"active"'),
+          priorState: JSON.stringify({ status: "migration_ready" }),
+        }),
+      ]),
+    );
+  });
+
+  test("rejects activation without passing parity, illegal transitions, and cross-tenant commands", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID),
+        )
+        .unique();
+      if (!setting) {
+        throw new Error("Collaboration tenant fixture is unavailable.");
+      }
+      await ctx.db.patch(setting._id, { status: "migration_ready" });
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId,
+          expectedStatus: "migration_ready",
+          nextStatus: "active",
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(
+      "Collaboration activation requires durable passing migration parity evidence.",
+    );
+
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId,
+          expectedStatus: "migration_ready",
+          nextStatus: "migration_ready",
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow("Illegal collaboration rollout transition");
+
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId,
+          expectedStatus: "migration_ready",
+          nextStatus: "disabled",
+          organizationId: "org_other",
+          reason: "Cross-tenant rollback attempt.",
+        },
+      ),
+    ).rejects.toThrow();
+  });
+
+  test("requires operator authority and a rollback reason", async () => {
+    const { base, buildId } = await seedActiveBuild();
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Contractor",
+      role: "contractor",
+      subject: "user_contractor",
+    });
+    const contractor = withIdentity(base, {
+      roles: ["contractor"],
+      subject: "user_contractor",
+    });
+    const admin = withIdentity(base, {
+      roles: ["admin", "principle-broker"],
+      subject: "user_admin",
+    });
+
+    await expect(
+      contractor.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId,
+          expectedStatus: "active",
+          nextStatus: "disabled",
+          organizationId: ORGANIZATION_ID,
+          reason: "Unauthorized rollback.",
+        },
+      ),
+    ).rejects.toThrow(
+      "Only an administrator or principal broker can change collaboration rollout state.",
+    );
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId,
+          expectedStatus: "active",
+          nextStatus: "disabled",
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow("A rollback reason is required.");
+  });
+
+  test("rolls back access without deleting collaboration data or audit history", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const postId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "build_wide",
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Preserve this post across rollback.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                {
+                  text: "Preserve this post across rollback.",
+                  type: "text",
+                },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_rollout
+        .transitionBuildCollaborationTenantStatus,
+      {
+        buildId,
+        expectedStatus: "active",
+        nextStatus: "disabled",
+        organizationId: ORGANIZATION_ID,
+        reason: "Production rollback drill.",
+      },
+    );
+
+    await expect(
+      admin.query(
+        (api as any).build_collaboration.listBuildCollaborationFeed,
+        {
+          buildId,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor: null, numItems: 20 },
+        },
+      ),
+    ).rejects.toThrow(
+      "Build collaboration is unavailable until this tenant is active.",
+    );
+    const preserved = await base.run(async (ctx) => {
+      const post = await ctx.db.get(postId);
+      const revisions = await ctx.db
+        .query("buildCollaborationPostRevisions")
+        .withIndex("by_postId_and_revision", (query) =>
+          query.eq("postId", postId),
+        )
+        .collect();
+      const audit = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query.eq("entityType", "buildCollaborationTenantSettings"),
+        )
+        .filter((query) =>
+          query.eq(
+            query.field("eventType"),
+            "build.collaboration.tenant_status.changed",
+          ),
+        )
+        .collect();
+      return { audit, post, revisions };
+    });
+    expect(preserved.post?._id).toBe(postId);
+    expect(preserved.revisions).toHaveLength(1);
+    expect(preserved.audit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          newState: expect.stringContaining('"status":"disabled"'),
+          priorState: JSON.stringify({ status: "active" }),
+          reason: "Production rollback drill.",
+        }),
+      ]),
+    );
+  });
+});
+
+async function deleteCollaborationTenantSetting(
+  t: ReturnType<typeof convexTest>,
+) {
+  await t.run(async (ctx) => {
+    const settings = await ctx.db
+      .query("buildCollaborationTenantSettings")
+      .collect();
+    const setting = settings.find(
+      (candidate) => candidate.organizationId === ORGANIZATION_ID,
+    );
+    if (setting) {
+      await ctx.db.delete(setting._id);
+    }
+  });
+}
+
+async function insertDisabledCollaborationTenantSetting(
+  t: ReturnType<typeof convexTest>,
+  buildId: string,
+) {
+  await t.run(async (ctx) => {
+    const normalizedBuildId = ctx.db.normalizeId("activeBuilds", buildId);
+    if (!normalizedBuildId) {
+      throw new Error("Active Build fixture is unavailable.");
+    }
+    const build = await ctx.db.get(normalizedBuildId);
+    if (!build) {
+      throw new Error("Active Build fixture is unavailable.");
+    }
+    const now = Date.now();
+    await ctx.db.insert("buildCollaborationTenantSettings", {
+      brokerageId: build.brokerageId,
+      createdAt: now,
+      generousRateLimitMultiplier: 1,
+      organizationId: build.organizationId,
+      status: "disabled",
+      updatedAt: now,
+    });
+  });
+}

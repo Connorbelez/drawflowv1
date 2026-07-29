@@ -129,6 +129,12 @@ export const buildCollaborationDraftStateValidator = v.union(
   v.literal("discarded")
 );
 
+export const buildCollaborationTenantStatusValidator = v.union(
+  v.literal("disabled"),
+  v.literal("migration_ready"),
+  v.literal("active")
+);
+
 export const buildCollaborationApprovalStateValidator = v.union(
   v.literal("approved"),
   v.literal("invalidated"),

@@ -20,6 +20,7 @@ import {
   buildCollaborationReferenceKindValidator,
   buildCollaborationRoleValidator,
   buildCollaborationSourceValidator,
+  buildCollaborationTenantStatusValidator,
   buildCollaborationThreadStateValidator,
   buildParticipantStatusValidator,
 } from "./build_collaboration_validators";
@@ -3003,11 +3004,7 @@ export default defineSchema({
   buildCollaborationTenantSettings: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
-    status: v.union(
-      v.literal("disabled"),
-      v.literal("migration_ready"),
-      v.literal("active"),
-    ),
+    status: buildCollaborationTenantStatusValidator,
     retentionPolicyKey: v.optional(v.string()),
     generousRateLimitMultiplier: v.number(),
     migrationCompletedAt: v.optional(v.number()),
@@ -3016,6 +3013,21 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_organizationId", ["organizationId"]),
+  buildCollaborationMigrationParityEvidence: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    reportHash: v.string(),
+    sourceRecordCount: v.number(),
+    importedPostCount: v.number(),
+    mismatchCount: v.number(),
+    parityPassed: v.boolean(),
+    reason: v.optional(v.string()),
+    verifiedAt: v.number(),
+    verifiedByWorkosUserId: v.string(),
+  }).index("by_organizationId_and_verifiedAt", [
+    "organizationId",
+    "verifiedAt",
+  ]),
   buildCollaborationPosts: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -3042,9 +3054,7 @@ export default defineSchema({
     resolvedAt: v.optional(v.number()),
     resolvedByWorkosUserId: v.optional(v.string()),
     announcementExpiresAt: v.optional(v.number()),
-    primaryReferenceKind: v.optional(
-      buildCollaborationReferenceKindValidator,
-    ),
+    primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
     primaryReferenceId: v.optional(v.string()),
     commentCount: v.number(),
     openActionItemCount: v.number(),
@@ -3110,7 +3120,7 @@ export default defineSchema({
     resolution: v.union(
       v.literal("reader"),
       v.literal("excluded"),
-      v.literal("mandatory"),
+      v.literal("mandatory")
     ),
     reason: v.string(),
     createdAt: v.number(),
@@ -3196,7 +3206,7 @@ export default defineSchema({
       v.literal("commenter"),
       v.literal("mentioned"),
       v.literal("assigned"),
-      v.literal("manual"),
+      v.literal("manual")
     ),
     active: v.boolean(),
     createdAt: v.number(),
@@ -3302,17 +3312,12 @@ export default defineSchema({
     cancellationReason: v.optional(v.string()),
     completedAt: v.optional(v.number()),
     currentRevision: v.number(),
-    primaryReferenceKind: v.optional(
-      buildCollaborationReferenceKindValidator,
-    ),
+    primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
     primaryReferenceId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_originatingPostId_and_status", [
-      "originatingPostId",
-      "status",
-    ])
+    .index("by_originatingPostId_and_status", ["originatingPostId", "status"])
     .index("by_buildId_and_status_and_updatedAt", [
       "buildId",
       "status",
@@ -3358,14 +3363,8 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_sourceActionItemId_and_kind", [
-      "sourceActionItemId",
-      "kind",
-    ])
-    .index("by_targetActionItemId_and_kind", [
-      "targetActionItemId",
-      "kind",
-    ]),
+    .index("by_sourceActionItemId_and_kind", ["sourceActionItemId", "kind"])
+    .index("by_targetActionItemId_and_kind", ["targetActionItemId", "kind"]),
   buildActionItemChecklistItems: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -3469,7 +3468,7 @@ export default defineSchema({
     digestCadence: v.union(
       v.literal("daily"),
       v.literal("weekly"),
-      v.literal("never"),
+      v.literal("never")
     ),
     channels: v.array(buildCollaborationNotificationChannelValidator),
     createdAt: v.number(),

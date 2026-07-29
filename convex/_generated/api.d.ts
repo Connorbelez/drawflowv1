@@ -26,6 +26,7 @@ import type * as build_collaboration_migrations from "../build_collaboration_mig
 import type * as build_collaboration_model from "../build_collaboration_model.js";
 import type * as build_collaboration_notifications from "../build_collaboration_notifications.js";
 import type * as build_collaboration_references from "../build_collaboration_references.js";
+import type * as build_collaboration_rollout from "../build_collaboration_rollout.js";
 import type * as build_collaboration_system_events from "../build_collaboration_system_events.js";
 import type * as build_collaboration_threads from "../build_collaboration_threads.js";
 import type * as build_collaboration_validators from "../build_collaboration_validators.js";
@@ -87,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_model: typeof build_collaboration_model;
   build_collaboration_notifications: typeof build_collaboration_notifications;
   build_collaboration_references: typeof build_collaboration_references;
+  build_collaboration_rollout: typeof build_collaboration_rollout;
   build_collaboration_system_events: typeof build_collaboration_system_events;
   build_collaboration_threads: typeof build_collaboration_threads;
   build_collaboration_validators: typeof build_collaboration_validators;

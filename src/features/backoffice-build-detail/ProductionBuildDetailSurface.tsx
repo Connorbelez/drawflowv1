@@ -54,7 +54,7 @@ import {
 } from "#/components/ui/sheet.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
-import { BuildCollaborationFeed } from "#/features/build-collaboration/BuildCollaborationFeed.tsx";
+import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
 import {
   BuildFundingWorkspace,
   type DrawRequestReceipt,
@@ -1347,7 +1347,7 @@ function ProductionDetailsTab({
           `${detail.build._id}:${workosOrganizationId ?? "unscoped"}`
         }
       >
-        <BuildCollaborationFeed
+        <BuildCollaborationWorkspace
           buildId={detail.build._id}
           onOpenReference={(reference) => {
             if (reference.entityKind === "milestone") {

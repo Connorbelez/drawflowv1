@@ -1,8 +1,8 @@
 import { v } from "convex/values";
-import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { collaborationTagOptionValidator } from "./build_collaboration_contracts";
+import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Doc } from "./types";
 
 const MAX_OPTIONS_PER_KIND = 500;
@@ -14,7 +14,10 @@ export const listBuildCollaborationTagOptions = authenticatedQuery
   })
   .returns(v.array(collaborationTagOptionValidator))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const buildId = authorization.build._id;
     const role = authorization.effectiveRole.role;
     const canReadFinancialWork = role !== "contractor" && role !== "homeowner";

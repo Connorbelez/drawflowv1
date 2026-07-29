@@ -1,9 +1,6 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import {
-  type ActiveBuildAuthorization,
-  authorizeActiveBuildAccess,
-} from "./activeBuildAccess";
+import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
   canReadCollaborationPost,
@@ -16,6 +13,7 @@ import {
   resolveCollaborationAudience,
 } from "./build_collaboration_model";
 import { fanOutBuildCollaborationPublication } from "./build_collaboration_notifications";
+import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildActionItemPriorityValidator,
   buildCollaborationAudienceModeValidator,
@@ -101,7 +99,10 @@ export const approveAndPublishBuildCollaborationBundle = authenticatedMutation
   })
   .returns(v.id("buildCollaborationPosts"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     assertHumanPublisher(authorization);
     return await publishBuildCollaborationBundle(ctx, {
       agentDrafted: false,
@@ -292,7 +293,10 @@ export const listBuildCollaborationFeed = authenticatedQuery
   })
   .returns(collaborationFeedResultValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildAccess(ctx, args);
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
     const result = await ctx.db
       .query("buildCollaborationPosts")
       .withIndex("by_buildId_and_lastMeaningfulActivityAt", (query) =>
