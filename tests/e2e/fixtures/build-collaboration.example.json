@@ -57,7 +57,7 @@
     },
     {
       "actionItemText": "Shared Build action",
-      "buildUrl": "/builder/builds/ACTIVE_BUILD_ID?focus=actionItem:ACTION_ITEM_ID",
+      "buildUrl": "/builder-staff/builds/ACTIVE_BUILD_ID?focus=actionItem:ACTION_ITEM_ID",
       "expectRestricted": true,
       "externalOrganization": false,
       "grantOnly": false,

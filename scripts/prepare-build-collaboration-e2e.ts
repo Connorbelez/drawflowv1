@@ -29,7 +29,7 @@ const ROUTE_PREFIX_BY_ROLE: Record<PersonaRole, string> = {
   broker: "backoffice",
   builder: "builder",
   "broker-staff": "backoffice",
-  "builder-staff": "builder",
+  "builder-staff": "builder-staff",
   homeowner: "homeowner",
   contractor: "contractor",
 };
