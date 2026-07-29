@@ -23,6 +23,20 @@ const AUTH_ENV_BY_ROLE: Record<PersonaRole, string> = {
   homeowner: "BUILD_COLLABORATION_E2E_AUTH_HOMEOWNER_B64",
   contractor: "BUILD_COLLABORATION_E2E_AUTH_CONTRACTOR_B64",
 };
+const ROUTE_PREFIX_BY_ROLE: Record<PersonaRole, string> = {
+  admin: "backoffice",
+  "principle-broker": "backoffice",
+  broker: "backoffice",
+  builder: "builder",
+  "broker-staff": "backoffice",
+  "builder-staff": "builder",
+  homeowner: "homeowner",
+  contractor: "contractor",
+};
+const PLACEHOLDER_PATTERN =
+  /ACTIVE_BUILD_ID|ACTION_ITEM_ID|REPLACE(?:D|_ME)?|PLACEHOLDER|EXAMPLE|TODO|YOUR[_-]/i;
+const FOCUS_PATTERN =
+  /^(actionItem|document|draw|evidenceAsset|evidencePackage|material|milestone|participant|siteVisit|submilestone):[A-Za-z0-9_-]+$/;
 
 interface SetupPersona {
   actionItemText: string;
@@ -55,6 +69,13 @@ export async function prepareBuildCollaborationE2E(input: {
     "BUILD_COLLABORATION_E2E_CONTROL_TOKEN"
   );
   const baseUrl = requireEnvironment(env, "PLAYWRIGHT_BASE_URL");
+  assertRuntimeUrl(setupUrl, "setup URL");
+  assertRuntimeUrl(baseUrl, "Playwright base URL", true);
+  if (controlToken.length < 24 || PLACEHOLDER_PATTERN.test(controlToken)) {
+    throw new Error(
+      "BUILD_COLLABORATION_E2E_CONTROL_TOKEN must be a non-placeholder secret of at least 24 characters."
+    );
+  }
   const outputDirectory = resolve(
     env.BUILD_COLLABORATION_E2E_OUTPUT_DIR ??
       resolve(env.RUNNER_TEMP ?? "tmp", "build-collaboration-e2e")
@@ -77,7 +98,7 @@ export async function prepareBuildCollaborationE2E(input: {
       `Build collaboration E2E setup failed with HTTP ${setupResponse.status}.`
     );
   }
-  const setup = validateSetupResponse(await setupResponse.json());
+  const setup = validateSetupResponse(await setupResponse.json(), baseUrl);
   const storageStateByRole = new Map<PersonaRole, string>();
   for (const role of PERSONA_ROLES) {
     const encodedState = requireEnvironment(env, AUTH_ENV_BY_ROLE[role]);
@@ -141,7 +162,8 @@ function decodeStorageState(encodedState: string, role: PersonaRole) {
   const isValidStorageState =
     isRecord(parsed) &&
     Array.isArray(parsed.cookies) &&
-    Array.isArray(parsed.origins);
+    Array.isArray(parsed.origins) &&
+    (parsed.cookies.length > 0 || parsed.origins.length > 0);
   if (!isValidStorageState) {
     throw new Error(
       `The ${role} Playwright storage state must contain cookies and origins arrays.`
@@ -150,7 +172,7 @@ function decodeStorageState(encodedState: string, role: PersonaRole) {
   return parsed;
 }
 
-function validateSetupResponse(value: unknown): SetupResponse {
+function validateSetupResponse(value: unknown, baseUrl: string): SetupResponse {
   if (!(isRecord(value) && Array.isArray(value.personas))) {
     throw new Error("The E2E setup response does not contain personas.");
   }
@@ -166,17 +188,36 @@ function validateSetupResponse(value: unknown): SetupResponse {
     );
   }
   for (const persona of personas) {
-    if (
-      !isRecord(persona) ||
-      typeof persona.actionItemText !== "string" ||
-      typeof persona.buildUrl !== "string" ||
-      persona.buildUrl.includes("ACTIVE_BUILD_ID") ||
-      typeof persona.expectRestricted !== "boolean" ||
-      typeof persona.externalOrganization !== "boolean" ||
-      typeof persona.grantOnly !== "boolean" ||
-      typeof persona.referenceLabel !== "string" ||
-      typeof persona.visiblePostText !== "string"
-    ) {
+    const buildUrl =
+      isRecord(persona) && typeof persona.buildUrl === "string"
+        ? persona.buildUrl.trim()
+        : "";
+    const parsedBuildUrl = parseRuntimeUrl(buildUrl, true, baseUrl);
+    const parsedBaseUrl = parseRuntimeUrl(baseUrl, true);
+    const focus = parsedBuildUrl?.searchParams.get("focus") ?? "";
+    const role =
+      isRecord(persona) && PERSONA_ROLES.includes(persona.role as PersonaRole)
+        ? (persona.role as PersonaRole)
+        : null;
+    const isValidPersona =
+      isRecord(persona) &&
+      role !== null &&
+      hasFixtureText(persona.actionItemText) &&
+      parsedBuildUrl !== null &&
+      parsedBaseUrl !== null &&
+      parsedBuildUrl.origin === parsedBaseUrl.origin &&
+      parsedBuildUrl.pathname.startsWith(
+        `/${ROUTE_PREFIX_BY_ROLE[role]}/builds/`
+      ) &&
+      !PLACEHOLDER_PATTERN.test(decodeURIComponent(buildUrl)) &&
+      FOCUS_PATTERN.test(focus) &&
+      !PLACEHOLDER_PATTERN.test(focus) &&
+      typeof persona.expectRestricted === "boolean" &&
+      typeof persona.externalOrganization === "boolean" &&
+      typeof persona.grantOnly === "boolean" &&
+      hasFixtureText(persona.referenceLabel) &&
+      hasFixtureText(persona.visiblePostText);
+    if (!isValidPersona) {
       throw new Error("The E2E setup response contains an invalid persona.");
     }
   }
@@ -200,7 +241,8 @@ function validateSetupResponse(value: unknown): SetupResponse {
   if (
     !isRecord(value.revocation) ||
     typeof value.revocation.controlUrl !== "string" ||
-    value.revocation.controlUrl.includes("replace.invalid") ||
+    !parseRuntimeUrl(value.revocation.controlUrl) ||
+    PLACEHOLDER_PATTERN.test(value.revocation.controlUrl) ||
     !["homeowner", "contractor"].includes(String(value.revocation.role))
   ) {
     throw new Error(
@@ -208,6 +250,43 @@ function validateSetupResponse(value: unknown): SetupResponse {
     );
   }
   return value as unknown as SetupResponse;
+}
+
+function hasFixtureText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    !PLACEHOLDER_PATTERN.test(value)
+  );
+}
+
+function assertRuntimeUrl(value: string, label: string, allowLocal = false) {
+  if (!parseRuntimeUrl(value, allowLocal)) {
+    throw new Error(`The Build collaboration ${label} is not a usable URL.`);
+  }
+}
+
+function parseRuntimeUrl(
+  value: string,
+  allowLocal = false,
+  baseUrl = "https://drawflow.test.fairlend.ca"
+) {
+  try {
+    const parsed = new URL(value, baseUrl);
+    const local =
+      parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    if (
+      (parsed.protocol !== "https:" && !(allowLocal && local)) ||
+      parsed.hostname.endsWith(".invalid") ||
+      parsed.hostname.endsWith(".example") ||
+      PLACEHOLDER_PATTERN.test(decodeURIComponent(parsed.href))
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

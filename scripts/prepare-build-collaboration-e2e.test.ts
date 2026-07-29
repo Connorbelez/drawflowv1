@@ -32,6 +32,16 @@ const authEnvironment = {
   homeowner: "BUILD_COLLABORATION_E2E_AUTH_HOMEOWNER_B64",
   contractor: "BUILD_COLLABORATION_E2E_AUTH_CONTRACTOR_B64",
 } as const;
+const routePrefixByRole = {
+  admin: "backoffice",
+  "principle-broker": "backoffice",
+  broker: "backoffice",
+  builder: "builder",
+  "broker-staff": "backoffice",
+  "builder-staff": "builder",
+  homeowner: "homeowner",
+  contractor: "contractor",
+} as const;
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
@@ -48,17 +58,33 @@ describe("prepareBuildCollaborationE2E", () => {
     temporaryDirectories.push(directory);
     const githubEnvironmentPath = resolve(directory, "github.env");
     writeFileSync(githubEnvironmentPath, "");
+    const storageState = {
+      cookies: [
+        {
+          domain: "drawflow.test.fairlend.ca",
+          expires: -1,
+          httpOnly: true,
+          name: "auth",
+          path: "/",
+          sameSite: "Lax",
+          secure: true,
+          value: "session",
+        },
+      ],
+      origins: [],
+    };
     const encodedStorageState = Buffer.from(
-      JSON.stringify({ cookies: [], origins: [] })
+      JSON.stringify(storageState)
     ).toString("base64");
     const env: Record<string, string> = {
-      BUILD_COLLABORATION_E2E_CONTROL_TOKEN: "control-token",
+      BUILD_COLLABORATION_E2E_CONTROL_TOKEN:
+        "test-control-token-with-32-characters",
       BUILD_COLLABORATION_E2E_OUTPUT_DIR: resolve(directory, "output"),
       BUILD_COLLABORATION_E2E_SETUP_URL:
-        "https://fixture-control.example/setup",
+        "https://fixture-control.test.fairlend.ca/setup",
       GITHUB_ENV: githubEnvironmentPath,
       GITHUB_RUN_ID: "123",
-      PLAYWRIGHT_BASE_URL: "https://drawflow.example",
+      PLAYWRIGHT_BASE_URL: "https://drawflow.test.fairlend.ca",
     };
     for (const role of roles) {
       env[authEnvironment[role]] = encodedStorageState;
@@ -68,7 +94,7 @@ describe("prepareBuildCollaborationE2E", () => {
         JSON.stringify({
           personas: roles.map((role) => ({
             actionItemText: "Review the engineer seal",
-            buildUrl: `/${role}/builds/build_01?focus=actionItem:action_01`,
+            buildUrl: `/${routePrefixByRole[role]}/builds/build_01?focus=actionItem:action_01`,
             expectRestricted: role !== "admin",
             externalOrganization: role === "homeowner",
             grantOnly: role === "homeowner" || role === "contractor",
@@ -77,7 +103,8 @@ describe("prepareBuildCollaborationE2E", () => {
             visiblePostText: "Foundation inspection complete.",
           })),
           revocation: {
-            controlUrl: "https://fixture-control.example/revoke",
+            controlUrl:
+              "https://fixture-control.test.fairlend.ca/revoke",
             role: "homeowner",
           },
         }),
@@ -97,12 +124,12 @@ describe("prepareBuildCollaborationE2E", () => {
       fixture.personas.every(
         (persona: { storageState: string }) =>
           readFileSync(persona.storageState, "utf8") ===
-          `${JSON.stringify({ cookies: [], origins: [] })}\n`
+          `${JSON.stringify(storageState)}\n`
       )
     ).toBe(true);
     expect(fixture.revocation).toEqual({
-      controlToken: "control-token",
-      controlUrl: "https://fixture-control.example/revoke",
+      controlToken: "test-control-token-with-32-characters",
+      controlUrl: "https://fixture-control.test.fairlend.ca/revoke",
       role: "homeowner",
     });
     expect(readFileSync(githubEnvironmentPath, "utf8")).toContain(
@@ -116,14 +143,18 @@ describe("prepareBuildCollaborationE2E", () => {
     );
     temporaryDirectories.push(directory);
     const encodedStorageState = Buffer.from(
-      JSON.stringify({ cookies: [], origins: [] })
+      JSON.stringify({
+        cookies: [{ name: "auth", value: "session" }],
+        origins: [],
+      })
     ).toString("base64");
     const env: Record<string, string> = {
-      BUILD_COLLABORATION_E2E_CONTROL_TOKEN: "control-token",
+      BUILD_COLLABORATION_E2E_CONTROL_TOKEN:
+        "test-control-token-with-32-characters",
       BUILD_COLLABORATION_E2E_OUTPUT_DIR: resolve(directory, "output"),
       BUILD_COLLABORATION_E2E_SETUP_URL:
-        "https://fixture-control.example/setup",
-      PLAYWRIGHT_BASE_URL: "https://drawflow.example",
+        "https://fixture-control.test.fairlend.ca/setup",
+      PLAYWRIGHT_BASE_URL: "https://drawflow.test.fairlend.ca",
     };
     for (const role of roles) {
       env[authEnvironment[role]] = encodedStorageState;
@@ -137,7 +168,8 @@ describe("prepareBuildCollaborationE2E", () => {
             JSON.stringify({
               personas: roles.map((role) => ({
                 actionItemText: "Action",
-                buildUrl: "/builds/ACTIVE_BUILD_ID",
+                buildUrl:
+                  "/backoffice/builds/ACTIVE_BUILD_ID?focus=actionItem:ACTION_ITEM_ID",
                 expectRestricted: false,
                 externalOrganization: role === "homeowner",
                 grantOnly: role === "homeowner" || role === "contractor",
@@ -146,7 +178,8 @@ describe("prepareBuildCollaborationE2E", () => {
                 visiblePostText: "Post",
               })),
               revocation: {
-                controlUrl: "https://fixture-control.example/revoke",
+                controlUrl:
+                  "https://fixture-control.test.fairlend.ca/revoke",
                 role: "homeowner",
               },
             })
