@@ -36,6 +36,7 @@ vi.mock("convex/react", () => ({
         receipts: [],
         references: [
           {
+            _id: "reference-1",
             entityId: "evidence-1",
             entityKind: "evidenceAsset",
             labelSnapshot: "Foundation completion photo",
@@ -101,7 +102,7 @@ vi.mock("convex/react", () => ({
 }));
 
 vi.mock(
-  "../backoffice-build-detail/prototype/CollaborationRichTextEditor.tsx",
+  "./CollaborationRichTextEditor.tsx",
   () => ({
   CollaborationRichTextEditor: () => <div data-testid="mock-editor" />,
   CollaborationRichTextPreview: ({

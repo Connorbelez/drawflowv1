@@ -76,15 +76,15 @@ import {
 import { Tabs, TabsList, TabsPanel, TabsTab } from "#/components/ui/tabs.tsx";
 import { cn } from "#/lib/utils.ts";
 import {
-  MilestoneDetailSheet,
-  type MilestoneSheetData,
-} from "../MilestoneDetailSheet.tsx";
-import {
   CollaborationRichTextEditor,
   CollaborationRichTextPreview,
   type CollaborationTagOption,
   type CollaborationTagReference,
-} from "./CollaborationRichTextEditor.tsx";
+} from "../../build-collaboration/CollaborationRichTextEditor.tsx";
+import {
+  MilestoneDetailSheet,
+  type MilestoneSheetData,
+} from "../MilestoneDetailSheet.tsx";
 
 type ParticipantId =
   | "connor"

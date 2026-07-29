@@ -8,6 +8,7 @@ import {
   referenceInputValidator,
   stableContentHash,
 } from "./build_collaboration";
+import { collaborationDraftSummaryValidator } from "./build_collaboration_contracts";
 import {
   buildCollaborationAudienceModeValidator,
   buildCollaborationPostTypeValidator,
@@ -89,7 +90,7 @@ export const listMyBuildCollaborationDrafts = authenticatedQuery
     buildId: v.id("activeBuilds"),
     organizationId: v.string(),
   })
-  .returns(v.array(v.any()))
+  .returns(v.array(collaborationDraftSummaryValidator))
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildAccess(ctx, args);
     const drafts = await ctx.db
@@ -104,7 +105,17 @@ export const listMyBuildCollaborationDrafts = authenticatedQuery
       .filter(
         (draft) => draft.state === "active" || draft.state === "scheduled"
       )
-      .sort((left, right) => right.updatedAt - left.updatedAt);
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map((draft) => ({
+        _creationTime: draft._creationTime,
+        _id: draft._id,
+        bundleJson: draft.bundleJson,
+        preparedByAgent: draft.preparedByAgent ?? false,
+        revision: draft.revision,
+        scheduledFor: draft.scheduledFor,
+        state: draft.state,
+        updatedAt: draft.updatedAt,
+      }));
   })
   .public();
 

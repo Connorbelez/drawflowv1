@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { collaborationTagOptionValidator } from "./build_collaboration_contracts";
 import type { Doc } from "./types";
 
 const MAX_OPTIONS_PER_KIND = 500;
@@ -11,7 +12,7 @@ export const listBuildCollaborationTagOptions = authenticatedQuery
     buildId: v.id("activeBuilds"),
     organizationId: v.string(),
   })
-  .returns(v.array(v.any()))
+  .returns(v.array(collaborationTagOptionValidator))
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildAccess(ctx, args);
     const buildId = authorization.build._id;

@@ -1,10 +1,8 @@
 "use client";
 
-import type { JSONContent } from "@tiptap/react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
   Bell,
-  CircleDot,
   Flag,
   List,
   LockKeyhole,
@@ -39,11 +37,6 @@ import {
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "#/components/ui/hover-card.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import {
   Select,
@@ -52,139 +45,46 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select.tsx";
-import {
-  Sheet,
-  SheetDescription,
-  SheetHeader,
-  SheetPanel,
-  SheetPopup,
-  SheetTitle,
-} from "#/components/ui/sheet.tsx";
 import { Tabs, TabsList, TabsTab } from "#/components/ui/tabs.tsx";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-
+import { BuildCollaborationActionItems } from "./BuildCollaborationActionItems.tsx";
+import {
+  BuildCollaborationReferenceChip,
+  BuildCollaborationReferenceSheet,
+} from "./BuildCollaborationReference.tsx";
 import {
   CollaborationRichTextEditor,
   CollaborationRichTextPreview,
-  type CollaborationTagKind,
-  type CollaborationTagOption,
   type CollaborationTagReference,
-} from "../backoffice-build-detail/prototype/CollaborationRichTextEditor.tsx";
-
-type AudienceMode = "author_tier_and_higher" | "build_wide" | "custom";
-type FeedFilter = "actionable" | "all" | "following" | "pinned";
-type PostType = "announcement" | "decision" | "issue" | "question" | "update";
-type ActionStatus =
-  | "blocked"
-  | "cancelled"
-  | "done"
-  | "in_progress"
-  | "in_review"
-  | "todo";
-
-interface ReferenceOption extends CollaborationTagOption {
-  entityKind: string;
-  href: string;
-}
-
-interface FocusedReference extends ReferenceOption {}
-
-interface CollaborationActionItem {
-  _id: Id<"buildActionItems">;
-  currentRevision: number;
-  priority: string;
-  status: ActionStatus;
-  title: string;
-}
-
-interface CollaborationFeedReference {
-  entityId: string;
-  entityKind: string;
-  labelSnapshot: string;
-  summarySnapshot?: string;
-}
-
-interface CollaborationFeedPostEntry {
-  acknowledgement: {
-    acknowledged: boolean;
-    dueAt?: number;
-    required: boolean;
-  };
-  actionItems: CollaborationActionItem[];
-  following: boolean;
-  kind: "post";
-  pins: unknown[];
-  post: {
-    _id: Id<"buildCollaborationPosts">;
-    audienceMode: AudienceMode;
-    authorDisplayNameSnapshot: string;
-    authorRole?: string;
-    commentCount: number;
-    createdAt: number;
-    postType: PostType;
-  };
-  reactions: unknown[];
-  receipts: Array<{ lastViewedAt: number }>;
-  references: CollaborationFeedReference[];
-  revision: { plainText: string; tiptapJson: string };
-}
-
-interface CollaborationFeedPlaceholder {
-  kind: "restricted" | "unavailable";
-  placeholderKey: string;
-}
-
-type CollaborationFeedEntry =
-  | CollaborationFeedPlaceholder
-  | CollaborationFeedPostEntry;
-
-interface CollaborationCommentRow {
-  comment: {
-    _id: Id<"buildCollaborationComments">;
-    authorDisplayNameSnapshot: string;
-    createdAt: number;
-    logicalDepth: number;
-  };
-  revision?: { tiptapJson: string } | null;
-}
-
-interface RawCollaborationTagOption {
-  entityId: string;
-  entityKind: string;
-  eyebrow: string;
-  href: string;
-  label: string;
-  searchTerms: string[];
-  summary: string;
-}
-
-interface CollaborationDraftSummary {
-  _id: Id<"buildCollaborationDrafts">;
-  bundleJson: string;
-  preparedByAgent?: boolean;
-  revision: number;
-  updatedAt: number;
-}
-
-interface CollaborationDraftBundle {
-  acknowledgementRequired?: boolean;
-  actionItems: Array<{ title: string }>;
-  audienceMode: AudienceMode;
-  plainText: string;
-  postType: PostType;
-  references: Array<{
-    entityId: string;
-    entityKind: string;
-    label: string;
-    summary?: string;
-  }>;
-  requestedReaderIds: string[];
-  tiptapJson: string;
-}
-
-const WHITESPACE_PATTERN = /\s+/;
+} from "./CollaborationRichTextEditor.tsx";
+import {
+  type AudienceMode,
+  audienceLabel,
+  type CollaborationCommentRow,
+  type CollaborationDraftSummary,
+  type CollaborationFeedEntry,
+  type CollaborationFeedPostEntry,
+  composerActionItems,
+  emptyDocument,
+  escapeHtml,
+  type FeedFilter,
+  type FocusedReference,
+  formatTimestamp,
+  initials,
+  type PostType,
+  parseDocument,
+  parseDraftBundle,
+  plainTextFromDocument,
+  postTypeLabel,
+  type ReferenceOption,
+  reactionLabel,
+  roleLabel,
+  toBackendReferenceKind,
+  toCollaborationTagOption,
+  toEditorReferenceKind,
+} from "./model.ts";
 
 export function BuildCollaborationFeed({
   buildId,
@@ -217,7 +117,7 @@ export function BuildCollaborationFeed({
   const drafts = useQuery(
     api.build_collaboration_drafts.listMyBuildCollaborationDrafts,
     organizationId ? { buildId: activeBuildId, organizationId } : "skip"
-  ) as CollaborationDraftSummary[] | undefined;
+  );
   const publish = useMutation(
     api.build_collaboration.approveAndPublishBuildCollaborationBundle
   );
@@ -834,7 +734,7 @@ export function BuildCollaborationFeed({
         </Button>
       </aside>
 
-      <ReferenceDetailSheet
+      <BuildCollaborationReferenceSheet
         onOpenChange={(open) => {
           if (!open) {
             setFocusedReference(null);
@@ -1081,7 +981,7 @@ function CollaborationPostCard({
                 `${kind}:${reference.entityId}`
               );
               return (
-                <ReferenceChip
+                <BuildCollaborationReferenceChip
                   key={reference._id}
                   onOpen={() => option && onFocusReference(option)}
                   reference={{
@@ -1250,7 +1150,7 @@ function CollaborationPostCard({
               </Button>
             </div>
           </div>
-          <ActionItemsView
+          <BuildCollaborationActionItems
             actionView={actionView}
             items={entry.actionItems}
             onMove={async (actionItemId, status, reason, expectedRevision) => {
@@ -1324,254 +1224,6 @@ function CollaborationPostCard({
   );
 }
 
-function ActionItemsView({
-  actionView,
-  items,
-  onMove,
-}: {
-  actionView: "board" | "list";
-  items: CollaborationActionItem[];
-  onMove: (
-    actionItemId: Id<"buildActionItems">,
-    status: ActionStatus,
-    reason?: string,
-    expectedRevision?: number
-  ) => Promise<void>;
-}) {
-  const columns: Array<{ label: string; status: ActionStatus }> = [
-    { label: "To do", status: "todo" },
-    { label: "In progress", status: "in_progress" },
-    { label: "In review", status: "in_review" },
-    { label: "Done", status: "done" },
-  ];
-  if (items.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed py-8 text-center text-muted-foreground text-sm">
-        No Action Items on this post.
-      </div>
-    );
-  }
-  if (actionView === "board") {
-    return (
-      <div className="grid gap-2 lg:grid-cols-4">
-        {columns.map((column) => (
-          <div className="rounded-xl bg-muted/30 p-2" key={column.status}>
-            <p className="mb-2 font-medium text-xs">{column.label}</p>
-            <div className="space-y-2">
-              {items
-                .filter((item) => item.status === column.status)
-                .map((item) => (
-                  <ActionItemCard item={item} key={item._id} onMove={onMove} />
-                ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-2">
-      {items.map((item) => (
-        <ActionItemCard item={item} key={item._id} onMove={onMove} />
-      ))}
-    </div>
-  );
-}
-
-function ActionItemCard({
-  item,
-  onMove,
-}: {
-  item: CollaborationActionItem;
-  onMove: (
-    actionItemId: Id<"buildActionItems">,
-    status: ActionStatus,
-    reason?: string,
-    expectedRevision?: number
-  ) => Promise<void>;
-}) {
-  const [pendingTerminalStatus, setPendingTerminalStatus] = useState<
-    "blocked" | "cancelled" | null
-  >(null);
-  const [reason, setReason] = useState("");
-
-  const selectStatus = (status: ActionStatus) => {
-    if (status === "blocked" || status === "cancelled") {
-      setPendingTerminalStatus(status);
-      setReason("");
-      return;
-    }
-    setPendingTerminalStatus(null);
-    onMove(item._id, status, undefined, item.currentRevision).catch(
-      () => undefined
-    );
-  };
-
-  const confirmReasonedTransition = () => {
-    const normalizedReason = reason.trim();
-    if (!(pendingTerminalStatus && normalizedReason)) {
-      toast.error(
-        pendingTerminalStatus === "cancelled"
-          ? "Explain why this Action Item is being cancelled."
-          : "Explain what is blocking this Action Item."
-      );
-      return;
-    }
-    onMove(
-      item._id,
-      pendingTerminalStatus,
-      normalizedReason,
-      item.currentRevision
-    ).catch(() => undefined);
-    setPendingTerminalStatus(null);
-    setReason("");
-  };
-
-  return (
-    <Card className="rounded-xl">
-      <CardPanel className="space-y-2 p-3">
-        <div className="flex items-start justify-between gap-2">
-          <p className="font-medium text-sm">{item.title}</p>
-          <Badge variant="outline">{item.priority}</Badge>
-        </div>
-        <Select
-          onValueChange={(value) => selectStatus(value as ActionStatus)}
-          value={item.status}
-        >
-          <SelectTrigger aria-label={`Status for ${item.title}`} size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todo">To do</SelectItem>
-            <SelectItem value="in_progress">In progress</SelectItem>
-            <SelectItem value="in_review">In review</SelectItem>
-            <SelectItem value="blocked">Blocked</SelectItem>
-            <SelectItem value="done">Done</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-        {pendingTerminalStatus ? (
-          <div className="space-y-2 rounded-lg border bg-muted/20 p-2">
-            <Input
-              aria-label={
-                pendingTerminalStatus === "cancelled"
-                  ? `Cancellation reason for ${item.title}`
-                  : `Blocked reason for ${item.title}`
-              }
-              onChange={(event) => setReason(event.target.value)}
-              placeholder={
-                pendingTerminalStatus === "cancelled"
-                  ? "Why is this being cancelled?"
-                  : "What is blocking this work?"
-              }
-              value={reason}
-            />
-            <div className="flex justify-end gap-2">
-              <Button
-                onClick={() => setPendingTerminalStatus(null)}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={confirmReasonedTransition}
-                size="sm"
-                type="button"
-              >
-                Confirm
-              </Button>
-            </div>
-          </div>
-        ) : null}
-      </CardPanel>
-    </Card>
-  );
-}
-
-function ReferenceChip({
-  onOpen,
-  reference,
-}: {
-  onOpen: () => void;
-  reference: { eyebrow: string; label: string; summary: string };
-}) {
-  return (
-    <HoverCard>
-      <HoverCardTrigger
-        render={
-          <button
-            className="flex min-w-0 items-center gap-2 rounded-xl border bg-muted/15 px-3 py-2 text-left hover:bg-muted/30"
-            onClick={onOpen}
-            type="button"
-          />
-        }
-      >
-        <CircleDot
-          aria-hidden="true"
-          className="size-4 shrink-0 text-primary"
-        />
-        <span className="min-w-0">
-          <span className="block truncate font-medium text-xs">
-            {reference.label}
-          </span>
-          <span className="block truncate text-muted-foreground text-xs">
-            {reference.summary}
-          </span>
-        </span>
-      </HoverCardTrigger>
-      <HoverCardContent className="w-80">
-        <p className="font-medium text-primary text-xs uppercase tracking-wide">
-          {reference.eyebrow}
-        </p>
-        <p className="mt-2 font-semibold text-sm">{reference.label}</p>
-        <p className="mt-1 text-muted-foreground text-sm">
-          {reference.summary}
-        </p>
-        <p className="mt-3 text-muted-foreground text-xs">
-          Click to open the focused Build detail.
-        </p>
-      </HoverCardContent>
-    </HoverCard>
-  );
-}
-
-function ReferenceDetailSheet({
-  onOpenChange,
-  onOpenWorkspace,
-  reference,
-}: {
-  onOpenChange: (open: boolean) => void;
-  onOpenWorkspace: () => void;
-  reference: FocusedReference | null;
-}) {
-  return (
-    <Sheet onOpenChange={onOpenChange} open={Boolean(reference)}>
-      <SheetPopup>
-        <SheetHeader>
-          <SheetTitle>{reference?.label ?? "Build reference"}</SheetTitle>
-          <SheetDescription>
-            {reference?.eyebrow ?? "Referenced Build work"}
-          </SheetDescription>
-        </SheetHeader>
-        <SheetPanel className="space-y-4">
-          <Frame>
-            <FramePanel>
-              <p className="text-muted-foreground text-sm">
-                {reference?.summary}
-              </p>
-            </FramePanel>
-          </Frame>
-          <Button className="w-full" onClick={onOpenWorkspace} type="button">
-            Open focused workspace
-          </Button>
-        </SheetPanel>
-      </SheetPopup>
-    </Sheet>
-  );
-}
-
 function SummaryCard({
   description,
   icon,
@@ -1597,171 +1249,4 @@ function SummaryCard({
       </CardHeader>
     </Card>
   );
-}
-
-function toCollaborationTagOption(
-  option: RawCollaborationTagOption
-): ReferenceOption {
-  return {
-    entityKind: option.entityKind,
-    eyebrow: option.eyebrow,
-    href: option.href,
-    id: String(option.entityId),
-    kind: toEditorReferenceKind(option.entityKind),
-    label: option.label,
-    searchTerms: option.searchTerms,
-    summary: option.summary,
-  };
-}
-
-function toEditorReferenceKind(kind: string): CollaborationTagKind {
-  switch (kind) {
-    case "actionItem":
-      return "action_item";
-    case "evidenceAsset":
-    case "evidencePackage":
-      return "evidence";
-    case "siteVisit":
-      return "site_visit";
-    default:
-      return kind as CollaborationTagKind;
-  }
-}
-
-function toBackendReferenceKind(kind: CollaborationTagKind) {
-  switch (kind) {
-    case "action_item":
-      return "actionItem" as const;
-    case "evidence":
-      return "evidencePackage" as const;
-    case "site_visit":
-      return "siteVisit" as const;
-    default:
-      return kind;
-  }
-}
-
-function emptyDocument(): JSONContent {
-  return { content: [{ type: "paragraph" }], type: "doc" };
-}
-
-function composerActionItems(actionTitle: string) {
-  const title = actionTitle.trim();
-  return title
-    ? [
-        {
-          descriptionPlainText: "",
-          descriptionTiptapJson: JSON.stringify(emptyDocument()),
-          priority: "none" as const,
-          requiresAcceptance: false,
-          title,
-        },
-      ]
-    : [];
-}
-
-function parseDraftBundle(value: string): CollaborationDraftBundle | null {
-  try {
-    return JSON.parse(value) as CollaborationDraftBundle;
-  } catch {
-    return null;
-  }
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function parseDocument(value: string): JSONContent {
-  try {
-    return JSON.parse(value) as JSONContent;
-  } catch {
-    return emptyDocument();
-  }
-}
-
-function plainTextFromDocument(document: JSONContent) {
-  const parts: string[] = [];
-  const visit = (node: JSONContent) => {
-    if (typeof node.text === "string") {
-      parts.push(node.text);
-    } else if (
-      node.type === "collaborationMention" &&
-      typeof node.attrs?.label === "string"
-    ) {
-      parts.push(`@${node.attrs.label}`);
-    }
-    for (const child of node.content ?? []) {
-      visit(child);
-    }
-    if (
-      node.type === "paragraph" ||
-      node.type === "heading" ||
-      node.type === "listItem"
-    ) {
-      parts.push("\n");
-    }
-  };
-  visit(document);
-  return parts
-    .join("")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function initials(name: string) {
-  return name
-    .split(WHITESPACE_PATTERN)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-}
-
-function formatTimestamp(timestamp: number) {
-  return new Intl.DateTimeFormat("en-CA", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(timestamp));
-}
-
-function roleLabel(role?: string) {
-  if (!role) {
-    return "Build participant";
-  }
-  return role
-    .split("-")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function postTypeLabel(type: string) {
-  return type === "issue" ? "Issue / blocker" : roleLabel(type);
-}
-
-function reactionLabel(reaction: "acknowledged" | "agree" | "question") {
-  switch (reaction) {
-    case "acknowledged":
-      return "Acknowledge";
-    case "agree":
-      return "Agree";
-    case "question":
-      return "Question";
-  }
-}
-
-function audienceLabel(mode: AudienceMode) {
-  switch (mode) {
-    case "build_wide":
-      return "Everyone on this Build";
-    case "author_tier_and_higher":
-      return "Author tier and higher";
-    case "custom":
-      return "Custom audience";
-  }
 }

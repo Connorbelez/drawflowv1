@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { collaborationCommentRowValidator } from "./build_collaboration_contracts";
 import {
   buildCollaborationPinKindValidator,
   buildCollaborationReactionValidator,
@@ -160,7 +161,7 @@ export const listBuildCollaborationComments = authenticatedQuery
     organizationId: v.string(),
     postId: v.id("buildCollaborationPosts"),
   })
-  .returns(v.array(v.any()))
+  .returns(v.array(collaborationCommentRowValidator))
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildAccess(ctx, args);
     const post = await ctx.db.get(args.postId);
@@ -176,20 +177,42 @@ export const listBuildCollaborationComments = authenticatedQuery
     return await Promise.all(
       comments.map(async (comment) => {
         const currentRevisionId = comment.currentRevisionId;
+        const references = currentRevisionId
+          ? await ctx.db
+              .query("buildCollaborationReferences")
+              .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+                query
+                  .eq("ownerKind", "commentRevision")
+                  .eq("ownerRecordId", currentRevisionId)
+              )
+              .take(100)
+          : [];
+        const revision = currentRevisionId
+          ? await ctx.db.get(currentRevisionId)
+          : null;
         return {
-          comment,
-          references: currentRevisionId
-            ? await ctx.db
-                .query("buildCollaborationReferences")
-                .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-                  query
-                    .eq("ownerKind", "commentRevision")
-                    .eq("ownerRecordId", currentRevisionId)
-                )
-                .take(100)
-            : [],
-          revision: currentRevisionId
-            ? await ctx.db.get(currentRevisionId)
+          comment: {
+            _creationTime: comment._creationTime,
+            _id: comment._id,
+            authorDisplayNameSnapshot: comment.authorDisplayNameSnapshot,
+            createdAt: comment.createdAt,
+            logicalDepth: comment.logicalDepth,
+          },
+          references: references.map((reference) => ({
+            _creationTime: reference._creationTime,
+            _id: reference._id,
+            entityId: reference.entityId,
+            entityKind: reference.entityKind,
+            labelSnapshot: reference.labelSnapshot,
+            summarySnapshot: reference.summarySnapshot,
+          })),
+          revision: revision
+            ? {
+                _creationTime: revision._creationTime,
+                _id: revision._id,
+                plainText: revision.plainText,
+                tiptapJson: revision.tiptapJson,
+              }
             : null,
         };
       })

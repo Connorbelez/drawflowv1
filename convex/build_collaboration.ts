@@ -9,6 +9,7 @@ import {
   canReadCollaborationPost,
   canSeeCollaborationReceipt,
 } from "./build_collaboration_access";
+import { collaborationFeedResultValidator } from "./build_collaboration_contracts";
 import {
   canCreateCustomCollaborationAudience,
   collaborationRoleTier,
@@ -44,14 +45,6 @@ export const actionItemInputValidator = v.object({
   priority: v.optional(buildActionItemPriorityValidator),
   requiresAcceptance: v.optional(v.boolean()),
   title: v.string(),
-});
-
-const feedResultValidator = v.object({
-  continueCursor: v.string(),
-  isDone: v.boolean(),
-  page: v.array(v.any()),
-  pageStatus: v.optional(v.any()),
-  splitCursor: v.optional(v.union(v.string(), v.null())),
 });
 
 interface ReferenceInput {
@@ -297,7 +290,7 @@ export const listBuildCollaborationFeed = authenticatedQuery
     organizationId: v.string(),
     paginationOpts: paginationOptsValidator,
   })
-  .returns(feedResultValidator)
+  .returns(collaborationFeedResultValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildAccess(ctx, args);
     const result = await ctx.db
@@ -408,17 +401,65 @@ export const listBuildCollaborationFeed = authenticatedQuery
                 required: true,
               }
             : { acknowledged: false, required: false },
-          actionItems,
+          actionItems: actionItems.map((item) => ({
+            _creationTime: item._creationTime,
+            _id: item._id,
+            currentRevision: item.currentRevision,
+            priority: item.priority,
+            status: item.status,
+            title: item.title,
+          })),
           following: follows.some((follow) => follow.active),
           kind: "post" as const,
-          pins,
-          post,
-          reactions,
-          receipts: receipts.filter((receipt) =>
-            canSeeCollaborationReceipt(authorization, receipt)
-          ),
-          references,
-          revision,
+          pins: pins.map((pin) => ({
+            _creationTime: pin._creationTime,
+            _id: pin._id,
+          })),
+          post: {
+            _creationTime: post._creationTime,
+            _id: post._id,
+            agentDrafted: post.agentDrafted,
+            audienceMode: post.audienceMode,
+            authorDisplayNameSnapshot: post.authorDisplayNameSnapshot,
+            authorRole: post.authorRole,
+            authorWorkosUserId: post.authorWorkosUserId,
+            commentCount: post.commentCount,
+            createdAt: post.createdAt,
+            postType: post.postType,
+            source: post.source,
+          },
+          reactions: reactions.map((reaction) => ({
+            _creationTime: reaction._creationTime,
+            _id: reaction._id,
+            reaction: reaction.reaction,
+            workosUserId: reaction.workosUserId,
+          })),
+          receipts: receipts
+            .filter((receipt) =>
+              canSeeCollaborationReceipt(authorization, receipt)
+            )
+            .map((receipt) => ({
+              _creationTime: receipt._creationTime,
+              _id: receipt._id,
+              lastViewedAt: receipt.lastViewedAt,
+              latestRevisionViewed: receipt.latestRevisionViewed,
+              viewerRole: receipt.viewerRole,
+              workosUserId: receipt.workosUserId,
+            })),
+          references: references.map((reference) => ({
+            _creationTime: reference._creationTime,
+            _id: reference._id,
+            entityId: reference.entityId,
+            entityKind: reference.entityKind,
+            labelSnapshot: reference.labelSnapshot,
+            summarySnapshot: reference.summarySnapshot,
+          })),
+          revision: {
+            _creationTime: revision._creationTime,
+            _id: revision._id,
+            plainText: revision.plainText,
+            tiptapJson: revision.tiptapJson,
+          },
         };
       })
     );

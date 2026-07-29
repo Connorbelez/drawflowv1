@@ -4,6 +4,7 @@ import {
   authorizeActiveBuildAccess,
 } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
+import { collaborationNotificationPreferenceValidator } from "./build_collaboration_contracts";
 import { buildCollaborationNotificationChannelValidator } from "./build_collaboration_validators";
 import type { MutationCtx } from "./types";
 
@@ -12,7 +13,7 @@ export const getMyBuildCollaborationNotificationPreferences = authenticatedQuery
     buildId: v.id("activeBuilds"),
     organizationId: v.string(),
   })
-  .returns(v.any())
+  .returns(collaborationNotificationPreferenceValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildAccess(ctx, args);
     const preference = await ctx.db
@@ -23,15 +24,13 @@ export const getMyBuildCollaborationNotificationPreferences = authenticatedQuery
           .eq("workosUserId", authorization.viewer.subject)
       )
       .first();
-    return (
-      preference ?? {
-        channels: ["in_app", "email"],
-        digestCadence: "daily",
-        digestEnabled: true,
-        ordinaryMuted: false,
-        workosUserId: authorization.viewer.subject,
-      }
-    );
+    return {
+      channels: preference?.channels ?? ["in_app", "email"],
+      digestCadence: preference?.digestCadence ?? "daily",
+      digestEnabled: preference?.digestEnabled ?? true,
+      ordinaryMuted: preference?.ordinaryMuted ?? false,
+      workosUserId: authorization.viewer.subject,
+    };
   })
   .public();
 

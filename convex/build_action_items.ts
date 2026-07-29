@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import {
   buildActionItemPriorityValidator,
@@ -21,7 +22,7 @@ export const listBuildActionItems = authenticatedQuery
     organizationId: v.string(),
     postId: v.optional(v.id("buildCollaborationPosts")),
   })
-  .returns(v.array(v.any()))
+  .returns(v.array(buildActionItemListRowValidator))
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildAccess(ctx, args);
     const postId = args.postId;
