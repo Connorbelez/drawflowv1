@@ -2,9 +2,12 @@
   "authKit": {
     "dev": {
       "configure": {
-        "redirectUris": ["http://localhost:3000/callback"],
-        "appHomepageUrl": "http://localhost:3000",
-        "corsOrigins": ["http://localhost:3000"]
+        "redirectUris": [
+          "http://localhost:3000/callback",
+          "https://drawflow.fairlend.ca/callback"
+        ],
+        "appHomepageUrl": "https://drawflow.fairlend.ca",
+        "corsOrigins": ["http://localhost:3000", "https://drawflow.fairlend.ca"]
       },
       "localEnvVars": {
         "WORKOS_CLIENT_ID": "${authEnv.WORKOS_CLIENT_ID}",

@@ -10,13 +10,22 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+const convexMocks = vi.hoisted(() => ({
+  paginatedQueryError: null as Error | null,
+}));
+
 vi.mock("convex/react", () => ({
   useMutation: () => vi.fn(),
-  usePaginatedQuery: () => ({
-    loadMore: vi.fn(),
-    results: [],
-    status: "Exhausted",
-  }),
+  usePaginatedQuery: () => {
+    if (convexMocks.paginatedQueryError) {
+      throw convexMocks.paginatedQueryError;
+    }
+    return {
+      loadMore: vi.fn(),
+      results: [],
+      status: "Exhausted",
+    };
+  },
   useQuery: () => undefined,
 }));
 
@@ -182,6 +191,7 @@ import {
 } from "./ProductionBuildDetailSurface";
 
 beforeEach(() => {
+  convexMocks.paginatedQueryError = null;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -218,6 +228,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   document.body.removeAttribute("style");
@@ -804,6 +815,31 @@ describe("ProductionBuildDetailSurface", () => {
     fireEvent.click(screen.getByTestId("build-overview-tab-build"));
     expect(screen.getByText("43.653226")).toBeTruthy();
     expect(screen.getByText("-79.383184")).toBeTruthy();
+  });
+
+  test("keeps the Build Overview operational when collaboration cannot load", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    convexMocks.paginatedQueryError = new Error(
+      "Could not find public function for 'build_collaboration:listBuildCollaborationFeed'.",
+    );
+
+    render(
+      <ProductionBuildDetailSurface
+        activeTab="details"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+        workosOrganizationId="org_fairlend"
+      />,
+    );
+
+    expect(screen.getByTestId("build-overview-current-panel")).toBeTruthy();
+    expect(screen.getByTestId("build-collaboration-error")).toBeTruthy();
+    expect(screen.getByText("Collaboration is temporarily unavailable")).toBeTruthy();
+    expect(consoleError).toHaveBeenCalled();
   });
 
   test("delineates behind, current, and next milestones with schedule ownership and budget facts", () => {

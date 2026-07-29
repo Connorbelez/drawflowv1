@@ -1,5 +1,6 @@
 "use client";
 
+import { CatchBoundary } from "@tanstack/react-router";
 import {
   AlertTriangle,
   Banknote,
@@ -1257,6 +1258,33 @@ function HeaderStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function BuildCollaborationErrorFallback({
+  reset,
+}: {
+  error: Error;
+  reset: () => void;
+}) {
+  return (
+    <Frame data-testid="build-collaboration-error">
+      <FramePanel className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-medium text-sm">
+            Collaboration is temporarily unavailable
+          </p>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Build Overview is still available. Retry this workspace without
+            reloading the Build.
+          </p>
+        </div>
+        <Button onClick={reset} size="sm" type="button" variant="outline">
+          <RefreshCw aria-hidden="true" className="size-4" />
+          Retry collaboration
+        </Button>
+      </FramePanel>
+    </Frame>
+  );
+}
+
 function ProductionDetailsTab({
   actions,
   currentDay,
@@ -1313,49 +1341,56 @@ function ProductionDetailsTab({
         )}
       </section>
 
-      <BuildCollaborationFeed
-        buildId={detail.build._id}
-        onOpenReference={(reference) => {
-          if (reference.entityKind === "milestone") {
-            const milestone = detail.milestones.find(
-              (candidate) => candidate._id === reference.entityId
-            );
-            if (milestone) {
-              onOpenMilestone(milestone.key);
+      <CatchBoundary
+        errorComponent={BuildCollaborationErrorFallback}
+        getResetKey={() =>
+          `${detail.build._id}:${workosOrganizationId ?? "unscoped"}`
+        }
+      >
+        <BuildCollaborationFeed
+          buildId={detail.build._id}
+          onOpenReference={(reference) => {
+            if (reference.entityKind === "milestone") {
+              const milestone = detail.milestones.find(
+                (candidate) => candidate._id === reference.entityId
+              );
+              if (milestone) {
+                onOpenMilestone(milestone.key);
+                return;
+              }
+            }
+            if (reference.entityKind === "submilestone") {
+              const submilestone = detail.submilestones.find(
+                (candidate) => candidate._id === reference.entityId
+              );
+              if (submilestone) {
+                onOpenMilestone(submilestone.milestoneKey);
+                return;
+              }
+            }
+            if (reference.entityKind === "draw") {
+              setActiveOverviewSection("draws");
+              document
+                .querySelector('[data-testid="production-build-details-card"]')
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
             }
-          }
-          if (reference.entityKind === "submilestone") {
-            const submilestone = detail.submilestones.find(
-              (candidate) => candidate._id === reference.entityId
-            );
-            if (submilestone) {
-              onOpenMilestone(submilestone.milestoneKey);
-              return;
+            const tabByKind: Partial<Record<string, BuildDetailSubTab>> = {
+              document: "documents",
+              evidenceAsset: "evidence",
+              evidencePackage: "evidence",
+              material: "materials",
+              participant: "staff",
+              siteVisit: "calendar",
+            };
+            const tab = tabByKind[reference.entityKind];
+            if (tab) {
+              onChangeTab(tab);
             }
-          }
-          if (reference.entityKind === "draw") {
-            setActiveOverviewSection("draws");
-            document
-              .querySelector('[data-testid="production-build-details-card"]')
-              ?.scrollIntoView({ behavior: "smooth", block: "start" });
-            return;
-          }
-          const tabByKind: Partial<Record<string, BuildDetailSubTab>> = {
-            document: "documents",
-            evidenceAsset: "evidence",
-            evidencePackage: "evidence",
-            material: "materials",
-            participant: "staff",
-            siteVisit: "calendar",
-          };
-          const tab = tabByKind[reference.entityKind];
-          if (tab) {
-            onChangeTab(tab);
-          }
-        }}
-        organizationId={workosOrganizationId}
-      />
+          }}
+          organizationId={workosOrganizationId}
+        />
+      </CatchBoundary>
     </div>
   );
 }
