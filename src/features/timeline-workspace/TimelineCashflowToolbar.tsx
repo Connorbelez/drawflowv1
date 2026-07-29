@@ -48,30 +48,6 @@ export function TimelineCashflowToolbar({
       className="flex min-w-max shrink-0 items-center"
       data-testid="timeline-cashflow-toolbar"
     >
-      <dl className="flex items-center divide-x divide-border/70">
-        {metrics.map((metric) => (
-          <div
-            className="flex shrink-0 items-baseline gap-1.5 px-2.5 first:pl-0"
-            key={metric.testId}
-          >
-            <dt className="whitespace-nowrap font-medium text-[9px] text-muted-foreground uppercase tracking-[0.04em]">
-              {metric.label}
-            </dt>
-            <dd
-              className={cn(
-                "whitespace-nowrap font-semibold text-xs tabular-nums",
-                metricToneClassName[metric.tone ?? "default"]
-              )}
-              data-testid={metric.testId}
-            >
-              {metric.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
-
-      <div aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />
-
       {warningCount > 0 ? (
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -130,6 +106,30 @@ export function TimelineCashflowToolbar({
           Cash risk · Clear
         </div>
       )}
+
+      <div aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />
+
+      <dl className="flex items-center divide-x divide-border/70">
+        {metrics.map((metric) => (
+          <div
+            className="flex shrink-0 items-baseline gap-1.5 px-2.5 first:pl-0"
+            key={metric.testId}
+          >
+            <dt className="whitespace-nowrap font-medium text-[9px] text-muted-foreground uppercase tracking-[0.04em]">
+              {metric.label}
+            </dt>
+            <dd
+              className={cn(
+                "whitespace-nowrap font-semibold text-xs tabular-nums",
+                metricToneClassName[metric.tone ?? "default"]
+              )}
+              data-testid={metric.testId}
+            >
+              {metric.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }

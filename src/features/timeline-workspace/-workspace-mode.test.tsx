@@ -201,13 +201,14 @@ test("cash use summary uses actual milestone spend when completion cost is filed
   });
 });
 
-test("clusters hover-probe cashflow metrics before static plan totals", () => {
+test("clusters cash risk and hover-probe metrics before static plan totals", () => {
   renderWorkspace({
     status: "draft",
     workspaceMode: "proposal",
   });
 
   const orderedMetricIds = [
+    "timeline-cashflow-risk-summary",
     "timeline-cashflow-probe-day",
     "timeline-cashflow-probe-cash",
     "timeline-cashflow-probe-interest-paid",
@@ -215,7 +216,6 @@ test("clusters hover-probe cashflow metrics before static plan totals", () => {
     "timeline-cashflow-lender-cash-used",
     "timeline-cashflow-builder-cash-used",
     "timeline-cashflow-total-interest-paid",
-    "timeline-cashflow-risk-summary",
   ];
   const orderedMetrics = orderedMetricIds.map((id) => screen.getByTestId(id));
 

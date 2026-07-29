@@ -24,6 +24,10 @@
   scrollbar-width: thin;
 }
 
+.timeline-route-header__actions > * {
+  flex: 0 0 auto;
+}
+
 @media (min-width: 640px) {
   .timeline-route-header__actions {
     gap: 8px;
