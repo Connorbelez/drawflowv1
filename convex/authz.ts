@@ -16,6 +16,13 @@ export const roleSlugs = [
 
 export type RoleSlug = (typeof roleSlugs)[number];
 
+export const backofficeRoleSlugs = [
+  "admin",
+  "principle-broker",
+  "broker",
+  "broker-staff",
+] as const satisfies readonly RoleSlug[];
+
 export const actorKinds = [
   "human",
   "agent",
@@ -54,7 +61,7 @@ const roleAliases: Record<string, RoleSlug> = {
 const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
   authenticated: null,
   admin: ["admin"],
-  backoffice: ["admin", "principle-broker", "broker", "broker-staff"],
+  backoffice: backofficeRoleSlugs,
   builder: ["admin", "builder", "builder-staff"],
   contractor: ["contractor"],
   userManagementWrite: ["admin", "principle-broker"],

@@ -6784,14 +6784,30 @@ describe("production proposal foundation", () => {
       ],
     });
     await grantOrgMembership(admin, {
-      roleSlugs: ["broker"],
-      subject: "user_broker",
+      roleSlugs: ["broker-staff"],
+      subject: "user_broker_staff",
+    });
+    await grantOrgMembership(admin, {
+      roleSlugs: ["agent"],
+      subject: "user_agent",
     });
     await admin.run(async (ctx: any) => {
       const build = await ctx.db.get(closing.buildId);
       await ctx.db.patch(build.proposalId, {
-        assignedBrokerWorkosUserId: "user_broker",
+        assignedBrokerWorkosUserId: undefined,
       });
+      await ctx.db.patch(build.brokerageId, {
+        principalBrokerWorkosUserId: undefined,
+      });
+      const assignments = await ctx.db
+        .query("buildBrokerAssignments")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect();
+      for (const assignment of assignments) {
+        await ctx.db.delete(assignment._id);
+      }
     });
     const builder = withIdentity(base, ["builder"], "user_builder");
     const actualStartedAt = Date.parse("2026-05-04T09:00:00.000Z");
@@ -6864,8 +6880,12 @@ describe("production proposal foundation", () => {
       dayStart: 0,
       status: "planned",
     });
-    const broker = withIdentity(base, ["broker"], "user_broker");
-    const inbox = await broker.query(
+    const brokerStaff = withIdentity(
+      base,
+      ["broker-staff"],
+      "user_broker_staff",
+    );
+    const inbox = await brokerStaff.query(
       (api as any).production_proposals.listRecipientInbox,
       { workosOrganizationId: ORG },
     );
@@ -6876,6 +6896,12 @@ describe("production proposal foundation", () => {
         title: "Framing started out of sequence",
       }),
     ]);
+    const agent = withIdentity(base, ["agent"], "user_agent");
+    const agentInbox = await agent.query(
+      (api as any).production_proposals.listRecipientInbox,
+      { workosOrganizationId: ORG },
+    );
+    expect(agentInbox.deliveries).toHaveLength(0);
 
     await admin.run(async (ctx: any) => {
       const memberships = await ctx.db

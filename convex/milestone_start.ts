@@ -1,5 +1,6 @@
 import { ConvexError } from "convex/values";
 
+import { backofficeRoleSlugs } from "./authz";
 import type { Doc, Id, MutationCtx } from "./types";
 
 export const MILESTONE_START_SOURCES = [
@@ -16,13 +17,6 @@ export const MILESTONE_START_SOURCES = [
 
 export type MilestoneStartSource = (typeof MILESTONE_START_SOURCES)[number];
 type WorkLifecycle = "complete" | "in_progress" | "planned";
-
-const BACKOFFICE_ROLES = [
-  "admin",
-  "principle-broker",
-  "broker",
-  "agent",
-] as const;
 
 export interface MilestoneStartActor {
   brokerageId: Id<"brokerages">;
@@ -753,12 +747,10 @@ async function createDependencyExceptionDeliveries(
     [...assignedIds].map((workosUserId) =>
       ctx.db
         .query("workosOrganizationMemberships")
-        .withIndex("by_user", (query) => query.eq("workosUserId", workosUserId))
-        .filter((query) =>
-          query.eq(
-            query.field("workosOrganizationId"),
-            input.actor.organizationId
-          )
+        .withIndex("by_user_and_organization", (query) =>
+          query
+            .eq("workosUserId", workosUserId)
+            .eq("workosOrganizationId", input.actor.organizationId)
         )
         .first()
     )
@@ -830,7 +822,7 @@ function isEligibleLenderMembership(
     [membership.roleSlug, ...(membership.roleSlugs ?? [])].some(
       (role) =>
         role !== undefined &&
-        (BACKOFFICE_ROLES as readonly string[]).includes(role)
+        (backofficeRoleSlugs as readonly string[]).includes(role)
     )
   );
 }

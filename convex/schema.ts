@@ -4099,6 +4099,10 @@ export default defineSchema({
   })
     .index("by_workos_membership_id", ["workosMembershipId"])
     .index("by_user", ["workosUserId"])
+    .index("by_user_and_organization", [
+      "workosUserId",
+      "workosOrganizationId",
+    ])
     .index("by_organization", ["workosOrganizationId"]),
   workosRoles: defineTable({
     slug: v.string(),
