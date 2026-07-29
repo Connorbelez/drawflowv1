@@ -158,6 +158,7 @@ import {
   EditDrawSheet,
 } from "./MobileTimelineSheets.tsx";
 import { MobileTimelineDayDialWorkspace } from "./MobileTimelineWorkspace.tsx";
+import { TimelineCashflowToolbar } from "./TimelineCashflowToolbar.tsx";
 import { TimelineMilestoneContractorList } from "./TimelineMilestoneContractorList.tsx";
 
 export const timelineWorkspaceSearchParsers = {
@@ -4123,6 +4124,81 @@ export function TimelineWorkspace({
                 />
                 Straight line
               </div>
+              <TimelineCashflowToolbar
+                metrics={[
+                  {
+                    label: "Probe",
+                    testId: "timeline-cashflow-probe-day",
+                    value:
+                      probeValue === null
+                        ? "Hover chart"
+                        : `Day ${Math.round(probeValue)}`,
+                  },
+                  {
+                    label: "Cash",
+                    testId: "timeline-cashflow-probe-cash",
+                    value:
+                      probeCashOnHand === null
+                        ? "-"
+                        : money(probeCashOnHand),
+                  },
+                  {
+                    label: "Interest paid",
+                    testId: "timeline-cashflow-probe-interest-paid",
+                    tone: "interest",
+                    value:
+                      probeInterestPaid === null
+                        ? "-"
+                        : money(probeInterestPaid),
+                  },
+                  {
+                    label: "Ending cash",
+                    testId: "timeline-cashflow-ending-cash",
+                    value: money(endingCashOnHand),
+                  },
+                  {
+                    label: "Total unlocked",
+                    testId: "timeline-cashflow-total-unlocked",
+                    tone: "info",
+                    value: money(cashflowDrawPosition.totalUnlocked),
+                  },
+                  {
+                    label: "Total drawn",
+                    testId: "timeline-cashflow-total-drawn",
+                    tone: "info",
+                    value: money(cashflowDrawPosition.totalDrawn),
+                  },
+                  {
+                    label: "Available",
+                    testId: "timeline-cashflow-available-to-draw",
+                    tone: "positive",
+                    value: money(cashflowDrawPosition.availableToDraw),
+                  },
+                  {
+                    label: "Lender cash",
+                    testId: "timeline-cashflow-lender-cash-used",
+                    tone: "info",
+                    value: money(cashUseSummary.lenderCashUsed),
+                  },
+                  {
+                    label: "Builder cash",
+                    testId: "timeline-cashflow-builder-cash-used",
+                    tone: "positive",
+                    value: money(cashUseSummary.builderCashUsed),
+                  },
+                  {
+                    label: "Total interest",
+                    testId: "timeline-cashflow-total-interest-paid",
+                    tone: "interest",
+                    value: money(endingAvailability.totalInterestAccrued),
+                  },
+                ]}
+                warnings={cashShortfalls.map((point) => ({
+                  dayLabel: formatTimelineDay(point.day),
+                  id: `${point.day}-${point.milestone}`,
+                  message: formatCashShortfallMessage(point),
+                }))}
+              />
             </div>
           </motion.section>
         ) : null}
@@ -4320,163 +4396,8 @@ export function TimelineWorkspace({
                         />
                       </div>
                     </div>
-                    <div className="grid min-w-0 grid-cols-2 gap-1.5 text-xs sm:grid-cols-4 sm:gap-2 sm:text-sm xl:grid-cols-6 2xl:grid-cols-6">
-                      <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Probe
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-probe-day"
-                        >
-                          {probeValue === null
-                            ? "Hover chart"
-                            : `Day ${Math.round(probeValue)}`}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Cash
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-probe-cash"
-                        >
-                          {probeCashOnHand === null
-                            ? "-"
-                            : money(probeCashOnHand)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Interest paid
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-probe-interest-paid"
-                        >
-                          {probeInterestPaid === null
-                            ? "-"
-                            : money(probeInterestPaid)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/30 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Ending cash
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-ending-cash"
-                        >
-                          {money(endingCashOnHand)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Total unlocked
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-total-unlocked"
-                        >
-                          {money(cashflowDrawPosition.totalUnlocked)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Total drawn
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-total-drawn"
-                        >
-                          {money(cashflowDrawPosition.totalDrawn)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Available to draw
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-available-to-draw"
-                        >
-                          {money(cashflowDrawPosition.availableToDraw)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Lender cash
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-lender-cash-used"
-                        >
-                          {money(cashUseSummary.lenderCashUsed)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Builder cash
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-builder-cash-used"
-                        >
-                          {money(cashUseSummary.builderCashUsed)}
-                        </p>
-                      </div>
-                      <div className="min-w-0 overflow-hidden rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1.5 sm:px-3 sm:py-2">
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Total interest
-                        </p>
-                        <p
-                          className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm"
-                          data-testid="timeline-cashflow-total-interest-paid"
-                        >
-                          {money(endingAvailability.totalInterestAccrued)}
-                        </p>
-                      </div>
-                      <div
-                        className={cn(
-                          "min-w-0 overflow-hidden rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
-                          cashShortfalls.length > 0
-                            ? "border-rose-500/30 bg-rose-500/10"
-                            : "border-border bg-muted/30"
-                        )}
-                        data-testid="timeline-cashflow-risk-summary"
-                      >
-                        <p className="truncate font-medium text-[9px] text-muted-foreground uppercase sm:text-[10px]">
-                          Cash risk
-                        </p>
-                        <p className="mt-0.5 truncate font-semibold text-foreground text-xs tabular-nums sm:mt-1 sm:text-sm">
-                          {cashShortfalls.length > 0
-                            ? `${cashShortfalls.length} flagged`
-                            : `Above ${money(minimumCashReserve)}`}
-                        </p>
-                      </div>
-                    </div>
                   </div>
                 </div>
-                {cashShortfalls.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1 sm:mt-3 sm:gap-2">
-                    {cashShortfalls.slice(0, 4).map((point) => (
-                      <div
-                        className="inline-flex max-w-full items-center gap-2 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-rose-700 text-xs dark:text-rose-100"
-                        data-testid="timeline-cash-shortfall-point"
-                        key={`${point.day}-${point.milestone}`}
-                      >
-                        <AlertTriangle className="size-3.5" />
-                        <span className="font-medium">
-                          {formatTimelineDay(point.day)}
-                        </span>
-                        <span className="min-w-0 truncate text-muted-foreground">
-                          {formatCashShortfallMessage(point)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
                 <TimelineCashflowCompoundChart
                   barSize={timelineSizing.barSize}
                   data={cashflowChartData}

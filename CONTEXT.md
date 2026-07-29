@@ -140,9 +140,29 @@ _Avoid_: Labour quote, mixed quote
 An immutable, recipient-visible snapshot of the permit, timeline dates, location, scope, specifications, attachments, and response schema published for a Quote Round. Material changes produce a new revision rather than silently changing what recipients were asked to price.
 _Avoid_: Live Build view, mutable quote package
 
+**Quote Round Composer**:
+The route-addressable, mobile-responsive workflow launched from a Build Proposal or active Build Workspace to select compatible scope, confirm the frozen Quote Package Revision, select recipients, configure the response form, and review private invitations before sending. Labour and Material Quote Rounds share this composer with specialized fields and can never be mixed.
+_Avoid_: Quote-send modal, separate labour and material composers
+
+**Quote Requests Workspace**:
+The Build-scoped internal operations index for finding and managing Quote Rounds, including filters, deadlines, invitation and response status, reminders, and attention states. It lives in the Build Workspace Quotes tab and does not contain the full response-comparison experience.
+_Avoid_: Cross-Build inbox as the only quote view, inline comparison overload
+
+**Quote Round Detail and Comparison**:
+The route-addressable internal surface for inspecting a Quote Round's frozen scope, recipients, revision history, responses, normalized line items, and side-by-side comparisons, and for setting or clearing the reversible Preferred Quote marker.
+_Avoid_: Award workflow, contract acceptance, budget or timeline mutation
+
+**Quote Operations Authority**:
+Builder owners and Builder Staff may create, send, revise, remind, close, compare, and set or clear the Preferred Quote. Homeowners may view Quote Requests and comparisons without solicitation or preference controls. Backoffice roles have read and audit visibility only. Contractors and Suppliers remain isolated to their own invitation and response.
+_Avoid_: Homeowner solicitation controls, backoffice bid selection, recipient competitor visibility
+
 **Quote Invitation**:
 One recipient's private invitation to participate in a Quote Round. It has its own access lifecycle and cannot expose other recipients or their responses.
 _Avoid_: Shared quote link
+
+**External Quote Response**:
+The single mobile-first, magic-link route used by a Contractor or Supplier to inspect the invitation's permit, location map, dates, bundled scope, specifications, attachments, and Quote Package Revision before completing the configured response form, required line items, and required rich-text additional comments. Autosaved Draft, expired, revoked, revision-acknowledgement, submitted-confirmation, and optional post-submit WorkOS account-claim experiences are states of this surface.
+_Avoid_: Login-gated quoting, separate supplier portal, one screen per invitation state
 
 **Quote Response**:
 One recipient's private, autosaved response to a Quote Invitation and a specific Quote Package Revision, including the configured answers, line items, and additional comments.

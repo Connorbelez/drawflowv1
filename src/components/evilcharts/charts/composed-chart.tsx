@@ -95,7 +95,7 @@ interface ReferenceLineLabelProps {
   viewBox?: unknown;
 }
 
-function ReferenceLineLabel({
+export function ReferenceLineLabel({
   fill,
   fontSize = 15,
   fontWeight = 700,
@@ -145,16 +145,19 @@ function ReferenceLineLabel({
   return (
     <g>
       <rect
-        fill="rgba(0,0,0,0.55)"
+        fill="var(--popover)"
         height={bgHeight}
         rx={6}
         ry={6}
+        stroke={fill ?? "var(--border)"}
+        strokeOpacity={0.45}
+        strokeWidth={1}
         width={bgWidth}
         x={bgX}
         y={bgY}
       />
       <text
-        fill={fill}
+        fill="var(--popover-foreground)"
         fontSize={fontSize}
         fontWeight={fontWeight}
         textAnchor="middle"

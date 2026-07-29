@@ -12,13 +12,16 @@
 
 .timeline-route-header__actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: color-mix(in oklch, var(--muted) 72%, transparent);
+  scrollbar-width: thin;
 }
 
 @media (min-width: 640px) {
