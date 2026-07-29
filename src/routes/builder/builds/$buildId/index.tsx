@@ -20,18 +20,23 @@ import {
   type ProductionBuildDetailActions,
   ProductionBuildDetailSurface,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
+import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import { canUseAppPermission } from "#/features/builder-staff/app-permissions.ts";
 import {
   BuilderStaffPermissionsPanel,
   type StaffDirectory,
 } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
-import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   getVisualParityActiveBuildDetail,
   getVisualParityActiveBuildTimelineWorkspace,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
+import {
+  isQuoteComposerPrototypeVariant,
+  type QuoteComposerPrototypeVariant,
+  QuoteRoundComposerPrototype,
+} from "#/features/quote-solicitation/QuoteRoundComposer.prototype.tsx";
 import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -40,7 +45,10 @@ export type BuilderBuildSearch = {
   focus?: string;
   timeframe?: CalendarTimeframe;
   milestone?: string;
-  variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant;
+  variant?:
+    | MilestonePrototypeVariant
+    | MilestoneStartPrototypeVariant
+    | QuoteComposerPrototypeVariant;
   tab?:
     | "calendar"
     | "contractors"
@@ -151,7 +159,10 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
       search.variant === "field-walk" ||
       search.variant === "start-dialog" ||
       search.variant === "start-context" ||
-      search.variant === "start-guided"
+      search.variant === "start-guided" ||
+      search.variant === "quote-scope-lock" ||
+      search.variant === "quote-packet-studio" ||
+      search.variant === "quote-control-ledger"
         ? (search.variant as BuilderBuildSearch["variant"])
         : undefined;
     const rail =
@@ -353,6 +364,8 @@ export function BuilderBuildWorkspaceRoute({
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
   const milestoneStartPrototypeEnabled =
     import.meta.env.DEV && isMilestoneStartPrototypeVariant(search.variant);
+  const quoteComposerPrototypeEnabled =
+    import.meta.env.DEV && isQuoteComposerPrototypeVariant(search.variant);
   const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
     visualFixtureEnabled
@@ -478,7 +491,10 @@ export function BuilderBuildWorkspaceRoute({
       to: `${routeBase}/builds/$buildId` as never,
     });
   const onChangePrototypeVariant = (
-    variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant
+    variant?:
+      | MilestonePrototypeVariant
+      | MilestoneStartPrototypeVariant
+      | QuoteComposerPrototypeVariant
   ) =>
     navigate({
       params: { buildId },
@@ -846,12 +862,12 @@ export function BuilderBuildWorkspaceRoute({
                   ? VISUAL_ACTIVE_BUILD_STAFF_DIRECTORY
                   : undefined
               }
-              scope="activeBuild"
               initialSelectedWorkosUserId={
                 search.focus?.startsWith("participant:")
                   ? search.focus.slice("participant:".length)
                   : undefined
               }
+              scope="activeBuild"
               workosOrganizationId={workosOrganizationId}
             />
           ) : undefined
@@ -875,7 +891,14 @@ export function BuilderBuildWorkspaceRoute({
         }
         workosOrganizationId={workosOrganizationId}
       />
-      {milestoneStartPrototypeEnabled ? (
+      {quoteComposerPrototypeEnabled ? (
+        <QuoteRoundComposerPrototype
+          detail={detail}
+          onExit={() => onChangePrototypeVariant(undefined)}
+          onVariantChange={onChangePrototypeVariant}
+          variant={search.variant}
+        />
+      ) : milestoneStartPrototypeEnabled ? (
         <MilestoneStartWorkflowPrototype
           detail={detail}
           entrySource={prototypeStartRequest?.entrySource}
