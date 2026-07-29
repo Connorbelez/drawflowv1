@@ -680,12 +680,7 @@ describe("Build collaboration tenant rollout", () => {
 
     const evidenceAndAudits = await base.run(async (ctx) => {
       const evidence = await ctx.db.get(evidenceId);
-      const audits = await ctx.db
-        .query("auditEvents")
-        .withIndex("by_entity", (query) =>
-          query.eq("entityType", "buildCollaborationTenantSettings"),
-        )
-        .collect();
+      const audits = await ctx.db.query("auditEvents").collect();
       return { audits, evidence };
     });
     expect(evidenceAndAudits.evidence).toMatchObject({
@@ -701,11 +696,13 @@ describe("Build collaboration tenant rollout", () => {
           command: "recordBuildCollaborationMigrationParityEvidence",
           createdAt: expect.any(Number),
           entityId: evidenceId,
+          entityType: "buildCollaborationMigrationParityEvidence",
         }),
         expect.objectContaining({
           actorWorkosUserId: "user_admin",
           command: "transitionBuildCollaborationTenantStatus",
           entityId: settingId,
+          entityType: "buildCollaborationTenantSettings",
           newState: expect.stringContaining('"status":"active"'),
           priorState: JSON.stringify({ status: "migration_ready" }),
         }),

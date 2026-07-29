@@ -84,6 +84,7 @@ export const recordBuildCollaborationMigrationParityEvidence =
         authorization,
         command: "recordBuildCollaborationMigrationParityEvidence",
         entityId: evidenceId,
+        entityType: "buildCollaborationMigrationParityEvidence",
         eventType: "build.collaboration.migration_parity.recorded",
         newState: JSON.stringify({
           importedPostCount: args.importedPostCount,
@@ -165,6 +166,7 @@ export const transitionBuildCollaborationTenantStatus = authenticatedMutation
       authorization,
       command: "transitionBuildCollaborationTenantStatus",
       entityId: settingId,
+      entityType: "buildCollaborationTenantSettings",
       eventType: "build.collaboration.tenant_status.changed",
       newState,
       now,
@@ -328,6 +330,7 @@ async function recordRolloutAudit(
     authorization: ActiveBuildAuthorization;
     command: string;
     entityId: string;
+    entityType: string;
     eventType: string;
     newState: string;
     now: number;
@@ -342,7 +345,7 @@ async function recordRolloutAudit(
     command: input.command,
     createdAt: input.now,
     entityId: input.entityId,
-    entityType: "buildCollaborationTenantSettings",
+    entityType: input.entityType,
     eventType: input.eventType,
     newState: input.newState,
     organizationId: input.authorization.organizationId,
