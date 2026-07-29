@@ -208,7 +208,16 @@ describe("BuildCollaborationFeed", () => {
           actionItems: [{ title: "Upload engineer seal" }],
           attachmentAssetIds: ["asset-1"],
           audienceMode: "custom",
+          effectiveNotificationEffects: [
+            {
+              channel: "email",
+              recipientWorkosUserIds: ["user_broker"],
+              summary: "Notify the lender reviewer",
+            },
+          ],
+          effectiveReaderIds: ["user_admin", "user_broker"],
           excludedReaderIds: ["user_contractor"],
+          mandatoryReaderIds: ["user_admin"],
           notificationEffects: [
             {
               channel: "email",
@@ -234,7 +243,14 @@ describe("BuildCollaborationFeed", () => {
             },
           ],
           tiptapJson: JSON.stringify({
-            content: [{ type: "paragraph" }],
+            content: [
+              {
+                content: [
+                  { text: "Foundation evidence is ready.", type: "text" },
+                ],
+                type: "paragraph",
+              },
+            ],
             type: "doc",
           }),
         }),
@@ -259,8 +275,13 @@ describe("BuildCollaborationFeed", () => {
 
     expect(screen.getByText("Human approval checkpoint")).toBeTruthy();
     expect(screen.getByText("You will be the author")).toBeTruthy();
-    expect(screen.getByText(/Requested readers: 1/)).toBeTruthy();
-    expect(screen.getByText(/Explicit exclusions: 1/)).toBeTruthy();
+    expect(
+      screen.getByText(/Effective readers: user_admin, user_broker/),
+    ).toBeTruthy();
+    expect(screen.getByText(/Mandatory readers: user_admin/)).toBeTruthy();
+    expect(
+      screen.getByText(/Explicit exclusions: user_contractor/),
+    ).toBeTruthy();
     expect(screen.getAllByText(/Foundation completion photo/)).toHaveLength(2);
     expect(screen.getByText(/asset-1/)).toBeTruthy();
     expect(screen.getByText(/Upload engineer seal/)).toBeTruthy();

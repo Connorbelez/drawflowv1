@@ -17,11 +17,20 @@ function withIdentity(
     organizationId = ORGANIZATION_ID,
     roles,
     subject,
+    tokenIdentifier,
   }: {
-    actorKind?: "agent" | "automation" | "human" | "service" | "system";
+    actorKind?:
+      | "agent"
+      | "automation"
+      | "human"
+      | "service"
+      | "system"
+      | "malformed"
+      | null;
     organizationId?: string;
     roles: string[];
     subject: string;
+    tokenIdentifier?: string;
   },
 ) {
   return t.withIdentity({
@@ -31,8 +40,11 @@ function withIdentity(
     role: roles[0],
     roles,
     subject,
-    tokenIdentifier: `https://api.workos.com/|${subject}`,
-    "https://fairlend.ca/actor_kind": actorKind,
+    tokenIdentifier:
+      tokenIdentifier ?? `https://api.workos.com/|${subject}`,
+    ...(actorKind === null
+      ? {}
+      : { "https://fairlend.ca/actor_kind": actorKind }),
   } as never);
 }
 
@@ -251,6 +263,192 @@ describe("Build collaboration publication and feed", () => {
     );
   });
 
+  test("fails closed for untrusted or malformed actor provenance", async () => {
+    const { base, buildId } = await seedActiveBuild();
+    const untrustedMissingClaim = withIdentity(base, {
+      actorKind: null,
+      roles: ["admin"],
+      subject: "opaque-no-provenance",
+      tokenIdentifier: "https://agents.fairlend.invalid/|opaque-no-provenance",
+    });
+    const malformedWorkosClaim = withIdentity(base, {
+      actorKind: "malformed",
+      roles: ["admin"],
+      subject: "user_malformed",
+    });
+    const publishArgs = {
+      actionItems: [],
+      audienceMode: "build_wide",
+      buildId,
+      organizationId: ORGANIZATION_ID,
+      plainText: "Human-only publication.",
+      postType: "update",
+      references: [],
+      requestedReaderIds: [],
+      tiptapJson: JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Human-only publication.", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      }),
+    };
+
+    for (const actor of [untrustedMissingClaim, malformedWorkosClaim]) {
+      await expect(
+        actor.mutation(
+          (api as any).build_collaboration
+            .approveAndPublishBuildCollaborationBundle,
+          publishArgs,
+        ),
+      ).rejects.toThrow(
+        "Publishing shared collaboration state requires an explicit human-in-the-loop approval.",
+      );
+    }
+  });
+
+  test("publishes the server-derived rich text, exclusions, notifications, and shared effects in one bundle", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Broker Reviewer",
+      role: "broker",
+      subject: "user_broker",
+    });
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Site Contractor",
+      role: "contractor",
+      subject: "user_contractor",
+    });
+
+    const postId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "build_wide",
+        buildId,
+        excludedReaderIds: ["user_contractor"],
+        notificationEffects: [
+          {
+            channel: "email",
+            recipientWorkosUserIds: ["user_broker"],
+            summary: "Lender review requested",
+          },
+        ],
+        organizationId: ORGANIZATION_ID,
+        plainText: "Benign client-authored preview text.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        sharedMutations: [
+          {
+            entityId: "evidence-package-1",
+            entityKind: "evidencePackage",
+            operation: "request_review",
+            summary: "Request lender evidence review",
+          },
+        ],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                {
+                  text: "Canonical TipTap publication text.",
+                  type: "text",
+                },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+
+    const persisted = await base.run(async (ctx) => {
+      const revision = await ctx.db
+        .query("buildCollaborationPostRevisions")
+        .withIndex("by_postId_and_revision", (query) =>
+          query.eq("postId", postId),
+        )
+        .unique();
+      const readers = await ctx.db
+        .query("buildCollaborationAudienceMembers")
+        .withIndex("by_postId_and_workosUserId", (query) =>
+          query.eq("postId", postId),
+        )
+        .collect();
+      const snapshots = await ctx.db
+        .query("buildCollaborationAudienceSnapshots")
+        .withIndex("by_postRevisionId_and_workosUserId", (query) =>
+          query.eq("postRevisionId", revision?._id as never),
+        )
+        .collect();
+      const deliveries = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID),
+        )
+        .collect();
+      const outbox = await ctx.db
+        .query("eventOutbox")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("relatedEntityType", "buildCollaborationPost")
+            .eq("relatedEntityId", postId),
+        )
+        .collect();
+      const approvals = await ctx.db
+        .query("buildCollaborationPublicationApprovals")
+        .collect();
+      return { approvals, deliveries, outbox, readers, revision, snapshots };
+    });
+
+    expect(persisted.revision?.plainText).toBe(
+      "Canonical TipTap publication text.",
+    );
+    expect(
+      persisted.readers.map((reader) => reader.workosUserId),
+    ).not.toContain("user_contractor");
+    expect(persisted.snapshots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          resolution: "excluded",
+          workosUserId: "user_contractor",
+        }),
+      ]),
+    );
+    expect(persisted.deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recipientWorkosUserId: "user_broker",
+          status: "unread",
+        }),
+      ]),
+    );
+    expect(persisted.outbox.map((event) => event.eventType)).toEqual(
+      expect.arrayContaining([
+        "build_collaboration.notification.email",
+        "build_collaboration.shared_mutation.requested",
+      ]),
+    );
+    expect(persisted.approvals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          bundleJsonSnapshot: expect.stringContaining(
+            "Canonical TipTap publication text.",
+          ),
+          readerSummaryJson: expect.stringContaining("effectiveReaderIds"),
+          state: "published",
+        }),
+      ]),
+    );
+  });
+
   test("publishes an agent-prepared draft only after human approval and preserves the human author", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     const agent = withIdentity(base, {
@@ -258,7 +456,7 @@ describe("Build collaboration publication and feed", () => {
       roles: ["admin"],
       subject: "svc-opaque-2847",
     });
-    const draftId = (await agent.mutation(
+    const preparedDraft = await agent.mutation(
       (api as any).build_collaboration_drafts
         .saveMyBuildCollaborationDraft,
       {
@@ -287,7 +485,8 @@ describe("Build collaboration publication and feed", () => {
           type: "doc",
         }),
       },
-    )) as Id<"buildCollaborationDrafts">;
+    );
+    const draftId = preparedDraft.draftId as Id<"buildCollaborationDrafts">;
     const draftsAwaitingHuman = await admin.query(
       (api as any).build_collaboration_drafts
         .listMyBuildCollaborationDrafts,
@@ -361,7 +560,7 @@ describe("Build collaboration publication and feed", () => {
       roles: ["admin"],
       subject: "svc-opaque-tamper",
     });
-    const draftId = (await agent.mutation(
+    const preparedDraft = await agent.mutation(
       (api as any).build_collaboration_drafts
         .saveMyBuildCollaborationDraft,
       {
@@ -374,9 +573,18 @@ describe("Build collaboration publication and feed", () => {
         postType: "update",
         references: [],
         requestedReaderIds: [],
-        tiptapJson: JSON.stringify({ content: [], type: "doc" }),
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Exact prepared bundle.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
       },
-    )) as Id<"buildCollaborationDrafts">;
+    );
+    const draftId = preparedDraft.draftId as Id<"buildCollaborationDrafts">;
 
     await base.run(async (ctx) => {
       const draft = await ctx.db.get(draftId);

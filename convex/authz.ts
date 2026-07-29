@@ -180,15 +180,30 @@ export function viewerFromIdentity(
   };
 }
 
-function actorKindFromIdentity(identity: UserIdentity): ActorKind {
+function actorKindFromIdentity(identity: UserIdentity): ActorKind | undefined {
   const candidate =
     identity["https://fairlend.ca/actor_kind"] ??
     identity.actorKind ??
     identity.actor_kind;
-  return typeof candidate === "string" &&
-    actorKinds.includes(candidate.trim().toLowerCase() as ActorKind)
-    ? (candidate.trim().toLowerCase() as ActorKind)
-    : "human";
+  if (candidate !== undefined && candidate !== null) {
+    if (
+      typeof candidate !== "string" ||
+      !actorKinds.includes(candidate.trim().toLowerCase() as ActorKind)
+    ) {
+      return;
+    }
+    return candidate.trim().toLowerCase() as ActorKind;
+  }
+  return isTrustedWorkosHumanIdentity(identity) ? "human" : undefined;
+}
+
+function isTrustedWorkosHumanIdentity(identity: UserIdentity) {
+  return (
+    identity.tokenIdentifier.startsWith("https://api.workos.com/|") ||
+    identity.tokenIdentifier.startsWith(
+      "https://api.workos.com/user_management/"
+    )
+  );
 }
 
 function stringClaim(value: unknown): string | null {

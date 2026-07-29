@@ -101,7 +101,10 @@ export interface BuildCollaborationPublicationBundle {
   actionItems: ActionItemInput[];
   attachmentAssetIds: Id<"buildCollaborationAssets">[];
   audienceMode: "build_wide" | "author_tier_and_higher" | "custom";
+  effectiveNotificationEffects: NotificationEffectInput[];
+  effectiveReaderIds: string[];
   excludedReaderIds: string[];
+  mandatoryReaderIds: string[];
   notificationEffects: NotificationEffectInput[];
   plainText: string;
   postType: "update" | "question" | "issue" | "decision" | "announcement";
@@ -114,7 +117,10 @@ export interface BuildCollaborationPublicationBundle {
 export type BuildCollaborationPublicationBundleInput = Omit<
   BuildCollaborationPublicationBundle,
   | "attachmentAssetIds"
+  | "effectiveNotificationEffects"
+  | "effectiveReaderIds"
   | "excludedReaderIds"
+  | "mandatoryReaderIds"
   | "notificationEffects"
   | "sharedMutations"
 > &
@@ -131,19 +137,48 @@ export type BuildCollaborationPublicationBundleInput = Omit<
 export function normalizePublicationBundle(
   input: BuildCollaborationPublicationBundleInput
 ): BuildCollaborationPublicationBundle {
+  const content = canonicalizeTiptapContent(input.tiptapJson);
   return {
     acknowledgementRequired: input.acknowledgementRequired,
     actionItems: input.actionItems,
     attachmentAssetIds: input.attachmentAssetIds ?? [],
     audienceMode: input.audienceMode,
+    effectiveNotificationEffects: [],
+    effectiveReaderIds: [],
     excludedReaderIds: input.excludedReaderIds ?? [],
+    mandatoryReaderIds: [],
     notificationEffects: input.notificationEffects ?? [],
-    plainText: input.plainText,
+    plainText: content.plainText,
     postType: input.postType,
     references: input.references,
     requestedReaderIds: input.requestedReaderIds,
     sharedMutations: input.sharedMutations ?? [],
-    tiptapJson: input.tiptapJson,
+    tiptapJson: content.tiptapJson,
+  };
+}
+
+export function canonicalizeTiptapContent(tiptapJson: string) {
+  let document: unknown;
+  try {
+    document = JSON.parse(tiptapJson);
+  } catch {
+    throw new Error("Post rich text must be valid TipTap JSON.");
+  }
+  if (
+    !document ||
+    typeof document !== "object" ||
+    !("type" in document) ||
+    document.type !== "doc"
+  ) {
+    throw new Error("Post rich text must contain a TipTap document.");
+  }
+  const plainText = tiptapNodeText(document).trim();
+  if (!plainText) {
+    throw new Error("Post content is required.");
+  }
+  return {
+    plainText,
+    tiptapJson: JSON.stringify(document),
   };
 }
 
@@ -177,4 +212,45 @@ function sortJsonValue(value: unknown): unknown {
     );
   }
   return value;
+}
+
+function tiptapNodeText(node: unknown): string {
+  if (!node || typeof node !== "object") {
+    return "";
+  }
+  const record = node as Record<string, unknown>;
+  if (typeof record.text === "string") {
+    return record.text;
+  }
+  if (record.type === "hardBreak") {
+    return "\n";
+  }
+  if (record.type === "collaborationMention") {
+    const attributes =
+      record.attrs && typeof record.attrs === "object"
+        ? (record.attrs as Record<string, unknown>)
+        : undefined;
+    return typeof attributes?.label === "string" ? attributes.label : "";
+  }
+  const content = Array.isArray(record.content)
+    ? record.content.map(tiptapNodeText).join("")
+    : "";
+  return isTiptapBlockNode(record.type) && content ? `${content}\n` : content;
+}
+
+function isTiptapBlockNode(type: unknown) {
+  return (
+    typeof type === "string" &&
+    [
+      "blockquote",
+      "bulletList",
+      "codeBlock",
+      "heading",
+      "listItem",
+      "orderedList",
+      "paragraph",
+      "taskItem",
+      "taskList",
+    ].includes(type)
+  );
 }

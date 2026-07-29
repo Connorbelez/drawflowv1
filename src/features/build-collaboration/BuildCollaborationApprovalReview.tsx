@@ -1,3 +1,4 @@
+import type { JSONContent } from "@tiptap/react";
 import type React from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -9,6 +10,7 @@ import {
   CardPanel,
   CardTitle,
 } from "#/components/ui/card.tsx";
+import { CollaborationRichTextPreview } from "./CollaborationRichTextEditor.tsx";
 import type { CollaborationDraftBundle } from "./model.ts";
 
 export function BuildCollaborationApprovalReview({
@@ -25,7 +27,8 @@ export function BuildCollaborationApprovalReview({
   const references = bundle.references ?? [];
   const actionItems = bundle.actionItems ?? [];
   const assets = bundle.attachmentAssetIds ?? [];
-  const notifications = bundle.notificationEffects ?? [];
+  const notifications =
+    bundle.effectiveNotificationEffects ?? bundle.notificationEffects ?? [];
   const sharedMutations = bundle.sharedMutations ?? [];
 
   return (
@@ -41,7 +44,12 @@ export function BuildCollaborationApprovalReview({
       </CardHeader>
       <CardPanel className="space-y-4">
         <ReviewSection label="Publication">
-          <p className="text-sm">{bundle.plainText}</p>
+          <CollaborationRichTextPreview
+            ariaLabel="Exact publication content"
+            className="bg-background"
+            tagOptions={[]}
+            value={parseBundleDocument(bundle.tiptapJson)}
+          />
           <p className="text-muted-foreground text-xs">
             {bundle.postType} · {bundle.audienceMode}
             {bundle.acknowledgementRequired
@@ -51,10 +59,19 @@ export function BuildCollaborationApprovalReview({
         </ReviewSection>
         <ReviewSection label="Readers and exclusions">
           <p className="text-sm">
-            Requested readers: {bundle.requestedReaderIds.length || "none"}
+            Effective readers:{" "}
+            {formatValues(bundle.effectiveReaderIds, "pending server review")}
           </p>
           <p className="text-sm">
-            Explicit exclusions: {bundle.excludedReaderIds?.length || "none"}
+            Mandatory readers:{" "}
+            {formatValues(bundle.mandatoryReaderIds, "pending server review")}
+          </p>
+          <p className="text-sm">
+            Requested readers: {formatValues(bundle.requestedReaderIds, "none")}
+          </p>
+          <p className="text-sm">
+            Explicit exclusions:{" "}
+            {formatValues(bundle.excludedReaderIds, "none")}
           </p>
         </ReviewSection>
         <ReviewSection label={`References (${references.length})`}>
@@ -78,7 +95,12 @@ export function BuildCollaborationApprovalReview({
         <ReviewSection label={`Action Items (${actionItems.length})`}>
           {actionItems.length > 0 ? (
             <p className="text-sm">
-              {actionItems.map((item) => item.title).join("; ")}
+              {actionItems
+                .map(
+                  (item) =>
+                    `${item.title} · assignee ${item.assigneeWorkosUserId ?? "unassigned"} · ${item.priority ?? "no priority"}${item.dueAt ? ` · due ${new Date(item.dueAt).toLocaleString()}` : ""}${item.requiresAcceptance ? " · acceptance required" : ""}`
+                )
+                .join("; ")}
             </p>
           ) : (
             <p className="text-muted-foreground text-sm">No Action Items.</p>
@@ -90,7 +112,7 @@ export function BuildCollaborationApprovalReview({
               {notifications
                 .map(
                   (effect) =>
-                    `${effect.channel}: ${effect.summary} (${effect.recipientWorkosUserIds.length} recipients)`
+                    `${effect.channel}: ${effect.summary} → ${formatValues(effect.recipientWorkosUserIds, "none")}`
                 )
                 .join("; ")}
             </p>
@@ -129,6 +151,21 @@ export function BuildCollaborationApprovalReview({
       </CardPanel>
     </Card>
   );
+}
+
+function parseBundleDocument(tiptapJson: string): JSONContent {
+  try {
+    const document = JSON.parse(tiptapJson);
+    return document && document.type === "doc"
+      ? document
+      : { content: [], type: "doc" };
+  } catch {
+    return { content: [], type: "doc" };
+  }
+}
+
+function formatValues(values: string[] | undefined, fallback: string) {
+  return values?.length ? values.join(", ") : fallback;
 }
 
 function ReviewSection({

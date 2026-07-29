@@ -44,10 +44,25 @@ export type FocusedReference = ReferenceOption;
 
 export interface CollaborationDraftBundle {
   acknowledgementRequired?: boolean;
-  actionItems: Array<{ title: string }>;
+  actionItems: Array<{
+    assigneeWorkosUserId?: string;
+    descriptionPlainText?: string;
+    descriptionTiptapJson?: string;
+    dueAt?: number;
+    priority?: "urgent" | "high" | "medium" | "low" | "none";
+    requiresAcceptance?: boolean;
+    title: string;
+  }>;
   attachmentAssetIds?: string[];
   audienceMode: AudienceMode;
+  effectiveNotificationEffects?: Array<{
+    channel: "email" | "in_app" | "push";
+    recipientWorkosUserIds: string[];
+    summary: string;
+  }>;
+  effectiveReaderIds?: string[];
   excludedReaderIds?: string[];
+  mandatoryReaderIds?: string[];
   notificationEffects?: Array<{
     channel: "email" | "in_app" | "push";
     recipientWorkosUserIds: string[];

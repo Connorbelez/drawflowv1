@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { collaborationNotificationPreferenceValidator } from "./build_collaboration_contracts";
+import type { NotificationEffectInput } from "./build_collaboration_publication_bundle";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { buildCollaborationNotificationChannelValidator } from "./build_collaboration_validators";
 import type { MutationCtx } from "./types";
@@ -92,10 +93,10 @@ export async function fanOutBuildCollaborationPublication(
   input: {
     actionAssigneeIds: string[];
     authorization: ActiveBuildAuthorization;
+    effects: NotificationEffectInput[];
     plainText: string;
     postId: string;
     postType: "update" | "question" | "issue" | "decision" | "announcement";
-    readerIds: string[];
     referencedParticipantIds: string[];
     now: number;
   }
@@ -104,12 +105,91 @@ export async function fanOutBuildCollaborationPublication(
     ...input.actionAssigneeIds,
     ...input.referencedParticipantIds,
   ]);
-  const recipients = input.readerIds
+  for (const [effectIndex, effect] of input.effects.entries()) {
+    if (effect.channel !== "in_app") {
+      await ctx.db.insert("eventOutbox", {
+        brokerageId: input.authorization.brokerage._id,
+        createdAt: input.now,
+        eventType: `build_collaboration.notification.${effect.channel}`,
+        organizationId: input.authorization.organizationId,
+        payloadPreview: JSON.stringify({
+          postId: input.postId,
+          recipientWorkosUserIds: effect.recipientWorkosUserIds,
+          summary: effect.summary,
+        }),
+        relatedEntityId: input.postId,
+        relatedEntityType: "buildCollaborationPost",
+        status: "pending",
+      });
+      continue;
+    }
+    for (const recipientWorkosUserId of effect.recipientWorkosUserIds) {
+      const mandatory =
+        directlyAddressed.has(recipientWorkosUserId) ||
+        input.postType === "announcement" ||
+        input.postType === "issue";
+      const dedupeKey = `build-collaboration:${input.postId}:effect:${effectIndex}:in-app`;
+      const existing = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_dedupe", (query) =>
+          query
+            .eq("organizationId", input.authorization.organizationId)
+            .eq("recipientWorkosUserId", recipientWorkosUserId)
+            .eq("dedupeKey", dedupeKey)
+        )
+        .first();
+      if (existing) {
+        continue;
+      }
+      await ctx.db.insert("recipientDeliveries", {
+        actionLabel: "Open thread",
+        actionRequired: mandatory,
+        body: effect.summary || input.plainText.slice(0, 280),
+        brokerageId: input.authorization.brokerage._id,
+        createdAt: input.now,
+        dedupeKey,
+        entityId: input.postId,
+        entityLabel: input.authorization.build.buildName,
+        entityType: "buildCollaborationPost",
+        href: `/backoffice/builds/${input.authorization.build._id}?tab=details&collaborationPost=${input.postId}`,
+        organizationId: input.authorization.organizationId,
+        recipientWorkosUserId,
+        resolutionMode: "recipient",
+        sourceLabel: "Build collaboration",
+        status: "unread",
+        title:
+          input.postType === "announcement"
+            ? "Build announcement"
+            : "New Build collaboration update",
+        updatedAt: input.now,
+      });
+    }
+  }
+}
+
+export async function resolveBuildCollaborationPublicationNotifications(
+  ctx: MutationCtx,
+  input: {
+    actionAssigneeIds: string[];
+    authorization: ActiveBuildAuthorization;
+    plainText: string;
+    postType: "update" | "question" | "issue" | "decision" | "announcement";
+    readerIds: string[];
+    referencedParticipantIds: string[];
+    requestedEffects: NotificationEffectInput[];
+  }
+) {
+  const readerIds = new Set(input.readerIds);
+  const directlyAddressed = new Set([
+    ...input.actionAssigneeIds,
+    ...input.referencedParticipantIds,
+  ]);
+  const defaultRecipients: string[] = [];
+  for (const recipientWorkosUserId of input.readerIds
     .filter(
       (workosUserId) => workosUserId !== input.authorization.viewer.subject
     )
-    .slice(0, 1000);
-  for (const recipientWorkosUserId of recipients) {
+    .slice(0, 1000)) {
     const preference = await ctx.db
       .query("buildCollaborationNotificationPreferences")
       .withIndex("by_buildId_and_workosUserId", (query) =>
@@ -128,40 +208,41 @@ export async function fanOutBuildCollaborationPublication(
     if (preference && !preference.channels.includes("in_app")) {
       continue;
     }
-    const dedupeKey = `build-collaboration:${input.postId}:published`;
-    const existing = await ctx.db
-      .query("recipientDeliveries")
-      .withIndex("by_recipient_dedupe", (query) =>
-        query
-          .eq("organizationId", input.authorization.organizationId)
-          .eq("recipientWorkosUserId", recipientWorkosUserId)
-          .eq("dedupeKey", dedupeKey)
-      )
-      .first();
-    if (existing) {
-      continue;
-    }
-    await ctx.db.insert("recipientDeliveries", {
-      actionLabel: "Open thread",
-      actionRequired: mandatory,
-      body: input.plainText.slice(0, 280),
-      brokerageId: input.authorization.brokerage._id,
-      createdAt: input.now,
-      dedupeKey,
-      entityId: input.postId,
-      entityLabel: input.authorization.build.buildName,
-      entityType: "buildCollaborationPost",
-      href: `/backoffice/builds/${input.authorization.build._id}?tab=details&collaborationPost=${input.postId}`,
-      organizationId: input.authorization.organizationId,
-      recipientWorkosUserId,
-      resolutionMode: "recipient",
-      sourceLabel: "Build collaboration",
-      status: "unread",
-      title:
-        input.postType === "announcement"
-          ? "Build announcement"
-          : "New Build collaboration update",
-      updatedAt: input.now,
-    });
+    defaultRecipients.push(recipientWorkosUserId);
   }
+  const requestedEffects = input.requestedEffects.map((effect) => {
+    const summary = effect.summary.trim();
+    const recipientWorkosUserIds = [
+      ...new Set(
+        effect.recipientWorkosUserIds.map((recipient) => recipient.trim())
+      ),
+    ].filter(Boolean);
+    if (!(summary && recipientWorkosUserIds.length)) {
+      throw new Error(
+        "Every notification effect requires a summary and recipient."
+      );
+    }
+    if (
+      recipientWorkosUserIds.some(
+        (recipientWorkosUserId) => !readerIds.has(recipientWorkosUserId)
+      )
+    ) {
+      throw new Error(
+        "Notification recipients must be able to read the approved publication."
+      );
+    }
+    return { ...effect, recipientWorkosUserIds, summary };
+  });
+  return [
+    ...(defaultRecipients.length
+      ? [
+          {
+            channel: "in_app" as const,
+            recipientWorkosUserIds: defaultRecipients,
+            summary: input.plainText.slice(0, 280),
+          },
+        ]
+      : []),
+    ...requestedEffects,
+  ];
 }

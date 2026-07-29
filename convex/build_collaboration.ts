@@ -14,10 +14,15 @@ import {
   collaborationRoleTier,
   resolveCollaborationAudience,
 } from "./build_collaboration_model";
-import { fanOutBuildCollaborationPublication } from "./build_collaboration_notifications";
+import {
+  fanOutBuildCollaborationPublication,
+  resolveBuildCollaborationPublicationNotifications,
+} from "./build_collaboration_notifications";
 import {
   type ActionItemInput,
   type BuildCollaborationPublicationBundle,
+  type BuildCollaborationPublicationBundleInput,
+  canonicalizeTiptapContent,
   canonicalPublicationBundleJson,
   normalizePublicationBundle,
   publicationBundleFields,
@@ -44,7 +49,13 @@ export const approveAndPublishBuildCollaborationBundle = authenticatedMutation
       ctx,
       args
     );
-    const bundle = normalizePublicationBundle(args);
+    const { audience, bundle } = await prepareBuildCollaborationPublication(
+      ctx,
+      {
+        authorization,
+        bundle: args,
+      }
+    );
     const bundleJson = canonicalPublicationBundleJson(bundle);
     const bundleHash = await publicationBundleHash(bundleJson);
     const now = Date.now();
@@ -75,6 +86,7 @@ export const approveAndPublishBuildCollaborationBundle = authenticatedMutation
     });
     const postId = await publishBuildCollaborationBundle(ctx, {
       agentDrafted: false,
+      audience,
       authorization,
       bundle,
     });
@@ -84,15 +96,70 @@ export const approveAndPublishBuildCollaborationBundle = authenticatedMutation
   })
   .public();
 
+export async function prepareBuildCollaborationPublication(
+  ctx: MutationCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    bundle: BuildCollaborationPublicationBundleInput;
+  }
+) {
+  const bundle = normalizePublicationBundle(input.bundle);
+  validateRichTextContent(bundle);
+  if (bundle.references.length > MAX_REFERENCES_PER_BUNDLE) {
+    throw new Error(
+      `A publication may contain at most ${MAX_REFERENCES_PER_BUNDLE} references.`
+    );
+  }
+  if (bundle.actionItems.length > MAX_ACTION_ITEMS_PER_BUNDLE) {
+    throw new Error(
+      `A publication may contain at most ${MAX_ACTION_ITEMS_PER_BUNDLE} Action Items.`
+    );
+  }
+  const audience = resolvePublicationAudience({
+    audienceMode: bundle.audienceMode,
+    authorization: input.authorization,
+    excludedReaderIds: bundle.excludedReaderIds,
+    requestedReaderIds: bundle.requestedReaderIds,
+  });
+  const effectiveNotificationEffects =
+    await resolveBuildCollaborationPublicationNotifications(ctx, {
+      actionAssigneeIds: bundle.actionItems.flatMap((item) =>
+        item.assigneeWorkosUserId ? [item.assigneeWorkosUserId] : []
+      ),
+      authorization: input.authorization,
+      plainText: bundle.plainText,
+      postType: bundle.postType,
+      readerIds: audience.readerIds,
+      referencedParticipantIds: bundle.references.flatMap((reference) =>
+        reference.entityKind === "participant" ? [reference.entityId] : []
+      ),
+      requestedEffects: bundle.notificationEffects,
+    });
+  return {
+    audience,
+    bundle: {
+      ...bundle,
+      effectiveNotificationEffects,
+      effectiveReaderIds: audience.readerIds,
+      mandatoryReaderIds: audience.mandatoryReaderIds,
+    },
+  };
+}
+
 export async function publishBuildCollaborationBundle(
   ctx: MutationCtx,
   input: {
     agentDrafted: boolean;
+    audience: {
+      excludedParticipantIds: string[];
+      mandatoryReaderIds: string[];
+      readerIds: string[];
+    };
     authorization: ActiveBuildAuthorization;
     bundle: BuildCollaborationPublicationBundle;
   }
 ) {
-  const { authorization, bundle } = input;
+  const { audience, authorization, bundle } = input;
   await requireHumanCollaborationActor(ctx, authorization);
   if (
     bundle.postType === "announcement" &&
@@ -117,11 +184,6 @@ export async function publishBuildCollaborationBundle(
     );
   }
 
-  const audience = resolvePublicationAudience({
-    authorization,
-    audienceMode: bundle.audienceMode,
-    requestedReaderIds: bundle.requestedReaderIds,
-  });
   const now = Date.now();
   const primaryReference = bundle.references.find(
     (reference) => reference.primary
@@ -233,14 +295,20 @@ export async function publishBuildCollaborationBundle(
       item.assigneeWorkosUserId ? [item.assigneeWorkosUserId] : []
     ),
     authorization,
+    effects: bundle.effectiveNotificationEffects,
     now,
     plainText: content.plainText,
     postId,
     postType: bundle.postType,
-    readerIds: audience.readerIds,
     referencedParticipantIds: bundle.references.flatMap((reference) =>
       reference.entityKind === "participant" ? [reference.entityId] : []
     ),
+  });
+  await persistApprovedSharedMutations(ctx, {
+    authorization,
+    mutations: bundle.sharedMutations,
+    now,
+    postId,
   });
   await ctx.db.insert("buildCollaborationFollows", {
     active: true,
@@ -458,10 +526,8 @@ function validateRichTextContent(input: {
   plainText: string;
   tiptapJson: string;
 }) {
-  const plainText = input.plainText.trim();
-  if (!plainText) {
-    throw new Error("Post content is required.");
-  }
+  const content = canonicalizeTiptapContent(input.tiptapJson);
+  const plainText = content.plainText;
   if (plainText.length > MAX_PLAIN_TEXT_LENGTH) {
     throw new Error(
       `Post text may not exceed ${MAX_PLAIN_TEXT_LENGTH} characters.`
@@ -472,21 +538,7 @@ function validateRichTextContent(input: {
       `Post rich text may not exceed ${MAX_RICH_TEXT_LENGTH} characters.`
     );
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(input.tiptapJson);
-  } catch {
-    throw new Error("Post rich text must be valid TipTap JSON.");
-  }
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    !("type" in parsed) ||
-    parsed.type !== "doc"
-  ) {
-    throw new Error("Post rich text must contain a TipTap document.");
-  }
-  return { plainText, tiptapJson: JSON.stringify(parsed) };
+  return content;
 }
 
 async function persistAttachments(
@@ -523,6 +575,44 @@ async function persistAttachments(
   }
 }
 
+async function persistApprovedSharedMutations(
+  ctx: MutationCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    mutations: BuildCollaborationPublicationBundle["sharedMutations"];
+    now: number;
+    postId: Id<"buildCollaborationPosts">;
+  }
+) {
+  for (const mutation of input.mutations) {
+    const entityKind = mutation.entityKind.trim();
+    const operation = mutation.operation.trim();
+    const summary = mutation.summary.trim();
+    if (!(entityKind && operation && summary)) {
+      throw new Error(
+        "Every approved shared mutation requires an entity kind, operation, and summary."
+      );
+    }
+    await ctx.db.insert("eventOutbox", {
+      brokerageId: input.authorization.brokerage._id,
+      createdAt: input.now,
+      eventType: "build_collaboration.shared_mutation.requested",
+      organizationId: input.authorization.organizationId,
+      payloadPreview: JSON.stringify({
+        approvedByWorkosUserId: input.authorization.viewer.subject,
+        entityId: mutation.entityId?.trim() || undefined,
+        entityKind,
+        operation,
+        postId: input.postId,
+        summary,
+      }),
+      relatedEntityId: input.postId,
+      relatedEntityType: "buildCollaborationPost",
+      status: "pending",
+    });
+  }
+}
+
 async function recordPublicationApproval(
   ctx: MutationCtx,
   input: {
@@ -548,14 +638,16 @@ async function recordPublicationApproval(
     mutationSummaryJson: JSON.stringify({
       actionItemCount: input.bundle.actionItems.length,
       attachmentAssetCount: input.bundle.attachmentAssetIds.length,
-      notificationEffectCount: input.bundle.notificationEffects.length,
+      notificationEffectCount: input.bundle.effectiveNotificationEffects.length,
       referenceCount: input.bundle.references.length,
       sharedMutationCount: input.bundle.sharedMutations.length,
     }),
     organizationId: input.authorization.organizationId,
     readerSummaryJson: JSON.stringify({
       audienceMode: input.bundle.audienceMode,
+      effectiveReaderIds: input.bundle.effectiveReaderIds,
       excludedReaderIds: input.bundle.excludedReaderIds,
+      mandatoryReaderIds: input.bundle.mandatoryReaderIds,
       requestedReaderIds: input.bundle.requestedReaderIds,
     }),
     state: "approved",
@@ -565,6 +657,7 @@ async function recordPublicationApproval(
 function resolvePublicationAudience(input: {
   audienceMode: "author_tier_and_higher" | "build_wide" | "custom";
   authorization: ActiveBuildAuthorization;
+  excludedReaderIds: string[];
   requestedReaderIds: string[];
 }) {
   const participants = input.authorization.participants.map((participant) => ({
@@ -581,16 +674,30 @@ function resolvePublicationAudience(input: {
       roles: [input.authorization.effectiveRole.role],
     });
   }
+  let resolved:
+    | {
+        excludedParticipantIds: string[];
+        mandatoryReaderIds: string[];
+        readerIds: string[];
+        status: "allowed";
+      }
+    | ReturnType<typeof resolveCollaborationAudience>;
   if (input.audienceMode === "build_wide") {
     const readerIds = participants.map((participant) => participant.id).sort();
-    return {
-      excludedParticipantIds: [] as string[],
-      mandatoryReaderIds: readerIds,
+    resolved = {
+      excludedParticipantIds: [],
+      mandatoryReaderIds: participants
+        .filter(
+          (participant) =>
+            collaborationRoleTier(participant.roles[0]) >=
+            input.authorization.effectiveRole.tier
+        )
+        .map((participant) => participant.id)
+        .sort(),
       readerIds,
-      status: "allowed" as const,
+      status: "allowed",
     };
-  }
-  if (input.audienceMode === "author_tier_and_higher") {
+  } else if (input.audienceMode === "author_tier_and_higher") {
     const readerIds = participants
       .filter(
         (participant) =>
@@ -599,7 +706,7 @@ function resolvePublicationAudience(input: {
       )
       .map((participant) => participant.id)
       .sort();
-    return {
+    resolved = {
       excludedParticipantIds: participants
         .map((participant) => participant.id)
         .filter((id) => !readerIds.includes(id)),
@@ -607,24 +714,51 @@ function resolvePublicationAudience(input: {
       readerIds,
       status: "allowed" as const,
     };
+  } else {
+    if (!canCreateCustomCollaborationAudience(input.authorization.roles)) {
+      throw new Error(
+        "Custom audiences are unavailable for this Build role. Higher-tier participants must remain able to read the post."
+      );
+    }
+    resolved = resolveCollaborationAudience({
+      authorId: input.authorization.viewer.subject,
+      authorRoles: input.authorization.roles,
+      participants,
+      requestedReaderIds: input.requestedReaderIds,
+    });
   }
-  if (!canCreateCustomCollaborationAudience(input.authorization.roles)) {
-    throw new Error(
-      "Custom audiences are unavailable for this Build role. Higher-tier participants must remain able to read the post."
-    );
-  }
-  const resolved = resolveCollaborationAudience({
-    authorId: input.authorization.viewer.subject,
-    authorRoles: input.authorization.roles,
-    participants,
-    requestedReaderIds: input.requestedReaderIds,
-  });
   if (resolved.status === "blocked") {
     throw new Error(
       "The selected audience conflicts with the referenced entity permissions."
     );
   }
-  return resolved;
+  const participantIds = new Set(
+    participants.map((participant) => participant.id)
+  );
+  const excludedReaderIds = [
+    ...new Set(input.excludedReaderIds.map((readerId) => readerId.trim())),
+  ].filter(Boolean);
+  if (excludedReaderIds.some((readerId) => !participantIds.has(readerId))) {
+    throw new Error("Excluded readers must be active Build participants.");
+  }
+  if (
+    excludedReaderIds.some((readerId) =>
+      resolved.mandatoryReaderIds.includes(readerId)
+    )
+  ) {
+    throw new Error(
+      "Higher-tier and same-tier participants cannot be excluded from a publication."
+    );
+  }
+  return {
+    ...resolved,
+    excludedParticipantIds: [
+      ...new Set([...resolved.excludedParticipantIds, ...excludedReaderIds]),
+    ].sort(),
+    readerIds: resolved.readerIds
+      .filter((readerId) => !excludedReaderIds.includes(readerId))
+      .sort(),
+  };
 }
 
 async function persistAudience(

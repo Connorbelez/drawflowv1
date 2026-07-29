@@ -121,9 +121,6 @@ export function BuildCollaborationFeed({
     api.build_collaboration_drafts.listMyBuildCollaborationDrafts,
     organizationId ? { buildId: activeBuildId, organizationId } : "skip"
   );
-  const publish = useMutation(
-    api.build_collaboration.approveAndPublishBuildCollaborationBundle
-  );
   const saveDraft = useMutation(
     api.build_collaboration_drafts.saveMyBuildCollaborationDraft
   );
@@ -151,6 +148,8 @@ export function BuildCollaborationFeed({
   const [publishing, setPublishing] = useState(false);
   const [pendingComposerApproval, setPendingComposerApproval] =
     useState<CollaborationDraftBundle | null>(null);
+  const [pendingComposerDraftId, setPendingComposerDraftId] =
+    useState<Id<"buildCollaborationDrafts"> | null>(null);
   const [reviewingDraftId, setReviewingDraftId] =
     useState<Id<"buildCollaborationDrafts"> | null>(null);
   const [focusedReference, setFocusedReference] =
@@ -180,6 +179,7 @@ export function BuildCollaborationFeed({
   useEffect(() => {
     if (composerRevisionKey) {
       setPendingComposerApproval(null);
+      setPendingComposerDraftId(null);
     }
   }, [composerRevisionKey]);
 
@@ -246,6 +246,7 @@ export function BuildCollaborationFeed({
     setPostType("update");
     setAudienceMode("build_wide");
     setPendingComposerApproval(null);
+    setPendingComposerDraftId(null);
     setComposerOpen(false);
   };
 
@@ -280,24 +281,48 @@ export function BuildCollaborationFeed({
     };
   };
 
-  const requestComposerApproval = () => {
+  const requestComposerApproval = async () => {
     const bundle = buildComposerBundle();
-    if (!bundle) {
+    if (!(bundle && organizationId) || publishing) {
       toast.error("Write an update before publishing.");
-      return;
-    }
-    setPendingComposerApproval(bundle);
-  };
-
-  const publishBundle = async () => {
-    if (!(organizationId && pendingComposerApproval) || publishing) {
       return;
     }
     setPublishing(true);
     try {
-      await publish({
-        ...pendingComposerApproval,
+      const prepared = await saveDraft({
+        ...bundle,
         buildId: activeBuildId,
+        organizationId,
+      });
+      const effectiveBundle = parseDraftBundle(prepared.bundleJson);
+      if (!effectiveBundle) {
+        throw new Error("The prepared publication bundle is invalid.");
+      }
+      setPendingComposerApproval(effectiveBundle);
+      setPendingComposerDraftId(prepared.draftId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to prepare publication review."
+      );
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const publishBundle = async () => {
+    if (
+      !(organizationId && pendingComposerApproval && pendingComposerDraftId) ||
+      publishing
+    ) {
+      return;
+    }
+    setPublishing(true);
+    try {
+      await publishDraft({
+        buildId: activeBuildId,
+        draftId: pendingComposerDraftId,
         organizationId,
       });
       toast.success("Update published.");
@@ -648,7 +673,10 @@ export function BuildCollaborationFeed({
                   <BuildCollaborationApprovalReview
                     bundle={pendingComposerApproval}
                     onApprove={publishBundle}
-                    onCancel={() => setPendingComposerApproval(null)}
+                    onCancel={() => {
+                      setPendingComposerApproval(null);
+                      setPendingComposerDraftId(null);
+                    }}
                     publishing={publishing}
                   />
                 ) : null}

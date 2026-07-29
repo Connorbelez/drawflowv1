@@ -1,13 +1,23 @@
 import { v } from "convex/values";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
-import { authenticatedMutation, authenticatedQuery } from "./authz";
-import { publishBuildCollaborationBundle } from "./build_collaboration";
+import {
+  authenticatedMutation,
+  authenticatedQuery,
+  normalizeRoleSlugs,
+} from "./authz";
+import {
+  prepareBuildCollaborationPublication,
+  publishBuildCollaborationBundle,
+} from "./build_collaboration";
 import { collaborationDraftSummaryValidator } from "./build_collaboration_contracts";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
+  normalizeBuildCollaborationRole,
+  resolveEffectiveCollaborationRole,
+} from "./build_collaboration_model";
+import {
   type BuildCollaborationPublicationBundle,
   canonicalPublicationBundleJson,
-  normalizePublicationBundle,
   publicationBundleFields,
   publicationBundleHash,
 } from "./build_collaboration_publication_bundle";
@@ -24,16 +34,19 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
     preparedByAgent: v.optional(v.boolean()),
     scheduledFor: v.optional(v.number()),
   })
-  .returns(v.id("buildCollaborationDrafts"))
+  .returns(
+    v.object({
+      bundleJson: v.string(),
+      draftId: v.id("buildCollaborationDrafts"),
+      revision: v.number(),
+    })
+  )
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildCollaborationAccess(
       ctx,
       args
     );
     const now = Date.now();
-    const bundle = normalizePublicationBundle(args);
-    const bundleJson = canonicalPublicationBundleJson(bundle);
-    const bundleHash = await publicationBundleHash(bundleJson);
     const preparedByAgent = authorization.viewer.actorKind !== "human";
     const approvalOwnerWorkosUserId =
       args.approvalOwnerWorkosUserId?.trim() ||
@@ -45,10 +58,16 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
         "Agent, service, and automation drafts require a human approval owner."
       );
     }
-    await requireHumanApprovalOwner(ctx, {
+    const publicationAuthorization = await requireHumanApprovalOwner(ctx, {
       approvalOwnerWorkosUserId,
       authorization,
     });
+    const { bundle } = await prepareBuildCollaborationPublication(ctx, {
+      authorization: publicationAuthorization,
+      bundle: args,
+    });
+    const bundleJson = canonicalPublicationBundleJson(bundle);
+    const bundleHash = await publicationBundleHash(bundleJson);
 
     if (args.draftId) {
       const draft = await ctx.db.get(args.draftId);
@@ -75,10 +94,14 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
         state: "active",
         updatedAt: now,
       });
-      return draft._id;
+      return {
+        bundleJson,
+        draftId: draft._id,
+        revision: draft.revision + 1,
+      };
     }
 
-    return await ctx.db.insert("buildCollaborationDrafts", {
+    const draftId = await ctx.db.insert("buildCollaborationDrafts", {
       brokerageId: authorization.brokerage._id,
       buildId: authorization.build._id,
       bundleHash,
@@ -95,6 +118,7 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
       state: "active",
       updatedAt: now,
     });
+    return { bundleJson, draftId, revision: 1 };
   })
   .public();
 
@@ -215,9 +239,25 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
       );
     }
 
-    const bundle = JSON.parse(
+    const storedBundle = JSON.parse(
       draft.bundleJson
     ) as BuildCollaborationPublicationBundle;
+    const { audience, bundle } = await prepareBuildCollaborationPublication(
+      ctx,
+      {
+        authorization,
+        bundle: storedBundle,
+      }
+    );
+    const effectiveBundleJson = canonicalPublicationBundleJson(bundle);
+    if (
+      effectiveBundleJson !== draft.bundleJson ||
+      (await publicationBundleHash(effectiveBundleJson)) !== draft.bundleHash
+    ) {
+      throw new Error(
+        "The draft changed after review. Review the latest revision before publishing."
+      );
+    }
     const now = Date.now();
     const approvalId = await ctx.db.insert(
       "buildCollaborationPublicationApprovals",
@@ -234,14 +274,16 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
         mutationSummaryJson: JSON.stringify({
           actionItemCount: bundle.actionItems.length,
           attachmentAssetCount: bundle.attachmentAssetIds.length,
-          notificationEffectCount: bundle.notificationEffects.length,
+          notificationEffectCount: bundle.effectiveNotificationEffects.length,
           referenceCount: bundle.references.length,
           sharedMutationCount: bundle.sharedMutations.length,
         }),
         organizationId: authorization.organizationId,
         readerSummaryJson: JSON.stringify({
           audienceMode: bundle.audienceMode,
+          effectiveReaderIds: bundle.effectiveReaderIds,
           excludedReaderIds: bundle.excludedReaderIds,
+          mandatoryReaderIds: bundle.mandatoryReaderIds,
           requestedReaderIds: bundle.requestedReaderIds,
         }),
         scheduledFor: draft.scheduledFor,
@@ -250,6 +292,7 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
     );
     const postId = await publishBuildCollaborationBundle(ctx, {
       agentDrafted: draft.preparedByAgent ?? false,
+      audience,
       authorization,
       bundle,
     });
@@ -291,6 +334,12 @@ async function requireHumanApprovalOwner(
     authorization: ActiveBuildAuthorization;
   }
 ) {
+  if (
+    input.authorization.viewer.actorKind === "human" &&
+    input.authorization.viewer.subject === input.approvalOwnerWorkosUserId
+  ) {
+    return input.authorization;
+  }
   const user = await ctx.db
     .query("users")
     .withIndex("by_workos_user_id", (query) =>
@@ -300,29 +349,74 @@ async function requireHumanApprovalOwner(
   if (!user || user.status === "deleted") {
     throw new Error("The requested human approval owner is unavailable.");
   }
-  if (
-    input.authorization.participants.some(
-      (participant) =>
-        participant.workosUserId === input.approvalOwnerWorkosUserId
-    )
-  ) {
-    return;
-  }
+  const participant = input.authorization.participants.find(
+    (candidate) => candidate.workosUserId === input.approvalOwnerWorkosUserId
+  );
   const memberships = await ctx.db
     .query("workosOrganizationMemberships")
     .withIndex("by_user", (query) =>
       query.eq("workosUserId", input.approvalOwnerWorkosUserId)
     )
     .take(100);
-  if (
-    !memberships.some(
-      (membership) =>
-        membership.workosOrganizationId ===
-          input.authorization.organizationId && membership.status === "active"
-    )
-  ) {
+  const membership = memberships.find(
+    (candidate) =>
+      candidate.workosOrganizationId === input.authorization.organizationId &&
+      candidate.status === "active"
+  );
+  if (!(participant || membership)) {
     throw new Error(
       "The requested human approval owner cannot access this Build."
     );
   }
+  const roles = [
+    ...new Set(
+      [
+        participant?.role,
+        membership?.roleSlug,
+        ...(membership?.roleSlugs ?? []),
+      ]
+        .flatMap((role) => normalizeRoleSlugs([role]))
+        .map(normalizeBuildCollaborationRole)
+        .filter((role) => role !== null)
+    ),
+  ];
+  const effectiveRole = resolveEffectiveCollaborationRole(roles);
+  if (!effectiveRole) {
+    throw new Error(
+      "The requested human approval owner has no collaboration role."
+    );
+  }
+  const humanParticipants = input.authorization.participants.filter(
+    (candidate) => candidate.workosUserId !== input.authorization.viewer.subject
+  );
+  const participants = humanParticipants.some(
+    (candidate) => candidate.workosUserId === input.approvalOwnerWorkosUserId
+  )
+    ? humanParticipants
+    : [
+        ...humanParticipants,
+        {
+          displayName: user.name || user.email,
+          participationPeriod: 1,
+          role: effectiveRole.role,
+          source: "derived" as const,
+          workosUserId: input.approvalOwnerWorkosUserId,
+        },
+      ];
+  return {
+    ...input.authorization,
+    effectiveRole,
+    participants,
+    roles,
+    viewer: {
+      ...input.authorization.viewer,
+      actorKind: "human" as const,
+      email: user.email,
+      roles: normalizeRoleSlugs([
+        membership?.roleSlug,
+        ...(membership?.roleSlugs ?? []),
+      ]),
+      subject: input.approvalOwnerWorkosUserId,
+    },
+  };
 }
