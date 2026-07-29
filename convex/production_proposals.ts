@@ -2450,9 +2450,6 @@ export const submitProposal = authenticatedMutation
       args.workosOrganizationId
     );
     requireState(auth.proposal, "draft");
-    if (!auth.proposal.selectedPlan) {
-      throw new Error("Select a plan before submitting the proposal.");
-    }
     if (!isBackoffice(auth.roles)) {
       const builderProfileId = assignedBuilderProfileIdOrThrow(auth.proposal);
       await assertBuilderOwnership(ctx, builderProfileId, auth.subject);
@@ -14196,7 +14193,9 @@ export const getActiveBuildDetailByString = authenticatedQuery
           a.milestoneKey.localeCompare(b.milestoneKey)
       );
     }
-    const drawFunding = await activeBuildDrawFundingSnapshot(ctx, buildId);
+    const drawFunding = await activeBuildDrawFundingSnapshot(ctx, buildId, {
+      allowLegacyUnattributedRequests: true,
+    });
     const contractorById = new Map(
       contractorProfiles.map((contractor) => [
         String(contractor._id),
@@ -14313,8 +14312,14 @@ export const getActiveBuildDetailByString = authenticatedQuery
       documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
       drawFunding: {
         approvedMilestoneCents: drawFunding.approvedMilestoneCents,
+        attributionShortfallCents: drawFunding.attributionShortfallCents,
         availableCents: drawFunding.availableCents,
         facilityCents: drawFunding.facilityCents,
+        legacyUnattributedRequestCents:
+          drawFunding.legacyUnattributedRequestCents,
+        legacyUnattributedRequestCount:
+          drawFunding.legacyUnattributedRequestCount,
+        requiresAttributionMigration: drawFunding.requiresAttributionMigration,
         reservedCents: drawFunding.reservedCents,
         sources: drawFunding.sources.map(({ buildMilestoneId, ...source }) => ({
           ...source,
@@ -27434,6 +27439,7 @@ type ActiveBuildDrawSourceAllocation = {
 };
 
 function activeBuildDrawFundingSnapshotFromRows(input: {
+  allowLegacyUnattributedRequests?: boolean;
   allocations: readonly Doc<"activeBuildDrawRequestAllocations">[];
   facilities: readonly Doc<"loanFacilities">[];
   ignoreUnattributedRequestIds?: ReadonlySet<string>;
@@ -27461,43 +27467,55 @@ function activeBuildDrawFundingSnapshotFromRows(input: {
   const requestsById = new Map(
     input.requests.map((request) => [String(request._id), request])
   );
-  const activeAllocations = input.allocations.filter((allocation) => {
-    const request = requestsById.get(String(allocation.drawRequestId));
-    return (
-      request !== undefined &&
-      activeBuildDrawRequestReservesAvailability(request.status) &&
-      !input.ignoreUnattributedRequestIds?.has(String(request._id))
-    );
-  });
   const allocationTotalsByRequest = new Map<string, number>();
   const reservedByMilestone = new Map<string, number>();
-  for (const allocation of activeAllocations) {
+  for (const allocation of input.allocations) {
     const requestId = String(allocation.drawRequestId);
+    const request = requestsById.get(requestId);
+    if (
+      !request ||
+      input.ignoreUnattributedRequestIds?.has(String(request._id))
+    ) {
+      continue;
+    }
     allocationTotalsByRequest.set(
       requestId,
       (allocationTotalsByRequest.get(requestId) ?? 0) + allocation.amountCents
     );
-    const milestoneId = String(allocation.buildMilestoneId);
-    reservedByMilestone.set(
-      milestoneId,
-      (reservedByMilestone.get(milestoneId) ?? 0) + allocation.amountCents
-    );
+    if (activeBuildDrawRequestReservesAvailability(request.status)) {
+      const milestoneId = String(allocation.buildMilestoneId);
+      reservedByMilestone.set(
+        milestoneId,
+        (reservedByMilestone.get(milestoneId) ?? 0) + allocation.amountCents
+      );
+    }
   }
-  const reservingRequests = input.requests.filter(
-    (request) =>
-      activeBuildDrawRequestReservesAvailability(request.status) &&
-      !input.ignoreUnattributedRequestIds?.has(String(request._id))
+  const attributedRequests = input.requests.filter(
+    (request) => !input.ignoreUnattributedRequestIds?.has(String(request._id))
   );
-  for (const request of reservingRequests) {
-    if (
-      (allocationTotalsByRequest.get(String(request._id)) ?? 0) !==
-      request.amountCents
-    ) {
+  const legacyUnattributedRequests: Doc<"activeBuildDrawRequests">[] = [];
+  for (const request of attributedRequests) {
+    const allocationTotal =
+      allocationTotalsByRequest.get(String(request._id)) ?? 0;
+    if (allocationTotal === request.amountCents) {
+      continue;
+    }
+    if (allocationTotal === 0 && input.allowLegacyUnattributedRequests) {
+      legacyUnattributedRequests.push(request);
+      continue;
+    }
+    if (allocationTotal === 0) {
       throw new Error(
         `Draw attribution integrity failure for ${request.requestKey}; run the active-build draw attribution migration before accepting another request.`
       );
     }
+    throw new Error(
+      `Draw attribution integrity failure for ${request.requestKey}; persisted allocations total ${allocationTotal} cents for a ${request.amountCents}-cent request.`
+    );
   }
+  const reservingRequests = attributedRequests.filter((request) =>
+    activeBuildDrawRequestReservesAvailability(request.status)
+  );
   const plannedDrawGroupByMilestone = new Map(
     input.plannedDraws
       .filter(
@@ -27538,6 +27556,29 @@ function activeBuildDrawFundingSnapshotFromRows(input: {
       };
     }
   );
+  let attributionShortfallCents = 0;
+  for (const request of legacyUnattributedRequests
+    .filter((candidate) =>
+      activeBuildDrawRequestReservesAvailability(candidate.status)
+    )
+    .sort(
+      (a, b) =>
+        a.createdAt - b.createdAt ||
+        a.requestKey.localeCompare(b.requestKey) ||
+        String(a._id).localeCompare(String(b._id))
+    )) {
+    let remainingCents = request.amountCents;
+    for (const source of sources) {
+      if (remainingCents <= 0) {
+        break;
+      }
+      const allocatedCents = Math.min(source.availableCents, remainingCents);
+      source.availableCents -= allocatedCents;
+      source.reservedCents += allocatedCents;
+      remainingCents -= allocatedCents;
+    }
+    attributionShortfallCents += remainingCents;
+  }
   const unlockedCents = sources.reduce(
     (total, source) => total + source.unlockedCents,
     0
@@ -27558,8 +27599,15 @@ function activeBuildDrawFundingSnapshotFromRows(input: {
   });
   return {
     approvedMilestoneCents,
+    attributionShortfallCents,
     availableCents,
     facilityCents,
+    legacyUnattributedRequestCount: legacyUnattributedRequests.length,
+    legacyUnattributedRequestCents: legacyUnattributedRequests.reduce(
+      (total, request) => total + request.amountCents,
+      0
+    ),
+    requiresAttributionMigration: legacyUnattributedRequests.length > 0,
     reservedCents,
     sources: reconciledSources,
     unlockedCents,
@@ -27569,7 +27617,10 @@ function activeBuildDrawFundingSnapshotFromRows(input: {
 async function activeBuildDrawFundingSnapshot(
   ctx: QueryCtx | MutationCtx,
   buildId: Id<"activeBuilds">,
-  options?: { ignoreUnattributedRequestIds?: ReadonlySet<string> }
+  options?: {
+    allowLegacyUnattributedRequests?: boolean;
+    ignoreUnattributedRequestIds?: ReadonlySet<string>;
+  }
 ) {
   const [milestones, requests, allocations, facilities, plannedDraws] =
     await Promise.all([
@@ -27585,6 +27636,7 @@ async function activeBuildDrawFundingSnapshot(
       collectByIndex(ctx, "plannedDrawScheduleRows", "by_build", buildId),
     ]);
   return activeBuildDrawFundingSnapshotFromRows({
+    allowLegacyUnattributedRequests: options?.allowLegacyUnattributedRequests,
     allocations: allocations as Doc<"activeBuildDrawRequestAllocations">[],
     facilities: facilities as Doc<"loanFacilities">[],
     ignoreUnattributedRequestIds: options?.ignoreUnattributedRequestIds,

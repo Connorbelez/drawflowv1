@@ -151,8 +151,8 @@ describe("durable timeline plan helpers", () => {
       ],
     });
 
-    // draw.x = dayEnd + 8 = 14 + 8 = 22, milestone.dayEnd = 14
-    // 14 <= 22 so capacity IS unlocked. Draw should be full amount.
+    // draw.x = dayEnd + 5 = 14 + 5 = 19, milestone.dayEnd = 14
+    // 14 <= 19 so capacity IS unlocked. Draw should be full amount.
     expect(normalized.draws[0].amountCents).toBe(80_000);
   });
 
@@ -169,8 +169,8 @@ describe("durable timeline plan helpers", () => {
       ],
     });
 
-    // The milestone ends on day 14, then the default 8-day review lag applies.
-    expect(normalized.draws[0].x).toBe(22);
+    // The milestone ends on day 14, then the invariant 5-day review lag applies.
+    expect(normalized.draws[0].x).toBe(19);
   });
 
   test("generates proposal short slugs in the required live-link format", () => {

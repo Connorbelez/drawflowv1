@@ -32,6 +32,7 @@ import type { DatabaseReader, DatabaseWriter, Doc, Id } from "./types";
 
 const ORG_KEY = DEMO_ORG_KEY;
 const DEFAULT_FLAT_DRAW_FEE_CENTS = 50_000;
+const DEFAULT_DRAW_REVIEW_LAG_DAYS = 5;
 const DEFAULT_INTEREST_ANNUAL_BPS = 925;
 const DEFAULT_PAYOFF_DATE = "2027-01-05";
 const DEFAULT_PROJECT_START_DATE = "2026-06-01";
@@ -482,7 +483,7 @@ export function normalizeSetupPayload(input: {
           drawKey: `draw-${String(index + 1).padStart(2, "0")}`,
           label: `Draw ${index + 1}`,
           order: index + 1,
-          x: milestone.dayEnd + 8,
+          x: milestone.dayEnd + DEFAULT_DRAW_REVIEW_LAG_DAYS,
         })),
         milestones,
         input.lenderDrawPolicyLimitCents

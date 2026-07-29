@@ -380,6 +380,20 @@ test("removes production-only reserve data from demo timeline plan persistence",
   });
 });
 describe("TimelineWorkspace mode split", () => {
+  test("submits a custom timeline plan without an optimizer preset", async () => {
+    const submitPlan = vi.fn().mockResolvedValue(undefined);
+
+    renderWorkspace({
+      persistence: { submitPlan },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-submit-proposal"));
+    fireEvent.click(screen.getByTestId("timeline-submit-confirm"));
+    await waitFor(() => expect(submitPlan).toHaveBeenCalledTimes(1));
+  });
+
   test("keeps approved production proposals in proposal mode without live execution controls", () => {
     renderWorkspace({ workspaceMode: "proposal" });
 
@@ -875,6 +889,56 @@ describe("TimelineWorkspace mode split", () => {
       "Only $96,000 is unlocked and available to draw by day 22.",
     );
     expect(updateDraw).toHaveBeenCalledTimes(1);
+  });
+
+  test("allows reducing an existing draw when the current schedule exceeds unlocked capacity", () => {
+    const updateDraw = vi.fn().mockResolvedValue(undefined);
+    renderWorkspace({
+      initialState: timelineState({ milestoneAmount: 0 }),
+      persistence: { updateDraw },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Draw 01 date and amount",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Draw amount"), {
+      target: { value: "90000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(toast.error).not.toHaveBeenCalledWith(
+      "Cannot schedule a draw that exceeds unlocked draw availability at this point in the timeline.",
+    );
+    expect(updateDraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 9_000_000,
+        drawKey: "draw-01",
+      }),
+    );
+  });
+
+  test("calls out a generated schedule that exceeds maximum draw availability", () => {
+    renderWorkspace({
+      initialState: timelineState({ milestoneAmount: 0 }),
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    const warning = screen.getByTestId(
+      "timeline-draw-availability-warning",
+    );
+    expect(warning.textContent).toContain(
+      "Generated draw schedule exceeds maximum availability",
+    );
+    expect(warning.textContent).toContain(
+      "Draw 01 schedules $96,000 on day 22, but only $0 is unlocked",
+    );
+    expect(warning.textContent).toContain("5-day review lag");
+    expect(warning.textContent).toContain("Reduce or move this draw by $96,000");
   });
 
   test("blocks adding a draw before reimbursement capacity unlocks", () => {

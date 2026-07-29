@@ -51,6 +51,11 @@ import {
   type TimelineRange,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { insertTimelineItemWithSpacing } from "#/components/roadmap/animated-curved-timeline-utils.ts";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -2002,6 +2007,10 @@ export function TimelineWorkspace({
     () => buildCashUseSummary(items, draws, capitalSpikes),
     [capitalSpikes, draws, items]
   );
+  const drawAvailabilityViolation = useMemo(
+    () => findDrawUnlockCapacityViolation(items, draws),
+    [draws, items]
+  );
   const cashflowExtent = useMemo(
     () => getCashflowChartExtent(cashflowChartData),
     [cashflowChartData]
@@ -3199,6 +3208,8 @@ export function TimelineWorkspace({
       return;
     }
 
+    const isSameDayReduction =
+      nextX === targetDraw.x && nextAmount < targetDraw.amount;
     const maxSchedulableAmount = getMaxSchedulableDrawAmount(
       nextX,
       items,
@@ -3210,7 +3221,7 @@ export function TimelineWorkspace({
       approvedDrawLimit
     );
 
-    if (nextAmount > maxSchedulableAmount) {
+    if (!isSameDayReduction && nextAmount > maxSchedulableAmount) {
       toast.error(
         maxSchedulableAmount <= 0
           ? DRAW_UNLOCK_CAPACITY_BLOCKED_MESSAGE
@@ -3864,6 +3875,30 @@ export function TimelineWorkspace({
               </div>
             </div>
           </div>
+        ) : null}
+        {drawAvailabilityViolation ? (
+          <Alert
+            data-testid="timeline-draw-availability-warning"
+            variant="warning"
+          >
+            <AlertTriangle aria-hidden />
+            <AlertTitle>
+              Generated draw schedule exceeds maximum availability
+            </AlertTitle>
+            <AlertDescription>
+              {drawAvailabilityViolation.draw.label} schedules{" "}
+              {money(drawAvailabilityViolation.draw.amount)} on day{" "}
+              {drawAvailabilityViolation.draw.x}, but only{" "}
+              {money(drawAvailabilityViolation.limit.availableLimit)} is
+              unlocked after the {DEFAULT_DRAW_REVIEW_LAG_DAYS}-day review lag.
+              Reduce or move this draw by{" "}
+              {money(
+                drawAvailabilityViolation.draw.amount -
+                  drawAvailabilityViolation.limit.availableLimit
+              )}
+              .
+            </AlertDescription>
+          </Alert>
         ) : null}
         {showWorkspaceHeader ? (
           <motion.section

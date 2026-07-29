@@ -407,7 +407,7 @@ Contractor dedupe must not leak confidential brokerage relationship data. Search
 | `milestones` | Tenant | Roadmap work units |
 | `milestoneDependencies` | Tenant | Hard/soft dependency edges |
 | `submilestones` | Tenant | Optional lower-level work units |
-| `drawPlans` | Tenant | Optimizer outputs and selected plan |
+| `drawPlans` | Tenant | Custom draw plans, optimizer outputs, and optional preset metadata |
 | `drawGroups` | Tenant | Planned milestone groupings for reimbursement |
 | `draws` | Tenant | Actual reimbursement draw lifecycle |
 
@@ -548,14 +548,17 @@ Builder actions:
 4. Select construction template.
 5. Edit milestones, durations, dependencies, and costs.
 6. Add contractors to project or milestone by creating/searching contractor profiles.
-7. Generate Cheapest Feasible, Fastest, and Capital-Constrained plans.
-8. Select preferred plan.
-9. Submit proposal.
+7. Optionally generate and compare Cheapest Feasible, Fastest, and Capital-Constrained optimizer presets.
+8. Continue editing the custom Timeline draw plan and optionally apply an optimizer preset.
+9. Submit the current custom or preset-assisted draw plan.
 
 Acceptance criteria:
 
 - proposal mode has role-aware actions limited to drafting and submission,
 - completion/site-visit/draw-release controls are absent or disabled with correct explanation,
+- custom Timeline draw plans can be submitted without selecting an optimizer preset,
+- draw availability unlocks five calendar days after milestone completion,
+- the Timeline and proposal packet both call out any auto-generated draw scheduled above cumulative unlocked draw availability,
 - submitted proposal freezes a review snapshot and audit event.
 
 ### 8.7 Proposal Review
@@ -569,6 +572,7 @@ Acceptance criteria:
 Acceptance criteria:
 
 - final approval is distinct from staff review,
+- the proposal packet preserves the draw-availability warning and identifies the first over-capacity draw, available amount, and overage,
 - proposal approval creates versioned records, not mutable demo state,
 - rejection and changes-requested states preserve reasons.
 
@@ -774,4 +778,3 @@ The production MVP is ready when:
 3. **Broker proposal authority:** Can Brokers approve low-risk proposals, or do all approvals require Principal Broker/high-authority role?
 4. **Contractor global search:** Should brokers see only brokerage-known contractors, or can they search global deduped public contractor records?
 5. **Builder organization model:** Should larger builders have their own WorkOS Organization later, or stay as external participants inside brokerage organizations for v1?
-

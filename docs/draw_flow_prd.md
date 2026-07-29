@@ -706,7 +706,7 @@ Required inputs:
 - lender draw policy limits,
 - draw fee configuration,
 - interest configuration,
-- review lag assumptions,
+- fixed five-calendar-day draw-unlock lag after milestone completion,
 - site visit lag assumptions,
 - milestone template variance thresholds,
 - current actual progress for active builds.
@@ -726,7 +726,8 @@ Each generated plan should output:
 - total estimated financing cost,
 - peak unreimbursed borrower exposure,
 - working-capital feasibility,
-- warnings,
+- warnings, including any auto-generated draw scheduled above cumulative
+  unlocked draw availability,
 - plan explanation.
 
 ## 9.4 Default Recommendation: Cheapest Feasible Plan
@@ -1183,7 +1184,7 @@ Must include:
 - System estimates fees and interest.
 - System compares Cheapest Feasible, Fastest, and Capital-Constrained plans.
 - System shows plan explanations.
-- Admin can override selected plan with audited reason.
+- When an optimizer preset is applied, admin can override that optional preset metadata with an audited reason.
 
 ## 13.6 Milestone Progress
 
@@ -1454,7 +1455,7 @@ The system must preserve an audit trail for:
 - dependency changes,
 - working-capital input changes,
 - optimizer plan generation,
-- selected plan,
+- optional optimizer preset selection,
 - admin overrides,
 - evidence upload,
 - geofence verification result,

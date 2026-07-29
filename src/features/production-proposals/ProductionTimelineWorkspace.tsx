@@ -457,8 +457,8 @@ export function ProductionTimelineWorkspace({
       embedded={embedded}
       headerActions={headerActions}
       initialRole={initialRole}
-      lockedBannerActions={lockedBannerActions}
       initialState={initialState}
+      lockedBannerActions={lockedBannerActions}
       modificationRequests={workspace.modificationRequests ?? []}
       persistence={persistence}
       readOnly={!hasTimelineEditPermission}

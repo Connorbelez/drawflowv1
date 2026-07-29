@@ -15,6 +15,10 @@ import {
 } from "./-timeline-milestone-schedule.ts";
 
 describe("timeline milestone schedule helpers", () => {
+  test("keeps the milestone-completion draw unlock lag at five days", () => {
+    expect(DEFAULT_DRAW_REVIEW_LAG_DAYS).toBe(5);
+  });
+
   test("derives completion day from start day plus duration", () => {
     const item = milestoneItem({
       amount: 120_000,

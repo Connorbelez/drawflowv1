@@ -166,10 +166,18 @@ import {
   MaterialPlanningTab,
 } from "#/features/material-planning/MaterialPlanningTab.tsx";
 import {
+  ScheduleWindowPicker,
+  type ScheduleWindowValue,
+} from "#/features/timeline-workspace/-ScheduleWindowPicker.tsx";
+import {
   type TimelineMilestoneWorksheetRow,
   TimelineMilestoneWorksheetTable,
 } from "#/features/timeline-workspace/-TimelineMilestoneWorksheetTable.tsx";
-import type { IsometricIconKey } from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
+import { DEFAULT_DRAW_REVIEW_LAG_DAYS } from "#/features/timeline-workspace/-timeline-milestone-schedule.ts";
+import {
+  calculateDrawAvailabilityAmount,
+  type IsometricIconKey,
+} from "#/features/timeline-workspace/-timeline-share-snapshot.ts";
 import { useCopyToClipboard } from "#/hooks/use-copy-to-clipboard.ts";
 import { useIsMobile } from "#/hooks/use-media-query.ts";
 import { createGoogleSatelliteMapUrl } from "#/lib/google-maps.ts";
@@ -187,10 +195,6 @@ import {
   dateFromProposalDayOffset,
   isValidIsoDateOnly,
 } from "./proposalScheduleDates.ts";
-import {
-  ScheduleWindowPicker,
-  type ScheduleWindowValue,
-} from "#/features/timeline-workspace/-ScheduleWindowPicker.tsx";
 
 export type ProductionProposalStatus =
   | "draft"
@@ -261,6 +265,7 @@ interface ProductionMilestone {
   dayEnd: number;
   dayStart: number;
   dependencyKeys?: string[];
+  drawAvailabilityCents?: number;
   durationDays?: number;
   icon?: IsometricIconKey;
   key: string;
@@ -311,6 +316,89 @@ export interface ProductionProposalDetail {
   plannedDraws?: ProductionDraw[];
   proposal: ProductionProposal;
   submilestones?: ProductionSubmilestone[];
+}
+
+interface ProposalDrawAvailabilityViolation {
+  availableCents: number;
+  draw: ProductionDraw;
+  overageCents: number;
+}
+
+function findProposalDrawAvailabilityViolation(
+  detail: ProductionProposalDetail
+): ProposalDrawAvailabilityViolation | null {
+  const milestones = detail.milestones ?? [];
+  const draws = [...(detail.draws ?? detail.plannedDraws ?? [])].sort(
+    (a, b) =>
+      a.timingDay - b.timingDay ||
+      (a.order ?? Number.MAX_SAFE_INTEGER) -
+        (b.order ?? Number.MAX_SAFE_INTEGER) ||
+      a.drawKey.localeCompare(b.drawKey)
+  );
+  let scheduledCents = 0;
+
+  for (const draw of draws) {
+    const unlockedCents = milestones.reduce((total, milestone) => {
+      const unlockDay = milestone.dayEnd + DEFAULT_DRAW_REVIEW_LAG_DAYS;
+      if (unlockDay > draw.timingDay) {
+        return total;
+      }
+
+      const availabilityCents =
+        milestone.drawAvailabilityCents === undefined
+          ? calculateDrawAvailabilityAmount(
+              milestone.budgetCents,
+              detail.proposal.borrowerCoPayBps
+            )
+          : Math.max(0, Math.round(milestone.drawAvailabilityCents));
+      return total + availabilityCents;
+    }, 0);
+    const availableCents = Math.max(0, unlockedCents - scheduledCents);
+
+    if (draw.amountCents > availableCents) {
+      return {
+        availableCents,
+        draw,
+        overageCents: draw.amountCents - availableCents,
+      };
+    }
+
+    scheduledCents += draw.amountCents;
+  }
+
+  return null;
+}
+
+function ProposalDrawAvailabilityWarning({
+  detail,
+}: {
+  detail: ProductionProposalDetail;
+}) {
+  const violation = findProposalDrawAvailabilityViolation(detail);
+
+  if (!violation) {
+    return null;
+  }
+
+  return (
+    <Alert
+      data-testid="proposal-packet-draw-availability-warning"
+      variant="warning"
+    >
+      <AlertTriangle aria-hidden />
+      <AlertTitle>
+        Generated draw schedule exceeds maximum availability
+      </AlertTitle>
+      <AlertDescription>
+        {violation.draw.label} schedules{" "}
+        {formatCents(violation.draw.amountCents)} on day{" "}
+        {violation.draw.timingDay}, but only{" "}
+        {formatCents(violation.availableCents)} is unlocked after the{" "}
+        {DEFAULT_DRAW_REVIEW_LAG_DAYS}-day review lag. Reduce or move this draw
+        by {formatCents(violation.overageCents)}.
+      </AlertDescription>
+    </Alert>
+  );
 }
 
 export type ProductionReviewTab =
@@ -2092,10 +2180,6 @@ export function ProductionProposalReviewSurface({
       toast.error("This proposal is no longer in draft.");
       return;
     }
-    if (!proposal.selectedPlan) {
-      toast.error("Select a preferred plan before submitting the proposal.");
-      return;
-    }
     setSubmitPending(true);
     try {
       await onSubmit?.();
@@ -2503,6 +2587,7 @@ export function ProductionProposalReviewSurface({
                 idPrefix: "production-packet-tab",
                 includePermitUpload: true,
               })}
+              <ProposalDrawAvailabilityWarning detail={detail} />
               {proposal.selectedPlan ? (
                 <Section title="Selected plan">
                   <div className="grid gap-3">
@@ -2563,14 +2648,14 @@ export function ProductionProposalReviewSurface({
                       <Badge variant="outline">Draft</Badge>
                       <p className="mt-2 text-muted-foreground text-sm">
                         {proposal.selectedPlan
-                          ? "Submit the builder-selected reimbursement plan for lender review when the packet, milestones, and draw schedule are ready."
-                          : "Select a preferred plan before submitting this proposal for lender review."}
+                          ? "Submit the current reimbursement plan for lender review. The selected optimizer preset is included as advisory comparison metadata."
+                          : "Submit the custom reimbursement plan for lender review when the packet, milestones, and draw schedule are ready. Optimizer presets are optional."}
                       </p>
                     </div>
                     <Button
                       className="w-full sm:w-auto"
                       data-testid="production-proposal-submit-cta"
-                      disabled={submitPending || !proposal.selectedPlan}
+                      disabled={submitPending}
                       onClick={() => void submitProposal()}
                     >
                       <Send />

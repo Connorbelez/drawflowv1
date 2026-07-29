@@ -218,28 +218,6 @@ async function submitProposalForTest(
   proposalId: any,
   workosOrganizationId = ORG,
 ) {
-  await t.run(async (ctx: any) => {
-    const now = Date.now();
-    await ctx.db.patch(proposalId, {
-      selectedPlan: {
-        metrics: {
-          drawCount: 1,
-          drawFeesCents: 50_000,
-          interestCostCents: 100_000,
-          minimumCashReserveCents: 0,
-          projectedDurationDays: 30,
-          startingCashCents: 40_000_000,
-          totalCostCents: 150_000,
-          totalDrawAmountCents: 40_000_000,
-        },
-        name: "Cheapest Feasible",
-        planKey: "cheapestFeasible",
-        recommendationReason: "Selected by unrelated test setup.",
-        selectedAt: now,
-        selectedByWorkosUserId: "test_setup",
-      },
-    });
-  });
   return await t.mutation((api as any).production_proposals.submitProposal, {
     proposalId,
     workosOrganizationId,
@@ -425,7 +403,58 @@ function findLegacyDrawOperationCollision(input: {
 }
 
 describe("production proposal foundation", () => {
-  test("requires an explicit selected plan and preserves its metrics through submission handoff", async () => {
+  test("submits a custom timeline plan without an optimizer preset", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "Custom timeline proposal",
+        location: "12 Custom Plan Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 40_000_000,
+        lenderDrawPolicyLimitCents: 55_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await builder.mutation((api as any).production_proposals.submitProposal, {
+      proposalId,
+      workosOrganizationId: ORG,
+    });
+
+    const submitted = await t.query(
+      (api as any).production_proposals.getProposalDetail,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(submitted.proposal.selectedPlan).toBeUndefined();
+    expect(submitted.proposal.status).toBe("submitted");
+  });
+
+  test("preserves optional optimizer preset metrics through submission handoff", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const builder = withIdentity(base, ["builder"], "user_builder");
     const proposalId = await t.mutation(
@@ -465,13 +494,6 @@ describe("production proposal foundation", () => {
 
     const storedProposal = await t.run((ctx: any) => ctx.db.get(proposalId));
     expect(storedProposal.borrowerStartingCashCents).toBe(40_000_000);
-
-    await expect(
-      t.mutation((api as any).production_proposals.submitProposal, {
-        proposalId,
-        workosOrganizationId: ORG,
-      }),
-    ).rejects.toThrow(/select.*plan/i);
 
     await builder.mutation(
       (api as any).production_proposals.selectProposalPlan,
@@ -9210,10 +9232,33 @@ describe("production proposal foundation", () => {
       }),
     );
 
+    const legacyDetail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(legacyDetail.drawFunding).toMatchObject({
+      attributionShortfallCents: 0,
+      availableCents: 30_000_000,
+      legacyUnattributedRequestCount: 1,
+      requiresAttributionMigration: true,
+      reservedCents: 10_000_000,
+      unlockedCents: 40_000_000,
+    });
+    expect(legacyDetail.draws[0]).toMatchObject({
+      sourceAllocations: [],
+      status: "approved_for_release",
+      workOrderKey: "DRWO-0042",
+    });
     await expect(
-      admin.query(
-        (api as any).production_proposals.getActiveBuildDetailByString,
-        { buildId: String(closing.buildId), workosOrganizationId: ORG },
+      admin.mutation(
+        (api as any).production_proposals.requestActiveBuildDraw,
+        {
+          amountCents: 1_000_000,
+          buildId: closing.buildId,
+          clientOperationId: "blocked-until-attributed",
+          drawKey: "draw-01",
+          workosOrganizationId: ORG,
+        },
       ),
     ).rejects.toThrow("run the active-build draw attribution migration");
 

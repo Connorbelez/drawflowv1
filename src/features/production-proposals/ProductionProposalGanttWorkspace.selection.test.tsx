@@ -23,7 +23,7 @@ beforeEach(() => {
 });
 
 describe("ProductionProposalTimelineGanttWorkspace plan selection", () => {
-  test("persists the selected comparison plan before enabling submission", async () => {
+  test("keeps optimizer preset selection optional and persists it when chosen", async () => {
     render(
       <ProductionProposalTimelineGanttWorkspace
         proposalId={"proposal_123" as any}
@@ -34,7 +34,7 @@ describe("ProductionProposalTimelineGanttWorkspace plan selection", () => {
 
     expect(
       (screen.getByTestId("proposal-submit") as HTMLButtonElement).disabled,
-    ).toBe(true);
+    ).toBe(false);
 
     fireEvent.click(screen.getByTestId("workspace-draw-plans-open"));
     fireEvent.click(screen.getByTestId("draw-plan-option-fastest"));

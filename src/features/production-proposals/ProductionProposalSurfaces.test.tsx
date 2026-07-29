@@ -506,6 +506,90 @@ describe("ProductionProposalSettingsSurface", () => {
 });
 
 describe("ProductionProposalReviewSurface", () => {
+  test("calls out a generated draw schedule that exceeds packet availability", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          draws: [
+            {
+              amountCents: 300_000_00,
+              drawKey: "draw-01",
+              label: "Foundation reimbursement draw",
+              order: 1,
+              timingDay: 35,
+            },
+            {
+              amountCents: 150_000_00,
+              drawKey: "draw-02",
+              label: "Framing reimbursement draw",
+              order: 2,
+              timingDay: 35,
+            },
+          ],
+          milestones: [
+            {
+              ...proposalDetail.milestones?.[0],
+              budgetCents: 500_000_00,
+              dayEnd: 30,
+              dayStart: 0,
+              drawAvailabilityCents: 400_000_00,
+              key: "foundation",
+              name: "Foundation",
+              order: 1,
+            },
+          ],
+        }}
+      />,
+    );
+
+    const warning = screen.getByTestId(
+      "proposal-packet-draw-availability-warning",
+    );
+    expect(warning.textContent).toContain(
+      "Generated draw schedule exceeds maximum availability",
+    );
+    expect(warning.textContent).toContain(
+      "Framing reimbursement draw schedules $150,000 on day 35, but only $100,000 is unlocked",
+    );
+    expect(warning.textContent).toContain("5-day review lag");
+    expect(warning.textContent).toContain("Reduce or move this draw by $50,000");
+  });
+
+  test("does not show a packet availability warning for a feasible schedule", () => {
+    render(
+      <ProductionProposalReviewSurface
+        detail={{
+          ...proposalDetail,
+          draws: [
+            {
+              amountCents: 400_000_00,
+              drawKey: "draw-01",
+              label: "Foundation reimbursement draw",
+              timingDay: 35,
+            },
+          ],
+          milestones: [
+            {
+              ...proposalDetail.milestones?.[0],
+              budgetCents: 500_000_00,
+              dayEnd: 30,
+              dayStart: 0,
+              drawAvailabilityCents: 400_000_00,
+              key: "foundation",
+              name: "Foundation",
+              order: 1,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(
+      screen.queryByTestId("proposal-packet-draw-availability-warning"),
+    ).toBeNull();
+  });
+
   test("union-merges review content into packet without duplicating packet summaries", () => {
     render(
       <ProductionProposalReviewSurface
