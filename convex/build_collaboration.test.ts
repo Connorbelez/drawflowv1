@@ -3,7 +3,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
@@ -1781,6 +1781,13 @@ describe("Build collaboration canonical reference authorization", () => {
         "submilestone",
       ]),
     );
+    expect(
+      adminOptions.every((option: any) => option.href.startsWith("?tab=")),
+    ).toBe(true);
+    expect(
+      adminOptions.find((option: any) => option.entityKind === "actionItem")
+        ?.href,
+    ).toContain("tab=details");
 
     const contractor = withIdentity(fixture.base, {
       roles: ["contractor"],
@@ -1996,6 +2003,184 @@ describe("Build collaboration canonical reference authorization", () => {
         }),
       ]),
     );
+  });
+
+  test("rewrites rich-text mentions from canonical references and rejects unmatched nodes", async () => {
+    const fixture = await seedActiveBuild();
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Broker Reviewer",
+      role: "broker",
+      subject: "user_broker",
+    });
+    const mentionDocument = (
+      id: string,
+      label: string,
+      kind = "participant",
+    ) =>
+      JSON.stringify({
+        content: [
+          {
+            content: [
+              {
+                attrs: {
+                  eyebrow: "Forged role",
+                  id,
+                  kind,
+                  label,
+                  summary: "Forged confidential summary",
+                },
+                type: "collaborationMention",
+              },
+            ],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      });
+    const postId = await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "author_tier_and_higher",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Client preview",
+        postType: "update",
+        references: [
+          {
+            entityId: "user_broker",
+            entityKind: "participant",
+            label: "Forged participant",
+          },
+        ],
+        requestedReaderIds: [],
+        tiptapJson: mentionDocument("user_broker", "SECRET FORGED LABEL"),
+      },
+    );
+    const revision = await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(
+        postId as Id<"buildCollaborationPosts">,
+      );
+      return post?.currentRevisionId
+        ? await ctx.db.get(post.currentRevisionId)
+        : null;
+    });
+    expect(revision?.plainText).toBe("Broker Reviewer");
+    expect(revision?.tiptapJson).toContain('"label":"Broker Reviewer"');
+    expect(revision?.tiptapJson).toContain('"eyebrow":"Broker"');
+    expect(revision?.tiptapJson).not.toContain("SECRET");
+    expect(revision?.tiptapJson).not.toContain("Forged");
+
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        {
+          actionItems: [],
+          audienceMode: "author_tier_and_higher",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "Client preview",
+          postType: "update",
+          references: [],
+          requestedReaderIds: [],
+          tiptapJson: mentionDocument("missing-entity", "Leaked label"),
+        },
+      ),
+    ).rejects.toThrow(
+      "Every rich-text Build reference must match an authorized canonical reference.",
+    );
+  });
+
+  test("uses current dynamic readers for comments and short-circuits system-event retries", async () => {
+    const fixture = await seedActiveBuild();
+    const entities = await seedCollaborationReferenceEntities(fixture);
+    const buildWidePostId = await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "build_wide",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Dynamic audience post.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Dynamic audience post.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "New contractor",
+      role: "contractor",
+      subject: "user_new_contractor",
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_threads
+          .addBuildCollaborationComment,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "Financial comment.",
+          postId: buildWidePostId,
+          references: [
+            {
+              entityId: entities.drawId,
+              entityKind: "draw",
+              label: "Client draw label",
+            },
+          ],
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [{ text: "Financial comment.", type: "text" }],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        },
+      ),
+    ).rejects.toThrow(
+      "The referenced entity is not readable by every publication reader.",
+    );
+
+    const systemArgs = {
+      buildId: fixture.buildId,
+      idempotencyKey: "reference-idempotency-1",
+      organizationId: ORGANIZATION_ID,
+      plainText: "Milestone changed.",
+      postType: "update",
+      primaryReferenceId: entities.milestoneId,
+      primaryReferenceKind: "milestone",
+      systemLabel: "DrawFlow",
+    };
+    const firstSystemPostId = await fixture.base.mutation(
+      (internal as any).build_collaboration_system_events
+        .publishBuildCollaborationSystemEvent,
+      systemArgs,
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.delete(entities.milestoneId);
+    });
+    const retriedSystemPostId = await fixture.base.mutation(
+      (internal as any).build_collaboration_system_events
+        .publishBuildCollaborationSystemEvent,
+      systemArgs,
+    );
+    expect(retriedSystemPostId).toBe(firstSystemPostId);
   });
 
   test("rejects cross-Build, archived, and mandatory-reader-incompatible references without leaking details", async () => {

@@ -540,12 +540,21 @@ function resolveReference(
     (option) =>
       option.id === attrs.id && option.kind === (attrs.kind ?? "participant")
   );
+  if (!matched) {
+    return {
+      eyebrow: "Build reference",
+      id: "unavailable",
+      kind: "participant",
+      label: "Unavailable reference",
+      summary: "This reference is no longer available to you.",
+    };
+  }
   return {
-    eyebrow: matched?.eyebrow ?? attrs.eyebrow ?? "Build reference",
-    id: matched?.id ?? attrs.id ?? "unknown",
-    kind: matched?.kind ?? attrs.kind ?? "participant",
-    label: matched?.label ?? attrs.label ?? attrs.id ?? "Unknown reference",
-    summary: matched?.summary ?? attrs.summary ?? "Referenced in this Build",
+    eyebrow: matched.eyebrow,
+    id: matched.id,
+    kind: matched.kind,
+    label: matched.label,
+    summary: matched.summary,
   };
 }
 

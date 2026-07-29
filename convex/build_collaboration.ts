@@ -23,6 +23,7 @@ import {
   type BuildCollaborationPublicationBundle,
   type BuildCollaborationPublicationBundleInput,
   canonicalizeTiptapContent,
+  canonicalizeTiptapReferences,
   canonicalPublicationBundleJson,
   normalizePublicationBundle,
   publicationBundleFields,
@@ -147,19 +148,37 @@ export async function prepareBuildCollaborationPublication(
     references: normalizedEffectiveBundle.references,
   });
   const actionItems = await Promise.all(
-    normalizedEffectiveBundle.actionItems.map(async (actionItem) => ({
-      ...actionItem,
-      references: await resolveCanonicalBuildCollaborationReferences(ctx, {
-        authorization: input.authorization,
-        readerIds: audience.readerIds,
-        references: actionItem.references ?? [],
-      }),
-    }))
+    normalizedEffectiveBundle.actionItems.map(async (actionItem) => {
+      const actionReferences =
+        await resolveCanonicalBuildCollaborationReferences(ctx, {
+          authorization: input.authorization,
+          readerIds: audience.readerIds,
+          references: actionItem.references ?? [],
+        });
+      const description = canonicalizeTiptapReferences(
+        actionItem.descriptionTiptapJson ??
+          JSON.stringify({ content: [], type: "doc" }),
+        actionReferences,
+        { allowEmpty: true }
+      );
+      return {
+        ...actionItem,
+        descriptionPlainText: description.plainText,
+        descriptionTiptapJson: description.tiptapJson,
+        references: actionReferences,
+      };
+    })
+  );
+  const canonicalContent = canonicalizeTiptapReferences(
+    normalizedEffectiveBundle.tiptapJson,
+    references
   );
   const bundle = {
     ...normalizedEffectiveBundle,
     actionItems,
+    plainText: canonicalContent.plainText,
     references,
+    tiptapJson: canonicalContent.tiptapJson,
   };
   const effectiveNotificationEffects =
     await resolveBuildCollaborationPublicationNotifications(ctx, {

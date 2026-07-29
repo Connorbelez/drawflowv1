@@ -1350,6 +1350,11 @@ function ProductionDetailsTab({
         <BuildCollaborationWorkspace
           buildId={detail.build._id}
           onOpenReference={(reference) => {
+            window.history.replaceState(
+              window.history.state,
+              "",
+              reference.href
+            );
             if (reference.entityKind === "milestone") {
               const milestone = detail.milestones.find(
                 (candidate) => candidate._id === reference.entityId
@@ -1376,6 +1381,7 @@ function ProductionDetailsTab({
               return;
             }
             const tabByKind: Partial<Record<string, BuildDetailSubTab>> = {
+              actionItem: "details",
               document: "documents",
               evidenceAsset: "evidence",
               evidencePackage: "evidence",

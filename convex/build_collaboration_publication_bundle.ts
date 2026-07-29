@@ -187,6 +187,51 @@ export function canonicalizeTiptapContent(tiptapJson: string) {
   };
 }
 
+export function canonicalizeTiptapReferences(
+  tiptapJson: string,
+  references: Array<{
+    entityId: string;
+    entityKind: ReferenceInput["entityKind"];
+    eyebrow: string;
+    label: string;
+    summary: string;
+  }>,
+  options?: { allowEmpty?: boolean }
+) {
+  let document: unknown;
+  try {
+    document = JSON.parse(tiptapJson);
+  } catch {
+    throw new Error("Rich text must be valid TipTap JSON.");
+  }
+  if (
+    !document ||
+    typeof document !== "object" ||
+    !("type" in document) ||
+    document.type !== "doc"
+  ) {
+    throw new Error("Rich text must contain a TipTap document.");
+  }
+  const referenceByKey = new Map(
+    references.map((reference) => [
+      `${editorReferenceKind(reference.entityKind)}:${reference.entityId}`,
+      reference,
+    ])
+  );
+  const rewrittenDocument = rewriteTiptapReferenceNodes(
+    document,
+    referenceByKey
+  );
+  const rewrittenJson = JSON.stringify(rewrittenDocument);
+  if (options?.allowEmpty) {
+    return {
+      plainText: tiptapNodeText(rewrittenDocument).trim(),
+      tiptapJson: rewrittenJson,
+    };
+  }
+  return canonicalizeTiptapContent(rewrittenJson);
+}
+
 export function canonicalPublicationBundleJson(
   bundle: BuildCollaborationPublicationBundle
 ) {
@@ -241,6 +286,74 @@ function tiptapNodeText(node: unknown): string {
     ? record.content.map(tiptapNodeText).join("")
     : "";
   return isTiptapBlockNode(record.type) && content ? `${content}\n` : content;
+}
+
+function rewriteTiptapReferenceNodes(
+  node: unknown,
+  referenceByKey: Map<
+    string,
+    {
+      entityId: string;
+      entityKind: ReferenceInput["entityKind"];
+      eyebrow: string;
+      label: string;
+      summary: string;
+    }
+  >
+): unknown {
+  if (Array.isArray(node)) {
+    return node.map((child) =>
+      rewriteTiptapReferenceNodes(child, referenceByKey)
+    );
+  }
+  if (!node || typeof node !== "object") {
+    return node;
+  }
+  const record = node as Record<string, unknown>;
+  const content = Array.isArray(record.content)
+    ? rewriteTiptapReferenceNodes(record.content, referenceByKey)
+    : record.content;
+  if (record.type !== "collaborationMention") {
+    return { ...record, ...(content ? { content } : {}) };
+  }
+  const attributes =
+    record.attrs && typeof record.attrs === "object"
+      ? (record.attrs as Record<string, unknown>)
+      : {};
+  const id = typeof attributes.id === "string" ? attributes.id.trim() : "";
+  const kind =
+    typeof attributes.kind === "string" ? attributes.kind.trim() : "";
+  const canonical = referenceByKey.get(`${kind}:${id}`);
+  if (!canonical) {
+    throw new Error(
+      "Every rich-text Build reference must match an authorized canonical reference."
+    );
+  }
+  return {
+    ...record,
+    attrs: {
+      eyebrow: canonical.eyebrow,
+      id: canonical.entityId,
+      kind: editorReferenceKind(canonical.entityKind),
+      label: canonical.label,
+      summary: canonical.summary,
+    },
+    ...(content ? { content } : {}),
+  };
+}
+
+function editorReferenceKind(entityKind: ReferenceInput["entityKind"]) {
+  switch (entityKind) {
+    case "actionItem":
+      return "action_item";
+    case "evidenceAsset":
+    case "evidencePackage":
+      return "evidence";
+    case "siteVisit":
+      return "site_visit";
+    default:
+      return entityKind;
+  }
 }
 
 function isTiptapBlockNode(type: unknown) {

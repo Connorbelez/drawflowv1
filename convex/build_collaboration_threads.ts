@@ -5,6 +5,7 @@ import { canReadCollaborationPost } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { collaborationCommentRowValidator } from "./build_collaboration_contracts";
 import { collaborationRoleTier } from "./build_collaboration_model";
+import { canonicalizeTiptapReferences } from "./build_collaboration_publication_bundle";
 import {
   resolveCanonicalBuildCollaborationReferences,
   resolveCurrentBuildCollaborationReference,
@@ -15,7 +16,7 @@ import {
   buildCollaborationReactionValidator,
   buildCollaborationReferenceKindValidator,
 } from "./build_collaboration_validators";
-import type { Id, MutationCtx } from "./types";
+import type { Doc, Id, MutationCtx } from "./types";
 
 const MAX_COMMENT_TEXT_LENGTH = 25_000;
 const MAX_COMMENT_RICH_TEXT_LENGTH = 125_000;
@@ -29,6 +30,36 @@ const referenceInputValidator = v.object({
   primary: v.optional(v.boolean()),
   summary: v.optional(v.string()),
 });
+
+async function resolveCurrentPostReaderIds(
+  ctx: MutationCtx,
+  authorization: Awaited<
+    ReturnType<typeof authorizeActiveBuildHumanCollaborationAccess>
+  >,
+  post: Doc<"buildCollaborationPosts">
+) {
+  const fixedMembers =
+    post.audienceMode === "custom"
+      ? await ctx.db
+          .query("buildCollaborationAudienceMembers")
+          .withIndex("by_postId_and_workosUserId", (query) =>
+            query.eq("postId", post._id)
+          )
+          .take(500)
+      : [];
+  const fixedMemberIds = new Set(
+    fixedMembers.map((member) => member.workosUserId)
+  );
+  return authorization.participants
+    .filter(
+      (participant) =>
+        post.audienceMode === "build_wide" ||
+        collaborationRoleTier(participant.role) >= post.audienceFloorTier ||
+        (post.audienceMode === "custom" &&
+          fixedMemberIds.has(participant.workosUserId))
+    )
+    .map((participant) => participant.workosUserId);
+}
 
 export const addBuildCollaborationComment = authenticatedMutation
   .input({
@@ -55,7 +86,7 @@ export const addBuildCollaborationComment = authenticatedMutation
     ) {
       throw new Error("Forbidden: collaboration post");
     }
-    const content = validateCommentContent(args);
+    const submittedContent = validateCommentContent(args);
     const parent = args.parentCommentId
       ? await ctx.db.get(args.parentCommentId)
       : null;
@@ -73,6 +104,20 @@ export const addBuildCollaborationComment = authenticatedMutation
         `Reply nesting may not exceed ${MAX_LOGICAL_DEPTH} logical levels.`
       );
     }
+    const currentReaderIds = await resolveCurrentPostReaderIds(
+      ctx,
+      authorization,
+      post
+    );
+    const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
+      authorization,
+      readerIds: currentReaderIds,
+      references: args.references.slice(0, 100),
+    });
+    const content = canonicalizeTiptapReferences(
+      submittedContent.tiptapJson,
+      references
+    );
     const now = Date.now();
     const displayName =
       authorization.participants.find(
@@ -118,27 +163,6 @@ export const addBuildCollaborationComment = authenticatedMutation
       lastMeaningfulActivityAt: now,
       latestActivityActorWorkosUserId: authorization.viewer.subject,
       updatedAt: now,
-    });
-    const audienceMembers = await ctx.db
-      .query("buildCollaborationAudienceMembers")
-      .withIndex("by_postId_and_workosUserId", (query) =>
-        query.eq("postId", post._id)
-      )
-      .take(500);
-    const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
-      authorization,
-      readerIds:
-        audienceMembers.length > 0
-          ? audienceMembers.map((member) => member.workosUserId)
-          : authorization.participants
-              .filter(
-                (participant) =>
-                  post.audienceMode === "build_wide" ||
-                  collaborationRoleTier(participant.role) >=
-                    post.audienceFloorTier
-              )
-              .map((participant) => participant.workosUserId),
-      references: args.references.slice(0, 100),
     });
     for (const reference of references) {
       await ctx.db.insert("buildCollaborationReferences", {

@@ -29,6 +29,15 @@ export const publishBuildCollaborationSystemEvent = internalMutation
     if (!build || build.organizationId !== args.organizationId) {
       throw new Error("Build not found.");
     }
+    const existing = await ctx.db
+      .query("buildCollaborationPosts")
+      .withIndex("by_buildId_and_systemEventKey", (query) =>
+        query.eq("buildId", build._id).eq("systemEventKey", args.idempotencyKey)
+      )
+      .first();
+    if (existing) {
+      return existing._id;
+    }
     await requireActiveBuildCollaborationTenantByScope(ctx, {
       brokerageId: build.brokerageId,
       organizationId: build.organizationId,
@@ -86,15 +95,6 @@ export const publishBuildCollaborationSystemEvent = internalMutation
               ]
             : [],
       });
-    const existing = await ctx.db
-      .query("buildCollaborationPosts")
-      .withIndex("by_buildId_and_systemEventKey", (query) =>
-        query.eq("buildId", build._id).eq("systemEventKey", args.idempotencyKey)
-      )
-      .first();
-    if (existing) {
-      return existing._id;
-    }
     const plainText = args.plainText.trim();
     if (!plainText) {
       throw new Error("System event content is required.");

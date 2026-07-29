@@ -693,7 +693,7 @@ function incompatibleReference() {
 }
 
 function collaborationEntityHref(
-  buildId: string,
+  _buildId: string,
   entityKind: string,
   entityId: string
 ) {
@@ -710,7 +710,7 @@ function collaborationEntityHref(
     submilestone: "milestones",
   };
   const tab = tabByKind[entityKind] ?? "details";
-  return `/builds/${buildId}?tab=${tab}&focus=${encodeURIComponent(`${entityKind}:${entityId}`)}`;
+  return `?tab=${tab}&focus=${encodeURIComponent(`${entityKind}:${entityId}`)}`;
 }
 
 function formatCents(cents: number) {
