@@ -7,10 +7,6 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Textarea } from "#/components/ui/textarea.tsx";
-import {
-  MilestoneStartDialog,
-  type MilestoneStartDialogRequest,
-} from "#/features/backoffice-build-detail/MilestoneStartDialog.tsx";
 import { cn } from "#/lib/utils.ts";
 
 export const Route = createFileRoute("/contractor/builds/$buildId")({
@@ -26,21 +22,13 @@ export const Route = createFileRoute("/contractor/builds/$buildId")({
 
 type ResponseKind = "clarification" | "dispute";
 type ContractorScope = {
-  actualStartedAt: number | null;
   acknowledgement: { state: string } | null;
   assignmentId: Id<"milestoneContractorAssignments">;
-  dependencyBlockers: Array<{
-    milestoneKey: string;
-    milestoneName: string;
-    status: "in_progress" | "planned";
-  }>;
   milestoneKey: string;
   milestoneName: string;
   role: string;
   status: string;
   submilestoneKey: string | null;
-  submilestoneName: string | null;
-  workStatus: "complete" | "in_progress" | "planned" | null;
 };
 
 type ContractorPermitDocument = {
@@ -67,9 +55,6 @@ export function ContractorBuildDetail() {
   const disputeScope = useMutation(
     api.contractorEvidence.flagContractorScopeMismatch
   );
-  const startAssignedSubmilestone = useMutation(
-    api.contractorWorkspace.startAssignedSubmilestone
-  );
   const [response, setResponse] = useState<{
     assignmentId: string;
     kind: ResponseKind;
@@ -77,10 +62,6 @@ export function ContractorBuildDetail() {
   const [responseText, setResponseText] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [startRequest, setStartRequest] = useState<{
-    request: MilestoneStartDialogRequest;
-    scope: ContractorScope;
-  } | null>(null);
 
   if (detail === undefined) {
     return (
@@ -242,38 +223,6 @@ export function ContractorBuildDetail() {
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {scope.submilestoneKey &&
-                        scope.workStatus === "planned" &&
-                        !scope.actualStartedAt ? (
-                          <Button
-                            data-testid={`contractor-start-work-${scope.submilestoneKey}`}
-                            onClick={() =>
-                              setStartRequest({
-                                request: {
-                                  action: "start",
-                                  buildName: detail.build.buildName,
-                                  dependencyBlockers: scope.dependencyBlockers,
-                                  milestoneKey: scope.milestoneKey,
-                                  milestoneName: scope.milestoneName,
-                                  plannedStartDate:
-                                    detail.build.startDate ??
-                                    new Date().toISOString(),
-                                  scope: "submilestone",
-                                  source: "submilestone_detail",
-                                  startParent: false,
-                                  submilestoneKey: scope.submilestoneKey,
-                                  submilestoneName:
-                                    scope.submilestoneName ??
-                                    scope.submilestoneKey,
-                                },
-                                scope,
-                              })
-                            }
-                            size="sm"
-                          >
-                            Start work
-                          </Button>
-                        ) : null}
                         <Button
                           disabled={
                             acknowledged ||
@@ -407,37 +356,6 @@ export function ContractorBuildDetail() {
           </div>
         </div>
       </div>
-      {startRequest ? (
-        <MilestoneStartDialog
-          onClose={() => setStartRequest(null)}
-          onConfirm={async (input) => {
-            if (
-              input.action !== "start" ||
-              input.actualStartedAt === undefined ||
-              !startRequest.scope.submilestoneKey
-            ) {
-              throw new Error(
-                "A valid assigned submilestone start is required."
-              );
-            }
-            await startAssignedSubmilestone({
-              actualStartedAt: input.actualStartedAt,
-              buildId: buildId as Id<"activeBuilds">,
-              dependencyOverrideReason: input.dependencyOverrideReason,
-              idempotencyKey: input.idempotencyKey,
-              milestoneKey: input.milestoneKey,
-              source: input.source as
-                | "guided_field_workflow"
-                | "submilestone_detail"
-                | "submilestone_ledger",
-              submilestoneKey: startRequest.scope.submilestoneKey,
-              workosOrganizationId: detail.build.organizationId,
-            });
-            toast.success("Work start recorded.");
-          }}
-          request={startRequest.request}
-        />
-      ) : null}
     </main>
   );
 }

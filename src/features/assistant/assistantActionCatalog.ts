@@ -188,10 +188,7 @@ export const assistantToolDefinitions = {
       allDay: z.boolean().optional(),
       buildId: idLike.optional(),
       description: z.string().optional(),
-      endsAt: z
-        .string()
-        .regex(/^\d{4}-\d{2}-\d{2}$/)
-        .optional(),
+      endsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       location: z.string().optional(),
       proposalId: idLike.optional(),
       startsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -270,20 +267,6 @@ export const assistantToolDefinitions = {
       targetTime: z.string().optional(),
     }),
     name: "set_calendar_target_date",
-  }),
-  startActiveBuildMilestone: toolDefinition({
-    description:
-      "Prepare an explicit, auditable actual work-start confirmation for a live Build milestone. The actual start is separate from the approved schedule; incomplete dependencies require a reason.",
-    inputSchema: z.object({
-      actualStartedAt: z.number().int().positive(),
-      buildId: idLike,
-      dependencyOverrideReason: z.string().min(3).optional(),
-      idempotencyKey: idLike,
-      milestoneKey: idLike,
-      startParent: z.boolean().optional(),
-      submilestoneKey: idLike.optional(),
-    }),
-    name: "start_active_build_milestone",
   }),
   updateProposalMilestoneSchedule: toolDefinition({
     description:

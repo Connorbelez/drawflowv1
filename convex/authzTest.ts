@@ -11,15 +11,6 @@ import {
 } from "./authz";
 
 const viewerReturn = v.object({
-  actorKind: v.optional(
-    v.union(
-      v.literal("human"),
-      v.literal("agent"),
-      v.literal("service"),
-      v.literal("system"),
-      v.literal("automation")
-    )
-  ),
   capability: v.string(),
   email: v.optional(v.string()),
   roles: v.array(v.string()),

@@ -135,7 +135,6 @@ interface MilestoneKanbanProps {
   cards: KanbanCardData[];
   onAssignContractor?: (card: KanbanCardData) => void;
   onCardClick: (card: KanbanCardData) => void;
-  onStartWork?: (card: KanbanCardData) => void;
   onToggleShowCompleted?: () => void;
   showCompleted?: boolean;
   viewerRole?: "builder" | "lender";
@@ -145,7 +144,6 @@ export function MilestoneKanban({
   cards,
   onAssignContractor,
   onCardClick,
-  onStartWork,
   showCompleted = false,
   onToggleShowCompleted,
   viewerRole = "lender",
@@ -234,14 +232,6 @@ export function MilestoneKanban({
                             : undefined
                         }
                         onClick={() => onCardClick(card)}
-                        onStart={
-                          onStartWork &&
-                          ["blocked", "planned", "ready_to_start"].includes(
-                            card.status
-                          )
-                            ? () => onStartWork(card)
-                            : undefined
-                        }
                         viewerRole={viewerRole}
                       />
                     ))}
@@ -261,14 +251,12 @@ function MilestoneCard({
   columnAccent,
   onAssign,
   onClick,
-  onStart,
   viewerRole,
 }: {
   card: KanbanCardData;
   columnAccent: string;
   onAssign?: () => void;
   onClick: () => void;
-  onStart?: () => void;
   viewerRole: "builder" | "lender";
 }) {
   const tone = STATUS_TONE[card.status];
@@ -439,20 +427,6 @@ function MilestoneCard({
               variant="outline"
             >
               Assign
-            </Button>
-          ) : null}
-          {onStart ? (
-            <Button
-              data-testid={`kanban-card-start-work-${card.milestoneKey}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                onStart();
-              }}
-              size="xs"
-              type="button"
-              variant="outline"
-            >
-              Start
             </Button>
           ) : null}
           {card.requiresSiteVisit ? (

@@ -3768,11 +3768,6 @@ export default defineSchema({
     policyState: v.optional(v.string()),
     progressPercent: v.optional(v.number()),
     siteVisitGuidance: v.optional(siteVisitGuidanceValidator),
-    actualStartedAt: v.optional(v.number()),
-    startEventId: v.optional(v.id("milestoneStartEvents")),
-    startReportedAt: v.optional(v.number()),
-    startedByWorkosUserId: v.optional(v.string()),
-    startSource: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     status: v.union(
       v.literal("planned"),
@@ -3800,11 +3795,6 @@ export default defineSchema({
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     fieldNote: v.optional(v.string()),
-    actualStartedAt: v.optional(v.number()),
-    startEventId: v.optional(v.id("milestoneStartEvents")),
-    startReportedAt: v.optional(v.number()),
-    startedByWorkosUserId: v.optional(v.string()),
-    startSource: v.optional(v.string()),
     status: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
@@ -3817,55 +3807,6 @@ export default defineSchema({
   })
     .index("by_build", ["buildId"])
     .index("by_milestone", ["buildMilestoneId"]),
-  milestoneStartEvents: defineTable({
-    actualStartedAt: v.optional(v.number()),
-    actorRoles: v.array(v.string()),
-    actorWorkosUserId: v.string(),
-    brokerageId: v.id("brokerages"),
-    buildId: v.id("activeBuilds"),
-    buildMilestoneId: v.id("buildMilestones"),
-    buildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
-    dependencySnapshot: v.array(
-      v.object({
-        milestoneKey: v.string(),
-        milestoneName: v.string(),
-        status: v.union(
-          v.literal("planned"),
-          v.literal("in_progress"),
-          v.literal("complete")
-        ),
-      })
-    ),
-    eventType: v.union(
-      v.literal("started"),
-      v.literal("start_corrected"),
-      v.literal("start_retracted")
-    ),
-    idempotencyKey: v.string(),
-    milestoneKey: v.string(),
-    newLifecycleState: v.union(
-      v.literal("planned"),
-      v.literal("in_progress"),
-      v.literal("complete")
-    ),
-    organizationId: v.string(),
-    originalEventId: v.optional(v.id("milestoneStartEvents")),
-    priorActualStartedAt: v.optional(v.number()),
-    priorLifecycleState: v.union(
-      v.literal("planned"),
-      v.literal("in_progress"),
-      v.literal("complete")
-    ),
-    reason: v.optional(v.string()),
-    reportedAt: v.number(),
-    source: v.string(),
-    submilestoneKey: v.optional(v.string()),
-    warnings: v.array(v.string()),
-  })
-    .index("by_organization_idempotency", ["organizationId", "idempotencyKey"])
-    .index("by_build", ["buildId"])
-    .index("by_target", ["buildId", "milestoneKey", "submilestoneKey"])
-    .index("by_original", ["originalEventId"]),
   buildCostItems: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

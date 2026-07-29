@@ -3,15 +3,6 @@
 import { useMutation } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
 
-import { Button } from "#/components/ui/button.tsx";
-import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "#/components/ui/select.tsx";
 import { BuildWorkspaceDemo } from "#/features/build-workspace-demo/BuildWorkspaceDemo.tsx";
 import {
   contractorPlanningFromProductionDetail,
@@ -47,7 +38,6 @@ export interface ActiveBuildGanttWorkspaceProps {
   canRejectMilestones?: boolean;
   detail: ProductionBuildDetail;
   onRequestSiteVisit: (request: SiteVisitOrderRequest) => void;
-  onStartWork?: (milestoneKey: string) => void;
   timelineWorkspace?: {
     evidenceAssets?: {
       evidenceKey: string;
@@ -73,7 +63,6 @@ export function ActiveBuildGanttWorkspace({
   canRejectMilestones = false,
   detail,
   onRequestSiteVisit,
-  onStartWork,
   timelineWorkspace,
   viewerRole = "lender",
   workosOrganizationId,
@@ -118,7 +107,6 @@ export function ActiveBuildGanttWorkspace({
     viewerRole === "builder" ? "builderLead" : "lenderAdmin";
   const [role, setRole] = useState<WorkspaceRole>(preferredRole);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState("");
-  const [startMilestoneKey, setStartMilestoneKey] = useState("");
   const [activePlanId, setActivePlanId] =
     useState<OptimizationPlanId>("capitalConstrained");
   const [dismissedIssueKeys, setDismissedIssueKeys] = useState(
@@ -151,14 +139,6 @@ export function ActiveBuildGanttWorkspace({
     ]
   );
   const selectedId = selectedMilestoneId || mapped.selectedMilestoneId;
-  const startableMilestones = detail.milestones.filter(
-    (milestone) =>
-      milestone.status === "planned" && milestone.actualStartedAt === undefined
-  );
-  const selectedStartMilestone =
-    startableMilestones.find(
-      (milestone) => milestone.key === startMilestoneKey
-    ) ?? startableMilestones[0];
   const dependencies = mapped.dependencies;
 
   const contractorPlanning = useMemo(
@@ -517,15 +497,11 @@ export function ActiveBuildGanttWorkspace({
         );
         await submitCompletionClaim({
           actualCostCents: requestedAmountCents,
-          ...(milestone?.actualStartedAt
-            ? {}
-            : { actualStartedAt: Date.now() }),
           buildId,
           completedDay:
             milestone?.dayEnd ??
             dayFromDate(detail.build.startDate, new Date()),
           milestoneKey: milestoneId,
-          idempotencyKey: crypto.randomUUID(),
           note: "Completion submitted from build workspace.",
           workosOrganizationId,
         });
@@ -677,66 +653,15 @@ export function ActiveBuildGanttWorkspace({
   );
 
   return (
-    <div className="grid gap-3">
-      {viewerRole === "builder" && onStartWork && selectedStartMilestone ? (
-        <Frame data-testid="gantt-start-work-controller">
-          <FramePanel className="flex flex-wrap items-center justify-between gap-3 p-3">
-            <div>
-              <p className="font-medium text-sm">Record actual work start</p>
-              <p className="text-muted-foreground text-xs">
-                Select the exact milestone. The approved Gantt schedule stays
-                unchanged.
-              </p>
-            </div>
-            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 sm:flex-none">
-              <Select
-                items={startableMilestones.map((milestone) => ({
-                  label: milestone.name,
-                  value: milestone.key,
-                }))}
-                onValueChange={(value) => {
-                  if (value) {
-                    setStartMilestoneKey(value);
-                  }
-                }}
-                value={selectedStartMilestone.key}
-              >
-                <SelectTrigger
-                  aria-label="Milestone to start"
-                  className="min-w-52 flex-1 sm:flex-none"
-                  size="sm"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectPopup>
-                  {startableMilestones.map((milestone) => (
-                    <SelectItem key={milestone.key} value={milestone.key}>
-                      {milestone.name}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-              <Button
-                onClick={() => onStartWork(selectedStartMilestone.key)}
-                size="sm"
-                type="button"
-              >
-                Start work
-              </Button>
-            </div>
-          </FramePanel>
-        </Frame>
-      ) : null}
-      <BuildWorkspaceProvider workspace={adapter}>
-        <BuildWorkspaceDemo
-          canFinalizeMilestones={canApproveMilestones && canRejectMilestones}
-          layout="embedded"
-          showPrimaryAction={false}
-          showRoleSelector={false}
-          viewer={viewerRole}
-        />
-      </BuildWorkspaceProvider>
-    </div>
+    <BuildWorkspaceProvider workspace={adapter}>
+      <BuildWorkspaceDemo
+        canFinalizeMilestones={canApproveMilestones && canRejectMilestones}
+        layout="embedded"
+        showPrimaryAction={false}
+        showRoleSelector={false}
+        viewer={viewerRole}
+      />
+    </BuildWorkspaceProvider>
   );
 }
 
@@ -1256,7 +1181,10 @@ function mapMilestoneStatus(
     return "inProgress";
   }
   if (dependencyBlockers(milestone, milestones).length > 0) {
-    return "blocked";
+    return currentDay >= milestone.dayStart ? "blocked" : "notStarted";
+  }
+  if (currentDay >= milestone.dayStart) {
+    return "inProgress";
   }
   return "notStarted";
 }

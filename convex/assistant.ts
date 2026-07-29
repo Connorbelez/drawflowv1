@@ -281,22 +281,8 @@ const traceEventInput = v.object({
 export const drawFlowAssistantMutationToolDefinitions =
   MUTATION_ACTION_KEYS.map((name) =>
     toolDefinition({
-      description:
-        name === "start_active_build_milestone"
-          ? "Prepare an explicit actual work-start confirmation. Provide the actual start timestamp and idempotency key; incomplete dependencies require dependencyOverrideReason."
-          : `DrawFlow assistant closed-catalog mutation action: ${name}`,
-      inputSchema:
-        name === "start_active_build_milestone"
-          ? z.object({
-              actualStartedAt: z.number().int().positive(),
-              buildId: z.string().min(1),
-              dependencyOverrideReason: z.string().min(3).optional(),
-              idempotencyKey: z.string().min(8),
-              milestoneKey: z.string().min(1),
-              startParent: z.boolean().optional(),
-              submilestoneKey: z.string().min(1).optional(),
-            })
-          : z.object({}).passthrough(),
+      description: `DrawFlow assistant closed-catalog mutation action: ${name}`,
+      inputSchema: z.object({}).passthrough(),
       name,
     })
   );
@@ -3355,69 +3341,6 @@ async function buildMutationPreviewItem(
     case "set_calendar_target_date": {
       return await previewTargetDateAction(ctx, auth, action);
     }
-    case "start_active_build_milestone": {
-      const buildAuth = await authorizeActiveBuild(ctx, auth, action.input);
-      if (
-        !buildAuth.roles.some((role) =>
-          (["builder", "builder-staff"] as readonly RoleSlug[]).includes(role)
-        )
-      ) {
-        throw new Error(
-          "Only Builder users may originate a milestone work start."
-        );
-      }
-      const milestone = await getBuildMilestone(
-        ctx,
-        action.input,
-        buildAuth.build._id
-      );
-      const actualStartedAt = requiredNumber(
-        action.input.actualStartedAt,
-        "actualStartedAt"
-      );
-      if (actualStartedAt > Date.now()) {
-        throw new Error("Actual start must be now or earlier.");
-      }
-      requiredString(action.input.idempotencyKey, "idempotencyKey");
-      const milestones = await collectByIndex(
-        ctx,
-        "buildMilestones",
-        "by_build",
-        buildAuth.build._id
-      );
-      const blockers = (milestone.dependencyKeys ?? [])
-        .map((key) =>
-          milestones.find(
-            (candidate: Doc<"buildMilestones">) => candidate.key === key
-          )
-        )
-        .filter((candidate) => candidate && candidate.status !== "complete");
-      if (blockers.length > 0) {
-        requireReason(action.input.dependencyOverrideReason);
-      }
-      return previewItem(action, {
-        after: {
-          actualStartedAt,
-          dependencyOverrideReason: optionalString(
-            action.input.dependencyOverrideReason
-          ),
-          source: "assistant",
-          status: "in_progress",
-        },
-        before: {
-          actualStartedAt: milestone.actualStartedAt ?? null,
-          status: milestone.status,
-        },
-        entityLabel: milestone.name,
-        entityType: "buildMilestone",
-        mutationName: "production_proposals.startActiveBuildMilestone",
-        reasonRequired: blockers.length > 0,
-        warnings: blockers.map(
-          (candidate) =>
-            `${candidate?.name ?? candidate?.key} is not complete.`
-        ),
-      });
-    }
     case "schedule_active_build_site_visit":
     case "reschedule_active_build_site_visit":
     case "cancel_active_build_site_visit": {
@@ -4986,22 +4909,9 @@ async function applyCatalogDomainMutation(
       );
     case "start_active_build_milestone":
       return await runDomainMutation(ctx, "startActiveBuildMilestone", {
-        actualStartedAt: requiredNumber(
-          input.actualStartedAt,
-          "actualStartedAt"
-        ),
         buildId: input.buildId,
-        dependencyOverrideReason: optionalString(
-          input.dependencyOverrideReason
-        ),
-        idempotencyKey: requiredString(
-          input.idempotencyKey,
-          "idempotencyKey"
-        ),
         milestoneKey: input.milestoneKey,
-        source: "assistant",
-        startParent: Boolean(input.startParent),
-        submilestoneKey: optionalString(input.submilestoneKey),
+        note: optionalString(input.note ?? input.reason),
         workosOrganizationId: org,
       });
     case "submit_active_build_milestone_completion":
@@ -5010,16 +4920,8 @@ async function applyCatalogDomainMutation(
         "submitActiveBuildMilestoneCompletion",
         {
           actualCostCents: optionalNumber(input.actualCostCents),
-          actualStartedAt: optionalNumber(input.actualStartedAt),
           buildId: input.buildId,
           completedDay: input.completedDay,
-          dependencyOverrideReason: optionalString(
-            input.dependencyOverrideReason
-          ),
-          idempotencyKey: requiredString(
-            input.idempotencyKey,
-            "idempotencyKey"
-          ),
           milestoneKey: input.milestoneKey,
           note: optionalString(input.note),
           qualityNote: optionalString(input.qualityNote),

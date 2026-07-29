@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   type CollaborationTagOption,
   extractTagReferences,
-} from "../../build-collaboration/CollaborationRichTextEditor";
+} from "./CollaborationRichTextEditor";
 
 const OPTIONS: CollaborationTagOption[] = [
   {
@@ -68,17 +68,17 @@ describe("extractTagReferences", () => {
     ]);
   });
 
-  it("does not disclose serialized metadata when the referenced entity is no longer accessible", () => {
+  it("uses serialized metadata when the referenced entity is no longer indexed", () => {
     const html =
       '<p><span data-type="collaboration-reference" data-reference-id="visit-1" data-reference-kind="site_visit" data-label="Site Visit SV-1" data-eyebrow="Site Visit" data-summary="Report submitted"></span></p>';
 
     expect(extractTagReferences(html, OPTIONS)).toEqual([
       {
-        eyebrow: "Build reference",
-        id: "unavailable",
-        kind: "participant",
-        label: "Unavailable reference",
-        summary: "This reference is no longer available to you.",
+        eyebrow: "Site Visit",
+        id: "visit-1",
+        kind: "site_visit",
+        label: "Site Visit SV-1",
+        summary: "Report submitted",
       },
     ]);
   });
