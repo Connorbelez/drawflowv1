@@ -4,6 +4,14 @@ import type { ChartConfig } from "#/components/evilcharts/ui/chart.tsx";
 
 const CASHFLOW_EDGE_BAR_PADDING_RATIO = 0.035;
 const CASHFLOW_MIN_EDGE_BAR_PADDING_DAYS = 2;
+export const TIMELINE_CASHFLOW_DEFAULT_CHART_MARGIN = {
+  bottom: 0,
+  left: 0,
+  right: 12,
+  top: 52,
+};
+export const TIMELINE_CASHFLOW_DEFAULT_CHART_CLASS_NAME =
+  "mt-3 h-[280px] min-h-[280px] min-w-0 sm:h-[300px] sm:min-h-[300px]";
 
 export interface TimelineCashflowCompoundDatum {
   budget: number;
@@ -22,6 +30,7 @@ export interface TimelineCashflowCompoundDatum {
 
 export interface TimelineCashflowReferenceLine {
   label?: string | string[];
+  labelOffsetY?: number;
   onClick?: () => void;
   opacity?: number;
   stroke: string;
@@ -31,9 +40,17 @@ export interface TimelineCashflowReferenceLine {
 
 interface TimelineCashflowCompoundChartProps {
   barSize?: number;
+  chartMargin?: {
+    bottom: number;
+    left: number;
+    right: number;
+    top: number;
+  };
   className?: string;
   data: TimelineCashflowCompoundDatum[];
+  hideDrawReferenceLines?: boolean;
   hideMilestoneEndReferenceLines?: boolean;
+  hideTooltip?: boolean;
   onHotspotDaySelect?: (day: number) => void;
   onProbeChange?: (value: number | null) => void;
   referenceLines?: TimelineCashflowReferenceLine[];
@@ -140,9 +157,12 @@ export function buildMilestoneEndReferenceLines(
 export const TimelineCashflowCompoundChart = memo(
   function TimelineCashflowCompoundChart({
     barSize = 18,
-    className = "mt-3 h-[220px] min-w-0 sm:h-[230px]",
+    chartMargin = TIMELINE_CASHFLOW_DEFAULT_CHART_MARGIN,
+    className = TIMELINE_CASHFLOW_DEFAULT_CHART_CLASS_NAME,
     data,
+    hideDrawReferenceLines = false,
     hideMilestoneEndReferenceLines = false,
+    hideTooltip = false,
     onHotspotDaySelect,
     onProbeChange,
     referenceLines,
@@ -155,14 +175,16 @@ export const TimelineCashflowCompoundChart = memo(
     const milestoneEndReferenceLines = hideMilestoneEndReferenceLines
       ? []
       : buildMilestoneEndReferenceLines(data, onHotspotDaySelect);
-    const drawReferenceLines = data
-      .filter((row) => row.event === "draw")
-      .map((row) => ({
-        opacity: 0.46,
-        stroke: "oklch(0.62 0.18 245)",
-        strokeDasharray: "3 4",
-        x: row.day,
-      }));
+    const drawReferenceLines = hideDrawReferenceLines
+      ? []
+      : data
+          .filter((row) => row.event === "draw")
+          .map((row) => ({
+            opacity: 0.46,
+            stroke: "oklch(0.62 0.18 245)",
+            strokeDasharray: "3 4",
+            x: row.day,
+          }));
     const allReferenceLines = [
       ...milestoneEndReferenceLines,
       ...drawReferenceLines,
@@ -190,7 +212,7 @@ export const TimelineCashflowCompoundChart = memo(
         }}
         barVariant="duotone"
         chartProps={{
-          margin: { bottom: 0, left: 0, right: 12, top: 18 },
+          margin: chartMargin,
           onMouseLeave: () => onProbeChange?.(null),
           onMouseMove: (state: unknown) => {
             const nextValue = getChartProbeValue(state);
@@ -205,6 +227,7 @@ export const TimelineCashflowCompoundChart = memo(
         data={data}
         dotVariant="default"
         hideLegend
+        hideTooltip={hideTooltip}
         lineConfig={{ cashOnHand: timelineCashflowChartConfig.cashOnHand }}
         minBarWidth={barSize}
         onBarClick={
@@ -275,10 +298,13 @@ function areTimelineCashflowCompoundChartPropsEqual(
 ) {
   return (
     previous.barSize === next.barSize &&
+    sameChartMargin(previous.chartMargin, next.chartMargin) &&
     previous.className === next.className &&
     previous.data === next.data &&
+    previous.hideDrawReferenceLines === next.hideDrawReferenceLines &&
     previous.hideMilestoneEndReferenceLines ===
       next.hideMilestoneEndReferenceLines &&
+    previous.hideTooltip === next.hideTooltip &&
     previous.onHotspotDaySelect === next.onHotspotDaySelect &&
     previous.onProbeChange === next.onProbeChange &&
     previous.referenceLines === next.referenceLines &&
@@ -287,6 +313,24 @@ function areTimelineCashflowCompoundChartPropsEqual(
     previous.xTicks === next.xTicks &&
     previous.yAxisWidth === next.yAxisWidth &&
     sameNumberTuple(previous.yDomain, next.yDomain)
+  );
+}
+
+function sameChartMargin(
+  previous: TimelineCashflowCompoundChartProps["chartMargin"],
+  next: TimelineCashflowCompoundChartProps["chartMargin"]
+) {
+  if (previous === next) {
+    return true;
+  }
+  if (!(previous && next)) {
+    return false;
+  }
+  return (
+    previous.bottom === next.bottom &&
+    previous.left === next.left &&
+    previous.right === next.right &&
+    previous.top === next.top
   );
 }
 

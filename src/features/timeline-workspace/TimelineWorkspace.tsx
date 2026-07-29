@@ -51,11 +51,7 @@ import {
   type TimelineRange,
 } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import { insertTimelineItemWithSpacing } from "#/components/roadmap/animated-curved-timeline-utils.ts";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "#/components/ui/alert.tsx";
+import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -988,6 +984,9 @@ export function TimelineWorkspace({
     workspaceInitialState.progressValue
   );
   const [probeValue, setProbeValue] = useTimelineProbeState();
+  const [showCashflowWarnings, setShowCashflowWarnings] = useState(true);
+  const [showCashflowHoverDetails, setShowCashflowHoverDetails] =
+    useState(true);
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null);
   const [activeCapitalSpikeId, setActiveCapitalSpikeId] = useState<
     string | null
@@ -2127,17 +2126,19 @@ export function TimelineWorkspace({
   );
   const cashflowReferenceLines = useMemo(
     () => [
-      ...cashShortfalls.map((point) => ({
-        label: isPhoneLayout
-          ? undefined
-          : point.shortfall > 0
-            ? `Short ${money(point.shortfall)}`
-            : "Cash zero",
-        opacity: 0.52,
-        stroke: "oklch(0.62 0.22 25)",
-        strokeDasharray: "2 3",
-        x: point.day,
-      })),
+      ...(showCashflowWarnings
+        ? cashShortfalls.map((point) => ({
+            label: isPhoneLayout
+              ? undefined
+              : point.shortfall > 0
+                ? `Short ${money(point.shortfall)}`
+                : "Cash zero",
+            opacity: 0.52,
+            stroke: "oklch(0.62 0.22 25)",
+            strokeDasharray: "2 3",
+            x: point.day,
+          }))
+        : []),
       ...(isMobileDrawerLayout
         ? [
             {
@@ -2173,6 +2174,7 @@ export function TimelineWorkspace({
       probeCashOnHand,
       probeValue,
       selectedDay,
+      showCashflowWarnings,
       startingCash,
     ]
   );
@@ -3334,8 +3336,18 @@ export function TimelineWorkspace({
           );
     const requestedDraw = { ...targetDraw, x: nextX };
     const limit = liveBuildMode
-      ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit)
-      : calculateDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit);
+      ? calculateApprovedDrawRequestLimit(
+          requestedDraw,
+          items,
+          draws,
+          approvedDrawLimit
+        )
+      : calculateDrawRequestLimit(
+          requestedDraw,
+          items,
+          draws,
+          approvedDrawLimit
+        );
     const nextAmount = clampNumber(
       Math.round(request.amount),
       0,
@@ -4138,9 +4150,7 @@ export function TimelineWorkspace({
                     label: "Cash",
                     testId: "timeline-cashflow-probe-cash",
                     value:
-                      probeCashOnHand === null
-                        ? "-"
-                        : money(probeCashOnHand),
+                      probeCashOnHand === null ? "-" : money(probeCashOnHand),
                   },
                   {
                     label: "Interest paid",
@@ -4396,13 +4406,44 @@ export function TimelineWorkspace({
                         />
                       </div>
                     </div>
+                    <div
+                      aria-label="Cash flow chart display controls"
+                      className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2"
+                      role="group"
+                    >
+                      <label className="flex cursor-pointer items-center gap-2 font-medium text-muted-foreground text-xs">
+                        <Switch
+                          checked={showCashflowWarnings}
+                          data-testid="timeline-cashflow-warnings-toggle"
+                          onCheckedChange={setShowCashflowWarnings}
+                        />
+                        Cash warnings
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2 font-medium text-muted-foreground text-xs">
+                        <Switch
+                          checked={showCashflowHoverDetails}
+                          data-testid="timeline-cashflow-hover-toggle"
+                          onCheckedChange={(checked) => {
+                            setShowCashflowHoverDetails(checked);
+
+                            if (!checked) {
+                              setProbeValue(null);
+                            }
+                          }}
+                        />
+                        Hover details
+                      </label>
+                    </div>
                   </div>
                 </div>
                 <TimelineCashflowCompoundChart
                   barSize={timelineSizing.barSize}
                   data={cashflowChartData}
+                  hideTooltip={!showCashflowHoverDetails}
                   onHotspotDaySelect={handleChartHotspotDaySelect}
-                  onProbeChange={setProbeValue}
+                  onProbeChange={
+                    showCashflowHoverDetails ? setProbeValue : undefined
+                  }
                   referenceLines={cashflowReferenceLines}
                   xDomain={[resolvedRange.min, resolvedRange.max]}
                   xTicks={cashflowTicks}
@@ -6229,7 +6270,12 @@ export function findDrawUnlockCapacityViolation(
   );
 
   for (const draw of orderedDraws) {
-    const limit = calculateDrawRequestLimit(draw, items, draws, approvedDrawLimit);
+    const limit = calculateDrawRequestLimit(
+      draw,
+      items,
+      draws,
+      approvedDrawLimit
+    );
     if (draw.amount > limit.availableLimit) {
       return { draw, limit };
     }
@@ -7815,18 +7861,19 @@ function SelectedContextPanel({
     if (role === "lender") {
       return (
         <LenderDrawReviewPanel
+          approvedDrawLimit={approvedDrawLimit}
           draw={activePanelDraw}
           drawItem={activePanelDrawItem}
           draws={draws}
           items={items}
           onReviewDrawRequest={onReviewDrawRequest}
-          approvedDrawLimit={approvedDrawLimit}
         />
       );
     }
 
     return (
       <DrawRequestPanel
+        approvedDrawLimit={approvedDrawLimit}
         draw={activePanelDraw}
         drawItem={activePanelDrawItem}
         draws={draws}
@@ -7834,7 +7881,6 @@ function SelectedContextPanel({
         onSubmitDrawRequest={onSubmitDrawRequest}
         onUpdatePlannedDraw={onUpdatePlannedDraw}
         requiresApprovedMilestones={requiresApprovedDrawMilestones}
-        approvedDrawLimit={approvedDrawLimit}
       />
     );
   }
@@ -9080,9 +9126,19 @@ export function DrawRequestPanel({
     setRequestedAmount(Math.round(draw.amount));
   }, [draw.amount, draw.x]);
   const requestedDraw = { ...draw, x: requestedDay };
-  const predictedLimit = calculateDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit);
+  const predictedLimit = calculateDrawRequestLimit(
+    requestedDraw,
+    items,
+    draws,
+    approvedDrawLimit
+  );
   const requestableLimit = requiresApprovedMilestones
-    ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit)
+    ? calculateApprovedDrawRequestLimit(
+        requestedDraw,
+        items,
+        draws,
+        approvedDrawLimit
+      )
     : predictedLimit;
   const blockingMilestones =
     "blockingMilestones" in requestableLimit
@@ -9126,8 +9182,18 @@ export function DrawRequestPanel({
 
     const requestedDraw = { ...draw, x: requestedX };
     const requestLimit = requiresApprovedMilestones
-      ? calculateApprovedDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit)
-      : calculateDrawRequestLimit(requestedDraw, items, draws, approvedDrawLimit);
+      ? calculateApprovedDrawRequestLimit(
+          requestedDraw,
+          items,
+          draws,
+          approvedDrawLimit
+        )
+      : calculateDrawRequestLimit(
+          requestedDraw,
+          items,
+          draws,
+          approvedDrawLimit
+        );
 
     onSubmitDrawRequest(draw.id, {
       amount: Math.min(
@@ -9361,7 +9427,12 @@ export function LenderDrawReviewPanel({
   ) => void;
   approvedDrawLimit?: number;
 }) {
-  const limit = calculateDrawRequestLimit(draw, items, draws, approvedDrawLimit);
+  const limit = calculateDrawRequestLimit(
+    draw,
+    items,
+    draws,
+    approvedDrawLimit
+  );
   const hasBuilderRequest =
     draw.requestStatus === "requested" ||
     draw.requestStatus === "approved" ||

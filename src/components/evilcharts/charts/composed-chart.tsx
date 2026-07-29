@@ -80,6 +80,7 @@ type AreaVariant =
   | "hatched";
 type ReferenceLineMarker = {
   label?: string | string[];
+  labelOffsetY?: number;
   onClick?: () => void;
   opacity?: number;
   stroke?: string;
@@ -91,6 +92,7 @@ interface ReferenceLineLabelProps {
   fill?: string;
   fontSize?: number | string;
   fontWeight?: number | string;
+  offsetY?: number;
   value?: string | string[];
   viewBox?: unknown;
 }
@@ -99,6 +101,7 @@ export function ReferenceLineLabel({
   fill,
   fontSize = 15,
   fontWeight = 700,
+  offsetY = 0,
   value,
   viewBox,
 }: ReferenceLineLabelProps) {
@@ -134,7 +137,7 @@ export function ReferenceLineLabel({
           Math.max(estimatedHalfWidth + 8, width - estimatedHalfWidth - 8)
         )
       : x;
-  const textY = y - 10 - (lines.length - 1) * lineHeight;
+  const textY = y - 10 - (lines.length - 1) * lineHeight + offsetY;
   const padX = 10;
   const padY = 6;
   const bgWidth = estimatedHalfWidth * 2 + padX * 2;
@@ -165,7 +168,11 @@ export function ReferenceLineLabel({
         y={textY}
       >
         {lines.map((line, index) => (
-          <tspan dy={index === 0 ? 0 : lineHeight} key={`${line}-${index}`} x={textX}>
+          <tspan
+            dy={index === 0 ? 0 : lineHeight}
+            key={`${line}-${index}`}
+            x={textX}
+          >
             {line}
           </tspan>
         ))}
@@ -491,7 +498,11 @@ export function EvilComposedChart<
                 marker.label
                   ? {
                       content: (props) => (
-                        <ReferenceLineLabel {...props} value={marker.label} />
+                        <ReferenceLineLabel
+                          {...props}
+                          offsetY={marker.labelOffsetY}
+                          value={marker.label}
+                        />
                       ),
                       fill: marker.stroke ?? "oklch(0.78 0.16 85)",
                       fontSize: 11,

@@ -88,7 +88,19 @@ vi.mock("#/components/roadmap/AnimatedCurvedTimeline.tsx", () => ({
 }));
 
 vi.mock("./-TimelineCashflowCompoundChart.tsx", () => ({
-  TimelineCashflowCompoundChart: () => <div data-testid="mock-cashflow" />,
+  TimelineCashflowCompoundChart: ({
+    hideTooltip = false,
+    referenceLines = [],
+  }: {
+    hideTooltip?: boolean;
+    referenceLines?: unknown[];
+  }) => (
+    <div
+      data-hide-tooltip={String(hideTooltip)}
+      data-reference-line-count={referenceLines.length}
+      data-testid="mock-cashflow"
+    />
+  ),
 }));
 
 vi.mock("./-TimelineDrawAvailabilityChart.tsx", () => ({
@@ -380,6 +392,37 @@ test("removes production-only reserve data from demo timeline plan persistence",
   });
 });
 describe("TimelineWorkspace mode split", () => {
+  test("lets operators independently hide cash warnings and hover details", () => {
+    renderWorkspace({
+      initialState: { ...timelineState(), startingCash: 0 },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    const chart = screen.getByTestId("mock-cashflow");
+    const warningToggle = screen.getByRole("switch", {
+      name: "Cash warnings",
+    });
+    const hoverToggle = screen.getByRole("switch", {
+      name: "Hover details",
+    });
+
+    expect(warningToggle.getAttribute("aria-checked")).toBe("true");
+    expect(hoverToggle.getAttribute("aria-checked")).toBe("true");
+    expect(Number(chart.getAttribute("data-reference-line-count"))).toBeGreaterThan(
+      0
+    );
+    expect(chart.getAttribute("data-hide-tooltip")).toBe("false");
+
+    fireEvent.click(warningToggle);
+    expect(warningToggle.getAttribute("aria-checked")).toBe("false");
+    expect(chart.getAttribute("data-reference-line-count")).toBe("0");
+
+    fireEvent.click(hoverToggle);
+    expect(hoverToggle.getAttribute("aria-checked")).toBe("false");
+    expect(chart.getAttribute("data-hide-tooltip")).toBe("true");
+  });
+
   test("submits a custom timeline plan without an optimizer preset", async () => {
     const submitPlan = vi.fn().mockResolvedValue(undefined);
 

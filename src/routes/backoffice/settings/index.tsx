@@ -45,6 +45,7 @@ import {
   getCashflowCompoundExtent,
   TimelineCashflowCompoundChart,
   type TimelineCashflowCompoundDatum,
+  type TimelineCashflowReferenceLine,
 } from "#/features/timeline-workspace/-TimelineCashflowCompoundChart.tsx";
 import {
   type TimelineMilestoneWorksheetRow,
@@ -1710,11 +1711,13 @@ function ScenarioSettingsTab({
           />
 
           <FramePanel className="overflow-x-auto p-0">
-            <Table className="min-w-[840px]">
+            <Table className="min-w-[1120px]">
               <TableHeader className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-[0.08em]">
                 <TableRow>
                   <TableHead>Label</TableHead>
-                  <TableHead>Timing day</TableHead>
+                  <TableHead>Milestone start</TableHead>
+                  <TableHead>Milestone end</TableHead>
+                  <TableHead>Draw unlock</TableHead>
                   <TableHead>Amount %</TableHead>
                   <TableHead>Review note</TableHead>
                   <TableHead>Order</TableHead>
@@ -1722,10 +1725,15 @@ function ScenarioSettingsTab({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {selectedScenario.draws.map((draw) => (
+                {buildSettingsScenarioScheduleRows(
+                  template,
+                  selectedScenario
+                ).map(({ draw, milestoneEnd, milestoneStart }) => (
                   <ScenarioDrawRow
                     draw={draw}
                     key={draw.drawKey}
+                    milestoneEnd={milestoneEnd}
+                    milestoneStart={milestoneStart}
                     onRemove={() =>
                       onUpdate((current) =>
                         updateScenario(current, selectedScenario.scenarioKey, {
@@ -1808,11 +1816,15 @@ function ScenarioSettingsTab({
 
 function ScenarioDrawRow({
   draw,
+  milestoneEnd,
+  milestoneStart,
   onRemove,
   onUpdateDraw,
   timingError,
 }: {
   draw: TimelineSettingsDrawDraft;
+  milestoneEnd: number | null;
+  milestoneStart: number | null;
   onRemove: () => void;
   onUpdateDraw: (draw: TimelineSettingsDrawDraft) => void;
   timingError?: string;
@@ -1846,9 +1858,21 @@ function ScenarioDrawRow({
         />
       </TableCell>
       <TableCell>
+        <ScheduleDayValue
+          ariaLabel={`${draw.label} milestone start day`}
+          day={milestoneStart}
+        />
+      </TableCell>
+      <TableCell>
+        <ScheduleDayValue
+          ariaLabel={`${draw.label} milestone end day`}
+          day={milestoneEnd}
+        />
+      </TableCell>
+      <TableCell>
         <Input
           aria-invalid={timingError ? true : undefined}
-          aria-label={`${draw.label} timing day`}
+          aria-label={`${draw.label} draw unlock day`}
           inputMode="numeric"
           onBlur={() => {
             setEditingTimingDay(false);
@@ -1914,6 +1938,24 @@ function ScenarioDrawRow({
         </Button>
       </TableCell>
     </TableRow>
+  );
+}
+
+function ScheduleDayValue({
+  ariaLabel,
+  day,
+}: {
+  ariaLabel: string;
+  day: number | null;
+}) {
+  return (
+    <Badge
+      aria-label={ariaLabel}
+      className="min-w-16 justify-center font-mono tabular-nums"
+      variant="outline"
+    >
+      {day === null ? "—" : `Day ${day}`}
+    </Badge>
   );
 }
 
@@ -2001,6 +2043,10 @@ function SettingsCashflowPreview({
     () => buildSettingsCashflowChartData(template, scenario, startingCash),
     [scenario, startingCash, template]
   );
+  const scheduleReferenceLines = useMemo(
+    () => buildSettingsScheduleReferenceLines(template, scenario),
+    [scenario, template]
+  );
   const extent = getCashflowCompoundExtent(data);
   const maxDay = Math.max(30, ...data.map((row) => row.day));
   const ticks = buildCashflowTicks(maxDay);
@@ -2057,10 +2103,31 @@ function SettingsCashflowPreview({
           </label>
         </div>
       </div>
+      <div
+        aria-label="Schedule marker legend"
+        className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-background/70 px-4 py-2 text-muted-foreground text-xs"
+      >
+        <ScheduleMarkerLegend
+          color="oklch(0.58 0.18 160)"
+          label="Milestone start"
+        />
+        <ScheduleMarkerLegend
+          color="oklch(0.67 0.18 275)"
+          label="Milestone end"
+        />
+        <ScheduleMarkerLegend
+          color="oklch(0.62 0.18 245)"
+          label="Draw unlock"
+        />
+      </div>
       <TimelineCashflowCompoundChart
         barSize={22}
-        className="h-72 min-w-0"
+        chartMargin={{ bottom: 0, left: 0, right: 12, top: 92 }}
+        className="h-[420px] min-w-0"
         data={data}
+        hideDrawReferenceLines
+        hideMilestoneEndReferenceLines
+        referenceLines={scheduleReferenceLines}
         testId="timeline-settings-cashflow-compound-chart"
         xDomain={[0, maxDay]}
         xTicks={ticks}
@@ -2068,6 +2135,25 @@ function SettingsCashflowPreview({
         yDomain={[extent.min, extent.max]}
       />
     </FramePanel>
+  );
+}
+
+function ScheduleMarkerLegend({
+  color,
+  label,
+}: {
+  color: string;
+  label: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        aria-hidden="true"
+        className="size-2 rounded-full"
+        style={{ backgroundColor: color }}
+      />
+      {label}
+    </span>
   );
 }
 
@@ -2309,6 +2395,80 @@ export function buildSettingsCashflowChartData(
   }
 
   return data;
+}
+
+export function buildSettingsScenarioScheduleRows(
+  template: TimelineSettingsTemplateDraft,
+  scenario: TimelineSettingsScenarioDraft
+) {
+  const includedMilestones = template.milestones
+    .filter((row) => row.included)
+    .slice()
+    .sort(
+      (a, b) =>
+        a.order - b.order || a.milestoneKey.localeCompare(b.milestoneKey)
+    );
+
+  return scenario.draws.map((draw) => {
+    const milestone = includedMilestones[draw.order];
+    const milestoneIndex = milestone ? draw.order : -1;
+
+    return {
+      draw,
+      milestone,
+      milestoneEnd:
+        milestoneIndex >= 0
+          ? milestoneEndDay(includedMilestones, milestoneIndex)
+          : null,
+      milestoneStart:
+        milestoneIndex >= 0
+          ? milestoneStartDay(includedMilestones, milestoneIndex)
+          : null,
+    };
+  });
+}
+
+export function buildSettingsScheduleReferenceLines(
+  template: TimelineSettingsTemplateDraft,
+  scenario: TimelineSettingsScenarioDraft
+): TimelineCashflowReferenceLine[] {
+  return buildSettingsScenarioScheduleRows(template, scenario).flatMap(
+    ({ draw, milestone, milestoneEnd, milestoneStart }) => {
+      const ordinal = draw.order + 1;
+      const markers: TimelineCashflowReferenceLine[] = [];
+
+      if (milestone && milestoneStart !== null) {
+        markers.push({
+          label: `M${ordinal} · Day ${milestoneStart}`,
+          labelOffsetY: -52,
+          opacity: 0.64,
+          stroke: "oklch(0.58 0.18 160)",
+          strokeDasharray: "2 4",
+          x: milestoneStart,
+        });
+      }
+      if (milestone && milestoneEnd !== null) {
+        markers.push({
+          label: `M${ordinal} · Day ${milestoneEnd}`,
+          labelOffsetY: -28,
+          opacity: 0.64,
+          stroke: "oklch(0.67 0.18 275)",
+          strokeDasharray: "5 4",
+          x: milestoneEnd,
+        });
+      }
+      markers.push({
+        label: `D${ordinal} · Day ${draw.timingDay}`,
+        labelOffsetY: -4,
+        opacity: 0.64,
+        stroke: "oklch(0.62 0.18 245)",
+        strokeDasharray: "3 4",
+        x: draw.timingDay,
+      });
+
+      return markers;
+    }
+  );
 }
 
 function getSettingsStartingCashDollars(

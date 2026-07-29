@@ -27,4 +27,20 @@ describe("EvilComposedChart reference labels", () => {
     expect(surface?.getAttribute("stroke")).toBe(markerAccent);
     expect(label?.getAttribute("fill")).toBe("var(--popover-foreground)");
   });
+
+  test("offsets labels into separate annotation lanes", () => {
+    render(
+      <svg aria-label="Chart annotation">
+        <ReferenceLineLabel
+          offsetY={-24}
+          value="Milestone starts"
+          viewBox={{ height: 100, width: 320, x: 140, y: 80 }}
+        />
+      </svg>
+    );
+
+    expect(
+      screen.getByText("Milestone starts").closest("text")?.getAttribute("y")
+    ).toBe("46");
+  });
 });
