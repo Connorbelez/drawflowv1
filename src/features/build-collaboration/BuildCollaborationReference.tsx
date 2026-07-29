@@ -77,7 +77,12 @@ export function BuildCollaborationReferenceSheet({
 }) {
   return (
     <Sheet onOpenChange={onOpenChange} open={Boolean(reference)}>
-      <SheetPopup>
+      <SheetPopup
+        data-reference-key={
+          reference ? `${reference.entityKind}:${reference.id}` : undefined
+        }
+        data-testid="build-collaboration-focused-reference"
+      >
         <SheetHeader>
           <SheetTitle>{reference?.label ?? "Build reference"}</SheetTitle>
           <SheetDescription>

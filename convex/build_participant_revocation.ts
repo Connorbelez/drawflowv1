@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { resolveActiveBuildCoordinatorIds } from "./activeBuildAccess";
 import { buildCollaborationRoleValidator } from "./build_collaboration_validators";
 import { internalMutation } from "./fluent";
 import type { MutationCtx } from "./types";
@@ -13,15 +14,6 @@ const ACTIVE_ACTION_ITEM_STATUSES = [
   "in_review",
   "blocked",
 ] as const;
-const COORDINATOR_ROLES = new Set([
-  "admin",
-  "principle-broker",
-  "broker",
-  "builder",
-  "broker-staff",
-  "builder-staff",
-]);
-
 interface ParticipantRevocationCleanupInput {
   actorRole: Doc<"buildParticipants">["role"];
   actorWorkosUserId: string;
@@ -34,7 +26,11 @@ export async function processParticipantRevocationCleanupBatch(
   input: ParticipantRevocationCleanupInput
 ) {
   const participant = await ctx.db.get(input.participantId);
-  if (!participant || participant.status !== "removed") {
+  if (
+    !participant ||
+    participant.status !== "removed" ||
+    participant.revocationCleanupStatus === "completed"
+  ) {
     return { actionItemCount: 0, complete: true };
   }
   const now = Date.now();
@@ -166,11 +162,18 @@ async function notifyCoordinators(
       query.eq("buildId", input.participant.buildId).eq("status", "active")
     )
     .take(500);
-  const recipients = new Set(
-    participants
-      .filter((participant) => COORDINATOR_ROLES.has(participant.role))
-      .map((participant) => participant.workosUserId)
-  );
+  const build = await ctx.db.get(input.participant.buildId);
+  const proposal = build ? await ctx.db.get(build.proposalId) : null;
+  const recipients = new Set<string>();
+  if (build && proposal) {
+    for (const recipient of await resolveActiveBuildCoordinatorIds(ctx, {
+      build,
+      grantedParticipants: participants,
+      proposal,
+    })) {
+      recipients.add(recipient);
+    }
+  }
   if (input.participant.removedByWorkosUserId) {
     recipients.add(input.participant.removedByWorkosUserId);
   }

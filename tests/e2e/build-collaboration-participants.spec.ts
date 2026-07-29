@@ -47,9 +47,13 @@ const fixture = fixturePath
 test.describe("Build collaboration production personas", () => {
   test("has an explicit authenticated fixture for every approved persona", () => {
     test.skip(
-      !fixture,
-      "Set BUILD_COLLABORATION_E2E_FIXTURE to run authenticated persona E2E."
+      !(fixture || process.env.CI),
+      "Set BUILD_COLLABORATION_E2E_FIXTURE to run authenticated persona E2E locally."
     );
+    expect(
+      fixture,
+      "CI must provide BUILD_COLLABORATION_E2E_FIXTURE; collaboration persona coverage is a required acceptance gate."
+    ).not.toBeNull();
     expect(fixture?.personas.map((persona) => persona.role).sort()).toEqual(
       [
         "admin",
@@ -106,6 +110,15 @@ for (const persona of fixture?.personas ?? []) {
         await expect(page).toHaveURL(
           new RegExp(`focus=${encodeURIComponent(focusedReference)}`)
         );
+        if (focusedReference.startsWith("actionItem:")) {
+          await expect(
+            page.locator(`[data-collaboration-focus="${focusedReference}"]`)
+          ).toBeVisible();
+        } else {
+          await expect(
+            page.getByTestId("build-collaboration-focused-reference")
+          ).toHaveAttribute("data-reference-key", focusedReference);
+        }
       }
     });
   });

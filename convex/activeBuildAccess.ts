@@ -10,6 +10,15 @@ type ActiveBuildAccessCtx = (QueryCtx | MutationCtx) & {
   viewer: AuthorizedViewer;
 };
 
+const ACTIVE_BUILD_COORDINATOR_ROLES = new Set<BuildCollaborationRole>([
+  "admin",
+  "principle-broker",
+  "broker",
+  "builder",
+  "broker-staff",
+  "builder-staff",
+]);
+
 export interface ActiveBuildParticipantProjection {
   displayName: string;
   participationPeriod: number;
@@ -417,4 +426,47 @@ export async function projectActiveBuildParticipants(
     });
   }
   return projections;
+}
+
+/**
+ * Resolve every coordinator who has canonical authority on a Build. This
+ * deliberately combines Build-local grants/assignments with tenant-wide
+ * Admin and Principle Broker membership instead of treating the explicit
+ * participant rows as the complete access-control projection.
+ */
+export async function resolveActiveBuildCoordinatorIds(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    build: Doc<"activeBuilds">;
+    grantedParticipants: Doc<"buildParticipants">[];
+    proposal: Doc<"buildProposals">;
+  }
+) {
+  const participants = await projectActiveBuildParticipants(ctx, input);
+  const recipients = new Set(
+    participants
+      .filter((participant) =>
+        ACTIVE_BUILD_COORDINATOR_ROLES.has(participant.role)
+      )
+      .map((participant) => participant.workosUserId)
+  );
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_organization", (query) =>
+      query.eq("workosOrganizationId", input.build.organizationId)
+    )
+    .collect();
+  for (const membership of memberships) {
+    if (membership.status !== "active") {
+      continue;
+    }
+    const roles = normalizeRoleSlugs([
+      membership.roleSlug,
+      ...membership.roleSlugs,
+    ]);
+    if (roles.includes("admin") || roles.includes("principle-broker")) {
+      recipients.add(membership.workosUserId);
+    }
+  }
+  return [...recipients];
 }

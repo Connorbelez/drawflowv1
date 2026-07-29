@@ -281,6 +281,11 @@ describe("BuildCollaborationFeed", () => {
     expect(
       await screen.findByRole("heading", { name: "Priya Raman" }),
     ).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("build-collaboration-focused-reference")
+        .getAttribute("data-reference-key"),
+    ).toBe("participant:user-broker");
     expect(screen.getByText("Focused participant detail for this Build.")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Open focused workspace" }),

@@ -11,7 +11,6 @@ import {
 } from "#/features/backoffice-build-detail/MilestoneStartDialog.tsx";
 import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
-import { normalizeRoleSlugs } from "#/lib/auth/rbac.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -69,11 +68,6 @@ export function ContractorBuildDetail() {
   const { buildId } = Route.useParams();
   const { assignmentId, focus } = Route.useSearch();
   const routeContext = Route.useRouteContext();
-  const roles = normalizeRoleSlugs([
-    routeContext.role,
-    ...(routeContext.roles ?? []),
-  ]);
-  const hasContractorWorkspaceRole = roles.includes("contractor");
   const participationScope = useQuery(
     api.build_participants.getMyBuildParticipationScope,
     {
@@ -81,9 +75,11 @@ export function ContractorBuildDetail() {
       organizationId: routeContext.organizationId ?? undefined,
     }
   );
+  const hasLegacyContractorProfile =
+    participationScope?.legacyContractorProfileLinked === true;
   const detail = useQuery(
     api.contractorWorkspace.getContractorBuildDetail,
-    hasContractorWorkspaceRole
+    hasLegacyContractorProfile
       ? {
           buildId: buildId as Id<"activeBuilds">,
         }
@@ -115,7 +111,7 @@ export function ContractorBuildDetail() {
 
   if (
     participationScope === undefined ||
-    (hasContractorWorkspaceRole && detail === undefined)
+    (hasLegacyContractorProfile && detail === undefined)
   ) {
     return (
       <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
@@ -124,7 +120,7 @@ export function ContractorBuildDetail() {
     );
   }
 
-  if (!hasContractorWorkspaceRole) {
+  if (!hasLegacyContractorProfile) {
     return (
       <ContractorCollaborationSurface
         buildId={buildId}

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { collaborationRoleTier } from "./build_collaboration_model";
@@ -27,6 +28,7 @@ const participantHistoryRowValidator = v.object({
 const activeBuildParticipationValidator = v.object({
   buildId: v.id("activeBuilds"),
   buildName: v.string(),
+  legacyContractorProfileLinked: v.optional(v.boolean()),
   location: v.optional(v.string()),
   organizationId: v.string(),
   participantId: v.optional(v.id("buildParticipants")),
@@ -86,6 +88,14 @@ export const getMyBuildParticipationScope = authenticatedQuery
       return {
         buildId: build._id,
         buildName: build.buildName,
+        legacyContractorProfileLinked:
+          latest.role === "contractor"
+            ? await hasLegacyContractorProfile(
+                ctx,
+                latest.brokerageId,
+                ctx.viewer.subject
+              )
+            : undefined,
         location: build.location,
         organizationId: build.organizationId,
         participantId: latest._id,
@@ -95,13 +105,21 @@ export const getMyBuildParticipationScope = authenticatedQuery
     if (!args.organizationId) {
       throw new Error("Forbidden: active build participation");
     }
-    const authorization = await authorizeActiveBuildCollaborationAccess(ctx, {
+    const authorization = await authorizeActiveBuildAccess(ctx, {
       buildId: args.buildId,
       organizationId: args.organizationId,
     });
     return {
       buildId: authorization.build._id,
       buildName: authorization.build.buildName,
+      legacyContractorProfileLinked:
+        authorization.effectiveRole.role === "contractor"
+          ? await hasLegacyContractorProfile(
+              ctx,
+              authorization.brokerage._id,
+              ctx.viewer.subject
+            )
+          : undefined,
       location: authorization.build.location,
       organizationId: authorization.organizationId,
       participantId: latest?._id,
@@ -345,6 +363,14 @@ async function createParticipantInvitation(
   ) {
     throw new Error("Only a removed participant can be reinvited.");
   }
+  if (
+    input.expectedPriorStatus === "removed" &&
+    latest?.revocationCleanupStatus !== "completed"
+  ) {
+    throw new Error(
+      "Participant revocation cleanup is still pending. Retry the invitation after cleanup completes."
+    );
+  }
   if (!input.expectedPriorStatus && latest) {
     throw new Error(
       latest.status === "removed"
@@ -396,6 +422,23 @@ async function createParticipantInvitation(
       : undefined,
   });
   return participantId;
+}
+
+async function hasLegacyContractorProfile(
+  ctx: QueryCtx,
+  brokerageId: Id<"brokerages">,
+  workosUserId: string
+) {
+  const profiles = await ctx.db
+    .query("contractorProfiles")
+    .withIndex("by_account_user", (query) =>
+      query.eq("accountWorkosUserId", workosUserId)
+    )
+    .take(20);
+  return profiles.some(
+    (profile) =>
+      profile.brokerageId === brokerageId && profile.status === "active"
+  );
 }
 
 function requireParticipantManager(

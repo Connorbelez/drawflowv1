@@ -82,19 +82,22 @@ const detail = {
   builderContact: { displayName: "Oakline Builders" },
   permitDocuments: [],
 };
-const participationScope = {
+const linkedParticipationScope = {
   buildId: "active_build_01",
   buildName: "Hamilton Build",
+  legacyContractorProfileLinked: true,
   organizationId: "org_01",
   participantId: "participant_01",
   role: "contractor",
 };
+let participationScope = linkedParticipationScope;
 let contractorDetail = detail;
 
 describe("ContractorBuildDetail", () => {
   beforeEach(() => {
     routeRoles = ["contractor"];
     contractorDetail = detail;
+    participationScope = linkedParticipationScope;
     mutationIndex = 0;
     acknowledge.mockResolvedValue("ack_01");
     clarify.mockResolvedValue("issue_01");
@@ -143,7 +146,10 @@ describe("ContractorBuildDetail", () => {
   });
 
   test("renders collaboration for a grant-only Contractor without a linked profile or assignment projection", () => {
-    routeRoles = ["member"];
+    participationScope = {
+      ...linkedParticipationScope,
+      legacyContractorProfileLinked: false,
+    };
 
     render(<ContractorBuildDetail />);
 
@@ -152,6 +158,7 @@ describe("ContractorBuildDetail", () => {
       screen.getByTestId("build-collaboration-workspace").textContent
     ).toBe("active_build_01:org_01");
     expect(screen.queryByText("Your assigned scope")).toBeNull();
+    expect(useQuery).toHaveBeenCalledWith(expect.anything(), "skip");
   });
 
   test("requires and submits a scoped clarification", async () => {
