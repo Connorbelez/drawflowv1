@@ -2,8 +2,8 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { resolveActiveBuildCoordinatorIds } from "./activeBuildAccess";
 import { buildCollaborationRoleValidator } from "./build_collaboration_validators";
+import { enqueueParticipantRevocationNotifications } from "./build_participant_revocation_notifications";
 import { internalMutation } from "./fluent";
 import type { MutationCtx } from "./types";
 
@@ -107,11 +107,14 @@ export async function processParticipantRevocationCleanupBatch(
       warnings: ["participant_removed"],
     });
   }
-  await notifyCoordinators(ctx, {
-    actionItems,
-    participant,
-    now,
-  });
+  const batchKey = actionItems[0]?._id;
+  if (batchKey) {
+    await enqueueParticipantRevocationNotifications(ctx, {
+      actionItemCount: actionItems.length,
+      batchKey,
+      participantId: participant._id,
+    });
+  }
 
   const complete = follows.length <= CLEANUP_BATCH_SIZE && !actionOverflow;
   if (complete) {
@@ -144,72 +147,3 @@ export const continueBuildParticipantRevocationCleanup = internalMutation
     return null;
   })
   .internal();
-
-async function notifyCoordinators(
-  ctx: MutationCtx,
-  input: {
-    actionItems: Doc<"buildActionItems">[];
-    now: number;
-    participant: Doc<"buildParticipants">;
-  }
-) {
-  if (input.actionItems.length === 0) {
-    return;
-  }
-  const participants = await ctx.db
-    .query("buildParticipants")
-    .withIndex("by_buildId_and_status", (query) =>
-      query.eq("buildId", input.participant.buildId).eq("status", "active")
-    )
-    .take(500);
-  const build = await ctx.db.get(input.participant.buildId);
-  const proposal = build ? await ctx.db.get(build.proposalId) : null;
-  const recipients = new Set<string>();
-  if (build && proposal) {
-    for (const recipient of await resolveActiveBuildCoordinatorIds(ctx, {
-      build,
-      grantedParticipants: participants,
-      proposal,
-    })) {
-      recipients.add(recipient);
-    }
-  }
-  if (input.participant.removedByWorkosUserId) {
-    recipients.add(input.participant.removedByWorkosUserId);
-  }
-  const batchKey = input.actionItems[0]?._id;
-  for (const recipientWorkosUserId of recipients) {
-    const dedupeKey = `participant-removed:${input.participant._id}:${batchKey}:${recipientWorkosUserId}`;
-    const existing = await ctx.db
-      .query("recipientDeliveries")
-      .withIndex("by_recipient_dedupe", (query) =>
-        query
-          .eq("organizationId", input.participant.organizationId)
-          .eq("recipientWorkosUserId", recipientWorkosUserId)
-          .eq("dedupeKey", dedupeKey)
-      )
-      .unique();
-    if (existing) {
-      continue;
-    }
-    await ctx.db.insert("recipientDeliveries", {
-      actionLabel: "Reassign work",
-      actionRequired: true,
-      body: `${input.actionItems.length} open Action Item${input.actionItems.length === 1 ? "" : "s"} must be reassigned.`,
-      brokerageId: input.participant.brokerageId,
-      createdAt: input.now,
-      dedupeKey,
-      entityId: input.participant._id,
-      entityLabel: input.participant.displayNameSnapshot,
-      entityType: "buildParticipant",
-      href: `/backoffice/builds/${input.participant.buildId}?tab=details`,
-      organizationId: input.participant.organizationId,
-      recipientWorkosUserId,
-      resolutionMode: "recipient",
-      sourceLabel: "Build collaboration",
-      status: "unread",
-      title: "Participant removed — Action Items need reassignment",
-      updatedAt: input.now,
-    });
-  }
-}

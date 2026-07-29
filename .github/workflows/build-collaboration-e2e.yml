@@ -1,0 +1,57 @@
+name: Build collaboration E2E
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: build-collaboration-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-collaboration-e2e:
+    name: Authenticated eight-persona collaboration
+    runs-on: ubuntu-latest
+    environment: build-collaboration-e2e
+    timeout-minutes: 30
+    env:
+      PLAYWRIGHT_BASE_URL: ${{ secrets.PLAYWRIGHT_BASE_URL }}
+      BUILD_COLLABORATION_E2E_SETUP_URL: ${{ secrets.BUILD_COLLABORATION_E2E_SETUP_URL }}
+      BUILD_COLLABORATION_E2E_CONTROL_TOKEN: ${{ secrets.BUILD_COLLABORATION_E2E_CONTROL_TOKEN }}
+      BUILD_COLLABORATION_E2E_AUTH_ADMIN_B64: ${{ secrets.BUILD_COLLABORATION_E2E_AUTH_ADMIN_B64 }}
+      BUILD_COLLABORATION_E2E_AUTH_PRINCIPLE_BROKER_B64: ${{ secrets.BUILD_COLLABORATION_E2E_AUTH_PRINCIPLE_BROKER_B64 }}
+      BUILD_COLLABORATION_E2E_AUTH_BROKER_B64: ${{ secrets.BUILD_COLLABORATION_E2E_AUTH_BROKER_B64 }}
+      BUILD_COLLABORATION_E2E_AUTH_BUILDER_B64: ${{ secrets.BUILD_COLLABORATION_E2E_AUTH_BUILDER_B64 }}
+      BUILD_COLLABORATION_E2E_AUTH_BROKER_STAFF_B64: ${{ secrets.BUILD_COLLABORATION_E2E_AUTH_BROKER_STAFF_B64 }}
+      BUILD_COLLABORATION_E2E_AUTH_BUILDER_STAFF_B64: ${{ secrets.BUILD_COLLABORATION_E2E_AUTH_BUILDER_STAFF_B64 }}
+      BUILD_COLLABORATION_E2E_AUTH_HOMEOWNER_B64: ${{ secrets.BUILD_COLLABORATION_E2E_AUTH_HOMEOWNER_B64 }}
+      BUILD_COLLABORATION_E2E_AUTH_CONTRACTOR_B64: ${{ secrets.BUILD_COLLABORATION_E2E_AUTH_CONTRACTOR_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install Chromium
+        run: bun x playwright install --with-deps chromium
+      - name: Provision authenticated collaboration fixture
+        run: bun run prepare:e2e:build-collaboration
+      - name: Run required collaboration acceptance suite
+        run: bun run test:e2e:build-collaboration
+      - name: Upload Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-collaboration-playwright
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14

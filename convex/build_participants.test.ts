@@ -323,6 +323,25 @@ describe("Build participant lifecycle and role-complete access", () => {
         reason: "Homeowner participation transferred.",
       }
     );
+    for (const source of [
+      "static",
+      "participants",
+      "builder-links",
+      "broker-assignments",
+      "tenant-memberships",
+    ] as const) {
+      await fixture.base.mutation(
+        (internal as any).build_participant_revocation_notifications
+          .continueParticipantRevocationNotifications,
+        {
+          actionItemCount: 1,
+          batchKey: actionItemId,
+          cursor: null,
+          participantId: homeownerPeriod.participantId,
+          source,
+        }
+      );
+    }
 
     await expect(readFeed(homeowner, fixture.buildId)).rejects.toThrow(
       "Forbidden: active build participation revoked"

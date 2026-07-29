@@ -36,6 +36,7 @@ import type * as build_collaboration_system_events from "../build_collaboration_
 import type * as build_collaboration_threads from "../build_collaboration_threads.js";
 import type * as build_collaboration_validators from "../build_collaboration_validators.js";
 import type * as build_participant_revocation from "../build_participant_revocation.js";
+import type * as build_participant_revocation_notifications from "../build_participant_revocation_notifications.js";
 import type * as build_participants from "../build_participants.js";
 import type * as builderRoster from "../builderRoster.js";
 import type * as builderStaffIdentity from "../builderStaffIdentity.js";
@@ -106,6 +107,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_threads: typeof build_collaboration_threads;
   build_collaboration_validators: typeof build_collaboration_validators;
   build_participant_revocation: typeof build_participant_revocation;
+  build_participant_revocation_notifications: typeof build_participant_revocation_notifications;
   build_participants: typeof build_participants;
   builderRoster: typeof builderRoster;
   builderStaffIdentity: typeof builderStaffIdentity;
