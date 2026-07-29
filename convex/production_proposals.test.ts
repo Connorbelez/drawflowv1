@@ -6141,8 +6141,10 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
       {
         actualCostCents: 50_000_000,
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 30,
+        idempotencyKey: "quick-action-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for review.",
         workosOrganizationId: ORG,
@@ -6212,8 +6214,10 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
       {
         actualCostCents: 47_500_000,
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         fieldNote: "Forms stripped and dimensions verified.",
+        idempotencyKey: "summary-forms-completion-001",
         milestoneKey: "foundation",
         status: "complete",
         submilestoneKey: "forms",
@@ -6224,8 +6228,10 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
       {
         actualCostCents: 48_000_000,
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        idempotencyKey: "summary-milestone-completion-001",
         milestoneKey: "foundation",
         note: "Builder submitted the foundation package.",
         workosOrganizationId: ORG,
@@ -6285,8 +6291,10 @@ describe("production proposal foundation", () => {
     const builder = withIdentity(base, ["builder"], "user_builder");
     const completionArgs = {
       actualCostCents: 48_000_000,
+      actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
       buildId: closing.buildId,
       completedDay: 20,
+      idempotencyKey: "strict-milestone-completion-001",
       milestoneKey: "foundation",
       note: "Foundation ready for review.",
       workosOrganizationId: ORG,
@@ -6303,8 +6311,10 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
       {
         actualCostCents: 47_750_000,
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         fieldNote: "Forms removed; footing measurements match plan.",
+        idempotencyKey: "strict-forms-completion-001",
         milestoneKey: "foundation",
         status: "complete",
         submilestoneKey: "forms",
@@ -6656,29 +6666,70 @@ describe("production proposal foundation", () => {
     );
 
     const builder = withIdentity(base, ["builder"], "user_builder");
-    await builder.mutation(
+    const actualStartedAt = Date.parse("2026-05-03T14:30:00.000Z");
+    const startArgs = {
+      actualStartedAt,
+      buildId: closing.buildId,
+      idempotencyKey: "test-foundation-start-001",
+      milestoneKey: "foundation",
+      source: "milestone_detail" as const,
+      workosOrganizationId: ORG,
+    };
+    const firstResult = await builder.mutation(
       (api as any).production_proposals.startActiveBuildMilestone,
-      {
-        buildId: closing.buildId,
-        milestoneKey: "foundation",
-        note: "Crew mobilized and site work started.",
-        workosOrganizationId: ORG,
-      },
+      startArgs,
+    );
+    const replayResult = await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      startArgs,
     );
 
     const detail = await t.query(
       (api as any).production_proposals.getActiveBuildDetailByString,
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
     );
+    expect(replayResult).toEqual(firstResult);
     expect(detail.milestones[0]).toMatchObject({
-      evidenceState: "Work started",
-      progressPercent: 5,
-      startedAt: expect.any(Number),
+      actualStartedAt,
+      startReportedAt: expect.any(Number),
+      startedByWorkosUserId: "user_builder",
+      startSource: "milestone_detail",
       status: "in_progress",
     });
+    expect(detail.milestones[0].progressPercent).toBeUndefined();
+    expect(detail.milestones[0].evidenceState).toBeUndefined();
     expect(detail.auditEvents.map((event: any) => event.eventType)).toContain(
-      "active_build.milestone.started",
+      "milestone.started",
     );
+    await t.run(async (ctx: any) => {
+      const startEvents = await ctx.db
+        .query("milestoneStartEvents")
+        .withIndex("by_organization_idempotency", (q: any) =>
+          q
+            .eq("organizationId", ORG)
+            .eq("idempotencyKey", "test-foundation-start-001"),
+        )
+        .collect();
+      const outboxEvents = await ctx.db
+        .query("eventOutbox")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("relatedEntityType", "activeBuild")
+            .eq("relatedEntityId", String(closing.buildId)),
+        )
+        .collect();
+      expect(startEvents).toHaveLength(1);
+      expect(startEvents[0]).toMatchObject({
+        actualStartedAt,
+        actorWorkosUserId: "user_builder",
+        eventType: "started",
+        milestoneKey: "foundation",
+        source: "milestone_detail",
+      });
+      expect(
+        outboxEvents.filter((event: any) => event.eventType === "milestone.started"),
+      ).toHaveLength(1);
+    });
 
     const workspace = await t.query(
       (api as any).production_proposals.getActiveBuildTimelineWorkspace,
@@ -6689,6 +6740,329 @@ describe("production proposal foundation", () => {
       status: "ready",
       tone: "warning",
     });
+  });
+
+  test("records backdated dependency exceptions without rewriting the roadmap and routes lender attention", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Dependency exception build",
+      milestones: [
+        {
+          budgetCents: 20_000_000,
+          dayEnd: 10,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 10,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [],
+        },
+        {
+          budgetCents: 30_000_000,
+          dayEnd: 20,
+          dayStart: 11,
+          dependencyKeys: ["foundation"],
+          durationDays: 10,
+          key: "framing",
+          name: "Framing",
+          order: 2,
+          submilestones: [],
+        },
+      ],
+    });
+    await grantOrgMembership(admin, {
+      roleSlugs: ["broker"],
+      subject: "user_broker",
+    });
+    await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      await ctx.db.patch(build.proposalId, {
+        assignedBrokerWorkosUserId: "user_broker",
+      });
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const actualStartedAt = Date.parse("2026-05-04T09:00:00.000Z");
+    const input = {
+      actualStartedAt,
+      buildId: closing.buildId,
+      idempotencyKey: "framing-dependency-start-001",
+      milestoneKey: "framing",
+      source: "gantt" as const,
+      workosOrganizationId: ORG,
+    };
+
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        input,
+      ),
+    ).rejects.toThrow(/explain why work began/i);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          ...input,
+          actualStartedAt: Date.now() + 10 * 60 * 1000,
+          dependencyOverrideReason: "Crew mobilized out of sequence.",
+          idempotencyKey: "framing-future-start-001",
+        },
+      ),
+    ).rejects.toThrow(/now or earlier/i);
+
+    await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        ...input,
+        dependencyOverrideReason:
+          "Crew mobilized while foundation inspection paperwork was closing.",
+      },
+    );
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.milestones.find((row: any) => row.key === "framing")).toMatchObject({
+      actualStartedAt,
+      dayStart: 11,
+      status: "in_progress",
+    });
+    expect(
+      detail.milestones.find((row: any) => row.key === "framing")
+        .progressPercent,
+    ).toBeUndefined();
+    expect(detail.milestones.find((row: any) => row.key === "foundation")).toMatchObject({
+      dayStart: 0,
+      status: "planned",
+    });
+    const broker = withIdentity(base, ["broker"], "user_broker");
+    const inbox = await broker.query(
+      (api as any).production_proposals.listRecipientInbox,
+      { workosOrganizationId: ORG },
+    );
+    expect(inbox.deliveries).toEqual([
+      expect.objectContaining({
+        actionRequired: true,
+        entityId: String(closing.buildId),
+        title: "Framing started out of sequence",
+      }),
+    ]);
+  });
+
+  test("starts a builder submilestone with its planned parent atomically and preserves correction lineage", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const initialStart = Date.parse("2026-05-03T08:00:00.000Z");
+    const started = await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: initialStart,
+        buildId: closing.buildId,
+        idempotencyKey: "forms-parent-child-start-001",
+        milestoneKey: "foundation",
+        source: "submilestone_ledger",
+        startParent: true,
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(started).toMatchObject({
+      parentStarted: true,
+      submilestoneKey: "forms",
+    });
+    expect(started.eventIds).toHaveLength(2);
+
+    const correctedStart = Date.parse("2026-05-02T15:00:00.000Z");
+    await builder.mutation(
+      (api as any).production_proposals.correctActiveBuildMilestoneStart,
+      {
+        actualStartedAt: correctedStart,
+        buildId: closing.buildId,
+        idempotencyKey: "forms-start-correction-001",
+        milestoneKey: "foundation",
+        reason: "Crew log confirmed an earlier mobilization time.",
+        source: "submilestone_detail",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await builder.mutation(
+      (api as any).production_proposals.retractActiveBuildMilestoneStart,
+      {
+        buildId: closing.buildId,
+        idempotencyKey: "forms-start-retraction-001",
+        milestoneKey: "foundation",
+        reason: "The crew log was attached to the wrong work scope.",
+        source: "submilestone_detail",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query
+            .eq("buildId", closing.buildId)
+            .eq("key", "foundation"),
+        )
+        .unique();
+      const submilestones = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (query: any) =>
+          query.eq("buildMilestoneId", milestone._id),
+        )
+        .collect();
+      const events = await ctx.db
+        .query("milestoneStartEvents")
+        .withIndex("by_target", (query: any) =>
+          query
+            .eq("buildId", closing.buildId)
+            .eq("milestoneKey", "foundation")
+            .eq("submilestoneKey", "forms"),
+        )
+        .collect();
+      expect(milestone).toMatchObject({
+        actualStartedAt: initialStart,
+        status: "in_progress",
+      });
+      expect(submilestones[0]).toMatchObject({ status: "planned" });
+      expect(submilestones[0].actualStartedAt).toBeUndefined();
+      expect(events.map((event: any) => event.eventType)).toEqual([
+        "started",
+        "start_corrected",
+        "start_retracted",
+      ]);
+      expect(events[1].originalEventId).toBe(events[0]._id);
+      expect(events[2].originalEventId).toBe(events[1]._id);
+    });
+  });
+
+  test("reserves post-completion start amendments for Lender Admin", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const actualStartedAt = Date.parse("2026-05-03T08:00:00.000Z");
+    await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt,
+        buildId: closing.buildId,
+        idempotencyKey: "foundation-start-before-completion-001",
+        milestoneKey: "foundation",
+        source: "milestone_detail",
+        workosOrganizationId: ORG,
+      }
+    );
+    await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", closing.buildId).eq("key", "foundation")
+        )
+        .unique();
+      await ctx.db.patch(milestone._id, { status: "complete" });
+    });
+
+    const correction = {
+      actualStartedAt: actualStartedAt - 60 * 60 * 1000,
+      buildId: closing.buildId,
+      idempotencyKey: "foundation-post-completion-correction-001",
+      milestoneKey: "foundation",
+      reason: "Daily log confirmed an earlier mobilization time.",
+      source: "milestone_detail" as const,
+      workosOrganizationId: ORG,
+    };
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.correctActiveBuildMilestoneStart,
+        correction
+      )
+    ).rejects.toThrow(/only Lender Admin/i);
+    await admin.mutation(
+      (api as any).production_proposals.correctActiveBuildMilestoneStart,
+      correction
+    );
+
+    const milestone = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", closing.buildId).eq("key", "foundation")
+        )
+        .unique()
+    );
+    expect(milestone).toMatchObject({
+      actualStartedAt: correction.actualStartedAt,
+      status: "complete",
+    });
+  });
+
+  test("atomically catches up a missing actual start when completion is confirmed", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const actualStartedAt = Date.parse("2026-05-03T08:00:00.000Z");
+    const input = {
+      actualCostCents: 42_000_000,
+      actualStartedAt,
+      buildId: closing.buildId,
+      completedDay: 12,
+      idempotencyKey: "foundation-completion-catch-up-001",
+      milestoneKey: "foundation",
+      note: "Completion and missing actual start confirmed together.",
+      workosOrganizationId: ORG,
+    };
+
+    await builder.mutation(
+      (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+      input
+    );
+    await builder.mutation(
+      (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+      input
+    );
+
+    const state = await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", closing.buildId).eq("key", "foundation")
+        )
+        .unique();
+      const starts = await ctx.db
+        .query("milestoneStartEvents")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId)
+        )
+        .collect();
+      const outbox = await ctx.db
+        .query("eventOutbox")
+        .filter((query: any) =>
+          query.eq(query.field("organizationId"), ORG)
+        )
+        .collect();
+      return { milestone, outbox, starts };
+    });
+    expect(state.milestone).toMatchObject({
+      actualStartedAt,
+      completionClaim: {
+        completedDay: 12,
+        idempotencyKey: "foundation-completion-catch-up-001",
+      },
+      startSource: "completion_catch_up",
+    });
+    expect(state.starts).toHaveLength(1);
+    expect(
+      state.outbox.filter(
+        (event: any) => event.eventType === "milestone.started"
+      )
+    ).toHaveLength(1);
   });
 
   test("builder can create and attach a contractor to an owned active build", async () => {
@@ -8138,7 +8512,9 @@ describe("production proposal foundation", () => {
         (api as any).production_proposals
           .updateActiveBuildSubmilestoneExecution,
         {
+          actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
           buildId,
+          idempotencyKey: `dashboard-submilestone-${submilestoneKey}`,
           milestoneKey: "foundation",
           status: "complete",
           submilestoneKey,
@@ -8150,8 +8526,10 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
       {
         actualCostCents: 50_000_000,
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId,
         completedDay: 30,
+        idempotencyKey: "dashboard-milestone-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for review.",
         workosOrganizationId: ORG,
@@ -8212,8 +8590,10 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
       {
         actualCostCents: 30_000_000,
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        idempotencyKey: "draw-availability-completion-001",
         milestoneKey: "foundation",
         note: "Foundation complete below approved budget.",
         workosOrganizationId: ORG,
@@ -8266,8 +8646,10 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
       {
         actualCostCents: 30_000_000,
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        idempotencyKey: "draw-approval-completion-001",
         milestoneKey: "foundation",
         note: "Foundation complete below approved budget.",
         workosOrganizationId: ORG,
@@ -8390,8 +8772,10 @@ describe("production proposal foundation", () => {
     await builder.mutation(
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
       {
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        idempotencyKey: "staff-review-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for lender review.",
         workosOrganizationId: ORG,
@@ -8520,8 +8904,10 @@ describe("production proposal foundation", () => {
     await builder.mutation(
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
       {
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        idempotencyKey: "change-request-completion-001",
         milestoneKey: "foundation",
         note: "Signed report attached.",
         workosOrganizationId: ORG,
@@ -10360,8 +10746,10 @@ describe("recipient delivery inbox", () => {
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
       {
         actualCostCents: 30_000_000,
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
         buildId: closing.buildId,
         completedDay: 20,
+        idempotencyKey: "delivery-completion-001",
         milestoneKey: "foundation",
         note: "Foundation ready for review.",
         workosOrganizationId: ORG,
@@ -10405,6 +10793,7 @@ describe("recipient delivery inbox", () => {
         actualCostCents: 30_000_000,
         buildId: closing.buildId,
         completedDay: 21,
+        idempotencyKey: "delivery-completion-resubmit-002",
         milestoneKey: "foundation",
         note: "Footing photos added for review.",
         workosOrganizationId: ORG,

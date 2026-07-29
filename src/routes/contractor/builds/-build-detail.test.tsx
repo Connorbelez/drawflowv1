@@ -6,11 +6,15 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 const acknowledge = vi.fn();
 const clarify = vi.fn();
 const dispute = vi.fn();
+const startAssignedSubmilestone = vi.fn();
 const useQuery = vi.fn();
 let mutationIndex = 0;
 
 vi.mock("convex/react", () => ({
-  useMutation: () => [acknowledge, clarify, dispute][mutationIndex++ % 3],
+  useMutation: () =>
+    [acknowledge, clarify, dispute, startAssignedSubmilestone][
+      mutationIndex++ % 4
+    ],
   useQuery: (...args: unknown[]) => useQuery(...args),
 }));
 
@@ -33,12 +37,16 @@ const detail = {
   assignedScope: [
     {
       acknowledgement: { state: "pending_acknowledgement" },
+      actualStartedAt: null,
       assignmentId: "assignment_01",
+      dependencyBlockers: [],
       milestoneKey: "foundation",
       milestoneName: "Foundation",
       role: "Concrete crew",
       status: "active",
-      submilestoneKey: null,
+      submilestoneKey: "forms",
+      submilestoneName: "Set forms",
+      workStatus: "planned",
     },
   ],
   build: {
@@ -46,6 +54,7 @@ const detail = {
     buildName: "Hamilton Build",
     location: "Hamilton, ON",
     organizationId: "org_01",
+    startDate: "2026-05-01",
   },
   builderContact: { displayName: "Oakline Builders" },
   permitDocuments: [],
@@ -57,6 +66,7 @@ describe("ContractorBuildDetail", () => {
     acknowledge.mockResolvedValue("ack_01");
     clarify.mockResolvedValue("issue_01");
     dispute.mockResolvedValue("issue_02");
+    startAssignedSubmilestone.mockResolvedValue("start_01");
     useQuery.mockReturnValue(detail);
   });
 
@@ -106,10 +116,35 @@ describe("ContractorBuildDetail", () => {
         assignmentType: "build",
         buildAssignmentId: "assignment_01",
         milestoneKey: "foundation",
-        submilestoneKey: undefined,
+        submilestoneKey: "forms",
         summary: "Confirm whether excavation is included.",
         workosOrganizationId: "org_01",
       }),
+    );
+  });
+
+  test("confirms and records the assigned submilestone start without starting its parent", async () => {
+    render(<ContractorBuildDetail />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start work" }));
+    expect(screen.getByTestId("milestone-start-dialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Record start" }));
+
+    await waitFor(() =>
+      expect(startAssignedSubmilestone).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actualStartedAt: expect.any(Number),
+          buildId: "active_build_01",
+          idempotencyKey: expect.any(String),
+          milestoneKey: "foundation",
+          source: "submilestone_detail",
+          submilestoneKey: "forms",
+          workosOrganizationId: "org_01",
+        })
+      )
+    );
+    expect(startAssignedSubmilestone.mock.calls[0]?.[0]).not.toHaveProperty(
+      "startParent"
     );
   });
 

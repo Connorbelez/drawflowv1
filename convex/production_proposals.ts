@@ -58,6 +58,12 @@ import {
   withQueryTiming,
 } from "./fluent";
 import {
+  correctMilestoneStart,
+  recordMilestoneStart,
+  retractMilestoneStart,
+  type MilestoneStartSource,
+} from "./milestone_start";
+import {
   GARDEN_SUITE_DESCRIPTION,
   GARDEN_SUITE_PRODUCTION_TEMPLATE_KEY,
   GARDEN_SUITE_SECTIONS,
@@ -159,6 +165,17 @@ const TOTAL_BPS = 10_000;
 const PRODUCTION_SETTINGS_HANDOFF_GAP_DAYS = 5;
 const BACKOFFICE_DASHBOARD_PROPOSALS_PER_COLUMN = 50;
 const BACKOFFICE_BUILDER_OPTIONS_LIMIT = 200;
+const milestoneStartSourceValidator = v.union(
+  v.literal("milestone_card"),
+  v.literal("milestone_detail"),
+  v.literal("gantt"),
+  v.literal("calendar"),
+  v.literal("submilestone_ledger"),
+  v.literal("submilestone_detail"),
+  v.literal("guided_field_workflow"),
+  v.literal("assistant"),
+  v.literal("completion_catch_up")
+);
 
 const proposalDirectoryFiltersValidator = v.object({
   approvedFrom: v.optional(v.number()),
@@ -9629,7 +9646,6 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       completionReview,
       evidenceState: milestone.evidenceState ?? "Site visit requested",
       siteVisitGuidance: configuration.siteVisitGuidance,
-      status: milestone.status === "planned" ? "in_progress" : milestone.status,
       updatedAt: now,
     });
     await writeActiveBuildEvent(ctx, {
@@ -16425,7 +16441,6 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
       evidenceState: args.asset.locationVerified
         ? "Submitted package"
         : "Location unverified",
-      status: milestone.status === "planned" ? "in_progress" : milestone.status,
       updatedAt: now,
     });
     await writeActiveBuildEvent(ctx, {
@@ -16516,12 +16531,17 @@ export const deleteActiveBuildTimelineEvidenceAsset = authenticatedMutation
 
 export const startActiveBuildMilestone = authenticatedMutation
   .input({
+    actualStartedAt: v.number(),
     buildId: v.id("activeBuilds"),
+    dependencyOverrideReason: v.optional(v.string()),
+    idempotencyKey: v.string(),
     milestoneKey: v.string(),
-    note: v.optional(v.string()),
+    source: milestoneStartSourceValidator,
+    startParent: v.optional(v.boolean()),
+    submilestoneKey: v.optional(v.string()),
     workosOrganizationId: v.string(),
   })
-  .returns(v.null())
+  .returns(v.any())
   .handler(async (ctx, args) => {
     const auth = await authorizeActiveBuildOrThrow(
       ctx,
@@ -16529,78 +16549,145 @@ export const startActiveBuildMilestone = authenticatedMutation
       args.workosOrganizationId
     );
     if (isBackoffice(auth.roles)) {
-      requireBackofficeActiveBuildWrite(auth);
+      throw new Error(
+        "Forbidden: lender roles cannot originate builder milestone starts."
+      );
     }
     await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+    if (args.submilestoneKey) {
+      await requireActiveBuildAppPermission(ctx, auth, "submilestone", "update");
+    }
     const [milestone, milestones] = await Promise.all([
       getActiveBuildMilestoneOrThrow(ctx, args.buildId, args.milestoneKey),
       collectByIndex(ctx, "buildMilestones", "by_build", args.buildId),
     ]);
-    if (milestone.status === "complete") {
-      throw new Error("Completed milestones cannot be restarted.");
-    }
-    const blockers = activeBuildMilestoneDependencyBlockers(
-      milestone,
-      milestones as Doc<"buildMilestones">[]
-    );
-    if (blockers.length > 0) {
-      throw new Error(
-        `Cannot start milestone until dependencies are complete: ${blockers.join(", ")}.`
-      );
-    }
-    const currentDay = daysBetweenIso(
-      auth.build.startDate,
-      new Date().toISOString()
-    );
-    if (currentDay < milestone.dayStart) {
-      throw new Error("Milestone is not scheduled to start yet.");
-    }
-    if (milestone.status === "in_progress" && milestone.startedAt) {
-      return null;
-    }
-
-    const now = Date.now();
-    const patch = {
-      evidenceState:
-        milestone.evidenceState &&
-        !["draft package", "not started", "planned"].includes(
-          milestone.evidenceState.toLowerCase()
+    const submilestone = args.submilestoneKey
+      ? ((await ctx.db
+          .query("buildSubmilestones")
+          .withIndex("by_milestone", (query) =>
+            query.eq("buildMilestoneId", milestone._id)
+          )
+          .take(500)) as Doc<"buildSubmilestones">[]).find(
+          (candidate) => candidate.key === args.submilestoneKey
         )
-          ? milestone.evidenceState
-          : "Work started",
-      progressPercent: Math.max(milestone.progressPercent ?? 0, 5),
-      startedAt: milestone.startedAt ?? now,
-      status: "in_progress" as const,
-      updatedAt: now,
-    };
-    await ctx.db.patch(milestone._id, patch);
-    await writeActiveBuildEvent(ctx, {
-      auth,
+      : undefined;
+    if (args.submilestoneKey && !submilestone) {
+      throw new ConvexError({
+        code: "SUBMILESTONE_NOT_FOUND",
+        message: "Submilestone is unavailable for this milestone.",
+        submilestoneKey: args.submilestoneKey,
+      });
+    }
+    return await recordMilestoneStart(ctx, {
+      actor: {
+        brokerageId: auth.brokerage._id,
+        organizationId: auth.build.organizationId,
+        roles: auth.roles,
+        workosUserId: auth.subject,
+      },
+      actualStartedAt: args.actualStartedAt,
       build: auth.build,
-      command: "startActiveBuildMilestone",
-      eventType: "active_build.milestone.started",
-      newState: JSON.stringify({
-        milestoneKey: milestone.key,
-        note: args.note,
-        ...patch,
-      }),
-      priorState: JSON.stringify({
-        evidenceState: milestone.evidenceState,
-        progressPercent: milestone.progressPercent,
-        startedAt: milestone.startedAt,
-        status: milestone.status,
-      }),
-      reason: args.note,
+      dependencyOverrideReason: args.dependencyOverrideReason,
+      idempotencyKey: args.idempotencyKey,
+      milestone,
+      milestones: milestones as Doc<"buildMilestones">[],
+      source: args.source as MilestoneStartSource,
+      startParent: args.startParent,
+      submilestone,
     });
-    return null;
+  })
+  .public();
+
+export const correctActiveBuildMilestoneStart = authenticatedMutation
+  .input({
+    actualStartedAt: v.number(),
+    buildId: v.id("activeBuilds"),
+    idempotencyKey: v.string(),
+    milestoneKey: v.string(),
+    reason: v.string(),
+    source: milestoneStartSourceValidator,
+    submilestoneKey: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    const { milestone, submilestone } = await activeBuildStartTarget(ctx, {
+      buildId: args.buildId,
+      milestoneKey: args.milestoneKey,
+      submilestoneKey: args.submilestoneKey,
+    });
+    await authorizeStartAmendment(ctx, auth, milestone, submilestone);
+    return await correctMilestoneStart(ctx, {
+      actor: {
+        brokerageId: auth.brokerage._id,
+        organizationId: auth.build.organizationId,
+        roles: auth.roles,
+        workosUserId: auth.subject,
+      },
+      actualStartedAt: args.actualStartedAt,
+      build: auth.build,
+      idempotencyKey: args.idempotencyKey,
+      milestone,
+      reason: args.reason,
+      source: args.source as MilestoneStartSource,
+      submilestone,
+    });
+  })
+  .public();
+
+export const retractActiveBuildMilestoneStart = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    idempotencyKey: v.string(),
+    milestoneKey: v.string(),
+    reason: v.string(),
+    source: milestoneStartSourceValidator,
+    submilestoneKey: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId
+    );
+    const { milestone, submilestone } = await activeBuildStartTarget(ctx, {
+      buildId: args.buildId,
+      milestoneKey: args.milestoneKey,
+      submilestoneKey: args.submilestoneKey,
+    });
+    await authorizeStartAmendment(ctx, auth, milestone, submilestone);
+    return await retractMilestoneStart(ctx, {
+      actor: {
+        brokerageId: auth.brokerage._id,
+        organizationId: auth.build.organizationId,
+        roles: auth.roles,
+        workosUserId: auth.subject,
+      },
+      build: auth.build,
+      idempotencyKey: args.idempotencyKey,
+      milestone,
+      reason: args.reason,
+      source: args.source as MilestoneStartSource,
+      submilestone,
+    });
   })
   .public();
 
 export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
   .input({
     actualCostCents: v.optional(v.union(v.number(), v.null())),
+    actualStartedAt: v.optional(v.number()),
     buildId: v.id("activeBuilds"),
+    dependencyOverrideReason: v.optional(v.string()),
     fieldNote: v.optional(v.union(v.string(), v.null())),
+    idempotencyKey: v.optional(v.string()),
     milestoneKey: v.string(),
     reason: v.optional(v.string()),
     status: v.optional(
@@ -16645,6 +16732,16 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
     }
     const nextStatus = args.status ?? submilestone.status;
     if (
+      submilestone.status === "planned" &&
+      nextStatus === "in_progress"
+    ) {
+      throw new ConvexError({
+        code: "USE_CANONICAL_START_COMMAND",
+        message:
+          "Starting submilestone work requires the explicit start confirmation.",
+      });
+    }
+    if (
       submilestone.status === "complete" &&
       nextStatus !== "complete" &&
       milestone.completionClaim &&
@@ -16655,6 +16752,39 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         message:
           "A reason is required to reopen work after milestone completion was submitted.",
         submilestoneKey: submilestone.key,
+      });
+    }
+    if (
+      nextStatus === "complete" &&
+      submilestone.actualStartedAt === undefined
+    ) {
+      if (args.actualStartedAt === undefined || !args.idempotencyKey) {
+        throw new ConvexError({
+          code: "MISSING_ACTUAL_START",
+          message:
+            "Confirm the missing actual start before completing this submilestone.",
+        });
+      }
+      const milestones = (await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (query) => query.eq("buildId", args.buildId))
+        .take(500)) as Doc<"buildMilestones">[];
+      await recordMilestoneStart(ctx, {
+        actor: {
+          brokerageId: auth.brokerage._id,
+          organizationId: auth.build.organizationId,
+          roles: auth.roles,
+          workosUserId: auth.subject,
+        },
+        actualStartedAt: args.actualStartedAt,
+        build: auth.build,
+        dependencyOverrideReason: args.dependencyOverrideReason,
+        idempotencyKey: `${args.idempotencyKey}:start`,
+        milestone,
+        milestones,
+        source: "completion_catch_up",
+        startParent: true,
+        submilestone,
       });
     }
     const now = Date.now();
@@ -16710,12 +16840,6 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
           }
         : {}),
       progressPercent,
-      status:
-        args.status === undefined
-          ? milestone.status
-          : progressPercent > 0 || nextStatus === "in_progress"
-            ? "in_progress"
-            : "planned",
       updatedAt: now,
     });
     await writeActiveBuildEvent(ctx, {
@@ -16744,8 +16868,11 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
 export const submitActiveBuildMilestoneCompletion = authenticatedMutation
   .input({
     actualCostCents: v.optional(v.number()),
+    actualStartedAt: v.optional(v.number()),
     buildId: v.id("activeBuilds"),
     completedDay: v.number(),
+    dependencyOverrideReason: v.optional(v.string()),
+    idempotencyKey: v.string(),
     milestoneKey: v.string(),
     note: v.optional(v.string()),
     qualityNote: v.optional(v.string()),
@@ -16769,6 +16896,13 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       args.buildId,
       args.milestoneKey
     );
+    if (
+      milestone.completionClaim &&
+      (milestone.completionClaim as { idempotencyKey?: string })
+        .idempotencyKey === args.idempotencyKey
+    ) {
+      return null;
+    }
     const submilestones = (await ctx.db
       .query("buildSubmilestones")
       .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
@@ -16785,12 +16919,41 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
         milestoneKey: milestone.key,
       });
     }
+    if (milestone.actualStartedAt === undefined) {
+      if (args.actualStartedAt === undefined) {
+        throw new ConvexError({
+          code: "MISSING_ACTUAL_START",
+          message:
+            "Confirm the missing actual start before submitting milestone completion.",
+        });
+      }
+      const milestones = (await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (query) => query.eq("buildId", args.buildId))
+        .take(500)) as Doc<"buildMilestones">[];
+      await recordMilestoneStart(ctx, {
+        actor: {
+          brokerageId: auth.brokerage._id,
+          organizationId: auth.build.organizationId,
+          roles: auth.roles,
+          workosUserId: auth.subject,
+        },
+        actualStartedAt: args.actualStartedAt,
+        build: auth.build,
+        dependencyOverrideReason: args.dependencyOverrideReason,
+        idempotencyKey: `${args.idempotencyKey}:start`,
+        milestone,
+        milestones,
+        source: "completion_catch_up",
+      });
+    }
     const completionClaim = {
       ...(args.actualCostCents === undefined
         ? {}
         : { actualCostCents: Math.max(0, Math.round(args.actualCostCents)) }),
       completedDay: Math.max(0, Math.round(args.completedDay)),
       ...(args.note ? { note: args.note } : {}),
+      idempotencyKey: args.idempotencyKey,
       ...(args.qualityRating === undefined
         ? {}
         : { qualityRating: normalizeQualityRating(args.qualityRating) }),
@@ -19595,7 +19758,6 @@ export const requestActiveBuildMilestoneInfo = authenticatedMutation
     await ctx.db.patch(milestone._id, {
       completionReview,
       evidenceState: "Info requested",
-      status: milestone.status === "planned" ? "in_progress" : milestone.status,
       updatedAt: Date.now(),
     });
     await writeActiveBuildEvent(ctx, {
@@ -19707,7 +19869,6 @@ export const assignActiveBuildSiteVisit = authenticatedMutation
       completionReview,
       evidenceState: milestone.evidenceState ?? "Site visit requested",
       siteVisitGuidance: configuration.siteVisitGuidance,
-      status: milestone.status === "planned" ? "in_progress" : milestone.status,
       updatedAt: now,
     });
     await writeActiveBuildEvent(ctx, {
@@ -27732,6 +27893,70 @@ async function getActiveBuildMilestoneOrThrow(
     throw new Error("Production active-build milestone not found.");
   }
   return milestone;
+}
+
+async function activeBuildStartTarget(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    milestoneKey: string;
+    submilestoneKey?: string;
+  }
+) {
+  const milestone = await getActiveBuildMilestoneOrThrow(
+    ctx,
+    input.buildId,
+    input.milestoneKey
+  );
+  if (!input.submilestoneKey) {
+    return {
+      milestone,
+      submilestone: undefined,
+    };
+  }
+  const submilestones = (await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_milestone", (query) =>
+      query.eq("buildMilestoneId", milestone._id)
+    )
+    .take(500)) as Doc<"buildSubmilestones">[];
+  const submilestone = submilestones.find(
+    (candidate) => candidate.key === input.submilestoneKey
+  );
+  if (!submilestone) {
+    throw new ConvexError({
+      code: "SUBMILESTONE_NOT_FOUND",
+      message: "Submilestone is unavailable for this milestone.",
+      submilestoneKey: input.submilestoneKey,
+    });
+  }
+  return { milestone, submilestone };
+}
+
+async function authorizeStartAmendment(
+  ctx: QueryCtx | MutationCtx,
+  auth: Awaited<ReturnType<typeof authorizeActiveBuildOrThrow>>,
+  milestone: Doc<"buildMilestones">,
+  submilestone?: Doc<"buildSubmilestones">
+) {
+  const afterCompletion =
+    milestone.status === "complete" ||
+    Boolean(milestone.completionClaim) ||
+    submilestone?.status === "complete";
+  if (isBackoffice(auth.roles)) {
+    requireAnyRole(auth.roles, APPROVER_ROLES);
+    requireBackofficeActiveBuildWrite(auth);
+    return;
+  }
+  if (afterCompletion) {
+    throw new Error(
+      "Forbidden: only Lender Admin can amend a start after completion."
+    );
+  }
+  await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+  if (submilestone) {
+    await requireActiveBuildAppPermission(ctx, auth, "submilestone", "update");
+  }
 }
 
 function activeBuildMilestoneEffectiveDrawAvailabilityCents(

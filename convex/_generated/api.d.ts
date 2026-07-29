@@ -59,6 +59,7 @@ import type * as fluent from "../fluent.js";
 import type * as gardenSuiteTemplate from "../gardenSuiteTemplate.js";
 import type * as http from "../http.js";
 import type * as migrations from "../migrations.js";
+import type * as milestone_start from "../milestone_start.js";
 import type * as production_proposals from "../production_proposals.js";
 import type * as proposal_collaboration from "../proposal_collaboration.js";
 import type * as proposal_collaboration_model from "../proposal_collaboration_model.js";
@@ -126,6 +127,7 @@ declare const fullApi: ApiFromModules<{
   gardenSuiteTemplate: typeof gardenSuiteTemplate;
   http: typeof http;
   migrations: typeof migrations;
+  milestone_start: typeof milestone_start;
   production_proposals: typeof production_proposals;
   proposal_collaboration: typeof proposal_collaboration;
   proposal_collaboration_model: typeof proposal_collaboration_model;

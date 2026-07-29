@@ -472,6 +472,60 @@ describe("contractor workspace scope + redaction", () => {
     expect(detail.totalBudgetCents).toBeUndefined();
   });
 
+  test("assigned contractor starts only the assigned submilestone and leaves its parent planned", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const { buildId } = await createApprovedBuild(admin, seed);
+    const contractorId = await createContractorLinked(admin, seed);
+    await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId,
+        contractorId,
+        milestoneKey: "foundation",
+        role: "mason",
+        submilestoneKeys: ["forms"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    const actualStartedAt = Date.now() - 60 * 60 * 1000;
+
+    await me.mutation(
+      (api as any).contractorWorkspace.startAssignedSubmilestone,
+      {
+        actualStartedAt,
+        buildId,
+        idempotencyKey: "contractor-forms-start-001",
+        milestoneKey: "foundation",
+        source: "guided_field_workflow",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", buildId).eq("key", "foundation"),
+        )
+        .unique();
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (query: any) =>
+          query.eq("buildMilestoneId", milestone._id),
+        )
+        .first();
+      expect(milestone).toMatchObject({ status: "planned" });
+      expect(milestone.actualStartedAt).toBeUndefined();
+      expect(submilestone).toMatchObject({
+        actualStartedAt,
+        startedByWorkosUserId: CONTRACTOR_USER,
+        status: "in_progress",
+      });
+    });
+  });
+
   test("work items show acknowledged after the contractor acknowledges an assignment", async () => {
     const { admin, base, seed } = await seedFoundation();
     const { buildId } = await createApprovedBuild(admin, seed);

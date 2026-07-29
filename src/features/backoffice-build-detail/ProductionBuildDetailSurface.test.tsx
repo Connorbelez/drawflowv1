@@ -137,10 +137,12 @@ vi.mock("./ActiveBuildGanttWorkspace", () => ({
   ActiveBuildGanttWorkspace: ({
     detail,
     onRequestSiteVisit,
+    onStartWork,
     viewerRole,
   }: {
     detail: ProductionBuildDetail;
     onRequestSiteVisit: (input: { milestoneKey: string }) => void;
+    onStartWork?: (milestoneKey: string) => void;
     viewerRole?: "builder" | "lender";
   }) => (
     <div
@@ -153,6 +155,14 @@ vi.mock("./ActiveBuildGanttWorkspace", () => ({
       >
         Gantt order site visit
       </button>
+      {onStartWork ? (
+        <button
+          onClick={() => onStartWork("foundation")}
+          type="button"
+        >
+          Gantt start work
+        </button>
+      ) : null}
       {detail.milestones.map((milestone) => (
         <div
           data-testid={`mock-active-build-gantt-${milestone.key}`}
@@ -169,10 +179,12 @@ vi.mock("./ActiveBuildGanttWorkspace.tsx", () => ({
   ActiveBuildGanttWorkspace: ({
     detail,
     onRequestSiteVisit,
+    onStartWork,
     viewerRole,
   }: {
     detail: ProductionBuildDetail;
     onRequestSiteVisit: (input: { milestoneKey: string }) => void;
+    onStartWork?: (milestoneKey: string) => void;
     viewerRole?: "builder" | "lender";
   }) => (
     <div
@@ -185,6 +197,11 @@ vi.mock("./ActiveBuildGanttWorkspace.tsx", () => ({
       >
         Gantt order site visit
       </button>
+      {onStartWork ? (
+        <button onClick={() => onStartWork("foundation")} type="button">
+          Gantt start work
+        </button>
+      ) : null}
       {detail.milestones.map((milestone) => (
         <div
           data-testid={`mock-active-build-gantt-${milestone.key}`}
@@ -3057,8 +3074,8 @@ describe("ProductionBuildDetailSurface", () => {
     expect(within(backlog).getByText("Planned")).toBeTruthy();
   });
 
-  test("exposes explicit start-work action for scheduled ready milestones", () => {
-    const startMilestoneWork = vi.fn();
+  test("exposes explicit start-work action for scheduled ready milestones", async () => {
+    const startMilestoneWork = vi.fn().mockResolvedValue(undefined);
 
     render(
       <ProductionBuildDetailSurface
@@ -3089,10 +3106,90 @@ describe("ProductionBuildDetailSurface", () => {
     );
 
     fireEvent.click(screen.getByTestId("milestone-detail-sheet-start-work"));
-    expect(startMilestoneWork).toHaveBeenCalledWith({
-      milestoneKey: "foundation",
-      note: undefined,
-    });
+    expect(screen.getByTestId("milestone-start-dialog")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Record start" })
+    );
+    await waitFor(() =>
+      expect(startMilestoneWork).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actualStartedAt: expect.any(Number),
+          idempotencyKey: expect.any(String),
+          milestoneKey: "foundation",
+          source: "milestone_detail",
+        })
+      )
+    );
+  });
+
+  test("routes milestone-card starts through the shared confirmation controller", () => {
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ startMilestoneWork: vi.fn() }}
+        activeTab="milestones"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              evidenceState: "Draft package",
+              progressPercent: undefined,
+              status: "planned",
+            },
+          ],
+          submilestones: [],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        viewerRole="builder"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByTestId("kanban-card-start-work-foundation")
+    );
+    expect(screen.getByText("Milestone card")).toBeTruthy();
+    expect(screen.getByTestId("milestone-start-dialog")).toBeTruthy();
+  });
+
+  test("confirms and atomically submits completion catch-up when actual start is missing", async () => {
+    const submitMilestoneCompletion = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ submitMilestoneCompletion }}
+        activeTab="details"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              evidenceState: "Draft package",
+              progressPercent: undefined,
+              status: "planned",
+            },
+          ],
+          submilestones: [],
+        }}
+        milestoneKey="foundation"
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        viewerRole="builder"
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("milestone-primary-completion-action"));
+    expect(screen.getByText("Completion confirmation")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Record start" }));
+
+    await waitFor(() =>
+      expect(submitMilestoneCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actualStartedAt: expect.any(Number),
+          idempotencyKey: expect.any(String),
+          milestoneKey: "foundation",
+        })
+      )
+    );
   });
 
   test("preserves milestone sheet routing state for production builds", () => {
@@ -3244,6 +3341,36 @@ describe("ProductionBuildDetailSurface", () => {
       screen.getByRole("dialog", { name: "Configure site visit" }),
     ).toBeTruthy();
     expect(assignSiteVisit).not.toHaveBeenCalled();
+  });
+
+  test("routes Gantt starts through the shared confirmation controller", () => {
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ startMilestoneWork: vi.fn() }}
+        activeBuildId="active-build-01"
+        activeTab="gantt"
+        detail={{
+          ...detail,
+          milestones: [
+            {
+              ...detail.milestones[0],
+              evidenceState: "Draft package",
+              progressPercent: undefined,
+              status: "planned",
+            },
+          ],
+        }}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        timelineWorkspace={timelineWorkspace}
+        viewerRole="builder"
+        workosOrganizationId="org_test"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Gantt start work" }));
+    expect(screen.getByText("Gantt roadmap")).toBeTruthy();
+    expect(screen.getByTestId("milestone-start-dialog")).toBeTruthy();
   });
 
   test("passes builder viewer role into the production-backed Gantt workspace", () => {

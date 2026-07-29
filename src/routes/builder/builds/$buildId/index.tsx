@@ -439,6 +439,12 @@ export function BuilderBuildWorkspaceRoute({
   const startMilestoneWork = useMutation(
     (api as any).production_proposals.startActiveBuildMilestone
   );
+  const correctMilestoneStart = useMutation(
+    (api as any).production_proposals.correctActiveBuildMilestoneStart
+  );
+  const retractMilestoneStart = useMutation(
+    (api as any).production_proposals.retractActiveBuildMilestoneStart
+  );
   const updateSubmilestoneExecution = useMutation(
     (api as any).production_proposals.updateActiveBuildSubmilestoneExecution
   );
@@ -700,24 +706,44 @@ export function BuilderBuildWorkspaceRoute({
       "milestone",
       "update"
     )
-      ? ({ milestoneKey, note }) =>
+      ? (input) =>
           startMilestoneWork({
+            ...input,
             buildId: activeBuildId,
-            milestoneKey,
-            note,
+            workosOrganizationId,
+          })
+      : undefined,
+    correctMilestoneStart: canUseAppPermission(
+      appPermissions,
+      "milestone",
+      "update"
+    )
+      ? (input) =>
+          correctMilestoneStart({
+            ...input,
+            buildId: activeBuildId,
+            workosOrganizationId,
+          })
+      : undefined,
+    retractMilestoneStart: canUseAppPermission(
+      appPermissions,
+      "milestone",
+      "update"
+    )
+      ? (input) =>
+          retractMilestoneStart({
+            ...input,
+            buildId: activeBuildId,
             workosOrganizationId,
           })
       : undefined,
     submitMilestoneCompletion:
       canUseAppPermission(appPermissions, "milestone", "update") &&
       canUseAppPermission(appPermissions, "evidence", "update")
-        ? ({ actualCostCents, completedDay, milestoneKey, note }) =>
+        ? (input) =>
             submitMilestoneCompletion({
-              actualCostCents,
+              ...input,
               buildId: activeBuildId,
-              completedDay: completedDay ?? 0,
-              milestoneKey,
-              note,
               workosOrganizationId,
             })
         : undefined,
@@ -777,31 +803,7 @@ export function BuilderBuildWorkspaceRoute({
         }
       : undefined,
   } as ProductionBuildDetailActions;
-  const surfaceActions: ProductionBuildDetailActions =
-    milestoneStartPrototypeEnabled
-      ? {
-          ...actions,
-          startMilestoneWork: ({ milestoneKey, note }) => {
-            setPrototypeStartRequest({
-              entrySource: note?.toLowerCase().includes("calendar")
-                ? "calendar"
-                : "milestone_card",
-              milestoneKey,
-            });
-          },
-          updateSubmilestoneExecution: (input) => {
-            if (input.status === "in_progress") {
-              setPrototypeStartRequest({
-                entrySource: "submilestone",
-                milestoneKey: input.milestoneKey,
-                submilestoneKey: input.submilestoneKey,
-              });
-              return;
-            }
-            return actions.updateSubmilestoneExecution?.(input);
-          },
-        }
-      : actions;
+  const surfaceActions: ProductionBuildDetailActions = actions;
 
   return (
     <>
