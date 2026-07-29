@@ -115,7 +115,7 @@ export async function authorizeActiveBuildAccess(
     throw new Error("Forbidden: active build participation");
   }
 
-  const participants = await projectParticipants(ctx, {
+  const participants = await projectActiveBuildParticipants(ctx, {
     build,
     grantedParticipants,
     proposal,
@@ -317,7 +317,7 @@ async function resolveDerivedBuildRole(
   return;
 }
 
-async function projectParticipants(
+export async function projectActiveBuildParticipants(
   ctx: QueryCtx | MutationCtx,
   input: {
     build: Doc<"activeBuilds">;

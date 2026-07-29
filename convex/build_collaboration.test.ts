@@ -179,6 +179,245 @@ async function addBuildParticipant(
   });
 }
 
+async function seedCollaborationReferenceEntities(
+  fixture: Awaited<ReturnType<typeof seedActiveBuild>>,
+) {
+  const seedPostId = await fixture.admin.mutation(
+    (api as any).build_collaboration
+      .approveAndPublishBuildCollaborationBundle,
+    {
+      actionItems: [],
+      audienceMode: "author_tier_and_higher",
+      buildId: fixture.buildId,
+      organizationId: ORGANIZATION_ID,
+      plainText: "Reference fixture.",
+      postType: "update",
+      references: [],
+      requestedReaderIds: [],
+      tiptapJson: JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Reference fixture.", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      }),
+    },
+  );
+  return await fixture.base.run(async (ctx) => {
+    const build = await ctx.db.get(fixture.buildId);
+    if (!build) {
+      throw new Error("Active Build fixture is unavailable.");
+    }
+    const now = Date.now();
+    const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
+      brokerageId: build.brokerageId,
+      budgetCents: 500_000_00,
+      createdAt: now,
+      dayEnd: 20,
+      dayStart: 0,
+      dependencyKeys: [],
+      drawAvailabilityCents: 400_000_00,
+      durationDays: 20,
+      key: "foundation",
+      name: "Foundation",
+      order: 1,
+      organizationId: build.organizationId,
+      proposalId: build.proposalId,
+      updatedAt: now,
+    });
+    const proposalSubmilestoneId = await ctx.db.insert(
+      "proposalSubmilestones",
+      {
+        brokerageId: build.brokerageId,
+        createdAt: now,
+        key: "footings",
+        milestoneKey: "foundation",
+        name: "Footings",
+        order: 1,
+        organizationId: build.organizationId,
+        proposalId: build.proposalId,
+        proposalMilestoneId,
+        updatedAt: now,
+      },
+    );
+    const milestoneId = await ctx.db.insert("buildMilestones", {
+      brokerageId: build.brokerageId,
+      budgetCents: 500_000_00,
+      buildId: build._id,
+      createdAt: now,
+      dayEnd: 20,
+      dayStart: 0,
+      dependencyKeys: [],
+      drawAvailabilityCents: 400_000_00,
+      durationDays: 20,
+      key: "foundation",
+      name: "Foundation",
+      order: 1,
+      organizationId: build.organizationId,
+      progressPercent: 35,
+      proposalMilestoneId,
+      status: "in_progress",
+      updatedAt: now,
+    });
+    const submilestoneId = await ctx.db.insert("buildSubmilestones", {
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      buildMilestoneId: milestoneId,
+      createdAt: now,
+      key: "footings",
+      milestoneKey: "foundation",
+      name: "Footings",
+      order: 1,
+      organizationId: build.organizationId,
+      proposalSubmilestoneId,
+      status: "planned",
+      updatedAt: now,
+    });
+    const proposalDrawId = await ctx.db.insert("proposalDrawScheduleRows", {
+      amountCents: 184_000_00,
+      brokerageId: build.brokerageId,
+      createdAt: now,
+      drawKey: "draw-1",
+      label: "Draw 1",
+      order: 1,
+      organizationId: build.organizationId,
+      proposalId: build.proposalId,
+      proposalMilestoneId,
+      source: "milestone",
+      timingDay: 20,
+      updatedAt: now,
+    });
+    const drawId = await ctx.db.insert("plannedDrawScheduleRows", {
+      amountCents: 184_000_00,
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      buildMilestoneId: milestoneId,
+      createdAt: now,
+      drawKey: "draw-1",
+      label: "Draw 1",
+      milestoneKey: "foundation",
+      order: 1,
+      organizationId: build.organizationId,
+      proposalDrawScheduleRowId: proposalDrawId,
+      status: "planned",
+      timingDay: 20,
+      updatedAt: now,
+    });
+    const visitId = await ctx.db.insert("buildSiteVisits", {
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      buildMilestoneId: milestoneId,
+      createdAt: now,
+      milestoneKey: "foundation",
+      organizationId: build.organizationId,
+      requestedAt: "2026-07-29T12:00:00.000Z",
+      requestedDay: 10,
+      status: "requested",
+      tokenExpiresAt: now + 86_400_000,
+      updatedAt: now,
+      url: "https://example.test/site-visit",
+      visitId: "SV-1",
+    });
+    const evidenceAssetId = await ctx.db.insert("buildEvidenceAssets", {
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      createdAt: now,
+      evidenceKey: "foundation-evidence",
+      fileName: "foundation.jpg",
+      label: "Foundation photo",
+      locationVerified: true,
+      milestoneKey: "foundation",
+      mimeType: "image/jpeg",
+      organizationId: build.organizationId,
+      proposalId: build.proposalId,
+      siteVisitId: visitId,
+      sizeBytes: 1024,
+      source: "test",
+      tag: "Progress photo",
+      updatedAt: now,
+    });
+    const documentId = await ctx.db.insert("buildDocuments", {
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      contractorVisible: false,
+      createdAt: now,
+      documentType: "budget",
+      fileName: "confidential-budget.pdf",
+      mimeType: "application/pdf",
+      organizationId: build.organizationId,
+      proposalId: build.proposalId,
+      sizeBytes: 2048,
+      status: "uploaded",
+      updatedAt: now,
+      uploadedByWorkosUserId: "user_admin",
+    });
+    const permitDocumentId = await ctx.db.insert("buildDocuments", {
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      createdAt: now,
+      documentType: "permit",
+      fileName: "building-permit.pdf",
+      mimeType: "application/pdf",
+      organizationId: build.organizationId,
+      proposalId: build.proposalId,
+      sizeBytes: 1024,
+      status: "uploaded",
+      updatedAt: now,
+      uploadedByWorkosUserId: "user_admin",
+    });
+    const materialId = await ctx.db.insert("buildCostItems", {
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      buildMilestoneId: milestoneId,
+      costCents: 12_500_00,
+      createdAt: now,
+      createdByWorkosUserId: "user_admin",
+      itemKey: "concrete",
+      itemType: "material",
+      milestoneKey: "foundation",
+      organizationId: build.organizationId,
+      proposalId: build.proposalId,
+      quantity: 10,
+      relevantSubmilestoneKeys: ["footings"],
+      supplier: "Secret Supplier",
+      title: "Concrete",
+      updatedAt: now,
+      updatedByWorkosUserId: "user_admin",
+    });
+    const actionItemId = await ctx.db.insert("buildActionItems", {
+      assignmentState: "unassigned",
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      createdAt: now,
+      creatorWorkosUserId: "user_admin",
+      currentRevision: 1,
+      descriptionPlainText: "",
+      descriptionTiptapJson: JSON.stringify({ content: [], type: "doc" }),
+      originatingPostId: seedPostId,
+      organizationId: build.organizationId,
+      priority: "high",
+      requiresAcceptance: false,
+      status: "todo",
+      title: "Upload engineer seal",
+      updatedAt: now,
+    });
+    return {
+      actionItemId,
+      documentId,
+      drawId,
+      evidenceAssetId,
+      evidencePackageId: "foundation-evidence",
+      materialId,
+      milestoneId,
+      permitDocumentId,
+      siteVisitId: visitId,
+      submilestoneId,
+    };
+  });
+}
+
 describe("Build collaboration publication and feed", () => {
   test("publishes only through the authenticated human and returns the visible post", async () => {
     const { admin, buildId } = await seedActiveBuild();
@@ -489,7 +728,7 @@ describe("Build collaboration publication and feed", () => {
         entityId: "user_broker",
         labelSnapshot: "Broker Reviewer",
         primary: true,
-        summarySnapshot: "Lender reviewer",
+        summarySnapshot: "Broker on this Build",
       }),
     ]);
     expect(persisted.outbox.map((event) => event.eventType)).toEqual(
@@ -1499,6 +1738,385 @@ describe("Build collaboration tenant rollout", () => {
           reason: "Production rollback drill.",
         }),
       ]),
+    );
+  });
+});
+
+describe("Build collaboration canonical reference authorization", () => {
+  test("indexes every canonical kind while omitting restricted fields and entities for lower roles", async () => {
+    const fixture = await seedActiveBuild();
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Site Contractor",
+      role: "contractor",
+      subject: "user_contractor",
+    });
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Homeowner",
+      role: "homeowner",
+      subject: "user_homeowner",
+    });
+    const entities = await seedCollaborationReferenceEntities(fixture);
+
+    const adminOptions = await fixture.admin.query(
+      (api as any).build_collaboration_references
+        .listBuildCollaborationTagOptions,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(new Set(adminOptions.map((option: any) => option.entityKind))).toEqual(
+      new Set([
+        "actionItem",
+        "document",
+        "draw",
+        "evidenceAsset",
+        "evidencePackage",
+        "material",
+        "milestone",
+        "participant",
+        "siteVisit",
+        "submilestone",
+      ]),
+    );
+
+    const contractor = withIdentity(fixture.base, {
+      roles: ["contractor"],
+      subject: "user_contractor",
+    });
+    const contractorOptions = await contractor.query(
+      (api as any).build_collaboration_references
+        .listBuildCollaborationTagOptions,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    const contractorSerialized = JSON.stringify(contractorOptions);
+    expect(contractorOptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityKind: "document",
+          label: "building-permit.pdf",
+        }),
+        expect.objectContaining({
+          entityKind: "material",
+          label: "Concrete",
+          summary: "Material · 10 qty",
+        }),
+      ]),
+    );
+    expect(contractorSerialized).not.toContain("confidential-budget.pdf");
+    expect(contractorSerialized).not.toContain("Secret Supplier");
+    expect(contractorSerialized).not.toContain("foundation-evidence");
+    expect(
+      contractorOptions.some((option: any) => option.entityKind === "draw"),
+    ).toBe(false);
+
+    const homeowner = withIdentity(fixture.base, {
+      roles: ["homeowner"],
+      subject: "user_homeowner",
+    });
+    const homeownerOptions = await homeowner.query(
+      (api as any).build_collaboration_references
+        .listBuildCollaborationTagOptions,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(
+      homeownerOptions.some(
+        (option: any) =>
+          option.entityKind === "document" ||
+          option.entityKind === "draw" ||
+          option.entityKind === "evidenceAsset" ||
+          option.entityKind === "evidencePackage",
+      ),
+    ).toBe(false);
+
+    const legacyPostId = await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "build_wide",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Legacy reference container.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                { text: "Legacy reference container.", type: "text" },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(
+        legacyPostId as Id<"buildCollaborationPosts">,
+      );
+      const build = await ctx.db.get(fixture.buildId);
+      if (!(post?.currentRevisionId && build)) {
+        throw new Error("Legacy reference fixture is unavailable.");
+      }
+      await ctx.db.insert("buildCollaborationReferences", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: Date.now(),
+        entityId: entities.drawId,
+        entityKind: "draw",
+        labelSnapshot: "SECRET DRAW $184,000",
+        organizationId: build.organizationId,
+        ownerKind: "postRevision",
+        ownerRecordId: post.currentRevisionId,
+        postId: legacyPostId,
+        primary: true,
+        summarySnapshot: "Secret lender release state",
+      });
+    });
+    const contractorFeed = await contractor.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      },
+    );
+    const legacyEntry = contractorFeed.page.find(
+      (entry: any) =>
+        entry.kind === "post" && entry.post._id === legacyPostId,
+    );
+    expect(JSON.stringify(legacyEntry)).not.toContain("SECRET");
+    expect(legacyEntry.references).toEqual([
+      expect.objectContaining({ labelSnapshot: "Unavailable reference" }),
+    ]);
+  });
+
+  test("persists canonical post and Action Item snapshots while feed reads current labels", async () => {
+    const fixture = await seedActiveBuild();
+    const entities = await seedCollaborationReferenceEntities(fixture);
+    const postId = await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [
+          {
+            references: [
+              {
+                entityId: entities.materialId,
+                entityKind: "material",
+                label: "Forged material",
+                primary: true,
+                summary: "Forged supplier summary",
+              },
+            ],
+            title: "Confirm concrete",
+          },
+        ],
+        audienceMode: "author_tier_and_higher",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Foundation reference.",
+        postType: "update",
+        references: [
+          {
+            entityId: entities.milestoneId,
+            entityKind: "milestone",
+            label: "Forged milestone",
+            primary: true,
+            summary: "Forged milestone summary",
+          },
+        ],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Foundation reference.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    const immutableSnapshots = await fixture.base.run(async (ctx) => {
+      const references = await ctx.db
+        .query("buildCollaborationReferences")
+        .withIndex("by_postId", (query) => query.eq("postId", postId))
+        .collect();
+      await ctx.db.patch(entities.milestoneId, {
+        name: "Foundation and footings",
+      });
+      return references;
+    });
+    expect(immutableSnapshots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityId: entities.milestoneId,
+          labelSnapshot: "Foundation",
+          ownerKind: "postRevision",
+          summarySnapshot: "35% complete · in progress",
+        }),
+        expect.objectContaining({
+          entityId: entities.materialId,
+          labelSnapshot: "Concrete",
+          ownerKind: "actionItem",
+          summarySnapshot: "$12,500 · 10 qty",
+        }),
+      ]),
+    );
+
+    const feed = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      },
+    );
+    const published = feed.page.find(
+      (entry: any) => entry.kind === "post" && entry.post._id === postId,
+    );
+    expect(published.references).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityId: entities.milestoneId,
+          labelSnapshot: "Foundation and footings",
+        }),
+      ]),
+    );
+  });
+
+  test("rejects cross-Build, archived, and mandatory-reader-incompatible references without leaking details", async () => {
+    const fixture = await seedActiveBuild();
+    const entities = await seedCollaborationReferenceEntities(fixture);
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Removed participant",
+      role: "contractor",
+      subject: "user_removed",
+    });
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Active contractor",
+      role: "contractor",
+      subject: "user_contractor",
+    });
+    const { foreignMilestoneId } = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      const sourceMilestone = await ctx.db.get(entities.milestoneId);
+      if (!(build && sourceMilestone)) {
+        throw new Error("Reference fixture is unavailable.");
+      }
+      const now = Date.now();
+      const otherBuildId = await ctx.db.insert("activeBuilds", {
+        brokerageId: build.brokerageId,
+        buildName: "Other Build",
+        builderProfileId: build.builderProfileId,
+        createdAt: now,
+        location: "Other address",
+        organizationId: build.organizationId,
+        proposalId: build.proposalId,
+        startDate: "2026-08-01",
+        status: "active",
+        totalBudgetCents: 100_000_00,
+        updatedAt: now,
+        workflowRuleSnapshotId: build.workflowRuleSnapshotId,
+      });
+      const foreignMilestoneId = await ctx.db.insert("buildMilestones", {
+        brokerageId: sourceMilestone.brokerageId,
+        budgetCents: sourceMilestone.budgetCents,
+        buildId: otherBuildId,
+        createdAt: now,
+        dayEnd: sourceMilestone.dayEnd,
+        dayStart: sourceMilestone.dayStart,
+        dependencyKeys: sourceMilestone.dependencyKeys,
+        drawAvailabilityCents: sourceMilestone.drawAvailabilityCents,
+        durationDays: sourceMilestone.durationDays,
+        key: "foreign",
+        name: "Foreign confidential milestone",
+        order: sourceMilestone.order,
+        organizationId: sourceMilestone.organizationId,
+        proposalMilestoneId: sourceMilestone.proposalMilestoneId,
+        status: sourceMilestone.status,
+        updatedAt: now,
+      });
+      const removed = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "user_removed"),
+        )
+        .unique();
+      if (removed) {
+        await ctx.db.patch(removed._id, {
+          removedAt: now,
+          status: "removed",
+          updatedAt: now,
+          validUntil: now,
+        });
+      }
+      return { foreignMilestoneId };
+    });
+    const publish = (reference: {
+      entityId: string;
+      entityKind: "draw" | "milestone" | "participant";
+    }) =>
+      fixture.admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        {
+          actionItems: [],
+          audienceMode: "build_wide",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "Adversarial reference.",
+          postType: "update",
+          references: [{ ...reference, label: "Client-controlled disclosure" }],
+          requestedReaderIds: [],
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [
+                  { text: "Adversarial reference.", type: "text" },
+                ],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        },
+      );
+
+    await expect(
+      publish({
+        entityId: foreignMilestoneId,
+        entityKind: "milestone",
+      }),
+    ).rejects.toThrow(
+      "The referenced entity does not exist in this active Build or is archived.",
+    );
+    await expect(
+      publish({ entityId: "user_removed", entityKind: "participant" }),
+    ).rejects.toThrow(
+      "The referenced entity does not exist in this active Build or is archived.",
+    );
+    await expect(
+      publish({ entityId: entities.drawId, entityKind: "draw" }),
+    ).rejects.toThrow(
+      "The referenced entity is not readable by every publication reader.",
     );
   });
 });

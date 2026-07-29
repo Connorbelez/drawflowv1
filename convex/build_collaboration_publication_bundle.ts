@@ -23,6 +23,7 @@ export const actionItemInputValidator = v.object({
   descriptionTiptapJson: v.optional(v.string()),
   dueAt: v.optional(v.number()),
   priority: v.optional(buildActionItemPriorityValidator),
+  references: v.optional(v.array(referenceInputValidator)),
   requiresAcceptance: v.optional(v.boolean()),
   title: v.string(),
 });
@@ -80,6 +81,7 @@ export interface ActionItemInput {
   dueAt?: number;
   effectiveAssignmentState?: "assigned" | "requested" | "unassigned";
   priority?: "urgent" | "high" | "medium" | "low" | "none";
+  references?: ReferenceInput[];
   requiresAcceptance?: boolean;
   title: string;
 }
@@ -271,6 +273,7 @@ function normalizeActionItem(input: ActionItemInput): ActionItemInput {
     descriptionTiptapJson: description.tiptapJson,
     dueAt: input.dueAt,
     priority: input.priority ?? "none",
+    references: (input.references ?? []).map(normalizeReference),
     requiresAcceptance: input.requiresAcceptance,
     title: input.title.trim(),
   };

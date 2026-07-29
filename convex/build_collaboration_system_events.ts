@@ -1,5 +1,10 @@
 import { v } from "convex/values";
+import {
+  type ActiveBuildAuthorization,
+  projectActiveBuildParticipants,
+} from "./activeBuildAccess";
 import { stableContentHash } from "./build_collaboration";
+import { resolveCanonicalBuildCollaborationReferences } from "./build_collaboration_references";
 import { requireActiveBuildCollaborationTenantByScope } from "./build_collaboration_rollout";
 import {
   buildCollaborationPostTypeValidator,
@@ -28,6 +33,59 @@ export const publishBuildCollaborationSystemEvent = internalMutation
       brokerageId: build.brokerageId,
       organizationId: build.organizationId,
     });
+    if (
+      Boolean(args.primaryReferenceId) !== Boolean(args.primaryReferenceKind)
+    ) {
+      throw new Error(
+        "System event references require both an entity kind and entity ID."
+      );
+    }
+    const brokerage = await ctx.db.get(build.brokerageId);
+    const proposal = await ctx.db.get(build.proposalId);
+    if (!(brokerage && proposal)) {
+      throw new Error("Build scope is unavailable.");
+    }
+    const participantRows = await ctx.db
+      .query("buildParticipants")
+      .withIndex("by_buildId_and_status", (query) =>
+        query.eq("buildId", build._id).eq("status", "active")
+      )
+      .take(500);
+    const participants = await projectActiveBuildParticipants(ctx, {
+      build,
+      grantedParticipants: participantRows,
+      proposal,
+    });
+    const systemAuthorization = {
+      brokerage,
+      build,
+      effectiveRole: { role: "admin", tier: 5 },
+      organizationId: build.organizationId,
+      participants,
+      proposal,
+      roles: ["admin"],
+      viewer: {
+        email: undefined,
+        organizationId: build.organizationId,
+        roles: ["admin"],
+        subject: "system",
+      },
+    } as ActiveBuildAuthorization;
+    const [primaryReference] =
+      await resolveCanonicalBuildCollaborationReferences(ctx, {
+        authorization: systemAuthorization,
+        readerIds: participants.map((participant) => participant.workosUserId),
+        references:
+          args.primaryReferenceId && args.primaryReferenceKind
+            ? [
+                {
+                  entityId: args.primaryReferenceId,
+                  entityKind: args.primaryReferenceKind,
+                  primary: true,
+                },
+              ]
+            : [],
+      });
     const existing = await ctx.db
       .query("buildCollaborationPosts")
       .withIndex("by_buildId_and_systemEventKey", (query) =>
@@ -67,8 +125,8 @@ export const publishBuildCollaborationSystemEvent = internalMutation
       openActionItemCount: 0,
       organizationId: args.organizationId,
       postType: args.postType,
-      primaryReferenceId: args.primaryReferenceId,
-      primaryReferenceKind: args.primaryReferenceKind,
+      primaryReferenceId: primaryReference?.entityId,
+      primaryReferenceKind: primaryReference?.entityKind,
       revision: 1,
       source: "system",
       systemEventKey: args.idempotencyKey,
@@ -89,6 +147,22 @@ export const publishBuildCollaborationSystemEvent = internalMutation
       tiptapJson,
     });
     await ctx.db.patch(postId, { currentRevisionId: revisionId });
+    if (primaryReference) {
+      await ctx.db.insert("buildCollaborationReferences", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        entityId: primaryReference.entityId,
+        entityKind: primaryReference.entityKind,
+        labelSnapshot: primaryReference.label,
+        organizationId: build.organizationId,
+        ownerKind: "postRevision",
+        ownerRecordId: revisionId,
+        postId,
+        primary: true,
+        summarySnapshot: primaryReference.summary,
+      });
+    }
     await ctx.db.insert("eventOutbox", {
       brokerageId: build.brokerageId,
       createdAt: now,

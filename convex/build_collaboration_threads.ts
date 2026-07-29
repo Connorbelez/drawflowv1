@@ -4,6 +4,11 @@ import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { collaborationCommentRowValidator } from "./build_collaboration_contracts";
+import { collaborationRoleTier } from "./build_collaboration_model";
+import {
+  resolveCanonicalBuildCollaborationReferences,
+  resolveCurrentBuildCollaborationReference,
+} from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildCollaborationPinKindValidator,
@@ -114,25 +119,41 @@ export const addBuildCollaborationComment = authenticatedMutation
       latestActivityActorWorkosUserId: authorization.viewer.subject,
       updatedAt: now,
     });
-    for (const reference of args.references.slice(0, 100)) {
-      const entityId = reference.entityId.trim();
-      const label = reference.label.trim();
-      if (!(entityId && label)) {
-        throw new Error("Every reference requires an entity and label.");
-      }
+    const audienceMembers = await ctx.db
+      .query("buildCollaborationAudienceMembers")
+      .withIndex("by_postId_and_workosUserId", (query) =>
+        query.eq("postId", post._id)
+      )
+      .take(500);
+    const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
+      authorization,
+      readerIds:
+        audienceMembers.length > 0
+          ? audienceMembers.map((member) => member.workosUserId)
+          : authorization.participants
+              .filter(
+                (participant) =>
+                  post.audienceMode === "build_wide" ||
+                  collaborationRoleTier(participant.role) >=
+                    post.audienceFloorTier
+              )
+              .map((participant) => participant.workosUserId),
+      references: args.references.slice(0, 100),
+    });
+    for (const reference of references) {
       await ctx.db.insert("buildCollaborationReferences", {
         brokerageId: authorization.brokerage._id,
         buildId: authorization.build._id,
         createdAt: now,
-        entityId,
+        entityId: reference.entityId,
         entityKind: reference.entityKind,
-        labelSnapshot: label,
+        labelSnapshot: reference.label,
         organizationId: authorization.organizationId,
         ownerKind: "commentRevision",
         ownerRecordId: revisionId,
         postId: post._id,
         primary: reference.primary ?? false,
-        summarySnapshot: reference.summary?.trim() || undefined,
+        summarySnapshot: reference.summary,
       });
     }
     await ensureFollow(ctx, {
@@ -205,14 +226,37 @@ export const listBuildCollaborationComments = authenticatedQuery
             createdAt: comment.createdAt,
             logicalDepth: comment.logicalDepth,
           },
-          references: references.map((reference) => ({
-            _creationTime: reference._creationTime,
-            _id: reference._id,
-            entityId: reference.entityId,
-            entityKind: reference.entityKind,
-            labelSnapshot: reference.labelSnapshot,
-            summarySnapshot: reference.summarySnapshot,
-          })),
+          references: await Promise.all(
+            references.map(async (reference) => {
+              try {
+                const current = await resolveCurrentBuildCollaborationReference(
+                  ctx,
+                  {
+                    authorization,
+                    entityId: reference.entityId,
+                    entityKind: reference.entityKind,
+                  }
+                );
+                return {
+                  _creationTime: reference._creationTime,
+                  _id: reference._id,
+                  entityId: reference.entityId,
+                  entityKind: reference.entityKind,
+                  labelSnapshot: current.label,
+                  summarySnapshot: current.summary,
+                };
+              } catch {
+                return {
+                  _creationTime: reference._creationTime,
+                  _id: reference._id,
+                  entityId: reference.entityId,
+                  entityKind: reference.entityKind,
+                  labelSnapshot: "Unavailable reference",
+                  summarySnapshot: undefined,
+                };
+              }
+            })
+          ),
           revision: revision
             ? {
                 _creationTime: revision._creationTime,

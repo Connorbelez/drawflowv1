@@ -29,6 +29,10 @@ import {
   publicationBundleHash,
   type ReferenceInput,
 } from "./build_collaboration_publication_bundle";
+import {
+  resolveCanonicalBuildCollaborationReferences,
+  resolveCurrentBuildCollaborationReference,
+} from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Id, MutationCtx } from "./types";
 
@@ -104,42 +108,59 @@ export async function prepareBuildCollaborationPublication(
   }
 ) {
   const normalizedBundle = normalizePublicationBundle(input.bundle);
-  const bundle = {
+  const normalizedEffectiveBundle = {
     ...normalizedBundle,
     actionItems: resolveEffectiveActionItems({
       actionItems: normalizedBundle.actionItems,
       authorization: input.authorization,
     }),
   };
-  validateRichTextContent(bundle);
-  for (const reference of bundle.references) {
-    if (!(reference.entityId && reference.label)) {
-      throw new Error("Every reference requires an entity and label.");
-    }
-  }
-  for (const mutation of bundle.sharedMutations) {
+  validateRichTextContent(normalizedEffectiveBundle);
+  for (const mutation of normalizedEffectiveBundle.sharedMutations) {
     if (!(mutation.entityKind && mutation.operation && mutation.summary)) {
       throw new Error(
         "Every approved shared mutation requires an entity kind, operation, and summary."
       );
     }
   }
-  if (bundle.references.length > MAX_REFERENCES_PER_BUNDLE) {
+  if (normalizedEffectiveBundle.references.length > MAX_REFERENCES_PER_BUNDLE) {
     throw new Error(
       `A publication may contain at most ${MAX_REFERENCES_PER_BUNDLE} references.`
     );
   }
-  if (bundle.actionItems.length > MAX_ACTION_ITEMS_PER_BUNDLE) {
+  if (
+    normalizedEffectiveBundle.actionItems.length > MAX_ACTION_ITEMS_PER_BUNDLE
+  ) {
     throw new Error(
       `A publication may contain at most ${MAX_ACTION_ITEMS_PER_BUNDLE} Action Items.`
     );
   }
   const audience = resolvePublicationAudience({
-    audienceMode: bundle.audienceMode,
+    audienceMode: normalizedEffectiveBundle.audienceMode,
     authorization: input.authorization,
-    excludedReaderIds: bundle.excludedReaderIds,
-    requestedReaderIds: bundle.requestedReaderIds,
+    excludedReaderIds: normalizedEffectiveBundle.excludedReaderIds,
+    requestedReaderIds: normalizedEffectiveBundle.requestedReaderIds,
   });
+  const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
+    authorization: input.authorization,
+    readerIds: audience.readerIds,
+    references: normalizedEffectiveBundle.references,
+  });
+  const actionItems = await Promise.all(
+    normalizedEffectiveBundle.actionItems.map(async (actionItem) => ({
+      ...actionItem,
+      references: await resolveCanonicalBuildCollaborationReferences(ctx, {
+        authorization: input.authorization,
+        readerIds: audience.readerIds,
+        references: actionItem.references ?? [],
+      }),
+    }))
+  );
+  const bundle = {
+    ...normalizedEffectiveBundle,
+    actionItems,
+    references,
+  };
   const effectiveNotificationEffects =
     await resolveBuildCollaborationPublicationNotifications(ctx, {
       actionAssigneeIds: bundle.actionItems.flatMap((item) =>
@@ -519,14 +540,37 @@ export const listBuildCollaborationFeed = authenticatedQuery
               viewerRole: receipt.viewerRole,
               workosUserId: receipt.workosUserId,
             })),
-          references: references.map((reference) => ({
-            _creationTime: reference._creationTime,
-            _id: reference._id,
-            entityId: reference.entityId,
-            entityKind: reference.entityKind,
-            labelSnapshot: reference.labelSnapshot,
-            summarySnapshot: reference.summarySnapshot,
-          })),
+          references: await Promise.all(
+            references.map(async (reference) => {
+              try {
+                const current = await resolveCurrentBuildCollaborationReference(
+                  ctx,
+                  {
+                    authorization,
+                    entityId: reference.entityId,
+                    entityKind: reference.entityKind,
+                  }
+                );
+                return {
+                  _creationTime: reference._creationTime,
+                  _id: reference._id,
+                  entityId: reference.entityId,
+                  entityKind: reference.entityKind,
+                  labelSnapshot: current.label,
+                  summarySnapshot: current.summary,
+                };
+              } catch {
+                return {
+                  _creationTime: reference._creationTime,
+                  _id: reference._id,
+                  entityId: reference.entityId,
+                  entityKind: reference.entityKind,
+                  labelSnapshot: "Unavailable reference",
+                  summarySnapshot: undefined,
+                };
+              }
+            })
+          ),
           revision: {
             _creationTime: revision._creationTime,
             _id: revision._id,
@@ -909,36 +953,16 @@ async function createActionItems(
   }
 ) {
   for (const actionItem of input.actionItems) {
-    const assignee = actionItem.assigneeWorkosUserId;
-    const assigneeParticipant = assignee
-      ? input.authorization.participants.find(
-          (participant) => participant.workosUserId === assignee
-        )
-      : undefined;
+    const { assignee, assignmentState, requiresAcceptance } =
+      resolveApprovedActionItemAssignment(actionItem, input.authorization);
     const descriptionPlainText = actionItem.descriptionPlainText ?? "";
     const descriptionTiptapJson =
       actionItem.descriptionTiptapJson ??
       JSON.stringify({ content: [], type: "doc" });
     validateOptionalTiptapJson(descriptionTiptapJson);
-    const upwardAssignment =
-      assigneeParticipant !== undefined &&
-      collaborationRoleTier(assigneeParticipant.role) >
-        input.authorization.effectiveRole.tier;
-    const requiresAcceptance = actionItem.requiresAcceptance ?? false;
-    const expectedAssignmentState = assignee
-      ? requiresAcceptance
-        ? ("requested" as const)
-        : ("assigned" as const)
-      : ("unassigned" as const);
-    if (
-      actionItem.effectiveAssignmentState !== expectedAssignmentState ||
-      requiresAcceptance !== (actionItem.requiresAcceptance ?? upwardAssignment)
-    ) {
-      throw new Error(
-        "The approved Action Item assignment state is no longer effective."
-      );
-    }
-    const assignmentState = actionItem.effectiveAssignmentState;
+    const primaryReference = actionItem.references?.find(
+      (reference) => reference.primary
+    );
     const actionItemId = await ctx.db.insert("buildActionItems", {
       assigneeWorkosUserId: assignee,
       assignmentRequestedAt:
@@ -955,6 +979,8 @@ async function createActionItems(
       originatingPostId: input.postId,
       organizationId: input.authorization.organizationId,
       priority: actionItem.priority ?? "none",
+      primaryReferenceId: primaryReference?.entityId,
+      primaryReferenceKind: primaryReference?.entityKind,
       requiresAcceptance,
       status: "todo",
       title: actionItem.title,
@@ -975,6 +1001,76 @@ async function createActionItems(
         status: "todo",
       }),
       organizationId: input.authorization.organizationId,
+    });
+    await persistActionItemReferences(ctx, {
+      actionItemId,
+      authorization: input.authorization,
+      now: input.now,
+      postId: input.postId,
+      references: actionItem.references ?? [],
+    });
+  }
+}
+
+function resolveApprovedActionItemAssignment(
+  actionItem: ActionItemInput,
+  authorization: ActiveBuildAuthorization
+) {
+  const assignee = actionItem.assigneeWorkosUserId;
+  const assigneeParticipant = assignee
+    ? authorization.participants.find(
+        (participant) => participant.workosUserId === assignee
+      )
+    : undefined;
+  const upwardAssignment =
+    assigneeParticipant !== undefined &&
+    collaborationRoleTier(assigneeParticipant.role) >
+      authorization.effectiveRole.tier;
+  const requiresAcceptance = actionItem.requiresAcceptance ?? false;
+  const expectedAssignmentState = assignee
+    ? requiresAcceptance
+      ? ("requested" as const)
+      : ("assigned" as const)
+    : ("unassigned" as const);
+  if (
+    actionItem.effectiveAssignmentState !== expectedAssignmentState ||
+    requiresAcceptance !== (actionItem.requiresAcceptance ?? upwardAssignment)
+  ) {
+    throw new Error(
+      "The approved Action Item assignment state is no longer effective."
+    );
+  }
+  return {
+    assignee,
+    assignmentState: actionItem.effectiveAssignmentState,
+    requiresAcceptance,
+  };
+}
+
+async function persistActionItemReferences(
+  ctx: MutationCtx,
+  input: {
+    actionItemId: Id<"buildActionItems">;
+    authorization: ActiveBuildAuthorization;
+    now: number;
+    postId: Id<"buildCollaborationPosts">;
+    references: ReferenceInput[];
+  }
+) {
+  for (const reference of input.references) {
+    await ctx.db.insert("buildCollaborationReferences", {
+      brokerageId: input.authorization.brokerage._id,
+      buildId: input.authorization.build._id,
+      createdAt: input.now,
+      entityId: reference.entityId,
+      entityKind: reference.entityKind,
+      labelSnapshot: reference.label,
+      organizationId: input.authorization.organizationId,
+      ownerKind: "actionItem",
+      ownerRecordId: input.actionItemId,
+      postId: input.postId,
+      primary: reference.primary ?? false,
+      summarySnapshot: reference.summary,
     });
   }
 }
