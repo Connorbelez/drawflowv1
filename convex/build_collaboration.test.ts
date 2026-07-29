@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -12,10 +13,12 @@ const ORGANIZATION_ID = "org_build_collaboration";
 function withIdentity(
   t: ReturnType<typeof convexTest>,
   {
+    actorKind = "human",
     organizationId = ORGANIZATION_ID,
     roles,
     subject,
   }: {
+    actorKind?: "agent" | "automation" | "human" | "service" | "system";
     organizationId?: string;
     roles: string[];
     subject: string;
@@ -29,6 +32,7 @@ function withIdentity(
     roles,
     subject,
     tokenIdentifier: `https://api.workos.com/|${subject}`,
+    "https://fairlend.ca/actor_kind": actorKind,
   } as never);
 }
 
@@ -218,8 +222,9 @@ describe("Build collaboration publication and feed", () => {
   test("rejects an agent-authored publication attempt", async () => {
     const { base, buildId } = await seedActiveBuild();
     const agent = withIdentity(base, {
-      roles: ["agent"],
-      subject: "agent_build_collaboration",
+      actorKind: "agent",
+      roles: ["admin"],
+      subject: "opaque-subject-01",
     });
 
     await expect(
@@ -241,23 +246,30 @@ describe("Build collaboration publication and feed", () => {
           }),
         },
       ),
-    ).rejects.toThrow();
+    ).rejects.toThrow(
+      "Publishing shared collaboration state requires an explicit human-in-the-loop approval.",
+    );
   });
 
   test("publishes an agent-prepared draft only after human approval and preserves the human author", async () => {
-    const { admin, buildId } = await seedActiveBuild();
-    const draftId = await admin.mutation(
+    const { admin, base, buildId } = await seedActiveBuild();
+    const agent = withIdentity(base, {
+      actorKind: "agent",
+      roles: ["admin"],
+      subject: "svc-opaque-2847",
+    });
+    const draftId = (await agent.mutation(
       (api as any).build_collaboration_drafts
         .saveMyBuildCollaborationDraft,
       {
         acknowledgementRequired: false,
         actionItems: [],
+        approvalOwnerWorkosUserId: "user_admin",
         audienceMode: "build_wide",
         buildId,
         organizationId: ORGANIZATION_ID,
         plainText: "Prepared by the Build agent for human review.",
         postType: "update",
-        preparedByAgent: true,
         references: [],
         requestedReaderIds: [],
         tiptapJson: JSON.stringify({
@@ -275,6 +287,20 @@ describe("Build collaboration publication and feed", () => {
           type: "doc",
         }),
       },
+    )) as Id<"buildCollaborationDrafts">;
+    const draftsAwaitingHuman = await admin.query(
+      (api as any).build_collaboration_drafts
+        .listMyBuildCollaborationDrafts,
+      { buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(draftsAwaitingHuman).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          _id: draftId,
+          approvalOwnerWorkosUserId: "user_admin",
+          preparedByActorKind: "agent",
+        }),
+      ]),
     );
 
     const postId = await admin.mutation(
@@ -302,10 +328,231 @@ describe("Build collaboration publication and feed", () => {
     });
     expect(result.approvals).toMatchObject([
       {
+        approvingActorKind: "human",
         approvingWorkosUserId: "user_admin",
+        bundleHash: expect.stringMatching(/^sha256-/),
+        bundleJsonSnapshot: expect.stringContaining(
+          "Prepared by the Build agent",
+        ),
+        draftRevision: 1,
         state: "published",
       },
     ]);
+    const draft = await admin.run(async (ctx) => await ctx.db.get(draftId));
+    expect(draft).toMatchObject({
+      approvalOwnerWorkosUserId: "user_admin",
+      preparedByActorKind: "agent",
+      preparedByAgent: true,
+      preparedByWorkosUserId: "svc-opaque-2847",
+    });
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_drafts
+          .approveAndPublishBuildCollaborationDraft,
+        { buildId, draftId, organizationId: ORGANIZATION_ID },
+      ),
+    ).rejects.toThrow("This draft is no longer publishable.");
+  });
+
+  test("invalidates human approval when the exact prepared bundle changes", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const agent = withIdentity(base, {
+      actorKind: "agent",
+      roles: ["admin"],
+      subject: "svc-opaque-tamper",
+    });
+    const draftId = (await agent.mutation(
+      (api as any).build_collaboration_drafts
+        .saveMyBuildCollaborationDraft,
+      {
+        actionItems: [],
+        approvalOwnerWorkosUserId: "user_admin",
+        audienceMode: "build_wide",
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Exact prepared bundle.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({ content: [], type: "doc" }),
+      },
+    )) as Id<"buildCollaborationDrafts">;
+
+    await base.run(async (ctx) => {
+      const draft = await ctx.db.get(draftId);
+      if (!draft) {
+        throw new Error("Draft fixture is unavailable.");
+      }
+      const changedBundle = JSON.stringify({
+        ...JSON.parse(draft.bundleJson),
+        notificationEffects: [
+          {
+            channel: "email",
+            recipientWorkosUserId: "user_builder",
+            templateKey: "collaboration-published",
+          },
+        ],
+      });
+      await ctx.db.patch(draftId, { bundleJson: changedBundle });
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_drafts
+          .approveAndPublishBuildCollaborationDraft,
+        { buildId, draftId, organizationId: ORGANIZATION_ID },
+      ),
+    ).rejects.toThrow(
+      "The draft changed after review. Review the latest revision before publishing.",
+    );
+  });
+
+  test("rejects every shared mutation for signed non-human actor kinds regardless of subject format", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const postId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        acknowledgementRequired: true,
+        actionItems: [{ title: "Human-owned Action Item" }],
+        audienceMode: "build_wide",
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Human-published control post.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                { text: "Human-published control post.", type: "text" },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    const actionItemId = await base.run(async (ctx) => {
+      const item = await ctx.db
+        .query("buildActionItems")
+        .withIndex("by_originatingPostId_and_status", (query) =>
+          query.eq("originatingPostId", postId),
+        )
+        .unique();
+      if (!item) {
+        throw new Error("Action Item fixture is unavailable.");
+      }
+      return item._id;
+    });
+    const humanRequired =
+      "Publishing shared collaboration state requires an explicit human-in-the-loop approval.";
+    const humanShapedAgent = withIdentity(base, {
+      actorKind: "agent",
+      roles: ["admin"],
+      subject: "user_admin",
+    });
+    const agentPrefixedService = withIdentity(base, {
+      actorKind: "service",
+      roles: ["admin"],
+      subject: "agent_build_collaboration",
+    });
+    const emailShapedAutomation = withIdentity(base, {
+      actorKind: "automation",
+      roles: ["admin"],
+      subject: "operations@example.com",
+    });
+    const opaqueSystem = withIdentity(base, {
+      actorKind: "system",
+      roles: ["admin"],
+      subject: "00u4Jk9Qp7",
+    });
+
+    await expect(
+      humanShapedAgent.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        {
+          actionItems: [],
+          audienceMode: "build_wide",
+          buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "Non-human direct publication.",
+          postType: "update",
+          references: [],
+          requestedReaderIds: [],
+          tiptapJson: JSON.stringify({
+            content: [{ type: "paragraph" }],
+            type: "doc",
+          }),
+        },
+      ),
+    ).rejects.toThrow(humanRequired);
+    await expect(
+      agentPrefixedService.mutation(
+        (api as any).build_collaboration_threads
+          .addBuildCollaborationComment,
+        {
+          buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "Service comment.",
+          postId,
+          references: [],
+          tiptapJson: JSON.stringify({
+            content: [{ type: "paragraph" }],
+            type: "doc",
+          }),
+        },
+      ),
+    ).rejects.toThrow(humanRequired);
+    await expect(
+      emailShapedAutomation.mutation(
+        (api as any).build_action_items.updateBuildActionItem,
+        {
+          actionItemId,
+          buildId,
+          organizationId: ORGANIZATION_ID,
+          title: "Automation rewrite",
+        },
+      ),
+    ).rejects.toThrow(humanRequired);
+    await expect(
+      opaqueSystem.mutation(
+        (api as any).build_collaboration_threads.toggleBuildCollaborationPin,
+        {
+          buildId,
+          kind: "build",
+          organizationId: ORGANIZATION_ID,
+          postId,
+        },
+      ),
+    ).rejects.toThrow(humanRequired);
+    await expect(
+      humanShapedAgent.mutation(
+        (api as any).build_collaboration_acknowledgements
+          .acknowledgeBuildCollaborationPost,
+        {
+          buildId,
+          organizationId: ORGANIZATION_ID,
+          postId,
+        },
+      ),
+    ).rejects.toThrow(humanRequired);
+    await expect(
+      agentPrefixedService.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId,
+          expectedStatus: "active",
+          nextStatus: "disabled",
+          organizationId: ORGANIZATION_ID,
+          reason: "Non-human lifecycle attempt.",
+        },
+      ),
+    ).rejects.toThrow(humanRequired);
   });
 
   test("requires and records acknowledgement only for an authorized lower-tier participant", async () => {

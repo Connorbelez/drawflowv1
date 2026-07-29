@@ -1,5 +1,13 @@
 import { v } from "convex/values";
 
+export const buildCollaborationActorKindValidator = v.union(
+  v.literal("human"),
+  v.literal("agent"),
+  v.literal("service"),
+  v.literal("system"),
+  v.literal("automation")
+);
+
 export const buildCollaborationRoleValidator = v.union(
   v.literal("admin"),
   v.literal("principle-broker"),

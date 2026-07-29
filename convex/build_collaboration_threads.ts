@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { collaborationCommentRowValidator } from "./build_collaboration_contracts";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
@@ -36,7 +37,7 @@ export const addBuildCollaborationComment = authenticatedMutation
   })
   .returns(v.id("buildCollaborationComments"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );
@@ -235,7 +236,7 @@ export const reactToBuildCollaborationPost = authenticatedMutation
   })
   .returns(v.union(v.id("buildCollaborationReactions"), v.null()))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );
@@ -286,7 +287,7 @@ export const toggleBuildCollaborationPin = authenticatedMutation
   })
   .returns(v.union(v.id("buildCollaborationPins"), v.null()))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );
@@ -339,7 +340,7 @@ export const toggleBuildCollaborationFollow = authenticatedMutation
   })
   .returns(v.boolean())
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );
@@ -384,7 +385,7 @@ export const markBuildCollaborationPostViewed = authenticatedMutation
   })
   .returns(v.id("buildCollaborationReceipts"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );

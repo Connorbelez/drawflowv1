@@ -1,5 +1,6 @@
 "use client";
 
+import type { JSONContent } from "@tiptap/react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
   Bell,
@@ -50,6 +51,7 @@ import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { BuildCollaborationActionItems } from "./BuildCollaborationActionItems.tsx";
+import { BuildCollaborationApprovalReview } from "./BuildCollaborationApprovalReview.tsx";
 import {
   BuildCollaborationReferenceChip,
   BuildCollaborationReferenceSheet,
@@ -63,6 +65,7 @@ import {
   type AudienceMode,
   audienceLabel,
   type CollaborationCommentRow,
+  type CollaborationDraftBundle,
   type CollaborationDraftSummary,
   type CollaborationFeedEntry,
   type CollaborationFeedPostEntry,
@@ -146,8 +149,39 @@ export function BuildCollaborationFeed({
   const [actionTitle, setActionTitle] = useState("");
   const [acknowledgementRequired, setAcknowledgementRequired] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [pendingComposerApproval, setPendingComposerApproval] =
+    useState<CollaborationDraftBundle | null>(null);
+  const [reviewingDraftId, setReviewingDraftId] =
+    useState<Id<"buildCollaborationDrafts"> | null>(null);
   const [focusedReference, setFocusedReference] =
     useState<FocusedReference | null>(null);
+  const composerRevisionKey = useMemo(
+    () =>
+      JSON.stringify({
+        acknowledgementRequired,
+        actionTitle,
+        audienceMode,
+        document,
+        postType,
+        references,
+        requestedReaderIds,
+      }),
+    [
+      acknowledgementRequired,
+      actionTitle,
+      audienceMode,
+      document,
+      postType,
+      references,
+      requestedReaderIds,
+    ]
+  );
+
+  useEffect(() => {
+    if (composerRevisionKey) {
+      setPendingComposerApproval(null);
+    }
+  }, [composerRevisionKey]);
 
   const tagOptions = useMemo<ReferenceOption[]>(
     () => (rawTagOptions ?? []).map(toCollaborationTagOption),
@@ -211,43 +245,60 @@ export function BuildCollaborationFeed({
     setRequestedReaderIds([]);
     setPostType("update");
     setAudienceMode("build_wide");
+    setPendingComposerApproval(null);
     setComposerOpen(false);
   };
 
-  const publishBundle = async () => {
-    if (!organizationId || publishing) {
-      return;
-    }
+  const buildComposerBundle = (): CollaborationDraftBundle | null => {
     const plainText = plainTextFromDocument(document);
     if (!plainText) {
+      return null;
+    }
+    return {
+      acknowledgementRequired,
+      actionItems: composerActionItems(actionTitle),
+      attachmentAssetIds: [],
+      audienceMode,
+      excludedReaderIds: [],
+      notificationEffects: [],
+      plainText,
+      postType,
+      references: references.map((reference, index) => ({
+        entityId: reference.id,
+        entityKind:
+          referenceByKey.get(`${reference.kind}:${reference.id}`)?.entityKind ??
+          toBackendReferenceKind(reference.kind),
+        label: reference.label,
+        primary:
+          index ===
+          references.findIndex((candidate) => candidate.kind !== "participant"),
+        summary: reference.summary,
+      })),
+      requestedReaderIds: audienceMode === "custom" ? requestedReaderIds : [],
+      sharedMutations: [],
+      tiptapJson: JSON.stringify(document),
+    };
+  };
+
+  const requestComposerApproval = () => {
+    const bundle = buildComposerBundle();
+    if (!bundle) {
       toast.error("Write an update before publishing.");
+      return;
+    }
+    setPendingComposerApproval(bundle);
+  };
+
+  const publishBundle = async () => {
+    if (!(organizationId && pendingComposerApproval) || publishing) {
       return;
     }
     setPublishing(true);
     try {
       await publish({
-        acknowledgementRequired,
-        actionItems: composerActionItems(actionTitle),
-        audienceMode,
+        ...pendingComposerApproval,
         buildId: activeBuildId,
         organizationId,
-        plainText,
-        postType,
-        references: references.map((reference, index) => ({
-          entityId: reference.id,
-          entityKind:
-            referenceByKey.get(`${reference.kind}:${reference.id}`)
-              ?.entityKind ?? toBackendReferenceKind(reference.kind),
-          label: reference.label,
-          primary:
-            index ===
-            references.findIndex(
-              (candidate) => candidate.kind !== "participant"
-            ),
-          summary: reference.summary,
-        })),
-        requestedReaderIds: audienceMode === "custom" ? requestedReaderIds : [],
-        tiptapJson: JSON.stringify(document),
       });
       toast.success("Update published.");
       resetComposer();
@@ -388,28 +439,11 @@ export function BuildCollaborationFeed({
                             Review
                           </Button>
                           <Button
-                            onClick={async () => {
-                              try {
-                                await publishDraft({
-                                  buildId: activeBuildId,
-                                  draftId: draft._id,
-                                  organizationId,
-                                });
-                                toast.success(
-                                  "Draft approved and published under your name."
-                                );
-                              } catch (error) {
-                                toast.error(
-                                  error instanceof Error
-                                    ? error.message
-                                    : "Unable to publish draft."
-                                );
-                              }
-                            }}
+                            onClick={() => setReviewingDraftId(draft._id)}
                             size="sm"
                             type="button"
                           >
-                            Approve & publish
+                            Review exact bundle
                           </Button>
                           <Button
                             onClick={async () => {
@@ -435,6 +469,40 @@ export function BuildCollaborationFeed({
                           </Button>
                         </div>
                       </CardPanel>
+                      {reviewingDraftId === draft._id && bundle ? (
+                        <CardPanel className="border-t p-3">
+                          <BuildCollaborationApprovalReview
+                            bundle={bundle}
+                            onApprove={async () => {
+                              if (publishing) {
+                                return;
+                              }
+                              setPublishing(true);
+                              try {
+                                await publishDraft({
+                                  buildId: activeBuildId,
+                                  draftId: draft._id,
+                                  organizationId,
+                                });
+                                toast.success(
+                                  "Draft approved and published under your name."
+                                );
+                                setReviewingDraftId(null);
+                              } catch (error) {
+                                toast.error(
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Unable to publish draft."
+                                );
+                              } finally {
+                                setPublishing(false);
+                              }
+                            }}
+                            onCancel={() => setReviewingDraftId(null)}
+                            publishing={publishing}
+                          />
+                        </CardPanel>
+                      ) : null}
                     </Card>
                   );
                 })}
@@ -558,11 +626,11 @@ export function BuildCollaborationFeed({
                     </Button>
                     <Button
                       disabled={publishing}
-                      onClick={publishBundle}
+                      onClick={requestComposerApproval}
                       type="button"
                     >
                       <Send aria-hidden="true" className="size-4" />
-                      {publishing ? "Publishing…" : "Publish"}
+                      Review publication
                     </Button>
                   </div>
                 </div>
@@ -576,6 +644,14 @@ export function BuildCollaborationFeed({
                   />
                   Require acknowledgement from participants at or below my role
                 </label>
+                {pendingComposerApproval ? (
+                  <BuildCollaborationApprovalReview
+                    bundle={pendingComposerApproval}
+                    onApprove={publishBundle}
+                    onCancel={() => setPendingComposerApproval(null)}
+                    publishing={publishing}
+                  />
+                ) : null}
               </div>
             ) : null}
           </FramePanel>

@@ -15,6 +15,16 @@ export const roleSlugs = [
 
 export type RoleSlug = (typeof roleSlugs)[number];
 
+export const actorKinds = [
+  "human",
+  "agent",
+  "service",
+  "system",
+  "automation",
+] as const;
+
+export type ActorKind = (typeof actorKinds)[number];
+
 export type Capability =
   | "authenticated"
   | "admin"
@@ -51,6 +61,7 @@ const capabilities: Record<Capability, readonly RoleSlug[] | null> = {
 };
 
 export interface AuthorizedViewer {
+  actorKind?: ActorKind;
   capability: Capability;
   email?: string;
   organizationId?: string;
@@ -159,6 +170,7 @@ export function viewerFromIdentity(
     stringClaim(identity["https://workos.com/organization_id"]);
 
   return {
+    actorKind: actorKindFromIdentity(identity),
     capability,
     email: identity.email,
     ...(organizationId ? { organizationId } : {}),
@@ -166,6 +178,17 @@ export function viewerFromIdentity(
     subject: identity.subject,
     tokenIdentifier: identity.tokenIdentifier,
   };
+}
+
+function actorKindFromIdentity(identity: UserIdentity): ActorKind {
+  const candidate =
+    identity["https://fairlend.ca/actor_kind"] ??
+    identity.actorKind ??
+    identity.actor_kind;
+  return typeof candidate === "string" &&
+    actorKinds.includes(candidate.trim().toLowerCase() as ActorKind)
+    ? (candidate.trim().toLowerCase() as ActorKind)
+    : "human";
 }
 
 function stringClaim(value: unknown): string | null {

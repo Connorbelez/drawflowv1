@@ -5,6 +5,7 @@ import {
   authorizeActiveBuildAccess,
 } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
+import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import { buildCollaborationTenantStatusValidator } from "./build_collaboration_validators";
 import type { Id, MutationCtx, QueryCtx } from "./types";
 
@@ -56,6 +57,7 @@ export const recordBuildCollaborationMigrationParityEvidence =
     .returns(v.id("buildCollaborationMigrationParityEvidence"))
     .handler(async (ctx, args) => {
       const authorization = await authorizeActiveBuildAccess(ctx, args);
+      await requireHumanCollaborationActor(ctx, authorization);
       requireTenantOperator(authorization);
       validateParityEvidence(args);
 
@@ -111,6 +113,7 @@ export const transitionBuildCollaborationTenantStatus = authenticatedMutation
   .returns(v.id("buildCollaborationTenantSettings"))
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildAccess(ctx, args);
+    await requireHumanCollaborationActor(ctx, authorization);
     requireTenantOperator(authorization);
 
     const currentSetting = await getTenantSetting(ctx, authorization);

@@ -1,38 +1,27 @@
 import { v } from "convex/values";
+import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
-import {
-  actionItemInputValidator,
-  type BuildCollaborationPublicationBundle,
-  publishBuildCollaborationBundle,
-  referenceInputValidator,
-  stableContentHash,
-} from "./build_collaboration";
+import { publishBuildCollaborationBundle } from "./build_collaboration";
 import { collaborationDraftSummaryValidator } from "./build_collaboration_contracts";
-import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
-  buildCollaborationAudienceModeValidator,
-  buildCollaborationPostTypeValidator,
-} from "./build_collaboration_validators";
+  type BuildCollaborationPublicationBundle,
+  canonicalPublicationBundleJson,
+  normalizePublicationBundle,
+  publicationBundleFields,
+  publicationBundleHash,
+} from "./build_collaboration_publication_bundle";
+import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Id, MutationCtx } from "./types";
-
-const publicationBundleFields = {
-  acknowledgementRequired: v.optional(v.boolean()),
-  actionItems: v.array(actionItemInputValidator),
-  audienceMode: buildCollaborationAudienceModeValidator,
-  plainText: v.string(),
-  postType: buildCollaborationPostTypeValidator,
-  references: v.array(referenceInputValidator),
-  requestedReaderIds: v.array(v.string()),
-  tiptapJson: v.string(),
-};
 
 export const saveMyBuildCollaborationDraft = authenticatedMutation
   .input({
     ...publicationBundleFields,
+    approvalOwnerWorkosUserId: v.optional(v.string()),
     buildId: v.id("activeBuilds"),
     draftId: v.optional(v.id("buildCollaborationDrafts")),
     organizationId: v.string(),
-    preparedByAgent: v.boolean(),
+    preparedByAgent: v.optional(v.boolean()),
     scheduledFor: v.optional(v.number()),
   })
   .returns(v.id("buildCollaborationDrafts"))
@@ -42,9 +31,24 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
       args
     );
     const now = Date.now();
-    const bundle = bundleFromArgs(args);
-    const bundleJson = JSON.stringify(bundle);
-    const bundleHash = stableContentHash(bundleJson);
+    const bundle = normalizePublicationBundle(args);
+    const bundleJson = canonicalPublicationBundleJson(bundle);
+    const bundleHash = await publicationBundleHash(bundleJson);
+    const preparedByAgent = authorization.viewer.actorKind !== "human";
+    const approvalOwnerWorkosUserId =
+      args.approvalOwnerWorkosUserId?.trim() ||
+      (authorization.viewer.actorKind === "human"
+        ? authorization.viewer.subject
+        : undefined);
+    if (!approvalOwnerWorkosUserId) {
+      throw new Error(
+        "Agent, service, and automation drafts require a human approval owner."
+      );
+    }
+    await requireHumanApprovalOwner(ctx, {
+      approvalOwnerWorkosUserId,
+      authorization,
+    });
 
     if (args.draftId) {
       const draft = await ctx.db.get(args.draftId);
@@ -62,7 +66,10 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
       await ctx.db.patch(draft._id, {
         bundleHash,
         bundleJson,
-        preparedByAgent: args.preparedByAgent,
+        approvalOwnerWorkosUserId,
+        preparedByActorKind: authorization.viewer.actorKind,
+        preparedByAgent,
+        preparedByWorkosUserId: authorization.viewer.subject,
         revision: draft.revision + 1,
         scheduledFor: args.scheduledFor,
         state: "active",
@@ -79,7 +86,10 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
       createdAt: now,
       organizationId: authorization.organizationId,
       ownerWorkosUserId: authorization.viewer.subject,
-      preparedByAgent: args.preparedByAgent,
+      approvalOwnerWorkosUserId,
+      preparedByActorKind: authorization.viewer.actorKind,
+      preparedByAgent,
+      preparedByWorkosUserId: authorization.viewer.subject,
       revision: 1,
       scheduledFor: args.scheduledFor,
       state: "active",
@@ -99,7 +109,7 @@ export const listMyBuildCollaborationDrafts = authenticatedQuery
       ctx,
       args
     );
-    const drafts = await ctx.db
+    const ownedDrafts = await ctx.db
       .query("buildCollaborationDrafts")
       .withIndex("by_buildId_and_ownerWorkosUserId_and_state", (query) =>
         query
@@ -107,6 +117,21 @@ export const listMyBuildCollaborationDrafts = authenticatedQuery
           .eq("ownerWorkosUserId", authorization.viewer.subject)
       )
       .take(100);
+    const approvalDrafts = await ctx.db
+      .query("buildCollaborationDrafts")
+      .withIndex(
+        "by_buildId_and_approvalOwnerWorkosUserId_and_state",
+        (query) =>
+          query
+            .eq("buildId", authorization.build._id)
+            .eq("approvalOwnerWorkosUserId", authorization.viewer.subject)
+      )
+      .take(100);
+    const drafts = [
+      ...new Map(
+        [...ownedDrafts, ...approvalDrafts].map((draft) => [draft._id, draft])
+      ).values(),
+    ];
     return drafts
       .filter(
         (draft) => draft.state === "active" || draft.state === "scheduled"
@@ -115,8 +140,11 @@ export const listMyBuildCollaborationDrafts = authenticatedQuery
       .map((draft) => ({
         _creationTime: draft._creationTime,
         _id: draft._id,
+        approvalOwnerWorkosUserId: draft.approvalOwnerWorkosUserId,
         bundleJson: draft.bundleJson,
+        preparedByActorKind: draft.preparedByActorKind,
         preparedByAgent: draft.preparedByAgent ?? false,
+        preparedByWorkosUserId: draft.preparedByWorkosUserId,
         revision: draft.revision,
         scheduledFor: draft.scheduledFor,
         state: draft.state,
@@ -141,7 +169,8 @@ export const discardMyBuildCollaborationDraft = authenticatedMutation
     if (
       !draft ||
       draft.buildId !== authorization.build._id ||
-      draft.ownerWorkosUserId !== authorization.viewer.subject
+      (draft.ownerWorkosUserId !== authorization.viewer.subject &&
+        draft.approvalOwnerWorkosUserId !== authorization.viewer.subject)
     ) {
       throw new Error("Draft not found.");
     }
@@ -167,26 +196,20 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
       ctx,
       args
     );
-    if (
-      !authorization.viewer.subject ||
-      authorization.viewer.subject.startsWith("agent_")
-    ) {
-      throw new Error(
-        "Publishing requires an explicit human-in-the-loop approval."
-      );
-    }
+    await requireHumanCollaborationActor(ctx, authorization);
     const draft = await ctx.db.get(args.draftId);
     if (
       !draft ||
       draft.buildId !== authorization.build._id ||
-      draft.ownerWorkosUserId !== authorization.viewer.subject
+      (draft.approvalOwnerWorkosUserId ?? draft.ownerWorkosUserId) !==
+        authorization.viewer.subject
     ) {
       throw new Error("Draft not found.");
     }
     if (draft.state === "published" || draft.state === "discarded") {
       throw new Error("This draft is no longer publishable.");
     }
-    if (stableContentHash(draft.bundleJson) !== draft.bundleHash) {
+    if ((await publicationBundleHash(draft.bundleJson)) !== draft.bundleHash) {
       throw new Error(
         "The draft changed after review. Review the latest revision before publishing."
       );
@@ -200,19 +223,26 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
       "buildCollaborationPublicationApprovals",
       {
         approvedAt: now,
+        approvingActorKind: authorization.viewer.actorKind,
         approvingWorkosUserId: authorization.viewer.subject,
         brokerageId: authorization.brokerage._id,
         buildId: authorization.build._id,
         bundleHash: draft.bundleHash,
+        bundleJsonSnapshot: draft.bundleJson,
         draftId: draft._id,
+        draftRevision: draft.revision,
         mutationSummaryJson: JSON.stringify({
           actionItemCount: bundle.actionItems.length,
+          attachmentAssetCount: bundle.attachmentAssetIds.length,
+          notificationEffectCount: bundle.notificationEffects.length,
           referenceCount: bundle.references.length,
+          sharedMutationCount: bundle.sharedMutations.length,
         }),
         organizationId: authorization.organizationId,
         readerSummaryJson: JSON.stringify({
           audienceMode: bundle.audienceMode,
-          requestedReaderCount: bundle.requestedReaderIds.length,
+          excludedReaderIds: bundle.excludedReaderIds,
+          requestedReaderIds: bundle.requestedReaderIds,
         }),
         scheduledFor: draft.scheduledFor,
         state: "approved",
@@ -235,21 +265,6 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
   })
   .public();
 
-function bundleFromArgs(
-  args: BuildCollaborationPublicationBundle
-): BuildCollaborationPublicationBundle {
-  return {
-    acknowledgementRequired: args.acknowledgementRequired,
-    actionItems: args.actionItems,
-    audienceMode: args.audienceMode,
-    plainText: args.plainText,
-    postType: args.postType,
-    references: args.references,
-    requestedReaderIds: args.requestedReaderIds,
-    tiptapJson: args.tiptapJson,
-  };
-}
-
 async function invalidateDraftApprovals(
   ctx: MutationCtx,
   draftId: Id<"buildCollaborationDrafts">,
@@ -266,5 +281,48 @@ async function invalidateDraftApprovals(
         state: "invalidated",
       });
     }
+  }
+}
+
+async function requireHumanApprovalOwner(
+  ctx: MutationCtx,
+  input: {
+    approvalOwnerWorkosUserId: string;
+    authorization: ActiveBuildAuthorization;
+  }
+) {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_workos_user_id", (query) =>
+      query.eq("workosUserId", input.approvalOwnerWorkosUserId)
+    )
+    .unique();
+  if (!user || user.status === "deleted") {
+    throw new Error("The requested human approval owner is unavailable.");
+  }
+  if (
+    input.authorization.participants.some(
+      (participant) =>
+        participant.workosUserId === input.approvalOwnerWorkosUserId
+    )
+  ) {
+    return;
+  }
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user", (query) =>
+      query.eq("workosUserId", input.approvalOwnerWorkosUserId)
+    )
+    .take(100);
+  if (
+    !memberships.some(
+      (membership) =>
+        membership.workosOrganizationId ===
+          input.authorization.organizationId && membership.status === "active"
+    )
+  ) {
+    throw new Error(
+      "The requested human approval owner cannot access this Build."
+    );
   }
 }

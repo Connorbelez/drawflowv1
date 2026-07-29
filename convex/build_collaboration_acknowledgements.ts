@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { authenticatedMutation } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
-import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 
 export const acknowledgeBuildCollaborationPost = authenticatedMutation
   .input({
@@ -11,7 +11,7 @@ export const acknowledgeBuildCollaborationPost = authenticatedMutation
   })
   .returns(v.id("buildCollaborationAcknowledgements"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );

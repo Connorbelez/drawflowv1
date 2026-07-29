@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
@@ -100,7 +101,7 @@ export const updateBuildActionItem = authenticatedMutation
   .returns(v.id("buildActionItems"))
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: One auditable command validates the full Action Item state transition atomically.
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );
@@ -222,7 +223,7 @@ export const acceptBuildActionItemAssignment = authenticatedMutation
   })
   .returns(v.id("buildActionItems"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );
@@ -269,7 +270,7 @@ export const addBuildActionItemChecklistItem = authenticatedMutation
   })
   .returns(v.id("buildActionItemChecklistItems"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );
@@ -317,7 +318,7 @@ export const toggleBuildActionItemChecklistItem = authenticatedMutation
   })
   .returns(v.boolean())
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );
@@ -349,7 +350,7 @@ export const linkBuildActionItems = authenticatedMutation
   })
   .returns(v.id("buildActionItemRelations"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );

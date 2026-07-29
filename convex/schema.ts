@@ -6,6 +6,7 @@ import {
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
   buildActionRelationKindValidator,
+  buildCollaborationActorKindValidator,
   buildCollaborationApprovalStateValidator,
   buildCollaborationAssetStateValidator,
   buildCollaborationAttachmentKindValidator,
@@ -199,8 +200,15 @@ const demoTimelineDrawValidator = v.object({
 
 const demoTimelineCapitalSpikeValidator = v.object({
   amount: v.number(),
-  eventKind: v.optional(v.union(v.literal("cashInfusion"), v.literal("cost"))),
+  eventKind: v.optional(
+    v.union(
+      v.literal("cashInfusion"),
+      v.literal("cost"),
+      v.literal("homeEquityTakeout")
+    )
+  ),
   id: v.string(),
+  interestAnnualBps: v.optional(v.number()),
   label: v.string(),
   x: v.number(),
 });
@@ -2383,7 +2391,12 @@ export default defineSchema({
     capitalEventKey: v.string(),
     label: v.string(),
     amountCents: v.number(),
-    eventKind: v.union(v.literal("cost"), v.literal("cashInfusion")),
+    eventKind: v.union(
+      v.literal("cost"),
+      v.literal("cashInfusion"),
+      v.literal("homeEquityTakeout")
+    ),
+    interestAnnualBps: v.optional(v.number()),
     order: v.number(),
     x: v.number(),
     createdAt: v.number(),
@@ -3424,6 +3437,9 @@ export default defineSchema({
     brokerageId: v.id("brokerages"),
     buildId: v.id("activeBuilds"),
     ownerWorkosUserId: v.string(),
+    approvalOwnerWorkosUserId: v.optional(v.string()),
+    preparedByActorKind: v.optional(buildCollaborationActorKindValidator),
+    preparedByWorkosUserId: v.optional(v.string()),
     preparedByAgent: v.optional(v.boolean()),
     state: buildCollaborationDraftStateValidator,
     bundleJson: v.string(),
@@ -3432,18 +3448,27 @@ export default defineSchema({
     scheduledFor: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_buildId_and_ownerWorkosUserId_and_state", [
-    "buildId",
-    "ownerWorkosUserId",
-    "state",
-  ]),
+  })
+    .index("by_buildId_and_ownerWorkosUserId_and_state", [
+      "buildId",
+      "ownerWorkosUserId",
+      "state",
+    ])
+    .index("by_buildId_and_approvalOwnerWorkosUserId_and_state", [
+      "buildId",
+      "approvalOwnerWorkosUserId",
+      "state",
+    ]),
   buildCollaborationPublicationApprovals: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
     buildId: v.id("activeBuilds"),
     draftId: v.id("buildCollaborationDrafts"),
     approvingWorkosUserId: v.string(),
+    approvingActorKind: v.optional(buildCollaborationActorKindValidator),
     bundleHash: v.string(),
+    bundleJsonSnapshot: v.optional(v.string()),
+    draftRevision: v.optional(v.number()),
     readerSummaryJson: v.string(),
     mutationSummaryJson: v.string(),
     state: buildCollaborationApprovalStateValidator,
@@ -3624,6 +3649,11 @@ export default defineSchema({
     organizationId: v.string(),
     buildId: v.id("activeBuilds"),
     proposalId: v.id("buildProposals"),
+    facilityKind: v.optional(
+      v.union(v.literal("construction"), v.literal("homeEquityTakeout"))
+    ),
+    sourceCapitalEventKey: v.optional(v.string()),
+    interestAccrualStartDate: v.optional(v.string()),
     principalCents: v.number(),
     interestAnnualBps: v.number(),
     interestStartsOn: v.literal("funds_released"),
@@ -3935,8 +3965,10 @@ export default defineSchema({
     eventType: v.union(
       v.literal("borrower_copay"),
       v.literal("draw_release"),
-      v.literal("cost")
+      v.literal("cost"),
+      v.literal("home_equity_takeout")
     ),
+    loanFacilityId: v.optional(v.id("loanFacilities")),
     label: v.string(),
     amountCents: v.number(),
     eventDate: v.string(),

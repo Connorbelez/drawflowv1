@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { getFunctionName } from "convex/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  drafts: [] as Array<Record<string, unknown>>,
   mutate: vi.fn().mockResolvedValue(null),
   onOpenReference: vi.fn(),
 }));
@@ -74,11 +81,15 @@ vi.mock("convex/react", () => ({
     );
     if (
       functionName ===
-        "build_collaboration_threads:listBuildCollaborationComments" ||
-      functionName ===
-        "build_collaboration_drafts:listMyBuildCollaborationDrafts"
+      "build_collaboration_threads:listBuildCollaborationComments"
     ) {
       return [];
+    }
+    if (
+      functionName ===
+      "build_collaboration_drafts:listMyBuildCollaborationDrafts"
+    ) {
+      return mocks.drafts;
     }
     if (
       functionName ===
@@ -130,6 +141,7 @@ afterEach(() => {
   cleanup();
   mocks.mutate.mockClear();
   mocks.onOpenReference.mockClear();
+  mocks.drafts = [];
 });
 
 describe("BuildCollaborationFeed", () => {
@@ -183,5 +195,89 @@ describe("BuildCollaborationFeed", () => {
       entityKind: "evidenceAsset",
       href: "/backoffice/builds/build-1?tab=evidence&evidence=evidence-1",
     });
+  });
+
+  test("shows the complete effective bundle before a human approves an agent draft", async () => {
+    mocks.drafts = [
+      {
+        _creationTime: Date.now(),
+        _id: "draft-1",
+        approvalOwnerWorkosUserId: "user_admin",
+        bundleJson: JSON.stringify({
+          acknowledgementRequired: true,
+          actionItems: [{ title: "Upload engineer seal" }],
+          attachmentAssetIds: ["asset-1"],
+          audienceMode: "custom",
+          excludedReaderIds: ["user_contractor"],
+          notificationEffects: [
+            {
+              channel: "email",
+              recipientWorkosUserIds: ["user_broker"],
+              summary: "Notify the lender reviewer",
+            },
+          ],
+          plainText: "Foundation evidence is ready.",
+          postType: "update",
+          references: [
+            {
+              entityId: "evidence-1",
+              entityKind: "evidenceAsset",
+              label: "Foundation completion photo",
+            },
+          ],
+          requestedReaderIds: ["user_broker"],
+          sharedMutations: [
+            {
+              entityKind: "evidencePackage",
+              operation: "request_review",
+              summary: "Request lender evidence review",
+            },
+          ],
+          tiptapJson: JSON.stringify({
+            content: [{ type: "paragraph" }],
+            type: "doc",
+          }),
+        }),
+        preparedByActorKind: "agent",
+        preparedByAgent: true,
+        preparedByWorkosUserId: "svc-opaque-2847",
+        revision: 1,
+        state: "active",
+        updatedAt: Date.now(),
+      },
+    ];
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        organizationId="org-1"
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review exact bundle" }),
+    );
+
+    expect(screen.getByText("Human approval checkpoint")).toBeTruthy();
+    expect(screen.getByText("You will be the author")).toBeTruthy();
+    expect(screen.getByText(/Requested readers: 1/)).toBeTruthy();
+    expect(screen.getByText(/Explicit exclusions: 1/)).toBeTruthy();
+    expect(screen.getAllByText(/Foundation completion photo/)).toHaveLength(2);
+    expect(screen.getByText(/asset-1/)).toBeTruthy();
+    expect(screen.getByText(/Upload engineer seal/)).toBeTruthy();
+    expect(screen.getByText(/Notify the lender reviewer/)).toBeTruthy();
+    expect(screen.getByText(/Request lender evidence review/)).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Approve exact bundle & publish",
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        draftId: "draft-1",
+        organizationId: "org-1",
+      }),
+    );
   });
 });

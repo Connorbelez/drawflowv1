@@ -45,7 +45,14 @@ export type FocusedReference = ReferenceOption;
 export interface CollaborationDraftBundle {
   acknowledgementRequired?: boolean;
   actionItems: Array<{ title: string }>;
+  attachmentAssetIds?: string[];
   audienceMode: AudienceMode;
+  excludedReaderIds?: string[];
+  notificationEffects?: Array<{
+    channel: "email" | "in_app" | "push";
+    recipientWorkosUserIds: string[];
+    summary: string;
+  }>;
   plainText: string;
   postType: PostType;
   references: Array<{
@@ -55,6 +62,12 @@ export interface CollaborationDraftBundle {
     summary?: string;
   }>;
   requestedReaderIds: string[];
+  sharedMutations?: Array<{
+    entityId?: string;
+    entityKind: string;
+    operation: string;
+    summary: string;
+  }>;
   tiptapJson: string;
 }
 

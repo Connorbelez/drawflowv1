@@ -6,20 +6,25 @@ import {
   canReadCollaborationPost,
   canSeeCollaborationReceipt,
 } from "./build_collaboration_access";
+import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { collaborationFeedResultValidator } from "./build_collaboration_contracts";
+import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
   canCreateCustomCollaborationAudience,
   collaborationRoleTier,
   resolveCollaborationAudience,
 } from "./build_collaboration_model";
 import { fanOutBuildCollaborationPublication } from "./build_collaboration_notifications";
-import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
-  buildActionItemPriorityValidator,
-  buildCollaborationAudienceModeValidator,
-  buildCollaborationPostTypeValidator,
-  buildCollaborationReferenceKindValidator,
-} from "./build_collaboration_validators";
+  type ActionItemInput,
+  type BuildCollaborationPublicationBundle,
+  canonicalPublicationBundleJson,
+  normalizePublicationBundle,
+  publicationBundleFields,
+  publicationBundleHash,
+  type ReferenceInput,
+} from "./build_collaboration_publication_bundle";
+import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Id, MutationCtx } from "./types";
 
 const MAX_PLAIN_TEXT_LENGTH = 50_000;
@@ -27,88 +32,55 @@ const MAX_RICH_TEXT_LENGTH = 250_000;
 const MAX_REFERENCES_PER_BUNDLE = 100;
 const MAX_ACTION_ITEMS_PER_BUNDLE = 100;
 
-export const referenceInputValidator = v.object({
-  entityKind: buildCollaborationReferenceKindValidator,
-  entityId: v.string(),
-  label: v.string(),
-  primary: v.optional(v.boolean()),
-  summary: v.optional(v.string()),
-});
-
-export const actionItemInputValidator = v.object({
-  assigneeWorkosUserId: v.optional(v.string()),
-  descriptionPlainText: v.optional(v.string()),
-  descriptionTiptapJson: v.optional(v.string()),
-  dueAt: v.optional(v.number()),
-  priority: v.optional(buildActionItemPriorityValidator),
-  requiresAcceptance: v.optional(v.boolean()),
-  title: v.string(),
-});
-
-interface ReferenceInput {
-  entityId: string;
-  entityKind:
-    | "participant"
-    | "milestone"
-    | "submilestone"
-    | "draw"
-    | "evidencePackage"
-    | "evidenceAsset"
-    | "siteVisit"
-    | "document"
-    | "material"
-    | "actionItem";
-  label: string;
-  primary?: boolean;
-  summary?: string;
-}
-
-interface ActionItemInput {
-  assigneeWorkosUserId?: string;
-  descriptionPlainText?: string;
-  descriptionTiptapJson?: string;
-  dueAt?: number;
-  priority?: "urgent" | "high" | "medium" | "low" | "none";
-  requiresAcceptance?: boolean;
-  title: string;
-}
-
-export interface BuildCollaborationPublicationBundle {
-  acknowledgementRequired?: boolean;
-  actionItems: ActionItemInput[];
-  audienceMode: "build_wide" | "author_tier_and_higher" | "custom";
-  plainText: string;
-  postType: "update" | "question" | "issue" | "decision" | "announcement";
-  references: ReferenceInput[];
-  requestedReaderIds: string[];
-  tiptapJson: string;
-}
-
 export const approveAndPublishBuildCollaborationBundle = authenticatedMutation
   .input({
-    actionItems: v.array(actionItemInputValidator),
-    acknowledgementRequired: v.optional(v.boolean()),
-    audienceMode: buildCollaborationAudienceModeValidator,
+    ...publicationBundleFields,
     buildId: v.id("activeBuilds"),
     organizationId: v.string(),
-    plainText: v.string(),
-    postType: buildCollaborationPostTypeValidator,
-    references: v.array(referenceInputValidator),
-    requestedReaderIds: v.array(v.string()),
-    tiptapJson: v.string(),
   })
   .returns(v.id("buildCollaborationPosts"))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
       args
     );
-    assertHumanPublisher(authorization);
-    return await publishBuildCollaborationBundle(ctx, {
+    const bundle = normalizePublicationBundle(args);
+    const bundleJson = canonicalPublicationBundleJson(bundle);
+    const bundleHash = await publicationBundleHash(bundleJson);
+    const now = Date.now();
+    const draftId = await ctx.db.insert("buildCollaborationDrafts", {
+      approvalOwnerWorkosUserId: authorization.viewer.subject,
+      brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
+      bundleHash,
+      bundleJson,
+      createdAt: now,
+      organizationId: authorization.organizationId,
+      ownerWorkosUserId: authorization.viewer.subject,
+      preparedByActorKind: "human",
+      preparedByAgent: false,
+      preparedByWorkosUserId: authorization.viewer.subject,
+      revision: 1,
+      state: "active",
+      updatedAt: now,
+    });
+    const approvalId = await recordPublicationApproval(ctx, {
+      authorization,
+      bundle,
+      bundleHash,
+      bundleJson,
+      draftId,
+      draftRevision: 1,
+      now,
+    });
+    const postId = await publishBuildCollaborationBundle(ctx, {
       agentDrafted: false,
       authorization,
-      bundle: args,
+      bundle,
     });
+    await ctx.db.patch(approvalId, { publishedAt: now, state: "published" });
+    await ctx.db.patch(draftId, { state: "published", updatedAt: now });
+    return postId;
   })
   .public();
 
@@ -121,6 +93,7 @@ export async function publishBuildCollaborationBundle(
   }
 ) {
   const { authorization, bundle } = input;
+  await requireHumanCollaborationActor(ctx, authorization);
   if (
     bundle.postType === "announcement" &&
     authorization.effectiveRole.tier < 3
@@ -216,6 +189,12 @@ export async function publishBuildCollaborationBundle(
     ownerRecordId: postRevisionId,
     postId,
     references: bundle.references,
+  });
+  await persistAttachments(ctx, {
+    assetIds: bundle.attachmentAssetIds,
+    authorization,
+    now,
+    postRevisionId,
   });
   await createActionItems(ctx, {
     actionItems: bundle.actionItems,
@@ -475,17 +454,6 @@ export const listBuildCollaborationFeed = authenticatedQuery
   })
   .public();
 
-function assertHumanPublisher(authorization: ActiveBuildAuthorization) {
-  if (
-    !authorization.viewer.subject ||
-    authorization.viewer.subject.startsWith("agent_")
-  ) {
-    throw new Error(
-      "Publishing requires human approval. Agents may prepare drafts only."
-    );
-  }
-}
-
 function validateRichTextContent(input: {
   plainText: string;
   tiptapJson: string;
@@ -519,6 +487,79 @@ function validateRichTextContent(input: {
     throw new Error("Post rich text must contain a TipTap document.");
   }
   return { plainText, tiptapJson: JSON.stringify(parsed) };
+}
+
+async function persistAttachments(
+  ctx: MutationCtx,
+  input: {
+    assetIds: Id<"buildCollaborationAssets">[];
+    authorization: ActiveBuildAuthorization;
+    now: number;
+    postRevisionId: Id<"buildCollaborationPostRevisions">;
+  }
+) {
+  for (const assetId of new Set(input.assetIds)) {
+    const asset = await ctx.db.get(assetId);
+    if (
+      !asset ||
+      asset.buildId !== input.authorization.build._id ||
+      asset.organizationId !== input.authorization.organizationId ||
+      asset.brokerageId !== input.authorization.brokerage._id ||
+      asset.state !== "available"
+    ) {
+      throw new Error("A proposed collaboration asset is unavailable.");
+    }
+    await ctx.db.insert("buildCollaborationAttachments", {
+      attachmentId: asset._id,
+      attachmentKind: "collaborationAsset",
+      brokerageId: input.authorization.brokerage._id,
+      buildId: input.authorization.build._id,
+      createdAt: input.now,
+      createdByWorkosUserId: input.authorization.viewer.subject,
+      organizationId: input.authorization.organizationId,
+      ownerKind: "postRevision",
+      ownerRecordId: input.postRevisionId,
+    });
+  }
+}
+
+async function recordPublicationApproval(
+  ctx: MutationCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    bundle: BuildCollaborationPublicationBundle;
+    bundleHash: string;
+    bundleJson: string;
+    draftId: Id<"buildCollaborationDrafts">;
+    draftRevision: number;
+    now: number;
+  }
+) {
+  return await ctx.db.insert("buildCollaborationPublicationApprovals", {
+    approvedAt: input.now,
+    approvingActorKind: "human",
+    approvingWorkosUserId: input.authorization.viewer.subject,
+    brokerageId: input.authorization.brokerage._id,
+    buildId: input.authorization.build._id,
+    bundleHash: input.bundleHash,
+    bundleJsonSnapshot: input.bundleJson,
+    draftId: input.draftId,
+    draftRevision: input.draftRevision,
+    mutationSummaryJson: JSON.stringify({
+      actionItemCount: input.bundle.actionItems.length,
+      attachmentAssetCount: input.bundle.attachmentAssetIds.length,
+      notificationEffectCount: input.bundle.notificationEffects.length,
+      referenceCount: input.bundle.references.length,
+      sharedMutationCount: input.bundle.sharedMutations.length,
+    }),
+    organizationId: input.authorization.organizationId,
+    readerSummaryJson: JSON.stringify({
+      audienceMode: input.bundle.audienceMode,
+      excludedReaderIds: input.bundle.excludedReaderIds,
+      requestedReaderIds: input.bundle.requestedReaderIds,
+    }),
+    state: "approved",
+  });
 }
 
 function resolvePublicationAudience(input: {
