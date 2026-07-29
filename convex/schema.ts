@@ -3859,6 +3859,7 @@ export default defineSchema({
     reason: v.optional(v.string()),
     reportedAt: v.number(),
     source: v.string(),
+    startParentRequested: v.optional(v.boolean()),
     submilestoneKey: v.optional(v.string()),
     warnings: v.array(v.string()),
   })

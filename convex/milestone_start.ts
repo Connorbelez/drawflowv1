@@ -23,7 +23,6 @@ const BACKOFFICE_ROLES = [
   "broker",
   "agent",
 ] as const;
-const LENDER_ADMIN_ROLES = ["admin", "principle-broker"] as const;
 
 export interface MilestoneStartActor {
   brokerageId: Id<"brokerages">;
@@ -552,13 +551,17 @@ async function findIdempotentStart(
   if (events.length === 0) {
     return null;
   }
+  const normalizedReason = normalizeOptionalText(
+    input.dependencyOverrideReason
+  );
   if (
     events.some(
       (event) =>
         event.buildId !== input.build._id ||
         event.milestoneKey !== input.milestone.key ||
         event.actualStartedAt !== input.actualStartedAt ||
-        event.source !== input.source
+        event.source !== input.source ||
+        event.reason !== normalizedReason
     )
   ) {
     throw new ConvexError({
@@ -573,6 +576,14 @@ async function findIdempotentStart(
     throw new ConvexError({
       code: "IDEMPOTENCY_RESULT_INVALID",
       message: "The original start result is incomplete.",
+    });
+  }
+  if (
+    Boolean(targetEvent.startParentRequested) !== Boolean(input.startParent)
+  ) {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message: "This idempotency key belongs to a different start command.",
     });
   }
   return {
@@ -651,6 +662,7 @@ async function appendStartEvent(
     reason: input.reason,
     reportedAt: input.reportedAt,
     source: input.source,
+    startParentRequested: input.startParent ?? false,
     warnings: input.warnings,
   });
   const payload = {
@@ -718,43 +730,46 @@ async function createDependencyExceptionDeliveries(
     .withIndex("by_organization", (query) =>
       query.eq("workosOrganizationId", input.actor.organizationId)
     )
-    .collect();
-  const eligible = memberships.filter(
-    (membership) =>
-      membership.status === "active" &&
-      [membership.roleSlug, ...(membership.roleSlugs ?? [])].some(
-        (role) =>
-          role !== undefined &&
-          (BACKOFFICE_ROLES as readonly string[]).includes(role)
-      )
-  );
-  const admins = eligible.filter((membership) =>
-    [membership.roleSlug, ...(membership.roleSlugs ?? [])].some(
-      (role) =>
-        role !== undefined &&
-        (LENDER_ADMIN_ROLES as readonly string[]).includes(role)
-    )
-  );
-  const proposal = await ctx.db.get(input.build.proposalId);
-  const brokerAssignments = await ctx.db
-    .query("buildBrokerAssignments")
-    .withIndex("by_build", (query) => query.eq("buildId", input.build._id))
-    .take(100);
+    .take(500);
+  const eligible = memberships.filter(isEligibleLenderMembership);
+  const [brokerage, proposal, brokerAssignments] = await Promise.all([
+    ctx.db.get(input.actor.brokerageId),
+    ctx.db.get(input.build.proposalId),
+    ctx.db
+      .query("buildBrokerAssignments")
+      .withIndex("by_build", (query) => query.eq("buildId", input.build._id))
+      .take(100),
+  ]);
   const assignedIds = new Set(
     [
       proposal?.assignedBrokerWorkosUserId,
+      brokerage?.principalBrokerWorkosUserId,
       ...brokerAssignments.map(
         (assignment) => assignment.assignedBrokerWorkosUserId
       ),
     ].filter((value): value is string => Boolean(value))
   );
+  const assignedMemberships = await Promise.all(
+    [...assignedIds].map((workosUserId) =>
+      ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_user", (query) => query.eq("workosUserId", workosUserId))
+        .filter((query) =>
+          query.eq(
+            query.field("workosOrganizationId"),
+            input.actor.organizationId
+          )
+        )
+        .first()
+    )
+  );
+  const assignedEligibleIds = assignedMemberships
+    .filter(isEligibleLenderMembership)
+    .map((membership) => membership.workosUserId);
   const recipients = new Set(
-    assignedIds.size > 0
-      ? [...assignedIds, ...admins.map((membership) => membership.workosUserId)]
-      : [
-          ...eligible.map((membership) => membership.workosUserId),
-          ...admins.map((membership) => membership.workosUserId),
-        ]
+    assignedEligibleIds.length > 0
+      ? assignedEligibleIds
+      : eligible.map((membership) => membership.workosUserId)
   );
   const targetName = input.submilestone?.name ?? input.milestone.name;
   const now = Date.now();
@@ -804,6 +819,20 @@ async function createDependencyExceptionDeliveries(
       updatedAt: now,
     });
   }
+}
+
+function isEligibleLenderMembership(
+  membership: Doc<"workosOrganizationMemberships"> | null
+): membership is Doc<"workosOrganizationMemberships"> {
+  return (
+    membership !== null &&
+    membership.status === "active" &&
+    [membership.roleSlug, ...(membership.roleSlugs ?? [])].some(
+      (role) =>
+        role !== undefined &&
+        (BACKOFFICE_ROLES as readonly string[]).includes(role)
+    )
+  );
 }
 
 function normalizeOptionalText(value?: string) {

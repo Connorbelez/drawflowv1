@@ -6836,6 +6836,16 @@ describe("production proposal foundation", () => {
           "Crew mobilized while foundation inspection paperwork was closing.",
       },
     );
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          ...input,
+          dependencyOverrideReason:
+            "A different explanation must not reuse the original command key.",
+        },
+      ),
+    ).rejects.toThrow(/idempotency key belongs to a different/i);
 
     const detail = await admin.query(
       (api as any).production_proposals.getActiveBuildDetailByString,
@@ -6878,17 +6888,25 @@ describe("production proposal foundation", () => {
         await ctx.db.delete(membership._id);
       }
       const build = await ctx.db.get(closing.buildId);
-      const assignments = await ctx.db
-        .query("buildBrokerAssignments")
-        .withIndex("by_build", (query: any) =>
-          query.eq("buildId", closing.buildId),
-        )
-        .collect();
-      for (const assignment of assignments) {
-        await ctx.db.delete(assignment._id);
-      }
       await ctx.db.patch(build.proposalId, {
-        assignedBrokerWorkosUserId: undefined,
+        assignedBrokerWorkosUserId: "user_departed_broker",
+      });
+      await ctx.db.patch(build.brokerageId, {
+        principalBrokerWorkosUserId: undefined,
+      });
+      const now = Date.now();
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: "broker",
+        roleSlugs: ["broker"],
+        sourceEventId: "test_membership_user_departed_broker",
+        sourceEventType: "test.production_proposals",
+        status: "inactive",
+        updatedAt: now,
+        workosMembershipId: "test_membership_user_departed_broker",
+        workosOrganizationId: ORG,
+        workosUserId: "user_departed_broker",
       });
     });
     await builder.mutation(
@@ -6944,6 +6962,21 @@ describe("production proposal foundation", () => {
       submilestoneKey: "forms",
     });
     expect(started.eventIds).toHaveLength(2);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          actualStartedAt: initialStart,
+          buildId: closing.buildId,
+          idempotencyKey: "forms-parent-child-start-001",
+          milestoneKey: "foundation",
+          source: "submilestone_ledger",
+          startParent: false,
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/idempotency key belongs to a different/i);
 
     const correctedStart = Date.parse("2026-05-02T15:00:00.000Z");
     const firstCorrection = await builder.mutation(
