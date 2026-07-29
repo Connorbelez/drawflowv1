@@ -16,11 +16,12 @@ function withIdentity(
   t: ReturnType<typeof convexTest>,
   roles: string[],
   subject: string,
+  organizationId = ORG,
 ) {
   return t.withIdentity({
     email: `${subject}@example.com`,
     name: subject,
-    organizationId: ORG,
+    organizationId,
     role: roles[0],
     roles,
     subject,
@@ -524,6 +525,105 @@ describe("contractor workspace scope + redaction", () => {
         status: "in_progress",
       });
     });
+  });
+
+  test("rejects contractor start commands whose caller or assignment projection crosses an organization boundary", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const { buildId } = await createApprovedBuild(admin, seed);
+    const contractorId = await createContractorLinked(admin, seed);
+    await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId,
+        contractorId,
+        milestoneKey: "foundation",
+        role: "mason",
+        submilestoneKeys: ["forms"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const input = {
+      actualStartedAt: Date.now() - 60 * 60 * 1000,
+      buildId,
+      idempotencyKey: "contractor-cross-org-start-001",
+      milestoneKey: "foundation",
+      source: "guided_field_workflow" as const,
+      submilestoneKey: "forms",
+      workosOrganizationId: ORG,
+    };
+    const crossOrganizationCaller = withIdentity(
+      base,
+      ["contractor"],
+      CONTRACTOR_USER,
+      "org_other",
+    );
+
+    await expect(
+      crossOrganizationCaller.mutation(
+        (api as any).contractorWorkspace.startAssignedSubmilestone,
+        input,
+      ),
+    ).rejects.toThrow(/contractor build scope/i);
+
+    await admin.run(async (ctx: any) => {
+      const assignment = await ctx.db
+        .query("milestoneContractorAssignments")
+        .withIndex("by_contractor_build", (query: any) =>
+          query.eq("contractorId", contractorId).eq("buildId", buildId),
+        )
+        .first();
+      await ctx.db.patch(assignment._id, { organizationId: "org_other" });
+    });
+    const contractor = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    await expect(
+      contractor.mutation(
+        (api as any).contractorWorkspace.startAssignedSubmilestone,
+        {
+          ...input,
+          idempotencyKey: "contractor-cross-org-start-002",
+        },
+      ),
+    ).rejects.toThrow(/assignment target mismatch|not assigned/i);
+
+    await admin.run(async (ctx: any) => {
+      const assignment = await ctx.db
+        .query("milestoneContractorAssignments")
+        .withIndex("by_contractor_build", (query: any) =>
+          query.eq("contractorId", contractorId).eq("buildId", buildId),
+        )
+        .first();
+      await ctx.db.patch(assignment._id, { organizationId: ORG });
+      await ctx.db.patch(contractorId, { organizationId: "org_other" });
+    });
+    await expect(
+      contractor.mutation(
+        (api as any).contractorWorkspace.startAssignedSubmilestone,
+        {
+          ...input,
+          idempotencyKey: "contractor-cross-org-start-003",
+        },
+      ),
+    ).rejects.toThrow(/contractor build scope/i);
+
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(contractorId, { organizationId: ORG });
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", buildId).eq("key", "foundation"),
+        )
+        .unique();
+      await ctx.db.patch(milestone._id, { organizationId: "org_other" });
+    });
+    await expect(
+      contractor.mutation(
+        (api as any).contractorWorkspace.startAssignedSubmilestone,
+        {
+          ...input,
+          idempotencyKey: "contractor-cross-org-start-004",
+        },
+      ),
+    ).rejects.toThrow(/assignment target mismatch/i);
   });
 
   test("work items show acknowledged after the contractor acknowledges an assignment", async () => {

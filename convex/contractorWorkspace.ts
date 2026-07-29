@@ -7,8 +7,8 @@ import {
 } from "./authz";
 import { requireContractorLinkedProfile } from "./contractorAuth";
 import {
-  recordMilestoneStart,
   type MilestoneStartSource,
+  recordMilestoneStart,
 } from "./milestone_start";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
@@ -757,8 +757,10 @@ export const startAssignedSubmilestone = contractorRoleMutation
     const build = await ctx.db.get(args.buildId);
     if (
       !build ||
+      ctx.viewer.organizationId !== args.workosOrganizationId ||
       build.organizationId !== args.workosOrganizationId ||
-      build.brokerageId !== contractor.brokerageId
+      build.brokerageId !== contractor.brokerageId ||
+      contractor.organizationId !== build.organizationId
     ) {
       throw new Error("Forbidden: contractor build scope");
     }
@@ -777,7 +779,10 @@ export const startAssignedSubmilestone = contractorRoleMutation
     if (
       !assignment ||
       assignment.status === "removed" ||
-      !assignment.buildSubmilestoneId
+      !assignment.buildSubmilestoneId ||
+      assignment.organizationId !== build.organizationId ||
+      assignment.brokerageId !== build.brokerageId ||
+      assignment.buildId !== build._id
     ) {
       throw new Error(
         "Forbidden: contractor is not assigned to this submilestone."
@@ -792,9 +797,15 @@ export const startAssignedSubmilestone = contractorRoleMutation
         .take(500),
     ]);
     if (
-      !milestone ||
-      !submilestone ||
+      !(milestone && submilestone) ||
+      milestone.organizationId !== build.organizationId ||
+      milestone.brokerageId !== build.brokerageId ||
+      milestone.buildId !== build._id ||
       milestone.key !== args.milestoneKey ||
+      submilestone.organizationId !== build.organizationId ||
+      submilestone.brokerageId !== build.brokerageId ||
+      submilestone.buildId !== build._id ||
+      submilestone.buildMilestoneId !== milestone._id ||
       submilestone.key !== args.submilestoneKey
     ) {
       throw new Error("Forbidden: contractor assignment target mismatch.");

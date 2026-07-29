@@ -108,6 +108,9 @@ describe("MilestoneStartDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
+    expect(onConfirm.mock.calls[1]?.[0].idempotencyKey).toBe(
+      onConfirm.mock.calls[0]?.[0].idempotencyKey,
+    );
   });
 
   test("rejects a future actual start before dispatching the mutation", () => {

@@ -90,6 +90,7 @@ export function MilestoneStartDialog({
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [online, setOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine
   );
@@ -150,7 +151,7 @@ export function MilestoneStartDialog({
       ...(needsDependencyReason
         ? { dependencyOverrideReason: normalizedReason }
         : {}),
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey,
       milestoneKey: request.milestoneKey,
       ...(needsAmendmentReason ? { reason: normalizedReason } : {}),
       source: request.source,

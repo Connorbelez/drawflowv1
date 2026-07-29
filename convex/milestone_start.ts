@@ -17,7 +17,6 @@ export const MILESTONE_START_SOURCES = [
 export type MilestoneStartSource = (typeof MILESTONE_START_SOURCES)[number];
 type WorkLifecycle = "complete" | "in_progress" | "planned";
 
-const FUTURE_START_TOLERANCE_MS = 2 * 60 * 1000;
 const BACKOFFICE_ROLES = [
   "admin",
   "principle-broker",
@@ -201,12 +200,22 @@ export async function correctMilestoneStart(
   input: AmendMilestoneStartInput & { actualStartedAt: number }
 ): Promise<MilestoneStartResult> {
   validateAmendmentInput(input);
+  const reason = requiredReason(input.reason);
   const replay = await findIdempotentAmendment(ctx, input, "start_corrected");
   if (replay) {
     return replay;
   }
   const target = input.submilestone ?? input.milestone;
-  const reason = requiredReason(input.reason);
+  const completedWork =
+    target.status === "complete" ||
+    input.milestone.status === "complete" ||
+    Boolean(input.milestone.completionClaim);
+  if (target.actualStartedAt === undefined && !completedWork) {
+    throw new ConvexError({
+      code: "START_NOT_RECORDED",
+      message: "This work has no recorded start to correct.",
+    });
+  }
   const reportedAt = Date.now();
   const eventId = await appendAmendmentEvent(ctx, {
     ...input,
@@ -237,6 +246,7 @@ export async function retractMilestoneStart(
   input: AmendMilestoneStartInput
 ): Promise<MilestoneStartResult> {
   validateAmendmentInput(input);
+  const reason = requiredReason(input.reason);
   const replay = await findIdempotentAmendment(ctx, input, "start_retracted");
   if (replay) {
     return replay;
@@ -248,7 +258,6 @@ export async function retractMilestoneStart(
       message: "This work has no recorded start to retract.",
     });
   }
-  const reason = requiredReason(input.reason);
   const reportedAt = Date.now();
   const nextLifecycleState = lifecycleAfterRetraction(target);
   const eventId = await appendAmendmentEvent(ctx, {
@@ -285,7 +294,7 @@ function validateStartInput(input: RecordMilestoneStartInput) {
   }
   if (
     !Number.isFinite(input.actualStartedAt) ||
-    input.actualStartedAt > Date.now() + FUTURE_START_TOLERANCE_MS
+    input.actualStartedAt > Date.now()
   ) {
     throw new ConvexError({
       code: "FUTURE_ACTUAL_START",
@@ -309,7 +318,7 @@ function validateAmendmentInput(input: AmendMilestoneStartInput) {
   if (
     input.actualStartedAt !== undefined &&
     (!Number.isFinite(input.actualStartedAt) ||
-      input.actualStartedAt > Date.now() + FUTURE_START_TOLERANCE_MS)
+      input.actualStartedAt > Date.now())
   ) {
     throw new ConvexError({
       code: "FUTURE_ACTUAL_START",
@@ -361,7 +370,11 @@ async function findIdempotentAmendment(
     event.eventType !== eventType ||
     event.buildId !== input.build._id ||
     event.milestoneKey !== input.milestone.key ||
-    event.submilestoneKey !== input.submilestone?.key
+    event.submilestoneKey !== input.submilestone?.key ||
+    event.source !== input.source ||
+    event.reason !== input.reason.trim() ||
+    (eventType === "start_corrected" &&
+      event.actualStartedAt !== input.actualStartedAt)
   ) {
     throw new ConvexError({
       code: "IDEMPOTENCY_KEY_REUSED",
@@ -374,7 +387,7 @@ async function findIdempotentAmendment(
     eventIds: [event._id],
     milestoneKey: event.milestoneKey,
     parentStarted: false,
-    replayed: false,
+    replayed: true,
     reportedAt: event.reportedAt,
     ...(event.submilestoneKey
       ? { submilestoneKey: event.submilestoneKey }
@@ -570,7 +583,7 @@ async function findIdempotentStart(
       input.submilestone &&
         events.some((event) => event.submilestoneKey === undefined)
     ),
-    replayed: false,
+    replayed: true,
     reportedAt: targetEvent.reportedAt,
     ...(targetEvent.submilestoneKey
       ? { submilestoneKey: targetEvent.submilestoneKey }
@@ -705,7 +718,7 @@ async function createDependencyExceptionDeliveries(
     .withIndex("by_organization", (query) =>
       query.eq("workosOrganizationId", input.actor.organizationId)
     )
-    .take(500);
+    .collect();
   const eligible = memberships.filter(
     (membership) =>
       membership.status === "active" &&
@@ -735,16 +748,41 @@ async function createDependencyExceptionDeliveries(
       ),
     ].filter((value): value is string => Boolean(value))
   );
-  const assigned = eligible.filter((membership) =>
-    assignedIds.has(membership.workosUserId)
-  );
   const recipients = new Set(
-    [...(assigned.length > 0 ? assigned : eligible), ...admins].map(
-      (membership) => membership.workosUserId
-    )
+    assignedIds.size > 0
+      ? [...assignedIds, ...admins.map((membership) => membership.workosUserId)]
+      : [
+          ...eligible.map((membership) => membership.workosUserId),
+          ...admins.map((membership) => membership.workosUserId),
+        ]
   );
   const targetName = input.submilestone?.name ?? input.milestone.name;
   const now = Date.now();
+  if (recipients.size === 0) {
+    await ctx.db.insert("operationsQueueHandoffs", {
+      acknowledgementState: "pending_decision",
+      brokerageId: input.actor.brokerageId,
+      createdAt: now,
+      decisionPreview:
+        "Review the dependency exception and determine whether execution may continue.",
+      escalatedByWorkosUserId: input.actor.workosUserId,
+      escalationReason: input.reason,
+      evidenceSummary: `${targetName} was reported started before every declared predecessor was complete.`,
+      organizationId: input.actor.organizationId,
+      queueItemId: `milestone-start-exception:${input.eventId}`,
+      recommendation:
+        "Assign lender staff and review the out-of-sequence work start.",
+      requiredAction: "Review dependency exception",
+      targetHref: `/backoffice/builds/${input.build._id}?milestone=${encodeURIComponent(input.milestone.key)}&rail=open`,
+      targetLabel: `${input.build.buildName} · ${targetName}`,
+      targetRecordId: String(input.build._id),
+      targetType: "activeBuild",
+      updatedAt: now,
+      warnings: [
+        "No eligible lender recipient was available when the exception was recorded.",
+      ],
+    });
+  }
   for (const recipientWorkosUserId of recipients) {
     await ctx.db.insert("recipientDeliveries", {
       actionLabel: "Review exception",

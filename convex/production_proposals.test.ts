@@ -6688,7 +6688,8 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.getActiveBuildDetailByString,
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
     );
-    expect(replayResult).toEqual(firstResult);
+    expect(firstResult).toMatchObject({ replayed: false });
+    expect(replayResult).toEqual({ ...firstResult, replayed: true });
     expect(detail.milestones[0]).toMatchObject({
       actualStartedAt,
       startReportedAt: expect.any(Number),
@@ -6769,6 +6770,17 @@ describe("production proposal foundation", () => {
           order: 2,
           submilestones: [],
         },
+        {
+          budgetCents: 15_000_000,
+          dayEnd: 30,
+          dayStart: 21,
+          dependencyKeys: ["foundation"],
+          durationDays: 10,
+          key: "roofing",
+          name: "Roofing",
+          order: 3,
+          submilestones: [],
+        },
       ],
     });
     await grantOrgMembership(admin, {
@@ -6798,17 +6810,23 @@ describe("production proposal foundation", () => {
         input,
       ),
     ).rejects.toThrow(/explain why work began/i);
-    await expect(
-      builder.mutation(
-        (api as any).production_proposals.startActiveBuildMilestone,
-        {
-          ...input,
-          actualStartedAt: Date.now() + 10 * 60 * 1000,
-          dependencyOverrideReason: "Crew mobilized out of sequence.",
-          idempotencyKey: "framing-future-start-001",
-        },
-      ),
-    ).rejects.toThrow(/now or earlier/i);
+    const serverNow = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(serverNow);
+    try {
+      await expect(
+        builder.mutation(
+          (api as any).production_proposals.startActiveBuildMilestone,
+          {
+            ...input,
+            actualStartedAt: serverNow + 1,
+            dependencyOverrideReason: "Crew mobilized out of sequence.",
+            idempotencyKey: "framing-future-start-001",
+          },
+        ),
+      ).rejects.toThrow(/now or earlier/i);
+    } finally {
+      dateNow.mockRestore();
+    }
 
     await builder.mutation(
       (api as any).production_proposals.startActiveBuildMilestone,
@@ -6848,6 +6866,57 @@ describe("production proposal foundation", () => {
         title: "Framing started out of sequence",
       }),
     ]);
+
+    await admin.run(async (ctx: any) => {
+      const memberships = await ctx.db
+        .query("workosOrganizationMemberships")
+        .withIndex("by_organization", (query: any) =>
+          query.eq("workosOrganizationId", ORG),
+        )
+        .collect();
+      for (const membership of memberships) {
+        await ctx.db.delete(membership._id);
+      }
+      const build = await ctx.db.get(closing.buildId);
+      const assignments = await ctx.db
+        .query("buildBrokerAssignments")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .collect();
+      for (const assignment of assignments) {
+        await ctx.db.delete(assignment._id);
+      }
+      await ctx.db.patch(build.proposalId, {
+        assignedBrokerWorkosUserId: undefined,
+      });
+    });
+    await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt,
+        buildId: closing.buildId,
+        dependencyOverrideReason:
+          "Roof crew mobilized while foundation closeout was pending.",
+        idempotencyKey: "roofing-dependency-fallback-001",
+        milestoneKey: "roofing",
+        source: "gantt",
+        workosOrganizationId: ORG,
+      },
+    );
+    const fallback = await admin.run(async (ctx: any) =>
+      ctx.db
+        .query("operationsQueueHandoffs")
+        .filter((query: any) =>
+          query.eq(query.field("organizationId"), ORG),
+        )
+        .first(),
+    );
+    expect(fallback).toMatchObject({
+      acknowledgementState: "pending_decision",
+      requiredAction: "Review dependency exception",
+      targetLabel: "Dependency exception build · Roofing",
+    });
   });
 
   test("starts a builder submilestone with its planned parent atomically and preserves correction lineage", async () => {
@@ -6877,7 +6946,7 @@ describe("production proposal foundation", () => {
     expect(started.eventIds).toHaveLength(2);
 
     const correctedStart = Date.parse("2026-05-02T15:00:00.000Z");
-    await builder.mutation(
+    const firstCorrection = await builder.mutation(
       (api as any).production_proposals.correctActiveBuildMilestoneStart,
       {
         actualStartedAt: correctedStart,
@@ -6890,6 +6959,24 @@ describe("production proposal foundation", () => {
         workosOrganizationId: ORG,
       },
     );
+    const correctionReplay = await builder.mutation(
+      (api as any).production_proposals.correctActiveBuildMilestoneStart,
+      {
+        actualStartedAt: correctedStart,
+        buildId: closing.buildId,
+        idempotencyKey: "forms-start-correction-001",
+        milestoneKey: "foundation",
+        reason: "Crew log confirmed an earlier mobilization time.",
+        source: "submilestone_detail",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(firstCorrection).toMatchObject({ replayed: false });
+    expect(correctionReplay).toEqual({
+      ...firstCorrection,
+      replayed: true,
+    });
     await builder.mutation(
       (api as any).production_proposals.retractActiveBuildMilestoneStart,
       {
@@ -7001,6 +7088,42 @@ describe("production proposal foundation", () => {
       actualStartedAt: correction.actualStartedAt,
       status: "complete",
     });
+  });
+
+  test("rejects correction commands for milestone and submilestone work that has never started", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const common = {
+      actualStartedAt: Date.parse("2026-05-02T15:00:00.000Z"),
+      buildId: closing.buildId,
+      milestoneKey: "foundation",
+      reason: "Daily log correction.",
+      source: "milestone_detail" as const,
+      workosOrganizationId: ORG,
+    };
+
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.correctActiveBuildMilestoneStart,
+        {
+          ...common,
+          idempotencyKey: "never-started-milestone-correction-001",
+        },
+      ),
+    ).rejects.toThrow(/no recorded start to correct/i);
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.correctActiveBuildMilestoneStart,
+        {
+          ...common,
+          idempotencyKey: "never-started-submilestone-correction-001",
+          submilestoneKey: "forms",
+        },
+      ),
+    ).rejects.toThrow(/no recorded start to correct/i);
   });
 
   test("atomically catches up a missing actual start when completion is confirmed", async () => {
