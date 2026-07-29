@@ -1,10 +1,12 @@
 import { v } from "convex/values";
 
 import { authenticatedMutation, authenticatedQuery } from "./authz";
-import { canReadCollaborationPost } from "./build_collaboration_access";
+import {
+  canReadCollaborationPost,
+  resolveCurrentCollaborationPostReaderIds,
+} from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { collaborationCommentRowValidator } from "./build_collaboration_contracts";
-import { collaborationRoleTier } from "./build_collaboration_model";
 import { canonicalizeTiptapReferences } from "./build_collaboration_publication_bundle";
 import {
   resolveCanonicalBuildCollaborationReferences,
@@ -16,7 +18,7 @@ import {
   buildCollaborationReactionValidator,
   buildCollaborationReferenceKindValidator,
 } from "./build_collaboration_validators";
-import type { Doc, Id, MutationCtx } from "./types";
+import type { Id, MutationCtx } from "./types";
 
 const MAX_COMMENT_TEXT_LENGTH = 25_000;
 const MAX_COMMENT_RICH_TEXT_LENGTH = 125_000;
@@ -30,36 +32,6 @@ const referenceInputValidator = v.object({
   primary: v.optional(v.boolean()),
   summary: v.optional(v.string()),
 });
-
-async function resolveCurrentPostReaderIds(
-  ctx: MutationCtx,
-  authorization: Awaited<
-    ReturnType<typeof authorizeActiveBuildHumanCollaborationAccess>
-  >,
-  post: Doc<"buildCollaborationPosts">
-) {
-  const fixedMembers =
-    post.audienceMode === "custom"
-      ? await ctx.db
-          .query("buildCollaborationAudienceMembers")
-          .withIndex("by_postId_and_workosUserId", (query) =>
-            query.eq("postId", post._id)
-          )
-          .take(500)
-      : [];
-  const fixedMemberIds = new Set(
-    fixedMembers.map((member) => member.workosUserId)
-  );
-  return authorization.participants
-    .filter(
-      (participant) =>
-        post.audienceMode === "build_wide" ||
-        collaborationRoleTier(participant.role) >= post.audienceFloorTier ||
-        (post.audienceMode === "custom" &&
-          fixedMemberIds.has(participant.workosUserId))
-    )
-    .map((participant) => participant.workosUserId);
-}
 
 export const addBuildCollaborationComment = authenticatedMutation
   .input({
@@ -104,7 +76,7 @@ export const addBuildCollaborationComment = authenticatedMutation
         `Reply nesting may not exceed ${MAX_LOGICAL_DEPTH} logical levels.`
       );
     }
-    const currentReaderIds = await resolveCurrentPostReaderIds(
+    const currentReaderIds = await resolveCurrentCollaborationPostReaderIds(
       ctx,
       authorization,
       post

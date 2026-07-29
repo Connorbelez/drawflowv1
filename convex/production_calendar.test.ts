@@ -380,7 +380,7 @@ describe("production calendar workspace", () => {
           milestoneKey: "foundation",
           startsAt: "2026-08-03",
           endsAt: "2026-08-25",
-          status: "inProgress",
+          status: "planned",
         }),
         expect.objectContaining({
           kind: "siteVisit",

@@ -311,6 +311,20 @@ describe("Build Action Item server authorization", () => {
         organizationId: ORGANIZATION_ID,
       }
     );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_items.updateBuildActionItem,
+        {
+          actionItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 3,
+          organizationId: ORGANIZATION_ID,
+          requiresAcceptance: false,
+        }
+      )
+    ).rejects.toThrow(
+      "Completion acceptance is mandatory for this upward assignment."
+    );
     persisted = await readActionItem(fixture, actionItemId);
     expect(persisted.item).toMatchObject({
       assignmentState: "assigned",
@@ -319,6 +333,201 @@ describe("Build Action Item server authorization", () => {
     expect(persisted.events.at(-1)).toMatchObject({
       exercisedAuthority: "assignee",
       revision: 3,
+    });
+  });
+
+  test("blocked work restores only its preceding active state and audits complete before/after snapshots", async () => {
+    const fixture = await seedActionItemBuild();
+    const actionItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_creator",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Original title",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_items.updateBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        dueAt: 1_800_000_000_000,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        title: "Revised title",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_items.updateBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 2,
+        organizationId: ORGANIZATION_ID,
+        status: "in_progress",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_items.updateBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 3,
+        organizationId: ORGANIZATION_ID,
+        status: "in_review",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_items.updateBuildActionItem,
+      {
+        actionItemId,
+        blockedReason: "Waiting on engineering",
+        buildId: fixture.buildId,
+        expectedRevision: 4,
+        organizationId: ORGANIZATION_ID,
+        status: "blocked",
+      }
+    );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_items.updateBuildActionItem,
+        {
+          actionItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 5,
+          organizationId: ORGANIZATION_ID,
+          status: "in_progress",
+        }
+      )
+    ).rejects.toThrow(
+      "Unblocking must restore the Action Item's preceding active state."
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_items.updateBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 5,
+        organizationId: ORGANIZATION_ID,
+        status: "in_review",
+      }
+    );
+
+    const persisted = await readActionItem(fixture, actionItemId);
+    const editEvent = persisted.events.find((event) => event.revision === 2);
+    expect(JSON.parse(editEvent?.priorState ?? "{}")).toMatchObject({
+      dueAt: null,
+      title: "Original title",
+    });
+    expect(JSON.parse(editEvent?.newState ?? "{}")).toMatchObject({
+      dueAt: 1_800_000_000_000,
+      title: "Revised title",
+    });
+    expect(persisted.item).toMatchObject({
+      currentRevision: 6,
+      status: "in_review",
+    });
+  });
+
+  test("relationship creation requires every source reader to read the target", async () => {
+    const fixture = await seedActionItemBuild();
+    const sourceActionItemId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Build-wide dependent work",
+      }
+    );
+    const narrowPostId = await fixture.builder.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "custom",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Builder-only blocker.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: ["user_builder"],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Builder-only blocker.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      }
+    );
+    const targetActionItemId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: narrowPostId,
+        title: "Narrow blocker",
+      }
+    );
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_items.linkBuildActionItems,
+        {
+          buildId: fixture.buildId,
+          kind: "blocks",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId,
+          targetActionItemId,
+        }
+      )
+    ).rejects.toThrow(
+      "Every reader of the dependent Action Item must be able to read the related Action Item."
+    );
+  });
+
+  test("participants joining after a build-wide post can receive its Action Items", async () => {
+    const fixture = await seedActionItemBuild();
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const now = Date.now();
+      await ctx.db.insert("buildParticipants", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        displayNameSnapshot: "Late participant",
+        joinedAt: now,
+        organizationId: ORGANIZATION_ID,
+        participationPeriod: 1,
+        role: "contractor",
+        status: "active",
+        updatedAt: now,
+        validFrom: now,
+        workosUserId: "user_late_contractor",
+      });
+    });
+    const actionItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_late_contractor",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Late assignment",
+      }
+    );
+    const persisted = await readActionItem(fixture, actionItemId);
+    expect(persisted.item).toMatchObject({
+      assigneeWorkosUserId: "user_late_contractor",
+      assignmentState: "assigned",
     });
   });
 

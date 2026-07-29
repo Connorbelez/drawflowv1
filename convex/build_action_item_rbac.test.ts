@@ -231,4 +231,34 @@ describe("Build Action Item operation RBAC", () => {
       }).allowed
     ).toBe(true);
   });
+
+  test("legacy items with no creator role fail closed for every coordinator below Admin", () => {
+    const legacyItem = {
+      ...baseItem,
+      creatorRole: undefined,
+      creatorWorkosUserId: "removed-legacy-creator",
+    };
+    for (const role of [
+      "principle-broker",
+      "broker",
+      "builder",
+      "broker-staff",
+      "builder-staff",
+    ] as const) {
+      expect(
+        authorizeBuildActionItemOperation({
+          actor: actor(role),
+          item: legacyItem,
+          operation: "edit_fields",
+        }).allowed
+      ).toBe(false);
+    }
+    expect(
+      authorizeBuildActionItemOperation({
+        actor: actor("admin"),
+        item: legacyItem,
+        operation: "edit_fields",
+      }).allowed
+    ).toBe(true);
+  });
 });

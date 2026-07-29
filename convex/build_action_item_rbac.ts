@@ -305,7 +305,7 @@ function coordinatorCanGovern(
 ) {
   return (
     actorRole === "admin" ||
-    !creatorRole ||
-    collaborationRoleTier(actorRole) >= collaborationRoleTier(creatorRole)
+    (creatorRole !== undefined &&
+      collaborationRoleTier(actorRole) >= collaborationRoleTier(creatorRole))
   );
 }

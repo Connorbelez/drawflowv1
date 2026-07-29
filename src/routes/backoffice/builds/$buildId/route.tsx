@@ -166,8 +166,11 @@ function RouteComponent() {
   const reviewBudgetRevision = useMutation(
     (api as any).production_proposals.reviewActiveBuildBudgetRevision
   );
-  const startMilestoneWork = useMutation(
-    api.production_proposals.startActiveBuildMilestone
+  const correctMilestoneStart = useMutation(
+    (api as any).production_proposals.correctActiveBuildMilestoneStart
+  );
+  const retractMilestoneStart = useMutation(
+    (api as any).production_proposals.retractActiveBuildMilestoneStart
   );
   const createActiveBuildCostItem = useMutation(
     api.production_proposals.createActiveBuildCostItem
@@ -761,16 +764,27 @@ function RouteComponent() {
               workosOrganizationId,
             })
         : undefined,
-      startMilestoneWork: canUseAppPermission(
+      correctMilestoneStart: canUseAppPermission(
         appPermissions,
         "milestone",
         "update"
       )
-        ? ({ milestoneKey, note }) =>
-            startMilestoneWork({
+        ? (input) =>
+            correctMilestoneStart({
+              ...input,
               buildId: activeBuildId,
-              milestoneKey,
-              note,
+              workosOrganizationId,
+            })
+        : undefined,
+      retractMilestoneStart: canUseAppPermission(
+        appPermissions,
+        "milestone",
+        "update"
+      )
+        ? (input) =>
+            retractMilestoneStart({
+              ...input,
+              buildId: activeBuildId,
               workosOrganizationId,
             })
         : undefined,

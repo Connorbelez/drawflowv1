@@ -6,7 +6,10 @@ import {
   type BuildActionItemAuthorizationDecision,
   type BuildActionItemOperation,
 } from "./build_action_item_rbac";
-import { canReadCollaborationPost } from "./build_collaboration_access";
+import {
+  canReadCollaborationPost,
+  resolveCurrentCollaborationPostReaderIds,
+} from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { collaborationRoleTier } from "./build_collaboration_model";
@@ -216,6 +219,15 @@ export const updateBuildActionItem = authenticatedMutation
         "This Action Item changed since you opened it. Refresh and try again."
       );
     }
+    if (
+      args.requiresAcceptance === false &&
+      mandatoryCompletionAcceptanceApplies(authorization, item) &&
+      retainsCurrentAssignee(item, args.assigneeWorkosUserId)
+    ) {
+      throw new Error(
+        "Completion acceptance is mandatory for this upward assignment."
+      );
+    }
     const decisions: BuildActionItemAuthorizationDecision[] = [];
     if (
       args.title !== undefined ||
@@ -243,7 +255,12 @@ export const updateBuildActionItem = authenticatedMutation
         throw new Error("Assignee must actively participate in this Build.");
       }
       if (requestedAssignee) {
-        await requirePostReader(ctx, item.originatingPostId, requestedAssignee);
+        await requirePostReader(
+          ctx,
+          authorization,
+          item.originatingPostId,
+          requestedAssignee
+        );
       }
       decisions.push(
         assertActionItemOperation(authorization, item, "assign", {
@@ -329,10 +346,12 @@ export const updateBuildActionItem = authenticatedMutation
         patch.assignmentState === "requested" ? now : undefined;
     }
     if (args.status !== undefined && args.status !== item.status) {
-      assertStatusTransition(item.status, args.status);
+      assertStatusTransition(item, args.status);
       patch.status = args.status;
       patch.previousActiveStatus =
-        args.status === "cancelled" ? item.status : undefined;
+        args.status === "blocked" || args.status === "cancelled"
+          ? item.status
+          : undefined;
       patch.blockedReason =
         args.status === "blocked"
           ? requireReason(args.blockedReason, "A blocked reason is required.")
@@ -347,6 +366,10 @@ export const updateBuildActionItem = authenticatedMutation
       patch.completedAt = args.status === "done" ? now : undefined;
     }
     await ctx.db.patch(item._id, patch);
+    const updatedItem = await ctx.db.get(item._id);
+    if (!updatedItem) {
+      throw new Error("Action Item became unavailable during update.");
+    }
     await ctx.db.insert("buildActionItemEvents", {
       actionItemId: item._id,
       actorRole: authorization.effectiveRole.role,
@@ -356,7 +379,7 @@ export const updateBuildActionItem = authenticatedMutation
       createdAt: now,
       eventType: "updated",
       exercisedAuthority: decisions[0]?.authority,
-      newState: JSON.stringify(patch),
+      newState: JSON.stringify(actionItemAuditState(updatedItem)),
       organizationId: authorization.organizationId,
       reason:
         args.reason?.trim() ??
@@ -370,11 +393,7 @@ export const updateBuildActionItem = authenticatedMutation
             .filter((warning): warning is string => Boolean(warning))
         ),
       ],
-      priorState: JSON.stringify({
-        assigneeWorkosUserId: item.assigneeWorkosUserId,
-        priority: item.priority,
-        status: item.status,
-      }),
+      priorState: JSON.stringify(actionItemAuditState(item)),
     });
     if (args.status !== undefined && args.status !== item.status) {
       await updateOriginatingPostOpenCount(ctx, item.originatingPostId);
@@ -583,6 +602,7 @@ export const linkBuildActionItems = authenticatedMutation
       requireReadableActionItem(ctx, authorization, args.sourceActionItemId),
       requireReadableActionItem(ctx, authorization, args.targetActionItemId),
     ]);
+    await requireRelationshipReaderParity(ctx, authorization, source, target);
     assertExpectedRevision(source, args.expectedSourceRevision);
     const decision = assertActionItemOperation(
       authorization,
@@ -722,6 +742,45 @@ function assertExpectedRevision(
   }
 }
 
+function mandatoryCompletionAcceptanceApplies(
+  authorization: Awaited<
+    ReturnType<typeof authorizeActiveBuildCollaborationAccess>
+  >,
+  item: Doc<"buildActionItems">
+) {
+  if (
+    !(
+      item.requiresAcceptance &&
+      item.assigneeWorkosUserId &&
+      item.assignedByWorkosUserId
+    )
+  ) {
+    return false;
+  }
+  const assignee = authorization.participants.find(
+    (participant) => participant.workosUserId === item.assigneeWorkosUserId
+  );
+  const assigner = authorization.participants.find(
+    (participant) => participant.workosUserId === item.assignedByWorkosUserId
+  );
+  if (!(assignee && assigner)) {
+    return true;
+  }
+  return (
+    collaborationRoleTier(assignee.role) > collaborationRoleTier(assigner.role)
+  );
+}
+
+function retainsCurrentAssignee(
+  item: Doc<"buildActionItems">,
+  submittedAssignee: string | null | undefined
+) {
+  return (
+    submittedAssignee === undefined ||
+    (submittedAssignee?.trim() || undefined) === item.assigneeWorkosUserId
+  );
+}
+
 function statusOperation(
   item: Doc<"buildActionItems">,
   nextStatus: Doc<"buildActionItems">["status"]
@@ -740,18 +799,51 @@ function statusOperation(
 
 async function requirePostReader(
   ctx: MutationCtx,
+  authorization: Awaited<
+    ReturnType<typeof authorizeActiveBuildCollaborationAccess>
+  >,
   postId: Id<"buildCollaborationPosts">,
   workosUserId: string
 ) {
-  const reader = await ctx.db
-    .query("buildCollaborationAudienceMembers")
-    .withIndex("by_postId_and_workosUserId", (query) =>
-      query.eq("postId", postId).eq("workosUserId", workosUserId)
-    )
-    .unique();
-  if (!reader) {
+  const post = await ctx.db.get(postId);
+  if (!post) {
+    throw new Error("Action Item parent post is unavailable.");
+  }
+  const readerIds = await resolveCurrentCollaborationPostReaderIds(
+    ctx,
+    authorization,
+    post
+  );
+  if (!readerIds.includes(workosUserId)) {
     throw new Error(
       "The assignee cannot read the originating post and cannot receive this Action Item."
+    );
+  }
+}
+
+async function requireRelationshipReaderParity(
+  ctx: MutationCtx,
+  authorization: Awaited<
+    ReturnType<typeof authorizeActiveBuildCollaborationAccess>
+  >,
+  source: Doc<"buildActionItems">,
+  target: Doc<"buildActionItems">
+) {
+  const [sourcePost, targetPost] = await Promise.all([
+    ctx.db.get(source.originatingPostId),
+    ctx.db.get(target.originatingPostId),
+  ]);
+  if (!(sourcePost && targetPost)) {
+    throw new Error("Action Item relationship posts are unavailable.");
+  }
+  const [sourceReaderIds, targetReaderIds] = await Promise.all([
+    resolveCurrentCollaborationPostReaderIds(ctx, authorization, sourcePost),
+    resolveCurrentCollaborationPostReaderIds(ctx, authorization, targetPost),
+  ]);
+  const targetReaders = new Set(targetReaderIds);
+  if (sourceReaderIds.some((readerId) => !targetReaders.has(readerId))) {
+    throw new Error(
+      "Every reader of the dependent Action Item must be able to read the related Action Item."
     );
   }
 }
@@ -777,7 +869,7 @@ async function resolveNewActionItemAssignment(
     throw new Error("Assignee must actively participate in this Build.");
   }
   if (assignee) {
-    await requirePostReader(ctx, postId, assignee);
+    await requirePostReader(ctx, authorization, postId, assignee);
   }
   const upwardAssignment =
     assigneeParticipant !== undefined &&
@@ -837,23 +929,55 @@ async function recordChildActionItemMutation(
 }
 
 function assertStatusTransition(
-  current: Doc<"buildActionItems">["status"],
+  item: Doc<"buildActionItems">,
   next: Doc<"buildActionItems">["status"]
 ) {
+  if (item.status === "blocked") {
+    if (
+      next !== "cancelled" &&
+      (!item.previousActiveStatus || next !== item.previousActiveStatus)
+    ) {
+      throw new Error(
+        "Unblocking must restore the Action Item's preceding active state."
+      );
+    }
+    return;
+  }
   const allowed: Record<
     Doc<"buildActionItems">["status"],
     Doc<"buildActionItems">["status"][]
   > = {
-    blocked: ["todo", "in_progress", "cancelled"],
+    blocked: [],
     cancelled: ["todo", "in_progress"],
     done: ["in_progress", "cancelled"],
     in_progress: ["in_review", "blocked", "done", "cancelled"],
     in_review: ["in_progress", "blocked", "done", "cancelled"],
     todo: ["in_progress", "blocked", "cancelled"],
   };
-  if (!allowed[current].includes(next)) {
-    throw new Error(`Action Item cannot move from ${current} to ${next}.`);
+  if (!allowed[item.status].includes(next)) {
+    throw new Error(`Action Item cannot move from ${item.status} to ${next}.`);
   }
+}
+
+function actionItemAuditState(item: Doc<"buildActionItems">) {
+  return {
+    assigneeWorkosUserId: item.assigneeWorkosUserId ?? null,
+    assignedByWorkosUserId: item.assignedByWorkosUserId ?? null,
+    assignmentRequestedAt: item.assignmentRequestedAt ?? null,
+    assignmentState: item.assignmentState,
+    blockedReason: item.blockedReason ?? null,
+    cancellationReason: item.cancellationReason ?? null,
+    completedAt: item.completedAt ?? null,
+    currentRevision: item.currentRevision,
+    descriptionPlainText: item.descriptionPlainText,
+    descriptionTiptapJson: item.descriptionTiptapJson,
+    dueAt: item.dueAt ?? null,
+    previousActiveStatus: item.previousActiveStatus ?? null,
+    priority: item.priority,
+    requiresAcceptance: item.requiresAcceptance,
+    status: item.status,
+    title: item.title,
+  };
 }
 
 function requireReason(value: string | null | undefined, errorMessage: string) {

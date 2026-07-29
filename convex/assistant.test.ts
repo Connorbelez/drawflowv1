@@ -669,6 +669,83 @@ describe("DrawFlow assistant HITL backend", () => {
     );
   });
 
+  test("routes assistant milestone starts through structured HITL and the canonical domain command", async () => {
+    const { base, seed, t: admin } = await seeded(
+      ["admin"],
+      "assistant_start_admin"
+    );
+    const { buildId } = await createActiveBuild(admin, seed);
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const actualStartedAt = Date.now() - 60_000;
+    const planId = await builder.mutation(
+      (api as any).assistant.createActionPlan,
+      {
+        actions: [
+          {
+            actionKey: "start_active_build_milestone",
+            clientRequestId: "assistant_start",
+            input: {
+              actualStartedAt,
+              buildId,
+              idempotencyKey: "assistant-start-foundation-01",
+              milestoneKey: "foundation",
+            },
+          },
+        ],
+        routeContext: { buildId },
+        workosOrganizationId: ORG,
+      }
+    );
+
+    let state = await builder.run(async (ctx: any) => ({
+      events: await ctx.db
+        .query("milestoneStartEvents")
+        .withIndex("by_build", (q: any) => q.eq("buildId", buildId))
+        .collect(),
+      milestone: await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", buildId).eq("key", "foundation")
+        )
+        .unique(),
+    }));
+    expect(state.milestone.actualStartedAt).toBeUndefined();
+    expect(state.events).toHaveLength(0);
+
+    await builder.mutation((api as any).assistant.commitActionPlan, {
+      acceptedClientRequestIds: ["assistant_start"],
+      editedInputs: {},
+      planId,
+      rejectedClientRequestIds: [],
+      workosOrganizationId: ORG,
+    });
+
+    state = await builder.run(async (ctx: any) => ({
+      events: await ctx.db
+        .query("milestoneStartEvents")
+        .withIndex("by_build", (q: any) => q.eq("buildId", buildId))
+        .collect(),
+      milestone: await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", buildId).eq("key", "foundation")
+        )
+        .unique(),
+    }));
+    expect(state.milestone).toMatchObject({
+      actualStartedAt,
+      startSource: "assistant",
+      status: "in_progress",
+    });
+    expect(state.events).toEqual([
+      expect.objectContaining({
+        actualStartedAt,
+        eventType: "started",
+        source: "assistant",
+      }),
+    ]);
+  });
+
   test("writes calendar target dates and reminder-only events without mutating schedule rows", async () => {
     const { seed, t } = await seeded(["admin"], "calendar_admin");
     const proposalId = await createDraftProposal(t, seed);
