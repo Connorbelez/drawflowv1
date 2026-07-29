@@ -602,7 +602,13 @@ export const linkBuildActionItems = authenticatedMutation
       requireReadableActionItem(ctx, authorization, args.sourceActionItemId),
       requireReadableActionItem(ctx, authorization, args.targetActionItemId),
     ]);
-    await requireRelationshipReaderParity(ctx, authorization, source, target);
+    await requireRelationshipReaderParity(
+      ctx,
+      authorization,
+      source,
+      target,
+      args.kind
+    );
     assertExpectedRevision(source, args.expectedSourceRevision);
     const decision = assertActionItemOperation(
       authorization,
@@ -827,7 +833,8 @@ async function requireRelationshipReaderParity(
     ReturnType<typeof authorizeActiveBuildCollaborationAccess>
   >,
   source: Doc<"buildActionItems">,
-  target: Doc<"buildActionItems">
+  target: Doc<"buildActionItems">,
+  kind: Doc<"buildActionItemRelations">["kind"]
 ) {
   const [sourcePost, targetPost] = await Promise.all([
     ctx.db.get(source.originatingPostId),
@@ -840,8 +847,12 @@ async function requireRelationshipReaderParity(
     resolveCurrentCollaborationPostReaderIds(ctx, authorization, sourcePost),
     resolveCurrentCollaborationPostReaderIds(ctx, authorization, targetPost),
   ]);
-  const targetReaders = new Set(targetReaderIds);
-  if (sourceReaderIds.some((readerId) => !targetReaders.has(readerId))) {
+  const requiredReaderIds =
+    kind === "blocks" ? targetReaderIds : sourceReaderIds;
+  const readableEntityIds = new Set(
+    kind === "blocks" ? sourceReaderIds : targetReaderIds
+  );
+  if (requiredReaderIds.some((readerId) => !readableEntityIds.has(readerId))) {
     throw new Error(
       "Every reader of the dependent Action Item must be able to read the related Action Item."
     );

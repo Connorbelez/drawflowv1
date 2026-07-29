@@ -433,15 +433,6 @@ describe("Build Action Item server authorization", () => {
 
   test("relationship creation requires every source reader to read the target", async () => {
     const fixture = await seedActionItemBuild();
-    const sourceActionItemId = await fixture.builder.mutation(
-      (api as any).build_action_items.createBuildActionItem,
-      {
-        buildId: fixture.buildId,
-        organizationId: ORGANIZATION_ID,
-        postId: fixture.postId,
-        title: "Build-wide dependent work",
-      }
-    );
     const narrowPostId = await fixture.builder.mutation(
       (api as any).build_collaboration
         .approveAndPublishBuildCollaborationBundle,
@@ -465,13 +456,22 @@ describe("Build Action Item server authorization", () => {
         }),
       }
     );
-    const targetActionItemId = await fixture.builder.mutation(
+    const sourceActionItemId = await fixture.builder.mutation(
       (api as any).build_action_items.createBuildActionItem,
       {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         postId: narrowPostId,
         title: "Narrow blocker",
+      }
+    );
+    const targetActionItemId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Build-wide dependent work",
       }
     );
 
