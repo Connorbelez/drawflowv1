@@ -79,7 +79,10 @@ export function BuildCollaborationApprovalReview({
             <ul className="space-y-1 text-sm">
               {references.map((reference) => (
                 <li key={`${reference.entityKind}:${reference.entityId}`}>
-                  {reference.label} · {reference.entityKind}
+                  {reference.label} · {reference.entityKind} · ID{" "}
+                  {reference.entityId}
+                  {reference.primary ? " · primary" : ""}
+                  {reference.summary ? ` · ${reference.summary}` : ""}
                 </li>
               ))}
             </ul>
@@ -94,14 +97,41 @@ export function BuildCollaborationApprovalReview({
         </ReviewSection>
         <ReviewSection label={`Action Items (${actionItems.length})`}>
           {actionItems.length > 0 ? (
-            <p className="text-sm">
-              {actionItems
-                .map(
-                  (item) =>
-                    `${item.title} · assignee ${item.assigneeWorkosUserId ?? "unassigned"} · ${item.priority ?? "no priority"}${item.dueAt ? ` · due ${new Date(item.dueAt).toLocaleString()}` : ""}${item.requiresAcceptance ? " · acceptance required" : ""}`
-                )
-                .join("; ")}
-            </p>
+            <ul className="space-y-2 text-sm">
+              {actionItems.map((item) => (
+                <li
+                  className="space-y-1"
+                  key={[
+                    item.title,
+                    item.assigneeWorkosUserId,
+                    item.dueAt,
+                    item.descriptionTiptapJson,
+                  ].join(":")}
+                >
+                  <p>
+                    {item.title} · assignee{" "}
+                    {item.assigneeWorkosUserId ?? "unassigned"} ·{" "}
+                    {item.effectiveAssignmentState ?? "pending server review"} ·{" "}
+                    {item.priority ?? "no priority"}
+                    {item.dueAt
+                      ? ` · due ${new Date(item.dueAt).toLocaleString()}`
+                      : ""}
+                    {item.requiresAcceptance ? " · acceptance required" : ""}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    Plain description: {item.descriptionPlainText || "none"}
+                  </p>
+                  {item.descriptionTiptapJson ? (
+                    <CollaborationRichTextPreview
+                      ariaLabel={`Exact Action Item description for ${item.title}`}
+                      className="bg-background"
+                      tagOptions={[]}
+                      value={parseBundleDocument(item.descriptionTiptapJson)}
+                    />
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           ) : (
             <p className="text-muted-foreground text-sm">No Action Items.</p>
           )}
@@ -130,7 +160,7 @@ export function BuildCollaborationApprovalReview({
               {sharedMutations
                 .map(
                   (mutation) =>
-                    `${mutation.operation} ${mutation.entityKind}: ${mutation.summary}`
+                    `${mutation.operation} ${mutation.entityKind} ${mutation.entityId ? `(${mutation.entityId})` : "(no entity ID)"}: ${mutation.summary}`
                 )
                 .join("; ")}
             </p>

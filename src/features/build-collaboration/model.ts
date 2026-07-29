@@ -49,6 +49,7 @@ export interface CollaborationDraftBundle {
     descriptionPlainText?: string;
     descriptionTiptapJson?: string;
     dueAt?: number;
+    effectiveAssignmentState?: "assigned" | "requested" | "unassigned";
     priority?: "urgent" | "high" | "medium" | "low" | "none";
     requiresAcceptance?: boolean;
     title: string;
@@ -74,6 +75,7 @@ export interface CollaborationDraftBundle {
     entityId: string;
     entityKind: string;
     label: string;
+    primary?: boolean;
     summary?: string;
   }>;
   requestedReaderIds: string[];

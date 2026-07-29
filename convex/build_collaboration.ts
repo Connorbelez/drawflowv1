@@ -103,8 +103,27 @@ export async function prepareBuildCollaborationPublication(
     bundle: BuildCollaborationPublicationBundleInput;
   }
 ) {
-  const bundle = normalizePublicationBundle(input.bundle);
+  const normalizedBundle = normalizePublicationBundle(input.bundle);
+  const bundle = {
+    ...normalizedBundle,
+    actionItems: resolveEffectiveActionItems({
+      actionItems: normalizedBundle.actionItems,
+      authorization: input.authorization,
+    }),
+  };
   validateRichTextContent(bundle);
+  for (const reference of bundle.references) {
+    if (!(reference.entityId && reference.label)) {
+      throw new Error("Every reference requires an entity and label.");
+    }
+  }
+  for (const mutation of bundle.sharedMutations) {
+    if (!(mutation.entityKind && mutation.operation && mutation.summary)) {
+      throw new Error(
+        "Every approved shared mutation requires an entity kind, operation, and summary."
+      );
+    }
+  }
   if (bundle.references.length > MAX_REFERENCES_PER_BUNDLE) {
     throw new Error(
       `A publication may contain at most ${MAX_REFERENCES_PER_BUNDLE} references.`
@@ -541,6 +560,41 @@ function validateRichTextContent(input: {
   return content;
 }
 
+function resolveEffectiveActionItems(input: {
+  actionItems: ActionItemInput[];
+  authorization: ActiveBuildAuthorization;
+}) {
+  return input.actionItems.map((actionItem) => {
+    if (!actionItem.title) {
+      throw new Error("Every Action Item requires a title.");
+    }
+    const assigneeParticipant = actionItem.assigneeWorkosUserId
+      ? input.authorization.participants.find(
+          (participant) =>
+            participant.workosUserId === actionItem.assigneeWorkosUserId
+        )
+      : undefined;
+    if (actionItem.assigneeWorkosUserId && !assigneeParticipant) {
+      throw new Error("Action Item assignees must participate in this Build.");
+    }
+    const upwardAssignment =
+      assigneeParticipant !== undefined &&
+      collaborationRoleTier(assigneeParticipant.role) >
+        input.authorization.effectiveRole.tier;
+    const requiresAcceptance =
+      actionItem.requiresAcceptance ?? upwardAssignment;
+    return {
+      ...actionItem,
+      effectiveAssignmentState: actionItem.assigneeWorkosUserId
+        ? requiresAcceptance
+          ? ("requested" as const)
+          : ("assigned" as const)
+        : ("unassigned" as const),
+      requiresAcceptance,
+    };
+  });
+}
+
 async function persistAttachments(
   ctx: MutationCtx,
   input: {
@@ -585,14 +639,6 @@ async function persistApprovedSharedMutations(
   }
 ) {
   for (const mutation of input.mutations) {
-    const entityKind = mutation.entityKind.trim();
-    const operation = mutation.operation.trim();
-    const summary = mutation.summary.trim();
-    if (!(entityKind && operation && summary)) {
-      throw new Error(
-        "Every approved shared mutation requires an entity kind, operation, and summary."
-      );
-    }
     await ctx.db.insert("eventOutbox", {
       brokerageId: input.authorization.brokerage._id,
       createdAt: input.now,
@@ -600,11 +646,11 @@ async function persistApprovedSharedMutations(
       organizationId: input.authorization.organizationId,
       payloadPreview: JSON.stringify({
         approvedByWorkosUserId: input.authorization.viewer.subject,
-        entityId: mutation.entityId?.trim() || undefined,
-        entityKind,
-        operation,
+        entityId: mutation.entityId,
+        entityKind: mutation.entityKind,
+        operation: mutation.operation,
         postId: input.postId,
-        summary,
+        summary: mutation.summary,
       }),
       relatedEntityId: input.postId,
       relatedEntityType: "buildCollaborationPost",
@@ -720,6 +766,18 @@ function resolvePublicationAudience(input: {
         "Custom audiences are unavailable for this Build role. Higher-tier participants must remain able to read the post."
       );
     }
+    const participantIds = new Set(
+      participants.map((participant) => participant.id)
+    );
+    if (
+      input.requestedReaderIds.some(
+        (requestedReaderId) => !participantIds.has(requestedReaderId)
+      )
+    ) {
+      throw new Error(
+        "Custom audience readers must be active Build participants."
+      );
+    }
     resolved = resolveCollaborationAudience({
       authorId: input.authorization.viewer.subject,
       authorRoles: input.authorization.roles,
@@ -824,29 +882,23 @@ async function persistReferences(
   }
 ) {
   for (const reference of input.references) {
-    const entityId = reference.entityId.trim();
-    const label = reference.label.trim();
-    if (!(entityId && label)) {
-      throw new Error("Every reference requires an entity and label.");
-    }
     await ctx.db.insert("buildCollaborationReferences", {
       brokerageId: input.authorization.brokerage._id,
       buildId: input.authorization.build._id,
       createdAt: input.now,
-      entityId,
+      entityId: reference.entityId,
       entityKind: reference.entityKind,
-      labelSnapshot: label,
+      labelSnapshot: reference.label,
       organizationId: input.authorization.organizationId,
       ownerKind: "postRevision",
       ownerRecordId: input.ownerRecordId,
       postId: input.postId,
       primary: reference.primary ?? false,
-      summarySnapshot: reference.summary?.trim() || undefined,
+      summarySnapshot: reference.summary,
     });
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Atomic bundle creation intentionally keeps assignment and audit invariants together.
 async function createActionItems(
   ctx: MutationCtx,
   input: {
@@ -857,20 +909,13 @@ async function createActionItems(
   }
 ) {
   for (const actionItem of input.actionItems) {
-    const title = actionItem.title.trim();
-    if (!title) {
-      throw new Error("Every Action Item requires a title.");
-    }
-    const assignee = actionItem.assigneeWorkosUserId?.trim() || undefined;
+    const assignee = actionItem.assigneeWorkosUserId;
     const assigneeParticipant = assignee
       ? input.authorization.participants.find(
           (participant) => participant.workosUserId === assignee
         )
       : undefined;
-    if (assignee && !assigneeParticipant) {
-      throw new Error("Action Item assignees must participate in this Build.");
-    }
-    const descriptionPlainText = actionItem.descriptionPlainText?.trim() ?? "";
+    const descriptionPlainText = actionItem.descriptionPlainText ?? "";
     const descriptionTiptapJson =
       actionItem.descriptionTiptapJson ??
       JSON.stringify({ content: [], type: "doc" });
@@ -879,13 +924,21 @@ async function createActionItems(
       assigneeParticipant !== undefined &&
       collaborationRoleTier(assigneeParticipant.role) >
         input.authorization.effectiveRole.tier;
-    const requiresAcceptance =
-      actionItem.requiresAcceptance ?? upwardAssignment;
-    const assignmentState = assignee
+    const requiresAcceptance = actionItem.requiresAcceptance ?? false;
+    const expectedAssignmentState = assignee
       ? requiresAcceptance
         ? ("requested" as const)
         : ("assigned" as const)
       : ("unassigned" as const);
+    if (
+      actionItem.effectiveAssignmentState !== expectedAssignmentState ||
+      requiresAcceptance !== (actionItem.requiresAcceptance ?? upwardAssignment)
+    ) {
+      throw new Error(
+        "The approved Action Item assignment state is no longer effective."
+      );
+    }
+    const assignmentState = actionItem.effectiveAssignmentState;
     const actionItemId = await ctx.db.insert("buildActionItems", {
       assigneeWorkosUserId: assignee,
       assignmentRequestedAt:
@@ -904,7 +957,7 @@ async function createActionItems(
       priority: actionItem.priority ?? "none",
       requiresAcceptance,
       status: "todo",
-      title,
+      title: actionItem.title,
       updatedAt: input.now,
     });
     await ctx.db.insert("buildActionItemEvents", {

@@ -328,7 +328,24 @@ describe("Build collaboration publication and feed", () => {
       (api as any).build_collaboration
         .approveAndPublishBuildCollaborationBundle,
       {
-        actionItems: [],
+        actionItems: [
+          {
+            assigneeWorkosUserId: " user_broker ",
+            descriptionPlainText: "Misleading client description",
+            descriptionTiptapJson: JSON.stringify({
+              content: [
+                {
+                  content: [
+                    { text: "Upload the sealed report.", type: "text" },
+                  ],
+                  type: "paragraph",
+                },
+              ],
+              type: "doc",
+            }),
+            title: " Upload engineer seal ",
+          },
+        ],
         audienceMode: "build_wide",
         buildId,
         excludedReaderIds: ["user_contractor"],
@@ -342,14 +359,22 @@ describe("Build collaboration publication and feed", () => {
         organizationId: ORGANIZATION_ID,
         plainText: "Benign client-authored preview text.",
         postType: "update",
-        references: [],
+        references: [
+          {
+            entityId: " user_broker ",
+            entityKind: "participant",
+            label: " Broker Reviewer ",
+            primary: true,
+            summary: " Lender reviewer ",
+          },
+        ],
         requestedReaderIds: [],
         sharedMutations: [
           {
-            entityId: "evidence-package-1",
-            entityKind: "evidencePackage",
-            operation: "request_review",
-            summary: "Request lender evidence review",
+            entityId: " evidence-package-1 ",
+            entityKind: " evidencePackage ",
+            operation: " request_review ",
+            summary: " Request lender evidence review ",
           },
         ],
         tiptapJson: JSON.stringify({
@@ -405,7 +430,26 @@ describe("Build collaboration publication and feed", () => {
       const approvals = await ctx.db
         .query("buildCollaborationPublicationApprovals")
         .collect();
-      return { approvals, deliveries, outbox, readers, revision, snapshots };
+      const actionItems = await ctx.db
+        .query("buildActionItems")
+        .withIndex("by_originatingPostId_and_status", (query) =>
+          query.eq("originatingPostId", postId),
+        )
+        .collect();
+      const references = await ctx.db
+        .query("buildCollaborationReferences")
+        .withIndex("by_postId", (query) => query.eq("postId", postId))
+        .collect();
+      return {
+        actionItems,
+        approvals,
+        deliveries,
+        outbox,
+        readers,
+        references,
+        revision,
+        snapshots,
+      };
     });
 
     expect(persisted.revision?.plainText).toBe(
@@ -430,6 +474,24 @@ describe("Build collaboration publication and feed", () => {
         }),
       ]),
     );
+    expect(persisted.actionItems).toEqual([
+      expect.objectContaining({
+        assigneeWorkosUserId: "user_broker",
+        assignmentState: "assigned",
+        descriptionPlainText: "Upload the sealed report.",
+        priority: "none",
+        requiresAcceptance: false,
+        title: "Upload engineer seal",
+      }),
+    ]);
+    expect(persisted.references).toEqual([
+      expect.objectContaining({
+        entityId: "user_broker",
+        labelSnapshot: "Broker Reviewer",
+        primary: true,
+        summarySnapshot: "Lender reviewer",
+      }),
+    ]);
     expect(persisted.outbox.map((event) => event.eventType)).toEqual(
       expect.arrayContaining([
         "build_collaboration.notification.email",
@@ -447,6 +509,88 @@ describe("Build collaboration publication and feed", () => {
         }),
       ]),
     );
+    const approvedBundle = JSON.parse(
+      persisted.approvals.find((approval) => approval.state === "published")
+        ?.bundleJsonSnapshot ?? "{}",
+    );
+    expect(approvedBundle.actionItems).toEqual([
+      expect.objectContaining({
+        assigneeWorkosUserId: "user_broker",
+        descriptionPlainText: "Upload the sealed report.",
+        effectiveAssignmentState: "assigned",
+        priority: "none",
+        requiresAcceptance: false,
+        title: "Upload engineer seal",
+      }),
+    ]);
+    expect(approvedBundle.sharedMutations).toEqual([
+      {
+        entityId: "evidence-package-1",
+        entityKind: "evidencePackage",
+        operation: "request_review",
+        summary: "Request lender evidence review",
+      },
+    ]);
+  });
+
+  test("rejects custom readers and notification recipients outside the active Build", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Broker Reviewer",
+      role: "broker",
+      subject: "user_broker",
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        {
+          actionItems: [],
+          audienceMode: "custom",
+          buildId,
+          notificationEffects: [
+            {
+              channel: "email",
+              recipientWorkosUserIds: ["outside-user"],
+              summary: "Leak this summary",
+            },
+          ],
+          organizationId: ORGANIZATION_ID,
+          plainText: "Build-local publication.",
+          postType: "update",
+          references: [],
+          requestedReaderIds: ["outside-user"],
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [
+                  { text: "Build-local publication.", type: "text" },
+                ],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        },
+      ),
+    ).rejects.toThrow(
+      "Custom audience readers must be active Build participants.",
+    );
+    const leakedEffects = await base.run(async (ctx) => {
+      const outbox = await ctx.db.query("eventOutbox").collect();
+      const deliveries = await ctx.db.query("recipientDeliveries").collect();
+      return {
+        deliveries: deliveries.filter(
+          (delivery) => delivery.recipientWorkosUserId === "outside-user",
+        ),
+        outbox: outbox.filter((event) =>
+          event.payloadPreview.includes("outside-user"),
+        ),
+      };
+    });
+    expect(leakedEffects).toEqual({ deliveries: [], outbox: [] });
   });
 
   test("publishes an agent-prepared draft only after human approval and preserves the human author", async () => {

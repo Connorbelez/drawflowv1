@@ -78,6 +78,7 @@ export interface ActionItemInput {
   descriptionPlainText?: string;
   descriptionTiptapJson?: string;
   dueAt?: number;
+  effectiveAssignmentState?: "assigned" | "requested" | "unassigned";
   priority?: "urgent" | "high" | "medium" | "low" | "none";
   requiresAcceptance?: boolean;
   title: string;
@@ -140,19 +141,21 @@ export function normalizePublicationBundle(
   const content = canonicalizeTiptapContent(input.tiptapJson);
   return {
     acknowledgementRequired: input.acknowledgementRequired,
-    actionItems: input.actionItems,
-    attachmentAssetIds: input.attachmentAssetIds ?? [],
+    actionItems: input.actionItems.map(normalizeActionItem),
+    attachmentAssetIds: [...new Set(input.attachmentAssetIds ?? [])].sort(),
     audienceMode: input.audienceMode,
     effectiveNotificationEffects: [],
     effectiveReaderIds: [],
-    excludedReaderIds: input.excludedReaderIds ?? [],
+    excludedReaderIds: normalizeIds(input.excludedReaderIds ?? []),
     mandatoryReaderIds: [],
-    notificationEffects: input.notificationEffects ?? [],
+    notificationEffects: (input.notificationEffects ?? []).map(
+      normalizeNotificationEffect
+    ),
     plainText: content.plainText,
     postType: input.postType,
-    references: input.references,
-    requestedReaderIds: input.requestedReaderIds,
-    sharedMutations: input.sharedMutations ?? [],
+    references: input.references.map(normalizeReference),
+    requestedReaderIds: normalizeIds(input.requestedReaderIds),
+    sharedMutations: (input.sharedMutations ?? []).map(normalizeSharedMutation),
     tiptapJson: content.tiptapJson,
   };
 }
@@ -253,4 +256,80 @@ function isTiptapBlockNode(type: unknown) {
       "taskList",
     ].includes(type)
   );
+}
+
+function normalizeActionItem(input: ActionItemInput): ActionItemInput {
+  const description = input.descriptionTiptapJson
+    ? canonicalizeOptionalTiptapContent(input.descriptionTiptapJson)
+    : {
+        plainText: input.descriptionPlainText?.trim() ?? "",
+        tiptapJson: JSON.stringify({ content: [], type: "doc" }),
+      };
+  return {
+    assigneeWorkosUserId: input.assigneeWorkosUserId?.trim() || undefined,
+    descriptionPlainText: description.plainText,
+    descriptionTiptapJson: description.tiptapJson,
+    dueAt: input.dueAt,
+    priority: input.priority ?? "none",
+    requiresAcceptance: input.requiresAcceptance,
+    title: input.title.trim(),
+  };
+}
+
+function normalizeNotificationEffect(
+  input: NotificationEffectInput
+): NotificationEffectInput {
+  return {
+    channel: input.channel,
+    recipientWorkosUserIds: normalizeIds(input.recipientWorkosUserIds),
+    summary: input.summary.trim(),
+  };
+}
+
+function normalizeReference(input: ReferenceInput): ReferenceInput {
+  return {
+    entityId: input.entityId.trim(),
+    entityKind: input.entityKind,
+    label: input.label.trim(),
+    primary: input.primary ?? false,
+    summary: input.summary?.trim() || undefined,
+  };
+}
+
+function normalizeSharedMutation(
+  input: SharedMutationInput
+): SharedMutationInput {
+  return {
+    entityId: input.entityId?.trim() || undefined,
+    entityKind: input.entityKind.trim(),
+    operation: input.operation.trim(),
+    summary: input.summary.trim(),
+  };
+}
+
+function normalizeIds(values: string[]) {
+  return [
+    ...new Set(values.map((value) => value.trim()).filter(Boolean)),
+  ].sort();
+}
+
+function canonicalizeOptionalTiptapContent(tiptapJson: string) {
+  let document: unknown;
+  try {
+    document = JSON.parse(tiptapJson);
+  } catch {
+    throw new Error("Action Item rich text must be valid TipTap JSON.");
+  }
+  if (
+    !document ||
+    typeof document !== "object" ||
+    !("type" in document) ||
+    document.type !== "doc"
+  ) {
+    throw new Error("Action Item rich text must contain a TipTap document.");
+  }
+  return {
+    plainText: tiptapNodeText(document).trim(),
+    tiptapJson: JSON.stringify(document),
+  };
 }

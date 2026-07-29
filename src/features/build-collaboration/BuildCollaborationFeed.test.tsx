@@ -205,7 +205,27 @@ describe("BuildCollaborationFeed", () => {
         approvalOwnerWorkosUserId: "user_admin",
         bundleJson: JSON.stringify({
           acknowledgementRequired: true,
-          actionItems: [{ title: "Upload engineer seal" }],
+          actionItems: [
+            {
+              assigneeWorkosUserId: "user_builder",
+              descriptionPlainText: "Attach the sealed report.",
+              descriptionTiptapJson: JSON.stringify({
+                content: [
+                  {
+                    content: [
+                      { text: "Attach the sealed report.", type: "text" },
+                    ],
+                    type: "paragraph",
+                  },
+                ],
+                type: "doc",
+              }),
+              effectiveAssignmentState: "assigned",
+              priority: "high",
+              requiresAcceptance: false,
+              title: "Upload engineer seal",
+            },
+          ],
           attachmentAssetIds: ["asset-1"],
           audienceMode: "custom",
           effectiveNotificationEffects: [
@@ -232,11 +252,14 @@ describe("BuildCollaborationFeed", () => {
               entityId: "evidence-1",
               entityKind: "evidenceAsset",
               label: "Foundation completion photo",
+              primary: true,
+              summary: "Location verified",
             },
           ],
           requestedReaderIds: ["user_broker"],
           sharedMutations: [
             {
+              entityId: "evidence-package-1",
               entityKind: "evidencePackage",
               operation: "request_review",
               summary: "Request lender evidence review",
@@ -285,8 +308,11 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getAllByText(/Foundation completion photo/)).toHaveLength(2);
     expect(screen.getByText(/asset-1/)).toBeTruthy();
     expect(screen.getByText(/Upload engineer seal/)).toBeTruthy();
+    expect(screen.getAllByText(/Attach the sealed report/)).toHaveLength(2);
+    expect(screen.getByText(/assigned/)).toBeTruthy();
     expect(screen.getByText(/Notify the lender reviewer/)).toBeTruthy();
     expect(screen.getByText(/Request lender evidence review/)).toBeTruthy();
+    expect(screen.getByText(/evidence-package-1/)).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", {
