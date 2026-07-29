@@ -5,6 +5,7 @@ import { useMediaQuery } from "#/hooks/use-media-query.ts";
 export type BuildDetailSubTab =
   | "calendar"
   | "contractors"
+  | "costs"
   | "details"
   | "documents"
   | "evidence"
@@ -21,6 +22,7 @@ export const BUILD_DETAIL_TABS: { value: BuildDetailSubTab; label: string }[] =
     { value: "milestones", label: "Milestones" },
     { value: "contractors", label: "Contractors" },
     { value: "materials", label: "Materials" },
+    { value: "costs", label: "Costs" },
     { value: "timeline", label: "Timeline" },
     { value: "evidence", label: "Evidence" },
     { value: "staff", label: "Staff" },

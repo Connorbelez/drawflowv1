@@ -35,6 +35,7 @@ describe("BuildDetailTabBar", () => {
     });
     expect((sectionPicker as HTMLSelectElement).value).toBe("details");
     expect(screen.getAllByRole("option")).toHaveLength(BUILD_DETAIL_TABS.length);
+    expect(screen.getByRole("option", { name: "Costs" })).toBeTruthy();
     expect(screen.getAllByRole("option", { name: "Timeline" })).toHaveLength(1);
 
     fireEvent.change(sectionPicker, { target: { value: "timeline" } });

@@ -27,6 +27,10 @@ import {
 } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
+  CostsWorkspacePrototype,
+  type CostsWorkspacePrototypeVariant,
+} from "#/features/cost-documents/CostsWorkspace.prototype.tsx";
+import {
   getVisualParityActiveBuildDetail,
   getVisualParityActiveBuildTimelineWorkspace,
   isProductionVisualParityFixtureEnabled,
@@ -38,10 +42,14 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 export type BuilderBuildSearch = {
   timeframe?: CalendarTimeframe;
   milestone?: string;
-  variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant;
+  variant?:
+    | MilestonePrototypeVariant
+    | MilestoneStartPrototypeVariant
+    | CostsWorkspacePrototypeVariant;
   tab?:
     | "calendar"
     | "contractors"
+    | "costs"
     | "details"
     | "documents"
     | "evidence"
@@ -60,6 +68,24 @@ function isMilestoneStartPrototypeVariant(
     variant === "start-dialog" ||
     variant === "start-context" ||
     variant === "start-guided"
+  );
+}
+
+function isCostsWorkspacePrototypeVariant(
+  variant: BuilderBuildSearch["variant"]
+): variant is CostsWorkspacePrototypeVariant {
+  return (
+    variant === "ledger" || variant === "roadmap" || variant === "exceptions"
+  );
+}
+
+function isMilestonePrototypeVariant(
+  variant: BuilderBuildSearch["variant"]
+): variant is MilestonePrototypeVariant {
+  return (
+    variant === "ledger" ||
+    variant === "console" ||
+    variant === "field-walk"
   );
 }
 
@@ -132,6 +158,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
       search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
+      search.tab === "costs" ||
       search.tab === "milestones" ||
       search.tab === "materials" ||
       search.tab === "staff" ||
@@ -148,7 +175,9 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
       search.variant === "field-walk" ||
       search.variant === "start-dialog" ||
       search.variant === "start-context" ||
-      search.variant === "start-guided"
+      search.variant === "start-guided" ||
+      search.variant === "roadmap" ||
+      search.variant === "exceptions"
         ? (search.variant as BuilderBuildSearch["variant"])
         : undefined;
     const rail =
@@ -472,16 +501,19 @@ export function BuilderBuildWorkspaceRoute({
       replace: true,
       search: { ...search, timeframe },
       to: `${routeBase}/builds/$buildId` as never,
-    });
+    } as never);
   const onChangePrototypeVariant = (
-    variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant
+    variant?:
+      | MilestonePrototypeVariant
+      | MilestoneStartPrototypeVariant
+      | CostsWorkspacePrototypeVariant
   ) =>
     navigate({
       params: { buildId },
       replace: true,
       search: { ...search, variant },
       to: `${routeBase}/builds/$buildId` as never,
-    });
+    } as never);
 
   if (effectiveProductionBuild === undefined) {
     return (
@@ -817,6 +849,17 @@ export function BuilderBuildWorkspaceRoute({
                 `/builder/contractors/${contractorId}?fromBuildId=${buildId}`
             : undefined
         }
+        costs={
+          <CostsWorkspacePrototype
+            detail={detail}
+            onVariantChange={(variant) => onChangePrototypeVariant(variant)}
+            variant={
+              isCostsWorkspacePrototypeVariant(search.variant)
+                ? search.variant
+                : "ledger"
+            }
+          />
+        }
         detail={detail}
         fundingWorkspaceEnabled
         milestoneKey={
@@ -857,6 +900,7 @@ export function BuilderBuildWorkspaceRoute({
                 "milestones",
                 "contractors",
                 "materials",
+                "costs",
                 "timeline",
                 "evidence",
                 "calendar",
@@ -877,17 +921,23 @@ export function BuilderBuildWorkspaceRoute({
           milestoneKey={prototypeStartRequest?.milestoneKey ?? search.milestone}
           onDismiss={() => setPrototypeStartRequest(null)}
           onExit={() => onChangePrototypeVariant(undefined)}
-          onVariantChange={onChangePrototypeVariant}
+          onVariantChange={(variant) => onChangePrototypeVariant(variant)}
           open={Boolean(prototypeStartRequest)}
           submilestoneKey={prototypeStartRequest?.submilestoneKey}
-          variant={search.variant}
+          variant={
+            isMilestoneStartPrototypeVariant(search.variant)
+              ? search.variant
+              : "start-dialog"
+          }
         />
-      ) : import.meta.env.DEV && search.variant ? (
+      ) : import.meta.env.DEV &&
+        search.tab !== "costs" &&
+        isMilestonePrototypeVariant(search.variant) ? (
         <MilestoneExecutionSheetPrototype
           detail={detail}
           milestoneKey={search.milestone}
           onExit={() => onChangePrototypeVariant(undefined)}
-          onVariantChange={onChangePrototypeVariant}
+          onVariantChange={(variant) => onChangePrototypeVariant(variant)}
           variant={search.variant}
         />
       ) : null}
