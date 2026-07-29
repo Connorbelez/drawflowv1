@@ -61,12 +61,17 @@ import {
 } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import type { ProductionBuildDetail } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
+import {
+  QuoteTemplateConfigurationPrototype,
+  type QuoteTemplatePrototypeVariant,
+} from "#/features/quote-solicitation/QuoteTemplateConfiguration.prototype.tsx";
 import { cn } from "#/lib/utils.ts";
 
 export type QuoteComposerPrototypeVariant =
   | "quote-scope-lock"
   | "quote-packet-studio"
-  | "quote-control-ledger";
+  | "quote-control-ledger"
+  | QuoteTemplatePrototypeVariant;
 
 const QUOTE_COMPOSER_VARIANTS: {
   label: string;
@@ -77,10 +82,27 @@ const QUOTE_COMPOSER_VARIANTS: {
   { label: "Procurement Control Ledger", value: "quote-control-ledger" },
 ];
 
+const QUOTE_TEMPLATE_VARIANTS: {
+  label: string;
+  value: QuoteComposerPrototypeVariant;
+}[] = [
+  { label: "Guided Template Recipe", value: "quote-template-guided" },
+  { label: "Template Registry", value: "quote-template-registry" },
+  { label: "Response Contract Canvas", value: "quote-template-canvas" },
+];
+
+function isQuoteTemplatePrototypeVariant(
+  value: QuoteComposerPrototypeVariant
+): value is QuoteTemplatePrototypeVariant {
+  return value.startsWith("quote-template-");
+}
+
 export function isQuoteComposerPrototypeVariant(
   value: unknown
 ): value is QuoteComposerPrototypeVariant {
-  return QUOTE_COMPOSER_VARIANTS.some((variant) => variant.value === value);
+  return [...QUOTE_COMPOSER_VARIANTS, ...QUOTE_TEMPLATE_VARIANTS].some(
+    (variant) => variant.value === value
+  );
 }
 
 type QuoteKind = "labour" | "material";
@@ -202,7 +224,12 @@ export function QuoteRoundComposerPrototype({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-background">
       {variant === "quote-scope-lock" ? (
-        <ScopeLockVariant detail={detail} key={variant} onExit={onExit} />
+        <ScopeLockVariant
+          detail={detail}
+          key={variant}
+          onConfigureTemplates={() => onVariantChange("quote-template-guided")}
+          onExit={onExit}
+        />
       ) : null}
       {variant === "quote-packet-studio" ? (
         <PacketStudioVariant detail={detail} key={variant} onExit={onExit} />
@@ -210,11 +237,23 @@ export function QuoteRoundComposerPrototype({
       {variant === "quote-control-ledger" ? (
         <ControlLedgerVariant detail={detail} key={variant} onExit={onExit} />
       ) : null}
+      {isQuoteTemplatePrototypeVariant(variant) ? (
+        <QuoteTemplateConfigurationPrototype
+          detail={detail}
+          key={variant}
+          onBackToComposer={() => onVariantChange("quote-scope-lock")}
+          variant={variant}
+        />
+      ) : null}
       <PrototypeSwitcher
         current={variant}
         onChange={onVariantChange}
         onExit={onExit}
-        variants={QUOTE_COMPOSER_VARIANTS}
+        variants={
+          isQuoteTemplatePrototypeVariant(variant)
+            ? QUOTE_TEMPLATE_VARIANTS
+            : QUOTE_COMPOSER_VARIANTS
+        }
       />
     </div>
   );
@@ -227,10 +266,17 @@ function ComposerHeader({
   title,
 }: {
   detail: ProductionBuildDetail;
-  kind: QuoteKind;
+  kind: QuoteKind | "mixed";
   onExit: () => void;
   title: string;
 }) {
+  const kindLabel =
+    kind === "mixed"
+      ? "Labour + Materials"
+      : kind === "labour"
+        ? "Labour"
+        : "Materials";
+
   return (
     <header className="sticky top-0 z-30 border-b bg-background/96 backdrop-blur">
       <div className="mx-auto flex min-h-16 max-w-[1600px] items-center gap-3 px-3 sm:px-5">
@@ -245,8 +291,16 @@ function ComposerHeader({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <p className="truncate font-semibold text-sm">{title}</p>
-            <Badge variant={kind === "labour" ? "info" : "warning"}>
-              {kind === "labour" ? "Labour" : "Materials"}
+            <Badge
+              variant={
+                kind === "mixed"
+                  ? "secondary"
+                  : kind === "labour"
+                    ? "info"
+                    : "warning"
+              }
+            >
+              {kindLabel}
             </Badge>
           </div>
           <p className="truncate text-muted-foreground text-xs">
@@ -293,26 +347,33 @@ function KindToggle({
   );
 }
 
-function PackageTape({
-  kind,
+function CombinedPackageTape({
+  labourCount,
+  materialCount,
   recipients,
-  scopeCount,
 }: {
-  kind: QuoteKind;
+  labourCount: number;
+  materialCount: number;
   recipients: number;
-  scopeCount: number;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-y bg-muted/35 px-4 py-2 text-xs">
       <span className="font-semibold uppercase tracking-wide">
-        {kind === "labour" ? "Labour package" : "Material package"}
+        Mixed scope package
       </span>
-      <span>{scopeCount} pricing lines</span>
-      <span>May 12–Jul 08</span>
+      <span className="inline-flex items-center gap-1">
+        <HardHat className="size-3.5" />
+        {labourCount} labour
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <PackageCheck className="size-3.5" />
+        {materialCount} materials
+      </span>
+      <span>{labourCount + materialCount} pricing lines</span>
       <span>{recipients} private invitations</span>
       <span className="ml-auto inline-flex items-center gap-1 text-success-foreground">
         <ShieldCheck className="size-3.5" />
-        Identical package
+        One identical package
       </span>
     </div>
   );
@@ -399,6 +460,70 @@ function ScopeSelector({
           </div>
         </section>
       ))}
+    </div>
+  );
+}
+
+function CombinedScopeSelector({
+  detail,
+  selectedLabour,
+  selectedMaterials,
+  setSelectedLabour,
+  setSelectedMaterials,
+}: {
+  detail: ProductionBuildDetail;
+  selectedLabour: string[];
+  selectedMaterials: string[];
+  setSelectedLabour: (ids: string[]) => void;
+  setSelectedMaterials: (ids: string[]) => void;
+}) {
+  return (
+    <div className="space-y-7">
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-2 border-b pb-3">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-info/10 text-info-foreground">
+              <HardHat className="size-5" />
+            </span>
+            <div>
+              <p className="font-semibold">Labour</p>
+              <p className="text-muted-foreground text-xs">
+                Select every sub-milestone whose work the recipient must price.
+              </p>
+            </div>
+          </div>
+          <Badge variant="info">{selectedLabour.length} selected</Badge>
+        </div>
+        <ScopeSelector
+          detail={detail}
+          kind="labour"
+          selected={selectedLabour}
+          setSelected={setSelectedLabour}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-2 border-b pb-3">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-warning/10 text-warning-foreground">
+              <PackageCheck className="size-5" />
+            </span>
+            <div>
+              <p className="font-semibold">Materials</p>
+              <p className="text-muted-foreground text-xs">
+                Add supplied materials to the same request and recipient form.
+              </p>
+            </div>
+          </div>
+          <Badge variant="warning">{selectedMaterials.length} selected</Badge>
+        </div>
+        <ScopeSelector
+          detail={detail}
+          kind="material"
+          selected={selectedMaterials}
+          setSelected={setSelectedMaterials}
+        />
+      </section>
     </div>
   );
 }
@@ -556,25 +681,52 @@ function RecipientEditor({
 
 function ResponseBuilder({
   comments,
+  labourCount,
+  materialCount,
+  onConfigureTemplates,
   setComments,
 }: {
   comments: string;
+  labourCount?: number;
+  materialCount?: number;
+  onConfigureTemplates?: () => void;
   setComments: (value: string) => void;
 }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="font-semibold text-sm">Detailed labour quote</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-sm">Standard trade quote</p>
+            <Badge variant="outline">Published v3</Badge>
+          </div>
           <p className="text-muted-foreground text-xs">
-            4 scope lines · HST added after subtotal
+            {labourCount ?? 4} labour · {materialCount ?? 0} materials · 4
+            custom questions · 2 permanent regions
           </p>
         </div>
-        <Button size="sm" variant="outline">
-          <Sparkles />
-          Apply template
+        <Button onClick={onConfigureTemplates} size="sm" variant="outline">
+          {onConfigureTemplates ? <Settings2 /> : <Sparkles />}
+          {onConfigureTemplates ? "Configure templates" : "Apply template"}
         </Button>
       </div>
+      {onConfigureTemplates ? (
+        <Card className="border-info/30 bg-info/5">
+          <CardPanel className="flex items-start gap-3 p-3">
+            <ShieldCheck className="mt-0.5 size-4 text-info-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-sm">Pinned response snapshot</p>
+              <p className="text-muted-foreground text-xs">
+                Dispatch will preserve this resolved template even if a newer
+                version is published later.
+              </p>
+            </div>
+            <Button onClick={onConfigureTemplates} size="sm" variant="ghost">
+              Change
+            </Button>
+          </CardPanel>
+        </Card>
+      ) : null}
       <div className="space-y-2">
         {CUSTOM_FIELDS.map((field, index) => (
           <Card key={field.id}>
@@ -786,21 +938,31 @@ type ScopeLockStage = (typeof SCOPE_LOCK_STAGES)[number]["id"];
 
 function ScopeLockVariant({
   detail,
+  onConfigureTemplates,
   onExit,
 }: {
   detail: ProductionBuildDetail;
+  onConfigureTemplates: () => void;
   onExit: () => void;
 }) {
   const [stage, setStage] = useState<ScopeLockStage>("scope");
-  const [kind, setKind] = useState<QuoteKind>("labour");
-  const initialIds = useMemo(
+  const initialLabourIds = useMemo(
     () =>
       buildScopeItems(detail, "labour")
         .slice(0, 4)
         .map((item) => item.id),
     [detail]
   );
-  const [selected, setSelected] = useState(initialIds);
+  const initialMaterialIds = useMemo(
+    () =>
+      buildScopeItems(detail, "material")
+        .slice(0, 3)
+        .map((item) => item.id),
+    [detail]
+  );
+  const [selectedLabour, setSelectedLabour] = useState(initialLabourIds);
+  const [selectedMaterials, setSelectedMaterials] =
+    useState(initialMaterialIds);
   const [recipients, setRecipients] = useState(INITIAL_RECIPIENTS);
   const [comments, setComments] = useState(
     "<p>Describe assumptions, exclusions, and anything else we should understand.</p>"
@@ -808,27 +970,18 @@ function ScopeLockVariant({
   const [simulated, setSimulated] = useState(false);
   const stageIndex = SCOPE_LOCK_STAGES.findIndex((item) => item.id === stage);
 
-  const changeKind = (value: QuoteKind) => {
-    setKind(value);
-    setSelected(
-      buildScopeItems(detail, value)
-        .slice(0, 3)
-        .map((item) => item.id)
-    );
-  };
-
   return (
     <div className="min-h-screen bg-muted/25 pb-28">
       <ComposerHeader
         detail={detail}
-        kind={kind}
+        kind="mixed"
         onExit={onExit}
         title="New Quote Round"
       />
-      <PackageTape
-        kind={kind}
+      <CombinedPackageTape
+        labourCount={selectedLabour.length}
+        materialCount={selectedMaterials.length}
         recipients={recipients.length}
-        scopeCount={selected.length}
       />
       <main className="mx-auto grid max-w-[1480px] gap-4 p-3 sm:p-5 lg:grid-cols-[220px_minmax(0,1fr)_280px]">
         <Frame className="hidden self-start lg:flex">
@@ -910,15 +1063,13 @@ function ScopeLockVariant({
           </FrameHeader>
           <FramePanel className="p-4 sm:p-5">
             {stage === "scope" ? (
-              <div className="space-y-5">
-                <KindToggle kind={kind} onChange={changeKind} />
-                <ScopeSelector
-                  detail={detail}
-                  kind={kind}
-                  selected={selected}
-                  setSelected={setSelected}
-                />
-              </div>
+              <CombinedScopeSelector
+                detail={detail}
+                selectedLabour={selectedLabour}
+                selectedMaterials={selectedMaterials}
+                setSelectedLabour={setSelectedLabour}
+                setSelectedMaterials={setSelectedMaterials}
+              />
             ) : null}
             {stage === "package" ? (
               <div className="space-y-4">
@@ -944,7 +1095,13 @@ function ScopeLockVariant({
               />
             ) : null}
             {stage === "response" ? (
-              <ResponseBuilder comments={comments} setComments={setComments} />
+              <ResponseBuilder
+                comments={comments}
+                labourCount={selectedLabour.length}
+                materialCount={selectedMaterials.length}
+                onConfigureTemplates={onConfigureTemplates}
+                setComments={setComments}
+              />
             ) : null}
             {stage === "dispatch" ? (
               <div className="space-y-5">
@@ -1023,7 +1180,7 @@ function ScopeLockVariant({
             <ProofMetric
               icon={Layers3}
               label="Scope"
-              value={`${selected.length} lines`}
+              value={`${selectedLabour.length} labour · ${selectedMaterials.length} materials`}
             />
             <ProofMetric
               icon={FileCheck2}
@@ -1038,7 +1195,7 @@ function ScopeLockVariant({
             <ProofMetric
               icon={ReceiptText}
               label="Response"
-              value="8 fields + 2 fixed"
+              value="Template v3 · 4 custom + 2 fixed"
             />
             <ProofMetric icon={Clock3} label="Access" value="Expires Aug 25" />
           </FramePanel>

@@ -162,7 +162,10 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
       search.variant === "start-guided" ||
       search.variant === "quote-scope-lock" ||
       search.variant === "quote-packet-studio" ||
-      search.variant === "quote-control-ledger"
+      search.variant === "quote-control-ledger" ||
+      search.variant === "quote-template-guided" ||
+      search.variant === "quote-template-registry" ||
+      search.variant === "quote-template-canvas"
         ? (search.variant as BuilderBuildSearch["variant"])
         : undefined;
     const rail =
