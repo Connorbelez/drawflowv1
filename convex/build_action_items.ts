@@ -12,6 +12,7 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { canUseCollaborationAssetForPost } from "./build_collaboration_asset_access";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import {
@@ -1138,8 +1139,11 @@ async function persistBuildActionItemAttachments(
       asset.brokerageId !== input.authorization.brokerage._id ||
       asset.buildId !== input.authorization.build._id ||
       asset.state !== "available" ||
-      (input.post.audienceMode === "build_wide" &&
-        asset.maximumAudienceMode !== "build_wide")
+      !(await canUseCollaborationAssetForPost(ctx, {
+        asset,
+        authorization: input.authorization,
+        post: input.post,
+      }))
     ) {
       throw new Error("An Action Item attachment is unavailable.");
     }

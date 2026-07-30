@@ -7,10 +7,13 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { canUseCollaborationAssetForPost } from "./build_collaboration_asset_access";
+import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
 import { canonicalizeTiptapReferences } from "./build_collaboration_publication_bundle";
 import {
   type CanonicalBuildCollaborationReference,
   resolveCanonicalBuildCollaborationReferences,
+  resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
@@ -22,7 +25,7 @@ import {
   buildCollaborationReferenceKindValidator,
   buildCollaborationRoleValidator,
 } from "./build_collaboration_validators";
-import type { Doc, Id, MutationCtx } from "./types";
+import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_DETAIL_EVENTS = 500;
 const MAX_DETAIL_REVISIONS = 250;
@@ -187,6 +190,14 @@ export const getBuildActionItemDetail = authenticatedQuery
       authorization.participants.find(
         (participant) => participant.workosUserId === workosUserId
       )?.displayName ?? workosUserId;
+    const projectedItemReferences = await projectActionItemReferences(ctx, {
+      authorization,
+      references,
+    });
+    const projectedItemContent = projectCollaborationRevisionForViewer({
+      references: projectedItemReferences.canonical,
+      tiptapJson: item.descriptionTiptapJson,
+    });
     const attachmentRows = await Promise.all(
       attachments.map(async (attachment) => {
         if (attachment.attachmentKind !== "collaborationAsset") {
@@ -198,7 +209,13 @@ export const getBuildActionItemDetail = authenticatedQuery
         if (
           !asset ||
           asset.buildId !== authorization.build._id ||
-          asset.organizationId !== authorization.organizationId
+          asset.organizationId !== authorization.organizationId ||
+          asset.state !== "available" ||
+          !(await canUseCollaborationAssetForPost(ctx, {
+            asset,
+            authorization,
+            post,
+          }))
         ) {
           return null;
         }
@@ -213,25 +230,45 @@ export const getBuildActionItemDetail = authenticatedQuery
       })
     );
     const commentRows = await Promise.all(
-      comments.map(async (comment) => ({
-        authorDisplayName: comment.authorDisplayNameSnapshot,
-        authorRole: comment.authorRole,
-        commentId: comment._id,
-        createdAt: comment.createdAt,
-        plainText: comment.plainText,
-        references: (
-          await ctx.db
-            .query("buildCollaborationReferences")
-            .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-              query
-                .eq("ownerKind", "actionItemComment")
-                .eq("ownerRecordId", comment._id)
-            )
-            .take(MAX_COMMENT_REFERENCES)
-        ).map(referenceSummary),
-        tiptapJson: comment.tiptapJson,
-      }))
+      comments.map(async (comment) => {
+        const commentReferences = await ctx.db
+          .query("buildCollaborationReferences")
+          .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+            query
+              .eq("ownerKind", "actionItemComment")
+              .eq("ownerRecordId", comment._id)
+          )
+          .take(MAX_COMMENT_REFERENCES);
+        const projectedReferences = await projectActionItemReferences(ctx, {
+          authorization,
+          references: commentReferences,
+        });
+        const projectedContent = projectCollaborationRevisionForViewer({
+          references: projectedReferences.canonical,
+          tiptapJson: comment.tiptapJson,
+        });
+        return {
+          authorDisplayName: comment.authorDisplayNameSnapshot,
+          authorRole: comment.authorRole,
+          commentId: comment._id,
+          createdAt: comment.createdAt,
+          plainText: projectedContent.plainText,
+          references: projectedReferences.summaries,
+          tiptapJson: projectedContent.tiptapJson,
+        };
+      })
     );
+    const projectedRevisions = revisions.map((revision) => ({
+      actorDisplayName: participantName(revision.actorWorkosUserId),
+      actorRole: revision.actorRole,
+      createdAt: revision.createdAt,
+      reason: revision.reason,
+      revision: revision.revision,
+      snapshotJson: projectActionItemSnapshot(
+        revision.snapshotJson,
+        projectedItemReferences.canonical
+      ),
+    }));
     return {
       activity: events.map((event) => ({
         actorDisplayName: participantName(event.actorWorkosUserId),
@@ -258,8 +295,8 @@ export const getBuildActionItemDetail = authenticatedQuery
         creatorDisplayName: participantName(item.creatorWorkosUserId),
         creatorWorkosUserId: item.creatorWorkosUserId,
         currentRevision: item.currentRevision,
-        descriptionPlainText: item.descriptionPlainText,
-        descriptionTiptapJson: item.descriptionTiptapJson,
+        descriptionPlainText: projectedItemContent.plainText,
+        descriptionTiptapJson: projectedItemContent.tiptapJson,
         dueAt: item.dueAt,
         originatingPostId: item.originatingPostId,
         priority: item.priority,
@@ -268,15 +305,8 @@ export const getBuildActionItemDetail = authenticatedQuery
         updatedAt: item.updatedAt,
       },
       labels: labels.map((label) => label.label),
-      references: references.map(referenceSummary),
-      revisions: revisions.map((revision) => ({
-        actorDisplayName: participantName(revision.actorWorkosUserId),
-        actorRole: revision.actorRole,
-        createdAt: revision.createdAt,
-        reason: revision.reason,
-        revision: revision.revision,
-        snapshotJson: revision.snapshotJson,
-      })),
+      references: projectedItemReferences.summaries,
+      revisions: projectedRevisions,
       state: "visible" as const,
     };
   })
@@ -418,7 +448,7 @@ export const registerBuildActionItemAttachment = authenticatedMutation
     ) {
       throw new Error("Action Item parent post is unavailable.");
     }
-    const metadata = await ctx.storage.getMetadata(args.storageId);
+    const metadata = await ctx.db.system.get(args.storageId);
     if (!metadata) {
       throw new Error("Uploaded Action Item attachment is unavailable.");
     }
@@ -427,6 +457,11 @@ export const registerBuildActionItemAttachment = authenticatedMutation
       throw new Error("Attachment file names must be 1–240 characters.");
     }
     const now = Date.now();
+    const readerWorkosUserIds = await resolveCurrentCollaborationPostReaderIds(
+      ctx,
+      authorization,
+      post
+    );
     return await ctx.db.insert("buildCollaborationAssets", {
       brokerageId: authorization.brokerage._id,
       buildId: authorization.build._id,
@@ -438,6 +473,8 @@ export const registerBuildActionItemAttachment = authenticatedMutation
         args.mimeType?.trim() ??
         "application/octet-stream",
       organizationId: authorization.organizationId,
+      originatingPostId: post._id,
+      readerWorkosUserIds: [...new Set(readerWorkosUserIds)].sort(),
       sizeBytes: metadata.size,
       state: "available",
       storageId: args.storageId,
@@ -447,6 +484,87 @@ export const registerBuildActionItemAttachment = authenticatedMutation
     });
   })
   .public();
+
+async function projectActionItemReferences(
+  ctx: QueryCtx,
+  input: {
+    authorization: Awaited<
+      ReturnType<typeof authorizeActiveBuildCollaborationAccess>
+    >;
+    references: Doc<"buildCollaborationReferences">[];
+  }
+) {
+  const canonical: CanonicalBuildCollaborationReference[] = [];
+  const summaries: ReturnType<typeof referenceSummary>[] = [];
+  for (const reference of input.references) {
+    if (
+      reference.organizationId !== input.authorization.organizationId ||
+      reference.brokerageId !== input.authorization.brokerage._id ||
+      reference.buildId !== input.authorization.build._id
+    ) {
+      continue;
+    }
+    try {
+      const current = await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization: input.authorization,
+        entityId: reference.entityId,
+        entityKind: reference.entityKind,
+      });
+      canonical.push(current);
+      summaries.push({
+        entityId: current.entityId,
+        entityKind: current.entityKind,
+        label: current.label,
+        primary: reference.primary,
+        summary: current.summary,
+      });
+    } catch {
+      summaries.push({
+        entityId: reference.entityId,
+        entityKind: reference.entityKind,
+        label: "Unavailable reference",
+        primary: reference.primary,
+        summary: undefined,
+      });
+    }
+  }
+  return { canonical, summaries };
+}
+
+function projectActionItemSnapshot(
+  snapshotJson: string,
+  references: CanonicalBuildCollaborationReference[]
+) {
+  try {
+    const snapshot = JSON.parse(snapshotJson) as Record<string, unknown>;
+    if (typeof snapshot.descriptionTiptapJson !== "string") {
+      return snapshotJson;
+    }
+    const projected = projectCollaborationRevisionForViewer({
+      references,
+      tiptapJson: snapshot.descriptionTiptapJson,
+    });
+    return JSON.stringify({
+      ...snapshot,
+      descriptionPlainText: projected.plainText,
+      descriptionTiptapJson: projected.tiptapJson,
+    });
+  } catch {
+    return JSON.stringify({
+      descriptionPlainText: "This revision is unavailable.",
+      descriptionTiptapJson: JSON.stringify({
+        content: [
+          {
+            content: [{ text: "This revision is unavailable.", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      }),
+      title: "Unavailable revision",
+    });
+  }
+}
 
 function referenceSummary(reference: {
   entityId: string;

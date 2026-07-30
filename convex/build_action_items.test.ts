@@ -248,8 +248,18 @@ describe("Build Action Item server authorization", () => {
         {
           content: [
             {
-              text: "Upload the engineer seal and confirm the inspection.",
+              text: "Upload the engineer seal with ",
               type: "text",
+            },
+            {
+              attrs: {
+                eyebrow: "Forged role",
+                id: "user_contractor_creator",
+                kind: "participant",
+                label: "Forged participant label",
+                summary: "Forged participant summary",
+              },
+              type: "collaborationMention",
             },
           ],
           type: "paragraph",
@@ -328,6 +338,27 @@ describe("Build Action Item server authorization", () => {
       state: "visible",
     });
     expect(detail.revisions).toHaveLength(1);
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(assetId, {
+        state: "quarantined",
+        updatedAt: Date.now(),
+      });
+    });
+    detail = await fixture.reader.query(
+      (api as any).build_action_item_details.getBuildActionItemDetail,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(detail.attachments).toEqual([]);
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(assetId, {
+        state: "available",
+        updatedAt: Date.now(),
+      });
+    });
 
     await fixture.reader.mutation(
       (api as any).build_action_item_details.addBuildActionItemComment,
@@ -345,7 +376,17 @@ describe("Build Action Item server authorization", () => {
         tiptapJson: JSON.stringify({
           content: [
             {
-              content: [{ text: "I will upload this today.", type: "text" }],
+              content: [
+                { text: "I will upload this with ", type: "text" },
+                {
+                  attrs: {
+                    id: "user_contractor_creator",
+                    kind: "participant",
+                    label: "Forged comment label",
+                  },
+                  type: "collaborationMention",
+                },
+              ],
               type: "paragraph",
             },
           ],
@@ -374,7 +415,7 @@ describe("Build Action Item server authorization", () => {
     expect(detail.comments).toMatchObject([
       {
         authorDisplayName: "user_contractor_reader",
-        plainText: "I will upload this today.",
+        plainText: expect.stringContaining("I will upload this with"),
         references: [
           {
             entityId: "user_contractor_creator",
@@ -537,6 +578,118 @@ describe("Build Action Item server authorization", () => {
         }
       )
     ).rejects.toThrow("parent post is unavailable");
+
+    const otherCustomPostId = await fixture.builder.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "custom",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Builder and reader coordination.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: ["user_builder", "user_contractor_reader"],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                { text: "Builder and reader coordination.", type: "text" },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      }
+    );
+    const restrictedAssetId = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const storageId = await ctx.storage.store(
+        new Blob(["restricted attachment"], { type: "text/plain" })
+      );
+      const now = Date.now();
+      return await ctx.db.insert("buildCollaborationAssets", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        fileName: "builder-only.txt",
+        maximumAudienceMode: "custom",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        originatingPostId: restrictedPostId,
+        readerWorkosUserIds: ["user_builder"],
+        sizeBytes: 21,
+        state: "available",
+        storageId,
+        updatedAt: now,
+        uploadedByWorkosUserId: "user_builder",
+        version: 1,
+      });
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_items.createBuildActionItem,
+        {
+          attachmentAssetIds: [restrictedAssetId],
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: otherCustomPostId,
+          requestId: "cross-custom-audience-asset",
+          title: "Must not widen attachment audience",
+        }
+      )
+    ).rejects.toThrow("attachment is unavailable");
+
+    await fixture.base.run(async (ctx) => {
+      const creatorParticipation = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "user_contractor_creator")
+        )
+        .unique();
+      if (creatorParticipation) {
+        await ctx.db.patch(creatorParticipation._id, {
+          status: "removed",
+          updatedAt: Date.now(),
+        });
+      }
+    });
+    detail = await fixture.reader.query(
+      (api as any).build_action_item_details.getBuildActionItemDetail,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(detail.references).toContainEqual(
+      expect.objectContaining({
+        entityId: "user_contractor_creator",
+        label: "Unavailable reference",
+      })
+    );
+    expect(detail.item.descriptionTiptapJson).toContain(
+      "[Referenced item unavailable]"
+    );
+    expect(detail.item.descriptionTiptapJson).not.toContain(
+      "Forged participant label"
+    );
+    expect(detail.revisions[0]?.snapshotJson).toContain(
+      "[Referenced item unavailable]"
+    );
+    expect(detail.comments[0]?.tiptapJson).toContain(
+      "[Referenced item unavailable]"
+    );
+    expect(detail.comments[0]?.tiptapJson).not.toContain(
+      "Forged comment label"
+    );
   });
 
   test("a reader may create, but cannot mutate another participant's Action Item", async () => {

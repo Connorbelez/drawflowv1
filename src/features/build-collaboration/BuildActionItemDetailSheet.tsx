@@ -31,6 +31,7 @@ import {
 } from "#/components/ui/sheet.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { BuildCollaborationReferenceChip } from "./BuildCollaborationReference.tsx";
 import {
   CollaborationRichTextEditor,
   CollaborationRichTextPreview,
@@ -43,6 +44,7 @@ import {
   parseDocument,
   plainTextFromDocument,
   toBackendReferenceKind,
+  toEditorReferenceKind,
 } from "./model.ts";
 
 type ActionItemDetail = FunctionReturnType<
@@ -65,6 +67,7 @@ export function BuildActionItemDetailSheet({
   buildId,
   onCreated,
   onOpenChange,
+  onReferenceOpen,
   open,
   organizationId,
   tagOptions,
@@ -73,6 +76,7 @@ export function BuildActionItemDetailSheet({
   buildId: Id<"activeBuilds">;
   onCreated?: (actionItemId: Id<"buildActionItems">) => void;
   onOpenChange: (open: boolean) => void;
+  onReferenceOpen: (reference: CollaborationTagReference) => void;
   open: boolean;
   organizationId: string;
   tagOptions: CollaborationTagOption[];
@@ -101,6 +105,7 @@ export function BuildActionItemDetailSheet({
             buildId={buildId}
             detail={detail}
             onOpenChange={onOpenChange}
+            onReferenceOpen={onReferenceOpen}
             organizationId={organizationId}
             tagOptions={tagOptions}
           />
@@ -305,12 +310,14 @@ function ActionItemDetailPanel({
   buildId,
   detail,
   onOpenChange,
+  onReferenceOpen,
   organizationId,
   tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
   detail: ActionItemDetail | undefined;
   onOpenChange: (open: boolean) => void;
+  onReferenceOpen: (reference: CollaborationTagReference) => void;
   organizationId: string;
   tagOptions: CollaborationTagOption[];
 }) {
@@ -349,6 +356,7 @@ function ActionItemDetailPanel({
       buildId={buildId}
       detail={detail}
       onOpenChange={onOpenChange}
+      onReferenceOpen={onReferenceOpen}
       organizationId={organizationId}
       tagOptions={tagOptions}
     />
@@ -359,12 +367,14 @@ function VisibleActionItemDetail({
   buildId,
   detail,
   onOpenChange,
+  onReferenceOpen,
   organizationId,
   tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
   detail: VisibleActionItemDetail;
   onOpenChange: (open: boolean) => void;
+  onReferenceOpen: (reference: CollaborationTagReference) => void;
   organizationId: string;
   tagOptions: CollaborationTagOption[];
 }) {
@@ -487,6 +497,7 @@ function VisibleActionItemDetail({
           </div>
           <CollaborationRichTextPreview
             ariaLabel="Action Item description"
+            onReferenceOpen={onReferenceOpen}
             tagOptions={tagOptions}
             value={parseDocument(detail.item.descriptionTiptapJson)}
           />
@@ -494,7 +505,11 @@ function VisibleActionItemDetail({
             {saving ? "Saving…" : "Save changes"}
           </Button>
         </section>
-        <DetailContext detail={detail} />
+        <DetailContext
+          detail={detail}
+          onReferenceOpen={onReferenceOpen}
+          tagOptions={tagOptions}
+        />
         <section className="space-y-3">
           <div className="flex items-center gap-2">
             <MessageCircle aria-hidden="true" className="size-4 text-primary" />
@@ -511,6 +526,7 @@ function VisibleActionItemDetail({
                 </p>
                 <CollaborationRichTextPreview
                   ariaLabel="Action Item comment"
+                  onReferenceOpen={onReferenceOpen}
                   tagOptions={tagOptions}
                   value={parseDocument(entry.tiptapJson)}
                 />
@@ -545,7 +561,15 @@ function VisibleActionItemDetail({
   );
 }
 
-function DetailContext({ detail }: { detail: VisibleActionItemDetail }) {
+function DetailContext({
+  detail,
+  onReferenceOpen,
+  tagOptions,
+}: {
+  detail: VisibleActionItemDetail;
+  onReferenceOpen: (reference: CollaborationTagReference) => void;
+  tagOptions: CollaborationTagOption[];
+}) {
   return (
     <section className="space-y-3">
       <h3 className="font-semibold text-sm">Build context</h3>
@@ -555,11 +579,27 @@ function DetailContext({ detail }: { detail: VisibleActionItemDetail }) {
             {label}
           </Badge>
         ))}
-        {detail.references.map((reference) => (
-          <Badge key={`${reference.entityKind}:${reference.entityId}`}>
-            @{reference.label}
-          </Badge>
-        ))}
+        {detail.references.map((reference) => {
+          const option = tagOptions.find(
+            (candidate) =>
+              candidate.id === reference.entityId &&
+              candidate.kind === toEditorReferenceKind(reference.entityKind)
+          );
+          return option ? (
+            <BuildCollaborationReferenceChip
+              key={`${reference.entityKind}:${reference.entityId}`}
+              onOpen={() => onReferenceOpen(option)}
+              reference={option}
+            />
+          ) : (
+            <Badge
+              key={`${reference.entityKind}:${reference.entityId}`}
+              variant="outline"
+            >
+              @{reference.label}
+            </Badge>
+          );
+        })}
       </div>
       {detail.attachments.map((attachment) => (
         <Card key={attachment.assetId}>

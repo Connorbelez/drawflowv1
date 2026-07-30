@@ -210,7 +210,13 @@ export function BuildCollaborationFeed({
       buildId: activeBuildId,
       organizationId,
     })
-  ) as { postId: Id<"buildCollaborationPosts"> } | null | undefined;
+  ) as
+    | {
+        actionItemId: Id<"buildActionItems">;
+        postId: Id<"buildCollaborationPosts">;
+      }
+    | null
+    | undefined;
   const focusedCommentContext = useQuery(
     api.build_collaboration_threads.getFocusedBuildCollaborationCommentContext,
     focusedCommentQueryArgs({
@@ -318,18 +324,19 @@ export function BuildCollaborationFeed({
     }
   }, [focusedEntityReference, referenceByKey]);
   useEffect(() => {
-    if (!focusedActionItemId) {
+    if (!focusedActionItemContext?.actionItemId) {
       return;
     }
     setActionItemSheetTarget((current) =>
-      current?.kind === "detail" && current.actionItemId === focusedActionItemId
+      current?.kind === "detail" &&
+      current.actionItemId === focusedActionItemContext.actionItemId
         ? current
         : {
-            actionItemId: focusedActionItemId as Id<"buildActionItems">,
+            actionItemId: focusedActionItemContext.actionItemId,
             kind: "detail",
           }
     );
-  }, [focusedActionItemId]);
+  }, [focusedActionItemContext?.actionItemId]);
   const focusReference = (reference: FocusedReference) => {
     if (reference.entityKind === "actionItem") {
       setFocusedReference(null);
@@ -340,6 +347,18 @@ export function BuildCollaborationFeed({
       return;
     }
     setFocusedReference(reference);
+  };
+  const openActionItemSheetReference = (
+    reference: CollaborationTagReference
+  ) => {
+    const option = referenceByKey.get(`${reference.kind}:${reference.id}`);
+    if (!option) {
+      return;
+    }
+    if (option.entityKind !== "actionItem") {
+      setActionItemSheetTarget(null);
+    }
+    focusReference(option);
   };
   const participants = tagOptions.filter(
     (option) => option.kind === "participant"
@@ -1039,6 +1058,7 @@ export function BuildCollaborationFeed({
             setActionItemSheetTarget(null);
           }
         }}
+        onReferenceOpen={openActionItemSheetReference}
         open={Boolean(actionItemSheetTarget)}
         organizationId={organizationId}
         tagOptions={tagOptions}

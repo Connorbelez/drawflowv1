@@ -3623,6 +3623,8 @@ export default defineSchema({
     version: v.number(),
     supersedesAssetId: v.optional(v.id("buildCollaborationAssets")),
     maximumAudienceMode: buildCollaborationAudienceModeValidator,
+    originatingPostId: v.optional(v.id("buildCollaborationPosts")),
+    readerWorkosUserIds: v.optional(v.array(v.string())),
     scanMessage: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

@@ -24,6 +24,7 @@ import type * as build_collaboration from "../build_collaboration.js";
 import type * as build_collaboration_access from "../build_collaboration_access.js";
 import type * as build_collaboration_acknowledgements from "../build_collaboration_acknowledgements.js";
 import type * as build_collaboration_actor from "../build_collaboration_actor.js";
+import type * as build_collaboration_asset_access from "../build_collaboration_asset_access.js";
 import type * as build_collaboration_content from "../build_collaboration_content.js";
 import type * as build_collaboration_contracts from "../build_collaboration_contracts.js";
 import type * as build_collaboration_drafts from "../build_collaboration_drafts.js";
@@ -103,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_access: typeof build_collaboration_access;
   build_collaboration_acknowledgements: typeof build_collaboration_acknowledgements;
   build_collaboration_actor: typeof build_collaboration_actor;
+  build_collaboration_asset_access: typeof build_collaboration_asset_access;
   build_collaboration_content: typeof build_collaboration_content;
   build_collaboration_contracts: typeof build_collaboration_contracts;
   build_collaboration_drafts: typeof build_collaboration_drafts;

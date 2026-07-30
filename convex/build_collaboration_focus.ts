@@ -14,6 +14,7 @@ export const getFocusedBuildActionItemContext = authenticatedQuery
     v.union(
       v.null(),
       v.object({
+        actionItemId: v.id("buildActionItems"),
         postId: v.id("buildCollaborationPosts"),
       })
     )
@@ -36,9 +37,9 @@ export const getFocusedBuildActionItemContext = authenticatedQuery
       return null;
     }
     const post = await ctx.db.get(item.originatingPostId);
-    if (!post || !(await canReadCollaborationPost(ctx, authorization, post))) {
+    if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
       return null;
     }
-    return { postId: post._id };
+    return { actionItemId: item._id, postId: post._id };
   })
   .public();

@@ -161,7 +161,7 @@ vi.mock("convex/react", () => ({
     ],
     status: mocks.feedStatus,
   }),
-  useQuery: (reference: unknown) => {
+  useQuery: (reference: unknown, args?: Record<string, unknown> | "skip") => {
     const functionName = getFunctionName(
       reference as Parameters<typeof getFunctionName>[0]
     );
@@ -169,8 +169,18 @@ vi.mock("convex/react", () => ({
       functionName ===
       "build_collaboration_focus:getFocusedBuildActionItemContext"
     ) {
+      if (
+        args === "skip" ||
+        !args?.actionItemId ||
+        args.actionItemId === "not-a-convex-id"
+      ) {
+        return null;
+      }
       return mocks.focusedPostId
-        ? { postId: mocks.focusedPostId }
+        ? {
+            actionItemId: args.actionItemId,
+            postId: mocks.focusedPostId,
+          }
         : null;
     }
     if (
@@ -221,7 +231,15 @@ vi.mock("convex/react", () => ({
           updatedAt: now,
         },
         labels: ["evidence"],
-        references: [],
+        references: [
+          {
+            entityId: "evidence-1",
+            entityKind: "evidenceAsset",
+            label: "Foundation completion photo",
+            primary: true,
+            summary: "Location verified · uploaded today",
+          },
+        ],
         revisions: [
           {
             actorDisplayName: "Alex Chen",
@@ -563,6 +581,12 @@ describe("BuildCollaborationFeed", () => {
     ).toBeTruthy();
     expect(screen.getByText("Revision history")).toBeTruthy();
     expect(screen.getByText("Activity")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Foundation completion photo/ })
+    );
+    expect(
+      screen.getByRole("heading", { name: "Foundation completion photo" })
+    ).toBeTruthy();
   });
 
   test("keeps restricted Action Item deep links disclosure-safe", async () => {
@@ -579,6 +603,21 @@ describe("BuildCollaborationFeed", () => {
       await screen.findByRole("heading", { name: "Action Item unavailable" }),
     ).toBeTruthy();
     expect(screen.queryByText("Upload engineer seal.")).toBeNull();
+  });
+
+  test("ignores malformed Action Item deep links before issuing a typed detail query", () => {
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="actionItem:not-a-convex-id"
+        organizationId="org-1"
+      />
+    );
+
+    expect(
+      screen.queryByRole("heading", { name: "Upload engineer seal" })
+    ).toBeNull();
+    expect(screen.queryByText("Loading Action Item…")).toBeNull();
   });
 
   test("loads older feed pages until a focused Action Item post is present", async () => {
