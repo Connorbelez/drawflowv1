@@ -39,6 +39,7 @@ import {
   resolveCanonicalBuildCollaborationReferences,
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
+import { projectAcceptedBuildCollaborationAnswerForViewer } from "./build_collaboration_resolution";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Doc, Id, MutationCtx } from "./types";
 
@@ -261,6 +262,7 @@ export async function publishBuildCollaborationBundle(
   const postId = await ctx.db.insert("buildCollaborationPosts", {
     acknowledgementRequired: bundle.acknowledgementRequired ?? false,
     agentDrafted: input.agentDrafted,
+    announcementProminent: bundle.postType === "announcement",
     audienceFloorTier: authorization.effectiveRole.tier,
     audienceMode: bundle.audienceMode,
     authorDisplayNameSnapshot: authorDisplayName,
@@ -283,6 +285,7 @@ export async function publishBuildCollaborationBundle(
     revision: 1,
     source: "human",
     threadState: "open",
+    threadRevision: 0,
     updatedAt: now,
   });
   const postRevisionId = await ctx.db.insert(
@@ -411,7 +414,7 @@ export const listBuildCollaborationFeed = authenticatedQuery
     );
     const result = await ctx.db
       .query("buildCollaborationPosts")
-      .withIndex("by_buildId_and_lastMeaningfulActivityAt", (query) =>
+      .withIndex("by_build_prominence_activity", (query) =>
         query.eq("buildId", authorization.build._id)
       )
       .order("desc")
@@ -556,6 +559,18 @@ export const listBuildCollaborationFeed = authenticatedQuery
         const acknowledgementTarget = acknowledgementTargets.find(
           (target) => !target.waivedAt
         );
+        const projectedResolutionSummary =
+          post.postType === "question" &&
+          post.threadState === "resolved" &&
+          post.acceptedCommentId
+            ? (
+                await projectAcceptedBuildCollaborationAnswerForViewer(ctx, {
+                  authorization,
+                  commentId: post.acceptedCommentId,
+                  post,
+                })
+              )?.plainText
+            : post.resolutionSummary;
         return {
           acknowledgement: acknowledgementTarget
             ? {
@@ -586,6 +601,7 @@ export const listBuildCollaborationFeed = authenticatedQuery
             moderationCapabilities,
             post,
             redacted: false,
+            resolutionSummary: projectedResolutionSummary,
           }),
           reactions: reactions.map((reaction) => ({
             _creationTime: reaction._creationTime,
@@ -662,8 +678,15 @@ function collaborationPostSummary(input: {
   };
   post: Doc<"buildCollaborationPosts">;
   redacted: boolean;
+  resolutionSummary?: string;
 }) {
-  const { authorization, moderationCapabilities, post, redacted } = input;
+  const {
+    authorization,
+    moderationCapabilities,
+    post,
+    redacted,
+    resolutionSummary,
+  } = input;
   const viewerIsAuthor =
     post.authorWorkosUserId === authorization.viewer.subject;
   const decisionOwnerDisplayName =
@@ -682,8 +705,7 @@ function collaborationPostSummary(input: {
     announcementProminent:
       !redacted &&
       post.postType === "announcement" &&
-      (post.announcementExpiresAt === undefined ||
-        post.announcementExpiresAt > Date.now()),
+      (post.announcementProminent ?? true),
     audienceMode: post.audienceMode,
     authorDisplayNameSnapshot: post.authorDisplayNameSnapshot,
     authorRole: post.authorRole,
@@ -698,7 +720,7 @@ function collaborationPostSummary(input: {
       : post.decisionOwnerWorkosUserId,
     postType: post.postType,
     readRevision: post.readRevision ?? post.revision,
-    resolutionSummary: redacted ? undefined : post.resolutionSummary,
+    resolutionSummary: redacted ? undefined : resolutionSummary,
     resolvedAt: post.resolvedAt,
     revision: post.revision,
     source: post.source,

@@ -1061,6 +1061,10 @@ function CollaborationPostHeader({
 function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
   const contentStatus =
     entry.post.contentState === "tombstoned" ? "Removed" : "Moderated";
+  const announcementProminent = useAnnouncementProminence(
+    entry.post.announcementExpiresAt,
+    entry.post.announcementProminent
+  );
   return (
     <>
       {entry.post.contentState === "active" ? (
@@ -1073,16 +1077,31 @@ function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
       <Badge variant="outline">{postTypeLabel(entry.post.postType)}</Badge>
       {entry.post.threadState === "resolved" ? <Badge>Resolved</Badge> : null}
       {entry.post.postType === "announcement" ? (
-        <Badge
-          variant={entry.post.announcementProminent ? "secondary" : "outline"}
-        >
-          {entry.post.announcementProminent
-            ? "Prominent"
-            : "Prominence expired"}
+        <Badge variant={announcementProminent ? "secondary" : "outline"}>
+          {announcementProminent ? "Prominent" : "Prominence expired"}
         </Badge>
       ) : null}
     </>
   );
+}
+
+function useAnnouncementProminence(
+  expiresAt: number | undefined,
+  serverProminent: boolean
+) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    if (expiresAt === undefined || expiresAt <= Date.now()) {
+      return;
+    }
+    const timeout = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.min(expiresAt - Date.now() + 1, 2_147_483_647)
+    );
+    return () => window.clearTimeout(timeout);
+  }, [expiresAt]);
+  return serverProminent && (expiresAt === undefined || expiresAt > now);
 }
 
 function CollaborationPostActions({

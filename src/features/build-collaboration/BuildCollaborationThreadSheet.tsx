@@ -74,6 +74,7 @@ interface ThreadContext {
   resolutionSummary?: string;
   resolvedAt?: number;
   resolvedByWorkosUserId?: string;
+  threadRevision: number;
   threadState: "open" | "resolved";
   updatedAt: number;
 }
@@ -138,7 +139,7 @@ export function BuildCollaborationThreadSheet({
     try {
       await resolveThread({
         buildId,
-        expectedUpdatedAt: context.updatedAt,
+        expectedThreadRevision: context.threadRevision,
         organizationId,
         postId,
         ...intentResolutionInput(context.postType, {
@@ -171,7 +172,7 @@ export function BuildCollaborationThreadSheet({
     try {
       await reopenThread({
         buildId,
-        expectedUpdatedAt: context.updatedAt,
+        expectedThreadRevision: context.threadRevision,
         organizationId,
         postId,
         reason: reopenReason,
@@ -200,7 +201,7 @@ export function BuildCollaborationThreadSheet({
     try {
       await setAnnouncementExpiration({
         buildId,
-        expectedUpdatedAt: context.updatedAt,
+        expectedThreadRevision: context.threadRevision,
         expiresAt,
         organizationId,
         postId,

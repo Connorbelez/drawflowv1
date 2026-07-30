@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -33,6 +33,31 @@ function textDocument(text: string) {
     content: [
       {
         content: [{ text, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
+}
+
+function participantMentionDocument(
+  workosUserId: string,
+  label = "UNTRUSTED LABEL"
+) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [
+          { text: "Updated answer for ", type: "text" },
+          {
+            attrs: {
+              id: workosUserId,
+              kind: "participant",
+              label,
+            },
+            type: "collaborationMention",
+          },
+        ],
         type: "paragraph",
       },
     ],
@@ -219,7 +244,7 @@ async function addReply(
   )) as Id<"buildCollaborationComments">;
 }
 
-async function postUpdatedAt(
+async function postThreadRevision(
   fixture: Awaited<ReturnType<typeof seedResolutionFixture>>,
   postId: Id<"buildCollaborationPosts">
 ) {
@@ -228,7 +253,7 @@ async function postUpdatedAt(
     if (!post) {
       throw new Error("Post unavailable.");
     }
-    return post.updatedAt;
+    return post.threadRevision ?? 0;
   });
 }
 
@@ -254,7 +279,7 @@ describe("Build collaboration thread resolution", () => {
         {
           acceptedCommentId: answerId,
           buildId: fixture.buildId,
-          expectedUpdatedAt: await postUpdatedAt(fixture, postId),
+          expectedThreadRevision: await postThreadRevision(fixture, postId),
           organizationId: ORGANIZATION_ID,
           postId,
         }
@@ -271,7 +296,7 @@ describe("Build collaboration thread resolution", () => {
         {
           acceptedCommentId: answerId,
           buildId: fixture.buildId,
-          expectedUpdatedAt: await postUpdatedAt(fixture, postId),
+          expectedThreadRevision: await postThreadRevision(fixture, postId),
           organizationId: ORGANIZATION_ID,
           postId,
         }
@@ -287,7 +312,7 @@ describe("Build collaboration thread resolution", () => {
       {
         acceptedCommentId: answerId,
         buildId: fixture.buildId,
-        expectedUpdatedAt: await postUpdatedAt(fixture, postId),
+        expectedThreadRevision: await postThreadRevision(fixture, postId),
         organizationId: ORGANIZATION_ID,
         postId,
       }
@@ -304,10 +329,85 @@ describe("Build collaboration thread resolution", () => {
     });
     expect(resolved.post).toMatchObject({
       acceptedCommentId: answerId,
-      resolutionSummary: "Yes, the revised direction is approved.",
       threadState: "resolved",
     });
+    expect(resolved.post?.resolutionSummary).toBeUndefined();
     expect(resolved.action?.status).toBe("todo");
+
+    await fixture.builderStaff.mutation(
+      (api as any).build_collaboration_editing.editBuildCollaborationComment,
+      {
+        buildId: fixture.buildId,
+        commentId: answerId,
+        editReason: "Add accountable recipient",
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        references: [
+          {
+            entityId: "user_other_contractor",
+            entityKind: "participant",
+            primary: false,
+          },
+        ],
+        tiptapJson: participantMentionDocument("user_other_contractor"),
+      }
+    );
+    const updatedAnswerContext = await fixture.contractor.query(
+      (api as any).build_collaboration_resolution
+        .getBuildCollaborationThreadContext,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
+    expect(updatedAnswerContext.resolutionSummary).toBe(
+      "Updated answer for Other Contractor"
+    );
+    await fixture.base.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "user_other_contractor")
+        )
+        .unique();
+      if (!participant) {
+        throw new Error("Referenced participant unavailable.");
+      }
+      await ctx.db.patch(participant._id, {
+        removedAt: Date.now(),
+        status: "removed",
+        validUntil: Date.now(),
+      });
+    });
+    const narrowedAnswerContext = await fixture.contractor.query(
+      (api as any).build_collaboration_resolution
+        .getBuildCollaborationThreadContext,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
+    expect(narrowedAnswerContext.resolutionSummary).toBe(
+      "Updated answer for [Referenced item unavailable]"
+    );
+    expect(narrowedAnswerContext.resolutionSummary).not.toContain(
+      "Other Contractor"
+    );
+    const narrowedFeed = await fixture.contractor.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }
+    );
+    expect(narrowedFeed.page[0]?.post?.resolutionSummary).toBe(
+      "Updated answer for [Referenced item unavailable]"
+    );
 
     await addReply(
       fixture,
@@ -344,7 +444,7 @@ describe("Build collaboration thread resolution", () => {
       {
         acceptedCommentId: answerId,
         buildId: fixture.buildId,
-        expectedUpdatedAt: await postUpdatedAt(fixture, postId),
+        expectedThreadRevision: await postThreadRevision(fixture, postId),
         organizationId: ORGANIZATION_ID,
         postId,
       }
@@ -355,7 +455,7 @@ describe("Build collaboration thread resolution", () => {
       {
         buildId: fixture.buildId,
         commentId: answerId,
-        expectedRevision: 1,
+          expectedRevision: 2,
         organizationId: ORGANIZATION_ID,
       }
     );
@@ -388,7 +488,7 @@ describe("Build collaboration thread resolution", () => {
           .resolveBuildCollaborationThread,
         {
           buildId: fixture.buildId,
-          expectedUpdatedAt: await postUpdatedAt(fixture, postId),
+          expectedThreadRevision: await postThreadRevision(fixture, postId),
           organizationId: ORGANIZATION_ID,
           postId,
         }
@@ -402,7 +502,7 @@ describe("Build collaboration thread resolution", () => {
         buildId: fixture.buildId,
         decisionOutcome: "Use the two-coat membrane system.",
         decisionOwnerWorkosUserId: "user_contractor",
-        expectedUpdatedAt: await postUpdatedAt(fixture, postId),
+        expectedThreadRevision: await postThreadRevision(fixture, postId),
         organizationId: ORGANIZATION_ID,
         postId,
         resolutionSummary: "Selected after consultant review.",
@@ -414,7 +514,7 @@ describe("Build collaboration thread resolution", () => {
           .reopenBuildCollaborationThread,
         {
           buildId: fixture.buildId,
-          expectedUpdatedAt: await postUpdatedAt(fixture, postId),
+          expectedThreadRevision: await postThreadRevision(fixture, postId),
           organizationId: ORGANIZATION_ID,
           postId,
           reason: " ",
@@ -426,7 +526,7 @@ describe("Build collaboration thread resolution", () => {
         .reopenBuildCollaborationThread,
       {
         buildId: fixture.buildId,
-        expectedUpdatedAt: await postUpdatedAt(fixture, postId),
+        expectedThreadRevision: await postThreadRevision(fixture, postId),
         organizationId: ORGANIZATION_ID,
         postId,
         reason: "Consultant issued a revised specification.",
@@ -439,7 +539,7 @@ describe("Build collaboration thread resolution", () => {
         buildId: fixture.buildId,
         decisionOutcome: "Use the revised three-coat membrane system.",
         decisionOwnerWorkosUserId: "user_builder_staff",
-        expectedUpdatedAt: await postUpdatedAt(fixture, postId),
+        expectedThreadRevision: await postThreadRevision(fixture, postId),
         organizationId: ORGANIZATION_ID,
         postId,
       }
@@ -465,6 +565,52 @@ describe("Build collaboration thread resolution", () => {
         revision: 1,
       },
     ]);
+    await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(postId);
+      const build = await ctx.db.get(fixture.buildId);
+      if (!(post && build)) {
+        throw new Error("Decision fixture unavailable.");
+      }
+      const otherBrokerageId = await ctx.db.insert("brokerages", {
+        createdAt: Date.now(),
+        displayName: "Other Brokerage",
+        legalName: "Other Brokerage Inc.",
+        status: "active",
+        updatedAt: Date.now(),
+        workosOrganizationId: "org_other_brokerage",
+      });
+      const { _creationTime, _id, ...buildFields } = build;
+      const otherBuildId = await ctx.db.insert("activeBuilds", {
+        ...buildFields,
+        brokerageId: otherBrokerageId,
+        buildName: "Other Build",
+        organizationId: "org_other_tenant",
+      });
+      await ctx.db.insert("buildCollaborationDecisionOutcomeRevisions", {
+        brokerageId: otherBrokerageId,
+        buildId: otherBuildId,
+        changedByRole: "admin",
+        changedByWorkosUserId: "forged_actor",
+        createdAt: Date.now(),
+        organizationId: "org_other_tenant",
+        outcome: "Forged outcome",
+        ownerDisplayNameSnapshot: "Forged owner",
+        ownerWorkosUserId: "forged_owner",
+        postId,
+        revision: 999,
+      });
+    });
+    await expect(
+      fixture.broker.query(
+        (api as any).build_collaboration_resolution
+          .getBuildCollaborationThreadContext,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId,
+        }
+      )
+    ).rejects.toThrow("Decision history integrity check failed");
   });
 
   test("requires linked work and a disposition for Issues without mutating the work", async () => {
@@ -479,10 +625,110 @@ describe("Build collaboration thread resolution", () => {
           .resolveBuildCollaborationThread,
         {
           buildId: fixture.buildId,
-          expectedUpdatedAt: await postUpdatedAt(fixture, unlinkedPostId),
+          expectedThreadRevision: await postThreadRevision(
+            fixture,
+            unlinkedPostId
+          ),
           organizationId: ORGANIZATION_ID,
           postId: unlinkedPostId,
           resolutionSummary: "Closed",
+        }
+      )
+    ).rejects.toThrow("requires a linked Build entity or Action Item");
+
+    const participantReferenceId = await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(unlinkedPostId);
+      if (!post?.currentRevisionId) {
+        throw new Error("Issue revision unavailable.");
+      }
+      return await ctx.db.insert("buildCollaborationReferences", {
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        createdAt: Date.now(),
+        entityId: "user_other_contractor",
+        entityKind: "participant",
+        labelSnapshot: "Other Contractor",
+        organizationId: post.organizationId,
+        ownerKind: "postRevision",
+        ownerRecordId: post.currentRevisionId,
+        postId: post._id,
+        primary: false,
+      });
+    });
+    await expect(
+      fixture.contractor.mutation(
+        (api as any).build_collaboration_resolution
+          .resolveBuildCollaborationThread,
+        {
+          buildId: fixture.buildId,
+          expectedThreadRevision: await postThreadRevision(
+            fixture,
+            unlinkedPostId
+          ),
+          organizationId: ORGANIZATION_ID,
+          postId: unlinkedPostId,
+          resolutionSummary: "Mentioned a participant",
+        }
+      )
+    ).rejects.toThrow("requires a linked Build entity or Action Item");
+
+    const staleReferenceId = await fixture.base.run(async (ctx) => {
+      await ctx.db.delete(participantReferenceId);
+      const post = await ctx.db.get(unlinkedPostId);
+      if (!post?.currentRevisionId) {
+        throw new Error("Issue revision unavailable.");
+      }
+      return await ctx.db.insert("buildCollaborationReferences", {
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        createdAt: Date.now(),
+        entityId: "missing-document",
+        entityKind: "document",
+        labelSnapshot: "Stale document",
+        organizationId: post.organizationId,
+        ownerKind: "postRevision",
+        ownerRecordId: post.currentRevisionId,
+        postId: post._id,
+        primary: false,
+      });
+    });
+    await expect(
+      fixture.contractor.mutation(
+        (api as any).build_collaboration_resolution
+          .resolveBuildCollaborationThread,
+        {
+          buildId: fixture.buildId,
+          expectedThreadRevision: await postThreadRevision(
+            fixture,
+            unlinkedPostId
+          ),
+          organizationId: ORGANIZATION_ID,
+          postId: unlinkedPostId,
+          resolutionSummary: "Stale link",
+        }
+      )
+    ).rejects.toThrow("requires a linked Build entity or Action Item");
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(staleReferenceId, {
+        entityId: "user_builder_staff",
+        entityKind: "participant",
+        organizationId: "org_other_tenant",
+      });
+    });
+    await expect(
+      fixture.contractor.mutation(
+        (api as any).build_collaboration_resolution
+          .resolveBuildCollaborationThread,
+        {
+          buildId: fixture.buildId,
+          expectedThreadRevision: await postThreadRevision(
+            fixture,
+            unlinkedPostId
+          ),
+          organizationId: ORGANIZATION_ID,
+          postId: unlinkedPostId,
+          resolutionSummary: "Cross-scope link",
         }
       )
     ).rejects.toThrow("requires a linked Build entity or Action Item");
@@ -497,7 +743,7 @@ describe("Build collaboration thread resolution", () => {
         .resolveBuildCollaborationThread,
       {
         buildId: fixture.buildId,
-        expectedUpdatedAt: await postUpdatedAt(fixture, linkedPostId),
+        expectedThreadRevision: await postThreadRevision(fixture, linkedPostId),
         organizationId: ORGANIZATION_ID,
         postId: linkedPostId,
         resolutionSummary: "Inspection moved before the delivery window.",
@@ -532,12 +778,25 @@ describe("Build collaboration thread resolution", () => {
       postType: "announcement",
       text: "Site closed Friday for crane operations.",
     });
+    await publishPost(fixture, fixture.contractor, {
+      postType: "update",
+      text: "A newer routine progress update.",
+    });
+    const promotedFeed = await fixture.contractor.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }
+    );
+    expect(promotedFeed.page[0]?.post?._id).toBe(postId);
     await fixture.broker.mutation(
       (api as any).build_collaboration_resolution
         .setBuildCollaborationAnnouncementExpiration,
       {
         buildId: fixture.buildId,
-        expectedUpdatedAt: await postUpdatedAt(fixture, postId),
+        expectedThreadRevision: await postThreadRevision(fixture, postId),
         expiresAt: Date.now() - 1000,
         organizationId: ORGANIZATION_ID,
         postId,
@@ -551,7 +810,10 @@ describe("Build collaboration thread resolution", () => {
         paginationOpts: { cursor: null, numItems: 20 },
       }
     );
-    expect(feed.page[0]).toMatchObject({
+    const expiredAnnouncement = feed.page.find(
+      (entry: any) => entry.kind === "post" && entry.post._id === postId
+    );
+    expect(expiredAnnouncement).toMatchObject({
       kind: "post",
       post: {
         announcementProminent: false,
@@ -586,5 +848,44 @@ describe("Build collaboration thread resolution", () => {
     expect(effects.outbox.map((event) => event.eventType)).toContain(
       "build.collaboration.thread.announcement_expiration_changed"
     );
+  });
+
+  test("rejects stale thread commands even when the wall clock does not advance", async () => {
+    const fixture = await seedResolutionFixture();
+    const postId = await publishPost(fixture, fixture.broker, {
+      postType: "announcement",
+      text: "Crane operations notice.",
+    });
+    const staleRevision = await postThreadRevision(fixture, postId);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      await fixture.broker.mutation(
+        (api as any).build_collaboration_resolution
+          .setBuildCollaborationAnnouncementExpiration,
+        {
+          buildId: fixture.buildId,
+          expectedThreadRevision: staleRevision,
+          expiresAt: now - 1,
+          organizationId: ORGANIZATION_ID,
+          postId,
+        }
+      );
+      await expect(
+        fixture.broker.mutation(
+          (api as any).build_collaboration_resolution
+            .setBuildCollaborationAnnouncementExpiration,
+          {
+            buildId: fixture.buildId,
+            expectedThreadRevision: staleRevision,
+            expiresAt: now + 60_000,
+            organizationId: ORGANIZATION_ID,
+            postId,
+          }
+        )
+      ).rejects.toThrow("changed while you were working");
+    } finally {
+      clock.mockRestore();
+    }
   });
 });

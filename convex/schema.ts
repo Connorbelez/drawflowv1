@@ -3070,6 +3070,7 @@ export default defineSchema({
     revision: v.number(),
     readRevision: v.optional(v.number()),
     threadState: buildCollaborationThreadStateValidator,
+    threadRevision: v.optional(v.number()),
     contentState: buildCollaborationContentStateValidator,
     acceptedCommentId: v.optional(v.id("buildCollaborationComments")),
     decisionOwnerWorkosUserId: v.optional(v.string()),
@@ -3078,6 +3079,7 @@ export default defineSchema({
     resolvedAt: v.optional(v.number()),
     resolvedByWorkosUserId: v.optional(v.string()),
     announcementExpiresAt: v.optional(v.number()),
+    announcementProminent: v.optional(v.boolean()),
     primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
     primaryReferenceId: v.optional(v.string()),
     commentCount: v.number(),
@@ -3099,6 +3101,11 @@ export default defineSchema({
   })
     .index("by_buildId_and_lastMeaningfulActivityAt", [
       "buildId",
+      "lastMeaningfulActivityAt",
+    ])
+    .index("by_build_prominence_activity", [
+      "buildId",
+      "announcementProminent",
       "lastMeaningfulActivityAt",
     ])
     .index("by_buildId_and_createdAt", ["buildId", "createdAt"])

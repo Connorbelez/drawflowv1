@@ -55,6 +55,7 @@ describe("BuildCollaborationThreadSheet", () => {
       participants: [],
       postType: "question",
       threadState: "open",
+      threadRevision: 7,
       updatedAt: 1200,
     };
     mocks.resolve.mockResolvedValue("post-1");
@@ -80,7 +81,7 @@ describe("BuildCollaborationThreadSheet", () => {
       expect(mocks.resolve).toHaveBeenCalledWith({
         acceptedCommentId: "comment-1",
         buildId: "build-1",
-        expectedUpdatedAt: 1200,
+        expectedThreadRevision: 7,
         organizationId: "org-1",
         postId: "post-1",
       })
@@ -118,6 +119,7 @@ describe("BuildCollaborationThreadSheet", () => {
       postType: "decision",
       resolvedAt: Date.UTC(2026, 6, 30, 12, 0),
       threadState: "resolved",
+      threadRevision: 11,
       updatedAt: 2400,
     };
     mocks.reopen.mockResolvedValue("post-1");
@@ -144,7 +146,7 @@ describe("BuildCollaborationThreadSheet", () => {
     await waitFor(() =>
       expect(mocks.reopen).toHaveBeenCalledWith({
         buildId: "build-1",
-        expectedUpdatedAt: 2400,
+        expectedThreadRevision: 11,
         organizationId: "org-1",
         postId: "post-1",
         reason: "Consultant issued a superseding specification.",
@@ -163,6 +165,7 @@ describe("BuildCollaborationThreadSheet", () => {
       participants: [],
       postType: "announcement",
       threadState: "open",
+      threadRevision: 13,
       updatedAt: 3600,
     };
     mocks.expire.mockResolvedValue("post-1");
@@ -185,7 +188,7 @@ describe("BuildCollaborationThreadSheet", () => {
     await waitFor(() =>
       expect(mocks.expire).toHaveBeenCalledWith({
         buildId: "build-1",
-        expectedUpdatedAt: 3600,
+        expectedThreadRevision: 13,
         expiresAt: new Date("2026-07-31T09:30").getTime(),
         organizationId: "org-1",
         postId: "post-1",

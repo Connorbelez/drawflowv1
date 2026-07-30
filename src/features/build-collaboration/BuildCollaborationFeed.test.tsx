@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,6 +14,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   acceptedCommentId: undefined as string | undefined,
+  announcementExpiresAt: undefined as number | undefined,
+  announcementProminent: false,
   comments: [] as Array<Record<string, unknown>>,
   drafts: [] as Array<Record<string, unknown>>,
   feedStatus: "Exhausted" as "CanLoadMore" | "Exhausted",
@@ -66,7 +69,8 @@ vi.mock("convex/react", () => ({
         post: {
           _id: "post-1",
           acceptedCommentId: mocks.acceptedCommentId,
-          announcementProminent: false,
+          announcementExpiresAt: mocks.announcementExpiresAt,
+          announcementProminent: mocks.announcementProminent,
           audienceMode: "build_wide",
           authorDisplayNameSnapshot: "Alex Chen",
           authorRole: "builder",
@@ -237,6 +241,7 @@ vi.mock(
 import { BuildCollaborationFeed } from "./BuildCollaborationFeed";
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   mocks.mutate.mockClear();
   mocks.loadMore.mockClear();
@@ -244,6 +249,8 @@ afterEach(() => {
   mocks.drafts = [];
   mocks.comments = [];
   mocks.acceptedCommentId = undefined;
+  mocks.announcementExpiresAt = undefined;
+  mocks.announcementProminent = false;
   mocks.feedStatus = "Exhausted";
   mocks.focusedPostId = "post-1";
   mocks.postContentState = "active";
@@ -256,6 +263,22 @@ afterEach(() => {
 });
 
 describe("BuildCollaborationFeed", () => {
+  test("expires an Announcement badge when wall-clock time advances without a query write", () => {
+    vi.useFakeTimers();
+    const now = Date.parse("2026-07-30T12:00:00.000Z");
+    vi.setSystemTime(now);
+    mocks.announcementExpiresAt = now + 30_000;
+    mocks.announcementProminent = true;
+    mocks.postType = "announcement";
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getByText("Prominent")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(30_001));
+    expect(screen.getByText("Prominence expired")).toBeTruthy();
+  });
+
   test("keeps restricted posts opaque and filters to followed threads", () => {
     const consoleError = vi
       .spyOn(console, "error")

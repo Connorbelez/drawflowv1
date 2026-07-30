@@ -112,6 +112,7 @@ export const publishBuildCollaborationSystemEvent = internalMutation
     const postId = await ctx.db.insert("buildCollaborationPosts", {
       acknowledgementRequired: false,
       agentDrafted: false,
+      announcementProminent: args.postType === "announcement",
       audienceFloorTier: 0,
       audienceMode: "build_wide",
       authorDisplayNameSnapshot: args.systemLabel.trim() || "DrawFlow",
@@ -132,6 +133,7 @@ export const publishBuildCollaborationSystemEvent = internalMutation
       source: "system",
       systemEventKey: args.idempotencyKey,
       threadState: "open",
+      threadRevision: 0,
       updatedAt: now,
     });
     const revisionId = await ctx.db.insert("buildCollaborationPostRevisions", {

@@ -1,17 +1,24 @@
 import { v } from "convex/values";
 
+import { internal } from "./_generated/api";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
+import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
+import {
+  type CanonicalBuildCollaborationReference,
+  resolveCurrentBuildCollaborationReference,
+} from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildCollaborationPostTypeValidator,
   buildCollaborationRoleValidator,
   buildCollaborationThreadStateValidator,
 } from "./build_collaboration_validators";
+import { internalMutation } from "./fluent";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_OUTCOME_LENGTH = 4000;
@@ -66,6 +73,7 @@ const threadContextValidator = v.object({
   resolvedAt: v.optional(v.number()),
   resolvedByWorkosUserId: v.optional(v.string()),
   threadState: buildCollaborationThreadStateValidator,
+  threadRevision: v.number(),
   updatedAt: v.number(),
 });
 
@@ -91,13 +99,7 @@ export const getBuildCollaborationThreadContext = authenticatedQuery
           ? loadVisibleAnswerOptions(ctx, authorization, post)
           : [],
         post.postType === "decision"
-          ? ctx.db
-              .query("buildCollaborationDecisionOutcomeRevisions")
-              .withIndex("by_postId_and_revision", (query) =>
-                query.eq("postId", post._id)
-              )
-              .order("desc")
-              .take(MAX_DECISION_REVISIONS)
+          ? loadOwnedDecisionRevisions(ctx, authorization, post)
           : [],
         post.postType === "issue"
           ? postHasLinkedWork(ctx, authorization, post)
@@ -142,10 +144,22 @@ export const getBuildCollaborationThreadContext = authenticatedQuery
           workosUserId: participant.workosUserId,
         })),
       postType: post.postType,
-      resolutionSummary: post.resolutionSummary,
+      resolutionSummary:
+        post.postType === "question" &&
+        post.threadState === "resolved" &&
+        post.acceptedCommentId
+          ? (
+              await projectAcceptedBuildCollaborationAnswerForViewer(ctx, {
+                authorization,
+                commentId: post.acceptedCommentId,
+                post,
+              })
+            )?.plainText
+          : post.resolutionSummary,
       resolvedAt: post.resolvedAt,
       resolvedByWorkosUserId: post.resolvedByWorkosUserId,
       threadState: post.threadState,
+      threadRevision: post.threadRevision ?? 0,
       updatedAt: post.updatedAt,
     };
   })
@@ -157,7 +171,7 @@ export const resolveBuildCollaborationThread = authenticatedMutation
     buildId: v.id("activeBuilds"),
     decisionOutcome: v.optional(v.string()),
     decisionOwnerWorkosUserId: v.optional(v.string()),
-    expectedUpdatedAt: v.number(),
+    expectedThreadRevision: v.number(),
     organizationId: v.string(),
     postId: v.id("buildCollaborationPosts"),
     resolutionSummary: v.optional(v.string()),
@@ -169,7 +183,7 @@ export const resolveBuildCollaborationThread = authenticatedMutation
       args
     );
     const post = await requireManageablePost(ctx, authorization, args.postId);
-    requireExpectedUpdatedAt(post, args.expectedUpdatedAt);
+    requireExpectedThreadRevision(post, args.expectedThreadRevision);
     if (post.threadState !== "open") {
       throw new Error("This thread is already resolved.");
     }
@@ -194,6 +208,7 @@ export const resolveBuildCollaborationThread = authenticatedMutation
       resolvedAt: now,
       resolvedByWorkosUserId: authorization.viewer.subject,
       threadState: "resolved",
+      threadRevision: (post.threadRevision ?? 0) + 1,
       updatedAt: now,
     });
     await recordThreadEvent(ctx, {
@@ -218,7 +233,7 @@ export const resolveBuildCollaborationThread = authenticatedMutation
 export const reopenBuildCollaborationThread = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
-    expectedUpdatedAt: v.number(),
+    expectedThreadRevision: v.number(),
     organizationId: v.string(),
     postId: v.id("buildCollaborationPosts"),
     reason: v.string(),
@@ -230,7 +245,7 @@ export const reopenBuildCollaborationThread = authenticatedMutation
       args
     );
     const post = await requireManageablePost(ctx, authorization, args.postId);
-    requireExpectedUpdatedAt(post, args.expectedUpdatedAt);
+    requireExpectedThreadRevision(post, args.expectedThreadRevision);
     const reason = requireText(
       args.reason,
       "A reopening reason is required.",
@@ -253,7 +268,7 @@ export const reopenBuildCollaborationThread = authenticatedMutation
 export const setBuildCollaborationAnnouncementExpiration = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
-    expectedUpdatedAt: v.number(),
+    expectedThreadRevision: v.number(),
     expiresAt: v.optional(v.number()),
     organizationId: v.string(),
     postId: v.id("buildCollaborationPosts"),
@@ -265,7 +280,7 @@ export const setBuildCollaborationAnnouncementExpiration = authenticatedMutation
       args
     );
     const post = await requireManageablePost(ctx, authorization, args.postId);
-    requireExpectedUpdatedAt(post, args.expectedUpdatedAt);
+    requireExpectedThreadRevision(post, args.expectedThreadRevision);
     if (post.postType !== "announcement") {
       throw new Error("Only an Announcement has prominence expiration.");
     }
@@ -276,13 +291,27 @@ export const setBuildCollaborationAnnouncementExpiration = authenticatedMutation
       throw new Error("Announcement expiration must be a valid timestamp.");
     }
     const now = Date.now();
+    const prominent = args.expiresAt === undefined || args.expiresAt > now;
     const priorState = threadStateSnapshot(post);
     await ctx.db.patch(post._id, {
       announcementExpiresAt: args.expiresAt,
+      announcementProminent: prominent,
       lastMeaningfulActivityAt: now,
       latestActivityActorWorkosUserId: authorization.viewer.subject,
+      threadRevision: (post.threadRevision ?? 0) + 1,
       updatedAt: now,
     });
+    if (args.expiresAt !== undefined && args.expiresAt > now) {
+      await ctx.scheduler.runAt(
+        args.expiresAt,
+        internal.build_collaboration_resolution
+          .expireBuildCollaborationAnnouncementProminence,
+        {
+          announcementExpiresAt: args.expiresAt,
+          postId: post._id,
+        }
+      );
+    }
     await recordThreadEvent(ctx, {
       authorization,
       eventType: "announcement_expiration_changed",
@@ -301,6 +330,33 @@ export const setBuildCollaborationAnnouncementExpiration = authenticatedMutation
     return post._id;
   })
   .public();
+
+export const expireBuildCollaborationAnnouncementProminence = internalMutation
+  .input({
+    announcementExpiresAt: v.number(),
+    postId: v.id("buildCollaborationPosts"),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const post = await ctx.db.get(args.postId);
+    if (
+      !post ||
+      post.postType !== "announcement" ||
+      post.announcementExpiresAt !== args.announcementExpiresAt ||
+      post.announcementProminent === false ||
+      Date.now() < args.announcementExpiresAt
+    ) {
+      return null;
+    }
+    const now = Date.now();
+    await ctx.db.patch(post._id, {
+      announcementProminent: false,
+      threadRevision: (post.threadRevision ?? 0) + 1,
+      updatedAt: now,
+    });
+    return null;
+  })
+  .internal();
 
 export async function reopenResolvedThreadForReply(
   ctx: MutationCtx,
@@ -412,7 +468,9 @@ async function resolveQuestionOutcome(
     !revision ||
     revision.commentId !== comment._id ||
     revision.postId !== input.post._id ||
-    revision.organizationId !== input.authorization.organizationId
+    revision.organizationId !== input.authorization.organizationId ||
+    revision.brokerageId !== input.authorization.brokerage._id ||
+    revision.buildId !== input.authorization.build._id
   ) {
     throw new Error("The selected answer is unavailable.");
   }
@@ -421,10 +479,7 @@ async function resolveQuestionOutcome(
     decisionOutcome: undefined,
     decisionOwnerWorkosUserId: undefined,
     decisionRevisionId: undefined,
-    resolutionSummary: revision.plainText.slice(
-      0,
-      MAX_RESOLUTION_SUMMARY_LENGTH
-    ),
+    resolutionSummary: undefined,
   };
 }
 
@@ -458,13 +513,11 @@ async function resolveDecisionOutcome(
   if (!(owner && currentReaderIds.has(owner.workosUserId))) {
     throw new Error("A Decision requires a current Build participant owner.");
   }
-  const previousRevision = await ctx.db
-    .query("buildCollaborationDecisionOutcomeRevisions")
-    .withIndex("by_postId_and_revision", (query) =>
-      query.eq("postId", input.post._id)
-    )
-    .order("desc")
-    .first();
+  const [previousRevision] = await loadOwnedDecisionRevisions(
+    ctx,
+    input.authorization,
+    input.post
+  );
   const decisionRevisionId = await ctx.db.insert(
     "buildCollaborationDecisionOutcomeRevisions",
     {
@@ -542,6 +595,7 @@ async function reopenThread(
     resolvedAt: undefined,
     resolvedByWorkosUserId: undefined,
     threadState: "open",
+    threadRevision: (input.post.threadRevision ?? 0) + 1,
     updatedAt: input.now,
   });
   await recordThreadEvent(ctx, {
@@ -685,11 +739,11 @@ function canManageThread(
   );
 }
 
-function requireExpectedUpdatedAt(
+function requireExpectedThreadRevision(
   post: Doc<"buildCollaborationPosts">,
-  expectedUpdatedAt: number
+  expectedThreadRevision: number
 ) {
-  if (post.updatedAt !== expectedUpdatedAt) {
+  if ((post.threadRevision ?? 0) !== expectedThreadRevision) {
     throw new Error(
       "This thread changed while you were working. Refresh and try again."
     );
@@ -731,6 +785,7 @@ function threadStateSnapshot(post: Doc<"buildCollaborationPosts">) {
     resolvedAt: post.resolvedAt,
     resolvedByWorkosUserId: post.resolvedByWorkosUserId,
     threadState: post.threadState,
+    threadRevision: post.threadRevision ?? 0,
   });
 }
 
@@ -756,19 +811,135 @@ async function loadVisibleAnswerOptions(
       continue;
     }
     const revision = await ctx.db.get(comment.currentRevisionId);
-    if (
-      revision?.commentId === comment._id &&
-      revision.postId === post._id &&
-      revision.organizationId === authorization.organizationId
-    ) {
+    if (revision) {
+      const projected = await projectCommentRevisionForViewer(ctx, {
+        authorization,
+        comment,
+        post,
+        revision,
+      });
+      if (!projected) {
+        continue;
+      }
       options.push({
         authorDisplayName: comment.authorDisplayNameSnapshot,
         commentId: comment._id,
-        plainText: revision.plainText,
+        plainText: projected.plainText,
       });
     }
   }
   return options;
+}
+
+export async function projectAcceptedBuildCollaborationAnswerForViewer(
+  ctx: QueryCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    commentId: Id<"buildCollaborationComments">;
+    post: Doc<"buildCollaborationPosts">;
+  }
+) {
+  const comment = await ctx.db.get(input.commentId);
+  if (
+    !comment ||
+    comment.organizationId !== input.authorization.organizationId ||
+    comment.brokerageId !== input.authorization.brokerage._id ||
+    comment.buildId !== input.authorization.build._id ||
+    comment.postId !== input.post._id ||
+    comment.contentState !== "active" ||
+    !comment.currentRevisionId
+  ) {
+    return null;
+  }
+  const revision = await ctx.db.get(comment.currentRevisionId);
+  if (!revision) {
+    return null;
+  }
+  return await projectCommentRevisionForViewer(ctx, {
+    authorization: input.authorization,
+    comment,
+    post: input.post,
+    revision,
+  });
+}
+
+async function projectCommentRevisionForViewer(
+  ctx: QueryCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    comment: Doc<"buildCollaborationComments">;
+    post: Doc<"buildCollaborationPosts">;
+    revision: Doc<"buildCollaborationCommentRevisions">;
+  }
+) {
+  const { authorization, comment, post, revision } = input;
+  if (
+    revision.organizationId !== authorization.organizationId ||
+    revision.brokerageId !== authorization.brokerage._id ||
+    revision.buildId !== authorization.build._id ||
+    revision.postId !== post._id ||
+    revision.commentId !== comment._id
+  ) {
+    return null;
+  }
+  const referenceRows = await ctx.db
+    .query("buildCollaborationReferences")
+    .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+      query.eq("ownerKind", "commentRevision").eq("ownerRecordId", revision._id)
+    )
+    .take(100);
+  const references: CanonicalBuildCollaborationReference[] = [];
+  for (const reference of referenceRows) {
+    if (
+      reference.organizationId !== authorization.organizationId ||
+      reference.brokerageId !== authorization.brokerage._id ||
+      reference.buildId !== authorization.build._id ||
+      reference.postId !== post._id
+    ) {
+      continue;
+    }
+    try {
+      references.push(
+        await resolveCurrentBuildCollaborationReference(ctx, {
+          authorization,
+          entityId: reference.entityId,
+          entityKind: reference.entityKind,
+        })
+      );
+    } catch {
+      // Current viewer cannot see this reference. The rich-text projection
+      // replaces its node without retaining its historical label.
+    }
+  }
+  return projectCollaborationRevisionForViewer({
+    references,
+    tiptapJson: revision.tiptapJson,
+  });
+}
+
+async function loadOwnedDecisionRevisions(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  post: Doc<"buildCollaborationPosts">
+) {
+  const revisions = await ctx.db
+    .query("buildCollaborationDecisionOutcomeRevisions")
+    .withIndex("by_postId_and_revision", (query) =>
+      query.eq("postId", post._id)
+    )
+    .order("desc")
+    .take(MAX_DECISION_REVISIONS);
+  for (const revision of revisions) {
+    if (
+      revision.organizationId !== authorization.organizationId ||
+      revision.brokerageId !== authorization.brokerage._id ||
+      revision.buildId !== authorization.build._id ||
+      revision.postId !== post._id
+    ) {
+      throw new Error("Decision history integrity check failed.");
+    }
+  }
+  return revisions;
 }
 
 async function postHasLinkedWork(
@@ -776,7 +947,7 @@ async function postHasLinkedWork(
   authorization: ActiveBuildAuthorization,
   post: Doc<"buildCollaborationPosts">
 ) {
-  const [reference, actionItem] = await Promise.all([
+  const [references, actionItems] = await Promise.all([
     post.currentRevisionId
       ? ctx.db
           .query("buildCollaborationReferences")
@@ -785,22 +956,47 @@ async function postHasLinkedWork(
               .eq("ownerKind", "postRevision")
               .eq("ownerRecordId", post.currentRevisionId as string)
           )
-          .first()
-      : null,
+          .take(100)
+      : [],
     ctx.db
       .query("buildActionItems")
       .withIndex("by_originatingPostId_and_status", (query) =>
         query.eq("originatingPostId", post._id)
       )
-      .first(),
+      .take(100),
   ]);
-  return Boolean(
-    (reference &&
-      reference.organizationId === authorization.organizationId &&
-      reference.buildId === authorization.build._id &&
-      reference.postId === post._id) ||
-      (actionItem &&
+  if (
+    actionItems.some(
+      (actionItem) =>
         actionItem.organizationId === authorization.organizationId &&
-        actionItem.buildId === authorization.build._id)
-  );
+        actionItem.brokerageId === authorization.brokerage._id &&
+        actionItem.buildId === authorization.build._id
+    )
+  ) {
+    return true;
+  }
+  for (const reference of references) {
+    if (
+      reference.entityKind === "participant" ||
+      reference.organizationId !== authorization.organizationId ||
+      reference.brokerageId !== authorization.brokerage._id ||
+      reference.buildId !== authorization.build._id ||
+      reference.postId !== post._id ||
+      reference.ownerRecordId !== post.currentRevisionId
+    ) {
+      continue;
+    }
+    try {
+      await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization,
+        entityId: reference.entityId,
+        entityKind: reference.entityKind,
+      });
+      return true;
+    } catch {
+      // A stale or currently unreadable reference is not linked operational
+      // work and cannot satisfy Issue / Blocker resolution.
+    }
+  }
+  return false;
 }
