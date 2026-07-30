@@ -415,6 +415,117 @@ describe("Build collaboration moderation hierarchy", () => {
     expect(JSON.stringify(feed)).not.toContain("Restricted broker evidence");
   });
 
+  test("fails closed for foreign-tenant and foreign-entity active case pointers", async () => {
+    const fixture = await seedModerationFixture();
+    const targetPostId = await publishContractorPost(
+      fixture,
+      "Pointer validation target"
+    );
+    const otherPostId = await publishContractorPost(
+      fixture,
+      "Different moderation target"
+    );
+    const { crossEntityCaseId, crossTenantCaseId } = await fixture.base.run(
+      async (ctx) => {
+        const targetPost = await ctx.db.get(targetPostId);
+        const otherPost = await ctx.db.get(otherPostId);
+        if (!(targetPost && otherPost)) {
+          throw new Error("Pointer validation posts unavailable.");
+        }
+        const now = Date.now();
+        const caseFields = {
+          appealReviewerMinimumTier: 3,
+          brokerageId: targetPost.brokerageId,
+          buildId: targetPost.buildId,
+          commentId: undefined,
+          contentAuthorRole: "contractor" as const,
+          contentAuthorWorkosUserId: "user_contractor",
+          createdAt: now,
+          currentReason: "sensitive foreign case reason",
+          entityKind: "post" as const,
+          evidenceSnapshotJson: JSON.stringify({
+            attachmentIds: [],
+            receiptSnapshots: [],
+            referenceIds: [],
+          }),
+          moderatorRole: "builder-staff" as const,
+          moderatorTier: 2,
+          moderatorWorkosUserId: "user_builder_staff",
+          postId: targetPostId,
+          status: "moderated" as const,
+          updatedAt: now,
+        };
+        const crossTenantCaseId = await ctx.db.insert(
+          "buildCollaborationModerationCases",
+          {
+            ...caseFields,
+            entityId: targetPostId,
+            organizationId: "org_foreign_tenant",
+          }
+        );
+        const crossEntityCaseId = await ctx.db.insert(
+          "buildCollaborationModerationCases",
+          {
+            ...caseFields,
+            currentReason: "sensitive cross-entity reason",
+            entityId: otherPostId,
+            organizationId: ORGANIZATION_ID,
+            postId: otherPostId,
+          }
+        );
+        await ctx.db.insert("buildCollaborationModerationEvents", {
+          actorRole: "builder-staff",
+          actorWorkosUserId: "user_builder_staff",
+          brokerageId: targetPost.brokerageId,
+          buildId: targetPost.buildId,
+          caseId: crossTenantCaseId,
+          createdAt: now,
+          eventType: "moderated",
+          newState: "{}",
+          organizationId: "org_foreign_tenant",
+          priorState: "{}",
+          reason: "sensitive foreign event reason",
+        });
+        return { crossEntityCaseId, crossTenantCaseId };
+      }
+    );
+
+    for (const forgedCase of [
+      {
+        caseId: crossTenantCaseId,
+        forbiddenText: "sensitive foreign case reason",
+      },
+      {
+        caseId: crossEntityCaseId,
+        forbiddenText: "sensitive cross-entity reason",
+      },
+    ]) {
+      await fixture.base.run(async (ctx) => {
+        await ctx.db.patch(targetPostId, {
+          activeModerationCaseId: forgedCase.caseId,
+        });
+      });
+      const context = await fixture.contractor.query(
+        (api as any).build_collaboration_moderation
+          .getBuildCollaborationModerationContext,
+        {
+          buildId: fixture.buildId,
+          entityId: targetPostId,
+          entityKind: "post",
+          organizationId: ORGANIZATION_ID,
+        }
+      );
+      expect(context).toMatchObject({
+        events: [],
+      });
+      expect(context.caseId).toBeUndefined();
+      expect(context.currentReason).toBeUndefined();
+      expect(context.evidence).toBeUndefined();
+      expect(context.status).toBeUndefined();
+      expect(JSON.stringify(context)).not.toContain(forgedCase.forbiddenText);
+    }
+  });
+
   test("preserves evidence, redacts content, escalates appeals, and audits every transition", async () => {
     const fixture = await seedModerationFixture();
     const postId = await publishContractorPost(fixture);
@@ -427,7 +538,7 @@ describe("Build collaboration moderation hierarchy", () => {
         postId,
       }
     );
-    await fixture.builderStaff.mutation(
+    const builderStaffReceiptId = (await fixture.builderStaff.mutation(
       (api as any).build_collaboration_threads
         .markBuildCollaborationPostViewed,
       {
@@ -435,7 +546,14 @@ describe("Build collaboration moderation hierarchy", () => {
         organizationId: ORGANIZATION_ID,
         postId,
       }
-    );
+    )) as Id<"buildCollaborationReceipts">;
+    const frozenBuilderStaffReceipt = await fixture.base.run(async (ctx) => {
+      const receipt = await ctx.db.get(builderStaffReceiptId);
+      if (!receipt) {
+        throw new Error("Builder Staff receipt unavailable.");
+      }
+      return receipt;
+    });
     const evidence = await fixture.base.run(async (ctx) => {
       const post = await ctx.db.get(postId);
       if (!post?.currentRevisionId) {
@@ -549,6 +667,12 @@ describe("Build collaboration moderation hierarchy", () => {
         reason: "Unsafe project instruction",
       }
     )) as Id<"buildCollaborationModerationCases">;
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(builderStaffReceiptId, {
+        lastViewedAt: frozenBuilderStaffReceipt.lastViewedAt + 60_000,
+        viewerRole: "admin",
+      });
+    });
 
     const moderatedFeed = await fixture.contractor.query(
       (api as any).build_collaboration.listBuildCollaborationFeed,
@@ -625,6 +749,9 @@ describe("Build collaboration moderation hierarchy", () => {
         plainText: "Contractor update",
         receipts: [
           expect.objectContaining({
+            displayNameSnapshot: "Builder Staff Reviewer",
+            firstViewedAt: frozenBuilderStaffReceipt.firstViewedAt,
+            lastViewedAt: frozenBuilderStaffReceipt.lastViewedAt,
             viewerRole: "builder-staff",
             workosUserId: "user_builder_staff",
           }),

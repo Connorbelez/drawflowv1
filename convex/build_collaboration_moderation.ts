@@ -12,6 +12,7 @@ import { projectCollaborationRevisionForViewer } from "./build_collaboration_con
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
   type BuildCollaborationRole,
+  buildCollaborationRoles,
   collaborationRoleTier,
   resolveEffectiveCollaborationRole,
 } from "./build_collaboration_model";
@@ -58,6 +59,8 @@ const moderationContextValidator = v.object({
       plainText: v.string(),
       receipts: v.array(
         v.object({
+          displayNameSnapshot: v.string(),
+          firstViewedAt: v.number(),
           lastViewedAt: v.number(),
           viewerRole: buildCollaborationRoleValidator,
           workosUserId: v.string(),
@@ -175,9 +178,18 @@ export const getBuildCollaborationModerationContext = authenticatedQuery
       args
     );
     const content = entity.entityKind === "post" ? entity.post : entity.comment;
-    const moderationCase = content.activeModerationCaseId
+    const candidateModerationCase = content.activeModerationCaseId
       ? await ctx.db.get(content.activeModerationCaseId)
       : null;
+    const moderationCase =
+      candidateModerationCase &&
+      moderationCaseMatchesEntity(
+        candidateModerationCase,
+        authorization,
+        entity
+      )
+        ? candidateModerationCase
+        : null;
     const capabilities = collaborationModerationCapabilities({
       authorRole: content.authorRole,
       authorWorkosUserId: content.authorWorkosUserId,
@@ -199,6 +211,14 @@ export const getBuildCollaborationModerationContext = authenticatedQuery
               query.eq("caseId", moderationCase._id)
             )
             .take(100)
+            .then((caseEvents) =>
+              caseEvents.filter(
+                (event) =>
+                  event.organizationId === authorization.organizationId &&
+                  event.brokerageId === authorization.brokerage._id &&
+                  event.buildId === authorization.build._id
+              )
+            )
         : [];
     const evidence =
       maySeeCase && moderationCase
@@ -265,7 +285,11 @@ export const moderateBuildCollaborationContent = authenticatedMutation
       throw new Error("Forbidden: collaboration moderation hierarchy");
     }
     const now = Date.now();
-    const evidenceSnapshotJson = await moderationEvidenceSnapshot(ctx, entity);
+    const evidenceSnapshotJson = await moderationEvidenceSnapshot(
+      ctx,
+      authorization,
+      entity
+    );
     const moderatorTier = authorization.effectiveRole.tier;
     const caseId = await ctx.db.insert("buildCollaborationModerationCases", {
       appealReviewerMinimumTier: moderatorTier + 1,
@@ -534,6 +558,7 @@ function requireReason(reason: string) {
 
 async function moderationEvidenceSnapshot(
   ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
   entity: ModeratedEntity
 ) {
   const content = entity.entityKind === "post" ? entity.post : entity.comment;
@@ -567,15 +592,41 @@ async function moderationEvidenceSnapshot(
   return JSON.stringify({
     attachmentIds: attachments.map((attachment) => attachment._id),
     contentRevisionId: revisionId,
-    receiptIds: receipts.map((receipt) => receipt._id),
+    receiptSnapshots: await Promise.all(
+      receipts.map(async (receipt) => ({
+        buildId: receipt.buildId,
+        displayNameSnapshot: await receiptDisplayNameSnapshot(
+          ctx,
+          authorization,
+          receipt.workosUserId
+        ),
+        firstViewedAt: receipt.firstViewedAt,
+        lastViewedAt: receipt.lastViewedAt,
+        organizationId: receipt.organizationId,
+        postId: receipt.postId,
+        viewerRole: receipt.viewerRole,
+        workosUserId: receipt.workosUserId,
+      }))
+    ),
     referenceIds: references.map((reference) => reference._id),
   });
+}
+
+interface ModerationEvidenceReceiptSnapshot {
+  buildId: string;
+  displayNameSnapshot: string;
+  firstViewedAt: number;
+  lastViewedAt: number;
+  organizationId: string;
+  postId: string;
+  viewerRole: BuildCollaborationRole;
+  workosUserId: string;
 }
 
 interface ModerationEvidenceSnapshotIds {
   attachmentIds: string[];
   contentRevisionId?: string;
-  receiptIds: string[];
+  receiptSnapshots: ModerationEvidenceReceiptSnapshot[];
   referenceIds: string[];
 }
 
@@ -594,6 +645,8 @@ interface ModerationProjectedReference {
 }
 
 interface ModerationProjectedReceipt {
+  displayNameSnapshot: string;
+  firstViewedAt: number;
   lastViewedAt: number;
   viewerRole: BuildCollaborationRole;
   workosUserId: string;
@@ -630,11 +683,10 @@ async function moderationEvidenceForViewer(
     revision,
     snapshot.attachmentIds
   );
-  const receipts = await loadModerationReceipts(
-    ctx,
+  const receipts = loadModerationReceipts(
     authorization,
     entity,
-    snapshot.receiptIds
+    snapshot.receiptSnapshots
   );
   return {
     attachments,
@@ -736,26 +788,22 @@ async function loadModerationAttachments(
   return attachments;
 }
 
-async function loadModerationReceipts(
-  ctx: QueryCtx,
+function loadModerationReceipts(
   authorization: ActiveBuildAuthorization,
   entity: ModeratedEntity,
-  rawReceiptIds: string[]
+  receiptSnapshots: ModerationEvidenceReceiptSnapshot[]
 ) {
   const receipts: ModerationProjectedReceipt[] = [];
-  for (const rawReceiptId of rawReceiptIds) {
-    const receiptId = ctx.db.normalizeId(
-      "buildCollaborationReceipts",
-      rawReceiptId
-    );
-    const receipt = receiptId ? await ctx.db.get(receiptId) : null;
+  for (const receipt of receiptSnapshots) {
     if (
-      receipt?.postId === entity.post._id &&
+      receipt.postId === entity.post._id &&
       receipt.buildId === authorization.build._id &&
       receipt.organizationId === authorization.organizationId &&
       canSeeCollaborationReceipt(authorization, receipt)
     ) {
       receipts.push({
+        displayNameSnapshot: receipt.displayNameSnapshot,
+        firstViewedAt: receipt.firstViewedAt,
         lastViewedAt: receipt.lastViewedAt,
         viewerRole: receipt.viewerRole,
         workosUserId: receipt.workosUserId,
@@ -780,8 +828,8 @@ function parseModerationEvidenceSnapshot(
         typeof parsed.contentRevisionId === "string"
           ? parsed.contentRevisionId
           : undefined,
-      receiptIds: Array.isArray(parsed.receiptIds)
-        ? parsed.receiptIds.filter((id): id is string => typeof id === "string")
+      receiptSnapshots: Array.isArray(parsed.receiptSnapshots)
+        ? parsed.receiptSnapshots.filter(isModerationReceiptSnapshot)
         : [],
       referenceIds: Array.isArray(parsed.referenceIds)
         ? parsed.referenceIds.filter(
@@ -790,8 +838,57 @@ function parseModerationEvidenceSnapshot(
         : [],
     };
   } catch {
-    return { attachmentIds: [], receiptIds: [], referenceIds: [] };
+    return { attachmentIds: [], receiptSnapshots: [], referenceIds: [] };
   }
+}
+
+function isModerationReceiptSnapshot(
+  value: unknown
+): value is ModerationEvidenceReceiptSnapshot {
+  if (!(value && typeof value === "object")) {
+    return false;
+  }
+  const snapshot = value as Record<string, unknown>;
+  return (
+    typeof snapshot.buildId === "string" &&
+    typeof snapshot.displayNameSnapshot === "string" &&
+    typeof snapshot.firstViewedAt === "number" &&
+    Number.isFinite(snapshot.firstViewedAt) &&
+    typeof snapshot.lastViewedAt === "number" &&
+    Number.isFinite(snapshot.lastViewedAt) &&
+    typeof snapshot.organizationId === "string" &&
+    typeof snapshot.postId === "string" &&
+    typeof snapshot.viewerRole === "string" &&
+    buildCollaborationRoles.includes(
+      snapshot.viewerRole as BuildCollaborationRole
+    ) &&
+    typeof snapshot.workosUserId === "string"
+  );
+}
+
+async function receiptDisplayNameSnapshot(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  workosUserId: string
+) {
+  const activeParticipant = authorization.participants.find(
+    (participant) => participant.workosUserId === workosUserId
+  );
+  if (activeParticipant) {
+    return activeParticipant.displayName;
+  }
+  const participationPeriods = await ctx.db
+    .query("buildParticipants")
+    .withIndex("by_buildId_and_workosUserId", (query) =>
+      query
+        .eq("buildId", authorization.build._id)
+        .eq("workosUserId", workosUserId)
+    )
+    .take(100);
+  const latestParticipation = participationPeriods.sort(
+    (left, right) => right.participationPeriod - left.participationPeriod
+  )[0];
+  return latestParticipation?.displayNameSnapshot ?? "Build participant";
 }
 
 async function loadModeratedRevision(
@@ -825,6 +922,32 @@ async function loadModeratedRevision(
     revision.organizationId === entity.post.organizationId
     ? revision
     : null;
+}
+
+function moderationCaseMatchesEntity(
+  moderationCase: Doc<"buildCollaborationModerationCases">,
+  authorization: ActiveBuildAuthorization,
+  entity: ModeratedEntity
+) {
+  if (
+    moderationCase.organizationId !== authorization.organizationId ||
+    moderationCase.brokerageId !== authorization.brokerage._id ||
+    moderationCase.buildId !== authorization.build._id ||
+    moderationCase.postId !== entity.post._id ||
+    moderationCase.entityKind !== entity.entityKind
+  ) {
+    return false;
+  }
+  if (entity.entityKind === "post") {
+    return (
+      moderationCase.entityId === entity.post._id &&
+      moderationCase.commentId === undefined
+    );
+  }
+  return (
+    moderationCase.entityId === entity.comment._id &&
+    moderationCase.commentId === entity.comment._id
+  );
 }
 
 async function projectModerationAttachment(

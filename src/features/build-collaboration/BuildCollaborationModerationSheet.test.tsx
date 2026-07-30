@@ -29,6 +29,8 @@ const mocks = vi.hoisted(() => ({
       }>;
       plainText: string;
       receipts: Array<{
+        displayNameSnapshot: string;
+        firstViewedAt: number;
         lastViewedAt: number;
         viewerRole:
           | "admin"
@@ -219,6 +221,8 @@ describe("BuildCollaborationModerationSheet", () => {
         plainText: "Original safety context",
         receipts: [
           {
+            displayNameSnapshot: "Builder Staff Reviewer",
+            firstViewedAt: Date.UTC(2026, 6, 30, 11, 55),
             lastViewedAt: Date.UTC(2026, 6, 30, 12, 0),
             viewerRole: "builder-staff",
             workosUserId: "builder-staff-user",
@@ -265,7 +269,17 @@ describe("BuildCollaborationModerationSheet", () => {
     expect(screen.getByText("Site safety direction.pdf")).toBeTruthy();
     expect(screen.getByText("Trade Partner")).toBeTruthy();
     expect(
-      screen.getByText(/Seen by 1 visible participant/)
+      screen.getByText("Seen by 1 visible participant")
+    ).toBeTruthy();
+    expect(screen.getByText("Builder Staff Reviewer")).toBeTruthy();
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          element?.tagName === "LI" &&
+          (element.textContent?.includes("Builder Staff") ?? false) &&
+          (element.textContent?.includes("first seen") ?? false) &&
+          (element.textContent?.includes("last seen") ?? false)
+      )
     ).toBeTruthy();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Decision reason" }), {

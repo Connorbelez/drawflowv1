@@ -68,6 +68,8 @@ interface ModerationContext {
     }>;
     plainText: string;
     receipts: Array<{
+      displayNameSnapshot: string;
+      firstViewedAt: number;
       lastViewedAt: number;
       viewerRole:
         | "admin"
@@ -401,15 +403,33 @@ function ModerationEvidenceDossier({
             </div>
           ) : null}
           {evidence.receipts.length > 0 ? (
-            <p className="text-muted-foreground text-xs">
-              Seen by {evidence.receipts.length} visible participant
-              {evidence.receipts.length === 1 ? "" : "s"} · latest{" "}
-              {formatTimestamp(
-                Math.max(
-                  ...evidence.receipts.map((receipt) => receipt.lastViewedAt)
-                )
-              )}
-            </p>
+            <div className="space-y-1">
+              <p className="font-medium text-xs">
+                Seen by {evidence.receipts.length} visible participant
+                {evidence.receipts.length === 1 ? "" : "s"}
+              </p>
+              <ul className="space-y-1">
+                {evidence.receipts.map((receipt) => (
+                  <li
+                    className="text-muted-foreground text-xs"
+                    key={`${receipt.workosUserId}:${receipt.firstViewedAt}`}
+                  >
+                    <span className="font-medium text-foreground">
+                      {receipt.displayNameSnapshot}
+                    </span>{" "}
+                    · {roleLabel(receipt.viewerRole)} ·{" "}
+                    {receipt.firstViewedAt === receipt.lastViewedAt ? (
+                      <>seen {formatTimestamp(receipt.lastViewedAt)}</>
+                    ) : (
+                      <>
+                        first seen {formatTimestamp(receipt.firstViewedAt)} ·
+                        last seen {formatTimestamp(receipt.lastViewedAt)}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
         </FramePanel>
       </Frame>

@@ -59,7 +59,10 @@ export async function resolveCurrentCollaborationPostReaderIds(
 
 export function canSeeCollaborationReceipt(
   authorization: ActiveBuildAuthorization,
-  receipt: Doc<"buildCollaborationReceipts">
+  receipt: Pick<
+    Doc<"buildCollaborationReceipts">,
+    "viewerRole" | "workosUserId"
+  >
 ) {
   return (
     receipt.workosUserId !== authorization.viewer.subject &&
