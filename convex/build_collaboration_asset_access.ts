@@ -20,6 +20,9 @@ export async function canUseCollaborationAssetForPost(
   ) {
     return false;
   }
+  if (input.asset.originatingPostId === input.post._id) {
+    return true;
+  }
   const destinationReaderIds = await resolveCurrentCollaborationPostReaderIds(
     ctx,
     input.authorization,
@@ -32,5 +35,5 @@ export async function canUseCollaborationAssetForPost(
   if (input.asset.maximumAudienceMode === "build_wide") {
     return true;
   }
-  return input.asset.originatingPostId === input.post._id;
+  return false;
 }

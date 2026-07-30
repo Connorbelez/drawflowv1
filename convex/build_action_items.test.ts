@@ -692,6 +692,153 @@ describe("Build Action Item server authorization", () => {
     );
   });
 
+  test("originating-post attachments follow live build-wide and tiered audiences", async () => {
+    const fixture = await seedActionItemBuild();
+    const insertOriginatingAsset = async (input: {
+      audienceMode: "author_tier_and_higher" | "build_wide";
+      fileName: string;
+      postId: Id<"buildCollaborationPosts">;
+      readerWorkosUserIds: string[];
+    }) =>
+      await fixture.base.run(async (ctx) => {
+        const build = await ctx.db.get(fixture.buildId);
+        if (!build) {
+          throw new Error("Build fixture is unavailable.");
+        }
+        const storageId = await ctx.storage.store(
+          new Blob([input.fileName], { type: "text/plain" })
+        );
+        const now = Date.now();
+        return await ctx.db.insert("buildCollaborationAssets", {
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          createdAt: now,
+          fileName: input.fileName,
+          maximumAudienceMode: input.audienceMode,
+          mimeType: "text/plain",
+          organizationId: ORGANIZATION_ID,
+          originatingPostId: input.postId,
+          readerWorkosUserIds: input.readerWorkosUserIds,
+          sizeBytes: input.fileName.length,
+          state: "available",
+          storageId,
+          updatedAt: now,
+          uploadedByWorkosUserId: "user_builder",
+          version: 1,
+        });
+      });
+    const addParticipant = async (
+      role: BuildCollaborationRole,
+      workosUserId: string
+    ) =>
+      await fixture.base.run(async (ctx) => {
+        const build = await ctx.db.get(fixture.buildId);
+        if (!build) {
+          throw new Error("Build fixture is unavailable.");
+        }
+        const now = Date.now();
+        await ctx.db.insert("buildParticipants", {
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          createdAt: now,
+          displayNameSnapshot: workosUserId,
+          joinedAt: now,
+          organizationId: ORGANIZATION_ID,
+          participationPeriod: 1,
+          role,
+          status: "active",
+          updatedAt: now,
+          validFrom: now,
+          workosUserId,
+        });
+      });
+
+    const buildWideAssetId = await insertOriginatingAsset({
+      audienceMode: "build_wide",
+      fileName: "build-wide.txt",
+      postId: fixture.postId,
+      readerWorkosUserIds: [
+        "user_builder",
+        "user_contractor_creator",
+        "user_contractor_reader",
+      ],
+    });
+    const buildWideItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        attachmentAssetIds: [buildWideAssetId],
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Build-wide attachment",
+      }
+    );
+    await addParticipant("contractor", "user_new_contractor");
+    let detail = await fixture.reader.query(
+      (api as any).build_action_item_details.getBuildActionItemDetail,
+      {
+        actionItemId: buildWideItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(detail.attachments).toMatchObject([
+      { fileName: "build-wide.txt", state: "available" },
+    ]);
+
+    const tieredPostId = await fixture.builder.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "author_tier_and_higher",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Tiered coordination.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Tiered coordination.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      }
+    );
+    const tieredAssetId = await insertOriginatingAsset({
+      audienceMode: "author_tier_and_higher",
+      fileName: "tiered.txt",
+      postId: tieredPostId,
+      readerWorkosUserIds: ["user_builder"],
+    });
+    const tieredItemId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        attachmentAssetIds: [tieredAssetId],
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: tieredPostId,
+        title: "Tiered attachment",
+      }
+    );
+    await addParticipant("broker", "user_new_broker");
+    detail = await fixture.builder.query(
+      (api as any).build_action_item_details.getBuildActionItemDetail,
+      {
+        actionItemId: tieredItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(detail.attachments).toMatchObject([
+      { fileName: "tiered.txt", state: "available" },
+    ]);
+  });
+
   test("a reader may create, but cannot mutate another participant's Action Item", async () => {
     const fixture = await seedActionItemBuild();
     const actionItemId = await fixture.creator.mutation(
