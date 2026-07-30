@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   onOpenReference: vi.fn(),
   postContentState: "active" as "active" | "tombstoned",
   postRevision: 1,
+  postViewerCanModerate: false,
   postViewerIsAuthor: true,
 }));
 
@@ -62,6 +63,9 @@ vi.mock("convex/react", () => ({
           readRevision: mocks.postRevision,
           revision: mocks.postRevision,
           updatedAt: Date.parse("2026-07-28T12:00:00.000Z"),
+          viewerCanAppeal: false,
+          viewerCanModerate: mocks.postViewerCanModerate,
+          viewerCanResolveAppeal: false,
           viewerIsAuthor: mocks.postViewerIsAuthor,
         },
         reactions: [],
@@ -113,6 +117,17 @@ vi.mock("convex/react", () => ({
       "build_collaboration_threads:listBuildCollaborationComments"
     ) {
       return [];
+    }
+    if (
+      functionName ===
+      "build_collaboration_moderation:getBuildCollaborationModerationContext"
+    ) {
+      return {
+        canAppeal: false,
+        canModerate: mocks.postViewerCanModerate,
+        canResolveAppeal: false,
+        events: [],
+      };
     }
     if (
       functionName ===
@@ -215,6 +230,7 @@ afterEach(() => {
     mocks.focusedPostId = "post-1";
     mocks.postContentState = "active";
     mocks.postRevision = 1;
+    mocks.postViewerCanModerate = false;
     mocks.postViewerIsAuthor = true;
 });
 
@@ -371,6 +387,42 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.queryByRole("button", { name: "Save revision" })
     ).toBeNull();
+  });
+
+  test("opens the hierarchy-safe moderation action from the post menu", async () => {
+    mocks.postViewerCanModerate = true;
+    mocks.postViewerIsAuthor = false;
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        organizationId="org-1"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Moderate content" })
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Content moderation" })
+    ).toBeTruthy();
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Moderation reason" }),
+      { target: { value: "Unsafe instruction" } }
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Moderate content" })
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        entityId: "post-1",
+        entityKind: "post",
+        expectedRevision: 1,
+        organizationId: "org-1",
+        reason: "Unsafe instruction",
+      })
+    );
   });
 
   test("shows the complete effective bundle before a human approves an agent draft", async () => {

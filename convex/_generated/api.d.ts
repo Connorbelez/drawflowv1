@@ -30,6 +30,7 @@ import type * as build_collaboration_focus from "../build_collaboration_focus.js
 import type * as build_collaboration_human from "../build_collaboration_human.js";
 import type * as build_collaboration_migrations from "../build_collaboration_migrations.js";
 import type * as build_collaboration_model from "../build_collaboration_model.js";
+import type * as build_collaboration_moderation from "../build_collaboration_moderation.js";
 import type * as build_collaboration_notifications from "../build_collaboration_notifications.js";
 import type * as build_collaboration_publication_bundle from "../build_collaboration_publication_bundle.js";
 import type * as build_collaboration_references from "../build_collaboration_references.js";
@@ -103,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_human: typeof build_collaboration_human;
   build_collaboration_migrations: typeof build_collaboration_migrations;
   build_collaboration_model: typeof build_collaboration_model;
+  build_collaboration_moderation: typeof build_collaboration_moderation;
   build_collaboration_notifications: typeof build_collaboration_notifications;
   build_collaboration_publication_bundle: typeof build_collaboration_publication_bundle;
   build_collaboration_references: typeof build_collaboration_references;

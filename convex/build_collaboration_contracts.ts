@@ -37,6 +37,9 @@ export const collaborationPostSummaryValidator = v.object({
   revision: v.number(),
   source: buildCollaborationSourceValidator,
   updatedAt: v.number(),
+  viewerCanAppeal: v.boolean(),
+  viewerCanModerate: v.boolean(),
+  viewerCanResolveAppeal: v.boolean(),
   viewerIsAuthor: v.boolean(),
 });
 
@@ -134,6 +137,9 @@ export const collaborationCommentSummaryValidator = v.object({
   logicalDepth: v.number(),
   revision: v.number(),
   updatedAt: v.number(),
+  viewerCanAppeal: v.boolean(),
+  viewerCanModerate: v.boolean(),
+  viewerCanResolveAppeal: v.boolean(),
   viewerIsAuthor: v.boolean(),
 });
 

@@ -1,0 +1,736 @@
+/// <reference types="vite/client" />
+
+import { convexTest } from "convex-test";
+import { describe, expect, test } from "vitest";
+
+import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import {
+  type BuildCollaborationRole,
+  buildCollaborationRoles,
+  collaborationRoleTier,
+} from "./build_collaboration_model";
+import { collaborationModerationCapabilities } from "./build_collaboration_moderation";
+import schema from "./schema";
+
+const modules = import.meta.glob("./**/*.ts");
+const ORGANIZATION_ID = "org_collaboration_moderation";
+
+function withIdentity(
+  t: ReturnType<typeof convexTest>,
+  role: BuildCollaborationRole,
+  subject = `user_${role.replace("-", "_")}`
+) {
+  return t.withIdentity({
+    email: `${subject}@example.com`,
+    name: subject,
+    organizationId: ORGANIZATION_ID,
+    role,
+    roles: [role],
+    subject,
+    tokenIdentifier: `https://api.workos.com/|${subject}`,
+    "https://fairlend.ca/actor_kind": "human",
+  } as never);
+}
+
+function textDocument(text: string) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [{ text, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
+}
+
+async function seedModerationFixture() {
+  const base = convexTest(schema, modules);
+  const admin = withIdentity(base, "admin");
+  const foundation = await admin.mutation(
+    (api as any).production_proposals.dev_seedProductionFoundation,
+    { workosOrganizationId: ORGANIZATION_ID }
+  );
+  const buildId = await admin.run(async (ctx) => {
+    const now = Date.now();
+    const proposalId = await ctx.db.insert("buildProposals", {
+      assignedBrokerWorkosUserId: "user_broker",
+      brokerageId: foundation.brokerageId,
+      borrowerCoPayBps: 0,
+      borrowerWorkingCapitalLimitCents: 50_000_000,
+      buildName: "Moderation fixture",
+      builderProfileId: foundation.builderProfileId,
+      createdAt: now,
+      createdByWorkosUserId: "user_admin",
+      lenderDrawPolicyLimitCents: 100_000_000,
+      location: "147 Cedar Ridge Road",
+      organizationId: ORGANIZATION_ID,
+      reviewOutcome: "approved",
+      status: "approved",
+      templateId: foundation.templateId,
+      totalBudgetCents: 240_000_000,
+      updatedAt: now,
+      updatedByWorkosUserId: "user_admin",
+    });
+    const workflowRuleSnapshotId = await ctx.db.insert(
+      "workflowRuleSnapshots",
+      {
+        allowPermitWaiverByRoles: ["admin"],
+        brokerageId: foundation.brokerageId,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        proposalId,
+        proposalStates: ["draft", "submitted", "approved", "closed"],
+        requirePermitForApproval: false,
+        ruleKey: "default",
+        settings: {},
+        version: 1,
+        workflowRuleId: foundation.workflowRuleId,
+      }
+    );
+    const activeBuildId = await ctx.db.insert("activeBuilds", {
+      brokerageId: foundation.brokerageId,
+      buildName: "Moderation fixture",
+      builderProfileId: foundation.builderProfileId,
+      createdAt: now,
+      location: "147 Cedar Ridge Road",
+      organizationId: ORGANIZATION_ID,
+      proposalId,
+      startDate: "2026-07-30",
+      status: "active",
+      totalBudgetCents: 240_000_000,
+      updatedAt: now,
+      workflowRuleSnapshotId,
+    });
+    await ctx.db.patch(proposalId, {
+      activeBuildId,
+      workflowRuleSnapshotId,
+    });
+    await ctx.db.insert("buildCollaborationTenantSettings", {
+      activatedAt: now,
+      activatedByWorkosUserId: "user_admin",
+      brokerageId: foundation.brokerageId,
+      createdAt: now,
+      generousRateLimitMultiplier: 1,
+      migrationCompletedAt: now,
+      organizationId: ORGANIZATION_ID,
+      status: "active",
+      updatedAt: now,
+    });
+    const participants: Array<{
+      displayName: string;
+      role: BuildCollaborationRole;
+      workosUserId: string;
+    }> = [
+      {
+        displayName: "Principal Reviewer",
+        role: "principle-broker",
+        workosUserId: "user_principle_broker",
+      },
+      {
+        displayName: "Broker Reviewer",
+        role: "broker",
+        workosUserId: "user_broker",
+      },
+      {
+        displayName: "Builder Peer",
+        role: "builder",
+        workosUserId: "user_builder",
+      },
+      {
+        displayName: "Builder Staff Reviewer",
+        role: "builder-staff",
+        workosUserId: "user_builder_staff",
+      },
+      {
+        displayName: "Homeowner Moderator",
+        role: "homeowner",
+        workosUserId: "user_homeowner",
+      },
+      {
+        displayName: "Contractor Author",
+        role: "contractor",
+        workosUserId: "user_contractor",
+      },
+    ];
+    for (const participant of participants) {
+      await ctx.db.insert("buildParticipants", {
+        brokerageId: foundation.brokerageId,
+        buildId: activeBuildId,
+        createdAt: now,
+        displayNameSnapshot: participant.displayName,
+        joinedAt: now,
+        organizationId: ORGANIZATION_ID,
+        participationPeriod: 1,
+        role: participant.role,
+        status: "active",
+        updatedAt: now,
+        validFrom: now,
+        workosUserId: participant.workosUserId,
+      });
+    }
+    return activeBuildId;
+  });
+  return {
+    admin,
+    base,
+    broker: withIdentity(base, "broker"),
+    buildId,
+    builder: withIdentity(base, "builder"),
+    builderStaff: withIdentity(base, "builder-staff"),
+    contractor: withIdentity(base, "contractor"),
+    homeowner: withIdentity(base, "homeowner"),
+    principal: withIdentity(base, "principle-broker"),
+  };
+}
+
+async function publishContractorPost(
+  fixture: Awaited<ReturnType<typeof seedModerationFixture>>,
+  text = "Contractor update"
+) {
+  return (await fixture.contractor.mutation(
+    (api as any).build_collaboration
+      .approveAndPublishBuildCollaborationBundle,
+    {
+      actionItems: [],
+      audienceMode: "build_wide",
+      buildId: fixture.buildId,
+      organizationId: ORGANIZATION_ID,
+      plainText: text,
+      postType: "update",
+      references: [],
+      requestedReaderIds: [],
+      tiptapJson: textDocument(text),
+    }
+  )) as Id<"buildCollaborationPosts">;
+}
+
+async function publishPostAs(
+  fixture: Awaited<ReturnType<typeof seedModerationFixture>>,
+  author:
+    | typeof fixture.admin
+    | typeof fixture.broker
+    | typeof fixture.builder
+    | typeof fixture.builderStaff
+    | typeof fixture.contractor
+    | typeof fixture.homeowner
+    | typeof fixture.principal,
+  text: string,
+  audienceMode: "build_wide" | "custom" = "build_wide",
+  requestedReaderIds: string[] = []
+) {
+  return (await author.mutation(
+    (api as any).build_collaboration
+      .approveAndPublishBuildCollaborationBundle,
+    {
+      actionItems: [],
+      audienceMode,
+      buildId: fixture.buildId,
+      organizationId: ORGANIZATION_ID,
+      plainText: text,
+      postType: "update",
+      references: [],
+      requestedReaderIds,
+      tiptapJson: textDocument(text),
+    }
+  )) as Id<"buildCollaborationPosts">;
+}
+
+describe("Build collaboration moderation hierarchy", () => {
+  test("matches every approved role edge and never treats author removal as moderation", () => {
+    for (const viewerRole of buildCollaborationRoles) {
+      for (const authorRole of buildCollaborationRoles) {
+        const capabilities = collaborationModerationCapabilities({
+          authorRole,
+          authorWorkosUserId: `author_${authorRole}`,
+          contentState: "active",
+          viewerRole,
+          viewerWorkosUserId: `viewer_${viewerRole}`,
+        });
+        expect(capabilities.canModerate).toBe(
+          collaborationRoleTier(viewerRole) >
+            collaborationRoleTier(authorRole)
+        );
+      }
+      expect(
+        collaborationModerationCapabilities({
+          authorRole: viewerRole,
+          authorWorkosUserId: "same_user",
+          contentState: "active",
+          viewerRole,
+          viewerWorkosUserId: "same_user",
+        }).canModerate
+      ).toBe(false);
+    }
+  });
+
+  test("enforces every adjacent hierarchy edge through direct mutations", async () => {
+    const fixture = await seedModerationFixture();
+    const builderStaffPost = await publishPostAs(
+      fixture,
+      fixture.builderStaff,
+      "Builder staff content"
+    );
+    const brokerPost = await publishPostAs(
+      fixture,
+      fixture.broker,
+      "Broker content"
+    );
+    const principalPost = await publishPostAs(
+      fixture,
+      fixture.principal,
+      "Principal content"
+    );
+    const adminPost = await publishPostAs(
+      fixture,
+      fixture.admin,
+      "Admin content"
+    );
+
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_moderation
+        .moderateBuildCollaborationContent,
+      {
+        buildId: fixture.buildId,
+        entityId: builderStaffPost,
+        entityKind: "post",
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Tier three review",
+      }
+    );
+    await fixture.principal.mutation(
+      (api as any).build_collaboration_moderation
+        .moderateBuildCollaborationContent,
+      {
+        buildId: fixture.buildId,
+        entityId: brokerPost,
+        entityKind: "post",
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Principal review",
+      }
+    );
+    const finalCaseId = await fixture.admin.mutation(
+      (api as any).build_collaboration_moderation
+        .moderateBuildCollaborationContent,
+      {
+        buildId: fixture.buildId,
+        entityId: principalPost,
+        entityKind: "post",
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Administrative review",
+      }
+    );
+    await expect(
+      fixture.principal.mutation(
+        (api as any).build_collaboration_moderation
+          .appealBuildCollaborationModeration,
+        {
+          buildId: fixture.buildId,
+          caseId: finalCaseId,
+          organizationId: ORGANIZATION_ID,
+          reason: "No tier exists above admin",
+        }
+      )
+    ).rejects.toThrow("Forbidden");
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_collaboration_moderation
+          .moderateBuildCollaborationContent,
+        {
+          buildId: fixture.buildId,
+          entityId: brokerPost,
+          entityKind: "post",
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Same-tier attempt",
+        }
+      )
+    ).rejects.toThrow("Forbidden");
+    await expect(
+      fixture.contractor.mutation(
+        (api as any).build_collaboration_moderation
+          .moderateBuildCollaborationContent,
+        {
+          buildId: fixture.buildId,
+          entityId: adminPost,
+          entityKind: "post",
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Lower-tier attempt",
+        }
+      )
+    ).rejects.toThrow("Forbidden");
+  });
+
+  test("does not widen a custom audience or reveal its metadata to a direct caller", async () => {
+    const fixture = await seedModerationFixture();
+    const postId = await publishPostAs(
+      fixture,
+      fixture.broker,
+      "Restricted broker evidence",
+      "custom",
+      ["user_broker"]
+    );
+    await expect(
+      fixture.contractor.mutation(
+        (api as any).build_collaboration_moderation
+          .moderateBuildCollaborationContent,
+        {
+          buildId: fixture.buildId,
+          entityId: postId,
+          entityKind: "post",
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Unauthorized direct attempt",
+        }
+      )
+    ).rejects.toThrow("Forbidden: collaboration moderation target");
+    const feed = await fixture.contractor.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }
+    );
+    expect(feed.page).toEqual([
+      expect.objectContaining({ kind: "restricted" }),
+    ]);
+    expect(JSON.stringify(feed)).not.toContain("Restricted broker evidence");
+  });
+
+  test("preserves evidence, redacts content, escalates appeals, and audits every transition", async () => {
+    const fixture = await seedModerationFixture();
+    const postId = await publishContractorPost(fixture);
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_threads
+        .markBuildCollaborationPostViewed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
+    const evidence = await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(postId);
+      if (!post?.currentRevisionId) {
+        throw new Error("Post revision unavailable.");
+      }
+      const referenceId = await ctx.db.insert("buildCollaborationReferences", {
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        createdAt: Date.now(),
+        entityId: "user_homeowner",
+        entityKind: "participant",
+        labelSnapshot: "Homeowner Moderator",
+        organizationId: post.organizationId,
+        ownerKind: "postRevision",
+        ownerRecordId: post.currentRevisionId,
+        postId,
+        primary: true,
+      });
+      const attachmentId = await ctx.db.insert(
+        "buildCollaborationAttachments",
+        {
+          attachmentId: "retained-document",
+          attachmentKind: "document",
+          brokerageId: post.brokerageId,
+          buildId: post.buildId,
+          createdAt: Date.now(),
+          createdByWorkosUserId: "user_contractor",
+          organizationId: post.organizationId,
+          ownerKind: "postRevision",
+          ownerRecordId: post.currentRevisionId,
+        }
+      );
+      return {
+        attachmentId,
+        currentRevisionId: post.currentRevisionId,
+        referenceId,
+      };
+    });
+
+    await expect(
+      fixture.contractor.mutation(
+        (api as any).build_collaboration_moderation
+          .moderateBuildCollaborationContent,
+        {
+          buildId: fixture.buildId,
+          entityId: postId,
+          entityKind: "post",
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Self moderation",
+        }
+      )
+    ).rejects.toThrow("Forbidden");
+    await expect(
+      fixture.homeowner.mutation(
+        (api as any).build_collaboration_moderation
+          .moderateBuildCollaborationContent,
+        {
+          buildId: fixture.buildId,
+          entityId: postId,
+          entityKind: "post",
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: " ",
+        }
+      )
+    ).rejects.toThrow("reason is required");
+
+    const caseId = (await fixture.homeowner.mutation(
+      (api as any).build_collaboration_moderation
+        .moderateBuildCollaborationContent,
+      {
+        buildId: fixture.buildId,
+        entityId: postId,
+        entityKind: "post",
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Unsafe project instruction",
+      }
+    )) as Id<"buildCollaborationModerationCases">;
+
+    const moderatedFeed = await fixture.contractor.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }
+    );
+    expect(moderatedFeed.page[0]).toMatchObject({
+      actionItems: [],
+      kind: "post",
+      post: {
+        contentState: "moderated",
+        viewerCanAppeal: true,
+      },
+      reactions: [],
+      receipts: [],
+      references: [],
+      revision: {
+        plainText:
+          "This post is unavailable while it is under moderation.",
+      },
+    });
+    expect(JSON.stringify(moderatedFeed.page[0])).not.toContain(
+      "Contractor update"
+    );
+
+    const authorNotification = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient", (query) =>
+          query
+            .eq("organizationId", ORGANIZATION_ID)
+            .eq("recipientWorkosUserId", "user_contractor")
+        )
+        .collect()
+    );
+    expect(authorNotification).toHaveLength(1);
+    expect(authorNotification[0].body).toContain(
+      "Unsafe project instruction"
+    );
+    expect(authorNotification[0].body).not.toContain("Contractor update");
+
+    await fixture.contractor.mutation(
+      (api as any).build_collaboration_moderation
+        .appealBuildCollaborationModeration,
+      {
+        buildId: fixture.buildId,
+        caseId,
+        organizationId: ORGANIZATION_ID,
+        reason: "This is required site-safety context",
+      }
+    );
+    await expect(
+      fixture.builderStaff.mutation(
+        (api as any).build_collaboration_moderation
+          .resolveBuildCollaborationModerationAppeal,
+        {
+          buildId: fixture.buildId,
+          caseId,
+          organizationId: ORGANIZATION_ID,
+          outcome: "restore",
+          reason: "Attempt below reviewer floor",
+        }
+      )
+    ).rejects.toThrow("Forbidden");
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_moderation
+        .resolveBuildCollaborationModerationAppeal,
+      {
+        buildId: fixture.buildId,
+        caseId,
+        organizationId: ORGANIZATION_ID,
+        outcome: "retain",
+        reason: "Escalate for principal review",
+      }
+    );
+    await fixture.contractor.mutation(
+      (api as any).build_collaboration_moderation
+        .appealBuildCollaborationModeration,
+      {
+        buildId: fixture.buildId,
+        caseId,
+        organizationId: ORGANIZATION_ID,
+        reason: "Requesting principal review",
+      }
+    );
+    await expect(
+      fixture.broker.mutation(
+        (api as any).build_collaboration_moderation
+          .resolveBuildCollaborationModerationAppeal,
+        {
+          buildId: fixture.buildId,
+          caseId,
+          organizationId: ORGANIZATION_ID,
+          outcome: "restore",
+          reason: "Broker cannot resolve tier-four appeal",
+        }
+      )
+    ).rejects.toThrow("Forbidden");
+    await fixture.principal.mutation(
+      (api as any).build_collaboration_moderation
+        .resolveBuildCollaborationModerationAppeal,
+      {
+        buildId: fixture.buildId,
+        caseId,
+        organizationId: ORGANIZATION_ID,
+        outcome: "restore",
+        reason: "Context is legitimate and safe",
+      }
+    );
+
+    const state = await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(postId);
+      const moderationCase = await ctx.db.get(caseId);
+      const events = await ctx.db
+        .query("buildCollaborationModerationEvents")
+        .withIndex("by_caseId_and_createdAt", (query) =>
+          query.eq("caseId", caseId)
+        )
+        .collect();
+      const audits = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("entityType", "buildCollaborationPost")
+            .eq("entityId", postId)
+        )
+        .collect();
+      return {
+        attachment: await ctx.db.get(evidence.attachmentId),
+        audits: audits.filter((audit) =>
+          audit.eventType.startsWith("build.collaboration.moderation.")
+        ),
+        events,
+        moderationCase,
+        post,
+        reference: await ctx.db.get(evidence.referenceId),
+        revision: await ctx.db.get(evidence.currentRevisionId),
+      };
+    });
+    expect(state.post).toMatchObject({
+      contentState: "active",
+      revision: 1,
+    });
+    expect(state.post?.activeModerationCaseId).toBeUndefined();
+    expect(state.moderationCase).toMatchObject({
+      status: "restored",
+    });
+    expect(state.events.map((event) => event.eventType)).toEqual([
+      "moderated",
+      "appealed",
+      "retained",
+      "appealed",
+      "restored",
+    ]);
+    expect(state.audits).toHaveLength(5);
+    expect(state.revision?.plainText).toBe("Contractor update");
+    expect(state.reference).not.toBeNull();
+    expect(state.attachment).not.toBeNull();
+  });
+
+  test("keeps author tombstones separate and supports comment moderation", async () => {
+    const fixture = await seedModerationFixture();
+    const removablePostId = await publishContractorPost(
+      fixture,
+      "Author-removable update"
+    );
+    await expect(
+      fixture.homeowner.mutation(
+        (api as any).build_collaboration_editing
+          .tombstoneBuildCollaborationPost,
+        {
+          buildId: fixture.buildId,
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          postId: removablePostId,
+        }
+      )
+    ).rejects.toThrow("Forbidden");
+    await fixture.contractor.mutation(
+      (api as any).build_collaboration_editing
+        .tombstoneBuildCollaborationPost,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        postId: removablePostId,
+      }
+    );
+
+    const postId = await publishContractorPost(fixture, "Discussion anchor");
+    const commentId = (await fixture.contractor.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Unsafe reply",
+        postId,
+        references: [],
+        tiptapJson: textDocument("Unsafe reply"),
+      }
+    )) as Id<"buildCollaborationComments">;
+    await fixture.homeowner.mutation(
+      (api as any).build_collaboration_moderation
+        .moderateBuildCollaborationContent,
+      {
+        buildId: fixture.buildId,
+        entityId: commentId,
+        entityKind: "comment",
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Unsafe reply instruction",
+      }
+    );
+    const rows = await fixture.contractor.query(
+      (api as any).build_collaboration_threads
+        .listBuildCollaborationComments,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
+    expect(rows[0]).toMatchObject({
+      comment: {
+        contentState: "moderated",
+        viewerCanAppeal: true,
+      },
+      references: [],
+      revision: {
+        plainText:
+          "This reply is unavailable while it is under moderation.",
+      },
+    });
+    expect(JSON.stringify(rows[0])).not.toContain("Unsafe reply");
+  });
+});

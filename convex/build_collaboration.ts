@@ -7,7 +7,10 @@ import {
   canSeeCollaborationReceipt,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
-import { collaborationTombstoneContent } from "./build_collaboration_content";
+import {
+  collaborationModeratedContent,
+  collaborationTombstoneContent,
+} from "./build_collaboration_content";
 import { collaborationFeedResultValidator } from "./build_collaboration_contracts";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
@@ -15,6 +18,7 @@ import {
   collaborationRoleTier,
   resolveCollaborationAudience,
 } from "./build_collaboration_model";
+import { collaborationModerationCapabilities } from "./build_collaboration_moderation";
 import {
   fanOutBuildCollaborationPublication,
   resolveBuildCollaborationPublicationNotifications,
@@ -437,8 +441,23 @@ export const listBuildCollaborationFeed = authenticatedQuery
             placeholderKey: `unavailable-${placeholderKey}`,
           };
         }
-        if (post.contentState === "tombstoned") {
-          const tombstone = collaborationTombstoneContent("post");
+        const moderationCase = post.activeModerationCaseId
+          ? await ctx.db.get(post.activeModerationCaseId)
+          : null;
+        const moderationCapabilities = collaborationModerationCapabilities({
+          authorRole: post.authorRole,
+          authorWorkosUserId: post.authorWorkosUserId,
+          caseStatus: moderationCase?.status,
+          contentState: post.contentState,
+          minimumReviewerTier: moderationCase?.appealReviewerMinimumTier,
+          viewerRole: authorization.effectiveRole.role,
+          viewerWorkosUserId: authorization.viewer.subject,
+        });
+        if (post.contentState !== "active") {
+          const replacement =
+            post.contentState === "tombstoned"
+              ? collaborationTombstoneContent("post")
+              : collaborationModeratedContent("post");
           return {
             acknowledgement: { acknowledged: false, required: false },
             actionItems: [],
@@ -461,6 +480,9 @@ export const listBuildCollaborationFeed = authenticatedQuery
               revision: post.revision,
               source: post.source,
               updatedAt: post.updatedAt,
+              viewerCanAppeal: moderationCapabilities.canAppeal,
+              viewerCanModerate: moderationCapabilities.canModerate,
+              viewerCanResolveAppeal: moderationCapabilities.canResolveAppeal,
               viewerIsAuthor:
                 post.authorWorkosUserId === authorization.viewer.subject,
             },
@@ -472,9 +494,9 @@ export const listBuildCollaborationFeed = authenticatedQuery
               _id: revision._id,
               createdAt: post.updatedAt,
               editReason: undefined,
-              plainText: tombstone.plainText,
+              plainText: replacement.plainText,
               revision: post.revision,
-              tiptapJson: tombstone.tiptapJson,
+              tiptapJson: replacement.tiptapJson,
             },
           };
         }
@@ -591,6 +613,9 @@ export const listBuildCollaborationFeed = authenticatedQuery
             revision: post.revision,
             source: post.source,
             updatedAt: post.updatedAt,
+            viewerCanAppeal: moderationCapabilities.canAppeal,
+            viewerCanModerate: moderationCapabilities.canModerate,
+            viewerCanResolveAppeal: moderationCapabilities.canResolveAppeal,
             viewerIsAuthor:
               post.authorWorkosUserId === authorization.viewer.subject,
           },

@@ -3088,6 +3088,12 @@ export default defineSchema({
     tombstonedAt: v.optional(v.number()),
     tombstonedByWorkosUserId: v.optional(v.string()),
     moderationReason: v.optional(v.string()),
+    moderatedAt: v.optional(v.number()),
+    moderatedByWorkosUserId: v.optional(v.string()),
+    moderatedByRole: v.optional(buildCollaborationRoleValidator),
+    activeModerationCaseId: v.optional(
+      v.id("buildCollaborationModerationCases")
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -3170,6 +3176,12 @@ export default defineSchema({
     tombstonedAt: v.optional(v.number()),
     tombstonedByWorkosUserId: v.optional(v.string()),
     moderationReason: v.optional(v.string()),
+    moderatedAt: v.optional(v.number()),
+    moderatedByWorkosUserId: v.optional(v.string()),
+    moderatedByRole: v.optional(buildCollaborationRoleValidator),
+    activeModerationCaseId: v.optional(
+      v.id("buildCollaborationModerationCases")
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -3199,6 +3211,61 @@ export default defineSchema({
       searchField: "plainText",
       filterFields: ["buildId", "organizationId"],
     }),
+  buildCollaborationModerationCases: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    commentId: v.optional(v.id("buildCollaborationComments")),
+    entityKind: v.union(v.literal("post"), v.literal("comment")),
+    entityId: v.string(),
+    contentAuthorWorkosUserId: v.string(),
+    contentAuthorRole: buildCollaborationRoleValidator,
+    moderatorWorkosUserId: v.string(),
+    moderatorRole: buildCollaborationRoleValidator,
+    moderatorTier: v.number(),
+    status: v.union(
+      v.literal("moderated"),
+      v.literal("appealed"),
+      v.literal("restored"),
+      v.literal("final_retained")
+    ),
+    currentReason: v.string(),
+    appealReviewerMinimumTier: v.number(),
+    evidenceSnapshotJson: v.string(),
+    lastAppealedAt: v.optional(v.number()),
+    lastAppealedByWorkosUserId: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+    resolvedByWorkosUserId: v.optional(v.string()),
+    resolvedByRole: v.optional(buildCollaborationRoleValidator),
+    resolutionReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_entityKind_and_entityId", ["entityKind", "entityId"])
+    .index("by_postId_and_status", ["postId", "status"])
+    .index("by_contentAuthorWorkosUserId_and_status", [
+      "contentAuthorWorkosUserId",
+      "status",
+    ]),
+  buildCollaborationModerationEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    caseId: v.id("buildCollaborationModerationCases"),
+    eventType: v.union(
+      v.literal("moderated"),
+      v.literal("appealed"),
+      v.literal("restored"),
+      v.literal("retained")
+    ),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    priorState: v.string(),
+    newState: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  }).index("by_caseId_and_createdAt", ["caseId", "createdAt"]),
   buildCollaborationReferences: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -4111,10 +4178,7 @@ export default defineSchema({
   })
     .index("by_workos_membership_id", ["workosMembershipId"])
     .index("by_user", ["workosUserId"])
-    .index("by_user_and_organization", [
-      "workosUserId",
-      "workosOrganizationId",
-    ])
+    .index("by_user_and_organization", ["workosUserId", "workosOrganizationId"])
     .index("by_organization", ["workosOrganizationId"]),
   workosRoles: defineTable({
     slug: v.string(),

@@ -1,13 +1,18 @@
 import { v } from "convex/values";
 
+import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
-import { collaborationTombstoneContent } from "./build_collaboration_content";
+import {
+  collaborationModeratedContent,
+  collaborationTombstoneContent,
+} from "./build_collaboration_content";
 import { collaborationCommentRowValidator } from "./build_collaboration_contracts";
+import { collaborationModerationCapabilities } from "./build_collaboration_moderation";
 import { canonicalizeTiptapReferences } from "./build_collaboration_publication_bundle";
 import {
   resolveCanonicalBuildCollaborationReferences,
@@ -19,7 +24,7 @@ import {
   buildCollaborationReactionValidator,
   buildCollaborationReferenceKindValidator,
 } from "./build_collaboration_validators";
-import type { Id, MutationCtx } from "./types";
+import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_COMMENT_TEXT_LENGTH = 25_000;
 const MAX_COMMENT_RICH_TEXT_LENGTH = 125_000;
@@ -194,7 +199,7 @@ export const listBuildCollaborationComments = authenticatedQuery
     if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
       throw new Error("Forbidden: collaboration post");
     }
-    if (post.contentState === "tombstoned") {
+    if (post.contentState !== "active") {
       return [];
     }
     const comments = await ctx.db
@@ -204,86 +209,113 @@ export const listBuildCollaborationComments = authenticatedQuery
       )
       .take(MAX_THREAD_COMMENTS);
     return await Promise.all(
-      comments.map(async (comment) => {
-        const currentRevisionId = comment.currentRevisionId;
-        const tombstoned = comment.contentState === "tombstoned";
-        const references = currentRevisionId
-          ? await ctx.db
-              .query("buildCollaborationReferences")
-              .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-                query
-                  .eq("ownerKind", "commentRevision")
-                  .eq("ownerRecordId", currentRevisionId)
-              )
-              .take(100)
-          : [];
-        const revision = currentRevisionId
-          ? await ctx.db.get(currentRevisionId)
-          : null;
-        const tombstone = tombstoned
-          ? collaborationTombstoneContent("comment")
-          : null;
-        return {
-          comment: {
-            _creationTime: comment._creationTime,
-            _id: comment._id,
-            authorDisplayNameSnapshot: comment.authorDisplayNameSnapshot,
-            authorRole: comment.authorRole,
-            contentState: comment.contentState,
-            createdAt: comment.createdAt,
-            logicalDepth: comment.logicalDepth,
-            revision: comment.revision,
-            updatedAt: comment.updatedAt,
-            viewerIsAuthor:
-              comment.authorWorkosUserId === authorization.viewer.subject,
-          },
-          references: tombstoned
-            ? []
-            : await Promise.all(
-                references.map(async (reference) => {
-                  try {
-                    const current =
-                      await resolveCurrentBuildCollaborationReference(ctx, {
-                        authorization,
-                        entityId: reference.entityId,
-                        entityKind: reference.entityKind,
-                      });
-                    return {
-                      _creationTime: reference._creationTime,
-                      _id: reference._id,
-                      entityId: reference.entityId,
-                      entityKind: reference.entityKind,
-                      labelSnapshot: current.label,
-                      summarySnapshot: current.summary,
-                    };
-                  } catch {
-                    return {
-                      _creationTime: reference._creationTime,
-                      _id: reference._id,
-                      entityId: reference.entityId,
-                      entityKind: reference.entityKind,
-                      labelSnapshot: "Unavailable reference",
-                      summarySnapshot: undefined,
-                    };
-                  }
-                })
-              ),
-          revision: revision
-            ? {
-                _creationTime: revision._creationTime,
-                _id: revision._id,
-                createdAt: tombstoned ? comment.updatedAt : revision.createdAt,
-                editReason: tombstoned ? undefined : revision.editReason,
-                plainText: tombstone?.plainText ?? revision.plainText,
-                revision: comment.revision,
-                tiptapJson: tombstone?.tiptapJson ?? revision.tiptapJson,
-              }
-            : null,
-        };
-      })
+      comments.map((comment) =>
+        projectCollaborationComment(ctx, authorization, comment)
+      )
     );
   })
   .public();
+
+async function projectCollaborationComment(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  comment: Doc<"buildCollaborationComments">
+) {
+  const currentRevisionId = comment.currentRevisionId;
+  const unavailable = comment.contentState !== "active";
+  const moderationCase = comment.activeModerationCaseId
+    ? await ctx.db.get(comment.activeModerationCaseId)
+    : null;
+  const moderationCapabilities = collaborationModerationCapabilities({
+    authorRole: comment.authorRole,
+    authorWorkosUserId: comment.authorWorkosUserId,
+    caseStatus: moderationCase?.status,
+    contentState: comment.contentState,
+    minimumReviewerTier: moderationCase?.appealReviewerMinimumTier,
+    viewerRole: authorization.effectiveRole.role,
+    viewerWorkosUserId: authorization.viewer.subject,
+  });
+  const references = currentRevisionId
+    ? await ctx.db
+        .query("buildCollaborationReferences")
+        .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+          query
+            .eq("ownerKind", "commentRevision")
+            .eq("ownerRecordId", currentRevisionId)
+        )
+        .take(100)
+    : [];
+  const revision = currentRevisionId
+    ? await ctx.db.get(currentRevisionId)
+    : null;
+  const replacement = unavailable
+    ? comment.contentState === "tombstoned"
+      ? collaborationTombstoneContent("comment")
+      : collaborationModeratedContent("comment")
+    : null;
+  return {
+    comment: {
+      _creationTime: comment._creationTime,
+      _id: comment._id,
+      authorDisplayNameSnapshot: comment.authorDisplayNameSnapshot,
+      authorRole: comment.authorRole,
+      contentState: comment.contentState,
+      createdAt: comment.createdAt,
+      logicalDepth: comment.logicalDepth,
+      revision: comment.revision,
+      updatedAt: comment.updatedAt,
+      viewerCanAppeal: moderationCapabilities.canAppeal,
+      viewerCanModerate: moderationCapabilities.canModerate,
+      viewerCanResolveAppeal: moderationCapabilities.canResolveAppeal,
+      viewerIsAuthor:
+        comment.authorWorkosUserId === authorization.viewer.subject,
+    },
+    references: unavailable
+      ? []
+      : await Promise.all(
+          references.map(async (reference) => {
+            try {
+              const current = await resolveCurrentBuildCollaborationReference(
+                ctx,
+                {
+                  authorization,
+                  entityId: reference.entityId,
+                  entityKind: reference.entityKind,
+                }
+              );
+              return {
+                _creationTime: reference._creationTime,
+                _id: reference._id,
+                entityId: reference.entityId,
+                entityKind: reference.entityKind,
+                labelSnapshot: current.label,
+                summarySnapshot: current.summary,
+              };
+            } catch {
+              return {
+                _creationTime: reference._creationTime,
+                _id: reference._id,
+                entityId: reference.entityId,
+                entityKind: reference.entityKind,
+                labelSnapshot: "Unavailable reference",
+                summarySnapshot: undefined,
+              };
+            }
+          })
+        ),
+    revision: revision
+      ? {
+          _creationTime: revision._creationTime,
+          _id: revision._id,
+          createdAt: unavailable ? comment.updatedAt : revision.createdAt,
+          editReason: unavailable ? undefined : revision.editReason,
+          plainText: replacement?.plainText ?? revision.plainText,
+          revision: comment.revision,
+          tiptapJson: replacement?.tiptapJson ?? revision.tiptapJson,
+        }
+      : null,
+  };
+}
 
 export const reactToBuildCollaborationPost = authenticatedMutation
   .input({

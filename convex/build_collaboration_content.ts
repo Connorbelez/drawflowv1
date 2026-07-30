@@ -44,6 +44,25 @@ export function collaborationTombstoneContent(kind: "comment" | "post") {
   };
 }
 
+export function collaborationModeratedContent(kind: "comment" | "post") {
+  const plainText =
+    kind === "post"
+      ? "This post is unavailable while it is under moderation."
+      : "This reply is unavailable while it is under moderation.";
+  return {
+    plainText,
+    tiptapJson: JSON.stringify({
+      content: [
+        {
+          content: [{ text: plainText, type: "text" }],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    }),
+  };
+}
+
 export function collaborationContentHash(value: string) {
   let hash = 5381;
   for (let index = 0; index < value.length; index += 1) {

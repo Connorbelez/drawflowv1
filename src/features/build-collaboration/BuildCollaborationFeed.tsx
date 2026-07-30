@@ -13,6 +13,7 @@ import {
   Pin,
   Search,
   Send,
+  ShieldAlert,
   SquareKanban,
   Users,
 } from "lucide-react";
@@ -57,6 +58,10 @@ import {
   type BuildCollaborationEditingEntity,
   BuildCollaborationEditSheet,
 } from "./BuildCollaborationEditSheet.tsx";
+import {
+  type BuildCollaborationModerationEntity,
+  BuildCollaborationModerationSheet,
+} from "./BuildCollaborationModerationSheet.tsx";
 import {
   BuildCollaborationReferenceChip,
   BuildCollaborationReferenceSheet,
@@ -113,6 +118,20 @@ function focusedActionItemQueryArgs({
     return "skip" as const;
   }
   return { actionItemId, buildId, organizationId };
+}
+
+function moderationActionLabel(input: {
+  viewerCanAppeal: boolean;
+  viewerCanModerate: boolean;
+  viewerCanResolveAppeal: boolean;
+}) {
+  if (input.viewerCanModerate) {
+    return "Moderate content";
+  }
+  if (input.viewerCanAppeal) {
+    return "Appeal moderation";
+  }
+  return "Review moderation appeal";
 }
 
 interface CollaborationEditTarget {
@@ -954,11 +973,13 @@ function CollaborationPostHeader({
   buildId,
   entry,
   onEdit,
+  onModerate,
   organizationId,
 }: {
   buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
   onEdit: () => void;
+  onModerate: () => void;
   organizationId: string;
 }) {
   const togglePin = useMutation(
@@ -1016,11 +1037,17 @@ function CollaborationPostHeader({
             <span>{roleLabel(entry.post.authorRole)}</span>
             <span aria-hidden="true">·</span>
             <time>{formatTimestamp(entry.post.createdAt)}</time>
-            {entry.post.contentState === "tombstoned" ? (
-              <Badge variant="secondary">Removed</Badge>
-            ) : entry.post.revision > 1 ? (
-              <Badge variant="outline">Edited</Badge>
-            ) : null}
+            {entry.post.contentState === "active" ? (
+              entry.post.revision > 1 ? (
+                <Badge variant="outline">Edited</Badge>
+              ) : null
+            ) : (
+              <Badge variant="secondary">
+                {entry.post.contentState === "tombstoned"
+                  ? "Removed"
+                  : "Moderated"}
+              </Badge>
+            )}
             <Badge variant="outline">
               {postTypeLabel(entry.post.postType)}
             </Badge>
@@ -1046,6 +1073,14 @@ function CollaborationPostHeader({
                   <DropdownMenuItem onClick={onEdit}>
                     <Pencil aria-hidden="true" className="size-4" />
                     {canEdit ? "Edit post" : "View revision history"}
+                  </DropdownMenuItem>
+                ) : null}
+                {entry.post.viewerCanModerate ||
+                entry.post.viewerCanAppeal ||
+                entry.post.viewerCanResolveAppeal ? (
+                  <DropdownMenuItem onClick={onModerate}>
+                    <ShieldAlert aria-hidden="true" className="size-4" />
+                    {moderationActionLabel(entry.post)}
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem onClick={() => savePost("personal")}>
@@ -1148,6 +1183,8 @@ function CollaborationPostCard({
   const [editTarget, setEditTarget] = useState<CollaborationEditTarget | null>(
     null
   );
+  const [moderationTarget, setModerationTarget] =
+    useState<BuildCollaborationModerationEntity | null>(null);
   const markViewed = useMutation(
     api.build_collaboration_threads.markBuildCollaborationPostViewed
   );
@@ -1200,6 +1237,13 @@ function CollaborationPostCard({
         buildId={buildId}
         entry={entry}
         onEdit={postEditTarget}
+        onModerate={() =>
+          setModerationTarget({
+            entityId: entry.post._id,
+            entityKind: "post",
+            expectedRevision: entry.post.revision,
+          })
+        }
         organizationId={organizationId}
       />
       <CardPanel className="space-y-3 px-4 pb-4">
@@ -1266,6 +1310,7 @@ function CollaborationPostCard({
               buildId={buildId}
               onEditComment={setEditTarget}
               onFocusReference={onFocusReference}
+              onModerateComment={setModerationTarget}
               organizationId={organizationId}
               postId={entry.post._id}
               referenceByKey={referenceByKey}
@@ -1340,7 +1385,9 @@ function CollaborationPostCard({
         </>
       ) : (
         <CardFooter className="border-t px-4 py-3 text-muted-foreground text-xs">
-          The visible content was replaced with an auditable tombstone.
+          {entry.post.contentState === "tombstoned"
+            ? "The visible content was replaced with an auditable tombstone."
+            : "The visible content is unavailable while the moderation case is active."}
         </CardFooter>
       )}
       <BuildCollaborationEditSheet
@@ -1359,6 +1406,17 @@ function CollaborationPostCard({
         organizationId={organizationId}
         tagOptions={tagOptions}
       />
+      <BuildCollaborationModerationSheet
+        buildId={buildId}
+        entity={moderationTarget}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setModerationTarget(null);
+          }
+        }}
+        open={Boolean(moderationTarget)}
+        organizationId={organizationId}
+      />
     </Card>
   );
 }
@@ -1366,6 +1424,7 @@ function CollaborationPostCard({
 function CollaborationComment({
   onEdit,
   onFocusReference,
+  onModerate,
   onReply,
   referenceByKey,
   row,
@@ -1373,6 +1432,7 @@ function CollaborationComment({
 }: {
   onEdit: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
+  onModerate: (target: BuildCollaborationModerationEntity) => void;
   onReply: (commentId: Id<"buildCollaborationComments">) => void;
   referenceByKey: Map<string, ReferenceOption>;
   row: CollaborationCommentRow;
@@ -1402,11 +1462,15 @@ function CollaborationComment({
       revision: row.comment.revision,
     });
   const statusBadge =
-    row.comment.contentState === "tombstoned" ? (
-      <Badge variant="secondary">Removed</Badge>
-    ) : row.comment.revision > 1 ? (
-      <Badge variant="outline">Edited</Badge>
-    ) : null;
+    row.comment.contentState === "active" ? (
+      row.comment.revision > 1 ? (
+        <Badge variant="outline">Edited</Badge>
+      ) : null
+    ) : (
+      <Badge variant="secondary">
+        {row.comment.contentState === "tombstoned" ? "Removed" : "Moderated"}
+      </Badge>
+    );
   const canViewHistory =
     row.comment.viewerIsAuthor ||
     (row.comment.contentState === "active" && row.comment.revision > 1);
@@ -1460,6 +1524,23 @@ function CollaborationComment({
               : "History"}
           </button>
         ) : null}
+        {row.comment.viewerCanModerate ||
+        row.comment.viewerCanAppeal ||
+        row.comment.viewerCanResolveAppeal ? (
+          <button
+            className="mt-1 ml-3 text-muted-foreground text-xs hover:text-foreground"
+            onClick={() =>
+              onModerate({
+                entityId: row.comment._id,
+                entityKind: "comment",
+                expectedRevision: row.comment.revision,
+              })
+            }
+            type="button"
+          >
+            {moderationActionLabel(row.comment)}
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -1469,6 +1550,7 @@ function CollaborationDiscussion({
   buildId,
   onEditComment,
   onFocusReference,
+  onModerateComment,
   organizationId,
   postId,
   referenceByKey,
@@ -1477,6 +1559,7 @@ function CollaborationDiscussion({
   buildId: Id<"activeBuilds">;
   onEditComment: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
+  onModerateComment: (target: BuildCollaborationModerationEntity) => void;
   organizationId: string;
   postId: Id<"buildCollaborationPosts">;
   referenceByKey: Map<string, ReferenceOption>;
@@ -1547,6 +1630,7 @@ function CollaborationDiscussion({
           key={row.comment._id}
           onEdit={onEditComment}
           onFocusReference={onFocusReference}
+          onModerate={onModerateComment}
           onReply={setReplyingTo}
           referenceByKey={referenceByKey}
           row={row}
