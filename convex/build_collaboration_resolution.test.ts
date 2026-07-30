@@ -984,6 +984,44 @@ describe("Build collaboration thread resolution", () => {
         }
       )
     ).rejects.toThrow("reply author or Build coordination team");
+    await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(postId);
+      if (!post) {
+        throw new Error("Expected collaboration post");
+      }
+      for (let index = 0; index < 21; index += 1) {
+        await ctx.db.insert("buildCollaborationPins", {
+          brokerageId: post.brokerageId,
+          buildId: fixture.buildId,
+          commentId: comments[1],
+          createdAt: Date.now() + index,
+          kind: "reply",
+          organizationId: ORGANIZATION_ID,
+          postId,
+          workosUserId: "user_builder_staff",
+        });
+      }
+    });
+    await fixture.builderStaff.mutation(
+      (api as any).build_collaboration_threads.toggleBuildCollaborationPin,
+      {
+        buildId: fixture.buildId,
+        commentId: comments[0],
+        kind: "reply",
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
+    await fixture.builderStaff.mutation(
+      (api as any).build_collaboration_threads.toggleBuildCollaborationPin,
+      {
+        buildId: fixture.buildId,
+        commentId: comments[0],
+        kind: "reply",
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
     await fixture.builderStaff.mutation(
       (api as any).build_collaboration_threads.toggleBuildCollaborationPin,
       {
@@ -1061,6 +1099,31 @@ describe("Build collaboration thread resolution", () => {
         organizationId: ORGANIZATION_ID,
       }
     );
+    for (let batch = 0; batch < 10; batch += 1) {
+      await fixture.base.run(async (ctx) => {
+        const focus = await ctx.db.get(comments[4]);
+        if (!focus) {
+          throw new Error("Expected focused collaboration comment");
+        }
+        for (let offset = 0; offset < 100; offset += 1) {
+          const sequence = batch * 100 + offset;
+          await ctx.db.insert("buildCollaborationComments", {
+            authorDisplayNameSnapshot: "Historical commenter",
+            authorRole: "builder-staff",
+            authorWorkosUserId: "user_builder_staff",
+            brokerageId: focus.brokerageId,
+            buildId: focus.buildId,
+            contentState: "active",
+            createdAt: focus.createdAt - 10_000 + sequence,
+            logicalDepth: 0,
+            organizationId: focus.organizationId,
+            postId: focus.postId,
+            revision: 1,
+            updatedAt: focus.updatedAt,
+          });
+        }
+      });
+    }
     const focused = await fixture.broker.query(
       (api as any).build_collaboration_threads
         .getFocusedBuildCollaborationCommentContext,

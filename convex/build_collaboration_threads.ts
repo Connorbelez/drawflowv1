@@ -255,22 +255,7 @@ export const getFocusedBuildCollaborationCommentContext = authenticatedQuery
     ) {
       return { state: "revoked" as const };
     }
-    const comments = (
-      await ctx.db
-        .query("buildCollaborationComments")
-        .withIndex("by_postId_and_createdAt", (query) =>
-          query.eq("postId", post._id)
-        )
-        .take(MAX_THREAD_COMMENTS)
-    ).filter(
-      (comment) =>
-        comment.organizationId === authorization.organizationId &&
-        comment.brokerageId === authorization.brokerage._id &&
-        comment.buildId === authorization.build._id &&
-        comment.postId === post._id
-    );
-    const selectedIds = focusedThreadCommentIds(comments, focus._id);
-    const selected = comments.filter((comment) => selectedIds.has(comment._id));
+    const selected = await loadFocusedThreadComments(ctx, authorization, focus);
     return {
       focusCommentId: focus._id,
       postId: post._id,
@@ -385,50 +370,72 @@ function flattenThreadComments(comments: Doc<"buildCollaborationComments">[]) {
   return ordered;
 }
 
-function focusedThreadCommentIds(
-  comments: Doc<"buildCollaborationComments">[],
-  focusId: Id<"buildCollaborationComments">
+async function loadFocusedThreadComments(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  focus: Doc<"buildCollaborationComments">
 ) {
-  const byId = new Map(comments.map((comment) => [comment._id, comment]));
-  const children = new Map<
+  const selected = new Map<
     Id<"buildCollaborationComments">,
-    Id<"buildCollaborationComments">[]
-  >();
-  for (const comment of comments) {
-    if (!comment.parentCommentId) {
-      continue;
-    }
-    const childIds = children.get(comment.parentCommentId) ?? [];
-    childIds.push(comment._id);
-    children.set(comment.parentCommentId, childIds);
-  }
-  const selected = new Set<Id<"buildCollaborationComments">>();
-  let current = byId.get(focusId);
+    Doc<"buildCollaborationComments">
+  >([[focus._id, focus]]);
+  let current = focus;
   let ancestrySteps = 0;
-  while (current && ancestrySteps <= MAX_LOGICAL_DEPTH) {
-    if (selected.has(current._id)) {
+  while (
+    current.parentCommentId &&
+    ancestrySteps < MAX_LOGICAL_DEPTH &&
+    selected.size < MAX_THREAD_COMMENTS
+  ) {
+    const parent = await ctx.db.get(current.parentCommentId);
+    if (
+      !(parent && isScopedThreadComment(parent, authorization, focus.postId)) ||
+      selected.has(parent._id)
+    ) {
       break;
     }
-    selected.add(current._id);
-    current = current.parentCommentId
-      ? byId.get(current.parentCommentId)
-      : undefined;
+    selected.set(parent._id, parent);
+    current = parent;
     ancestrySteps += 1;
   }
-  const descendants = [focusId];
-  while (descendants.length > 0 && selected.size <= MAX_THREAD_COMMENTS) {
-    const parentId = descendants.shift();
+
+  const pendingParentIds = [focus._id];
+  while (pendingParentIds.length > 0 && selected.size < MAX_THREAD_COMMENTS) {
+    const parentId = pendingParentIds.shift();
     if (!parentId) {
       break;
     }
-    for (const childId of children.get(parentId) ?? []) {
-      if (!selected.has(childId)) {
-        selected.add(childId);
-        descendants.push(childId);
+    const remaining = MAX_THREAD_COMMENTS - selected.size;
+    const children = await ctx.db
+      .query("buildCollaborationComments")
+      .withIndex("by_parentCommentId_and_createdAt", (query) =>
+        query.eq("parentCommentId", parentId)
+      )
+      .take(remaining);
+    for (const child of children) {
+      if (
+        !isScopedThreadComment(child, authorization, focus.postId) ||
+        selected.has(child._id)
+      ) {
+        continue;
       }
+      selected.set(child._id, child);
+      pendingParentIds.push(child._id);
     }
   }
-  return selected;
+  return [...selected.values()];
+}
+
+function isScopedThreadComment(
+  comment: Doc<"buildCollaborationComments">,
+  authorization: ActiveBuildAuthorization,
+  postId: Id<"buildCollaborationPosts">
+) {
+  return (
+    comment.organizationId === authorization.organizationId &&
+    comment.brokerageId === authorization.brokerage._id &&
+    comment.buildId === authorization.build._id &&
+    comment.postId === postId
+  );
 }
 
 async function projectCollaborationComment(
@@ -772,16 +779,16 @@ export const toggleBuildCollaborationPin = authenticatedMutation
     }
     const existing = await ctx.db
       .query("buildCollaborationPins")
-      .withIndex("by_postId_and_workosUserId_and_kind", (query) =>
+      .withIndex("by_postId_and_commentId_and_workosUserId_and_kind", (query) =>
         query
           .eq("postId", post._id)
+          .eq("commentId", args.commentId)
           .eq("workosUserId", authorization.viewer.subject)
           .eq("kind", args.kind)
       )
-      .take(20);
-    const matching = existing.find((pin) => pin.commentId === args.commentId);
-    if (matching) {
-      await ctx.db.delete(matching._id);
+      .collect();
+    if (existing.length > 0) {
+      await Promise.all(existing.map((pin) => ctx.db.delete(pin._id)));
       return null;
     }
     return await ctx.db.insert("buildCollaborationPins", {

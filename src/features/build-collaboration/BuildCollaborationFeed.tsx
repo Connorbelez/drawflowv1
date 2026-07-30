@@ -852,16 +852,10 @@ export function BuildCollaborationFeed({
             </FramePanel>
           </Frame>
         ) : null}
-        {focusedCommentContext?.state === "revoked" ? (
-          <Frame>
-            <FramePanel
-              aria-live="polite"
-              className="text-muted-foreground text-sm"
-            >
-              This focused discussion is unavailable or your access was revoked.
-            </FramePanel>
-          </Frame>
-        ) : null}
+        <FocusedDiscussionStatus
+          focused={Boolean(focusedCommentId)}
+          state={focusedCommentContext?.state}
+        />
         {visibleResults.map((entry) =>
           entry.kind === "restricted" ? (
             <Frame key={entry.placeholderKey}>
@@ -1625,10 +1619,12 @@ function CollaborationComment({
   onFocusReference,
   onModerate,
   onReply,
+  onTreeFocus,
   organizationId,
   postId,
   referenceByKey,
   row,
+  tabStop,
   tagOptions,
 }: {
   accepted: boolean;
@@ -1638,10 +1634,12 @@ function CollaborationComment({
   onFocusReference: (reference: FocusedReference) => void;
   onModerate: (target: BuildCollaborationModerationEntity) => void;
   onReply: (commentId: Id<"buildCollaborationComments">) => void;
+  onTreeFocus: (commentId: Id<"buildCollaborationComments">) => void;
   organizationId: string;
   postId: Id<"buildCollaborationPosts">;
   referenceByKey: Map<string, ReferenceOption>;
   row: CollaborationCommentRow;
+  tabStop: boolean;
   tagOptions: ReferenceOption[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1690,12 +1688,14 @@ function CollaborationComment({
         focused && "ring-2 ring-primary/40"
       )}
       data-testid={`collaboration-comment-${row.comment._id}`}
+      data-tree-comment-id={row.comment._id}
+      onFocus={() => onTreeFocus(row.comment._id)}
       ref={containerRef}
       role="treeitem"
       style={{
         marginLeft: `${Math.min(row.comment.logicalDepth, 3) * 18}px`,
       }}
-      tabIndex={focused ? 0 : -1}
+      tabIndex={tabStop ? 0 : -1}
     >
       <Avatar className="size-7">
         <AvatarFallback>
@@ -1961,11 +1961,20 @@ function CollaborationDiscussion({
   const [submittingReply, setSubmittingReply] = useState(false);
   const [pendingFocusCommentId, setPendingFocusCommentId] =
     useState<Id<"buildCollaborationComments">>();
+  const [activeTreeCommentId, setActiveTreeCommentId] =
+    useState<Id<"buildCollaborationComments">>();
   const threadRef = useRef<HTMLDivElement>(null);
-  const comments =
-    focusedCommentId && focusedContext?.state === "visible"
+  const comments = focusedCommentId
+    ? focusedContext?.state === "visible"
       ? focusedContext.rows
-      : listComments;
+      : undefined
+    : listComments;
+  const effectiveFocusCommentId = focusedCommentId ?? pendingFocusCommentId;
+  useEffect(() => {
+    if (effectiveFocusCommentId) {
+      setActiveTreeCommentId(effectiveFocusCommentId);
+    }
+  }, [effectiveFocusCommentId]);
   const replyingToRow = (comments ?? []).find(
     (row) => row.comment._id === replyingTo
   );
@@ -2037,7 +2046,14 @@ function CollaborationDiscussion({
             ? Math.max(currentIndex - 1, 0)
             : Math.min(currentIndex + 1, items.length - 1);
     event.preventDefault();
-    items[nextIndex]?.focus();
+    const nextItem = items[nextIndex];
+    const nextCommentId = nextItem?.dataset.treeCommentId as
+      | Id<"buildCollaborationComments">
+      | undefined;
+    if (nextCommentId) {
+      setActiveTreeCommentId(nextCommentId);
+    }
+    nextItem?.focus();
   };
 
   return (
@@ -2059,22 +2075,26 @@ function CollaborationDiscussion({
           ref={threadRef}
           role="tree"
         >
-          {(comments as CollaborationCommentRow[]).map((row) => (
+          {(comments as CollaborationCommentRow[]).map((row, index) => (
             <CollaborationComment
               accepted={row.comment._id === acceptedCommentId}
               buildId={buildId}
-              focused={
-                row.comment._id === (focusedCommentId ?? pendingFocusCommentId)
-              }
+              focused={row.comment._id === effectiveFocusCommentId}
               key={row.comment._id}
               onEdit={onEditComment}
               onFocusReference={onFocusReference}
               onModerate={onModerateComment}
               onReply={setReplyingTo}
+              onTreeFocus={setActiveTreeCommentId}
               organizationId={organizationId}
               postId={postId}
               referenceByKey={referenceByKey}
               row={row}
+              tabStop={
+                activeTreeCommentId
+                  ? row.comment._id === activeTreeCommentId
+                  : index === 0
+              }
               tagOptions={tagOptions}
             />
           ))}
@@ -2171,6 +2191,43 @@ function SummaryCard({
       </CardHeader>
     </Card>
   );
+}
+
+function FocusedDiscussionStatus({
+  focused,
+  state,
+}: {
+  focused: boolean;
+  state?: "revoked" | "visible";
+}) {
+  if (!focused) {
+    return null;
+  }
+  if (state === undefined) {
+    return (
+      <Frame>
+        <FramePanel
+          aria-live="polite"
+          className="text-muted-foreground text-sm"
+        >
+          Loading focused discussion…
+        </FramePanel>
+      </Frame>
+    );
+  }
+  if (state === "revoked") {
+    return (
+      <Frame>
+        <FramePanel
+          aria-live="polite"
+          className="text-muted-foreground text-sm"
+        >
+          This focused discussion is unavailable or your access was revoked.
+        </FramePanel>
+      </Frame>
+    );
+  }
+  return null;
 }
 
 function collaborationReferencesForEditor(

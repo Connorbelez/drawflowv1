@@ -3406,6 +3406,12 @@ export default defineSchema({
       "postId",
       "workosUserId",
       "kind",
+    ])
+    .index("by_postId_and_commentId_and_workosUserId_and_kind", [
+      "postId",
+      "commentId",
+      "workosUserId",
+      "kind",
     ]),
   buildCollaborationAcknowledgementTargets: defineTable({
     organizationId: v.string(),

@@ -405,6 +405,61 @@ describe("BuildCollaborationFeed", () => {
     ).toBeNull();
   });
 
+  test("provides a roving keyboard entry point for ordinary discussions", () => {
+    const commentRow = (id: string, text: string) => ({
+      comment: {
+        _id: id,
+        authorDisplayNameSnapshot: "Builder Staff",
+        authorRole: "builder-staff",
+        contentState: "active",
+        createdAt: Date.parse("2026-07-28T13:00:00.000Z"),
+        logicalDepth: 0,
+        pinCount: 0,
+        revision: 1,
+        updatedAt: Date.parse("2026-07-28T13:00:00.000Z"),
+        viewerCanAppeal: false,
+        viewerCanModerate: false,
+        viewerCanPin: true,
+        viewerCanResolveAppeal: false,
+        viewerIsAuthor: true,
+        viewerPinned: false,
+      },
+      reactions: [],
+      references: [],
+      revision: {
+        plainText: text,
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text, type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    });
+    mocks.comments = [
+      commentRow("comment-first", "First reply"),
+      commentRow("comment-second", "Second reply"),
+    ];
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    const first = screen.getByTestId("collaboration-comment-comment-first");
+    const second = screen.getByTestId("collaboration-comment-comment-second");
+    expect(first.tabIndex).toBe(0);
+    expect(second.tabIndex).toBe(-1);
+
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+
+    expect(document.activeElement).toBe(second);
+    expect(first.tabIndex).toBe(-1);
+    expect(second.tabIndex).toBe(0);
+  });
+
   test("hydrates and keyboard-navigates a deeply focused reply with comment controls", async () => {
     const commentRow = ({
       author,
@@ -535,6 +590,20 @@ describe("BuildCollaborationFeed", () => {
     );
 
     expect(screen.getByText("Loading discussion…")).toBeTruthy();
+  });
+
+  test("announces focused discussion hydration before replacing ordinary rows", () => {
+    mocks.comments = [];
+    mocks.focusedCommentContext = undefined;
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="comment:comment-pending"
+        organizationId="org-1"
+      />
+    );
+
+    expect(screen.getByText("Loading focused discussion…")).toBeTruthy();
   });
 
   test("renders a disclosure-safe state when focused discussion access is revoked", () => {
