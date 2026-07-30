@@ -115,8 +115,17 @@ interface ScopeItem {
   id: string;
   meta: string;
   milestone: string;
+  relatedSubmilestones?: string[];
   title: string;
   warning?: string;
+}
+
+interface QuoteMaterialLine {
+  id: string;
+  quantity: string;
+  submilestoneIds: string[];
+  title: string;
+  unit: string;
 }
 
 interface Recipient {
@@ -213,6 +222,27 @@ function buildScopeItems(
       ? { warning: "Schedule is non-contiguous with the current bundle" }
       : {}),
   }));
+}
+
+function buildCustomMaterialScopeItems(
+  detail: ProductionBuildDetail,
+  materials: QuoteMaterialLine[]
+): ScopeItem[] {
+  return materials.map((material) => {
+    const relatedSubmilestones = material.submilestoneIds.map(
+      (submilestoneId) =>
+        detail.submilestones.find((item) => item.key === submilestoneId)
+          ?.name ?? submilestoneId
+    );
+
+    return {
+      id: material.id,
+      meta: `${material.quantity} ${material.unit} · ${relatedSubmilestones.length} sub-milestone${relatedSubmilestones.length === 1 ? "" : "s"}`,
+      milestone: "Added for this Quote Round",
+      relatedSubmilestones,
+      title: material.title,
+    };
+  });
 }
 
 export function QuoteRoundComposerPrototype({
@@ -469,17 +499,319 @@ function ScopeSelector({
   );
 }
 
+function MaterialScopeEditor({
+  detail,
+  material,
+  onCancel,
+  onSave,
+}: {
+  detail: ProductionBuildDetail;
+  material?: QuoteMaterialLine;
+  onCancel: () => void;
+  onSave: (material: QuoteMaterialLine) => void;
+}) {
+  const [title, setTitle] = useState(material?.title ?? "");
+  const [quantity, setQuantity] = useState(material?.quantity ?? "1");
+  const [unit, setUnit] = useState(material?.unit ?? "package");
+  const [submilestoneIds, setSubmilestoneIds] = useState(
+    material?.submilestoneIds ?? []
+  );
+  const milestoneGroups = detail.milestones
+    .map((milestone) => ({
+      milestone,
+      submilestones: detail.submilestones.filter(
+        (submilestone) => submilestone.milestoneKey === milestone.key
+      ),
+    }))
+    .filter((group) => group.submilestones.length > 0);
+  const canSave = title.trim().length > 0 && submilestoneIds.length > 0;
+
+  const toggleSubmilestone = (submilestoneId: string) => {
+    setSubmilestoneIds((current) =>
+      current.includes(submilestoneId)
+        ? current.filter((candidate) => candidate !== submilestoneId)
+        : [...current, submilestoneId]
+    );
+  };
+
+  return (
+    <Frame data-testid="quote-material-editor">
+      <FrameHeader className="gap-1">
+        <div className="flex items-center justify-between gap-3">
+          <FrameTitle>
+            {material ? "Edit material scope" : "Add a material to quote"}
+          </FrameTitle>
+          <Button
+            aria-label="Close material editor"
+            className="size-8 p-0"
+            onClick={onCancel}
+            size="sm"
+            variant="ghost"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+        <FrameDescription>
+          Name the material, then assign every sub-milestone that may consume or
+          depend on it.
+        </FrameDescription>
+      </FrameHeader>
+      <FramePanel className="space-y-5 p-4">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_110px_140px]">
+          <label
+            className="grid gap-1.5 text-sm"
+            htmlFor="quote-material-title"
+          >
+            <span className="font-medium">Material title</span>
+            <Input
+              aria-label="Material title"
+              id="quote-material-title"
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="e.g. 5/8 in fire-rated drywall"
+              value={title}
+            />
+          </label>
+          <label
+            className="grid gap-1.5 text-sm"
+            htmlFor="quote-material-quantity"
+          >
+            <span className="font-medium">Quantity</span>
+            <Input
+              aria-label="Material quantity"
+              id="quote-material-quantity"
+              min="0"
+              onChange={(event) => setQuantity(event.target.value)}
+              type="number"
+              value={quantity}
+            />
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">Unit</span>
+            <select
+              aria-label="Material unit"
+              className="min-h-9 rounded-lg border bg-background px-3 text-sm"
+              onChange={(event) => setUnit(event.target.value)}
+              value={unit}
+            >
+              <option value="package">Package</option>
+              <option value="each">Each</option>
+              <option value="sheet">Sheet</option>
+              <option value="linear ft">Linear ft</option>
+              <option value="sq ft">Sq ft</option>
+              <option value="allowance">Allowance</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="font-semibold text-sm">Relevant sub-milestones</p>
+              <p className="text-muted-foreground text-xs">
+                Select one or more. The supplier will see this context with the
+                material line.
+              </p>
+            </div>
+            <Badge variant={submilestoneIds.length > 0 ? "success" : "outline"}>
+              {submilestoneIds.length} selected
+            </Badge>
+          </div>
+
+          <div className="max-h-80 space-y-4 overflow-y-auto rounded-xl border bg-muted/20 p-3">
+            {milestoneGroups.map(({ milestone, submilestones }) => (
+              <section className="space-y-2" key={milestone.key}>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold text-xs">{milestone.name}</p>
+                  <span className="text-[11px] text-muted-foreground">
+                    {
+                      submilestones.filter((submilestone) =>
+                        submilestoneIds.includes(submilestone.key)
+                      ).length
+                    }
+                    /{submilestones.length}
+                  </span>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {submilestones.map((submilestone) => {
+                    const active = submilestoneIds.includes(submilestone.key);
+                    return (
+                      <Card
+                        aria-pressed={active}
+                        className={cn(
+                          "cursor-pointer text-left transition-colors",
+                          active && "border-primary/50 bg-primary/5"
+                        )}
+                        key={submilestone.key}
+                        onClick={() => toggleSubmilestone(submilestone.key)}
+                        render={<button type="button" />}
+                      >
+                        <CardPanel className="flex items-start gap-2.5 p-3">
+                          <span
+                            className={cn(
+                              "mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border",
+                              active &&
+                                "border-primary bg-primary text-primary-foreground"
+                            )}
+                          >
+                            {active ? <Check className="size-3.5" /> : null}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block font-medium text-xs">
+                              {submilestone.name}
+                            </span>
+                            <span className="block text-[11px] text-muted-foreground">
+                              {milestone.name}
+                            </span>
+                          </span>
+                        </CardPanel>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted-foreground text-xs">
+            Saved materials are selected into this Quote Round automatically.
+          </p>
+          <div className="flex gap-2">
+            <Button onClick={onCancel} variant="outline">
+              Cancel
+            </Button>
+            <Button
+              disabled={!canSave}
+              onClick={() =>
+                onSave({
+                  id: material?.id ?? "",
+                  quantity: quantity.trim() || "1",
+                  submilestoneIds,
+                  title: title.trim(),
+                  unit,
+                })
+              }
+            >
+              <Check className="size-4" />
+              {material ? "Save changes" : "Add to quote"}
+            </Button>
+          </div>
+        </div>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function CustomMaterialScopeList({
+  detail,
+  materials,
+  onEdit,
+  selected,
+  setSelected,
+}: {
+  detail: ProductionBuildDetail;
+  materials: QuoteMaterialLine[];
+  onEdit: (material: QuoteMaterialLine) => void;
+  selected: string[];
+  setSelected: (ids: string[]) => void;
+}) {
+  if (materials.length === 0) {
+    return null;
+  }
+
+  const toggle = (id: string) => {
+    setSelected(
+      selected.includes(id)
+        ? selected.filter((candidate) => candidate !== id)
+        : [...selected, id]
+    );
+  };
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="font-semibold text-sm">Added for this Quote Round</p>
+          <p className="text-muted-foreground text-xs">
+            Materials created here remain local to this draft package.
+          </p>
+        </div>
+        <Badge variant="warning">{materials.length} added</Badge>
+      </div>
+      <div className="grid gap-2">
+        {materials.map((material) => {
+          const active = selected.includes(material.id);
+          const relatedSubmilestones = material.submilestoneIds.map(
+            (submilestoneId) =>
+              detail.submilestones.find(
+                (submilestone) => submilestone.key === submilestoneId
+              )?.name ?? submilestoneId
+          );
+
+          return (
+            <Card key={material.id}>
+              <CardPanel className="flex flex-col gap-3 p-3 sm:flex-row sm:items-start sm:p-4">
+                <Button
+                  aria-label={`${active ? "Remove" : "Add"} ${material.title} ${active ? "from" : "to"} this Quote Round`}
+                  aria-pressed={active}
+                  className="size-8 shrink-0 p-0"
+                  onClick={() => toggle(material.id)}
+                  size="sm"
+                  variant={active ? "default" : "outline"}
+                >
+                  {active ? (
+                    <Check className="size-4" />
+                  ) : (
+                    <Plus className="size-4" />
+                  )}
+                </Button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium text-sm">{material.title}</p>
+                    <Badge variant="outline">
+                      {material.quantity} {material.unit}
+                    </Badge>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {relatedSubmilestones.map((submilestone) => (
+                      <Badge key={submilestone} variant="secondary">
+                        {submilestone}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={() => onEdit(material)}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Settings2 className="size-4" />
+                  Edit assignments
+                </Button>
+              </CardPanel>
+            </Card>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function SelectedScopeTooltip({
+  additionalItems = [],
   detail,
   kind,
   selected,
 }: {
+  additionalItems?: ScopeItem[];
   detail: ProductionBuildDetail;
   kind: QuoteKind;
   selected: string[];
 }) {
-  const items = buildScopeItems(detail, kind).filter((item) =>
-    selected.includes(item.id)
+  const items = [...buildScopeItems(detail, kind), ...additionalItems].filter(
+    (item) => selected.includes(item.id)
   );
   const label = kind === "labour" ? "Labour" : "Materials";
 
@@ -506,6 +838,11 @@ function SelectedScopeTooltip({
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {item.meta}
             </p>
+            {item.relatedSubmilestones?.length ? (
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                {item.relatedSubmilestones.join(" · ")}
+              </p>
+            ) : null}
           </div>
         ))}
         {items.length === 0 ? (
@@ -523,12 +860,14 @@ function SelectedScopeTooltip({
 
 function ScopeKindTab({
   active,
+  additionalItems = [],
   detail,
   kind,
   onSelect,
   selected,
 }: {
   active: boolean;
+  additionalItems?: ScopeItem[];
   detail: ProductionBuildDetail;
   kind: QuoteKind;
   onSelect: () => void;
@@ -538,47 +877,97 @@ function ScopeKindTab({
   const Icon = kind === "labour" ? HardHat : PackageCheck;
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            aria-pressed={active}
-            className="min-w-0 flex-1 justify-start"
-            onClick={onSelect}
-            variant={active ? "default" : "ghost"}
-          />
-        }
+    <div className="relative min-w-0 flex-1">
+      <Button
+        aria-pressed={active}
+        className="w-full min-w-0 justify-start pr-12"
+        onClick={onSelect}
+        variant={active ? "default" : "ghost"}
       >
         <Icon />
         <span className="truncate">{label}</span>
-        <Badge
-          className="ml-auto min-w-6 justify-center"
-          variant={active ? "secondary" : "outline"}
+      </Button>
+      <Tooltip>
+        <TooltipTrigger
+          aria-label={`${selected.length} selected ${label.toLowerCase()} items`}
+          render={
+            <Button
+              className="absolute top-1/2 right-1.5 size-7 -translate-y-1/2 p-0"
+              size="sm"
+              type="button"
+              variant="ghost"
+            />
+          }
         >
-          {selected.length}
-        </Badge>
-      </TooltipTrigger>
-      <TooltipContent className="p-0" side="bottom">
-        <SelectedScopeTooltip detail={detail} kind={kind} selected={selected} />
-      </TooltipContent>
-    </Tooltip>
+          <Badge
+            className="min-w-6 justify-center"
+            variant={active ? "secondary" : "outline"}
+          >
+            {selected.length}
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent className="p-0" side="bottom">
+          <SelectedScopeTooltip
+            additionalItems={additionalItems}
+            detail={detail}
+            kind={kind}
+            selected={selected}
+          />
+        </TooltipContent>
+      </Tooltip>
+    </div>
   );
 }
 
 function TabbedScopeSelector({
+  customMaterials,
   detail,
   selectedLabour,
   selectedMaterials,
+  setCustomMaterials,
   setSelectedLabour,
   setSelectedMaterials,
 }: {
+  customMaterials: QuoteMaterialLine[];
   detail: ProductionBuildDetail;
   selectedLabour: string[];
   selectedMaterials: string[];
+  setCustomMaterials: Dispatch<SetStateAction<QuoteMaterialLine[]>>;
   setSelectedLabour: (ids: string[]) => void;
   setSelectedMaterials: (ids: string[]) => void;
 }) {
   const [activeKind, setActiveKind] = useState<QuoteKind>("labour");
+  const [editingMaterial, setEditingMaterial] = useState<
+    QuoteMaterialLine | "new" | null
+  >(null);
+  const customMaterialItems = buildCustomMaterialScopeItems(
+    detail,
+    customMaterials
+  );
+
+  const saveMaterial = (material: QuoteMaterialLine) => {
+    let materialId = material.id;
+    if (materialId) {
+      setCustomMaterials((current) =>
+        current.map((candidate) =>
+          candidate.id === materialId ? material : candidate
+        )
+      );
+    } else {
+      materialId = `quote-material-${customMaterials.length + 1}`;
+      setCustomMaterials((current) => [
+        ...current,
+        { ...material, id: materialId },
+      ]);
+    }
+
+    setSelectedMaterials(
+      selectedMaterials.includes(materialId)
+        ? selectedMaterials
+        : [...selectedMaterials, materialId]
+    );
+    setEditingMaterial(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -592,6 +981,7 @@ function TabbedScopeSelector({
         />
         <ScopeKindTab
           active={activeKind === "material"}
+          additionalItems={customMaterialItems}
           detail={detail}
           kind="material"
           onSelect={() => setActiveKind("material")}
@@ -599,32 +989,50 @@ function TabbedScopeSelector({
         />
       </div>
 
-      <div className="flex items-start gap-3 border-b pb-3">
-        <span
-          className={cn(
-            "grid size-10 shrink-0 place-items-center rounded-xl",
-            activeKind === "labour"
-              ? "bg-info/10 text-info-foreground"
-              : "bg-warning/10 text-warning-foreground"
-          )}
-        >
-          {activeKind === "labour" ? (
-            <HardHat className="size-5" />
-          ) : (
-            <PackageCheck className="size-5" />
-          )}
-        </span>
-        <div>
-          <p className="font-semibold">
-            {activeKind === "labour" ? "Labour" : "Materials"} scope
-          </p>
-          <p className="text-muted-foreground text-xs">
-            {activeKind === "labour"
-              ? "Select every sub-milestone whose work the recipient must price."
-              : "Add supplied materials to the same recipient package."}
-          </p>
+      <div className="flex flex-wrap items-start gap-3 border-b pb-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <span
+            className={cn(
+              "grid size-10 shrink-0 place-items-center rounded-xl",
+              activeKind === "labour"
+                ? "bg-info/10 text-info-foreground"
+                : "bg-warning/10 text-warning-foreground"
+            )}
+          >
+            {activeKind === "labour" ? (
+              <HardHat className="size-5" />
+            ) : (
+              <PackageCheck className="size-5" />
+            )}
+          </span>
+          <div>
+            <p className="font-semibold">
+              {activeKind === "labour" ? "Labour" : "Materials"} scope
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {activeKind === "labour"
+                ? "Select every sub-milestone whose work the recipient must price."
+                : "Select planned materials or add a new line and assign its relevant sub-milestones."}
+            </p>
+          </div>
         </div>
+        {activeKind === "material" ? (
+          <Button onClick={() => setEditingMaterial("new")} size="sm">
+            <Plus className="size-4" />
+            Add material
+          </Button>
+        ) : null}
       </div>
+
+      {activeKind === "material" && editingMaterial ? (
+        <MaterialScopeEditor
+          detail={detail}
+          key={editingMaterial === "new" ? "new" : editingMaterial.id}
+          material={editingMaterial === "new" ? undefined : editingMaterial}
+          onCancel={() => setEditingMaterial(null)}
+          onSave={saveMaterial}
+        />
+      ) : null}
 
       {activeKind === "labour" ? (
         <ScopeSelector
@@ -634,12 +1042,29 @@ function TabbedScopeSelector({
           setSelected={setSelectedLabour}
         />
       ) : (
-        <ScopeSelector
-          detail={detail}
-          kind="material"
-          selected={selectedMaterials}
-          setSelected={setSelectedMaterials}
-        />
+        <div className="space-y-6">
+          <CustomMaterialScopeList
+            detail={detail}
+            materials={customMaterials}
+            onEdit={setEditingMaterial}
+            selected={selectedMaterials}
+            setSelected={setSelectedMaterials}
+          />
+          <section className="space-y-2">
+            <div>
+              <p className="font-semibold text-sm">Planned build materials</p>
+              <p className="text-muted-foreground text-xs">
+                Existing material lines inherited from planning.
+              </p>
+            </div>
+            <ScopeSelector
+              detail={detail}
+              kind="material"
+              selected={selectedMaterials}
+              setSelected={setSelectedMaterials}
+            />
+          </section>
+        </div>
       )}
     </div>
   );
@@ -1110,10 +1535,17 @@ function MixedRecipientPreview({
               </div>
               {items.slice(0, 3).map((item) => (
                 <div
-                  className="flex items-center gap-2 rounded-lg border p-2.5 text-xs"
+                  className="flex items-start gap-2 rounded-lg border p-2.5 text-xs"
                   key={item.id}
                 >
-                  <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{item.title}</span>
+                    {item.relatedSubmilestones?.length ? (
+                      <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                        For {item.relatedSubmilestones.join(" · ")}
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="text-muted-foreground">$0.00</span>
                 </div>
               ))}
@@ -1142,11 +1574,13 @@ function MixedRecipientPreview({
 }
 
 function ScopeLockRecipientExperience({
+  customMaterials,
   detail,
   recipients,
   selectedLabour,
   selectedMaterials,
 }: {
+  customMaterials: QuoteMaterialLine[];
   detail: ProductionBuildDetail;
   recipients: Recipient[];
   selectedLabour: string[];
@@ -1162,9 +1596,10 @@ function ScopeLockRecipientExperience({
   const labourItems = buildScopeItems(detail, "labour").filter((item) =>
     selectedLabour.includes(item.id)
   );
-  const materialItems = buildScopeItems(detail, "material").filter((item) =>
-    selectedMaterials.includes(item.id)
-  );
+  const materialItems = [
+    ...buildCustomMaterialScopeItems(detail, customMaterials),
+    ...buildScopeItems(detail, "material"),
+  ].filter((item) => selectedMaterials.includes(item.id));
 
   if (!recipient) {
     return null;
@@ -1292,6 +1727,9 @@ function ScopeLockVariant({
   const [selectedLabour, setSelectedLabour] = useState(initialLabourIds);
   const [selectedMaterials, setSelectedMaterials] =
     useState(initialMaterialIds);
+  const [customMaterials, setCustomMaterials] = useState<QuoteMaterialLine[]>(
+    []
+  );
   const [recipients, setRecipients] = useState(INITIAL_RECIPIENTS);
   const [comments, setComments] = useState(
     "<p>Describe assumptions, exclusions, and anything else we should understand.</p>"
@@ -1399,9 +1837,11 @@ function ScopeLockVariant({
           <FramePanel className="p-4 sm:p-5">
             {stage === "scope" ? (
               <TabbedScopeSelector
+                customMaterials={customMaterials}
                 detail={detail}
                 selectedLabour={selectedLabour}
                 selectedMaterials={selectedMaterials}
+                setCustomMaterials={setCustomMaterials}
                 setSelectedLabour={setSelectedLabour}
                 setSelectedMaterials={setSelectedMaterials}
               />
@@ -1507,6 +1947,7 @@ function ScopeLockVariant({
         </Frame>
 
         <ScopeLockRecipientExperience
+          customMaterials={customMaterials}
           detail={detail}
           recipients={recipients}
           selectedLabour={selectedLabour}
