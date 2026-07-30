@@ -44,6 +44,7 @@ export const backfillBuildNotesIntoCollaboration = migrations.define({
     const postId = await ctx.db.insert("buildCollaborationPosts", {
       acknowledgementRequired: false,
       agentDrafted: false,
+      announcementProminent: false,
       audienceFloorTier,
       audienceMode,
       authorDisplayNameSnapshot: note.authorWorkosUserId,
@@ -65,6 +66,7 @@ export const backfillBuildNotesIntoCollaboration = migrations.define({
       revision: 1,
       source: "imported",
       threadState: "open",
+      threadRevision: 0,
       updatedAt: note.updatedAt,
     });
     const revisionId = await ctx.db.insert("buildCollaborationPostRevisions", {

@@ -3,7 +3,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test, vi } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import schema from "./schema";
@@ -887,5 +887,52 @@ describe("Build collaboration thread resolution", () => {
     } finally {
       clock.mockRestore();
     }
+  });
+
+  test("normalizes legacy prominence rows and reschedules future expirations", async () => {
+    const fixture = await seedResolutionFixture();
+    const updateId = await publishPost(fixture, fixture.contractor, {
+      postType: "update",
+      text: "Legacy update",
+    });
+    const announcementId = await publishPost(fixture, fixture.broker, {
+      postType: "announcement",
+      text: "Legacy announcement",
+    });
+    const futureExpiration = Date.now() + 60_000;
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(updateId, {
+        announcementProminent: undefined,
+        threadRevision: undefined,
+      });
+      await ctx.db.patch(announcementId, {
+        announcementExpiresAt: futureExpiration,
+        announcementProminent: undefined,
+        threadRevision: undefined,
+      });
+    });
+
+    const result = await fixture.base.mutation(
+      (internal as any).build_collaboration_resolution_migration
+        .migrateBuildCollaborationThreadOutcomeState,
+      { cursor: null }
+    );
+    const rows = await fixture.base.run(async (ctx) => ({
+      announcement: await ctx.db.get(announcementId),
+      update: await ctx.db.get(updateId),
+    }));
+    expect(result).toMatchObject({
+      isDone: true,
+      rescheduledCount: 1,
+      scannedCount: 2,
+    });
+    expect(rows.update).toMatchObject({
+      announcementProminent: false,
+      threadRevision: 0,
+    });
+    expect(rows.announcement).toMatchObject({
+      announcementProminent: true,
+      threadRevision: 0,
+    });
   });
 });
