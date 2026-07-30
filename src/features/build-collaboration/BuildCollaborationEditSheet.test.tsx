@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   editPost: vi.fn(),
+  historyRevision: 1,
   tombstonePost: vi.fn(),
 }));
 
@@ -32,7 +33,7 @@ vi.mock("convex/react", () => ({
           authorWorkosUserId: "user-builder",
           createdAt: Date.parse("2026-07-28T12:00:00.000Z"),
           plainText: "Original post",
-          revision: 1,
+          revision: mocks.historyRevision,
           tiptapJson: JSON.stringify({
             content: [
               {
@@ -111,16 +112,20 @@ const initialDocument: JSONContent = {
 afterEach(() => {
   cleanup();
   mocks.editPost.mockReset();
+  mocks.historyRevision = 1;
   mocks.tombstonePost.mockReset();
 });
 
 describe("BuildCollaborationEditSheet", () => {
   test("preserves an unsaved TipTap draft after a stale expected-revision write", async () => {
-    mocks.editPost.mockRejectedValue(
-      new Error(
-        "Revision conflict: this post changed while you were editing. Your draft has been preserved; review the latest version and retry."
+    mocks.historyRevision = 3;
+    mocks.editPost
+      .mockRejectedValueOnce(
+        new Error(
+          "Revision conflict: this post changed while you were editing. Your draft has been preserved; review the latest version and retry."
+        )
       )
-    );
+      .mockResolvedValueOnce("revision-4");
     render(
       <BuildCollaborationEditSheet
         buildId={"build-1" as never}
@@ -153,6 +158,24 @@ describe("BuildCollaborationEditSheet", () => {
         expectedRevision: 2,
         organizationId: "org-1",
         postId: "post-1",
+        tiptapJson: expect.stringContaining("Unsaved correction"),
+      })
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Rebase draft onto revision 3",
+      })
+    );
+    expect(
+      (screen.getByRole("textbox", {
+        name: "Mock rich text editor",
+      }) as HTMLTextAreaElement).value
+    ).toBe("Unsaved correction");
+    fireEvent.click(screen.getByRole("button", { name: "Save revision" }));
+    await waitFor(() => expect(mocks.editPost).toHaveBeenCalledTimes(2));
+    expect(mocks.editPost).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        expectedRevision: 3,
         tiptapJson: expect.stringContaining("Unsaved correction"),
       })
     );

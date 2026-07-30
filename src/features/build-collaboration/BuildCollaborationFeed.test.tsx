@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   onOpenReference: vi.fn(),
   postContentState: "active" as "active" | "tombstoned",
   postRevision: 1,
+  postViewerIsAuthor: true,
 }));
 
 vi.mock("convex/react", () => ({
@@ -61,7 +62,7 @@ vi.mock("convex/react", () => ({
           readRevision: mocks.postRevision,
           revision: mocks.postRevision,
           updatedAt: Date.parse("2026-07-28T12:00:00.000Z"),
-          viewerIsAuthor: true,
+          viewerIsAuthor: mocks.postViewerIsAuthor,
         },
         reactions: [],
         receipts: [],
@@ -112,6 +113,36 @@ vi.mock("convex/react", () => ({
       "build_collaboration_threads:listBuildCollaborationComments"
     ) {
       return [];
+    }
+    if (
+      functionName ===
+        "build_collaboration_editing:listBuildCollaborationPostRevisionHistory" ||
+      functionName ===
+        "build_collaboration_editing:listBuildCollaborationCommentRevisionHistory"
+    ) {
+      return [
+        {
+          _id: "revision-1",
+          authorWorkosUserId: "user-builder",
+          createdAt: Date.parse("2026-07-28T12:00:00.000Z"),
+          plainText: "Foundation evidence is ready for review.",
+          revision: 1,
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [
+                  {
+                    text: "Foundation evidence is ready for review.",
+                    type: "text",
+                  },
+                ],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        },
+      ];
     }
     if (
       functionName ===
@@ -184,6 +215,7 @@ afterEach(() => {
     mocks.focusedPostId = "post-1";
     mocks.postContentState = "active";
     mocks.postRevision = 1;
+    mocks.postViewerIsAuthor = true;
 });
 
 describe("BuildCollaborationFeed", () => {
@@ -311,6 +343,34 @@ describe("BuildCollaborationFeed", () => {
     );
 
     expect(screen.getByText("Edited")).toBeTruthy();
+  });
+
+  test("lets a non-author reader inspect an edited post without edit authority", async () => {
+    mocks.postRevision = 2;
+    mocks.postViewerIsAuthor = false;
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        organizationId="org-1"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "View revision history",
+      })
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        level: 2,
+        name: "Revision history",
+      })
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Save revision" })
+    ).toBeNull();
   });
 
   test("shows the complete effective bundle before a human approves an agent draft", async () => {

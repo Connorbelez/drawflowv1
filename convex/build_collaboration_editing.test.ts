@@ -122,6 +122,34 @@ async function seedEditingFixture() {
       validFrom: now,
       workosUserId: "user_builder",
     });
+    await ctx.db.insert("buildParticipants", {
+      brokerageId: foundation.brokerageId,
+      buildId: activeBuildId,
+      createdAt: now,
+      displayNameSnapshot: "Broker Reviewer",
+      joinedAt: now,
+      organizationId: ORGANIZATION_ID,
+      participationPeriod: 1,
+      role: "broker",
+      status: "active",
+      updatedAt: now,
+      validFrom: now,
+      workosUserId: "user_broker",
+    });
+    await ctx.db.insert("buildParticipants", {
+      brokerageId: foundation.brokerageId,
+      buildId: activeBuildId,
+      createdAt: now,
+      displayNameSnapshot: "Reference Contractor",
+      joinedAt: now,
+      organizationId: ORGANIZATION_ID,
+      participationPeriod: 1,
+      role: "contractor",
+      status: "active",
+      updatedAt: now,
+      validFrom: now,
+      workosUserId: "user_reference",
+    });
     return activeBuildId;
   });
   return {
@@ -147,7 +175,7 @@ function textDocument(text: string) {
   });
 }
 
-function participantMentionDocument(label: string) {
+function participantMentionDocument(entityId: string, label: string) {
   return JSON.stringify({
     content: [
       {
@@ -156,7 +184,7 @@ function participantMentionDocument(label: string) {
           {
             attrs: {
               eyebrow: "Forged role",
-              id: "user_builder",
+              id: entityId,
               kind: "participant",
               label,
               summary: "Forged summary",
@@ -227,12 +255,12 @@ describe("Build collaboration immutable editing", () => {
         postId,
         references: [
           {
-            entityId: "user_builder",
+            entityId: "user_reference",
             entityKind: "participant",
             primary: true,
           },
         ],
-        tiptapJson: participantMentionDocument("LEAKED LABEL"),
+        tiptapJson: participantMentionDocument("user_reference", "LEAKED LABEL"),
       }
     );
 
@@ -269,18 +297,18 @@ describe("Build collaboration immutable editing", () => {
     expect(state.revisions[1]).toMatchObject({
       authorWorkosUserId: "user_admin",
       editReason: "Correct reviewer",
-      plainText: "Review with Builder Reader",
+      plainText: "Review with Reference Contractor",
       revision: 2,
     });
     expect(state.revisions[1].tiptapJson).toContain(
-      '"label":"Builder Reader"'
+      '"label":"Reference Contractor"'
     );
     expect(state.revisions[1].tiptapJson).not.toContain("LEAKED LABEL");
     expect(state.references).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          entityId: "user_builder",
-          labelSnapshot: "Builder Reader",
+          entityId: "user_reference",
+          labelSnapshot: "Reference Contractor",
           ownerKind: "postRevision",
           ownerRecordId: state.revisions[1]._id,
         }),
@@ -313,17 +341,52 @@ describe("Build collaboration immutable editing", () => {
         }
       )
     ).rejects.toThrow("Forbidden");
-    await expect(
-      fixture.builder.query(
-        (api as any).build_collaboration_editing
-          .listBuildCollaborationPostRevisionHistory,
-        {
-          buildId: fixture.buildId,
-          organizationId: ORGANIZATION_ID,
-          postId,
-        }
-      )
-    ).rejects.toThrow("Forbidden");
+    const readerHistory = await fixture.builder.query(
+      (api as any).build_collaboration_editing
+        .listBuildCollaborationPostRevisionHistory,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
+    expect(readerHistory[0].plainText).toBe(
+      "Review with Reference Contractor"
+    );
+    await fixture.base.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "user_reference")
+        )
+        .unique();
+      if (!participant) {
+        throw new Error("Referenced participant fixture unavailable.");
+      }
+      await ctx.db.patch(participant._id, {
+        removedAt: Date.now(),
+        status: "removed",
+        updatedAt: Date.now(),
+      });
+    });
+    const redactedHistory = await fixture.builder.query(
+      (api as any).build_collaboration_editing
+        .listBuildCollaborationPostRevisionHistory,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
+    expect(redactedHistory[0].plainText).toBe(
+      "Review with [Referenced item unavailable]"
+    );
+    expect(redactedHistory[0].tiptapJson).not.toContain("user_reference");
+    expect(redactedHistory[0].tiptapJson).not.toContain(
+      "Reference Contractor"
+    );
 
     const competing = await Promise.allSettled([
       fixture.admin.mutation(
@@ -448,6 +511,16 @@ describe("Build collaboration immutable editing", () => {
     });
     expect(edited.receipt?.latestRevisionViewed).toBe(1);
     expect(edited.postRevisions).toHaveLength(1);
+    const readerHistory = await fixture.builder.query(
+      (api as any).build_collaboration_editing
+        .listBuildCollaborationCommentRevisionHistory,
+      {
+        buildId: fixture.buildId,
+        commentId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(readerHistory[0].plainText).toBe("Corrected reply");
 
     await fixture.admin.mutation(
       (api as any).build_collaboration_editing
@@ -478,6 +551,17 @@ describe("Build collaboration immutable editing", () => {
     );
     expect(comments[0].references).toEqual([]);
     expect(JSON.stringify(comments[0])).not.toContain("Corrected reply");
+    await expect(
+      fixture.builder.query(
+        (api as any).build_collaboration_editing
+          .listBuildCollaborationCommentRevisionHistory,
+        {
+          buildId: fixture.buildId,
+          commentId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("Forbidden");
 
     const durable = await fixture.base.run(async (ctx) => {
       const revisions = await ctx.db
@@ -581,6 +665,17 @@ describe("Build collaboration immutable editing", () => {
     expect(entry.receipts).toEqual([]);
     expect(entry.reactions).toEqual([]);
     expect(JSON.stringify(entry)).not.toContain("Confidential original");
+    await expect(
+      fixture.builder.query(
+        (api as any).build_collaboration_editing
+          .listBuildCollaborationPostRevisionHistory,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId,
+        }
+      )
+    ).rejects.toThrow("Forbidden");
 
     const durable = await fixture.base.run(async (ctx) => ({
       attachment: await ctx.db.get(seeded.attachmentId),

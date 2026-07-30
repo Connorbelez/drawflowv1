@@ -9,11 +9,13 @@ import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaborat
 import {
   canonicalizeEditedCollaborationContent,
   collaborationContentHash,
+  projectCollaborationRevisionForViewer,
 } from "./build_collaboration_content";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
   type CanonicalBuildCollaborationReference,
   resolveCanonicalBuildCollaborationReferences,
+  resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
@@ -305,29 +307,23 @@ export const listBuildCollaborationPostRevisionHistory = authenticatedQuery
       ctx,
       args
     );
-    const post = await requireAuthoredReadablePost(
+    const post = await requireReadableHistoryPost(
       ctx,
       authorization,
       args.postId
     );
-    return (
-      await ctx.db
-        .query("buildCollaborationPostRevisions")
-        .withIndex("by_postId_and_revision", (query) =>
-          query.eq("postId", post._id)
-        )
-        .order("desc")
-        .take(MAX_REVISION_HISTORY)
-    ).map((revision) => ({
-      _id: revision._id,
-      authorRole: revision.authorRole,
-      authorWorkosUserId: revision.authorWorkosUserId,
-      createdAt: revision.createdAt,
-      editReason: revision.editReason,
-      plainText: revision.plainText,
-      revision: revision.revision,
-      tiptapJson: revision.tiptapJson,
-    }));
+    const revisions = await ctx.db
+      .query("buildCollaborationPostRevisions")
+      .withIndex("by_postId_and_revision", (query) =>
+        query.eq("postId", post._id)
+      )
+      .order("desc")
+      .take(MAX_REVISION_HISTORY);
+    return await projectRevisionHistory(ctx, {
+      authorization,
+      ownerKind: "postRevision",
+      revisions,
+    });
   })
   .public();
 
@@ -344,35 +340,31 @@ export const listBuildCollaborationCommentRevisionHistory = authenticatedQuery
       args
     );
     const comment = await ctx.db.get(args.commentId);
-    if (
-      !comment ||
-      comment.buildId !== authorization.build._id ||
-      comment.authorWorkosUserId !== authorization.viewer.subject
-    ) {
+    if (!comment || comment.buildId !== authorization.build._id) {
       throw new Error("Forbidden: collaboration reply history");
     }
     const post = await ctx.db.get(comment.postId);
     if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
       throw new Error("Forbidden: collaboration reply history");
     }
-    return (
-      await ctx.db
-        .query("buildCollaborationCommentRevisions")
-        .withIndex("by_commentId_and_revision", (query) =>
-          query.eq("commentId", comment._id)
-        )
-        .order("desc")
-        .take(MAX_REVISION_HISTORY)
-    ).map((revision) => ({
-      _id: revision._id,
-      authorRole: revision.authorRole,
-      authorWorkosUserId: revision.authorWorkosUserId,
-      createdAt: revision.createdAt,
-      editReason: revision.editReason,
-      plainText: revision.plainText,
-      revision: revision.revision,
-      tiptapJson: revision.tiptapJson,
-    }));
+    if (
+      comment.contentState !== "active" &&
+      comment.authorWorkosUserId !== authorization.viewer.subject
+    ) {
+      throw new Error("Forbidden: collaboration reply history");
+    }
+    const revisions = await ctx.db
+      .query("buildCollaborationCommentRevisions")
+      .withIndex("by_commentId_and_revision", (query) =>
+        query.eq("commentId", comment._id)
+      )
+      .order("desc")
+      .take(MAX_REVISION_HISTORY);
+    return await projectRevisionHistory(ctx, {
+      authorization,
+      ownerKind: "commentRevision",
+      revisions,
+    });
   })
   .public();
 
@@ -401,6 +393,24 @@ async function requireAuthoredReadablePost(
     !(await canReadCollaborationPost(ctx, authorization, post))
   ) {
     throw new Error("Forbidden: authored collaboration post");
+  }
+  return post;
+}
+
+async function requireReadableHistoryPost(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  postId: Id<"buildCollaborationPosts">
+) {
+  const post = await ctx.db.get(postId);
+  if (
+    !post ||
+    post.buildId !== authorization.build._id ||
+    !(await canReadCollaborationPost(ctx, authorization, post)) ||
+    (post.contentState !== "active" &&
+      post.authorWorkosUserId !== authorization.viewer.subject)
+  ) {
+    throw new Error("Forbidden: collaboration post history");
   }
   return post;
 }
@@ -462,6 +472,83 @@ async function canonicalReferencesForPost(
     authorization: input.authorization,
     readerIds,
     references: input.references,
+  });
+}
+
+async function projectRevisionHistory<
+  Revision extends
+    | Doc<"buildCollaborationCommentRevisions">
+    | Doc<"buildCollaborationPostRevisions">,
+>(
+  ctx: QueryCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    ownerKind: "commentRevision" | "postRevision";
+    revisions: Revision[];
+  }
+) {
+  const referencesByRevision = await Promise.all(
+    input.revisions.map(async (revision) => ({
+      references: await ctx.db
+        .query("buildCollaborationReferences")
+        .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+          query
+            .eq("ownerKind", input.ownerKind)
+            .eq("ownerRecordId", revision._id)
+        )
+        .take(MAX_EDIT_REFERENCES),
+      revision,
+    }))
+  );
+  const currentReferenceByKey = new Map<
+    string,
+    CanonicalBuildCollaborationReference
+  >();
+  const unavailableReferenceKeys = new Set<string>();
+  for (const { references } of referencesByRevision) {
+    for (const reference of references) {
+      const key = `${reference.entityKind}:${reference.entityId}`;
+      if (currentReferenceByKey.has(key) || unavailableReferenceKeys.has(key)) {
+        continue;
+      }
+      try {
+        currentReferenceByKey.set(
+          key,
+          await resolveCurrentBuildCollaborationReference(ctx, {
+            authorization: input.authorization,
+            entityId: reference.entityId,
+            entityKind: reference.entityKind,
+          })
+        );
+      } catch {
+        unavailableReferenceKeys.add(key);
+      }
+    }
+  }
+  return referencesByRevision.map(({ references, revision }) => {
+    const projected = projectCollaborationRevisionForViewer({
+      references: references
+        .map((reference) =>
+          currentReferenceByKey.get(
+            `${reference.entityKind}:${reference.entityId}`
+          )
+        )
+        .filter(
+          (reference): reference is CanonicalBuildCollaborationReference =>
+            reference !== undefined
+        ),
+      tiptapJson: revision.tiptapJson,
+    });
+    return {
+      _id: revision._id,
+      authorRole: revision.authorRole,
+      authorWorkosUserId: revision.authorWorkosUserId,
+      createdAt: revision.createdAt,
+      editReason: revision.editReason,
+      plainText: projected.plainText,
+      revision: revision.revision,
+      tiptapJson: projected.tiptapJson,
+    };
   });
 }
 

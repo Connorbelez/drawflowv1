@@ -994,6 +994,11 @@ function CollaborationPostHeader({
           : "Unable to update follow state."
       )
     );
+  const canEdit =
+    entry.post.viewerIsAuthor && entry.post.contentState === "active";
+  const canViewHistory =
+    entry.post.viewerIsAuthor ||
+    (entry.post.contentState === "active" && entry.post.revision > 1);
 
   return (
     <CardHeader className="gap-3 p-4">
@@ -1037,12 +1042,10 @@ function CollaborationPostHeader({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuGroup>
-                {entry.post.viewerIsAuthor ? (
+                {canViewHistory ? (
                   <DropdownMenuItem onClick={onEdit}>
                     <Pencil aria-hidden="true" className="size-4" />
-                    {entry.post.contentState === "active"
-                      ? "Edit post"
-                      : "View revision history"}
+                    {canEdit ? "Edit post" : "View revision history"}
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem onClick={() => savePost("personal")}>
@@ -1179,7 +1182,8 @@ function CollaborationPostCard({
   };
   const postEditTarget = () => {
     setEditTarget({
-      canEdit: entry.post.contentState === "active",
+      canEdit:
+        entry.post.viewerIsAuthor && entry.post.contentState === "active",
       document: parseDocument(entry.revision.tiptapJson),
       entity: { kind: "post", postId: entry.post._id },
       references: collaborationReferencesForEditor(
@@ -1382,7 +1386,8 @@ function CollaborationComment({
   };
   const editComment = () =>
     onEdit({
-      canEdit: row.comment.contentState === "active",
+      canEdit:
+        row.comment.viewerIsAuthor && row.comment.contentState === "active",
       document: parseDocument(
         row.revision?.tiptapJson ?? JSON.stringify(emptyDocument())
       ),
@@ -1402,6 +1407,9 @@ function CollaborationComment({
     ) : row.comment.revision > 1 ? (
       <Badge variant="outline">Edited</Badge>
     ) : null;
+  const canViewHistory =
+    row.comment.viewerIsAuthor ||
+    (row.comment.contentState === "active" && row.comment.revision > 1);
 
   return (
     <div
@@ -1441,13 +1449,15 @@ function CollaborationComment({
         >
           Reply
         </button>
-        {row.comment.viewerIsAuthor ? (
+        {canViewHistory ? (
           <button
             className="mt-1 ml-3 text-muted-foreground text-xs hover:text-foreground"
             onClick={editComment}
             type="button"
           >
-            {row.comment.contentState === "active" ? "Edit" : "History"}
+            {row.comment.viewerIsAuthor && row.comment.contentState === "active"
+              ? "Edit"
+              : "History"}
           </button>
         ) : null}
       </div>

@@ -217,6 +217,8 @@ export function BuildCollaborationEditSheet({
     useState<CollaborationTagReference[]>(initialReferences);
   const [editReason, setEditReason] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [baseRevision, setBaseRevision] = useState(initialRevision);
+  const [revisionConflict, setRevisionConflict] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
 
@@ -229,8 +231,10 @@ export function BuildCollaborationEditSheet({
     setReferences(initialReferences);
     setEditReason("");
     setError(null);
+    setBaseRevision(initialRevision);
+    setRevisionConflict(false);
     setConfirmingRemoval(false);
-  }, [initialDocument, initialReferences, open]);
+  }, [initialDocument, initialReferences, initialRevision, open]);
 
   const optionByKey = useMemo(
     () =>
@@ -240,6 +244,9 @@ export function BuildCollaborationEditSheet({
     [tagOptions]
   );
   const history = postHistory ?? commentHistory;
+  const latestHistoryRevision = history?.[0]?.revision ?? baseRevision;
+  const canRebase =
+    revisionConflict && latestHistoryRevision > baseRevision && !saving;
 
   const save = async () => {
     if (!(entity && canEdit) || saving) {
@@ -263,7 +270,7 @@ export function BuildCollaborationEditSheet({
         await editPost({
           buildId,
           editReason: editReason.trim() || undefined,
-          expectedRevision: initialRevision,
+          expectedRevision: baseRevision,
           organizationId,
           postId: entity.postId,
           references: referenceInputs,
@@ -274,7 +281,7 @@ export function BuildCollaborationEditSheet({
           buildId,
           commentId: entity.commentId,
           editReason: editReason.trim() || undefined,
-          expectedRevision: initialRevision,
+          expectedRevision: baseRevision,
           organizationId,
           references: referenceInputs,
           tiptapJson: JSON.stringify(document),
@@ -288,6 +295,7 @@ export function BuildCollaborationEditSheet({
       const message =
         caught instanceof Error ? caught.message : "Unable to save this edit.";
       setError(message);
+      setRevisionConflict(message.includes("Revision conflict"));
       toast.error(message);
     } finally {
       setSaving(false);
@@ -304,7 +312,7 @@ export function BuildCollaborationEditSheet({
       if (entity.kind === "post") {
         await tombstonePost({
           buildId,
-          expectedRevision: initialRevision,
+          expectedRevision: baseRevision,
           organizationId,
           postId: entity.postId,
         });
@@ -312,7 +320,7 @@ export function BuildCollaborationEditSheet({
         await tombstoneComment({
           buildId,
           commentId: entity.commentId,
-          expectedRevision: initialRevision,
+          expectedRevision: baseRevision,
           organizationId,
         });
       }
@@ -326,6 +334,7 @@ export function BuildCollaborationEditSheet({
           ? caught.message
           : "Unable to remove this content.";
       setError(message);
+      setRevisionConflict(message.includes("Revision conflict"));
       toast.error(message);
     } finally {
       setSaving(false);
@@ -372,11 +381,31 @@ export function BuildCollaborationEditSheet({
             <Frame>
               <FramePanel className="text-destructive text-sm">
                 {error}
-                {error.includes("Revision conflict") ? (
-                  <p className="mt-1 text-muted-foreground text-xs">
-                    Your draft remains in the editor. Copy it or compare the
-                    latest revision before retrying.
-                  </p>
+                {revisionConflict ? (
+                  <div className="mt-2 space-y-2">
+                    <p className="text-muted-foreground text-xs">
+                      Your draft remains in the editor. Compare it with the
+                      latest server revision below before rebasing.
+                    </p>
+                    {canRebase ? (
+                      <Button
+                        onClick={() => {
+                          setBaseRevision(latestHistoryRevision);
+                          setRevisionConflict(false);
+                          setError(null);
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        Rebase draft onto revision {latestHistoryRevision}
+                      </Button>
+                    ) : (
+                      <p className="text-muted-foreground text-xs">
+                        Waiting for the latest revision…
+                      </p>
+                    )}
+                  </div>
                 ) : null}
               </FramePanel>
             </Frame>
