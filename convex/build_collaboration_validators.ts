@@ -97,6 +97,14 @@ export const buildActionItemStatusValidator = v.union(
   v.literal("cancelled")
 );
 
+export const buildActionItemWorkKindValidator = v.union(
+  v.literal("ordinary"),
+  v.literal("approval"),
+  v.literal("evidence"),
+  v.literal("site_visit_remediation"),
+  v.literal("draw_blocker")
+);
+
 export const buildActionItemPriorityValidator = v.union(
   v.literal("urgent"),
   v.literal("high"),

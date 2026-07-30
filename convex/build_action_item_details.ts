@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { authenticatedMutation, authenticatedQuery } from "./authz";
+import { actionItemRequiresAcceptance } from "./build_action_item_governance";
 import { requireReadableActionItem } from "./build_action_items";
 import {
   canReadCollaborationPost,
@@ -20,6 +21,7 @@ import {
   buildActionAssignmentStateValidator,
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
+  buildActionItemWorkKindValidator,
   buildCollaborationAssetStateValidator,
   buildCollaborationAudienceModeValidator,
   buildCollaborationReferenceKindValidator,
@@ -90,6 +92,11 @@ const detailValidator = v.union(
       assigneeWorkosUserId: v.optional(v.string()),
       assignmentState: buildActionAssignmentStateValidator,
       audienceMode: buildCollaborationAudienceModeValidator,
+      completedAt: v.optional(v.number()),
+      completedByWorkosUserId: v.optional(v.string()),
+      completionAcceptedByWorkosUserId: v.optional(v.string()),
+      completionRequestedAt: v.optional(v.number()),
+      completionRequestedByWorkosUserId: v.optional(v.string()),
       createdAt: v.number(),
       creatorDisplayName: v.string(),
       creatorWorkosUserId: v.string(),
@@ -99,9 +106,11 @@ const detailValidator = v.union(
       dueAt: v.optional(v.number()),
       originatingPostId: v.id("buildCollaborationPosts"),
       priority: buildActionItemPriorityValidator,
+      requiresAcceptance: v.boolean(),
       status: buildActionItemStatusValidator,
       title: v.string(),
       updatedAt: v.number(),
+      workKind: buildActionItemWorkKindValidator,
     }),
     labels: v.array(v.string()),
     references: v.array(referenceSummaryValidator),
@@ -291,6 +300,12 @@ export const getBuildActionItemDetail = authenticatedQuery
         assigneeWorkosUserId: item.assigneeWorkosUserId,
         assignmentState: item.assignmentState,
         audienceMode: post.audienceMode,
+        completedAt: item.completedAt,
+        completedByWorkosUserId: item.completedByWorkosUserId,
+        completionAcceptedByWorkosUserId: item.completionAcceptedByWorkosUserId,
+        completionRequestedAt: item.completionRequestedAt,
+        completionRequestedByWorkosUserId:
+          item.completionRequestedByWorkosUserId,
         createdAt: item.createdAt,
         creatorDisplayName: participantName(item.creatorWorkosUserId),
         creatorWorkosUserId: item.creatorWorkosUserId,
@@ -300,9 +315,11 @@ export const getBuildActionItemDetail = authenticatedQuery
         dueAt: item.dueAt,
         originatingPostId: item.originatingPostId,
         priority: item.priority,
+        requiresAcceptance: actionItemRequiresAcceptance(item),
         status: item.status,
         title: item.title,
         updatedAt: item.updatedAt,
+        workKind: item.workKind ?? "ordinary",
       },
       labels: labels.map((label) => label.label),
       references: projectedItemReferences.summaries,

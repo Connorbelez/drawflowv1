@@ -865,23 +865,23 @@ describe("Build Action Item server authorization", () => {
     ).rejects.toThrow("Forbidden: Action Item edit fields authority");
 
     await fixture.creator.mutation(
-      (api as any).build_action_items.updateBuildActionItem,
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
       {
         actionItemId,
         buildId: fixture.buildId,
         expectedRevision: 1,
+        nextStatus: "in_progress",
         organizationId: ORGANIZATION_ID,
-        status: "in_progress",
       }
     );
     await fixture.creator.mutation(
-      (api as any).build_action_items.updateBuildActionItem,
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
       {
         actionItemId,
         buildId: fixture.buildId,
         expectedRevision: 2,
+        nextStatus: "done",
         organizationId: ORGANIZATION_ID,
-        status: "done",
       }
     );
 
@@ -912,7 +912,7 @@ describe("Build Action Item server authorization", () => {
       }
     );
     await fixture.creator.mutation(
-      (api as any).build_action_items.updateBuildActionItem,
+      (api as any).build_action_item_workflow.assignBuildActionItem,
       {
         actionItemId,
         assigneeWorkosUserId: "user_builder",
@@ -934,7 +934,8 @@ describe("Build Action Item server authorization", () => {
 
     await expect(
       fixture.creator.mutation(
-        (api as any).build_action_items.acceptBuildActionItemAssignment,
+        (api as any).build_action_item_workflow
+          .acceptBuildActionItemAssignment,
         {
           actionItemId,
           buildId: fixture.buildId,
@@ -944,7 +945,8 @@ describe("Build Action Item server authorization", () => {
       )
     ).rejects.toThrow("Forbidden: Action Item accept assignment authority");
     await fixture.builder.mutation(
-      (api as any).build_action_items.acceptBuildActionItemAssignment,
+      (api as any).build_action_item_workflow
+        .acceptBuildActionItemAssignment,
       {
         actionItemId,
         buildId: fixture.buildId,
@@ -964,7 +966,7 @@ describe("Build Action Item server authorization", () => {
         }
       )
     ).rejects.toThrow(
-      "Completion acceptance is mandatory for this upward assignment."
+      "Completion acceptance is mandatory for this Action Item."
     );
     persisted = await readActionItem(fixture, actionItemId);
     expect(persisted.item).toMatchObject({
@@ -1001,58 +1003,60 @@ describe("Build Action Item server authorization", () => {
       }
     );
     await fixture.creator.mutation(
-      (api as any).build_action_items.updateBuildActionItem,
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
       {
         actionItemId,
         buildId: fixture.buildId,
         expectedRevision: 2,
+        nextStatus: "in_progress",
         organizationId: ORGANIZATION_ID,
-        status: "in_progress",
       }
     );
     await fixture.creator.mutation(
-      (api as any).build_action_items.updateBuildActionItem,
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
       {
         actionItemId,
         buildId: fixture.buildId,
         expectedRevision: 3,
+        nextStatus: "in_review",
         organizationId: ORGANIZATION_ID,
-        status: "in_review",
       }
     );
     await fixture.creator.mutation(
-      (api as any).build_action_items.updateBuildActionItem,
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
       {
         actionItemId,
-        blockedReason: "Waiting on engineering",
         buildId: fixture.buildId,
         expectedRevision: 4,
+        nextStatus: "blocked",
         organizationId: ORGANIZATION_ID,
-        status: "blocked",
+        reason: "Waiting on engineering",
       }
     );
     await expect(
       fixture.creator.mutation(
-        (api as any).build_action_items.updateBuildActionItem,
+        (api as any).build_action_item_workflow.transitionBuildActionItem,
         {
           actionItemId,
           buildId: fixture.buildId,
           expectedRevision: 5,
+          nextStatus: "in_progress",
           organizationId: ORGANIZATION_ID,
-          status: "in_progress",
+          reason: "Attempt wrong restore",
         }
       )
     ).rejects.toThrow(
-      "Unblocking must restore the Action Item's preceding active state."
+      "Reopening must restore the preceding in_review state."
     );
     await fixture.creator.mutation(
-      (api as any).build_action_items.updateBuildActionItem,
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
       {
         actionItemId,
         buildId: fixture.buildId,
         expectedRevision: 5,
+        nextStatus: "in_review",
         organizationId: ORGANIZATION_ID,
-        status: "in_review",
+        reason: "Engineering response arrived",
       }
     );
 
@@ -1226,5 +1230,773 @@ describe("Build Action Item server authorization", () => {
         }
       )
     ).rejects.toThrow();
+  });
+
+  test("supports self, peer, lower-tier, and upward-request assignment directions", async () => {
+    const fixture = await seedActionItemBuild();
+    const selfAssignedId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Unassigned work",
+      }
+    );
+    await fixture.reader.mutation(
+      (api as any).build_action_item_workflow.assignBuildActionItem,
+      {
+        actionItemId: selfAssignedId,
+        assigneeWorkosUserId: "user_contractor_reader",
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+
+    const peerAssignedId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Peer work",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.assignBuildActionItem,
+      {
+        actionItemId: peerAssignedId,
+        assigneeWorkosUserId: "user_contractor_reader",
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+
+    const lowerTierId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Lower-tier work",
+      }
+    );
+    await fixture.builder.mutation(
+      (api as any).build_action_item_workflow.assignBuildActionItem,
+      {
+        actionItemId: lowerTierId,
+        assigneeWorkosUserId: "user_contractor_creator",
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+
+    const upwardId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Higher-tier review",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.assignBuildActionItem,
+      {
+        actionItemId: upwardId,
+        assigneeWorkosUserId: "user_builder",
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const upwardBeforeAcceptance = await readActionItem(fixture, upwardId);
+    expect(upwardBeforeAcceptance.item).toMatchObject({
+      assignmentState: "requested",
+      status: "todo",
+    });
+    await fixture.builder.mutation(
+      (api as any).build_action_item_workflow
+        .acceptBuildActionItemAssignment,
+      {
+        actionItemId: upwardId,
+        buildId: fixture.buildId,
+        expectedRevision: 2,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_item_workflow
+          .acceptBuildActionItemAssignment,
+        {
+          actionItemId: upwardId,
+          buildId: fixture.buildId,
+          expectedRevision: 2,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("changed since you opened it");
+
+    for (const actionItemId of [
+      selfAssignedId,
+      peerAssignedId,
+      lowerTierId,
+    ]) {
+      const persisted = await readActionItem(fixture, actionItemId);
+      expect(persisted.item?.assignmentState).toBe("assigned");
+      expect(persisted.events.at(-1)?.eventType).toMatch(
+        /assigned|reassigned/
+      );
+    }
+  });
+
+  test("coordinators can laterally reassign lower-tier work with an auditable notification", async () => {
+    const fixture = await seedActionItemBuild();
+    const actionItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_creator",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Coordinate trade handoff",
+      }
+    );
+    await fixture.builder.mutation(
+      (api as any).build_action_item_workflow.assignBuildActionItem,
+      {
+        actionItemId,
+        assigneeWorkosUserId: "user_contractor_reader",
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Move the handoff to the site contractor",
+      }
+    );
+    const persisted = await fixture.base.run(async (ctx) => ({
+      audit: await ctx.db
+        .query("auditEvents")
+        .filter((query) =>
+          query.eq(query.field("entityId"), actionItemId)
+        )
+        .collect(),
+      deliveries: await ctx.db
+        .query("recipientDeliveries")
+        .filter((query) =>
+          query.eq(query.field("entityId"), actionItemId)
+        )
+        .collect(),
+      item: await ctx.db.get(actionItemId),
+      outbox: await ctx.db
+        .query("eventOutbox")
+        .filter((query) =>
+          query.eq(query.field("relatedEntityId"), actionItemId)
+        )
+        .collect(),
+    }));
+    expect(persisted.item).toMatchObject({
+      assigneeWorkosUserId: "user_contractor_reader",
+      assignmentState: "assigned",
+    });
+    const reassignmentAudit = persisted.audit.filter(
+      (event) => event.command === "reassigned"
+    );
+    expect(reassignmentAudit).toHaveLength(1);
+    expect(reassignmentAudit[0]).toMatchObject({
+      actorWorkosUserId: "user_builder",
+      command: "reassigned",
+      reason: "Move the handoff to the site contractor",
+    });
+    expect(
+      persisted.outbox.filter(
+        (event) =>
+          event.eventType ===
+          "build.collaboration.action_item.reassigned"
+      )
+    ).toHaveLength(1);
+    expect(persisted.deliveries).toMatchObject([
+      {
+        recipientWorkosUserId: "user_contractor_reader",
+        status: "unread",
+      },
+    ]);
+  });
+
+  test("ordinary work completes by its assignee and reopens only with a reason", async () => {
+    const fixture = await seedActionItemBuild();
+    const actionItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_creator",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Ordinary completion",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        nextStatus: "in_progress",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 2,
+        nextStatus: "done",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_workflow.transitionBuildActionItem,
+        {
+          actionItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 3,
+          nextStatus: "in_progress",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("requires a reason");
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 3,
+        nextStatus: "in_progress",
+        organizationId: ORGANIZATION_ID,
+        reason: "Inspection correction reopened the work",
+      }
+    );
+    const persisted = await readActionItem(fixture, actionItemId);
+    expect(persisted.item).toMatchObject({
+      currentRevision: 4,
+      status: "in_progress",
+    });
+    expect(persisted.item?.completedAt).toBeUndefined();
+    expect(persisted.events.at(-1)).toMatchObject({
+      eventType: "reopened",
+      reason: "Inspection correction reopened the work",
+    });
+  });
+
+  test("governed work requires a due date, assignee review submission, and authority acceptance", async () => {
+    const fixture = await seedActionItemBuild();
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_items.createBuildActionItem,
+        {
+          assigneeWorkosUserId: "user_contractor_creator",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: fixture.postId,
+          title: "Missing governed due date",
+          workKind: "evidence",
+        }
+      )
+    ).rejects.toThrow("Governed Action Items require a due date");
+    const actionItemId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_creator",
+        buildId: fixture.buildId,
+        dueAt: 1_800_000_000_000,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Upload governed evidence",
+        workKind: "evidence",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        nextStatus: "in_progress",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_workflow.transitionBuildActionItem,
+        {
+          actionItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 2,
+          nextStatus: "done",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow();
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 2,
+        nextStatus: "in_review",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_workflow.transitionBuildActionItem,
+        {
+          actionItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 3,
+          nextStatus: "done",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("Forbidden: Action Item complete authority");
+    await fixture.builder.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 3,
+        nextStatus: "done",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const persisted = await fixture.base.run(async (ctx) => ({
+      audits: await ctx.db
+        .query("auditEvents")
+        .filter((query) =>
+          query.eq(query.field("entityId"), actionItemId)
+        )
+        .collect(),
+      deliveries: await ctx.db
+        .query("recipientDeliveries")
+        .filter((query) =>
+          query.eq(query.field("entityId"), actionItemId)
+        )
+        .collect(),
+      item: await ctx.db.get(actionItemId),
+      outbox: await ctx.db
+        .query("eventOutbox")
+        .filter((query) =>
+          query.eq(query.field("relatedEntityId"), actionItemId)
+        )
+        .collect(),
+    }));
+    expect(persisted.item).toMatchObject({
+      completedByWorkosUserId: "user_contractor_creator",
+      completionAcceptedByWorkosUserId: "user_builder",
+      completionRequestedByWorkosUserId: "user_contractor_creator",
+      requiresAcceptance: true,
+      status: "done",
+      workKind: "evidence",
+    });
+    expect(
+      persisted.audits
+        .map((event) => event.command)
+        .filter((command) => command !== "createBuildActionItem")
+    ).toEqual([
+      "status_changed",
+      "completion_requested",
+      "completion_accepted",
+    ]);
+    expect(
+      persisted.outbox.filter((event) =>
+        [
+          "build.collaboration.action_item.status_changed",
+          "build.collaboration.action_item.completion_requested",
+          "build.collaboration.action_item.completion_accepted",
+        ].includes(event.eventType)
+      )
+    ).toHaveLength(3);
+    expect(
+      persisted.deliveries.map(
+        (delivery) => delivery.recipientWorkosUserId
+      )
+    ).toEqual(["user_builder", "user_contractor_creator"]);
+  });
+
+  test("canonical governed references cannot be downgraded by a submitted ordinary work type", async () => {
+    const fixture = await seedActionItemBuild();
+    const evidenceKey = "foundation-governed-evidence";
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const now = Date.now();
+      await ctx.db.insert("buildEvidenceAssets", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        evidenceKey,
+        fileName: "foundation.jpg",
+        label: "Foundation evidence",
+        locationVerified: true,
+        milestoneKey: "foundation",
+        mimeType: "image/jpeg",
+        organizationId: ORGANIZATION_ID,
+        proposalId: build.proposalId,
+        sizeBytes: 1024,
+        source: "test",
+        tag: "completion",
+        updatedAt: now,
+      });
+    });
+    const restrictedPostId = await fixture.builder.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "author_tier_and_higher",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Lender-visible evidence coordination.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                {
+                  text: "Lender-visible evidence coordination.",
+                  type: "text",
+                },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      }
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_items.createBuildActionItem,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: restrictedPostId,
+          references: [
+            {
+              entityId: evidenceKey,
+              entityKind: "evidencePackage",
+              label: "Client label",
+            },
+          ],
+          title: "Review referenced evidence",
+          workKind: "ordinary",
+        }
+      )
+    ).rejects.toThrow("Governed Action Items require a due date");
+    const actionItemId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        dueAt: 1_800_000_000_000,
+        organizationId: ORGANIZATION_ID,
+        postId: restrictedPostId,
+        references: [
+          {
+            entityId: evidenceKey,
+            entityKind: "evidencePackage",
+            label: "Client label",
+          },
+        ],
+        title: "Review referenced evidence",
+        workKind: "ordinary",
+      }
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_items.updateBuildActionItem,
+        {
+          actionItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          requiresAcceptance: false,
+        }
+      )
+    ).rejects.toThrow(
+      "Completion acceptance is mandatory for this Action Item"
+    );
+    const persisted = await readActionItem(fixture, actionItemId);
+    expect(persisted.item).toMatchObject({
+      requiresAcceptance: true,
+      workKind: "evidence",
+    });
+
+    const explicitlyGovernedActionItemId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        dueAt: 1_800_000_000_000,
+        organizationId: ORGANIZATION_ID,
+        postId: restrictedPostId,
+        references: [
+          {
+            entityId: evidenceKey,
+            entityKind: "evidencePackage",
+            label: "Client label",
+          },
+        ],
+        title: "Approve referenced evidence",
+        workKind: "approval",
+      }
+    );
+    const explicitlyGoverned = await readActionItem(
+      fixture,
+      explicitlyGovernedActionItemId
+    );
+    expect(explicitlyGoverned.item).toMatchObject({
+      requiresAcceptance: true,
+      workKind: "approval",
+    });
+  });
+
+  test("participant removal preserves governed completion and reroutes review to an active authority", async () => {
+    const fixture = await seedActionItemBuild();
+    const builderParticipantId = await fixture.base.run(async (ctx) => {
+      const builderParticipant = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "user_builder")
+        )
+        .unique();
+      if (!builderParticipant) {
+        throw new Error("Builder participant fixture is unavailable.");
+      }
+      return builderParticipant._id;
+    });
+    const removedAssigneeItemId = await fixture.admin.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_builder",
+        buildId: fixture.buildId,
+        dueAt: 1_800_000_000_000,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Governed item owned by removed participant",
+        workKind: "approval",
+      }
+    );
+    const removedAssignerItemId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_creator",
+        buildId: fixture.buildId,
+        dueAt: 1_800_000_000_000,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Governed review requiring fallback authority",
+        workKind: "evidence",
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).build_participants.removeBuildParticipant,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        participantId: builderParticipantId,
+        reason: "Builder left the Build",
+      }
+    );
+    const unassigned = await readActionItem(fixture, removedAssigneeItemId);
+    expect(unassigned.item).toMatchObject({
+      assignmentState: "unassigned",
+      requiresAcceptance: true,
+      workKind: "approval",
+    });
+    expect(unassigned.item?.assigneeWorkosUserId).toBeUndefined();
+
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: removedAssignerItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        nextStatus: "in_progress",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: removedAssignerItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 2,
+        nextStatus: "in_review",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const deliveries = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("recipientDeliveries")
+        .filter((query) =>
+          query.eq(query.field("entityId"), removedAssignerItemId)
+        )
+        .collect()
+    );
+    expect(deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recipientWorkosUserId: "user_broker",
+          title: "Action Item completion review required",
+        }),
+      ])
+    );
+    expect(
+      deliveries.some(
+        (delivery) =>
+          delivery.recipientWorkosUserId === "user_builder"
+      )
+    ).toBe(false);
+  });
+
+  test("removed assignees cannot move work and exceptional reopen restores the original active state", async () => {
+    const fixture = await seedActionItemBuild();
+    const removedAssigneeItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_reader",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Removed assignee work",
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "user_contractor_reader")
+        )
+        .unique();
+      if (!participant) {
+        throw new Error("Participant fixture is unavailable.");
+      }
+      const now = Date.now();
+      await ctx.db.patch(participant._id, {
+        removedAt: now,
+        removalReason: "Left the Build",
+        status: "removed",
+        updatedAt: now,
+        validUntil: now,
+      });
+    });
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_workflow.transitionBuildActionItem,
+        {
+          actionItemId: removedAssigneeItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 1,
+          nextStatus: "in_progress",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("removed assignee must be cleared");
+
+    const exceptionalItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_creator",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Exceptional state restoration",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: exceptionalItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        nextStatus: "in_progress",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_workflow.transitionBuildActionItem,
+        {
+          actionItemId: exceptionalItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 2,
+          nextStatus: "blocked",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("requires a reason");
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: exceptionalItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 2,
+        nextStatus: "blocked",
+        organizationId: ORGANIZATION_ID,
+        reason: "Waiting on material",
+      }
+    );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_workflow.transitionBuildActionItem,
+        {
+          actionItemId: exceptionalItemId,
+          buildId: fixture.buildId,
+          expectedRevision: 3,
+          nextStatus: "cancelled",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("requires a reason");
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: exceptionalItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 3,
+        nextStatus: "cancelled",
+        organizationId: ORGANIZATION_ID,
+        reason: "Supplier cancelled the order",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: exceptionalItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 4,
+        nextStatus: "in_progress",
+        organizationId: ORGANIZATION_ID,
+        reason: "Replacement supplier confirmed",
+      }
+    );
+    const restored = await readActionItem(fixture, exceptionalItemId);
+    expect(restored.item).toMatchObject({
+      currentRevision: 5,
+      status: "in_progress",
+    });
+    expect(restored.item?.previousActiveStatus).toBeUndefined();
   });
 });

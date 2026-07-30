@@ -14,12 +14,30 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   acceptedCommentId: undefined as string | undefined,
+  actionItemAssignmentState: "unassigned" as
+    | "unassigned"
+    | "requested"
+    | "assigned",
   actionItemDetailState: "visible" as "revoked" | "visible",
+  actionItemRequiresAcceptance: false,
+  actionItemWorkKind: "ordinary" as
+    | "ordinary"
+    | "approval"
+    | "evidence"
+    | "site_visit_remediation"
+    | "draw_blocker",
   announcementExpiresAt: undefined as number | undefined,
   announcementProminent: false,
   comments: [] as Array<Record<string, unknown>>,
   commentsLoading: false,
   drafts: [] as Array<Record<string, unknown>>,
+  editorReferences: [] as Array<{
+    eyebrow: string;
+    id: string;
+    kind: "evidenceAsset";
+    label: string;
+    summary: string;
+  }>,
   feedStatus: "Exhausted" as "CanLoadMore" | "Exhausted",
   focusedCommentContext: undefined as
     | Record<string, unknown>
@@ -40,6 +58,15 @@ const mocks = vi.hoisted(() => ({
     | "announcement",
   postViewerCanModerate: false,
   postViewerIsAuthor: true,
+  workflowAssignmentMode: "direct" as "direct" | "request",
+  workflowCanAccept: false,
+  workflowTransitions: [
+    "in_progress",
+    "blocked",
+    "cancelled",
+  ] as Array<
+    "todo" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled"
+  >,
 }));
 
 function commentRowFixture(id: string, text: string) {
@@ -206,7 +233,7 @@ vi.mock("convex/react", () => ({
         comments: [],
         item: {
           actionItemId: "action-1",
-          assignmentState: "unassigned",
+          assignmentState: mocks.actionItemAssignmentState,
           audienceMode: "build_wide",
           createdAt: now,
           creatorDisplayName: "Alex Chen",
@@ -226,9 +253,11 @@ vi.mock("convex/react", () => ({
           }),
           originatingPostId: "post-1",
           priority: "high",
+          requiresAcceptance: mocks.actionItemRequiresAcceptance,
           status: "todo",
           title: "Upload engineer seal",
           updatedAt: now,
+          workKind: mocks.actionItemWorkKind,
         },
         labels: ["evidence"],
         references: [
@@ -254,6 +283,26 @@ vi.mock("convex/react", () => ({
           },
         ],
         state: "visible",
+      };
+    }
+    if (
+      functionName ===
+      "build_action_item_workflow:getBuildActionItemWorkflowContext"
+    ) {
+      return {
+        assignableParticipants: [
+          {
+            assignmentMode: mocks.workflowAssignmentMode,
+            displayName: "Alex Chen",
+            role: "builder",
+            workosUserId: "user-builder",
+          },
+        ],
+        availableTransitions: mocks.workflowTransitions,
+        state: "visible",
+        viewerCanAcceptAssignment: mocks.workflowCanAccept,
+        viewerCanUnassign: true,
+        viewerWorkosUserId: "user-builder",
       };
     }
     if (
@@ -374,7 +423,7 @@ vi.mock(
             ],
             type: "doc",
           };
-          onChange("<p>Useful accountable work.</p>", []);
+          onChange("<p>Useful accountable work.</p>", mocks.editorReferences);
           onDocumentChange?.(document);
         }}
         type="button"
@@ -406,10 +455,14 @@ afterEach(() => {
   mocks.loadMore.mockClear();
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
+  mocks.editorReferences = [];
   mocks.comments = [];
   mocks.commentsLoading = false;
   mocks.acceptedCommentId = undefined;
+  mocks.actionItemAssignmentState = "unassigned";
   mocks.actionItemDetailState = "visible";
+  mocks.actionItemRequiresAcceptance = false;
+  mocks.actionItemWorkKind = "ordinary";
   mocks.announcementExpiresAt = undefined;
   mocks.announcementProminent = false;
   mocks.feedStatus = "Exhausted";
@@ -422,6 +475,9 @@ afterEach(() => {
   mocks.postType = "update";
   mocks.postViewerCanModerate = false;
   mocks.postViewerIsAuthor = true;
+  mocks.workflowAssignmentMode = "direct";
+  mocks.workflowCanAccept = false;
+  mocks.workflowTransitions = ["in_progress", "blocked", "cancelled"];
 });
 
 describe("BuildCollaborationFeed", () => {
@@ -566,6 +622,70 @@ describe("BuildCollaborationFeed", () => {
     );
   });
 
+  test("surfaces inferred governed work before creating a linked Action Item", async () => {
+    mocks.editorReferences = [
+      {
+        eyebrow: "Evidence",
+        id: "evidence-1",
+        kind: "evidenceAsset",
+        label: "Foundation completion photo",
+        summary: "Location verified · uploaded today",
+      },
+    ];
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Add Action Item" }),
+    );
+    fireEvent.change(screen.getByLabelText("Action Item title"), {
+      target: { value: "Review linked evidence" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mock Action Item description" }),
+    );
+
+    expect(screen.getByLabelText("Action Item work type").textContent).toContain(
+      "evidence",
+    );
+    expect(
+      screen.getByText(
+        "Governed work requires a due date and authority acceptance before Done.",
+      ),
+    ).toBeTruthy();
+
+    mocks.mutate.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create Action Item" }),
+    );
+    expect(mocks.mutate).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Action Item due date"), {
+      target: { value: "2026-08-15" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create Action Item" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dueAt: new Date("2026-08-15T12:00:00").getTime(),
+          references: [
+            expect.objectContaining({
+              entityId: "evidence-1",
+              entityKind: "evidenceAsset",
+            }),
+          ],
+          title: "Review linked evidence",
+          workKind: "evidence",
+        }),
+      ),
+    );
+  });
+
   test("opens the reusable Action Item detail sheet from a post card", async () => {
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
@@ -586,6 +706,92 @@ describe("BuildCollaborationFeed", () => {
     );
     expect(
       screen.getByRole("heading", { name: "Foundation completion photo" })
+    ).toBeTruthy();
+  });
+
+  test("executes Action Item workflow transitions from the detail sheet", async () => {
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open details" })
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "in progress" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        actionItemId: "action-1",
+        buildId: "build-1",
+        expectedRevision: 1,
+        nextStatus: "in_progress",
+        organizationId: "org-1",
+        reason: undefined,
+      })
+    );
+  });
+
+  test("surfaces governed completion and upward assignment acceptance controls", async () => {
+    mocks.actionItemWorkKind = "evidence";
+    mocks.actionItemRequiresAcceptance = true;
+    mocks.workflowAssignmentMode = "request";
+    mocks.workflowCanAccept = true;
+    mocks.workflowTransitions = ["in_review"];
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open details" })
+    );
+
+    expect(screen.getByText("Governed completion")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Accept assignment" })
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        actionItemId: "action-1",
+        buildId: "build-1",
+        expectedRevision: 1,
+        organizationId: "org-1",
+      })
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Submit for review" })
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionItemId: "action-1",
+          nextStatus: "in_review",
+        })
+      )
+    );
+  });
+
+  test("keeps an accepted upward assignment visibly governed for ordinary work", async () => {
+    mocks.actionItemAssignmentState = "assigned";
+    mocks.actionItemRequiresAcceptance = true;
+    mocks.workflowTransitions = ["in_review"];
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open details" })
+    );
+
+    expect(screen.getByText("Ordinary work")).toBeTruthy();
+    expect(screen.getByText("Governed completion")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Submit for review" })
     ).toBeTruthy();
   });
 

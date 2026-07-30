@@ -52,6 +52,12 @@ type ActionItemDetail = FunctionReturnType<
 >;
 type VisibleActionItemDetail = Extract<ActionItemDetail, { state: "visible" }>;
 type ActionPriority = VisibleActionItemDetail["item"]["priority"];
+type ActionWorkKind = VisibleActionItemDetail["item"]["workKind"];
+type ActionStatus = VisibleActionItemDetail["item"]["status"];
+type WorkflowContext = FunctionReturnType<
+  typeof api.build_action_item_workflow.getBuildActionItemWorkflowContext
+>;
+type VisibleWorkflowContext = Extract<WorkflowContext, { state: "visible" }>;
 
 export type BuildActionItemSheetTarget =
   | {
@@ -144,6 +150,7 @@ function ActionItemCreatePanel({
   const [descriptionHtml, setDescriptionHtml] = useState("");
   const [references, setReferences] = useState<CollaborationTagReference[]>([]);
   const [priority, setPriority] = useState<ActionPriority>("none");
+  const [workKind, setWorkKind] = useState<ActionWorkKind>("ordinary");
   const [dueDate, setDueDate] = useState("");
   const [labels, setLabels] = useState("");
   const [assigneeWorkosUserId, setAssigneeWorkosUserId] = useState("");
@@ -153,10 +160,15 @@ function ActionItemCreatePanel({
   const participants = tagOptions.filter(
     (option) => option.kind === "participant"
   );
+  const effectiveWorkKind = effectiveActionItemWorkKind(workKind, references);
 
   const create = async () => {
     if (!(title.trim() && plainTextFromDocument(document)) || submitting) {
       toast.error("Add a title and a useful description.");
+      return;
+    }
+    if (effectiveWorkKind !== "ordinary" && !dueDate) {
+      toast.error("Governed Action Items require a due date.");
       return;
     }
     setSubmitting(true);
@@ -191,6 +203,7 @@ function ActionItemCreatePanel({
         })),
         requestId,
         title: title.trim(),
+        workKind: effectiveWorkKind,
       });
       toast.success("Action Item created.");
       onCreated?.(actionItemId);
@@ -254,6 +267,15 @@ function ActionItemCreatePanel({
             />
           </Field>
         </div>
+        <Field label="Work type">
+          <WorkKindSelect onChange={setWorkKind} value={effectiveWorkKind} />
+          {effectiveWorkKind === "ordinary" ? null : (
+            <p className="text-muted-foreground text-xs">
+              Governed work requires a due date and authority acceptance before
+              Done.
+            </p>
+          )}
+        </Field>
         <Field label="Assignee">
           <Select
             onValueChange={(value) => setAssigneeWorkosUserId(value ?? "")}
@@ -384,6 +406,23 @@ function VisibleActionItemDetail({
   const addComment = useMutation(
     api.build_action_item_details.addBuildActionItemComment
   );
+  const assignActionItem = useMutation(
+    api.build_action_item_workflow.assignBuildActionItem
+  );
+  const acceptAssignment = useMutation(
+    api.build_action_item_workflow.acceptBuildActionItemAssignment
+  );
+  const transitionActionItem = useMutation(
+    api.build_action_item_workflow.transitionBuildActionItem
+  );
+  const workflow = useQuery(
+    api.build_action_item_workflow.getBuildActionItemWorkflowContext,
+    {
+      actionItemId: detail.item.actionItemId,
+      buildId,
+      organizationId,
+    }
+  ) as WorkflowContext | undefined;
   const [title, setTitle] = useState(detail.item.title);
   const [priority, setPriority] = useState(detail.item.priority);
   const [dueDate, setDueDate] = useState(dateInputValue(detail.item.dueAt));
@@ -395,6 +434,8 @@ function VisibleActionItemDetail({
     CollaborationTagReference[]
   >([]);
   const [saving, setSaving] = useState(false);
+  const [workflowBusy, setWorkflowBusy] = useState(false);
+  const [transitionReason, setTransitionReason] = useState("");
 
   useEffect(() => {
     setTitle(detail.item.title);
@@ -403,6 +444,10 @@ function VisibleActionItemDetail({
   }, [detail.item.dueAt, detail.item.priority, detail.item.title]);
 
   const save = async () => {
+    if (detail.item.workKind !== "ordinary" && !dueDate) {
+      toast.error("Governed Action Items require a due date.");
+      return;
+    }
     setSaving(true);
     try {
       await updateActionItem({
@@ -451,6 +496,68 @@ function VisibleActionItemDetail({
       );
     }
   };
+  const assign = async (workosUserId: string | null) => {
+    setWorkflowBusy(true);
+    try {
+      await assignActionItem({
+        actionItemId: detail.item.actionItemId,
+        assigneeWorkosUserId: workosUserId,
+        buildId,
+        expectedRevision: detail.item.currentRevision,
+        organizationId,
+      });
+      toast.success(
+        workosUserId
+          ? "Action Item assignment updated."
+          : "Action Item unassigned."
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to update assignment."
+      );
+    } finally {
+      setWorkflowBusy(false);
+    }
+  };
+  const accept = async () => {
+    setWorkflowBusy(true);
+    try {
+      await acceptAssignment({
+        actionItemId: detail.item.actionItemId,
+        buildId,
+        expectedRevision: detail.item.currentRevision,
+        organizationId,
+      });
+      toast.success("Assignment accepted.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to accept assignment."
+      );
+    } finally {
+      setWorkflowBusy(false);
+    }
+  };
+  const transition = async (nextStatus: ActionStatus) => {
+    setWorkflowBusy(true);
+    try {
+      await transitionActionItem({
+        actionItemId: detail.item.actionItemId,
+        buildId,
+        expectedRevision: detail.item.currentRevision,
+        nextStatus,
+        organizationId,
+        reason: transitionReason.trim() || undefined,
+      });
+      setTransitionReason("");
+      toast.success("Action Item status updated.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to update status."
+      );
+    } finally {
+      setWorkflowBusy(false);
+    }
+  };
 
   return (
     <>
@@ -472,6 +579,16 @@ function VisibleActionItemDetail({
       </SheetHeader>
       <SheetPanel className="space-y-6">
         <AudienceInheritanceNotice audienceMode={detail.item.audienceMode} />
+        <ActionItemWorkflowPanel
+          busy={workflowBusy}
+          detail={detail}
+          onAccept={accept}
+          onAssign={assign}
+          onReasonChange={setTransitionReason}
+          onTransition={transition}
+          reason={transitionReason}
+          workflow={workflow}
+        />
         <section className="space-y-3">
           <h3 className="font-semibold text-sm">Work definition</h3>
           <Field label="Title">
@@ -558,6 +675,126 @@ function VisibleActionItemDetail({
         </Button>
       </SheetFooter>
     </>
+  );
+}
+
+function ActionItemWorkflowPanel({
+  busy,
+  detail,
+  onAccept,
+  onAssign,
+  onReasonChange,
+  onTransition,
+  reason,
+  workflow,
+}: {
+  busy: boolean;
+  detail: VisibleActionItemDetail;
+  onAccept: () => void;
+  onAssign: (workosUserId: string | null) => void;
+  onReasonChange: (reason: string) => void;
+  onTransition: (status: ActionStatus) => void;
+  reason: string;
+  workflow: WorkflowContext | undefined;
+}) {
+  if (workflow === undefined) {
+    return (
+      <Frame>
+        <FramePanel className="text-muted-foreground text-sm">
+          Loading workflow controls…
+        </FramePanel>
+      </Frame>
+    );
+  }
+  if (workflow.state === "revoked") {
+    return null;
+  }
+  const visibleWorkflow = workflow as VisibleWorkflowContext;
+  const reasonRelevant =
+    detail.item.status === "blocked" ||
+    detail.item.status === "cancelled" ||
+    detail.item.status === "done" ||
+    visibleWorkflow.availableTransitions.some(
+      (status) => status === "blocked" || status === "cancelled"
+    );
+  return (
+    <Frame>
+      <FramePanel className="space-y-4 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary">
+            {workKindLabel(detail.item.workKind)}
+          </Badge>
+          <Badge variant="outline">{detail.item.assignmentState}</Badge>
+          {detail.item.assignmentState === "requested" ? (
+            <Badge>Assignment requested</Badge>
+          ) : null}
+          {detail.item.requiresAcceptance ? (
+            <Badge variant="outline">Governed completion</Badge>
+          ) : null}
+        </div>
+        {visibleWorkflow.assignableParticipants.length > 0 ||
+        visibleWorkflow.viewerCanUnassign ? (
+          <Field label="Assignment">
+            <Select
+              disabled={busy}
+              onValueChange={(value) => {
+                if (!value) {
+                  return;
+                }
+                onAssign(value === "__unassigned" ? null : value);
+              }}
+              value={detail.item.assigneeWorkosUserId ?? "__unassigned"}
+            >
+              <SelectTrigger aria-label="Assign Action Item">
+                <SelectValue placeholder="Unassigned" />
+              </SelectTrigger>
+              <SelectContent>
+                {visibleWorkflow.viewerCanUnassign ? (
+                  <SelectItem value="__unassigned">Unassigned</SelectItem>
+                ) : null}
+                {visibleWorkflow.assignableParticipants.map((participant) => (
+                  <SelectItem
+                    key={participant.workosUserId}
+                    value={participant.workosUserId}
+                  >
+                    {participant.displayName} · {participant.role}
+                    {participant.assignmentMode === "request"
+                      ? " · requests acceptance"
+                      : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        ) : null}
+        {visibleWorkflow.viewerCanAcceptAssignment ? (
+          <Button disabled={busy} onClick={onAccept} size="sm">
+            Accept assignment
+          </Button>
+        ) : null}
+        {reasonRelevant ? (
+          <Input
+            aria-label="Action Item transition reason"
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="Reason for blocking, cancellation, or reopening"
+            value={reason}
+          />
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {visibleWorkflow.availableTransitions.map((status) => (
+            <Button
+              disabled={busy}
+              key={status}
+              onClick={() => onTransition(status)}
+              size="sm"
+              variant={status === "done" ? "default" : "outline"}
+            >
+              {transitionLabel(detail, status)}
+            </Button>
+          ))}
+        </div>
+      </FramePanel>
+    </Frame>
   );
 }
 
@@ -716,7 +953,11 @@ function PrioritySelect({
 }) {
   return (
     <Select
-      onValueChange={(nextValue) => onChange(nextValue as ActionPriority)}
+      onValueChange={(nextValue) => {
+        if (nextValue) {
+          onChange(nextValue as ActionPriority);
+        }
+      }}
       value={value}
     >
       <SelectTrigger aria-label="Action Item priority">
@@ -730,6 +971,43 @@ function PrioritySelect({
             </SelectItem>
           )
         )}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function WorkKindSelect({
+  onChange,
+  value,
+}: {
+  onChange: (value: ActionWorkKind) => void;
+  value: ActionWorkKind;
+}) {
+  const options: Array<{ label: string; value: ActionWorkKind }> = [
+    { label: "Ordinary work", value: "ordinary" },
+    { label: "Approval", value: "approval" },
+    { label: "Evidence", value: "evidence" },
+    { label: "Site Visit remediation", value: "site_visit_remediation" },
+    { label: "Draw blocker", value: "draw_blocker" },
+  ];
+  return (
+    <Select
+      onValueChange={(nextValue) => {
+        if (nextValue) {
+          onChange(nextValue as ActionWorkKind);
+        }
+      }}
+      value={value}
+    >
+      <SelectTrigger aria-label="Action Item work type">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   );
@@ -818,6 +1096,67 @@ function parseSnapshot(snapshotJson: string) {
 
 function dateInputValue(timestamp?: number) {
   return timestamp ? new Date(timestamp).toISOString().slice(0, 10) : "";
+}
+
+function workKindLabel(workKind: ActionWorkKind) {
+  switch (workKind) {
+    case "ordinary":
+      return "Ordinary work";
+    case "approval":
+      return "Approval";
+    case "evidence":
+      return "Evidence";
+    case "site_visit_remediation":
+      return "Site Visit remediation";
+    case "draw_blocker":
+      return "Draw blocker";
+  }
+}
+
+function effectiveActionItemWorkKind(
+  selectedWorkKind: ActionWorkKind,
+  references: CollaborationTagReference[]
+): ActionWorkKind {
+  if (selectedWorkKind !== "ordinary") {
+    return selectedWorkKind;
+  }
+  if (references.some((reference) => reference.kind === "draw")) {
+    return "draw_blocker";
+  }
+  if (references.some((reference) => reference.kind === "siteVisit")) {
+    return "site_visit_remediation";
+  }
+  if (
+    references.some(
+      (reference) =>
+        reference.kind === "evidencePackage" ||
+        reference.kind === "evidenceAsset"
+    )
+  ) {
+    return "evidence";
+  }
+  return "ordinary";
+}
+
+function transitionLabel(
+  detail: VisibleActionItemDetail,
+  status: ActionStatus
+) {
+  if (status === "in_review" && detail.item.requiresAcceptance) {
+    return "Submit for review";
+  }
+  if (status === "done" && detail.item.requiresAcceptance) {
+    return "Accept Done";
+  }
+  if (
+    (detail.item.status === "blocked" ||
+      detail.item.status === "cancelled" ||
+      detail.item.status === "done") &&
+    status !== "cancelled"
+  ) {
+    return `Reopen to ${status.replaceAll("_", " ")}`;
+  }
+  return status.replaceAll("_", " ");
 }
 
 function newActionItemRequestId() {

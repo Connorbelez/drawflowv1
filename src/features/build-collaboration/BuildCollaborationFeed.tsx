@@ -1453,8 +1453,8 @@ function CollaborationPostCard({
   const markViewed = useMutation(
     api.build_collaboration_threads.markBuildCollaborationPostViewed
   );
-  const updateAction = useMutation(
-    api.build_action_items.updateBuildActionItem
+  const transitionAction = useMutation(
+    api.build_action_item_workflow.transitionBuildActionItem
   );
 
   useEffect(() => {
@@ -1623,18 +1623,13 @@ function CollaborationPostCard({
                   expectedRevision
                 ) => {
                   try {
-                    await updateAction({
+                    await transitionAction({
                       actionItemId,
-                      ...(status === "blocked"
-                        ? { blockedReason: reason }
-                        : {}),
                       buildId,
-                      ...(status === "cancelled"
-                        ? { cancellationReason: reason }
-                        : {}),
                       expectedRevision,
+                      nextStatus: status,
                       organizationId,
-                      status,
+                      reason,
                     });
                   } catch (error) {
                     toast.error(

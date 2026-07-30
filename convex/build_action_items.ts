@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { authenticatedMutation, authenticatedQuery } from "./authz";
+import { actionItemRequiresAcceptance } from "./build_action_item_governance";
 import { recordBuildActionItemRevision } from "./build_action_item_history";
 import {
   authorizeBuildActionItemOperation,
@@ -26,7 +27,7 @@ import {
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildActionItemPriorityValidator,
-  buildActionItemStatusValidator,
+  buildActionItemWorkKindValidator,
   buildActionRelationKindValidator,
 } from "./build_collaboration_validators";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
@@ -51,6 +52,7 @@ export const createBuildActionItem = authenticatedMutation
     requestId: v.optional(v.string()),
     requiresAcceptance: v.optional(v.boolean()),
     title: v.string(),
+    workKind: v.optional(buildActionItemWorkKindValidator),
   })
   .returns(v.id("buildActionItems"))
   .handler(async (ctx, args) => {
@@ -58,15 +60,11 @@ export const createBuildActionItem = authenticatedMutation
       ctx,
       args
     );
-    const post = await ctx.db.get(args.postId);
-    if (
-      !post ||
-      post.buildId !== authorization.build._id ||
-      post.organizationId !== authorization.organizationId ||
-      !(await canReadCollaborationPost(ctx, authorization, post))
-    ) {
-      throw new Error("Action Item parent post is unavailable.");
-    }
+    const post = await requireActionItemCreationPost(
+      ctx,
+      authorization,
+      args.postId
+    );
     const { replayActionItemId, requestId } =
       await resolveActionItemCreationReplay(ctx, {
         authorization,
@@ -76,10 +74,7 @@ export const createBuildActionItem = authenticatedMutation
     if (replayActionItemId) {
       return replayActionItemId;
     }
-    const title = args.title.trim();
-    if (!title) {
-      throw new Error("Action Item title is required.");
-    }
+    const title = requiredActionItemTitle(args.title);
     const submittedDescriptionTiptapJson =
       args.descriptionTiptapJson ??
       JSON.stringify({ content: [], type: "doc" });
@@ -101,10 +96,16 @@ export const createBuildActionItem = authenticatedMutation
     );
     const primaryReference =
       references.find((reference) => reference.primary) ?? references[0];
+    const workKind = resolveNewActionItemWorkKind(
+      args.workKind,
+      references,
+      args.dueAt
+    );
     const { assignee, assignmentState, requiresAcceptance, upwardAssignment } =
       await resolveNewActionItemAssignment(ctx, authorization, post._id, {
         assigneeWorkosUserId: args.assigneeWorkosUserId,
-        requiresAcceptance: args.requiresAcceptance,
+        requiresAcceptance:
+          (args.requiresAcceptance ?? false) || workKind !== "ordinary",
       });
     const now = Date.now();
     const actionItemId = await ctx.db.insert("buildActionItems", {
@@ -133,6 +134,7 @@ export const createBuildActionItem = authenticatedMutation
       status: "todo",
       title,
       updatedAt: now,
+      workKind,
     });
     await ctx.db.insert("buildActionItemEvents", {
       actionItemId,
@@ -150,6 +152,7 @@ export const createBuildActionItem = authenticatedMutation
         requiresAcceptance,
         status: "todo",
         title,
+        workKind,
       }),
       organizationId: authorization.organizationId,
       revision: 1,
@@ -313,10 +316,7 @@ export const listBuildActionItems = authenticatedQuery
 export const updateBuildActionItem = authenticatedMutation
   .input({
     actionItemId: v.id("buildActionItems"),
-    assigneeWorkosUserId: v.optional(v.union(v.string(), v.null())),
-    blockedReason: v.optional(v.union(v.string(), v.null())),
     buildId: v.id("activeBuilds"),
-    cancellationReason: v.optional(v.union(v.string(), v.null())),
     descriptionPlainText: v.optional(v.string()),
     descriptionTiptapJson: v.optional(v.string()),
     dueAt: v.optional(v.union(v.number(), v.null())),
@@ -325,11 +325,9 @@ export const updateBuildActionItem = authenticatedMutation
     priority: v.optional(buildActionItemPriorityValidator),
     reason: v.optional(v.string()),
     requiresAcceptance: v.optional(v.boolean()),
-    status: v.optional(buildActionItemStatusValidator),
     title: v.optional(v.string()),
   })
   .returns(v.id("buildActionItems"))
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: One auditable command validates the full Action Item state transition atomically.
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
@@ -348,14 +346,13 @@ export const updateBuildActionItem = authenticatedMutation
         "This Action Item changed since you opened it. Refresh and try again."
       );
     }
-    if (
-      args.requiresAcceptance === false &&
-      mandatoryCompletionAcceptanceApplies(authorization, item) &&
-      retainsCurrentAssignee(item, args.assigneeWorkosUserId)
-    ) {
-      throw new Error(
-        "Completion acceptance is mandatory for this upward assignment."
-      );
+    assertCompletionAcceptanceChange(
+      authorization,
+      item,
+      args.requiresAcceptance
+    );
+    if ((item.workKind ?? "ordinary") !== "ordinary" && args.dueAt === null) {
+      throw new Error("Governed Action Items require a due date.");
     }
     const decisions: BuildActionItemAuthorizationDecision[] = [];
     if (
@@ -369,57 +366,6 @@ export const updateBuildActionItem = authenticatedMutation
       decisions.push(
         assertActionItemOperation(authorization, item, "edit_fields")
       );
-    }
-    const requestedAssignee =
-      args.assigneeWorkosUserId === undefined
-        ? undefined
-        : args.assigneeWorkosUserId?.trim() || null;
-    const assigneeParticipant = requestedAssignee
-      ? authorization.participants.find(
-          (participant) => participant.workosUserId === requestedAssignee
-        )
-      : undefined;
-    if (requestedAssignee !== undefined) {
-      if (requestedAssignee && !assigneeParticipant) {
-        throw new Error("Assignee must actively participate in this Build.");
-      }
-      if (requestedAssignee) {
-        await requirePostReader(
-          ctx,
-          authorization,
-          item.originatingPostId,
-          requestedAssignee
-        );
-      }
-      decisions.push(
-        assertActionItemOperation(authorization, item, "assign", {
-          targetAssignee: assigneeParticipant
-            ? {
-                role: assigneeParticipant.role,
-                workosUserId: assigneeParticipant.workosUserId,
-              }
-            : null,
-        })
-      );
-    }
-    if (args.status !== undefined && args.status !== item.status) {
-      const operation = statusOperation(item, args.status);
-      decisions.push(
-        assertActionItemOperation(authorization, item, operation, {
-          nextStatus: args.status,
-        })
-      );
-      if (
-        (operation === "reopen" || operation === "cancel") &&
-        !args.reason?.trim() &&
-        !(operation === "cancel" && args.cancellationReason?.trim())
-      ) {
-        throw new Error(
-          operation === "reopen"
-            ? "A reason is required to reopen an Action Item."
-            : "A reason is required to cancel an Action Item."
-        );
-      }
     }
     if (decisions.length === 0) {
       throw new Error("No Action Item changes were submitted.");
@@ -452,48 +398,6 @@ export const updateBuildActionItem = authenticatedMutation
     if (args.requiresAcceptance !== undefined) {
       patch.requiresAcceptance = args.requiresAcceptance;
     }
-    if (args.assigneeWorkosUserId !== undefined) {
-      const assignee = requestedAssignee ?? undefined;
-      const upwardAssignment =
-        assigneeParticipant !== undefined &&
-        collaborationRoleTier(assigneeParticipant.role) >
-          authorization.effectiveRole.tier;
-      const requiresAcceptance =
-        (args.requiresAcceptance ?? item.requiresAcceptance) ||
-        upwardAssignment;
-      patch.assigneeWorkosUserId = assignee;
-      patch.assignedByWorkosUserId = assignee
-        ? authorization.viewer.subject
-        : undefined;
-      patch.assignmentState = assignee
-        ? requiresAcceptance || upwardAssignment
-          ? "requested"
-          : "assigned"
-        : "unassigned";
-      patch.requiresAcceptance = requiresAcceptance || upwardAssignment;
-      patch.assignmentRequestedAt =
-        patch.assignmentState === "requested" ? now : undefined;
-    }
-    if (args.status !== undefined && args.status !== item.status) {
-      assertStatusTransition(item, args.status);
-      patch.status = args.status;
-      patch.previousActiveStatus =
-        args.status === "blocked" || args.status === "cancelled"
-          ? item.status
-          : undefined;
-      patch.blockedReason =
-        args.status === "blocked"
-          ? requireReason(args.blockedReason, "A blocked reason is required.")
-          : undefined;
-      patch.cancellationReason =
-        args.status === "cancelled"
-          ? requireReason(
-              args.cancellationReason,
-              "A cancellation reason is required."
-            )
-          : undefined;
-      patch.completedAt = args.status === "done" ? now : undefined;
-    }
     await ctx.db.patch(item._id, patch);
     const updatedItem = await ctx.db.get(item._id);
     if (!updatedItem) {
@@ -510,10 +414,7 @@ export const updateBuildActionItem = authenticatedMutation
       exercisedAuthority: decisions[0]?.authority,
       newState: JSON.stringify(actionItemAuditState(updatedItem)),
       organizationId: authorization.organizationId,
-      reason:
-        args.reason?.trim() ??
-        args.cancellationReason?.trim() ??
-        args.blockedReason?.trim(),
+      reason: args.reason?.trim(),
       revision: item.currentRevision + 1,
       warnings: [
         ...new Set(
@@ -528,74 +429,7 @@ export const updateBuildActionItem = authenticatedMutation
       authorization,
       item: updatedItem,
       now,
-      reason:
-        args.reason?.trim() ??
-        args.cancellationReason?.trim() ??
-        args.blockedReason?.trim(),
-    });
-    if (args.status !== undefined && args.status !== item.status) {
-      await updateOriginatingPostOpenCount(ctx, item.originatingPostId);
-    }
-    return item._id;
-  })
-  .public();
-
-export const acceptBuildActionItemAssignment = authenticatedMutation
-  .input({
-    actionItemId: v.id("buildActionItems"),
-    buildId: v.id("activeBuilds"),
-    expectedRevision: v.optional(v.number()),
-    organizationId: v.string(),
-  })
-  .returns(v.id("buildActionItems"))
-  .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
-      ctx,
-      args
-    );
-    const item = await requireReadableActionItem(
-      ctx,
-      authorization,
-      args.actionItemId
-    );
-    assertExpectedRevision(item, args.expectedRevision);
-    const decision = assertActionItemOperation(
-      authorization,
-      item,
-      "accept_assignment"
-    );
-    if (item.assignmentState !== "requested") {
-      throw new Error("This assignment is not awaiting acceptance.");
-    }
-    const now = Date.now();
-    await ctx.db.patch(item._id, {
-      assignmentState: "assigned",
-      currentRevision: item.currentRevision + 1,
-      updatedAt: now,
-    });
-    await ctx.db.insert("buildActionItemEvents", {
-      actionItemId: item._id,
-      actorRole: authorization.effectiveRole.role,
-      actorWorkosUserId: authorization.viewer.subject,
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
-      createdAt: now,
-      eventType: "assignment_accepted",
-      exercisedAuthority: decision.authority,
-      newState: JSON.stringify({ assignmentState: "assigned" }),
-      organizationId: authorization.organizationId,
-      priorState: JSON.stringify({ assignmentState: "requested" }),
-      revision: item.currentRevision + 1,
-    });
-    const updatedItem = await ctx.db.get(item._id);
-    if (!updatedItem) {
-      throw new Error("Action Item became unavailable during update.");
-    }
-    await recordBuildActionItemRevision(ctx, {
-      authorization,
-      item: updatedItem,
-      now,
-      reason: "Assignment accepted",
+      reason: args.reason?.trim(),
     });
     return item._id;
   })
@@ -925,30 +759,20 @@ function mandatoryCompletionAcceptanceApplies(
   );
 }
 
-function retainsCurrentAssignee(
+function assertCompletionAcceptanceChange(
+  authorization: Awaited<
+    ReturnType<typeof authorizeActiveBuildCollaborationAccess>
+  >,
   item: Doc<"buildActionItems">,
-  submittedAssignee: string | null | undefined
+  submittedRequiresAcceptance: boolean | undefined
 ) {
-  return (
-    submittedAssignee === undefined ||
-    (submittedAssignee?.trim() || undefined) === item.assigneeWorkosUserId
-  );
-}
-
-function statusOperation(
-  item: Doc<"buildActionItems">,
-  nextStatus: Doc<"buildActionItems">["status"]
-): BuildActionItemOperation {
-  if (nextStatus === "done") {
-    return "complete";
+  if (
+    submittedRequiresAcceptance === false &&
+    (actionItemRequiresAcceptance(item) ||
+      mandatoryCompletionAcceptanceApplies(authorization, item))
+  ) {
+    throw new Error("Completion acceptance is mandatory for this Action Item.");
   }
-  if (item.status === "done" || item.status === "cancelled") {
-    return "reopen";
-  }
-  if (nextStatus === "cancelled") {
-    return "cancel";
-  }
-  return "transition";
 }
 
 async function requirePostReader(
@@ -1007,6 +831,47 @@ async function requireRelationshipReaderParity(
   }
 }
 
+async function requireActionItemCreationPost(
+  ctx: MutationCtx,
+  authorization: ActionItemAuthorization,
+  postId: Id<"buildCollaborationPosts">
+) {
+  const post = await ctx.db.get(postId);
+  if (
+    !post ||
+    post.buildId !== authorization.build._id ||
+    post.organizationId !== authorization.organizationId ||
+    !(await canReadCollaborationPost(ctx, authorization, post))
+  ) {
+    throw new Error("Action Item parent post is unavailable.");
+  }
+  return post;
+}
+
+function requiredActionItemTitle(submittedTitle: string) {
+  const title = submittedTitle.trim();
+  if (!title) {
+    throw new Error("Action Item title is required.");
+  }
+  return title;
+}
+
+function resolveNewActionItemWorkKind(
+  submittedWorkKind: Doc<"buildActionItems">["workKind"] | undefined,
+  references: CanonicalBuildCollaborationReference[],
+  dueAt: number | undefined
+) {
+  const inferredWorkKind = inferredActionItemWorkKind(references);
+  const workKind =
+    submittedWorkKind && submittedWorkKind !== "ordinary"
+      ? submittedWorkKind
+      : inferredWorkKind;
+  if (workKind !== "ordinary" && dueAt === undefined) {
+    throw new Error("Governed Action Items require a due date.");
+  }
+  return workKind;
+}
+
 async function resolveNewActionItemAssignment(
   ctx: MutationCtx,
   authorization: Awaited<
@@ -1039,7 +904,7 @@ async function resolveNewActionItemAssignment(
   return {
     assignee,
     assignmentState: assignee
-      ? requiresAcceptance
+      ? upwardAssignment
         ? ("requested" as const)
         : ("assigned" as const)
       : ("unassigned" as const),
@@ -1292,37 +1157,6 @@ async function recordChildActionItemMutation(
   });
 }
 
-function assertStatusTransition(
-  item: Doc<"buildActionItems">,
-  next: Doc<"buildActionItems">["status"]
-) {
-  if (item.status === "blocked") {
-    if (
-      next !== "cancelled" &&
-      (!item.previousActiveStatus || next !== item.previousActiveStatus)
-    ) {
-      throw new Error(
-        "Unblocking must restore the Action Item's preceding active state."
-      );
-    }
-    return;
-  }
-  const allowed: Record<
-    Doc<"buildActionItems">["status"],
-    Doc<"buildActionItems">["status"][]
-  > = {
-    blocked: [],
-    cancelled: ["todo", "in_progress"],
-    done: ["in_progress", "cancelled"],
-    in_progress: ["in_review", "blocked", "done", "cancelled"],
-    in_review: ["in_progress", "blocked", "done", "cancelled"],
-    todo: ["in_progress", "blocked", "cancelled"],
-  };
-  if (!allowed[item.status].includes(next)) {
-    throw new Error(`Action Item cannot move from ${item.status} to ${next}.`);
-  }
-}
-
 function actionItemAuditState(item: Doc<"buildActionItems">) {
   return {
     assigneeWorkosUserId: item.assigneeWorkosUserId ?? null,
@@ -1344,12 +1178,25 @@ function actionItemAuditState(item: Doc<"buildActionItems">) {
   };
 }
 
-function requireReason(value: string | null | undefined, errorMessage: string) {
-  const reason = value?.trim();
-  if (!reason) {
-    throw new Error(errorMessage);
+function inferredActionItemWorkKind(
+  references: CanonicalBuildCollaborationReference[]
+): Doc<"buildActionItems">["workKind"] {
+  if (references.some((reference) => reference.entityKind === "draw")) {
+    return "draw_blocker";
   }
-  return reason;
+  if (references.some((reference) => reference.entityKind === "siteVisit")) {
+    return "site_visit_remediation";
+  }
+  if (
+    references.some(
+      (reference) =>
+        reference.entityKind === "evidencePackage" ||
+        reference.entityKind === "evidenceAsset"
+    )
+  ) {
+    return "evidence";
+  }
+  return "ordinary";
 }
 
 export function validateTiptapJson(value: string) {
@@ -1361,25 +1208,6 @@ export function validateTiptapJson(value: string) {
   } catch {
     throw new Error("Action Item description must be valid TipTap JSON.");
   }
-}
-
-async function updateOriginatingPostOpenCount(
-  ctx: MutationCtx,
-  postId: Id<"buildCollaborationPosts">
-) {
-  const openItems = await ctx.db
-    .query("buildActionItems")
-    .withIndex("by_originatingPostId_and_status", (query) =>
-      query.eq("originatingPostId", postId)
-    )
-    .take(MAX_ACTION_ITEMS_PER_BUILD);
-  const openActionItemCount = openItems.filter(
-    (item) => item.status !== "done" && item.status !== "cancelled"
-  ).length;
-  await ctx.db.patch(postId, {
-    openActionItemCount,
-    updatedAt: Date.now(),
-  });
 }
 
 async function wouldCreateBlockingCycle(

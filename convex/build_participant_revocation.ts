@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { actionItemRequiresAcceptance } from "./build_action_item_governance";
 import { buildCollaborationRoleValidator } from "./build_collaboration_validators";
 import { enqueueParticipantRevocationNotifications } from "./build_participant_revocation_notifications";
 import { internalMutation } from "./fluent";
@@ -79,7 +80,7 @@ export async function processParticipantRevocationCleanupBatch(
       assignmentRequestedAt: undefined,
       assignmentState: "unassigned",
       currentRevision: revision,
-      requiresAcceptance: false,
+      requiresAcceptance: actionItemRequiresAcceptance(item),
       unassignmentReason: "participant_removed",
       updatedAt: now,
     });
@@ -95,12 +96,14 @@ export async function processParticipantRevocationCleanupBatch(
       newState: JSON.stringify({
         assigneeWorkosUserId: null,
         assignmentState: "unassigned",
+        requiresAcceptance: actionItemRequiresAcceptance(item),
         unassignmentReason: "participant_removed",
       }),
       organizationId: participant.organizationId,
       priorState: JSON.stringify({
         assigneeWorkosUserId: item.assigneeWorkosUserId,
         assignmentState: item.assignmentState,
+        requiresAcceptance: item.requiresAcceptance,
       }),
       reason: input.reason,
       revision,

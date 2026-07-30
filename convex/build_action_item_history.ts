@@ -8,6 +8,12 @@ export function buildActionItemRevisionSnapshot(item: Doc<"buildActionItems">) {
     blockedReason: item.blockedReason ?? null,
     cancellationReason: item.cancellationReason ?? null,
     completedAt: item.completedAt ?? null,
+    completedByWorkosUserId: item.completedByWorkosUserId ?? null,
+    completionAcceptedByWorkosUserId:
+      item.completionAcceptedByWorkosUserId ?? null,
+    completionRequestedAt: item.completionRequestedAt ?? null,
+    completionRequestedByWorkosUserId:
+      item.completionRequestedByWorkosUserId ?? null,
     creatorWorkosUserId: item.creatorWorkosUserId,
     descriptionPlainText: item.descriptionPlainText,
     descriptionTiptapJson: item.descriptionTiptapJson,
@@ -17,6 +23,7 @@ export function buildActionItemRevisionSnapshot(item: Doc<"buildActionItems">) {
     revision: item.currentRevision,
     status: item.status,
     title: item.title,
+    workKind: item.workKind ?? "ordinary",
   };
 }
 
