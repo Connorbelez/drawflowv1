@@ -9,6 +9,7 @@ import {
   buildCollaborationRoleValidator,
   buildParticipantStatusValidator,
 } from "./build_collaboration_validators";
+import { beginBuildParticipantActivation } from "./build_participant_activation";
 import { processParticipantRevocationCleanupBatch } from "./build_participant_revocation";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
@@ -142,13 +143,16 @@ export const listBuildParticipantHistory = authenticatedQuery
     requireParticipantManager(authorization);
     const periods = (
       await Promise.all(
-        (["invited", "active", "removed"] as const).map((status) =>
-          ctx.db
-            .query("buildParticipants")
-            .withIndex("by_buildId_and_status", (query) =>
-              query.eq("buildId", authorization.build._id).eq("status", status)
-            )
-            .take(MAX_PARTICIPANTS_PER_BUILD)
+        (["invited", "pending_activation", "active", "removed"] as const).map(
+          (status) =>
+            ctx.db
+              .query("buildParticipants")
+              .withIndex("by_buildId_and_status", (query) =>
+                query
+                  .eq("buildId", authorization.build._id)
+                  .eq("status", status)
+              )
+              .take(MAX_PARTICIPANTS_PER_BUILD)
         )
       )
     )
@@ -242,25 +246,10 @@ export const acceptBuildParticipantInvitation = authenticatedMutation
     const now = Date.now();
     await ctx.db.patch(invitation._id, {
       joinedAt: now,
-      status: "active",
+      status: "pending_activation",
       updatedAt: now,
     });
-    await recordParticipantAudit(ctx, {
-      actorRoles: [invitation.role],
-      actorWorkosUserId: ctx.viewer.subject,
-      brokerageId: scope.brokerage._id,
-      buildId: scope.build._id,
-      command: "acceptBuildParticipantInvitation",
-      eventType: "build.participant.accepted",
-      newState: JSON.stringify({
-        participationPeriod: invitation.participationPeriod,
-        role: invitation.role,
-        status: "active",
-      }),
-      organizationId: args.organizationId,
-      participantId: invitation._id,
-      priorState: JSON.stringify({ status: "invited" }),
-    });
+    await beginBuildParticipantActivation(ctx, invitation._id);
     return invitation._id;
   })
   .public();
@@ -282,9 +271,16 @@ export const removeBuildParticipant = authenticatedMutation
     if (
       !participant ||
       participant.buildId !== authorization.build._id ||
-      participant.organizationId !== authorization.organizationId ||
-      (participant.status !== "active" && participant.status !== "invited")
+      participant.organizationId !== authorization.organizationId
     ) {
+      throw new Error("Active Build participant is unavailable.");
+    }
+    if (participant.status === "pending_activation") {
+      throw new Error(
+        "Participant activation is still reconciling and cannot be removed."
+      );
+    }
+    if (!["active", "invited"].includes(participant.status)) {
       throw new Error("Active Build participant is unavailable.");
     }
     requireParticipantManager(authorization, participant.role);
@@ -524,7 +520,7 @@ async function assertParticipantCapacity(
 ) {
   const current = (
     await Promise.all(
-      (["active", "invited"] as const).map((status) =>
+      (["active", "invited", "pending_activation"] as const).map((status) =>
         ctx.db
           .query("buildParticipants")
           .withIndex("by_buildId_and_status", (query) =>

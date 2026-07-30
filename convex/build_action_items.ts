@@ -28,12 +28,11 @@ import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_r
 import {
   buildActionItemPriorityValidator,
   buildActionItemWorkKindValidator,
-  buildActionRelationKindValidator,
 } from "./build_collaboration_validators";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_ACTION_ITEMS_PER_BUILD = 2000;
-const MAX_RELATION_WALK = 2000;
+const MAX_CHILD_ACTION_ITEMS = 250;
 const MAX_CHECKLIST_ITEMS = 250;
 
 export const createBuildActionItem = authenticatedMutation
@@ -43,9 +42,11 @@ export const createBuildActionItem = authenticatedMutation
     descriptionPlainText: v.optional(v.string()),
     descriptionTiptapJson: v.optional(v.string()),
     dueAt: v.optional(v.number()),
+    expectedParentRevision: v.optional(v.number()),
     attachmentAssetIds: v.optional(v.array(v.id("buildCollaborationAssets"))),
     labels: v.optional(v.array(v.string())),
     organizationId: v.string(),
+    parentActionItemId: v.optional(v.id("buildActionItems")),
     postId: v.id("buildCollaborationPosts"),
     priority: v.optional(buildActionItemPriorityValidator),
     references: v.optional(v.array(referenceInputValidator)),
@@ -74,6 +75,13 @@ export const createBuildActionItem = authenticatedMutation
     if (replayActionItemId) {
       return replayActionItemId;
     }
+    const { parentActionItem, parentDecision } =
+      await resolveParentActionItemForCreation(ctx, {
+        authorization,
+        expectedParentRevision: args.expectedParentRevision,
+        parentActionItemId: args.parentActionItemId,
+        postId: post._id,
+      });
     const title = requiredActionItemTitle(args.title);
     const submittedDescriptionTiptapJson =
       args.descriptionTiptapJson ??
@@ -127,6 +135,7 @@ export const createBuildActionItem = authenticatedMutation
       dueAt: args.dueAt,
       originatingPostId: post._id,
       organizationId: authorization.organizationId,
+      parentActionItemId: parentActionItem?._id,
       priority: args.priority ?? "none",
       primaryReferenceId: primaryReference?.entityId,
       primaryReferenceKind: primaryReference?.entityKind,
@@ -149,6 +158,7 @@ export const createBuildActionItem = authenticatedMutation
         assigneeWorkosUserId: assignee,
         assignmentState,
         priority: args.priority ?? "none",
+        parentActionItemId: parentActionItem?._id,
         requiresAcceptance,
         status: "todo",
         title,
@@ -206,6 +216,7 @@ export const createBuildActionItem = authenticatedMutation
         eventType: "build.collaboration.action_item.created",
         newState: JSON.stringify({
           actionItemId,
+          parentActionItemId: parentActionItem?._id,
           postId: post._id,
           revision: 1,
         }),
@@ -227,6 +238,19 @@ export const createBuildActionItem = authenticatedMutation
         status: "pending",
       }),
     ]);
+    if (parentActionItem && parentDecision) {
+      await recordChildActionItemMutation(ctx, {
+        authorization,
+        decision: parentDecision,
+        eventType: "child_action_item_created",
+        item: parentActionItem,
+        newState: JSON.stringify({
+          childActionItemId: actionItemId,
+          title,
+        }),
+        now,
+      });
+    }
     if (requestId) {
       await ctx.db.insert("buildActionItemCreationRequests", {
         actionItemId,
@@ -275,43 +299,131 @@ export const listBuildActionItems = authenticatedQuery
             query.eq("buildId", authorization.build._id)
           )
           .take(MAX_ACTION_ITEMS_PER_BUILD);
-    const readable: Doc<"buildActionItems">[] = [];
-    const postAccess = new Map<string, boolean>();
-    for (const item of items) {
-      if (item.buildId !== authorization.build._id) {
-        continue;
-      }
-      let canRead = postAccess.get(item.originatingPostId);
-      if (canRead === undefined) {
-        const post = await ctx.db.get(item.originatingPostId);
-        canRead = Boolean(
-          post && (await canReadCollaborationPost(ctx, authorization, post))
-        );
-        postAccess.set(item.originatingPostId, canRead);
-      }
-      if (canRead) {
-        readable.push(item);
-      }
+    return await projectBuildActionItemList(ctx, authorization, items);
+  })
+  .public();
+
+async function projectBuildActionItemList(
+  ctx: QueryCtx,
+  authorization: ActionItemAuthorization,
+  items: Doc<"buildActionItems">[]
+) {
+  const readable: Doc<"buildActionItems">[] = [];
+  const postAccess = new Map<string, boolean>();
+  for (const item of items) {
+    if (
+      await canReadActionItemProjection(ctx, authorization, item, postAccess)
+    ) {
+      readable.push(item);
     }
-    return await Promise.all(
-      readable.map(async (item) => ({
-        checklist: await ctx.db
+  }
+  const [activeRelations, suspendedRelations] = await Promise.all([
+    ctx.db
+      .query("buildActionItemRelations")
+      .withIndex("by_buildId_and_status", (query) =>
+        query.eq("buildId", authorization.build._id).eq("status", "active")
+      )
+      .take(MAX_ACTION_ITEMS_PER_BUILD + 1),
+    ctx.db
+      .query("buildActionItemRelations")
+      .withIndex("by_buildId_and_status", (query) =>
+        query.eq("buildId", authorization.build._id).eq("status", "suspended")
+      )
+      .take(MAX_ACTION_ITEMS_PER_BUILD + 1),
+  ]);
+  if (
+    activeRelations.length + suspendedRelations.length >
+    MAX_ACTION_ITEMS_PER_BUILD
+  ) {
+    throw new Error("Build Action Item relationships exceed the safe limit.");
+  }
+  const scopedRelations = [...activeRelations, ...suspendedRelations].filter(
+    (relation): relation is VisibleActionItemRelation =>
+      relation.status !== "superseded" &&
+      relation.organizationId === authorization.organizationId &&
+      relation.brokerageId === authorization.brokerage._id
+  );
+  const readableIds = new Set(readable.map((item) => item._id));
+  const targetIds = [
+    ...new Set(scopedRelations.map((relation) => relation.targetActionItemId)),
+  ].filter((targetId) => !readableIds.has(targetId));
+  const targetItems = await Promise.all(
+    targetIds.map((targetId) => ctx.db.get(targetId))
+  );
+  for (const target of targetItems) {
+    if (
+      target &&
+      (await canReadActionItemProjection(
+        ctx,
+        authorization,
+        target,
+        postAccess
+      ))
+    ) {
+      readableIds.add(target._id);
+    }
+  }
+  const relationsBySource = new Map<
+    Id<"buildActionItems">,
+    VisibleActionItemRelation[]
+  >();
+  for (const relation of scopedRelations) {
+    if (!readableIds.has(relation.targetActionItemId)) {
+      continue;
+    }
+    const rows = relationsBySource.get(relation.sourceActionItemId) ?? [];
+    rows.push(relation);
+    relationsBySource.set(relation.sourceActionItemId, rows);
+  }
+  return await Promise.all(
+    readable.map(async (item) => ({
+      checklist: (
+        await ctx.db
           .query("buildActionItemChecklistItems")
           .withIndex("by_actionItemId_and_order", (query) =>
             query.eq("actionItemId", item._id)
           )
-          .take(MAX_CHECKLIST_ITEMS),
-        item,
-        relations: await ctx.db
-          .query("buildActionItemRelations")
-          .withIndex("by_sourceActionItemId_and_kind", (query) =>
-            query.eq("sourceActionItemId", item._id)
-          )
-          .take(250),
-      }))
-    );
-  })
-  .public();
+          .take(MAX_CHECKLIST_ITEMS)
+      ).filter(
+        (row) =>
+          row.buildId === authorization.build._id &&
+          row.organizationId === authorization.organizationId &&
+          row.brokerageId === authorization.brokerage._id
+      ),
+      item,
+      relations: relationsBySource.get(item._id) ?? [],
+    }))
+  );
+}
+
+async function canReadActionItemProjection(
+  ctx: QueryCtx,
+  authorization: ActionItemAuthorization,
+  item: Doc<"buildActionItems">,
+  postAccess: Map<string, boolean>
+) {
+  if (
+    item.buildId !== authorization.build._id ||
+    item.organizationId !== authorization.organizationId ||
+    item.brokerageId !== authorization.brokerage._id
+  ) {
+    return false;
+  }
+  const cached = postAccess.get(item.originatingPostId);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const post = await ctx.db.get(item.originatingPostId);
+  const canRead = Boolean(
+    post &&
+      post.buildId === authorization.build._id &&
+      post.organizationId === authorization.organizationId &&
+      post.brokerageId === authorization.brokerage._id &&
+      (await canReadCollaborationPost(ctx, authorization, post))
+  );
+  postAccess.set(item.originatingPostId, canRead);
+  return canRead;
+}
 
 export const updateBuildActionItem = authenticatedMutation
   .input({
@@ -435,220 +547,6 @@ export const updateBuildActionItem = authenticatedMutation
   })
   .public();
 
-export const addBuildActionItemChecklistItem = authenticatedMutation
-  .input({
-    actionItemId: v.id("buildActionItems"),
-    buildId: v.id("activeBuilds"),
-    expectedRevision: v.optional(v.number()),
-    label: v.string(),
-    organizationId: v.string(),
-    required: v.optional(v.boolean()),
-  })
-  .returns(v.id("buildActionItemChecklistItems"))
-  .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
-      ctx,
-      args
-    );
-    const item = await requireReadableActionItem(
-      ctx,
-      authorization,
-      args.actionItemId
-    );
-    assertExpectedRevision(item, args.expectedRevision);
-    const decision = assertActionItemOperation(
-      authorization,
-      item,
-      "add_checklist"
-    );
-    const label = args.label.trim();
-    if (!label) {
-      throw new Error("Checklist label is required.");
-    }
-    const existing = await ctx.db
-      .query("buildActionItemChecklistItems")
-      .withIndex("by_actionItemId_and_order", (query) =>
-        query.eq("actionItemId", item._id)
-      )
-      .take(MAX_CHECKLIST_ITEMS);
-    if (existing.length >= MAX_CHECKLIST_ITEMS) {
-      throw new Error(
-        `Action Items may contain at most ${MAX_CHECKLIST_ITEMS} checklist entries.`
-      );
-    }
-    const now = Date.now();
-    const checklistItemId = await ctx.db.insert(
-      "buildActionItemChecklistItems",
-      {
-        actionItemId: item._id,
-        brokerageId: authorization.brokerage._id,
-        buildId: authorization.build._id,
-        completed: false,
-        createdAt: now,
-        label,
-        order: existing.length,
-        organizationId: authorization.organizationId,
-        required: args.required ?? true,
-        updatedAt: now,
-      }
-    );
-    await recordChildActionItemMutation(ctx, {
-      authorization,
-      decision,
-      eventType: "checklist_item_added",
-      item,
-      newState: JSON.stringify({
-        checklistItemId,
-        label,
-        required: args.required ?? true,
-      }),
-      now,
-    });
-    return checklistItemId;
-  })
-  .public();
-
-export const toggleBuildActionItemChecklistItem = authenticatedMutation
-  .input({
-    buildId: v.id("activeBuilds"),
-    checklistItemId: v.id("buildActionItemChecklistItems"),
-    expectedRevision: v.optional(v.number()),
-    organizationId: v.string(),
-  })
-  .returns(v.boolean())
-  .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
-      ctx,
-      args
-    );
-    const checklist = await ctx.db.get(args.checklistItemId);
-    if (!checklist || checklist.buildId !== authorization.build._id) {
-      throw new Error("Checklist entry is unavailable.");
-    }
-    const item = await requireReadableActionItem(
-      ctx,
-      authorization,
-      checklist.actionItemId
-    );
-    assertExpectedRevision(item, args.expectedRevision);
-    const decision = assertActionItemOperation(
-      authorization,
-      item,
-      "toggle_checklist"
-    );
-    const completed = !checklist.completed;
-    const now = Date.now();
-    await ctx.db.patch(checklist._id, {
-      completed,
-      completedAt: completed ? now : undefined,
-      completedByWorkosUserId: completed
-        ? authorization.viewer.subject
-        : undefined,
-      updatedAt: now,
-    });
-    await recordChildActionItemMutation(ctx, {
-      authorization,
-      decision,
-      eventType: "checklist_item_toggled",
-      item,
-      newState: JSON.stringify({
-        checklistItemId: checklist._id,
-        completed,
-      }),
-      now,
-      priorState: JSON.stringify({
-        checklistItemId: checklist._id,
-        completed: checklist.completed,
-      }),
-    });
-    return completed;
-  })
-  .public();
-
-export const linkBuildActionItems = authenticatedMutation
-  .input({
-    buildId: v.id("activeBuilds"),
-    expectedSourceRevision: v.optional(v.number()),
-    kind: buildActionRelationKindValidator,
-    organizationId: v.string(),
-    sourceActionItemId: v.id("buildActionItems"),
-    targetActionItemId: v.id("buildActionItems"),
-  })
-  .returns(v.id("buildActionItemRelations"))
-  .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
-      ctx,
-      args
-    );
-    const [source, target] = await Promise.all([
-      requireReadableActionItem(ctx, authorization, args.sourceActionItemId),
-      requireReadableActionItem(ctx, authorization, args.targetActionItemId),
-    ]);
-    await requireRelationshipReaderParity(
-      ctx,
-      authorization,
-      source,
-      target,
-      args.kind
-    );
-    assertExpectedRevision(source, args.expectedSourceRevision);
-    const decision = assertActionItemOperation(
-      authorization,
-      source,
-      "link_relation"
-    );
-    if (source._id === target._id) {
-      throw new Error("An Action Item cannot relate to itself.");
-    }
-    const existing = await ctx.db
-      .query("buildActionItemRelations")
-      .withIndex("by_sourceActionItemId_and_kind", (query) =>
-        query.eq("sourceActionItemId", source._id).eq("kind", args.kind)
-      )
-      .take(250);
-    const duplicate = existing.find(
-      (relation) =>
-        relation.targetActionItemId === target._id &&
-        relation.status === "active"
-    );
-    if (duplicate) {
-      return duplicate._id;
-    }
-    if (
-      args.kind === "blocks" &&
-      (await wouldCreateBlockingCycle(ctx, source._id, target._id))
-    ) {
-      throw new Error("This blocking relationship would create a cycle.");
-    }
-    const now = Date.now();
-    const relationId = await ctx.db.insert("buildActionItemRelations", {
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
-      createdAt: now,
-      createdByWorkosUserId: authorization.viewer.subject,
-      kind: args.kind,
-      organizationId: authorization.organizationId,
-      sourceActionItemId: source._id,
-      status: "active",
-      targetActionItemId: target._id,
-      updatedAt: now,
-    });
-    await recordChildActionItemMutation(ctx, {
-      authorization,
-      decision,
-      eventType: "relation_linked",
-      item: source,
-      newState: JSON.stringify({
-        kind: args.kind,
-        relationId,
-        targetActionItemId: target._id,
-      }),
-      now,
-    });
-    return relationId;
-  })
-  .public();
-
 export async function requireReadableActionItem(
   ctx: QueryCtx,
   authorization: Awaited<
@@ -660,12 +558,19 @@ export async function requireReadableActionItem(
   if (
     !item ||
     item.buildId !== authorization.build._id ||
-    item.organizationId !== authorization.organizationId
+    item.organizationId !== authorization.organizationId ||
+    item.brokerageId !== authorization.brokerage._id
   ) {
     throw new Error("Action Item is unavailable.");
   }
   const post = await ctx.db.get(item.originatingPostId);
-  if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+  if (
+    !post ||
+    post.buildId !== authorization.build._id ||
+    post.organizationId !== authorization.organizationId ||
+    post.brokerageId !== authorization.brokerage._id ||
+    !(await canReadCollaborationPost(ctx, authorization, post))
+  ) {
     throw new Error("Action Item is unavailable.");
   }
   return item;
@@ -799,38 +704,6 @@ async function requirePostReader(
   }
 }
 
-async function requireRelationshipReaderParity(
-  ctx: MutationCtx,
-  authorization: Awaited<
-    ReturnType<typeof authorizeActiveBuildCollaborationAccess>
-  >,
-  source: Doc<"buildActionItems">,
-  target: Doc<"buildActionItems">,
-  kind: Doc<"buildActionItemRelations">["kind"]
-) {
-  const [sourcePost, targetPost] = await Promise.all([
-    ctx.db.get(source.originatingPostId),
-    ctx.db.get(target.originatingPostId),
-  ]);
-  if (!(sourcePost && targetPost)) {
-    throw new Error("Action Item relationship posts are unavailable.");
-  }
-  const [sourceReaderIds, targetReaderIds] = await Promise.all([
-    resolveCurrentCollaborationPostReaderIds(ctx, authorization, sourcePost),
-    resolveCurrentCollaborationPostReaderIds(ctx, authorization, targetPost),
-  ]);
-  const requiredReaderIds =
-    kind === "blocks" ? targetReaderIds : sourceReaderIds;
-  const readableEntityIds = new Set(
-    kind === "blocks" ? sourceReaderIds : targetReaderIds
-  );
-  if (requiredReaderIds.some((readerId) => !readableEntityIds.has(readerId))) {
-    throw new Error(
-      "Every reader of the dependent Action Item must be able to read the related Action Item."
-    );
-  }
-}
-
 async function requireActionItemCreationPost(
   ctx: MutationCtx,
   authorization: ActionItemAuthorization,
@@ -846,6 +719,63 @@ async function requireActionItemCreationPost(
     throw new Error("Action Item parent post is unavailable.");
   }
   return post;
+}
+
+async function resolveParentActionItemForCreation(
+  ctx: MutationCtx,
+  input: {
+    authorization: ActionItemAuthorization;
+    expectedParentRevision?: number;
+    parentActionItemId?: Id<"buildActionItems">;
+    postId: Id<"buildCollaborationPosts">;
+  }
+) {
+  if (!input.parentActionItemId) {
+    if (input.expectedParentRevision !== undefined) {
+      throw new Error(
+        "A parent Action Item is required with an expected parent revision."
+      );
+    }
+    return {
+      parentActionItem: undefined,
+      parentDecision: undefined,
+    };
+  }
+  const parentActionItem = await requireReadableActionItem(
+    ctx,
+    input.authorization,
+    input.parentActionItemId
+  );
+  if (parentActionItem.originatingPostId !== input.postId) {
+    throw new Error(
+      "A child Action Item must inherit its parent’s originating post."
+    );
+  }
+  if (parentActionItem.parentActionItemId) {
+    throw new Error(
+      "Action Items support only one level of child Action Items."
+    );
+  }
+  const existingChildren = await ctx.db
+    .query("buildActionItems")
+    .withIndex("by_parentActionItemId_and_status", (query) =>
+      query.eq("parentActionItemId", parentActionItem._id)
+    )
+    .take(MAX_CHILD_ACTION_ITEMS + 1);
+  if (existingChildren.length >= MAX_CHILD_ACTION_ITEMS) {
+    throw new Error(
+      "This Action Item has reached the supported child Action Item limit."
+    );
+  }
+  assertExpectedRevision(parentActionItem, input.expectedParentRevision);
+  return {
+    parentActionItem,
+    parentDecision: assertActionItemOperation(
+      input.authorization,
+      parentActionItem,
+      "create_child"
+    ),
+  };
 }
 
 function requiredActionItemTitle(submittedTitle: string) {
@@ -916,6 +846,9 @@ async function resolveNewActionItemAssignment(
 type ActionItemAuthorization = Awaited<
   ReturnType<typeof authorizeActiveBuildCollaborationAccess>
 >;
+type VisibleActionItemRelation = Doc<"buildActionItemRelations"> & {
+  status: "active" | "suspended";
+};
 
 async function resolveActionItemCreationReplay(
   ctx: MutationCtx,
@@ -1208,41 +1141,4 @@ export function validateTiptapJson(value: string) {
   } catch {
     throw new Error("Action Item description must be valid TipTap JSON.");
   }
-}
-
-async function wouldCreateBlockingCycle(
-  ctx: MutationCtx,
-  sourceActionItemId: Id<"buildActionItems">,
-  targetActionItemId: Id<"buildActionItems">
-) {
-  const pending = [targetActionItemId];
-  const visited = new Set<string>();
-  while (pending.length > 0) {
-    const current = pending.shift();
-    if (!current) {
-      continue;
-    }
-    if (current === sourceActionItemId) {
-      return true;
-    }
-    if (visited.has(current)) {
-      continue;
-    }
-    visited.add(current);
-    if (visited.size > MAX_RELATION_WALK) {
-      throw new Error("Action Item relation graph is too large to validate.");
-    }
-    const relations = await ctx.db
-      .query("buildActionItemRelations")
-      .withIndex("by_sourceActionItemId_and_kind", (query) =>
-        query.eq("sourceActionItemId", current).eq("kind", "blocks")
-      )
-      .take(250);
-    for (const relation of relations) {
-      if (relation.status === "active") {
-        pending.push(relation.targetActionItemId);
-      }
-    }
-  }
-  return false;
 }

@@ -15,6 +15,8 @@ export const buildActionItemOperations = [
   "add_checklist",
   "toggle_checklist",
   "link_relation",
+  "create_child",
+  "repair_relation",
 ] as const;
 
 export type BuildActionItemOperation =
@@ -121,6 +123,7 @@ export function authorizeBuildActionItemOperation(input: {
       "assigning_authority",
       "coordinator",
     ],
+    create_child: ["creator", "assignee", "assigning_authority", "coordinator"],
     edit_fields: ["creator", "coordinator"],
     link_relation: [
       "creator",
@@ -128,6 +131,7 @@ export function authorizeBuildActionItemOperation(input: {
       "assigning_authority",
       "coordinator",
     ],
+    repair_relation: ["coordinator"],
     toggle_checklist: [
       "creator",
       "assignee",
@@ -156,6 +160,14 @@ export function authorizeBuildActionItemOperation(input: {
   }
   if (input.operation === "transition") {
     return authorizeTransition(input, authority);
+  }
+  if (input.operation === "repair_relation") {
+    return {
+      allowed:
+        isBuildActionItemCoordinator(input.actor.role) &&
+        coordinatorCanGovern(input.actor.role, input.item.creatorRole),
+      authority: "coordinator",
+    };
   }
   return {
     allowed: allowedAuthorities[input.operation].includes(authority),

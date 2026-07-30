@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button, buttonVariants } from "#/components/ui/button.tsx";
 import { Card, CardPanel } from "#/components/ui/card.tsx";
+import { Checkbox } from "#/components/ui/checkbox.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
@@ -58,6 +59,10 @@ type WorkflowContext = FunctionReturnType<
   typeof api.build_action_item_workflow.getBuildActionItemWorkflowContext
 >;
 type VisibleWorkflowContext = Extract<WorkflowContext, { state: "visible" }>;
+type StructureContext = FunctionReturnType<
+  typeof api.build_action_item_structure.getBuildActionItemStructureContext
+>;
+type VisibleStructureContext = Extract<StructureContext, { state: "visible" }>;
 
 export type BuildActionItemSheetTarget =
   | {
@@ -123,16 +128,22 @@ export function BuildActionItemDetailSheet({
 
 function ActionItemCreatePanel({
   buildId,
+  expectedParentRevision,
   onCreated,
   onOpenChange,
   organizationId,
+  parentActionItemId,
+  parentTitle,
   postId,
   tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
+  expectedParentRevision?: number;
   onCreated?: (actionItemId: Id<"buildActionItems">) => void;
   onOpenChange: (open: boolean) => void;
   organizationId: string;
+  parentActionItemId?: Id<"buildActionItems">;
+  parentTitle?: string;
   postId: Id<"buildCollaborationPosts">;
   tagOptions: CollaborationTagOption[];
 }) {
@@ -187,11 +198,13 @@ function ActionItemCreatePanel({
         descriptionPlainText: plainTextFromDocument(document),
         descriptionTiptapJson: JSON.stringify(document),
         dueAt: dueDate ? new Date(`${dueDate}T12:00:00`).getTime() : undefined,
+        expectedParentRevision,
         labels: labels
           .split(",")
           .map((label) => label.trim())
           .filter(Boolean),
         organizationId,
+        parentActionItemId,
         postId,
         priority,
         references: references.map((reference, index) => ({
@@ -221,12 +234,20 @@ function ActionItemCreatePanel({
     <>
       <SheetHeader>
         <div className="flex items-center gap-2">
-          <Badge variant="outline">New Action Item</Badge>
+          <Badge variant="outline">
+            {parentActionItemId ? "New child" : "New Action Item"}
+          </Badge>
           <Badge variant="secondary">{priority}</Badge>
         </div>
-        <SheetTitle>Create accountable work</SheetTitle>
+        <SheetTitle>
+          {parentActionItemId
+            ? "Create child Action Item"
+            : "Create accountable work"}
+        </SheetTitle>
         <SheetDescription>
-          The Action Item inherits the post audience and cannot widen it.
+          {parentActionItemId
+            ? `Independent work under ${parentTitle ?? "this Action Item"}; visibility remains inherited from the same post.`
+            : "The Action Item inherits the post audience and cannot widen it."}
         </SheetDescription>
       </SheetHeader>
       <SheetPanel className="space-y-5">
@@ -627,6 +648,13 @@ function VisibleActionItemDetail({
           onReferenceOpen={onReferenceOpen}
           tagOptions={tagOptions}
         />
+        <ActionItemStructurePanel
+          buildId={buildId}
+          detail={detail}
+          onReferenceOpen={onReferenceOpen}
+          organizationId={organizationId}
+          tagOptions={tagOptions}
+        />
         <section className="space-y-3">
           <div className="flex items-center gap-2">
             <MessageCircle aria-hidden="true" className="size-4 text-primary" />
@@ -863,6 +891,364 @@ function DetailContext({
           </CardPanel>
         </Card>
       ))}
+    </section>
+  );
+}
+
+function ActionItemStructurePanel({
+  buildId,
+  detail,
+  onReferenceOpen,
+  organizationId,
+  tagOptions,
+}: {
+  buildId: Id<"activeBuilds">;
+  detail: VisibleActionItemDetail;
+  onReferenceOpen: (reference: CollaborationTagReference) => void;
+  organizationId: string;
+  tagOptions: CollaborationTagOption[];
+}) {
+  const structure = useQuery(
+    api.build_action_item_structure.getBuildActionItemStructureContext,
+    {
+      actionItemId: detail.item.actionItemId,
+      buildId,
+      organizationId,
+    }
+  ) as StructureContext | undefined;
+  const addChecklistItem = useMutation(
+    api.build_action_item_structure.addBuildActionItemChecklistItem
+  );
+  const toggleChecklistItem = useMutation(
+    api.build_action_item_structure.toggleBuildActionItemChecklistItem
+  );
+  const linkActionItems = useMutation(
+    api.build_action_item_structure.linkBuildActionItems
+  );
+  const repairRelation = useMutation(
+    api.build_action_item_structure.repairBuildActionItemRelation
+  );
+  const [checklistLabel, setChecklistLabel] = useState("");
+  const [relationKind, setRelationKind] = useState<
+    "blocks" | "duplicate" | "related"
+  >("blocks");
+  const [relatedActionItemId, setRelatedActionItemId] = useState("");
+  const [repairReason, setRepairReason] = useState("");
+  const [creatingChild, setCreatingChild] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const relatedOptions = tagOptions.filter(
+    (option) =>
+      option.kind === "action_item" && option.id !== detail.item.actionItemId
+  );
+
+  if (structure === undefined) {
+    return (
+      <Frame>
+        <FramePanel className="p-4 text-muted-foreground text-sm">
+          Loading children, checklist, and relationships…
+        </FramePanel>
+      </Frame>
+    );
+  }
+  if (structure.state === "revoked") {
+    return null;
+  }
+  const visibleStructure = structure as VisibleStructureContext;
+  const addChecklist = async () => {
+    const label = checklistLabel.trim();
+    if (!(label && !busy)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await addChecklistItem({
+        actionItemId: detail.item.actionItemId,
+        buildId,
+        expectedRevision: detail.item.currentRevision,
+        label,
+        organizationId,
+        required: true,
+      });
+      setChecklistLabel("");
+      toast.success("Checklist step added.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to add checklist step."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const linkRelation = async () => {
+    if (!(relatedActionItemId && !busy)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await linkActionItems({
+        buildId,
+        expectedSourceRevision: detail.item.currentRevision,
+        kind: relationKind,
+        organizationId,
+        sourceActionItemId: detail.item.actionItemId,
+        targetActionItemId: relatedActionItemId as Id<"buildActionItems">,
+      });
+      setRelatedActionItemId("");
+      toast.success("Action Item relationship added.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to link Action Items."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-semibold text-sm">Structured work</h3>
+          <p className="text-muted-foreground text-xs">
+            First-class children carry ownership; checklist steps do not.
+          </p>
+        </div>
+        {visibleStructure.viewerCanCreateChild &&
+        !detail.item.parentActionItemId ? (
+          <Button
+            onClick={() => setCreatingChild(true)}
+            size="sm"
+            variant="outline"
+          >
+            Add child Action Item
+          </Button>
+        ) : null}
+      </div>
+
+      <Frame>
+        <FramePanel className="space-y-3 p-4">
+          <p className="font-medium text-sm">
+            Children · {visibleStructure.children.length}
+          </p>
+          {visibleStructure.children.length === 0 ? (
+            <p className="text-muted-foreground text-xs">
+              No child Action Items.
+            </p>
+          ) : (
+            <div className="grid gap-2">
+              {visibleStructure.children.map((child) => (
+                <Card
+                  className="text-left transition-colors hover:bg-muted/30"
+                  key={child.actionItemId}
+                  onClick={() => {
+                    const option = tagOptions.find(
+                      (candidate) =>
+                        candidate.kind === "action_item" &&
+                        candidate.id === child.actionItemId
+                    );
+                    onReferenceOpen(
+                      option ?? {
+                        eyebrow: "Action Item",
+                        id: child.actionItemId,
+                        kind: "action_item",
+                        label: child.title,
+                        summary: `${child.status.replaceAll("_", " ")} · ${child.priority}`,
+                      }
+                    );
+                  }}
+                  render={<button type="button" />}
+                >
+                  <CardPanel className="flex items-center justify-between gap-3 p-3">
+                    <span className="font-medium text-sm">{child.title}</span>
+                    <span className="text-muted-foreground text-xs">
+                      {child.status.replaceAll("_", " ")}
+                    </span>
+                  </CardPanel>
+                </Card>
+              ))}
+            </div>
+          )}
+        </FramePanel>
+      </Frame>
+
+      <Frame>
+        <FramePanel className="space-y-3 p-4">
+          <p className="font-medium text-sm">
+            Checklist · {visibleStructure.checklist.length}
+          </p>
+          {visibleStructure.checklist.map((row) => (
+            <div
+              className="flex items-center gap-2 text-sm"
+              key={row.checklistItemId}
+            >
+              <Checkbox
+                aria-label={`Mark ${row.label} ${row.completed ? "incomplete" : "complete"}`}
+                checked={row.completed}
+                disabled={busy}
+                onCheckedChange={async () => {
+                  setBusy(true);
+                  try {
+                    await toggleChecklistItem({
+                      buildId,
+                      checklistItemId: row.checklistItemId,
+                      expectedRevision: detail.item.currentRevision,
+                      organizationId,
+                    });
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error
+                        ? error.message
+                        : "Unable to update checklist step."
+                    );
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              />
+              <span className={row.completed ? "line-through opacity-64" : ""}>
+                {row.label}
+              </span>
+            </div>
+          ))}
+          {visibleStructure.viewerCanAddChecklist ? (
+            <div className="flex gap-2">
+              <Input
+                aria-label="New checklist step"
+                onChange={(event) => setChecklistLabel(event.target.value)}
+                placeholder="Add a lightweight step"
+                value={checklistLabel}
+              />
+              <Button disabled={busy} onClick={addChecklist} size="sm">
+                Add
+              </Button>
+            </div>
+          ) : null}
+        </FramePanel>
+      </Frame>
+
+      <Frame>
+        <FramePanel className="space-y-3 p-4">
+          <p className="font-medium text-sm">
+            Relationships · {visibleStructure.relations.length}
+          </p>
+          {visibleStructure.relations.map((relation) => (
+            <Card key={relation.relationId}>
+              <CardPanel className="space-y-2 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">
+                    {relationDirectionLabel(relation)}
+                  </Badge>
+                  <span className="font-medium text-sm">
+                    {relation.otherActionItemTitle ?? "Restricted Action Item"}
+                  </span>
+                  {relation.status === "suspended" ? (
+                    <Badge variant="destructive">Permission conflict</Badge>
+                  ) : null}
+                </div>
+                {relation.status === "suspended" &&
+                relation.sourceRevision !== undefined &&
+                visibleStructure.viewerCanRepairRelations ? (
+                  <div className="flex gap-2">
+                    <Input
+                      aria-label="Relationship repair reason"
+                      onChange={(event) => setRepairReason(event.target.value)}
+                      placeholder="How was access repaired?"
+                      value={repairReason}
+                    />
+                    <Button
+                      disabled={busy || !repairReason.trim()}
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          await repairRelation({
+                            buildId,
+                            expectedSourceRevision: relation.sourceRevision,
+                            organizationId,
+                            reason: repairReason.trim(),
+                            relationId: relation.relationId,
+                          });
+                          setRepairReason("");
+                          toast.success("Relationship restored.");
+                        } catch (error) {
+                          toast.error(
+                            error instanceof Error
+                              ? error.message
+                              : "Unable to repair relationship."
+                          );
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                      size="sm"
+                    >
+                      Restore
+                    </Button>
+                  </div>
+                ) : null}
+              </CardPanel>
+            </Card>
+          ))}
+          {visibleStructure.viewerCanLinkRelation ? (
+            <div className="grid gap-2 sm:grid-cols-[0.8fr_1.2fr_auto]">
+              <Select
+                onValueChange={(value) => {
+                  if (value) {
+                    setRelationKind(
+                      value as "blocks" | "duplicate" | "related"
+                    );
+                  }
+                }}
+                value={relationKind}
+              >
+                <SelectTrigger aria-label="Relationship type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="blocks">Blocks</SelectItem>
+                  <SelectItem value="related">Related</SelectItem>
+                  <SelectItem value="duplicate">Duplicate</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                onValueChange={(value) => setRelatedActionItemId(value ?? "")}
+                value={relatedActionItemId}
+              >
+                <SelectTrigger aria-label="Related Action Item">
+                  <SelectValue placeholder="Choose Action Item" />
+                </SelectTrigger>
+                <SelectContent>
+                  {relatedOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                disabled={busy || !relatedActionItemId}
+                onClick={linkRelation}
+                size="sm"
+              >
+                Link
+              </Button>
+            </div>
+          ) : null}
+        </FramePanel>
+      </Frame>
+
+      <Sheet onOpenChange={setCreatingChild} open={creatingChild}>
+        <SheetPopup side="right" variant="inset">
+          <ActionItemCreatePanel
+            buildId={buildId}
+            expectedParentRevision={detail.item.currentRevision}
+            onOpenChange={setCreatingChild}
+            organizationId={organizationId}
+            parentActionItemId={detail.item.actionItemId}
+            parentTitle={detail.item.title}
+            postId={detail.item.originatingPostId}
+            tagOptions={tagOptions}
+          />
+        </SheetPopup>
+      </Sheet>
     </section>
   );
 }
@@ -1123,19 +1509,22 @@ function effectiveActionItemWorkKind(
   if (references.some((reference) => reference.kind === "draw")) {
     return "draw_blocker";
   }
-  if (references.some((reference) => reference.kind === "siteVisit")) {
+  if (references.some((reference) => reference.kind === "site_visit")) {
     return "site_visit_remediation";
   }
-  if (
-    references.some(
-      (reference) =>
-        reference.kind === "evidencePackage" ||
-        reference.kind === "evidenceAsset"
-    )
-  ) {
+  if (references.some((reference) => reference.kind === "evidence")) {
     return "evidence";
   }
   return "ordinary";
+}
+
+function relationDirectionLabel(
+  relation: VisibleStructureContext["relations"][number]
+) {
+  if (relation.kind === "blocks") {
+    return relation.direction === "outgoing" ? "Blocks" : "Blocked by";
+  }
+  return relation.kind === "duplicate" ? "Duplicate" : "Related";
 }
 
 function transitionLabel(

@@ -34,7 +34,7 @@ const mocks = vi.hoisted(() => ({
   editorReferences: [] as Array<{
     eyebrow: string;
     id: string;
-    kind: "evidenceAsset";
+    kind: "evidence";
     label: string;
     summary: string;
   }>,
@@ -307,6 +307,56 @@ vi.mock("convex/react", () => ({
     }
     if (
       functionName ===
+      "build_action_item_structure:getBuildActionItemStructureContext"
+    ) {
+      return {
+        checklist: [
+          {
+            checklistItemId: "checklist-1",
+            completed: false,
+            label: "Confirm file naming",
+            order: 0,
+            required: true,
+          },
+        ],
+        children: [
+          {
+            actionItemId: "action-child-1",
+            assigneeWorkosUserId: "user-builder",
+            priority: "medium",
+            status: "in_progress",
+            title: "Collect engineer seal",
+          },
+        ],
+        relations: [
+          {
+            direction: "outgoing",
+            kind: "blocks",
+            otherActionItemId: "action-2",
+            otherActionItemTitle: "Release Draw 3",
+            relationId: "relation-1",
+            status: "active",
+          },
+          {
+            direction: "incoming",
+            kind: "related",
+            otherActionItemId: "action-3",
+            otherActionItemTitle: "Foundation inspection",
+            relationId: "relation-2",
+            sourceRevision: 7,
+            status: "suspended",
+            suspensionReason: "permission_conflict",
+          },
+        ],
+        state: "visible",
+        viewerCanAddChecklist: true,
+        viewerCanCreateChild: true,
+        viewerCanLinkRelation: true,
+        viewerCanRepairRelations: true,
+      };
+    }
+    if (
+      functionName ===
       "build_collaboration_threads:listBuildCollaborationComments"
     ) {
       return mocks.commentsLoading ? undefined : mocks.comments;
@@ -386,15 +436,24 @@ vi.mock("convex/react", () => ({
         summary: "Broker on this Build",
       },
       {
-            entityId: "evidence-1",
-            entityKind: "evidenceAsset",
-            eyebrow: "Evidence",
-            href: "/backoffice/builds/build-1?tab=evidence&evidence=evidence-1",
-            label: "Foundation completion photo",
-            searchTerms: ["foundation", "photo"],
-            summary: "Location verified · uploaded today",
-          },
-        ];
+        entityId: "evidence-1",
+        entityKind: "evidenceAsset",
+        eyebrow: "Evidence",
+        href: "/backoffice/builds/build-1?tab=evidence&evidence=evidence-1",
+        label: "Foundation completion photo",
+        searchTerms: ["foundation", "photo"],
+        summary: "Location verified · uploaded today",
+      },
+      {
+        entityId: "action-4",
+        entityKind: "actionItem",
+        eyebrow: "Action Item",
+        href: "?tab=details&focus=actionItem%3Aaction-4",
+        label: "Pour foundation wall",
+        searchTerms: ["foundation", "wall"],
+        summary: "In progress · assigned to Marco Ruiz",
+      },
+    ];
   },
 }));
 
@@ -627,7 +686,7 @@ describe("BuildCollaborationFeed", () => {
       {
         eyebrow: "Evidence",
         id: "evidence-1",
-        kind: "evidenceAsset",
+        kind: "evidence",
         label: "Foundation completion photo",
         summary: "Location verified · uploaded today",
       },
@@ -676,7 +735,7 @@ describe("BuildCollaborationFeed", () => {
           references: [
             expect.objectContaining({
               entityId: "evidence-1",
-              entityKind: "evidenceAsset",
+              entityKind: "evidencePackage",
             }),
           ],
           title: "Review linked evidence",
@@ -707,6 +766,84 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.getByRole("heading", { name: "Foundation completion photo" })
     ).toBeTruthy();
+  });
+
+  test("uses the Action Item detail sheet for children, checklists, relationship conflicts, and repair", async () => {
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open details" }),
+    );
+
+    expect(screen.getByText("Structured work")).toBeTruthy();
+    expect(screen.getByText("Collect engineer seal")).toBeTruthy();
+    expect(screen.getByText("Confirm file naming")).toBeTruthy();
+    expect(screen.getByText("Release Draw 3")).toBeTruthy();
+    expect(screen.getByText("Permission conflict")).toBeTruthy();
+
+    mocks.mutate.mockClear();
+    fireEvent.click(
+      screen.getByLabelText("Mark Confirm file naming complete"),
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        checklistItemId: "checklist-1",
+        expectedRevision: 1,
+        organizationId: "org-1",
+      }),
+    );
+
+    mocks.mutate.mockClear();
+    fireEvent.change(screen.getByLabelText("Relationship repair reason"), {
+      target: { value: "Aligned the post audiences" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        expectedSourceRevision: 7,
+        organizationId: "org-1",
+        reason: "Aligned the post audiences",
+        relationId: "relation-2",
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add child Action Item" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Create child Action Item" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Independent work under Upload engineer seal; visibility remains inherited from the same post.",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Action Item title"), {
+      target: { value: "Confirm engineer seal filename" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mock Action Item description" }),
+    );
+    mocks.mutate.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create Action Item" }),
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedParentRevision: 1,
+          parentActionItemId: "action-1",
+          postId: "post-1",
+          title: "Confirm engineer seal filename",
+        }),
+      ),
+    );
   });
 
   test("executes Action Item workflow transitions from the detail sheet", async () => {

@@ -21,6 +21,7 @@ export const buildCollaborationRoleValidator = v.union(
 
 export const buildParticipantStatusValidator = v.union(
   v.literal("invited"),
+  v.literal("pending_activation"),
   v.literal("active"),
   v.literal("removed")
 );

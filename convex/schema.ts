@@ -3594,14 +3594,32 @@ export default defineSchema({
     sourceActionItemId: v.id("buildActionItems"),
     targetActionItemId: v.id("buildActionItems"),
     kind: buildActionRelationKindValidator,
-    status: v.union(v.literal("active"), v.literal("suspended")),
+    relationshipKey: v.optional(v.string()),
+    status: v.union(
+      v.literal("active"),
+      v.literal("suspended"),
+      v.literal("superseded")
+    ),
     suspensionReason: v.optional(v.string()),
+    suspendedAt: v.optional(v.number()),
+    suspendedByWorkosUserId: v.optional(v.string()),
+    restoredAt: v.optional(v.number()),
+    restoredByWorkosUserId: v.optional(v.string()),
+    supersededAt: v.optional(v.number()),
+    supersededByRelationId: v.optional(v.id("buildActionItemRelations")),
     createdByWorkosUserId: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_buildId_and_relationshipKey", ["buildId", "relationshipKey"])
+    .index("by_buildId_and_status", ["buildId", "status"])
     .index("by_sourceActionItemId_and_kind", ["sourceActionItemId", "kind"])
-    .index("by_targetActionItemId_and_kind", ["targetActionItemId", "kind"]),
+    .index("by_sourceActionItemId_and_status", ["sourceActionItemId", "status"])
+    .index("by_targetActionItemId_and_kind", ["targetActionItemId", "kind"])
+    .index("by_targetActionItemId_and_status", [
+      "targetActionItemId",
+      "status",
+    ]),
   buildActionItemChecklistItems: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

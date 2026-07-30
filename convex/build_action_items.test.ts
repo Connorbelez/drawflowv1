@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -164,6 +164,7 @@ async function seedActionItemBuild() {
   return {
     admin,
     base,
+    brokerageId: foundation.brokerageId,
     buildId,
     postId,
     builder: withIdentity(base, {
@@ -1122,7 +1123,7 @@ describe("Build Action Item server authorization", () => {
 
     await expect(
       fixture.builder.mutation(
-        (api as any).build_action_items.linkBuildActionItems,
+        (api as any).build_action_item_structure.linkBuildActionItems,
         {
           buildId: fixture.buildId,
           kind: "blocks",
@@ -1133,6 +1134,1022 @@ describe("Build Action Item server authorization", () => {
       )
     ).rejects.toThrow(
       "Every reader of the dependent Action Item must be able to read the related Action Item."
+    );
+  });
+
+  test("supports one level of first-class child work beside non-assignable checklist rows", async () => {
+    const fixture = await seedActionItemBuild();
+    const parentActionItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Coordinate foundation closeout",
+      }
+    );
+    const childActionItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_reader",
+        buildId: fixture.buildId,
+        descriptionTiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Upload the final footing photo.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+        expectedParentRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        parentActionItemId,
+        postId: fixture.postId,
+        title: "Upload final footing photo",
+      }
+    );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_items.createBuildActionItem,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          parentActionItemId: childActionItemId,
+          postId: fixture.postId,
+          title: "Disallowed grandchild",
+        }
+      )
+    ).rejects.toThrow("only one level of child Action Items");
+
+    const checklistItemId = await fixture.creator.mutation(
+      (api as any).build_action_item_structure
+        .addBuildActionItemChecklistItem,
+      {
+        actionItemId: parentActionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 2,
+        label: "Confirm file naming",
+        organizationId: ORGANIZATION_ID,
+        required: true,
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_structure
+        .toggleBuildActionItemChecklistItem,
+      {
+        buildId: fixture.buildId,
+        checklistItemId,
+        expectedRevision: 3,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.reader.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: childActionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        nextStatus: "in_progress",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+
+    const structure = await fixture.creator.query(
+      (api as any).build_action_item_structure
+        .getBuildActionItemStructureContext,
+      {
+        actionItemId: parentActionItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(structure).toMatchObject({
+      checklist: [
+        {
+          checklistItemId,
+          completed: true,
+          label: "Confirm file naming",
+          required: true,
+        },
+      ],
+      children: [
+        {
+          actionItemId: childActionItemId,
+          assigneeWorkosUserId: "user_contractor_reader",
+          status: "in_progress",
+          title: "Upload final footing photo",
+        },
+      ],
+      state: "visible",
+      viewerCanCreateChild: true,
+    });
+    expect(structure.checklist[0]).not.toHaveProperty("assigneeWorkosUserId");
+
+    const persisted = await fixture.base.run(async (ctx) => ({
+      child: await ctx.db.get(
+        childActionItemId as Id<"buildActionItems">
+      ),
+      parent: await ctx.db.get(
+        parentActionItemId as Id<"buildActionItems">
+      ),
+    }));
+    expect(persisted.child?.parentActionItemId).toBe(parentActionItemId);
+    expect(persisted.parent?.status).toBe("todo");
+  });
+
+  test("never exposes an unreadable relationship endpoint from the legacy Action Item list", async () => {
+    const fixture = await seedActionItemBuild();
+    const restrictedPostId = await fixture.builder.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "author_tier_and_higher",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Builder-only dependent work.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                { text: "Builder-only dependent work.", type: "text" },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      }
+    );
+    const sourceId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Build-wide blocker",
+      }
+    );
+    const restrictedTargetId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: restrictedPostId,
+        title: "Restricted dependent",
+      }
+    );
+    await fixture.builder.mutation(
+      (api as any).build_action_item_structure.linkBuildActionItems,
+      {
+        buildId: fixture.buildId,
+        kind: "blocks",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: sourceId,
+        targetActionItemId: restrictedTargetId,
+      }
+    );
+    const list = await fixture.reader.query(
+      (api as any).build_action_items.listBuildActionItems,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(
+      list.find((row: any) => row.item._id === sourceId)?.relations
+    ).toEqual([]);
+    expect(JSON.stringify(list)).not.toContain(String(restrictedTargetId));
+
+    const structure = await fixture.reader.query(
+      (api as any).build_action_item_structure
+        .getBuildActionItemStructureContext,
+      {
+        actionItemId: sourceId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(structure.relations).toEqual([
+      expect.objectContaining({ kind: "blocks" }),
+    ]);
+    expect(structure.relations[0]).not.toHaveProperty("otherActionItemId");
+    expect(structure.relations[0]).not.toHaveProperty("otherActionItemTitle");
+  });
+
+  test("keeps dependency, related, and duplicate links cycle-free, idempotent, and visible from both items", async () => {
+    const fixture = await seedActionItemBuild();
+    const [firstId, secondId, thirdId] = await Promise.all(
+      ["Excavate", "Inspect", "Release"].map((title) =>
+        fixture.creator.mutation(
+          (api as any).build_action_items.createBuildActionItem,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            postId: fixture.postId,
+            title,
+          }
+        )
+      )
+    );
+    const firstRelationId = await fixture.creator.mutation(
+      (api as any).build_action_item_structure.linkBuildActionItems,
+      {
+        buildId: fixture.buildId,
+        expectedSourceRevision: 1,
+        kind: "blocks",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: firstId,
+        targetActionItemId: secondId,
+      }
+    );
+    await expect(
+      fixture.reader.mutation(
+        (api as any).build_action_item_structure.linkBuildActionItems,
+        {
+          buildId: fixture.buildId,
+          kind: "blocks",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: firstId,
+          targetActionItemId: secondId,
+        }
+      )
+    ).rejects.toThrow("Forbidden: Action Item link relation authority");
+    await expect(
+      fixture.reader.mutation(
+        (api as any).build_action_item_structure
+          .repairBuildActionItemRelation,
+        {
+          buildId: fixture.buildId,
+          expectedSourceRevision: 2,
+          organizationId: ORGANIZATION_ID,
+          reason: "Unauthorized replay",
+          relationId: firstRelationId,
+        }
+      )
+    ).rejects.toThrow("Forbidden: Action Item repair relation authority");
+    await fixture.creator.mutation(
+      (api as any).build_action_item_structure.linkBuildActionItems,
+      {
+        buildId: fixture.buildId,
+        expectedSourceRevision: 2,
+        kind: "blocks",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: secondId,
+        targetActionItemId: thirdId,
+      }
+    );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_structure.linkBuildActionItems,
+        {
+          buildId: fixture.buildId,
+          kind: "blocks",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: thirdId,
+          targetActionItemId: firstId,
+        }
+      )
+    ).rejects.toThrow("would create a cycle");
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_structure.linkBuildActionItems,
+        {
+          buildId: fixture.buildId,
+          kind: "related",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: firstId,
+          targetActionItemId: firstId,
+        }
+      )
+    ).rejects.toThrow("cannot relate to itself");
+
+    const relatedIds = await Promise.all([
+      fixture.creator.mutation(
+        (api as any).build_action_item_structure.linkBuildActionItems,
+        {
+          buildId: fixture.buildId,
+          expectedSourceRevision: 2,
+          kind: "related",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: firstId,
+          targetActionItemId: thirdId,
+        }
+      ),
+      fixture.creator.mutation(
+        (api as any).build_action_item_structure.linkBuildActionItems,
+        {
+          buildId: fixture.buildId,
+          expectedSourceRevision: 2,
+          kind: "related",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: firstId,
+          targetActionItemId: thirdId,
+        }
+      ),
+    ]);
+    expect(new Set(relatedIds).size).toBe(1);
+    await fixture.creator.mutation(
+      (api as any).build_action_item_structure.linkBuildActionItems,
+      {
+        buildId: fixture.buildId,
+        kind: "duplicate",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: thirdId,
+        targetActionItemId: secondId,
+      }
+    );
+
+    const firstStructure = await fixture.creator.query(
+      (api as any).build_action_item_structure
+        .getBuildActionItemStructureContext,
+      {
+        actionItemId: firstId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const thirdStructure = await fixture.creator.query(
+      (api as any).build_action_item_structure
+        .getBuildActionItemStructureContext,
+      {
+        actionItemId: thirdId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(firstStructure.relations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          direction: "outgoing",
+          kind: "blocks",
+          otherActionItemId: secondId,
+          status: "active",
+        }),
+        expect.objectContaining({
+          kind: "related",
+          otherActionItemId: thirdId,
+          status: "active",
+        }),
+      ])
+    );
+    expect(thirdStructure.relations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          direction: "incoming",
+          kind: "related",
+          otherActionItemId: firstId,
+        }),
+        expect.objectContaining({
+          kind: "duplicate",
+          otherActionItemId: secondId,
+        }),
+      ])
+    );
+    const relationEvents = await fixture.base.run(async (ctx) => {
+      const firstEvents = await ctx.db
+        .query("buildActionItemEvents")
+        .withIndex("by_actionItemId_and_createdAt", (query) =>
+          query.eq("actionItemId", firstId)
+        )
+        .collect();
+      const thirdEvents = await ctx.db
+        .query("buildActionItemEvents")
+        .withIndex("by_actionItemId_and_createdAt", (query) =>
+          query.eq("actionItemId", thirdId)
+        )
+        .collect();
+      return { firstEvents, thirdEvents };
+    });
+    expect(
+      relationEvents.firstEvents.some(
+        (event) => event.eventType === "relation_linked"
+      )
+    ).toBe(true);
+    expect(
+      relationEvents.thirdEvents.some(
+        (event) => event.eventType === "relation_linked"
+      )
+    ).toBe(true);
+    const detail = await fixture.creator.query(
+      (api as any).build_action_item_details.getBuildActionItemDetail,
+      {
+        actionItemId: firstId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(detail.activity).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ eventType: "relation_linked" }),
+      ])
+    );
+
+    const legacyRelations = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      const directId = await ctx.db.insert("buildActionItemRelations", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        createdByWorkosUserId: "user_builder",
+        kind: "related",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: secondId,
+        status: "active",
+        targetActionItemId: firstId,
+        updatedAt: now,
+      });
+      const reverseId = await ctx.db.insert("buildActionItemRelations", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now + 1,
+        createdByWorkosUserId: "user_builder",
+        kind: "related",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: firstId,
+        status: "active",
+        targetActionItemId: secondId,
+        updatedAt: now + 1,
+      });
+      return { directId, reverseId };
+    });
+    const replayedLegacyRelationId = await fixture.creator.mutation(
+      (api as any).build_action_item_structure.linkBuildActionItems,
+      {
+        buildId: fixture.buildId,
+        kind: "related",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: firstId,
+        targetActionItemId: secondId,
+      }
+    );
+    expect(replayedLegacyRelationId).toBe(legacyRelations.directId);
+    const reconciledLegacy = await fixture.base.run(async (ctx) => ({
+      audits: (await ctx.db.query("auditEvents").collect()).filter(
+        (event) => event.eventType === "build.collaboration.action_item.relation_superseded"
+      ),
+      direct: await ctx.db.get(legacyRelations.directId),
+      endpointEvents: (
+        await ctx.db
+          .query("buildActionItemEvents")
+          .withIndex("by_actionItemId_and_createdAt", (query) =>
+            query.eq("actionItemId", firstId)
+          )
+          .collect()
+      ).filter((event) => event.eventType === "relation_superseded"),
+      reverse: await ctx.db.get(legacyRelations.reverseId),
+    }));
+    const upgradedLegacyRelation = reconciledLegacy.direct;
+    expect(upgradedLegacyRelation?.relationshipKey).toBe(
+      `related:${[String(firstId), String(secondId)].sort().join(":")}`
+    );
+    expect(reconciledLegacy.reverse).toMatchObject({
+      status: "superseded",
+      supersededByRelationId: legacyRelations.directId,
+    });
+    expect(reconciledLegacy.audits).toHaveLength(1);
+    expect(reconciledLegacy.endpointEvents).toHaveLength(1);
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_item_structure.repairBuildActionItemRelation,
+        {
+          buildId: fixture.buildId,
+          expectedSourceRevision: 0,
+          organizationId: ORGANIZATION_ID,
+          reason: "Attempt to revive a quarantined duplicate",
+          relationId: legacyRelations.reverseId,
+        }
+      )
+    ).rejects.toThrow("Superseded Action Item relationships cannot be repaired");
+    const deduplicatedStructure = await fixture.creator.query(
+      (api as any).build_action_item_structure
+        .getBuildActionItemStructureContext,
+      {
+        actionItemId: firstId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(
+      deduplicatedStructure.relations.filter(
+        (relation: any) =>
+          relation.kind === "related" &&
+          relation.otherActionItemId === secondId
+      )
+    ).toHaveLength(1);
+  });
+
+  test("rejects dependency restoration when the active graph changed into a cycle", async () => {
+    const fixture = await seedActionItemBuild();
+    const [firstId, secondId] = await Promise.all(
+      ["Prepare inspection", "Release inspection"].map((title) =>
+        fixture.builder.mutation(
+          (api as any).build_action_items.createBuildActionItem,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            postId: fixture.postId,
+            title,
+          }
+        )
+      )
+    );
+    await fixture.builder.mutation(
+      (api as any).build_action_item_structure.linkBuildActionItems,
+      {
+        buildId: fixture.buildId,
+        kind: "blocks",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: firstId,
+        targetActionItemId: secondId,
+      }
+    );
+    const suspendedRelationId = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("buildActionItemRelations", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        createdByWorkosUserId: "user_builder",
+        kind: "blocks",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: secondId,
+        status: "suspended",
+        suspendedAt: now,
+        suspendedByWorkosUserId: "user_builder",
+        suspensionReason: "permission_conflict",
+        targetActionItemId: firstId,
+        updatedAt: now,
+      });
+    });
+    const second = await fixture.base.run((ctx) =>
+      ctx.db.get(secondId as Id<"buildActionItems">)
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_item_structure
+          .repairBuildActionItemRelation,
+        {
+          buildId: fixture.buildId,
+          expectedSourceRevision: second?.currentRevision ?? -1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Audience repaired",
+          relationId: suspendedRelationId,
+        }
+      )
+    ).rejects.toThrow("would create a cycle");
+    const stillSuspended = await fixture.base.run((ctx) =>
+      ctx.db.get(suspendedRelationId)
+    );
+    expect(stillSuspended?.status).toBe("suspended");
+  });
+
+  test("quarantines malformed cross-Build relations without exposing or mutating their endpoints", async () => {
+    const fixture = await seedActionItemBuild();
+    const parentId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Visible parent",
+      }
+    );
+    const malformed = await fixture.base.run(async (ctx) => {
+      const [brokerage, build, parent] = await Promise.all([
+        ctx.db.get(fixture.brokerageId as Id<"brokerages">),
+        ctx.db.get(fixture.buildId),
+        ctx.db.get(parentId as Id<"buildActionItems">),
+      ]);
+      if (!(brokerage && build && parent)) {
+        throw new Error("Malformed relation fixture is unavailable.");
+      }
+      const {
+        _creationTime: _buildCreationTime,
+        _id: _buildId,
+        ...buildFields
+      } = build;
+      const foreignBuildId = await ctx.db.insert("activeBuilds", {
+        ...buildFields,
+        buildName: "Foreign Build",
+      });
+      const {
+        _creationTime: _itemCreationTime,
+        _id: _itemId,
+        ...itemFields
+      } = parent;
+      const foreignActionItemId = await ctx.db.insert("buildActionItems", {
+        ...itemFields,
+        buildId: foreignBuildId,
+        currentRevision: 11,
+        parentActionItemId: parent._id,
+        title: "Do not disclose this foreign child",
+      });
+      const now = Date.now();
+      const relationId = await ctx.db.insert("buildActionItemRelations", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        createdByWorkosUserId: "user_builder",
+        kind: "related",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: parent._id,
+        status: "active",
+        targetActionItemId: foreignActionItemId,
+        updatedAt: now,
+      });
+      const {
+        _creationTime: _brokerageCreationTime,
+        _id: _brokerageId,
+        ...brokerageFields
+      } = brokerage;
+      const foreignBrokerageId = await ctx.db.insert("brokerages", {
+        ...brokerageFields,
+        workosOrganizationId: "org_foreign_checklist",
+      });
+      const foreignChecklistId = await ctx.db.insert(
+        "buildActionItemChecklistItems",
+        {
+          actionItemId: parent._id,
+          brokerageId: foreignBrokerageId,
+          buildId: fixture.buildId,
+          completed: false,
+          createdAt: now,
+          label: "Do not disclose this foreign checklist",
+          order: 0,
+          organizationId: ORGANIZATION_ID,
+          required: true,
+          updatedAt: now,
+        }
+      );
+      return { foreignActionItemId, foreignChecklistId, relationId };
+    });
+
+    const structure = await fixture.creator.query(
+      (api as any).build_action_item_structure
+        .getBuildActionItemStructureContext,
+      {
+        actionItemId: parentId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(structure.children).toEqual([]);
+    expect(JSON.stringify(structure)).not.toContain(
+      "Do not disclose this foreign child"
+    );
+    expect(JSON.stringify(structure)).not.toContain(
+      "Do not disclose this foreign checklist"
+    );
+    const list = await fixture.creator.query(
+      (api as any).build_action_items.listBuildActionItems,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(JSON.stringify(list)).not.toContain(
+      "Do not disclose this foreign checklist"
+    );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_structure
+          .toggleBuildActionItemChecklistItem,
+        {
+          buildId: fixture.buildId,
+          checklistItemId: malformed.foreignChecklistId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("Checklist entry is unavailable");
+
+    await fixture.builder.mutation(
+      (api as any).build_participants.inviteBuildParticipant,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        role: "contractor",
+        workosUserId: "user_malformed_reconciliation",
+      }
+    );
+    await withIdentity(fixture.base, {
+      role: "contractor",
+      subject: "user_malformed_reconciliation",
+    }).mutation(
+      (api as any).build_participants.acceptBuildParticipantInvitation,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const result = await fixture.base.run(async (ctx) => ({
+      foreign: await ctx.db.get(malformed.foreignActionItemId),
+      relation: await ctx.db.get(malformed.relationId),
+    }));
+    expect(result.foreign?.currentRevision).toBe(11);
+    expect(result.relation).toMatchObject({
+      status: "suspended",
+      suspensionReason: "integrity_conflict",
+    });
+  });
+
+  test("enforces child, per-item relationship, and Build relationship capacity before insert", async () => {
+    const fixture = await seedActionItemBuild();
+    const parentId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Capacity parent",
+      }
+    );
+    const childId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        expectedParentRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        parentActionItemId: parentId,
+        postId: fixture.postId,
+        title: "Capacity child 0",
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      const child = await ctx.db.get(childId as Id<"buildActionItems">);
+      if (!child) {
+        throw new Error("Capacity child fixture is unavailable.");
+      }
+      const {
+        _creationTime: _childCreationTime,
+        _id: _childId,
+        ...childFields
+      } = child;
+      for (let index = 1; index < 250; index += 1) {
+        await ctx.db.insert("buildActionItems", {
+          ...childFields,
+          title: `Capacity child ${index}`,
+        });
+      }
+    });
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_items.createBuildActionItem,
+        {
+          buildId: fixture.buildId,
+          expectedParentRevision: 2,
+          organizationId: ORGANIZATION_ID,
+          parentActionItemId: parentId,
+          postId: fixture.postId,
+          title: "Capacity child 250",
+        }
+      )
+    ).rejects.toThrow("child Action Item limit");
+
+    const [sourceId, targetId, otherTargetId] = await Promise.all(
+      ["Capacity source", "Capacity target", "Other capacity target"].map(
+        (title) =>
+          fixture.creator.mutation(
+            (api as any).build_action_items.createBuildActionItem,
+            {
+              buildId: fixture.buildId,
+              organizationId: ORGANIZATION_ID,
+              postId: fixture.postId,
+              title,
+            }
+          )
+      )
+    );
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 500; index += 1) {
+        await ctx.db.insert("buildActionItemRelations", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: now + index,
+          createdByWorkosUserId: "user_contractor_creator",
+          kind: "related",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: sourceId,
+          status: "active",
+          targetActionItemId: targetId,
+          updatedAt: now + index,
+        });
+      }
+    });
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_structure.linkBuildActionItems,
+        {
+          buildId: fixture.buildId,
+          kind: "related",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: sourceId,
+          targetActionItemId: otherTargetId,
+        }
+      )
+    ).rejects.toThrow("relationship limit");
+
+    const [freshSourceId, freshTargetId] = await Promise.all(
+      ["Fresh capacity source", "Fresh capacity target"].map((title) =>
+        fixture.creator.mutation(
+          (api as any).build_action_items.createBuildActionItem,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            postId: fixture.postId,
+            title,
+          }
+        )
+      )
+    );
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 500; index < 2000; index += 1) {
+        await ctx.db.insert("buildActionItemRelations", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: now + index,
+          createdByWorkosUserId: "user_contractor_creator",
+          kind: "duplicate",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: sourceId,
+          status: "active",
+          targetActionItemId: targetId,
+          updatedAt: now + index,
+        });
+      }
+    });
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_structure.linkBuildActionItems,
+        {
+          buildId: fixture.buildId,
+          kind: "related",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: freshSourceId,
+          targetActionItemId: freshTargetId,
+        }
+      )
+    ).rejects.toThrow("Build has reached");
+  });
+
+  test("suspends permission-conflicted dependencies and requires coordinator repair", async () => {
+    const fixture = await seedActionItemBuild();
+    const contractorParticipantIds = await fixture.base.run(async (ctx) => {
+      const participants = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_status", (query) =>
+          query.eq("buildId", fixture.buildId).eq("status", "active")
+        )
+        .take(20);
+      return participants
+        .filter((participant) => participant.role === "contractor")
+        .map((participant) => participant._id);
+    });
+    for (const participantId of contractorParticipantIds) {
+      await fixture.builder.mutation(
+        (api as any).build_participants.removeBuildParticipant,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          participantId,
+          reason: "Prepare access-conflict scenario",
+        }
+      );
+    }
+    const restrictedPostId = await fixture.builder.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "author_tier_and_higher",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Builder-only dependency.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Builder-only dependency.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      }
+    );
+    const blockerId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: restrictedPostId,
+        title: "Builder review",
+      }
+    );
+    const dependentId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Contractor-visible release",
+      }
+    );
+    const relationId = await fixture.builder.mutation(
+      (api as any).build_action_item_structure.linkBuildActionItems,
+      {
+        buildId: fixture.buildId,
+        kind: "blocks",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: blockerId,
+        targetActionItemId: dependentId,
+      }
+    );
+
+    await fixture.builder.mutation(
+      (api as any).build_participants.reinviteBuildParticipant,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        role: "contractor",
+        workosUserId: "user_contractor_reader",
+      }
+    );
+    await fixture.reader.mutation(
+      (api as any).build_participants.acceptBuildParticipantInvitation,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const suspended = await fixture.base.run((ctx) =>
+      ctx.db.get(relationId as Id<"buildActionItemRelations">)
+    );
+    expect(suspended).toMatchObject({
+      status: "suspended",
+      suspensionReason: "permission_conflict",
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_item_structure
+          .repairBuildActionItemRelation,
+        {
+          buildId: fixture.buildId,
+          expectedSourceRevision: 3,
+          organizationId: ORGANIZATION_ID,
+          reason: "Access repaired",
+          relationId,
+        }
+      )
+    ).rejects.toThrow("permission conflict remains");
+
+    const rejoinedParticipantId = await fixture.base.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("buildParticipants")
+        .withIndex(
+          "by_buildId_and_workosUserId_and_participationPeriod",
+          (query) =>
+            query
+              .eq("buildId", fixture.buildId)
+              .eq("workosUserId", "user_contractor_reader")
+        )
+        .order("desc")
+        .first();
+      if (!participant) {
+        throw new Error("Rejoined participant fixture is unavailable.");
+      }
+      return participant._id;
+    });
+    await fixture.builder.mutation(
+      (api as any).build_participants.removeBuildParticipant,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        participantId: rejoinedParticipantId,
+        reason: "Restore compatible audiences",
+      }
+    );
+    await fixture.builder.mutation(
+      (api as any).build_action_item_structure.repairBuildActionItemRelation,
+      {
+        buildId: fixture.buildId,
+        expectedSourceRevision: 3,
+        organizationId: ORGANIZATION_ID,
+        reason: "Audience compatibility restored",
+        relationId,
+      }
+    );
+    const repaired = await fixture.base.run((ctx) =>
+      ctx.db.get(relationId as Id<"buildActionItemRelations">)
+    );
+    expect(repaired).toMatchObject({ status: "active" });
+    expect(repaired?.suspensionReason).toBeUndefined();
+
+    const events = await readActionItem(fixture, blockerId);
+    expect(events.events.map((event) => event.eventType)).toEqual(
+      expect.arrayContaining(["relation_suspended", "relation_restored"])
     );
   });
 
@@ -1174,6 +2191,188 @@ describe("Build Action Item server authorization", () => {
       assigneeWorkosUserId: "user_late_contractor",
       assignmentState: "assigned",
     });
+  });
+
+  test("keeps accepted participants pending until bounded relationship reconciliation completes", async () => {
+    const fixture = await seedActionItemBuild();
+    const [sourceId, targetId] = await Promise.all(
+      ["Activation source", "Activation target"].map((title) =>
+        fixture.builder.mutation(
+          (api as any).build_action_items.createBuildActionItem,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            postId: fixture.postId,
+            title,
+          }
+        )
+      )
+    );
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 11; index += 1) {
+        await ctx.db.insert("buildActionItemRelations", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: now + index,
+          createdByWorkosUserId: "user_builder",
+          kind: "related",
+          organizationId: ORGANIZATION_ID,
+          sourceActionItemId: sourceId,
+          status: "active",
+          targetActionItemId: targetId,
+          updatedAt: now + index,
+        });
+      }
+    });
+    const pendingActor = withIdentity(fixture.base, {
+      role: "contractor",
+      subject: "user_pending_activation",
+    });
+    await fixture.builder.mutation(
+      (api as any).build_participants.inviteBuildParticipant,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        role: "contractor",
+        workosUserId: "user_pending_activation",
+      }
+    );
+
+    vi.useFakeTimers();
+    try {
+      const participantId = await pendingActor.mutation(
+        (api as any).build_participants.acceptBuildParticipantInvitation,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      );
+      const pending = await fixture.base.run((ctx) =>
+        ctx.db.get(participantId as Id<"buildParticipants">)
+      );
+      expect(pending?.status).toBe("pending_activation");
+      await expect(
+        fixture.builder.mutation(
+          (api as any).build_participants.removeBuildParticipant,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            participantId,
+            reason: "Cancel while activation is reconciling",
+          }
+        )
+      ).rejects.toThrow("activation is still reconciling");
+      await expect(
+        pendingActor.query(
+          (api as any).build_action_items.listBuildActionItems,
+          { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+        )
+      ).rejects.toThrow("Forbidden:");
+
+      await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+      const activated = await fixture.base.run(async (ctx) => ({
+        audits: (await ctx.db.query("auditEvents").collect())
+          .filter((event) => event.entityId === participantId)
+          .map((event) => event.eventType),
+        participant: await ctx.db.get(
+          participantId as Id<"buildParticipants">
+        ),
+      }));
+      expect(activated.participant?.status).toBe("active");
+      expect(activated.audits).toEqual(
+        expect.arrayContaining([
+          "build.participant.activation_pending",
+          "build.participant.accepted",
+        ])
+      );
+      await expect(
+        pendingActor.query(
+          (api as any).build_action_items.listBuildActionItems,
+          { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+        )
+      ).resolves.toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("counts pending activations toward capacity and rejects an over-capacity activation projection", async () => {
+    const fixture = await seedActionItemBuild();
+    const overflowActor = withIdentity(fixture.base, {
+      role: "contractor",
+      subject: "user_activation_overflow",
+    });
+    const pendingIds = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      const ids: Id<"buildParticipants">[] = [];
+      for (let index = 0; index < 497; index += 1) {
+        ids.push(await ctx.db.insert("buildParticipants", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: now + index,
+          displayNameSnapshot: `Pending participant ${index}`,
+          joinedAt: now + index,
+          organizationId: ORGANIZATION_ID,
+          participationPeriod: 1,
+          role: "contractor",
+          status: "pending_activation",
+          updatedAt: now + index,
+          validFrom: now + index,
+          workosUserId: `user_pending_capacity_${index}`,
+        }));
+      }
+      return ids;
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_participants.inviteBuildParticipant,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          role: "contractor",
+          workosUserId: "user_capacity_rejected",
+        }
+      )
+    ).rejects.toThrow("at most 500 current participants");
+
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      for (const participantId of pendingIds) {
+        await ctx.db.patch(participantId, { status: "active", updatedAt: now });
+      }
+      await ctx.db.insert("buildParticipants", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        displayNameSnapshot: "Activation overflow",
+        invitedByWorkosUserId: "user_builder",
+        organizationId: ORGANIZATION_ID,
+        participationPeriod: 1,
+        role: "contractor",
+        status: "invited",
+        updatedAt: now,
+        validFrom: now,
+        workosUserId: "user_activation_overflow",
+      });
+    });
+    await expect(
+      overflowActor.mutation(
+        (api as any).build_participants.acceptBuildParticipantInvitation,
+        { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+      )
+    ).rejects.toThrow("at most 500 active participants");
+    const overflowInvitation = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "user_activation_overflow")
+        )
+        .unique()
+    );
+    expect(overflowInvitation?.status).toBe("invited");
   });
 
   test("removed participants and cross-tenant calls cannot exercise Action Item authority", async () => {

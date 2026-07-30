@@ -118,6 +118,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "convex-test": "^0.0.53",
+    "fast-check": "^4.9.0",
     "jsdom": "^28.1.0",
     "typescript": "^5.7.2",
     "ultracite": "7.6.3",

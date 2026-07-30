@@ -5,6 +5,7 @@ import {
   buildActionAssignmentStateValidator,
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
+  buildActionItemWorkKindValidator,
   buildActionRelationKindValidator,
   buildCollaborationActorKindValidator,
   buildCollaborationAudienceModeValidator,
@@ -227,6 +228,7 @@ export const buildActionItemValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("buildActionItems"),
   assigneeWorkosUserId: v.optional(v.string()),
+  assignedByWorkosUserId: v.optional(v.string()),
   assignmentRequestedAt: v.optional(v.number()),
   assignmentState: buildActionAssignmentStateValidator,
   blockedReason: v.optional(v.string()),
@@ -234,7 +236,12 @@ export const buildActionItemValidator = v.object({
   buildId: v.id("activeBuilds"),
   cancellationReason: v.optional(v.string()),
   completedAt: v.optional(v.number()),
+  completedByWorkosUserId: v.optional(v.string()),
+  completionAcceptedByWorkosUserId: v.optional(v.string()),
+  completionRequestedAt: v.optional(v.number()),
+  completionRequestedByWorkosUserId: v.optional(v.string()),
   createdAt: v.number(),
+  creatorRole: v.optional(buildCollaborationRoleValidator),
   creatorWorkosUserId: v.string(),
   currentRevision: v.number(),
   descriptionPlainText: v.string(),
@@ -251,6 +258,8 @@ export const buildActionItemValidator = v.object({
   status: buildActionItemStatusValidator,
   title: v.string(),
   updatedAt: v.number(),
+  unassignmentReason: v.optional(v.literal("participant_removed")),
+  workKind: v.optional(buildActionItemWorkKindValidator),
 });
 
 export const buildActionItemChecklistValidator = v.object({
