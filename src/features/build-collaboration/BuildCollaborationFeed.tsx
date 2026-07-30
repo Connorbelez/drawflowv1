@@ -368,6 +368,13 @@ export function BuildCollaborationFeed({
       return true;
     });
   }, [feedEntries, filter, search]);
+  const { displayedResults, focusedPostEntry } =
+    focusedCommentCollaborationResults({
+      context: focusedCommentContext,
+      feedEntries,
+      focusedCommentId,
+      visibleResults,
+    });
 
   const resetComposer = () => {
     setHtml("");
@@ -854,9 +861,10 @@ export function BuildCollaborationFeed({
         ) : null}
         <FocusedDiscussionStatus
           focused={Boolean(focusedCommentId)}
+          postHydrated={Boolean(focusedPostEntry)}
           state={focusedCommentContext?.state}
         />
-        {visibleResults.map((entry) =>
+        {displayedResults.map((entry) =>
           entry.kind === "restricted" ? (
             <Frame key={entry.placeholderKey}>
               <FramePanel className="flex min-h-24 items-center justify-center gap-2 text-muted-foreground text-sm">
@@ -2195,15 +2203,17 @@ function SummaryCard({
 
 function FocusedDiscussionStatus({
   focused,
+  postHydrated,
   state,
 }: {
   focused: boolean;
+  postHydrated: boolean;
   state?: "revoked" | "visible";
 }) {
   if (!focused) {
     return null;
   }
-  if (state === undefined) {
+  if (state === undefined || (state === "visible" && !postHydrated)) {
     return (
       <Frame>
         <FramePanel
@@ -2228,6 +2238,37 @@ function FocusedDiscussionStatus({
     );
   }
   return null;
+}
+
+function focusedCommentCollaborationResults({
+  context,
+  feedEntries,
+  focusedCommentId,
+  visibleResults,
+}: {
+  context?:
+    | { state: "revoked" }
+    | { postId: Id<"buildCollaborationPosts">; state: "visible" };
+  feedEntries: CollaborationFeedEntry[];
+  focusedCommentId?: Id<"buildCollaborationComments">;
+  visibleResults: CollaborationFeedEntry[];
+}) {
+  if (!focusedCommentId || context?.state === "revoked") {
+    return { displayedResults: visibleResults, focusedPostEntry: undefined };
+  }
+  if (context?.state !== "visible") {
+    return {
+      displayedResults: [] as CollaborationFeedEntry[],
+      focusedPostEntry: undefined,
+    };
+  }
+  const focusedPostEntry = feedEntries.find(
+    (entry) => entry.kind === "post" && entry.post._id === context.postId
+  );
+  return {
+    displayedResults: focusedPostEntry ? [focusedPostEntry] : [],
+    focusedPostEntry,
+  };
 }
 
 function collaborationReferencesForEditor(

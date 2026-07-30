@@ -993,7 +993,7 @@ describe("Build collaboration thread resolution", () => {
         await ctx.db.insert("buildCollaborationPins", {
           brokerageId: post.brokerageId,
           buildId: fixture.buildId,
-          commentId: comments[1],
+          commentId: comments[0],
           createdAt: Date.now() + index,
           kind: "reply",
           organizationId: ORGANIZATION_ID,
@@ -1002,16 +1002,31 @@ describe("Build collaboration thread resolution", () => {
         });
       }
     });
-    await fixture.builderStaff.mutation(
-      (api as any).build_collaboration_threads.toggleBuildCollaborationPin,
-      {
-        buildId: fixture.buildId,
-        commentId: comments[0],
-        kind: "reply",
-        organizationId: ORGANIZATION_ID,
-        postId,
-      }
+    const pinMigration = await fixture.base.mutation(
+      (internal as any).build_collaboration_pin_migration
+        .normalizeBuildCollaborationPins,
+      { cursor: null }
     );
+    const normalizedPins = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildCollaborationPins")
+        .withIndex(
+          "by_postId_and_commentId_and_workosUserId_and_kind",
+          (query) =>
+            query
+              .eq("postId", postId)
+              .eq("commentId", comments[0])
+              .eq("workosUserId", "user_builder_staff")
+              .eq("kind", "reply")
+        )
+        .collect()
+    );
+    expect(pinMigration).toMatchObject({
+      deletedCount: 20,
+      isDone: true,
+      scannedCount: 21,
+    });
+    expect(normalizedPins).toHaveLength(1);
     await fixture.builderStaff.mutation(
       (api as any).build_collaboration_threads.toggleBuildCollaborationPin,
       {

@@ -41,6 +41,42 @@ const mocks = vi.hoisted(() => ({
   postViewerIsAuthor: true,
 }));
 
+function commentRowFixture(id: string, text: string) {
+  return {
+    comment: {
+      _id: id,
+      authorDisplayNameSnapshot: "Builder Staff",
+      authorRole: "builder-staff",
+      contentState: "active",
+      createdAt: Date.parse("2026-07-28T13:00:00.000Z"),
+      logicalDepth: 0,
+      pinCount: 0,
+      revision: 1,
+      updatedAt: Date.parse("2026-07-28T13:00:00.000Z"),
+      viewerCanAppeal: false,
+      viewerCanModerate: false,
+      viewerCanPin: true,
+      viewerCanResolveAppeal: false,
+      viewerIsAuthor: true,
+      viewerPinned: false,
+    },
+    reactions: [],
+    references: [],
+    revision: {
+      plainText: text,
+      tiptapJson: JSON.stringify({
+        content: [
+          {
+            content: [{ text, type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      }),
+    },
+  };
+}
+
 vi.mock("convex/react", () => ({
   useMutation: () => mocks.mutate,
   usePaginatedQuery: () => ({
@@ -406,42 +442,9 @@ describe("BuildCollaborationFeed", () => {
   });
 
   test("provides a roving keyboard entry point for ordinary discussions", () => {
-    const commentRow = (id: string, text: string) => ({
-      comment: {
-        _id: id,
-        authorDisplayNameSnapshot: "Builder Staff",
-        authorRole: "builder-staff",
-        contentState: "active",
-        createdAt: Date.parse("2026-07-28T13:00:00.000Z"),
-        logicalDepth: 0,
-        pinCount: 0,
-        revision: 1,
-        updatedAt: Date.parse("2026-07-28T13:00:00.000Z"),
-        viewerCanAppeal: false,
-        viewerCanModerate: false,
-        viewerCanPin: true,
-        viewerCanResolveAppeal: false,
-        viewerIsAuthor: true,
-        viewerPinned: false,
-      },
-      reactions: [],
-      references: [],
-      revision: {
-        plainText: text,
-        tiptapJson: JSON.stringify({
-          content: [
-            {
-              content: [{ text, type: "text" }],
-              type: "paragraph",
-            },
-          ],
-          type: "doc",
-        }),
-      },
-    });
     mocks.comments = [
-      commentRow("comment-first", "First reply"),
-      commentRow("comment-second", "Second reply"),
+      commentRowFixture("comment-first", "First reply"),
+      commentRowFixture("comment-second", "Second reply"),
     ];
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
@@ -593,7 +596,9 @@ describe("BuildCollaborationFeed", () => {
   });
 
   test("announces focused discussion hydration before replacing ordinary rows", () => {
-    mocks.comments = [];
+    mocks.comments = [
+      commentRowFixture("comment-ordinary", "Ordinary loaded reply"),
+    ];
     mocks.focusedCommentContext = undefined;
     render(
       <BuildCollaborationFeed
@@ -604,6 +609,33 @@ describe("BuildCollaborationFeed", () => {
     );
 
     expect(screen.getByText("Loading focused discussion…")).toBeTruthy();
+    expect(screen.queryByText("Ordinary loaded reply")).toBeNull();
+  });
+
+  test("keeps focused hydration live while the containing post paginates in", async () => {
+    mocks.feedStatus = "CanLoadMore";
+    mocks.comments = [
+      commentRowFixture("comment-ordinary", "Ordinary loaded reply"),
+    ];
+    mocks.focusedCommentContext = {
+      focusCommentId: "comment-outside-page",
+      postId: "post-outside-page",
+      rows: [
+        commentRowFixture("comment-outside-page", "Focused older reply"),
+      ],
+      state: "visible",
+    };
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="comment:comment-outside-page"
+        organizationId="org-1"
+      />
+    );
+
+    expect(screen.getByText("Loading focused discussion…")).toBeTruthy();
+    expect(screen.queryByText("Ordinary loaded reply")).toBeNull();
+    await waitFor(() => expect(mocks.loadMore).toHaveBeenCalledWith(20));
   });
 
   test("renders a disclosure-safe state when focused discussion access is revoked", () => {

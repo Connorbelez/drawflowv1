@@ -786,9 +786,9 @@ export const toggleBuildCollaborationPin = authenticatedMutation
           .eq("workosUserId", authorization.viewer.subject)
           .eq("kind", args.kind)
       )
-      .collect();
-    if (existing.length > 0) {
-      await Promise.all(existing.map((pin) => ctx.db.delete(pin._id)));
+      .unique();
+    if (existing) {
+      await ctx.db.delete(existing._id);
       return null;
     }
     return await ctx.db.insert("buildCollaborationPins", {
