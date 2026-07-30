@@ -4,17 +4,28 @@ import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
   canReadCollaborationPost,
+  canSeeCollaborationReceipt,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
   type BuildCollaborationRole,
   collaborationRoleTier,
   resolveEffectiveCollaborationRole,
 } from "./build_collaboration_model";
+import {
+  type BuildCollaborationReferenceKind,
+  type CanonicalBuildCollaborationReference,
+  resolveCurrentBuildCollaborationReference,
+} from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import { buildCollaborationRoleValidator } from "./build_collaboration_validators";
+import {
+  buildCollaborationAttachmentKindValidator,
+  buildCollaborationReferenceKindValidator,
+  buildCollaborationRoleValidator,
+} from "./build_collaboration_validators";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_REASON_LENGTH = 2000;
@@ -34,6 +45,35 @@ const moderationContextValidator = v.object({
   canResolveAppeal: v.boolean(),
   caseId: v.optional(v.id("buildCollaborationModerationCases")),
   currentReason: v.optional(v.string()),
+  evidence: v.optional(
+    v.object({
+      attachments: v.array(
+        v.object({
+          attachmentKind: buildCollaborationAttachmentKindValidator,
+          href: v.optional(v.string()),
+          label: v.string(),
+          summary: v.optional(v.string()),
+        })
+      ),
+      plainText: v.string(),
+      receipts: v.array(
+        v.object({
+          lastViewedAt: v.number(),
+          viewerRole: buildCollaborationRoleValidator,
+          workosUserId: v.string(),
+        })
+      ),
+      references: v.array(
+        v.object({
+          entityKind: buildCollaborationReferenceKindValidator,
+          href: v.string(),
+          label: v.string(),
+          summary: v.string(),
+        })
+      ),
+      tiptapJson: v.string(),
+    })
+  ),
   events: v.array(
     v.object({
       actorRole: buildCollaborationRoleValidator,
@@ -160,10 +200,20 @@ export const getBuildCollaborationModerationContext = authenticatedQuery
             )
             .take(100)
         : [];
+    const evidence =
+      maySeeCase && moderationCase
+        ? await moderationEvidenceForViewer(
+            ctx,
+            authorization,
+            entity,
+            moderationCase
+          )
+        : undefined;
     return {
       ...capabilities,
       caseId: maySeeCase ? moderationCase?._id : undefined,
       currentReason: maySeeCase ? moderationCase?.currentReason : undefined,
+      evidence,
       events: events.map((event) => ({
         actorRole: event.actorRole,
         createdAt: event.createdAt,
@@ -520,6 +570,327 @@ async function moderationEvidenceSnapshot(
     receiptIds: receipts.map((receipt) => receipt._id),
     referenceIds: references.map((reference) => reference._id),
   });
+}
+
+interface ModerationEvidenceSnapshotIds {
+  attachmentIds: string[];
+  contentRevisionId?: string;
+  receiptIds: string[];
+  referenceIds: string[];
+}
+
+interface ModerationProjectedAttachment {
+  attachmentKind: "document" | "evidenceAsset" | "collaborationAsset";
+  href?: string;
+  label: string;
+  summary?: string;
+}
+
+interface ModerationProjectedReference {
+  entityKind: BuildCollaborationReferenceKind;
+  href: string;
+  label: string;
+  summary: string;
+}
+
+interface ModerationProjectedReceipt {
+  lastViewedAt: number;
+  viewerRole: BuildCollaborationRole;
+  workosUserId: string;
+}
+
+async function moderationEvidenceForViewer(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  entity: ModeratedEntity,
+  moderationCase: Doc<"buildCollaborationModerationCases">
+) {
+  const snapshot = parseModerationEvidenceSnapshot(
+    moderationCase.evidenceSnapshotJson
+  );
+  const revision = await loadModeratedRevision(ctx, entity, snapshot);
+  if (!revision) {
+    return;
+  }
+  const { canonicalReferences, references } = await loadModerationReferences(
+    ctx,
+    authorization,
+    entity,
+    revision,
+    snapshot.referenceIds
+  );
+  const projected = projectCollaborationRevisionForViewer({
+    references: canonicalReferences,
+    tiptapJson: revision.tiptapJson,
+  });
+  const attachments = await loadModerationAttachments(
+    ctx,
+    authorization,
+    entity,
+    revision,
+    snapshot.attachmentIds
+  );
+  const receipts = await loadModerationReceipts(
+    ctx,
+    authorization,
+    entity,
+    snapshot.receiptIds
+  );
+  return {
+    attachments,
+    plainText: projected.plainText,
+    receipts,
+    references,
+    tiptapJson: projected.tiptapJson,
+  };
+}
+
+async function loadModerationReferences(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  entity: ModeratedEntity,
+  revision:
+    | Doc<"buildCollaborationPostRevisions">
+    | Doc<"buildCollaborationCommentRevisions">,
+  rawReferenceIds: string[]
+) {
+  const canonicalReferences: CanonicalBuildCollaborationReference[] = [];
+  const references: ModerationProjectedReference[] = [];
+  for (const rawReferenceId of rawReferenceIds) {
+    const referenceId = ctx.db.normalizeId(
+      "buildCollaborationReferences",
+      rawReferenceId
+    );
+    const reference = referenceId ? await ctx.db.get(referenceId) : null;
+    if (
+      !reference ||
+      reference.buildId !== authorization.build._id ||
+      reference.organizationId !== authorization.organizationId ||
+      reference.postId !== entity.post._id ||
+      reference.ownerKind !==
+        (entity.entityKind === "post" ? "postRevision" : "commentRevision") ||
+      reference.ownerRecordId !== revision._id
+    ) {
+      continue;
+    }
+    try {
+      const canonical = await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization,
+        entityId: reference.entityId,
+        entityKind: reference.entityKind,
+      });
+      canonicalReferences.push({
+        ...canonical,
+        primary: reference.primary,
+      });
+      references.push({
+        entityKind: reference.entityKind,
+        href: canonical.href,
+        label: canonical.label,
+        summary: canonical.summary,
+      });
+    } catch {
+      // Moderation evidence applies current entity ACLs. Inaccessible linked
+      // records are removed and their rich-text nodes are redacted below.
+    }
+  }
+  return { canonicalReferences, references };
+}
+
+async function loadModerationAttachments(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  entity: ModeratedEntity,
+  revision:
+    | Doc<"buildCollaborationPostRevisions">
+    | Doc<"buildCollaborationCommentRevisions">,
+  rawAttachmentIds: string[]
+) {
+  const attachments: ModerationProjectedAttachment[] = [];
+  for (const rawAttachmentId of rawAttachmentIds) {
+    const attachmentId = ctx.db.normalizeId(
+      "buildCollaborationAttachments",
+      rawAttachmentId
+    );
+    const attachment = attachmentId ? await ctx.db.get(attachmentId) : null;
+    if (
+      !attachment ||
+      attachment.buildId !== authorization.build._id ||
+      attachment.organizationId !== authorization.organizationId ||
+      attachment.ownerKind !==
+        (entity.entityKind === "post" ? "postRevision" : "commentRevision") ||
+      attachment.ownerRecordId !== revision._id
+    ) {
+      continue;
+    }
+    const projectedAttachment = await projectModerationAttachment(
+      ctx,
+      authorization,
+      entity.post,
+      attachment
+    );
+    if (projectedAttachment) {
+      attachments.push(projectedAttachment);
+    }
+  }
+  return attachments;
+}
+
+async function loadModerationReceipts(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  entity: ModeratedEntity,
+  rawReceiptIds: string[]
+) {
+  const receipts: ModerationProjectedReceipt[] = [];
+  for (const rawReceiptId of rawReceiptIds) {
+    const receiptId = ctx.db.normalizeId(
+      "buildCollaborationReceipts",
+      rawReceiptId
+    );
+    const receipt = receiptId ? await ctx.db.get(receiptId) : null;
+    if (
+      receipt?.postId === entity.post._id &&
+      receipt.buildId === authorization.build._id &&
+      receipt.organizationId === authorization.organizationId &&
+      canSeeCollaborationReceipt(authorization, receipt)
+    ) {
+      receipts.push({
+        lastViewedAt: receipt.lastViewedAt,
+        viewerRole: receipt.viewerRole,
+        workosUserId: receipt.workosUserId,
+      });
+    }
+  }
+  return receipts;
+}
+
+function parseModerationEvidenceSnapshot(
+  value: string
+): ModerationEvidenceSnapshotIds {
+  try {
+    const parsed = JSON.parse(value) as Partial<ModerationEvidenceSnapshotIds>;
+    return {
+      attachmentIds: Array.isArray(parsed.attachmentIds)
+        ? parsed.attachmentIds.filter(
+            (id): id is string => typeof id === "string"
+          )
+        : [],
+      contentRevisionId:
+        typeof parsed.contentRevisionId === "string"
+          ? parsed.contentRevisionId
+          : undefined,
+      receiptIds: Array.isArray(parsed.receiptIds)
+        ? parsed.receiptIds.filter((id): id is string => typeof id === "string")
+        : [],
+      referenceIds: Array.isArray(parsed.referenceIds)
+        ? parsed.referenceIds.filter(
+            (id): id is string => typeof id === "string"
+          )
+        : [],
+    };
+  } catch {
+    return { attachmentIds: [], receiptIds: [], referenceIds: [] };
+  }
+}
+
+async function loadModeratedRevision(
+  ctx: QueryCtx,
+  entity: ModeratedEntity,
+  snapshot: ModerationEvidenceSnapshotIds
+) {
+  if (!snapshot.contentRevisionId) {
+    return null;
+  }
+  if (entity.entityKind === "post") {
+    const revisionId = ctx.db.normalizeId(
+      "buildCollaborationPostRevisions",
+      snapshot.contentRevisionId
+    );
+    const revision = revisionId ? await ctx.db.get(revisionId) : null;
+    return revision?.postId === entity.post._id &&
+      revision.buildId === entity.post.buildId &&
+      revision.organizationId === entity.post.organizationId
+      ? revision
+      : null;
+  }
+  const revisionId = ctx.db.normalizeId(
+    "buildCollaborationCommentRevisions",
+    snapshot.contentRevisionId
+  );
+  const revision = revisionId ? await ctx.db.get(revisionId) : null;
+  return revision?.commentId === entity.comment._id &&
+    revision.postId === entity.post._id &&
+    revision.buildId === entity.post.buildId &&
+    revision.organizationId === entity.post.organizationId
+    ? revision
+    : null;
+}
+
+async function projectModerationAttachment(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  post: Doc<"buildCollaborationPosts">,
+  attachment: Doc<"buildCollaborationAttachments">
+) {
+  if (
+    attachment.attachmentKind === "document" ||
+    attachment.attachmentKind === "evidenceAsset"
+  ) {
+    try {
+      const canonical = await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization,
+        entityId: attachment.attachmentId,
+        entityKind:
+          attachment.attachmentKind === "document"
+            ? "document"
+            : "evidenceAsset",
+      });
+      return {
+        attachmentKind: attachment.attachmentKind,
+        href: canonical.href,
+        label: canonical.label,
+        summary: canonical.summary,
+      };
+    } catch {
+      return null;
+    }
+  }
+  const assetId = ctx.db.normalizeId(
+    "buildCollaborationAssets",
+    attachment.attachmentId
+  );
+  const asset = assetId ? await ctx.db.get(assetId) : null;
+  if (
+    !asset ||
+    asset.buildId !== authorization.build._id ||
+    asset.organizationId !== authorization.organizationId ||
+    asset.state !== "available" ||
+    !canReadModerationAsset(authorization, post, asset)
+  ) {
+    return null;
+  }
+  return {
+    attachmentKind: "collaborationAsset" as const,
+    href: undefined,
+    label: asset.fileName,
+    summary: `${asset.mimeType} · ${asset.sizeBytes} bytes`,
+  };
+}
+
+function canReadModerationAsset(
+  authorization: ActiveBuildAuthorization,
+  post: Doc<"buildCollaborationPosts">,
+  asset: Doc<"buildCollaborationAssets">
+) {
+  switch (asset.maximumAudienceMode) {
+    case "build_wide":
+      return true;
+    case "author_tier_and_higher":
+      return authorization.effectiveRole.tier >= post.audienceFloorTier;
+    case "custom":
+      return post.audienceMode === "custom";
+  }
 }
 
 async function patchModeratedContent(

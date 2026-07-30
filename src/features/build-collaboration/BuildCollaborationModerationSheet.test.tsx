@@ -17,6 +17,38 @@ const mocks = vi.hoisted(() => ({
     canResolveAppeal: boolean;
     caseId?: string;
     currentReason?: string;
+    evidence?: {
+      attachments: Array<{
+        attachmentKind:
+          | "document"
+          | "evidenceAsset"
+          | "collaborationAsset";
+        href?: string;
+        label: string;
+        summary?: string;
+      }>;
+      plainText: string;
+      receipts: Array<{
+        lastViewedAt: number;
+        viewerRole:
+          | "admin"
+          | "principle-broker"
+          | "broker"
+          | "builder"
+          | "broker-staff"
+          | "builder-staff"
+          | "homeowner"
+          | "contractor";
+        workosUserId: string;
+      }>;
+      references: Array<{
+        entityKind: "participant";
+        href: string;
+        label: string;
+        summary: string;
+      }>;
+      tiptapJson: string;
+    };
     events: Array<{
       actorRole:
         | "admin"
@@ -51,6 +83,15 @@ vi.mock("convex/react", () => ({
     return mocks.resolve;
   },
   useQuery: () => mocks.context,
+}));
+
+vi.mock("./CollaborationRichTextEditor.tsx", () => ({
+  CollaborationRichTextPreview: ({ value }: { value: string }) => {
+    const document = JSON.parse(value) as {
+      content: Array<{ content: Array<{ text: string }> }>;
+    };
+    return <p>{document.content[0]?.content[0]?.text}</p>;
+  },
 }));
 
 import { BuildCollaborationModerationSheet } from "./BuildCollaborationModerationSheet";
@@ -167,6 +208,40 @@ describe("BuildCollaborationModerationSheet", () => {
       canResolveAppeal: true,
       caseId: "case-1",
       currentReason: "Please restore",
+      evidence: {
+        attachments: [
+          {
+            attachmentKind: "document",
+            href: "/builds/build-1/documents/document-1",
+            label: "Site safety direction.pdf",
+          },
+        ],
+        plainText: "Original safety context",
+        receipts: [
+          {
+            lastViewedAt: Date.UTC(2026, 6, 30, 12, 0),
+            viewerRole: "builder-staff",
+            workosUserId: "builder-staff-user",
+          },
+        ],
+        references: [
+          {
+            entityKind: "participant",
+            href: "/builds/build-1/participants/participant-1",
+            label: "Trade Partner",
+            summary: "Contractor participant",
+          },
+        ],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Original safety context", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
       events: [],
       status: "appealed",
     };
@@ -184,6 +259,14 @@ describe("BuildCollaborationModerationSheet", () => {
         organizationId="org-1"
       />
     );
+
+    expect(screen.getByText("Evidence under review")).toBeTruthy();
+    expect(screen.getByText("Original safety context")).toBeTruthy();
+    expect(screen.getByText("Site safety direction.pdf")).toBeTruthy();
+    expect(screen.getByText("Trade Partner")).toBeTruthy();
+    expect(
+      screen.getByText(/Seen by 1 visible participant/)
+    ).toBeTruthy();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Decision reason" }), {
       target: { value: "Policy permits this context" },

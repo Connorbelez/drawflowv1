@@ -427,10 +427,23 @@ describe("Build collaboration moderation hierarchy", () => {
         postId,
       }
     );
+    await fixture.builderStaff.mutation(
+      (api as any).build_collaboration_threads
+        .markBuildCollaborationPostViewed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
     const evidence = await fixture.base.run(async (ctx) => {
       const post = await ctx.db.get(postId);
       if (!post?.currentRevisionId) {
         throw new Error("Post revision unavailable.");
+      }
+      const build = await ctx.db.get(post.buildId);
+      if (!build) {
+        throw new Error("Build unavailable.");
       }
       const referenceId = await ctx.db.insert("buildCollaborationReferences", {
         brokerageId: post.brokerageId,
@@ -445,10 +458,25 @@ describe("Build collaboration moderation hierarchy", () => {
         postId,
         primary: true,
       });
+      const documentId = await ctx.db.insert("buildDocuments", {
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        contractorVisible: true,
+        createdAt: Date.now(),
+        documentType: "supporting",
+        fileName: "Site safety direction.pdf",
+        mimeType: "application/pdf",
+        organizationId: post.organizationId,
+        proposalId: build.proposalId,
+        sizeBytes: 4200,
+        status: "uploaded",
+        updatedAt: Date.now(),
+        uploadedByWorkosUserId: "user_contractor",
+      });
       const attachmentId = await ctx.db.insert(
         "buildCollaborationAttachments",
         {
-          attachmentId: "retained-document",
+          attachmentId: documentId,
           attachmentKind: "document",
           brokerageId: post.brokerageId,
           buildId: post.buildId,
@@ -575,6 +603,40 @@ describe("Build collaboration moderation hierarchy", () => {
         reason: "This is required site-safety context",
       }
     );
+    const reviewerContext = await fixture.broker.query(
+      (api as any).build_collaboration_moderation
+        .getBuildCollaborationModerationContext,
+      {
+        buildId: fixture.buildId,
+        entityId: postId,
+        entityKind: "post",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(reviewerContext).toMatchObject({
+      canResolveAppeal: true,
+      evidence: {
+        attachments: [
+          expect.objectContaining({
+            attachmentKind: "document",
+            label: "Site safety direction.pdf",
+          }),
+        ],
+        plainText: "Contractor update",
+        receipts: [
+          expect.objectContaining({
+            viewerRole: "builder-staff",
+            workosUserId: "user_builder_staff",
+          }),
+        ],
+        references: [
+          expect.objectContaining({
+            entityKind: "participant",
+            label: "Homeowner Moderator",
+          }),
+        ],
+      },
+    });
     await expect(
       fixture.builderStaff.mutation(
         (api as any).build_collaboration_moderation

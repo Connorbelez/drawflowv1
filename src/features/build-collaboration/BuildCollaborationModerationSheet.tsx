@@ -21,6 +21,7 @@ import {
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { CollaborationRichTextPreview } from "./CollaborationRichTextEditor.tsx";
 import { formatTimestamp, roleLabel } from "./model.ts";
 
 export type BuildCollaborationModerationEntity =
@@ -58,6 +59,45 @@ interface ModerationContext {
     eventType: "appealed" | "moderated" | "restored" | "retained";
     reason: string;
   }>;
+  evidence?: {
+    attachments: Array<{
+      attachmentKind: "collaborationAsset" | "document" | "evidenceAsset";
+      href?: string;
+      label: string;
+      summary?: string;
+    }>;
+    plainText: string;
+    receipts: Array<{
+      lastViewedAt: number;
+      viewerRole:
+        | "admin"
+        | "principle-broker"
+        | "broker"
+        | "builder"
+        | "broker-staff"
+        | "builder-staff"
+        | "homeowner"
+        | "contractor";
+      workosUserId: string;
+    }>;
+    references: Array<{
+      entityKind:
+        | "participant"
+        | "milestone"
+        | "submilestone"
+        | "draw"
+        | "evidencePackage"
+        | "evidenceAsset"
+        | "siteVisit"
+        | "document"
+        | "material"
+        | "actionItem";
+      href: string;
+      label: string;
+      summary: string;
+    }>;
+    tiptapJson: string;
+  };
   status?: "appealed" | "final_retained" | "moderated" | "restored";
 }
 
@@ -259,6 +299,9 @@ function ModerationPanel({
   return (
     <SheetPanel className="space-y-4">
       {context.status ? <ModerationCaseSummary context={context} /> : null}
+      {context.evidence ? (
+        <ModerationEvidenceDossier evidence={context.evidence} />
+      ) : null}
       {operation ? (
         <div className="space-y-2">
           <Label htmlFor="collaboration-moderation-reason">
@@ -282,6 +325,95 @@ function ModerationPanel({
       )}
       <ModerationHistory events={context.events ?? []} />
     </SheetPanel>
+  );
+}
+
+function ModerationEvidenceDossier({
+  evidence,
+}: {
+  evidence: NonNullable<ModerationContext["evidence"]>;
+}) {
+  return (
+    <section className="space-y-2">
+      <div>
+        <h3 className="font-semibold text-sm">Evidence under review</h3>
+        <p className="text-muted-foreground text-xs">
+          Immutable publication evidence, projected through your current
+          permissions.
+        </p>
+      </div>
+      <Frame>
+        <FramePanel className="space-y-3 p-3">
+          <CollaborationRichTextPreview
+            ariaLabel="Moderated content evidence"
+            className="border-0 bg-transparent [&_.ProseMirror]:px-0 [&_.ProseMirror]:py-0"
+            tagOptions={[]}
+            value={evidence.tiptapJson}
+          />
+          {evidence.references.length > 0 ? (
+            <div className="space-y-1">
+              <p className="font-medium text-xs">Referenced work</p>
+              {evidence.references.map((reference) => (
+                <a
+                  className="block text-primary text-sm hover:underline"
+                  href={reference.href}
+                  key={`${reference.entityKind}:${reference.href}`}
+                >
+                  {reference.label}
+                  <span className="block text-muted-foreground text-xs">
+                    {reference.summary}
+                  </span>
+                </a>
+              ))}
+            </div>
+          ) : null}
+          {evidence.attachments.length > 0 ? (
+            <div className="space-y-1">
+              <p className="font-medium text-xs">Attachments</p>
+              {evidence.attachments.map((attachment) =>
+                attachment.href ? (
+                  <a
+                    className="block text-primary text-sm hover:underline"
+                    href={attachment.href}
+                    key={`${attachment.attachmentKind}:${attachment.href}`}
+                  >
+                    {attachment.label}
+                    {attachment.summary ? (
+                      <span className="block text-muted-foreground text-xs">
+                        {attachment.summary}
+                      </span>
+                    ) : null}
+                  </a>
+                ) : (
+                  <div
+                    className="text-sm"
+                    key={`${attachment.attachmentKind}:${attachment.label}`}
+                  >
+                    {attachment.label}
+                    {attachment.summary ? (
+                      <span className="block text-muted-foreground text-xs">
+                        {attachment.summary}
+                      </span>
+                    ) : null}
+                  </div>
+                )
+              )}
+            </div>
+          ) : null}
+          {evidence.receipts.length > 0 ? (
+            <p className="text-muted-foreground text-xs">
+              Seen by {evidence.receipts.length} visible participant
+              {evidence.receipts.length === 1 ? "" : "s"} · latest{" "}
+              {formatTimestamp(
+                Math.max(
+                  ...evidence.receipts.map((receipt) => receipt.lastViewedAt)
+                )
+              )}
+            </p>
+          ) : null}
+        </FramePanel>
+      </Frame>
+    </section>
   );
 }
 
