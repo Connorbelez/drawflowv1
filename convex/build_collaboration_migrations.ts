@@ -61,6 +61,7 @@ export const backfillBuildNotesIntoCollaboration = migrations.define({
       openActionItemCount: 0,
       organizationId: note.organizationId,
       postType: "update",
+      readRevision: 1,
       revision: 1,
       source: "imported",
       threadState: "open",

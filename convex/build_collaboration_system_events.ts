@@ -127,6 +127,7 @@ export const publishBuildCollaborationSystemEvent = internalMutation
       postType: args.postType,
       primaryReferenceId: primaryReference?.entityId,
       primaryReferenceKind: primaryReference?.entityKind,
+      readRevision: 1,
       revision: 1,
       source: "system",
       systemEventKey: args.idempotencyKey,

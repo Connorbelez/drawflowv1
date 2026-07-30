@@ -7,6 +7,7 @@ import {
   canSeeCollaborationReceipt,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { collaborationTombstoneContent } from "./build_collaboration_content";
 import { collaborationFeedResultValidator } from "./build_collaboration_contracts";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
@@ -274,6 +275,7 @@ export async function publishBuildCollaborationBundle(
     postType: bundle.postType,
     primaryReferenceId: primaryReference?.entityId,
     primaryReferenceKind: primaryReference?.entityKind,
+    readRevision: 1,
     revision: 1,
     source: "human",
     threadState: "open",
@@ -435,6 +437,47 @@ export const listBuildCollaborationFeed = authenticatedQuery
             placeholderKey: `unavailable-${placeholderKey}`,
           };
         }
+        if (post.contentState === "tombstoned") {
+          const tombstone = collaborationTombstoneContent("post");
+          return {
+            acknowledgement: { acknowledged: false, required: false },
+            actionItems: [],
+            following: false,
+            kind: "post" as const,
+            pins: [],
+            post: {
+              _creationTime: post._creationTime,
+              _id: post._id,
+              agentDrafted: post.agentDrafted,
+              audienceMode: post.audienceMode,
+              authorDisplayNameSnapshot: post.authorDisplayNameSnapshot,
+              authorRole: post.authorRole,
+              authorWorkosUserId: post.authorWorkosUserId,
+              commentCount: 0,
+              contentState: post.contentState,
+              createdAt: post.createdAt,
+              postType: post.postType,
+              readRevision: post.readRevision ?? post.revision,
+              revision: post.revision,
+              source: post.source,
+              updatedAt: post.updatedAt,
+              viewerIsAuthor:
+                post.authorWorkosUserId === authorization.viewer.subject,
+            },
+            reactions: [],
+            receipts: [],
+            references: [],
+            revision: {
+              _creationTime: revision._creationTime,
+              _id: revision._id,
+              createdAt: post.updatedAt,
+              editReason: undefined,
+              plainText: tombstone.plainText,
+              revision: post.revision,
+              tiptapJson: tombstone.tiptapJson,
+            },
+          };
+        }
         const [
           references,
           actionItems,
@@ -447,7 +490,11 @@ export const listBuildCollaborationFeed = authenticatedQuery
         ] = await Promise.all([
           ctx.db
             .query("buildCollaborationReferences")
-            .withIndex("by_postId", (query) => query.eq("postId", post._id))
+            .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+              query
+                .eq("ownerKind", "postRevision")
+                .eq("ownerRecordId", revision._id)
+            )
             .take(MAX_REFERENCES_PER_BUNDLE),
           ctx.db
             .query("buildActionItems")
@@ -537,9 +584,15 @@ export const listBuildCollaborationFeed = authenticatedQuery
             authorRole: post.authorRole,
             authorWorkosUserId: post.authorWorkosUserId,
             commentCount: post.commentCount,
+            contentState: post.contentState,
             createdAt: post.createdAt,
             postType: post.postType,
+            readRevision: post.readRevision ?? post.revision,
+            revision: post.revision,
             source: post.source,
+            updatedAt: post.updatedAt,
+            viewerIsAuthor:
+              post.authorWorkosUserId === authorization.viewer.subject,
           },
           reactions: reactions.map((reaction) => ({
             _creationTime: reaction._creationTime,
@@ -593,7 +646,10 @@ export const listBuildCollaborationFeed = authenticatedQuery
           revision: {
             _creationTime: revision._creationTime,
             _id: revision._id,
+            createdAt: revision.createdAt,
+            editReason: revision.editReason,
             plainText: revision.plainText,
+            revision: revision.revision,
             tiptapJson: revision.tiptapJson,
           },
         };

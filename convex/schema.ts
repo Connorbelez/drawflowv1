@@ -3068,6 +3068,7 @@ export default defineSchema({
     audienceFloorTier: v.number(),
     currentRevisionId: v.optional(v.id("buildCollaborationPostRevisions")),
     revision: v.number(),
+    readRevision: v.optional(v.number()),
     threadState: buildCollaborationThreadStateValidator,
     contentState: buildCollaborationContentStateValidator,
     acceptedCommentId: v.optional(v.id("buildCollaborationComments")),
@@ -3189,6 +3190,7 @@ export default defineSchema({
     plainText: v.string(),
     contentHash: v.string(),
     authorWorkosUserId: v.string(),
+    authorRole: v.optional(buildCollaborationRoleValidator),
     editReason: v.optional(v.string()),
     createdAt: v.number(),
   })

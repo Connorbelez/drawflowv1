@@ -6,6 +6,7 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { collaborationTombstoneContent } from "./build_collaboration_content";
 import { collaborationCommentRowValidator } from "./build_collaboration_contracts";
 import { canonicalizeTiptapReferences } from "./build_collaboration_publication_bundle";
 import {
@@ -116,6 +117,7 @@ export const addBuildCollaborationComment = authenticatedMutation
     const revisionId = await ctx.db.insert(
       "buildCollaborationCommentRevisions",
       {
+        authorRole: authorization.effectiveRole.role,
         authorWorkosUserId: authorization.viewer.subject,
         brokerageId: authorization.brokerage._id,
         buildId: authorization.build._id,
@@ -192,6 +194,9 @@ export const listBuildCollaborationComments = authenticatedQuery
     if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
       throw new Error("Forbidden: collaboration post");
     }
+    if (post.contentState === "tombstoned") {
+      return [];
+    }
     const comments = await ctx.db
       .query("buildCollaborationComments")
       .withIndex("by_postId_and_createdAt", (query) =>
@@ -201,6 +206,7 @@ export const listBuildCollaborationComments = authenticatedQuery
     return await Promise.all(
       comments.map(async (comment) => {
         const currentRevisionId = comment.currentRevisionId;
+        const tombstoned = comment.contentState === "tombstoned";
         const references = currentRevisionId
           ? await ctx.db
               .query("buildCollaborationReferences")
@@ -214,51 +220,63 @@ export const listBuildCollaborationComments = authenticatedQuery
         const revision = currentRevisionId
           ? await ctx.db.get(currentRevisionId)
           : null;
+        const tombstone = tombstoned
+          ? collaborationTombstoneContent("comment")
+          : null;
         return {
           comment: {
             _creationTime: comment._creationTime,
             _id: comment._id,
             authorDisplayNameSnapshot: comment.authorDisplayNameSnapshot,
+            authorRole: comment.authorRole,
+            contentState: comment.contentState,
             createdAt: comment.createdAt,
             logicalDepth: comment.logicalDepth,
+            revision: comment.revision,
+            updatedAt: comment.updatedAt,
+            viewerIsAuthor:
+              comment.authorWorkosUserId === authorization.viewer.subject,
           },
-          references: await Promise.all(
-            references.map(async (reference) => {
-              try {
-                const current = await resolveCurrentBuildCollaborationReference(
-                  ctx,
-                  {
-                    authorization,
-                    entityId: reference.entityId,
-                    entityKind: reference.entityKind,
+          references: tombstoned
+            ? []
+            : await Promise.all(
+                references.map(async (reference) => {
+                  try {
+                    const current =
+                      await resolveCurrentBuildCollaborationReference(ctx, {
+                        authorization,
+                        entityId: reference.entityId,
+                        entityKind: reference.entityKind,
+                      });
+                    return {
+                      _creationTime: reference._creationTime,
+                      _id: reference._id,
+                      entityId: reference.entityId,
+                      entityKind: reference.entityKind,
+                      labelSnapshot: current.label,
+                      summarySnapshot: current.summary,
+                    };
+                  } catch {
+                    return {
+                      _creationTime: reference._creationTime,
+                      _id: reference._id,
+                      entityId: reference.entityId,
+                      entityKind: reference.entityKind,
+                      labelSnapshot: "Unavailable reference",
+                      summarySnapshot: undefined,
+                    };
                   }
-                );
-                return {
-                  _creationTime: reference._creationTime,
-                  _id: reference._id,
-                  entityId: reference.entityId,
-                  entityKind: reference.entityKind,
-                  labelSnapshot: current.label,
-                  summarySnapshot: current.summary,
-                };
-              } catch {
-                return {
-                  _creationTime: reference._creationTime,
-                  _id: reference._id,
-                  entityId: reference.entityId,
-                  entityKind: reference.entityKind,
-                  labelSnapshot: "Unavailable reference",
-                  summarySnapshot: undefined,
-                };
-              }
-            })
-          ),
+                })
+              ),
           revision: revision
             ? {
                 _creationTime: revision._creationTime,
                 _id: revision._id,
-                plainText: revision.plainText,
-                tiptapJson: revision.tiptapJson,
+                createdAt: tombstoned ? comment.updatedAt : revision.createdAt,
+                editReason: tombstoned ? undefined : revision.editReason,
+                plainText: tombstone?.plainText ?? revision.plainText,
+                revision: comment.revision,
+                tiptapJson: tombstone?.tiptapJson ?? revision.tiptapJson,
               }
             : null,
         };
@@ -442,10 +460,11 @@ export const markBuildCollaborationPostViewed = authenticatedMutation
       )
       .unique();
     const now = Date.now();
+    const readRevision = post.readRevision ?? post.revision;
     if (existing) {
       await ctx.db.patch(existing._id, {
         lastViewedAt: now,
-        latestRevisionViewed: post.revision,
+        latestRevisionViewed: readRevision,
         viewerRole: authorization.effectiveRole.role,
       });
       return existing._id;
@@ -455,11 +474,11 @@ export const markBuildCollaborationPostViewed = authenticatedMutation
       buildId: authorization.build._id,
       firstViewedAt: now,
       lastViewedAt: now,
-      latestRevisionViewed: post.revision,
       organizationId: authorization.organizationId,
       postId: post._id,
       viewerRole: authorization.effectiveRole.role,
       workosUserId: authorization.viewer.subject,
+      latestRevisionViewed: readRevision,
     });
   })
   .public();

@@ -41,7 +41,7 @@ export interface FieldRichTextEditorProps {
   onDocumentChange?: (document: JSONContent, html: string) => void;
   placeholder?: string;
   testId?: string;
-  value: string;
+  value: string | JSONContent;
 }
 
 export function FieldRichTextEditor({
@@ -87,15 +87,19 @@ export function FieldRichTextEditor({
   );
 }
 
-function FieldRichTextValueSync({ value }: { value: string }) {
+function FieldRichTextValueSync({ value }: { value: string | JSONContent }) {
   const { editor } = useCurrentEditor();
 
   useEffect(() => {
     if (!editor) {
       return;
     }
-    const nextValue = value || "<p></p>";
-    if (editor.getHTML() !== nextValue) {
+    const nextValue = typeof value === "string" ? value || "<p></p>" : value;
+    const matches =
+      typeof nextValue === "string"
+        ? editor.getHTML() === nextValue
+        : JSON.stringify(editor.getJSON()) === JSON.stringify(nextValue);
+    if (!matches) {
       editor.commands.setContent(nextValue, { emitUpdate: false });
     }
   }, [editor, value]);

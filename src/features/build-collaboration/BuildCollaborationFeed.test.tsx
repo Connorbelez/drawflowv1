@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   loadMore: vi.fn(),
   mutate: vi.fn().mockResolvedValue(null),
   onOpenReference: vi.fn(),
+  postContentState: "active" as "active" | "tombstoned",
+  postRevision: 1,
 }));
 
 vi.mock("convex/react", () => ({
@@ -53,8 +55,13 @@ vi.mock("convex/react", () => ({
           audienceMode: "build_wide",
           authorDisplayNameSnapshot: "Alex Chen",
           authorRole: "builder",
+          contentState: mocks.postContentState,
           createdAt: Date.parse("2026-07-28T12:00:00.000Z"),
           postType: "update",
+          readRevision: mocks.postRevision,
+          revision: mocks.postRevision,
+          updatedAt: Date.parse("2026-07-28T12:00:00.000Z"),
+          viewerIsAuthor: true,
         },
         reactions: [],
         receipts: [],
@@ -174,7 +181,9 @@ afterEach(() => {
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
   mocks.feedStatus = "Exhausted";
-  mocks.focusedPostId = "post-1";
+    mocks.focusedPostId = "post-1";
+    mocks.postContentState = "active";
+    mocks.postRevision = 1;
 });
 
 describe("BuildCollaborationFeed", () => {
@@ -290,6 +299,18 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.queryByRole("button", { name: "Open focused workspace" }),
     ).toBeNull();
+  });
+
+  test("labels a revised post as edited without treating thread receipt changes as edits", () => {
+    mocks.postRevision = 2;
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        organizationId="org-1"
+      />
+    );
+
+    expect(screen.getByText("Edited")).toBeTruthy();
   });
 
   test("shows the complete effective bundle before a human approves an agent draft", async () => {

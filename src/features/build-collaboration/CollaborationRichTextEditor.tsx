@@ -82,7 +82,7 @@ interface CollaborationRichTextEditorProps {
   ) => void;
   placeholder: string;
   tagOptions: CollaborationTagOption[];
-  value: string;
+  value: string | JSONContent;
 }
 
 interface CollaborationRichTextPreviewProps {

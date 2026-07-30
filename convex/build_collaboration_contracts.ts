@@ -26,15 +26,27 @@ export const collaborationPostSummaryValidator = v.object({
   authorRole: v.optional(buildCollaborationRoleValidator),
   authorWorkosUserId: v.optional(v.string()),
   commentCount: v.number(),
+  contentState: v.union(
+    v.literal("active"),
+    v.literal("tombstoned"),
+    v.literal("moderated")
+  ),
   createdAt: v.number(),
   postType: buildCollaborationPostTypeValidator,
+  readRevision: v.number(),
+  revision: v.number(),
   source: buildCollaborationSourceValidator,
+  updatedAt: v.number(),
+  viewerIsAuthor: v.boolean(),
 });
 
 export const collaborationPostRevisionSummaryValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("buildCollaborationPostRevisions"),
+  createdAt: v.number(),
+  editReason: v.optional(v.string()),
   plainText: v.string(),
+  revision: v.number(),
   tiptapJson: v.string(),
 });
 
@@ -112,14 +124,26 @@ export const collaborationCommentSummaryValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("buildCollaborationComments"),
   authorDisplayNameSnapshot: v.string(),
+  authorRole: buildCollaborationRoleValidator,
+  contentState: v.union(
+    v.literal("active"),
+    v.literal("tombstoned"),
+    v.literal("moderated")
+  ),
   createdAt: v.number(),
   logicalDepth: v.number(),
+  revision: v.number(),
+  updatedAt: v.number(),
+  viewerIsAuthor: v.boolean(),
 });
 
 export const collaborationCommentRevisionSummaryValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("buildCollaborationCommentRevisions"),
+  createdAt: v.number(),
+  editReason: v.optional(v.string()),
   plainText: v.string(),
+  revision: v.number(),
   tiptapJson: v.string(),
 });
 
