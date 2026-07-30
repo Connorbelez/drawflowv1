@@ -1,9 +1,11 @@
+import { ArrowUpRight, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardPanel } from "#/components/ui/card.tsx";
+import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import {
   Select,
@@ -25,11 +27,15 @@ type MoveActionItem = (
 export function BuildCollaborationActionItems({
   actionView,
   items,
+  onCreate,
   onMove,
+  onOpen,
 }: {
   actionView: "board" | "list";
   items: CollaborationActionItem[];
+  onCreate: () => void;
   onMove: MoveActionItem;
+  onOpen: (actionItemId: Id<"buildActionItems">) => void;
 }) {
   const columns: Array<{ label: string; status: ActionStatus }> = [
     { label: "To do", status: "todo" },
@@ -38,48 +44,70 @@ export function BuildCollaborationActionItems({
     { label: "Done", status: "done" },
   ];
 
-  if (items.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed py-8 text-center text-muted-foreground text-sm">
-        No Action Items on this post.
-      </div>
-    );
-  }
-
-  if (actionView === "board") {
-    return (
-      <div className="grid gap-2 lg:grid-cols-4">
-        {columns.map((column) => (
-          <div className="rounded-xl bg-muted/30 p-2" key={column.status}>
-            <p className="mb-2 font-medium text-xs">{column.label}</p>
-            <div className="space-y-2">
-              {items
-                .filter((item) => item.status === column.status)
-                .map((item) => (
-                  <ActionItemCard item={item} key={item._id} onMove={onMove} />
-                ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-2">
-      {items.map((item) => (
-        <ActionItemCard item={item} key={item._id} onMove={onMove} />
-      ))}
-    </div>
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-muted-foreground text-xs">
+          {items.length} {items.length === 1 ? "item" : "items"} anchored to
+          this post
+        </p>
+        <Button onClick={onCreate} size="sm" type="button">
+          <Plus aria-hidden="true" className="size-4" />
+          Add Action Item
+        </Button>
+      </div>
+      {items.length === 0 ? (
+        <Frame>
+          <FramePanel className="border-dashed py-8 text-center text-muted-foreground text-sm">
+            No Action Items on this post yet.
+          </FramePanel>
+        </Frame>
+      ) : actionView === "board" ? (
+        <div className="grid gap-2 lg:grid-cols-4">
+          {columns.map((column) => (
+            <Frame key={column.status}>
+              <FramePanel className="h-full bg-muted/20 p-2">
+                <p className="mb-2 font-medium text-xs">{column.label}</p>
+                <div className="space-y-2">
+                  {items
+                    .filter((item) => item.status === column.status)
+                    .map((item) => (
+                      <ActionItemCard
+                        item={item}
+                        key={item._id}
+                        onMove={onMove}
+                        onOpen={onOpen}
+                      />
+                    ))}
+                </div>
+              </FramePanel>
+            </Frame>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((item) => (
+            <ActionItemCard
+              item={item}
+              key={item._id}
+              onMove={onMove}
+              onOpen={onOpen}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
 function ActionItemCard({
   item,
   onMove,
+  onOpen,
 }: {
   item: CollaborationActionItem;
   onMove: MoveActionItem;
+  onOpen: (actionItemId: Id<"buildActionItems">) => void;
 }) {
   const [pendingTerminalStatus, setPendingTerminalStatus] = useState<
     "blocked" | "cancelled" | null
@@ -128,6 +156,16 @@ function ActionItemCard({
           <p className="font-medium text-sm">{item.title}</p>
           <Badge variant="outline">{item.priority}</Badge>
         </div>
+        <Button
+          className="w-full justify-between"
+          onClick={() => onOpen(item._id)}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Open details
+          <ArrowUpRight aria-hidden="true" className="size-4" />
+        </Button>
         <Select
           onValueChange={(value) => selectStatus(value as ActionStatus)}
           value={item.status}

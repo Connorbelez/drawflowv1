@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { authenticatedMutation, authenticatedQuery } from "./authz";
+import { recordBuildActionItemRevision } from "./build_action_item_history";
 import {
   authorizeBuildActionItemOperation,
   type BuildActionItemAuthorizationDecision,
@@ -13,13 +14,21 @@ import {
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { collaborationRoleTier } from "./build_collaboration_model";
+import {
+  canonicalizeTiptapReferences,
+  referenceInputValidator,
+} from "./build_collaboration_publication_bundle";
+import {
+  type CanonicalBuildCollaborationReference,
+  resolveCanonicalBuildCollaborationReferences,
+} from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
   buildActionRelationKindValidator,
 } from "./build_collaboration_validators";
-import type { Doc, Id, MutationCtx } from "./types";
+import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_ACTION_ITEMS_PER_BUILD = 2000;
 const MAX_RELATION_WALK = 2000;
@@ -32,9 +41,13 @@ export const createBuildActionItem = authenticatedMutation
     descriptionPlainText: v.optional(v.string()),
     descriptionTiptapJson: v.optional(v.string()),
     dueAt: v.optional(v.number()),
+    attachmentAssetIds: v.optional(v.array(v.id("buildCollaborationAssets"))),
+    labels: v.optional(v.array(v.string())),
     organizationId: v.string(),
     postId: v.id("buildCollaborationPosts"),
     priority: v.optional(buildActionItemPriorityValidator),
+    references: v.optional(v.array(referenceInputValidator)),
+    requestId: v.optional(v.string()),
     requiresAcceptance: v.optional(v.boolean()),
     title: v.string(),
   })
@@ -53,14 +66,40 @@ export const createBuildActionItem = authenticatedMutation
     ) {
       throw new Error("Action Item parent post is unavailable.");
     }
+    const { replayActionItemId, requestId } =
+      await resolveActionItemCreationReplay(ctx, {
+        authorization,
+        postId: post._id,
+        requestId: args.requestId,
+      });
+    if (replayActionItemId) {
+      return replayActionItemId;
+    }
     const title = args.title.trim();
     if (!title) {
       throw new Error("Action Item title is required.");
     }
-    const descriptionTiptapJson =
+    const submittedDescriptionTiptapJson =
       args.descriptionTiptapJson ??
       JSON.stringify({ content: [], type: "doc" });
-    validateTiptapJson(descriptionTiptapJson);
+    validateTiptapJson(submittedDescriptionTiptapJson);
+    const readerIds = await resolveCurrentCollaborationPostReaderIds(
+      ctx,
+      authorization,
+      post
+    );
+    const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
+      authorization,
+      readerIds,
+      references: args.references ?? [],
+    });
+    const description = canonicalizeTiptapReferences(
+      submittedDescriptionTiptapJson,
+      references,
+      { allowEmpty: true }
+    );
+    const primaryReference =
+      references.find((reference) => reference.primary) ?? references[0];
     const { assignee, assignmentState, requiresAcceptance, upwardAssignment } =
       await resolveNewActionItemAssignment(ctx, authorization, post._id, {
         assigneeWorkosUserId: args.assigneeWorkosUserId,
@@ -80,12 +119,15 @@ export const createBuildActionItem = authenticatedMutation
       creatorRole: authorization.effectiveRole.role,
       creatorWorkosUserId: authorization.viewer.subject,
       currentRevision: 1,
-      descriptionPlainText: args.descriptionPlainText?.trim() ?? "",
-      descriptionTiptapJson,
+      descriptionPlainText:
+        description.plainText || args.descriptionPlainText?.trim() || "",
+      descriptionTiptapJson: description.tiptapJson,
       dueAt: args.dueAt,
       originatingPostId: post._id,
       organizationId: authorization.organizationId,
       priority: args.priority ?? "none",
+      primaryReferenceId: primaryReference?.entityId,
+      primaryReferenceKind: primaryReference?.entityKind,
       requiresAcceptance,
       status: "todo",
       title,
@@ -112,7 +154,93 @@ export const createBuildActionItem = authenticatedMutation
       revision: 1,
       warnings: upwardAssignment ? ["assignment_requested"] : undefined,
     });
-    await updateOriginatingPostOpenCount(ctx, post._id);
+    const createdItem = await ctx.db.get(actionItemId);
+    if (!createdItem) {
+      throw new Error("Action Item became unavailable during creation.");
+    }
+    await Promise.all([
+      recordBuildActionItemRevision(ctx, {
+        authorization,
+        item: createdItem,
+        now,
+      }),
+      persistBuildActionItemLabels(ctx, {
+        actionItemId,
+        authorization,
+        labels: args.labels ?? [],
+        now,
+      }),
+      persistBuildActionItemAttachments(ctx, {
+        actionItemId,
+        assetIds: args.attachmentAssetIds ?? [],
+        authorization,
+        now,
+        post,
+      }),
+      persistBuildActionItemReferences(ctx, {
+        actionItemId,
+        authorization,
+        now,
+        postId: post._id,
+        references,
+      }),
+      persistBuildActionItemActivity(ctx, {
+        actionItemId,
+        authorization,
+        now,
+        postId: post._id,
+        references,
+      }),
+      ctx.db.insert("auditEvents", {
+        actorRoles: authorization.roles,
+        actorWorkosUserId: authorization.viewer.subject,
+        brokerageId: authorization.brokerage._id,
+        command: "createBuildActionItem",
+        createdAt: now,
+        entityId: actionItemId,
+        entityType: "buildActionItem",
+        eventType: "build.collaboration.action_item.created",
+        newState: JSON.stringify({
+          actionItemId,
+          postId: post._id,
+          revision: 1,
+        }),
+        organizationId: authorization.organizationId,
+        warnings: upwardAssignment ? ["assignment_requested"] : [],
+      }),
+      ctx.db.insert("eventOutbox", {
+        brokerageId: authorization.brokerage._id,
+        createdAt: now,
+        eventType: "build.collaboration.action_item.created",
+        organizationId: authorization.organizationId,
+        payloadPreview: JSON.stringify({
+          actionItemId,
+          buildId: authorization.build._id,
+          postId: post._id,
+        }),
+        relatedEntityId: actionItemId,
+        relatedEntityType: "buildActionItem",
+        status: "pending",
+      }),
+    ]);
+    if (requestId) {
+      await ctx.db.insert("buildActionItemCreationRequests", {
+        actionItemId,
+        brokerageId: authorization.brokerage._id,
+        buildId: authorization.build._id,
+        createdAt: now,
+        creatorWorkosUserId: authorization.viewer.subject,
+        organizationId: authorization.organizationId,
+        postId: post._id,
+        requestId,
+      });
+    }
+    await ctx.db.patch(post._id, {
+      lastMeaningfulActivityAt: now,
+      latestActivityActorWorkosUserId: authorization.viewer.subject,
+      openActionItemCount: post.openActionItemCount + 1,
+      updatedAt: now,
+    });
     return actionItemId;
   })
   .public();
@@ -395,6 +523,15 @@ export const updateBuildActionItem = authenticatedMutation
       ],
       priorState: JSON.stringify(actionItemAuditState(item)),
     });
+    await recordBuildActionItemRevision(ctx, {
+      authorization,
+      item: updatedItem,
+      now,
+      reason:
+        args.reason?.trim() ??
+        args.cancellationReason?.trim() ??
+        args.blockedReason?.trim(),
+    });
     if (args.status !== undefined && args.status !== item.status) {
       await updateOriginatingPostOpenCount(ctx, item.originatingPostId);
     }
@@ -448,6 +585,16 @@ export const acceptBuildActionItemAssignment = authenticatedMutation
       organizationId: authorization.organizationId,
       priorState: JSON.stringify({ assignmentState: "requested" }),
       revision: item.currentRevision + 1,
+    });
+    const updatedItem = await ctx.db.get(item._id);
+    if (!updatedItem) {
+      throw new Error("Action Item became unavailable during update.");
+    }
+    await recordBuildActionItemRevision(ctx, {
+      authorization,
+      item: updatedItem,
+      now,
+      reason: "Assignment accepted",
     });
     return item._id;
   })
@@ -667,8 +814,8 @@ export const linkBuildActionItems = authenticatedMutation
   })
   .public();
 
-async function requireReadableActionItem(
-  ctx: MutationCtx,
+export async function requireReadableActionItem(
+  ctx: QueryCtx,
   authorization: Awaited<
     ReturnType<typeof authorizeActiveBuildCollaborationAccess>
   >,
@@ -900,6 +1047,198 @@ async function resolveNewActionItemAssignment(
   };
 }
 
+type ActionItemAuthorization = Awaited<
+  ReturnType<typeof authorizeActiveBuildCollaborationAccess>
+>;
+
+async function resolveActionItemCreationReplay(
+  ctx: MutationCtx,
+  input: {
+    authorization: ActionItemAuthorization;
+    postId: Id<"buildCollaborationPosts">;
+    requestId?: string;
+  }
+) {
+  const requestId = input.requestId?.trim();
+  if (!requestId) {
+    return { replayActionItemId: undefined, requestId: undefined };
+  }
+  if (requestId.length > 200) {
+    throw new Error("Action Item request IDs may not exceed 200 characters.");
+  }
+  const replay = await ctx.db
+    .query("buildActionItemCreationRequests")
+    .withIndex("by_postId_and_creatorWorkosUserId_and_requestId", (query) =>
+      query
+        .eq("postId", input.postId)
+        .eq("creatorWorkosUserId", input.authorization.viewer.subject)
+        .eq("requestId", requestId)
+    )
+    .unique();
+  return {
+    replayActionItemId: replay?.actionItemId,
+    requestId,
+  };
+}
+
+async function persistBuildActionItemLabels(
+  ctx: MutationCtx,
+  input: {
+    actionItemId: Id<"buildActionItems">;
+    authorization: ActionItemAuthorization;
+    labels: string[];
+    now: number;
+  }
+) {
+  const labelByNormalizedValue = new Map<string, string>();
+  for (const submittedLabel of input.labels) {
+    const label = submittedLabel.trim();
+    const normalizedLabel = label.toLocaleLowerCase();
+    if (label && !labelByNormalizedValue.has(normalizedLabel)) {
+      labelByNormalizedValue.set(normalizedLabel, label);
+    }
+  }
+  const labels = [...labelByNormalizedValue.entries()].slice(0, 20);
+  for (const [normalizedLabel, label] of labels) {
+    if (label.length > 80) {
+      throw new Error("Action Item labels may not exceed 80 characters.");
+    }
+    await ctx.db.insert("buildActionItemLabels", {
+      actionItemId: input.actionItemId,
+      brokerageId: input.authorization.brokerage._id,
+      buildId: input.authorization.build._id,
+      createdAt: input.now,
+      createdByWorkosUserId: input.authorization.viewer.subject,
+      label,
+      normalizedLabel,
+      organizationId: input.authorization.organizationId,
+    });
+  }
+}
+
+async function persistBuildActionItemAttachments(
+  ctx: MutationCtx,
+  input: {
+    actionItemId: Id<"buildActionItems">;
+    assetIds: Id<"buildCollaborationAssets">[];
+    authorization: ActionItemAuthorization;
+    now: number;
+    post: Doc<"buildCollaborationPosts">;
+  }
+) {
+  const assetIds = [...new Set(input.assetIds)];
+  if (assetIds.length > 20) {
+    throw new Error("Action Items may contain at most 20 attachments.");
+  }
+  for (const assetId of assetIds) {
+    const asset = await ctx.db.get(assetId);
+    if (
+      !asset ||
+      asset.organizationId !== input.authorization.organizationId ||
+      asset.brokerageId !== input.authorization.brokerage._id ||
+      asset.buildId !== input.authorization.build._id ||
+      asset.state !== "available" ||
+      (input.post.audienceMode === "build_wide" &&
+        asset.maximumAudienceMode !== "build_wide")
+    ) {
+      throw new Error("An Action Item attachment is unavailable.");
+    }
+    await ctx.db.insert("buildCollaborationAttachments", {
+      attachmentId: asset._id,
+      attachmentKind: "collaborationAsset",
+      brokerageId: input.authorization.brokerage._id,
+      buildId: input.authorization.build._id,
+      createdAt: input.now,
+      createdByWorkosUserId: input.authorization.viewer.subject,
+      organizationId: input.authorization.organizationId,
+      ownerKind: "actionItem",
+      ownerRecordId: input.actionItemId,
+    });
+  }
+}
+
+async function persistBuildActionItemReferences(
+  ctx: MutationCtx,
+  input: {
+    actionItemId: Id<"buildActionItems">;
+    authorization: ActionItemAuthorization;
+    now: number;
+    postId: Id<"buildCollaborationPosts">;
+    references: CanonicalBuildCollaborationReference[];
+  }
+) {
+  for (const reference of input.references) {
+    await ctx.db.insert("buildCollaborationReferences", {
+      brokerageId: input.authorization.brokerage._id,
+      buildId: input.authorization.build._id,
+      createdAt: input.now,
+      entityId: reference.entityId,
+      entityKind: reference.entityKind,
+      labelSnapshot: reference.label,
+      organizationId: input.authorization.organizationId,
+      ownerKind: "actionItem",
+      ownerRecordId: input.actionItemId,
+      postId: input.postId,
+      primary: reference.primary ?? false,
+      summarySnapshot: reference.summary,
+    });
+  }
+}
+
+async function persistBuildActionItemActivity(
+  ctx: MutationCtx,
+  input: {
+    actionItemId: Id<"buildActionItems">;
+    authorization: ActionItemAuthorization;
+    now: number;
+    postId: Id<"buildCollaborationPosts">;
+    references: CanonicalBuildCollaborationReference[];
+  }
+) {
+  const targets: Array<{
+    kind: "post" | CanonicalBuildCollaborationReference["entityKind"];
+    targetId: string;
+  }> = [
+    { kind: "post", targetId: input.postId },
+    ...input.references.map((reference) => ({
+      kind: reference.entityKind,
+      targetId: reference.entityId,
+    })),
+  ];
+  for (const target of targets) {
+    const projectionKey = [
+      "action_item_created",
+      input.actionItemId,
+      target.kind,
+      target.targetId,
+    ].join(":");
+    const existing = await ctx.db
+      .query("buildCollaborationActivityProjections")
+      .withIndex("by_buildId_and_projectionKey", (query) =>
+        query
+          .eq("buildId", input.authorization.build._id)
+          .eq("projectionKey", projectionKey)
+      )
+      .unique();
+    if (existing) {
+      continue;
+    }
+    await ctx.db.insert("buildCollaborationActivityProjections", {
+      actionItemId: input.actionItemId,
+      actorWorkosUserId: input.authorization.viewer.subject,
+      brokerageId: input.authorization.brokerage._id,
+      buildId: input.authorization.build._id,
+      createdAt: input.now,
+      eventType: "action_item_created",
+      organizationId: input.authorization.organizationId,
+      postId: input.postId,
+      projectionKey,
+      targetId: target.targetId,
+      targetKind: target.kind,
+    });
+  }
+}
+
 async function recordChildActionItemMutation(
   ctx: MutationCtx,
   input: {
@@ -936,6 +1275,16 @@ async function recordChildActionItemMutation(
     reason: input.reason,
     revision,
     warnings: input.warnings,
+  });
+  const updatedItem = await ctx.db.get(input.item._id);
+  if (!updatedItem) {
+    throw new Error("Action Item became unavailable during update.");
+  }
+  await recordBuildActionItemRevision(ctx, {
+    authorization: input.authorization,
+    item: updatedItem,
+    now: input.now,
+    reason: input.reason ?? input.eventType,
   });
 }
 
@@ -999,7 +1348,7 @@ function requireReason(value: string | null | undefined, errorMessage: string) {
   return reason;
 }
 
-function validateTiptapJson(value: string) {
+export function validateTiptapJson(value: string) {
   try {
     const parsed = JSON.parse(value) as { type?: unknown };
     if (parsed.type !== "doc") {

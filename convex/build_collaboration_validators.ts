@@ -72,7 +72,8 @@ export const buildCollaborationReferenceKindValidator = v.union(
 export const buildCollaborationOwnerKindValidator = v.union(
   v.literal("postRevision"),
   v.literal("commentRevision"),
-  v.literal("actionItem")
+  v.literal("actionItem"),
+  v.literal("actionItemComment")
 );
 
 export const buildCollaborationReactionValidator = v.union(

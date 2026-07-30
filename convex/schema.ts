@@ -3505,6 +3505,82 @@ export default defineSchema({
     warnings: v.optional(v.array(v.string())),
     createdAt: v.number(),
   }).index("by_actionItemId_and_createdAt", ["actionItemId", "createdAt"]),
+  buildActionItemRevisions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    revision: v.number(),
+    snapshotJson: v.string(),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_actionItemId_and_revision", ["actionItemId", "revision"]),
+  buildActionItemLabels: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    label: v.string(),
+    normalizedLabel: v.string(),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_actionItemId_and_normalizedLabel", [
+      "actionItemId",
+      "normalizedLabel",
+    ])
+    .index("by_buildId_and_normalizedLabel", ["buildId", "normalizedLabel"]),
+  buildActionItemComments: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    authorWorkosUserId: v.string(),
+    authorDisplayNameSnapshot: v.string(),
+    authorRole: buildCollaborationRoleValidator,
+    tiptapJson: v.string(),
+    plainText: v.string(),
+    createdAt: v.number(),
+  }).index("by_actionItemId_and_createdAt", ["actionItemId", "createdAt"]),
+  buildActionItemCreationRequests: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    creatorWorkosUserId: v.string(),
+    requestId: v.string(),
+    actionItemId: v.id("buildActionItems"),
+    createdAt: v.number(),
+  }).index("by_postId_and_creatorWorkosUserId_and_requestId", [
+    "postId",
+    "creatorWorkosUserId",
+    "requestId",
+  ]),
+  buildCollaborationActivityProjections: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    actionItemId: v.id("buildActionItems"),
+    targetKind: v.union(
+      v.literal("post"),
+      buildCollaborationReferenceKindValidator
+    ),
+    targetId: v.string(),
+    eventType: v.string(),
+    projectionKey: v.string(),
+    actorWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_buildId_and_projectionKey", ["buildId", "projectionKey"])
+    .index("by_buildId_and_targetKind_and_targetId_and_createdAt", [
+      "buildId",
+      "targetKind",
+      "targetId",
+      "createdAt",
+    ]),
   buildActionItemRelations: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

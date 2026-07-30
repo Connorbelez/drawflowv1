@@ -16,6 +16,8 @@ import type * as authz from "../authz.js";
 import type * as authzTest from "../authzTest.js";
 import type * as brokerAssignments from "../brokerAssignments.js";
 import type * as brokerageProvisioning from "../brokerageProvisioning.js";
+import type * as build_action_item_details from "../build_action_item_details.js";
+import type * as build_action_item_history from "../build_action_item_history.js";
 import type * as build_action_item_rbac from "../build_action_item_rbac.js";
 import type * as build_action_items from "../build_action_items.js";
 import type * as build_collaboration from "../build_collaboration.js";
@@ -93,6 +95,8 @@ declare const fullApi: ApiFromModules<{
   authzTest: typeof authzTest;
   brokerAssignments: typeof brokerAssignments;
   brokerageProvisioning: typeof brokerageProvisioning;
+  build_action_item_details: typeof build_action_item_details;
+  build_action_item_history: typeof build_action_item_history;
   build_action_item_rbac: typeof build_action_item_rbac;
   build_action_items: typeof build_action_items;
   build_collaboration: typeof build_collaboration;

@@ -198,6 +198,347 @@ async function readActionItem(
 }
 
 describe("Build Action Item server authorization", () => {
+  test("creates idempotent rich Action Items with inherited visibility, projections, detail, and immutable history", async () => {
+    const fixture = await seedActionItemBuild();
+    const anchorActionItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        requestId: "anchor-action-item",
+        title: "Confirm footing inspection",
+      }
+    );
+    const assetId = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const storageId = await ctx.storage.store(
+        new Blob(["inspection attachment"], { type: "text/plain" })
+      );
+      const now = Date.now();
+      return await ctx.db.insert("buildCollaborationAssets", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        fileName: "inspection.txt",
+        maximumAudienceMode: "build_wide",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 21,
+        state: "available",
+        storageId,
+        updatedAt: now,
+        uploadedByWorkosUserId: "user_contractor_creator",
+        version: 1,
+      });
+    });
+    const baseline = await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(
+        fixture.postId as Id<"buildCollaborationPosts">
+      );
+      const auditCount = (await ctx.db.query("auditEvents").collect()).length;
+      const outboxCount = (await ctx.db.query("eventOutbox").collect()).length;
+      return { auditCount, outboxCount, post };
+    });
+    const description = JSON.stringify({
+      content: [
+        {
+          content: [
+            {
+              text: "Upload the engineer seal and confirm the inspection.",
+              type: "text",
+            },
+          ],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    });
+    const creationInput = {
+      assigneeWorkosUserId: "user_contractor_creator",
+      attachmentAssetIds: [assetId],
+      buildId: fixture.buildId,
+      descriptionTiptapJson: description,
+      dueAt: 1_800_000_000_000,
+      labels: ["Evidence", "Draw 3", "evidence"],
+      organizationId: ORGANIZATION_ID,
+      postId: fixture.postId,
+      priority: "high",
+      references: [
+        {
+          entityId: "user_contractor_creator",
+          entityKind: "participant",
+          label: "Client-supplied label is ignored",
+          primary: true,
+        },
+        {
+          entityId: anchorActionItemId,
+          entityKind: "actionItem",
+          label: "Client-supplied action label is ignored",
+        },
+      ],
+      requestId: "ticket-11-idempotency",
+      title: "Upload engineer seal",
+    };
+    const actionItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      creationInput
+    );
+    const replayedId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      { ...creationInput, title: "Duplicate submission must not win" }
+    );
+    expect(replayedId).toBe(actionItemId);
+
+    let detail = await fixture.reader.query(
+      (api as any).build_action_item_details.getBuildActionItemDetail,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(detail).toMatchObject({
+      attachments: [{ fileName: "inspection.txt", state: "available" }],
+      item: {
+        actionItemId,
+        assigneeWorkosUserId: "user_contractor_creator",
+        audienceMode: "build_wide",
+        creatorWorkosUserId: "user_contractor_creator",
+        currentRevision: 1,
+        priority: "high",
+        title: "Upload engineer seal",
+      },
+      labels: ["Draw 3", "Evidence"],
+      references: [
+        {
+          entityId: "user_contractor_creator",
+          entityKind: "participant",
+          label: "user_contractor_creator",
+        },
+        {
+          entityId: anchorActionItemId,
+          entityKind: "actionItem",
+          label: "Confirm footing inspection",
+        },
+      ],
+      state: "visible",
+    });
+    expect(detail.revisions).toHaveLength(1);
+
+    await fixture.reader.mutation(
+      (api as any).build_action_item_details.addBuildActionItemComment,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        references: [
+          {
+            entityId: "user_contractor_creator",
+            entityKind: "participant",
+            label: "Ignored",
+          },
+        ],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "I will upload this today.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_items.updateBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        title: "Upload signed engineer seal",
+      }
+    );
+    detail = await fixture.reader.query(
+      (api as any).build_action_item_details.getBuildActionItemDetail,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(detail.comments).toMatchObject([
+      {
+        authorDisplayName: "user_contractor_reader",
+        plainText: "I will upload this today.",
+        references: [
+          {
+            entityId: "user_contractor_creator",
+            entityKind: "participant",
+          },
+        ],
+      },
+    ]);
+    expect(detail.revisions.map((revision: any) => revision.revision)).toEqual([
+      2, 1,
+    ]);
+
+    const effects = await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(
+        fixture.postId as Id<"buildCollaborationPosts">
+      );
+      const audits = (await ctx.db.query("auditEvents").collect()).filter(
+        (event) =>
+          event.eventType === "build.collaboration.action_item.created" &&
+          event.entityId === actionItemId
+      );
+      const outbox = (await ctx.db.query("eventOutbox").collect()).filter(
+        (event) =>
+          event.eventType === "build.collaboration.action_item.created" &&
+          event.relatedEntityId === actionItemId
+      );
+      const projections = await ctx.db
+        .query("buildCollaborationActivityProjections")
+        .withIndex("by_buildId_and_projectionKey", (query) =>
+          query.eq("buildId", fixture.buildId)
+        )
+        .collect();
+      const requests = await ctx.db
+        .query("buildActionItemCreationRequests")
+        .withIndex(
+          "by_postId_and_creatorWorkosUserId_and_requestId",
+          (query) =>
+            query
+              .eq("postId", fixture.postId)
+              .eq("creatorWorkosUserId", "user_contractor_creator")
+              .eq("requestId", "ticket-11-idempotency")
+        )
+        .collect();
+      return {
+        auditCount: (await ctx.db.query("auditEvents").collect()).length,
+        audits,
+        outbox,
+        outboxCount: (await ctx.db.query("eventOutbox").collect()).length,
+        post,
+        projections: projections.filter(
+          (projection) => projection.actionItemId === actionItemId
+        ),
+        requests,
+      };
+    });
+    expect(effects.audits).toHaveLength(1);
+    expect(effects.outbox).toHaveLength(1);
+    expect(effects.projections).toHaveLength(3);
+    expect(effects.requests).toHaveLength(1);
+    expect(effects.auditCount - baseline.auditCount).toBe(1);
+    expect(effects.outboxCount - baseline.outboxCount).toBe(1);
+    expect(effects.post?.openActionItemCount).toBe(
+      (baseline.post?.openActionItemCount ?? 0) + 1
+    );
+    expect(effects.post?.lastMeaningfulActivityAt).toBeGreaterThan(
+      baseline.post?.lastMeaningfulActivityAt ?? 0
+    );
+
+    const crossBuildActionItemId = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const {
+        _creationTime: _ignoredCreationTime,
+        _id: _ignoredId,
+        ...buildFields
+      } = build;
+      const otherBuildId = await ctx.db.insert("activeBuilds", {
+        ...buildFields,
+        buildName: "Other Build",
+      });
+      const now = Date.now();
+      return await ctx.db.insert("buildActionItems", {
+        assignmentState: "unassigned",
+        brokerageId: build.brokerageId,
+        buildId: otherBuildId,
+        createdAt: now,
+        creatorRole: "contractor",
+        creatorWorkosUserId: "user_contractor_creator",
+        currentRevision: 1,
+        descriptionPlainText: "",
+        descriptionTiptapJson: JSON.stringify({
+          content: [],
+          type: "doc",
+        }),
+        originatingPostId: fixture.postId,
+        organizationId: ORGANIZATION_ID,
+        priority: "none",
+        requiresAcceptance: false,
+        status: "todo",
+        title: "Cross-Build work",
+        updatedAt: now,
+      });
+    });
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_items.createBuildActionItem,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: fixture.postId,
+          references: [
+            {
+              entityId: crossBuildActionItemId,
+              entityKind: "actionItem",
+              label: "Cross-Build work",
+            },
+          ],
+          requestId: "cross-build-reference",
+          title: "Invalid cross-Build reference",
+        }
+      )
+    ).rejects.toThrow(
+      "referenced entity does not exist in this active Build"
+    );
+
+    const restrictedPostId = await fixture.builder.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "custom",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Builder-only coordination.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: ["user_builder"],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Builder-only coordination.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      }
+    );
+    await expect(
+      fixture.reader.mutation(
+        (api as any).build_action_items.createBuildActionItem,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: restrictedPostId,
+          requestId: "restricted-post",
+          title: "Must not be created",
+        }
+      )
+    ).rejects.toThrow("parent post is unavailable");
+  });
+
   test("a reader may create, but cannot mutate another participant's Action Item", async () => {
     const fixture = await seedActionItemBuild();
     const actionItemId = await fixture.creator.mutation(

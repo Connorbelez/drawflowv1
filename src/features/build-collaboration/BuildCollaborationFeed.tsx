@@ -52,6 +52,10 @@ import { Tabs, TabsList, TabsTab } from "#/components/ui/tabs.tsx";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import {
+  BuildActionItemDetailSheet,
+  type BuildActionItemSheetTarget,
+} from "./BuildActionItemDetailSheet.tsx";
 import { BuildCollaborationActionItems } from "./BuildCollaborationActionItems.tsx";
 import { BuildCollaborationApprovalReview } from "./BuildCollaborationApprovalReview.tsx";
 import {
@@ -257,6 +261,8 @@ export function BuildCollaborationFeed({
     useState<Id<"buildCollaborationDrafts"> | null>(null);
   const [focusedReference, setFocusedReference] =
     useState<FocusedReference | null>(null);
+  const [actionItemSheetTarget, setActionItemSheetTarget] =
+    useState<BuildActionItemSheetTarget | null>(null);
   const composerRevisionKey = useMemo(
     () =>
       JSON.stringify({
@@ -311,6 +317,30 @@ export function BuildCollaborationFeed({
       );
     }
   }, [focusedEntityReference, referenceByKey]);
+  useEffect(() => {
+    if (!focusedActionItemId) {
+      return;
+    }
+    setActionItemSheetTarget((current) =>
+      current?.kind === "detail" && current.actionItemId === focusedActionItemId
+        ? current
+        : {
+            actionItemId: focusedActionItemId as Id<"buildActionItems">,
+            kind: "detail",
+          }
+    );
+  }, [focusedActionItemId]);
+  const focusReference = (reference: FocusedReference) => {
+    if (reference.entityKind === "actionItem") {
+      setFocusedReference(null);
+      setActionItemSheetTarget({
+        actionItemId: reference.id as Id<"buildActionItems">,
+        kind: "detail",
+      });
+      return;
+    }
+    setFocusedReference(reference);
+  };
   const participants = tagOptions.filter(
     (option) => option.kind === "participant"
   );
@@ -372,7 +402,9 @@ export function BuildCollaborationFeed({
     focusedCommentCollaborationResults({
       context: focusedCommentContext,
       feedEntries,
-      focusedCommentId,
+      focusedCommentId: focusedCommentId as
+        | Id<"buildCollaborationComments">
+        | undefined,
       visibleResults,
     });
 
@@ -406,9 +438,7 @@ export function BuildCollaborationFeed({
       postType,
       references: references.map((reference, index) => ({
         entityId: reference.id,
-        entityKind:
-          referenceByKey.get(`${reference.kind}:${reference.id}`)?.entityKind ??
-          toBackendReferenceKind(reference.kind),
+        entityKind: toBackendReferenceKind(reference.kind),
         label: reference.label,
         primary:
           index ===
@@ -533,12 +563,18 @@ export function BuildCollaborationFeed({
     setHtml(`<p>${escapeHtml(bundle.plainText)}</p>`);
     setPostType(bundle.postType);
     setReferences(
-      bundle.references.map((reference) => ({
-        id: reference.entityId,
-        kind: toEditorReferenceKind(reference.entityKind),
-        label: reference.label,
-        summary: reference.summary ?? "",
-      }))
+      bundle.references.map((reference) => {
+        const option = referenceByKey.get(
+          `${reference.entityKind}:${reference.entityId}`
+        );
+        return {
+          eyebrow: option?.eyebrow ?? "Build reference",
+          id: reference.entityId,
+          kind: option?.kind ?? toEditorReferenceKind(reference.entityKind),
+          label: reference.label,
+          summary: reference.summary ?? option?.summary ?? "",
+        };
+      })
     );
     setRequestedReaderIds(bundle.requestedReaderIds);
     setComposerOpen(true);
@@ -884,7 +920,13 @@ export function BuildCollaborationFeed({
               }
               focusedReference={focusedEntityReference}
               key={entry.post._id}
-              onFocusReference={setFocusedReference}
+              onCreateActionItem={(postId) =>
+                setActionItemSheetTarget({ kind: "create", postId })
+              }
+              onFocusReference={focusReference}
+              onOpenActionItem={(actionItemId) =>
+                setActionItemSheetTarget({ actionItemId, kind: "detail" })
+              }
               organizationId={organizationId}
               referenceByKey={referenceByKey}
               tagOptions={tagOptions}
@@ -990,6 +1032,18 @@ export function BuildCollaborationFeed({
         </Button>
       </aside>
 
+      <BuildActionItemDetailSheet
+        buildId={activeBuildId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActionItemSheetTarget(null);
+          }
+        }}
+        open={Boolean(actionItemSheetTarget)}
+        organizationId={organizationId}
+        tagOptions={tagOptions}
+        target={actionItemSheetTarget}
+      />
       <BuildCollaborationReferenceSheet
         focusedWorkspace={
           Boolean(focusedReference) &&
@@ -1350,7 +1404,9 @@ function CollaborationPostCard({
   entry,
   focusedCommentId,
   focusedReference,
+  onCreateActionItem,
   onFocusReference,
+  onOpenActionItem,
   organizationId,
   referenceByKey,
   tagOptions,
@@ -1359,7 +1415,9 @@ function CollaborationPostCard({
   entry: CollaborationFeedPostEntry;
   focusedCommentId?: Id<"buildCollaborationComments">;
   focusedReference?: string;
+  onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
   onFocusReference: (reference: FocusedReference) => void;
+  onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
   organizationId: string;
   referenceByKey: Map<string, ReferenceOption>;
   tagOptions: ReferenceOption[];
@@ -1537,6 +1595,7 @@ function CollaborationPostCard({
               <BuildCollaborationActionItems
                 actionView={actionView}
                 items={entry.actionItems}
+                onCreate={() => onCreateActionItem(entry.post._id)}
                 onMove={async (
                   actionItemId,
                   status,
@@ -1565,6 +1624,7 @@ function CollaborationPostCard({
                     );
                   }
                 }}
+                onOpen={onOpenActionItem}
               />
             </CardPanel>
           )}

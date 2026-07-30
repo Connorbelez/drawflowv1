@@ -73,7 +73,7 @@ export interface CollaborationDraftBundle {
   postType: PostType;
   references: Array<{
     entityId: string;
-    entityKind: string;
+    entityKind: ReturnType<typeof toBackendReferenceKind>;
     label: string;
     primary?: boolean;
     summary?: string;

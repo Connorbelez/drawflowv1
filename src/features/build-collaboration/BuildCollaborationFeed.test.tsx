@@ -14,6 +14,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   acceptedCommentId: undefined as string | undefined,
+  actionItemDetailState: "visible" as "revoked" | "visible",
   announcementExpiresAt: undefined as number | undefined,
   announcementProminent: false,
   comments: [] as Array<Record<string, unknown>>,
@@ -174,6 +175,71 @@ vi.mock("convex/react", () => ({
     }
     if (
       functionName ===
+      "build_action_item_details:getBuildActionItemDetail"
+    ) {
+      if (mocks.actionItemDetailState === "revoked") {
+        return { state: "revoked" };
+      }
+      const now = Date.parse("2026-07-28T12:00:00.000Z");
+      return {
+        activity: [
+          {
+            actorDisplayName: "Alex Chen",
+            actorRole: "builder",
+            createdAt: now,
+            eventId: "action-event-1",
+            eventType: "created",
+            revision: 1,
+          },
+        ],
+        attachments: [],
+        comments: [],
+        item: {
+          actionItemId: "action-1",
+          assignmentState: "unassigned",
+          audienceMode: "build_wide",
+          createdAt: now,
+          creatorDisplayName: "Alex Chen",
+          creatorWorkosUserId: "user-builder",
+          currentRevision: 1,
+          descriptionPlainText: "Upload the engineer seal.",
+          descriptionTiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [
+                  { text: "Upload the engineer seal.", type: "text" },
+                ],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+          originatingPostId: "post-1",
+          priority: "high",
+          status: "todo",
+          title: "Upload engineer seal",
+          updatedAt: now,
+        },
+        labels: ["evidence"],
+        references: [],
+        revisions: [
+          {
+            actorDisplayName: "Alex Chen",
+            actorRole: "builder",
+            createdAt: now,
+            revision: 1,
+            snapshotJson: JSON.stringify({
+              priority: "high",
+              status: "todo",
+              title: "Upload engineer seal",
+            }),
+          },
+        ],
+        state: "visible",
+      };
+    }
+    if (
+      functionName ===
       "build_collaboration_threads:listBuildCollaborationComments"
     ) {
       return mocks.commentsLoading ? undefined : mocks.comments;
@@ -268,19 +334,48 @@ vi.mock("convex/react", () => ({
 vi.mock(
   "./CollaborationRichTextEditor.tsx",
   () => ({
-  CollaborationRichTextEditor: () => <div data-testid="mock-editor" />,
-  CollaborationRichTextPreview: ({
-    value,
-  }: {
-    value: { content?: Array<{ content?: Array<{ text?: string }> }> };
-  }) => (
-    <p>
-      {value.content
-        ?.flatMap((node) => node.content ?? [])
-        .map((node) => node.text ?? "")
-        .join("")}
-    </p>
-  ),
+    CollaborationRichTextEditor: ({
+      ariaLabel,
+      onChange,
+      onDocumentChange,
+    }: {
+      ariaLabel: string;
+      onChange: (html: string, references: unknown[]) => void;
+      onDocumentChange?: (document: unknown) => void;
+    }) => (
+      <button
+        aria-label={`Mock ${ariaLabel}`}
+        data-testid="mock-editor"
+        onClick={() => {
+          const document = {
+            content: [
+              {
+                content: [{ text: "Useful accountable work.", type: "text" }],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          };
+          onChange("<p>Useful accountable work.</p>", []);
+          onDocumentChange?.(document);
+        }}
+        type="button"
+      >
+        Mock editor
+      </button>
+    ),
+    CollaborationRichTextPreview: ({
+      value,
+    }: {
+      value: { content?: Array<{ content?: Array<{ text?: string }> }> };
+    }) => (
+      <p>
+        {value.content
+          ?.flatMap((node) => node.content ?? [])
+          .map((node) => node.text ?? "")
+          .join("")}
+      </p>
+    ),
   }),
 );
 
@@ -296,6 +391,7 @@ afterEach(() => {
   mocks.comments = [];
   mocks.commentsLoading = false;
   mocks.acceptedCommentId = undefined;
+  mocks.actionItemDetailState = "visible";
   mocks.announcementExpiresAt = undefined;
   mocks.announcementProminent = false;
   mocks.feedStatus = "Exhausted";
@@ -394,13 +490,95 @@ describe("BuildCollaborationFeed", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByText("Upload engineer seal")).toBeTruthy(),
+      expect(
+        screen.getByRole("heading", { name: "Upload engineer seal" }),
+      ).toBeTruthy(),
     );
     expect(
       document.querySelector(
         '[data-collaboration-focus="actionItem:action-1"]',
       ),
     ).toBeTruthy();
+  });
+
+  test("creates Action Items from a live post with inherited audience context", async () => {
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Add Action Item" }),
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Create accountable work" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "The Action Item inherits the post audience and cannot widen it.",
+      ),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Action Item title"), {
+      target: { value: "Upload signed engineer seal" },
+    });
+    fireEvent.click(screen.getByRole("button", {
+      name: "Mock Action Item description",
+    }));
+    fireEvent.change(screen.getByLabelText("Action Item labels"), {
+      target: { value: "Evidence, Draw 3" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create Action Item" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buildId: "build-1",
+          descriptionPlainText: "Useful accountable work.",
+          labels: ["Evidence", "Draw 3"],
+          organizationId: "org-1",
+          postId: "post-1",
+          priority: "none",
+          requestId: expect.any(String),
+          title: "Upload signed engineer seal",
+        }),
+      ),
+    );
+  });
+
+  test("opens the reusable Action Item detail sheet from a post card", async () => {
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open details" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Upload engineer seal" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Revision history")).toBeTruthy();
+    expect(screen.getByText("Activity")).toBeTruthy();
+  });
+
+  test("keeps restricted Action Item deep links disclosure-safe", async () => {
+    mocks.actionItemDetailState = "revoked";
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="actionItem:action-1"
+        organizationId="org-1"
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Action Item unavailable" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Upload engineer seal.")).toBeNull();
   });
 
   test("loads older feed pages until a focused Action Item post is present", async () => {
