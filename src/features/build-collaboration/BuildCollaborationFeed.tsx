@@ -18,7 +18,7 @@ import {
   Users,
 } from "lucide-react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -106,6 +106,12 @@ function focusedActionItemIdFromReference(reference?: string) {
     : undefined;
 }
 
+function focusedCommentIdFromReference(reference?: string) {
+  return reference?.startsWith("comment:")
+    ? reference.slice("comment:".length)
+    : undefined;
+}
+
 function focusedActionItemQueryArgs({
   actionItemId,
   buildId,
@@ -119,6 +125,25 @@ function focusedActionItemQueryArgs({
     return "skip" as const;
   }
   return { actionItemId, buildId, organizationId };
+}
+
+function focusedCommentQueryArgs({
+  buildId,
+  commentId,
+  organizationId,
+}: {
+  buildId: Id<"activeBuilds">;
+  commentId?: string;
+  organizationId?: string;
+}) {
+  if (!(commentId && organizationId)) {
+    return "skip" as const;
+  }
+  return {
+    buildId,
+    commentId: commentId as Id<"buildCollaborationComments">,
+    organizationId,
+  };
 }
 
 function moderationActionLabel(input: {
@@ -171,6 +196,9 @@ export function BuildCollaborationFeed({
   const focusedActionItemId = focusedActionItemIdFromReference(
     focusedEntityReference
   );
+  const focusedCommentId = focusedCommentIdFromReference(
+    focusedEntityReference
+  );
   const focusedActionItemContext = useQuery(
     api.build_collaboration_focus.getFocusedBuildActionItemContext,
     focusedActionItemQueryArgs({
@@ -179,6 +207,14 @@ export function BuildCollaborationFeed({
       organizationId,
     })
   ) as { postId: Id<"buildCollaborationPosts"> } | null | undefined;
+  const focusedCommentContext = useQuery(
+    api.build_collaboration_threads.getFocusedBuildCollaborationCommentContext,
+    focusedCommentQueryArgs({
+      buildId: activeBuildId,
+      commentId: focusedCommentId,
+      organizationId,
+    })
+  );
   const notificationPreferences = useQuery(
     api.build_collaboration_notifications
       .getMyBuildCollaborationNotificationPreferences,
@@ -283,19 +319,21 @@ export function BuildCollaborationFeed({
     [feed.results]
   );
   useEffect(() => {
+    const focusedPostId =
+      focusedCommentContext?.state === "visible"
+        ? focusedCommentContext.postId
+        : focusedActionItemContext?.postId;
     if (
-      !focusedActionItemContext ||
+      !focusedPostId ||
       feedEntries.some(
-        (entry) =>
-          entry.kind === "post" &&
-          entry.post._id === focusedActionItemContext.postId
+        (entry) => entry.kind === "post" && entry.post._id === focusedPostId
       ) ||
       feed.status !== "CanLoadMore"
     ) {
       return;
     }
     feed.loadMore(20);
-  }, [feed, feedEntries, focusedActionItemContext]);
+  }, [feed, feedEntries, focusedActionItemContext, focusedCommentContext]);
   const visibleResults = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     return feedEntries.filter((entry) => {
@@ -814,6 +852,16 @@ export function BuildCollaborationFeed({
             </FramePanel>
           </Frame>
         ) : null}
+        {focusedCommentContext?.state === "revoked" ? (
+          <Frame>
+            <FramePanel
+              aria-live="polite"
+              className="text-muted-foreground text-sm"
+            >
+              This focused discussion is unavailable or your access was revoked.
+            </FramePanel>
+          </Frame>
+        ) : null}
         {visibleResults.map((entry) =>
           entry.kind === "restricted" ? (
             <Frame key={entry.placeholderKey}>
@@ -826,6 +874,12 @@ export function BuildCollaborationFeed({
             <CollaborationPostCard
               buildId={activeBuildId}
               entry={entry}
+              focusedCommentId={
+                focusedCommentContext?.state === "visible" &&
+                focusedCommentContext.postId === entry.post._id
+                  ? focusedCommentContext.focusCommentId
+                  : undefined
+              }
               focusedReference={focusedEntityReference}
               key={entry.post._id}
               onFocusReference={setFocusedReference}
@@ -1292,6 +1346,7 @@ function ThreadOutcomeSummary({
 function CollaborationPostCard({
   buildId,
   entry,
+  focusedCommentId,
   focusedReference,
   onFocusReference,
   organizationId,
@@ -1300,6 +1355,7 @@ function CollaborationPostCard({
 }: {
   buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
+  focusedCommentId?: Id<"buildCollaborationComments">;
   focusedReference?: string;
   onFocusReference: (reference: FocusedReference) => void;
   organizationId: string;
@@ -1440,6 +1496,7 @@ function CollaborationPostCard({
             <CollaborationDiscussion
               acceptedCommentId={entry.post.acceptedCommentId}
               buildId={buildId}
+              focusedCommentId={focusedCommentId}
               onEditComment={setEditTarget}
               onFocusReference={onFocusReference}
               onModerateComment={setModerationTarget}
@@ -1562,23 +1619,42 @@ function CollaborationPostCard({
 
 function CollaborationComment({
   accepted,
+  buildId,
+  focused,
   onEdit,
   onFocusReference,
   onModerate,
   onReply,
+  organizationId,
+  postId,
   referenceByKey,
   row,
   tagOptions,
 }: {
   accepted: boolean;
+  buildId: Id<"activeBuilds">;
+  focused: boolean;
   onEdit: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
   onModerate: (target: BuildCollaborationModerationEntity) => void;
   onReply: (commentId: Id<"buildCollaborationComments">) => void;
+  organizationId: string;
+  postId: Id<"buildCollaborationPosts">;
   referenceByKey: Map<string, ReferenceOption>;
   row: CollaborationCommentRow;
   tagOptions: ReferenceOption[];
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focused) {
+      return;
+    }
+    containerRef.current?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "center",
+    });
+    containerRef.current?.focus({ preventScroll: true });
+  }, [focused]);
   const openReference = (reference: CollaborationTagReference) => {
     const option = referenceByKey.get(`${reference.kind}:${reference.id}`);
     if (option) {
@@ -1602,27 +1678,24 @@ function CollaborationComment({
       ),
       revision: row.comment.revision,
     });
-  const statusBadge =
-    row.comment.contentState === "active" ? (
-      row.comment.revision > 1 ? (
-        <Badge variant="outline">Edited</Badge>
-      ) : null
-    ) : (
-      <Badge variant="secondary">
-        {row.comment.contentState === "tombstoned" ? "Removed" : "Moderated"}
-      </Badge>
-    );
   const canViewHistory =
     row.comment.viewerIsAuthor ||
     (row.comment.contentState === "active" && row.comment.revision > 1);
 
   return (
     <div
-      className="flex gap-2"
+      aria-level={row.comment.logicalDepth + 1}
+      className={cn(
+        "flex gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        focused && "ring-2 ring-primary/40"
+      )}
       data-testid={`collaboration-comment-${row.comment._id}`}
+      ref={containerRef}
+      role="treeitem"
       style={{
         marginLeft: `${Math.min(row.comment.logicalDepth, 3) * 18}px`,
       }}
+      tabIndex={focused ? 0 : -1}
     >
       <Avatar className="size-7">
         <AvatarFallback>
@@ -1637,9 +1710,15 @@ function CollaborationComment({
           <time className="text-muted-foreground text-xs">
             {formatTimestamp(row.comment.createdAt)}
           </time>
-          {statusBadge}
-          {accepted ? <Badge>Accepted answer</Badge> : null}
+          <CollaborationCommentBadges accepted={accepted} row={row} />
         </div>
+        {row.comment.logicalDepth > 3 ? (
+          <p className="mt-1 text-muted-foreground text-xs">
+            Replying to{" "}
+            {row.comment.parentAuthorDisplayNameSnapshot ??
+              "an unavailable reply"}
+          </p>
+        ) : null}
         {row.revision ? (
           <CollaborationRichTextPreview
             ariaLabel="Collaboration reply"
@@ -1652,12 +1731,24 @@ function CollaborationComment({
         {row.comment.contentState === "active" ? (
           <button
             className="mt-1 text-muted-foreground text-xs hover:text-foreground"
+            id={`reply-to-${row.comment._id}`}
             onClick={() => onReply(row.comment._id)}
             type="button"
           >
             Reply
           </button>
         ) : null}
+        <CollaborationCommentReactions
+          buildId={buildId}
+          organizationId={organizationId}
+          row={row}
+        />
+        <CollaborationCommentPin
+          buildId={buildId}
+          organizationId={organizationId}
+          postId={postId}
+          row={row}
+        />
         {canViewHistory ? (
           <button
             className="mt-1 ml-3 text-muted-foreground text-xs hover:text-foreground"
@@ -1691,9 +1782,138 @@ function CollaborationComment({
   );
 }
 
+function CollaborationCommentBadges({
+  accepted,
+  row,
+}: {
+  accepted: boolean;
+  row: CollaborationCommentRow;
+}) {
+  return (
+    <>
+      {row.comment.contentState === "active" ? (
+        row.comment.revision > 1 ? (
+          <Badge variant="outline">Edited</Badge>
+        ) : null
+      ) : (
+        <Badge variant="secondary">
+          {row.comment.contentState === "tombstoned" ? "Removed" : "Moderated"}
+        </Badge>
+      )}
+      {accepted ? <Badge>Accepted answer</Badge> : null}
+      {row.comment.pinCount > 0 ? (
+        <Badge variant="outline">
+          Pinned
+          {row.comment.pinCount > 1 ? ` · ${row.comment.pinCount}` : ""}
+        </Badge>
+      ) : null}
+    </>
+  );
+}
+
+function CollaborationCommentReactions({
+  buildId,
+  organizationId,
+  row,
+}: {
+  buildId: Id<"activeBuilds">;
+  organizationId: string;
+  row: CollaborationCommentRow;
+}) {
+  const reactToComment = useMutation(
+    api.build_collaboration_threads.reactToBuildCollaborationComment
+  );
+  if (row.comment.contentState !== "active") {
+    return null;
+  }
+  const reactionCounts = new Map<
+    "acknowledged" | "agree" | "question",
+    number
+  >();
+  for (const reaction of row.reactions ?? []) {
+    reactionCounts.set(
+      reaction.reaction,
+      (reactionCounts.get(reaction.reaction) ?? 0) + 1
+    );
+  }
+  return (
+    <fieldset className="mt-1 inline-flex flex-wrap gap-1">
+      <legend className="sr-only">Reply reactions</legend>
+      {(["acknowledged", "agree", "question"] as const).map((reaction) => (
+        <button
+          className="rounded px-1.5 py-0.5 text-muted-foreground text-xs hover:bg-muted hover:text-foreground"
+          key={reaction}
+          onClick={() =>
+            reactToComment({
+              buildId,
+              commentId: row.comment._id,
+              organizationId,
+              reaction,
+            }).catch((error) =>
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : "Unable to react to this reply."
+              )
+            )
+          }
+          type="button"
+        >
+          {reactionLabel(reaction)}
+          {(reactionCounts.get(reaction) ?? 0) > 0
+            ? ` ${reactionCounts.get(reaction)}`
+            : ""}
+        </button>
+      ))}
+    </fieldset>
+  );
+}
+
+function CollaborationCommentPin({
+  buildId,
+  organizationId,
+  postId,
+  row,
+}: {
+  buildId: Id<"activeBuilds">;
+  organizationId: string;
+  postId: Id<"buildCollaborationPosts">;
+  row: CollaborationCommentRow;
+}) {
+  const togglePin = useMutation(
+    api.build_collaboration_threads.toggleBuildCollaborationPin
+  );
+  if (!row.comment.viewerCanPin) {
+    return null;
+  }
+  return (
+    <button
+      aria-pressed={row.comment.viewerPinned}
+      className="mt-1 ml-3 text-muted-foreground text-xs hover:text-foreground"
+      onClick={() =>
+        togglePin({
+          buildId,
+          commentId: row.comment._id,
+          kind: "reply",
+          organizationId,
+          postId,
+        }).catch((error) =>
+          toast.error(
+            error instanceof Error ? error.message : "Unable to pin this reply."
+          )
+        )
+      }
+      type="button"
+    >
+      {row.comment.viewerPinned ? "Unpin reply" : "Pin reply"}
+    </button>
+  );
+}
+
 function CollaborationDiscussion({
   acceptedCommentId,
   buildId,
+  focusedCommentId,
   onEditComment,
   onFocusReference,
   onModerateComment,
@@ -1704,6 +1924,7 @@ function CollaborationDiscussion({
 }: {
   acceptedCommentId?: Id<"buildCollaborationComments">;
   buildId: Id<"activeBuilds">;
+  focusedCommentId?: Id<"buildCollaborationComments">;
   onEditComment: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
   onModerateComment: (target: BuildCollaborationModerationEntity) => void;
@@ -1712,9 +1933,15 @@ function CollaborationDiscussion({
   referenceByKey: Map<string, ReferenceOption>;
   tagOptions: ReferenceOption[];
 }) {
-  const comments = useQuery(
+  const listComments = useQuery(
     api.build_collaboration_threads.listBuildCollaborationComments,
     { buildId, organizationId, postId }
+  );
+  const focusedContext = useQuery(
+    api.build_collaboration_threads.getFocusedBuildCollaborationCommentContext,
+    focusedCommentId
+      ? { buildId, commentId: focusedCommentId, organizationId }
+      : "skip"
   );
   const addComment = useMutation(
     api.build_collaboration_threads.addBuildCollaborationComment
@@ -1732,6 +1959,24 @@ function CollaborationDiscussion({
   const [replyingTo, setReplyingTo] =
     useState<Id<"buildCollaborationComments">>();
   const [submittingReply, setSubmittingReply] = useState(false);
+  const [pendingFocusCommentId, setPendingFocusCommentId] =
+    useState<Id<"buildCollaborationComments">>();
+  const threadRef = useRef<HTMLDivElement>(null);
+  const comments =
+    focusedCommentId && focusedContext?.state === "visible"
+      ? focusedContext.rows
+      : listComments;
+  const replyingToRow = (comments ?? []).find(
+    (row) => row.comment._id === replyingTo
+  );
+  const restoreReplyFocus = (commentId?: Id<"buildCollaborationComments">) => {
+    if (!commentId) {
+      return;
+    }
+    requestAnimationFrame(() =>
+      document.getElementById(`reply-to-${commentId}`)?.focus()
+    );
+  };
 
   const submitReply = async () => {
     const plainText = plainTextFromDocument(replyDocument);
@@ -1740,7 +1985,7 @@ function CollaborationDiscussion({
     }
     setSubmittingReply(true);
     try {
-      await addComment({
+      const commentId = await addComment({
         buildId,
         organizationId,
         parentCommentId: replyingTo,
@@ -1761,6 +2006,7 @@ function CollaborationDiscussion({
       setReplyDocument(emptyDocument());
       setReplyReferences([]);
       setReplyingTo(undefined);
+      setPendingFocusCommentId(commentId);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Unable to publish reply."
@@ -1770,27 +2016,83 @@ function CollaborationDiscussion({
     }
   };
 
+  const navigateComments = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    const items = Array.from(
+      threadRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ??
+        []
+    );
+    if (items.length === 0) {
+      return;
+    }
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? items.length - 1
+          : event.key === "ArrowUp"
+            ? Math.max(currentIndex - 1, 0)
+            : Math.min(currentIndex + 1, items.length - 1);
+    event.preventDefault();
+    items[nextIndex]?.focus();
+  };
+
   return (
     <CardPanel className="space-y-3 p-4">
-      {((comments ?? []) as CollaborationCommentRow[]).map((row) => (
-        <CollaborationComment
-          accepted={row.comment._id === acceptedCommentId}
-          key={row.comment._id}
-          onEdit={onEditComment}
-          onFocusReference={onFocusReference}
-          onModerate={onModerateComment}
-          onReply={setReplyingTo}
-          referenceByKey={referenceByKey}
-          row={row}
-          tagOptions={tagOptions}
-        />
-      ))}
+      {comments === undefined ? (
+        <Frame>
+          <FramePanel
+            aria-live="polite"
+            className="text-muted-foreground text-sm"
+          >
+            Loading discussion…
+          </FramePanel>
+        </Frame>
+      ) : (
+        <div
+          aria-label="Nested discussion"
+          className="space-y-3"
+          onKeyDown={navigateComments}
+          ref={threadRef}
+          role="tree"
+        >
+          {(comments as CollaborationCommentRow[]).map((row) => (
+            <CollaborationComment
+              accepted={row.comment._id === acceptedCommentId}
+              buildId={buildId}
+              focused={
+                row.comment._id === (focusedCommentId ?? pendingFocusCommentId)
+              }
+              key={row.comment._id}
+              onEdit={onEditComment}
+              onFocusReference={onFocusReference}
+              onModerate={onModerateComment}
+              onReply={setReplyingTo}
+              organizationId={organizationId}
+              postId={postId}
+              referenceByKey={referenceByKey}
+              row={row}
+              tagOptions={tagOptions}
+            />
+          ))}
+        </div>
+      )}
       {replyingTo ? (
         <p className="text-muted-foreground text-xs">
-          Replying in thread.{" "}
+          Replying to{" "}
+          {replyingToRow?.comment.authorDisplayNameSnapshot ??
+            "an unavailable reply"}
+          .{" "}
           <button
             className="underline"
-            onClick={() => setReplyingTo(undefined)}
+            onClick={() => {
+              const priorReply = replyingTo;
+              setReplyingTo(undefined);
+              restoreReplyFocus(priorReply);
+            }}
             type="button"
           >
             Cancel

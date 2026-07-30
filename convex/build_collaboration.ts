@@ -603,12 +603,21 @@ export const listBuildCollaborationFeed = authenticatedQuery
             redacted: false,
             resolutionSummary: projectedResolutionSummary,
           }),
-          reactions: reactions.map((reaction) => ({
-            _creationTime: reaction._creationTime,
-            _id: reaction._id,
-            reaction: reaction.reaction,
-            workosUserId: reaction.workosUserId,
-          })),
+          reactions: reactions
+            .filter(
+              (reaction) =>
+                reaction.commentId === undefined &&
+                reaction.organizationId === authorization.organizationId &&
+                reaction.brokerageId === authorization.brokerage._id &&
+                reaction.buildId === authorization.build._id &&
+                reaction.postId === post._id
+            )
+            .map((reaction) => ({
+              _creationTime: reaction._creationTime,
+              _id: reaction._id,
+              reaction: reaction.reaction,
+              workosUserId: reaction.workosUserId,
+            })),
           receipts: receipts
             .filter((receipt) =>
               canSeeCollaborationReceipt(authorization, receipt)

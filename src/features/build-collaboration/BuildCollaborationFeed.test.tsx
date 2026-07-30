@@ -17,8 +17,12 @@ const mocks = vi.hoisted(() => ({
   announcementExpiresAt: undefined as number | undefined,
   announcementProminent: false,
   comments: [] as Array<Record<string, unknown>>,
+  commentsLoading: false,
   drafts: [] as Array<Record<string, unknown>>,
   feedStatus: "Exhausted" as "CanLoadMore" | "Exhausted",
+  focusedCommentContext: undefined as
+    | Record<string, unknown>
+    | undefined,
   focusedPostId: "post-1" as string | null,
   loadMore: vi.fn(),
   mutate: vi.fn().mockResolvedValue(null),
@@ -136,7 +140,13 @@ vi.mock("convex/react", () => ({
       functionName ===
       "build_collaboration_threads:listBuildCollaborationComments"
     ) {
-      return mocks.comments;
+      return mocks.commentsLoading ? undefined : mocks.comments;
+    }
+    if (
+      functionName ===
+      "build_collaboration_threads:getFocusedBuildCollaborationCommentContext"
+    ) {
+      return mocks.focusedCommentContext;
     }
     if (
       functionName ===
@@ -248,10 +258,12 @@ afterEach(() => {
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
   mocks.comments = [];
+  mocks.commentsLoading = false;
   mocks.acceptedCommentId = undefined;
   mocks.announcementExpiresAt = undefined;
   mocks.announcementProminent = false;
   mocks.feedStatus = "Exhausted";
+  mocks.focusedCommentContext = undefined;
   mocks.focusedPostId = "post-1";
   mocks.postContentState = "active";
   mocks.postResolutionSummary = undefined;
@@ -391,6 +403,155 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.queryByRole("button", { name: "Open focused workspace" }),
     ).toBeNull();
+  });
+
+  test("hydrates and keyboard-navigates a deeply focused reply with comment controls", async () => {
+    const commentRow = ({
+      author,
+      depth,
+      id,
+      parentAuthor,
+      parentId,
+      text,
+    }: {
+      author: string;
+      depth: number;
+      id: string;
+      parentAuthor?: string;
+      parentId?: string;
+      text: string;
+    }) => ({
+      comment: {
+        _id: id,
+        authorDisplayNameSnapshot: author,
+        authorRole: "builder-staff",
+        contentState: "active",
+        createdAt: Date.parse("2026-07-28T13:00:00.000Z") + depth,
+        logicalDepth: depth,
+        parentAuthorDisplayNameSnapshot: parentAuthor,
+        parentCommentId: parentId,
+        pinCount: depth === 5 ? 1 : 0,
+        revision: 1,
+        updatedAt: Date.parse("2026-07-28T13:00:00.000Z") + depth,
+        viewerCanAppeal: false,
+        viewerCanModerate: false,
+        viewerCanPin: depth === 5,
+        viewerCanResolveAppeal: false,
+        viewerIsAuthor: depth === 5,
+        viewerPinned: false,
+      },
+      reactions:
+        depth === 5
+          ? [
+              {
+                _id: "reaction-1",
+                reaction: "acknowledged",
+                workosUserId: "user-broker",
+              },
+            ]
+          : [],
+      references: [],
+      revision: {
+        plainText: text,
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text, type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    });
+    const rows = [
+      commentRow({
+        author: "Root Author",
+        depth: 0,
+        id: "comment-root",
+        text: "Root context",
+      }),
+      commentRow({
+        author: "Deep Author",
+        depth: 5,
+        id: "comment-deep",
+        parentAuthor: "Parent Author",
+        parentId: "comment-parent",
+        text: "Deep focused reply",
+      }),
+    ];
+    mocks.focusedCommentContext = {
+      focusCommentId: "comment-deep",
+      postId: "post-1",
+      rows,
+      state: "visible",
+    };
+    mocks.comments = rows;
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="comment:comment-deep"
+        organizationId="org-1"
+      />
+    );
+
+    const root = screen.getByTestId("collaboration-comment-comment-root");
+    const deep = screen.getByTestId("collaboration-comment-comment-deep");
+    expect(deep.style.marginLeft).toBe("54px");
+    expect(within(deep).getByText("Replying to Parent Author")).toBeTruthy();
+    expect(document.activeElement).toBe(deep);
+    fireEvent.keyDown(deep, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(root);
+
+    const replyButton = within(deep).getByRole("button", { name: "Reply" });
+    fireEvent.click(replyButton);
+    expect(screen.getByText("Replying to Deep Author.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(document.activeElement).toBe(replyButton));
+
+    fireEvent.click(
+      within(deep).getByRole("button", { name: "Acknowledge 1" })
+    );
+    expect(mocks.mutate).toHaveBeenCalledWith({
+      buildId: "build-1",
+      commentId: "comment-deep",
+      organizationId: "org-1",
+      reaction: "acknowledged",
+    });
+    fireEvent.click(within(deep).getByRole("button", { name: "Pin reply" }));
+    expect(mocks.mutate).toHaveBeenCalledWith({
+      buildId: "build-1",
+      commentId: "comment-deep",
+      kind: "reply",
+      organizationId: "org-1",
+      postId: "post-1",
+    });
+  });
+
+  test("announces deterministic discussion loading state", () => {
+    mocks.commentsLoading = true;
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getByText("Loading discussion…")).toBeTruthy();
+  });
+
+  test("renders a disclosure-safe state when focused discussion access is revoked", () => {
+    mocks.focusedCommentContext = { state: "revoked" };
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="comment:comment-revoked"
+        organizationId="org-1"
+      />
+    );
+
+    expect(
+      screen.getByText(
+        "This focused discussion is unavailable or your access was revoked."
+      )
+    ).toBeTruthy();
   });
 
   test("labels a revised post as edited without treating thread receipt changes as edits", () => {

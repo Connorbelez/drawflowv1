@@ -3368,6 +3368,11 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_commentId_and_workosUserId", [
+      "postId",
+      "commentId",
+      "workosUserId",
+    ])
     .index("by_commentId_and_workosUserId", ["commentId", "workosUserId"]),
   buildCollaborationReceipts: defineTable({
     organizationId: v.string(),

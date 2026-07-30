@@ -145,12 +145,17 @@ export const collaborationCommentSummaryValidator = v.object({
   ),
   createdAt: v.number(),
   logicalDepth: v.number(),
+  parentAuthorDisplayNameSnapshot: v.optional(v.string()),
+  parentCommentId: v.optional(v.id("buildCollaborationComments")),
+  pinCount: v.number(),
   revision: v.number(),
   updatedAt: v.number(),
+  viewerCanPin: v.boolean(),
   viewerCanAppeal: v.boolean(),
   viewerCanModerate: v.boolean(),
   viewerCanResolveAppeal: v.boolean(),
   viewerIsAuthor: v.boolean(),
+  viewerPinned: v.boolean(),
 });
 
 export const collaborationCommentRevisionSummaryValidator = v.object({
@@ -165,9 +170,22 @@ export const collaborationCommentRevisionSummaryValidator = v.object({
 
 export const collaborationCommentRowValidator = v.object({
   comment: collaborationCommentSummaryValidator,
+  reactions: v.array(collaborationReactionSummaryValidator),
   references: v.array(collaborationReferenceSummaryValidator),
   revision: v.union(collaborationCommentRevisionSummaryValidator, v.null()),
 });
+
+export const collaborationFocusedCommentContextValidator = v.union(
+  v.object({
+    state: v.literal("revoked"),
+  }),
+  v.object({
+    focusCommentId: v.id("buildCollaborationComments"),
+    postId: v.id("buildCollaborationPosts"),
+    rows: v.array(collaborationCommentRowValidator),
+    state: v.literal("visible"),
+  })
+);
 
 export const collaborationTagOptionValidator = v.object({
   entityId: v.string(),

@@ -229,13 +229,15 @@ async function addReply(
   fixture: Awaited<ReturnType<typeof seedResolutionFixture>>,
   actor: typeof fixture.builderStaff | typeof fixture.contractor,
   postId: Id<"buildCollaborationPosts">,
-  text: string
+  text: string,
+  parentCommentId?: Id<"buildCollaborationComments">
 ) {
   return (await actor.mutation(
     (api as any).build_collaboration_threads.addBuildCollaborationComment,
     {
       buildId: fixture.buildId,
       organizationId: ORGANIZATION_ID,
+      parentCommentId,
       plainText: text,
       postId,
       references: [],
@@ -934,5 +936,178 @@ describe("Build collaboration thread resolution", () => {
       announcementProminent: true,
       threadRevision: 0,
     });
+  });
+
+  test("hydrates deep focused discussions and governs reply reactions, pins, and revocation", async () => {
+    const fixture = await seedResolutionFixture();
+    const postId = await publishPost(fixture, fixture.contractor, {
+      postType: "update",
+      text: "Coordinate the deep inspection thread.",
+    });
+    const comments: Id<"buildCollaborationComments">[] = [];
+    let parentCommentId: Id<"buildCollaborationComments"> | undefined;
+    for (let depth = 0; depth < 6; depth += 1) {
+      const commentId = await addReply(
+        fixture,
+        depth % 2 === 0 ? fixture.builderStaff : fixture.contractor,
+        postId,
+        `Reply depth ${depth}`,
+        parentCommentId
+      );
+      comments.push(commentId);
+      parentCommentId = commentId;
+    }
+    const activityBeforeInteractions = await fixture.base.run(
+      async (ctx) => (await ctx.db.get(postId))?.lastMeaningfulActivityAt
+    );
+
+    await fixture.contractor.mutation(
+      (api as any).build_collaboration_threads
+        .reactToBuildCollaborationComment,
+      {
+        buildId: fixture.buildId,
+        commentId: comments[0],
+        organizationId: ORGANIZATION_ID,
+        reaction: "acknowledged",
+      }
+    );
+    await expect(
+      fixture.contractor.mutation(
+        (api as any).build_collaboration_threads
+          .toggleBuildCollaborationPin,
+        {
+          buildId: fixture.buildId,
+          commentId: comments[0],
+          kind: "reply",
+          organizationId: ORGANIZATION_ID,
+          postId,
+        }
+      )
+    ).rejects.toThrow("reply author or Build coordination team");
+    await fixture.builderStaff.mutation(
+      (api as any).build_collaboration_threads.toggleBuildCollaborationPin,
+      {
+        buildId: fixture.buildId,
+        commentId: comments[0],
+        kind: "reply",
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_threads.toggleBuildCollaborationPin,
+      {
+        buildId: fixture.buildId,
+        commentId: comments[0],
+        kind: "reply",
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
+
+    const list = await fixture.broker.query(
+      (api as any).build_collaboration_threads
+        .listBuildCollaborationComments,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId,
+      }
+    );
+    expect(list.map((row: any) => row.comment.logicalDepth)).toEqual([
+      0, 1, 2, 3, 4, 5,
+    ]);
+    expect(list[0]).toMatchObject({
+      comment: {
+        pinCount: 2,
+        viewerCanPin: true,
+        viewerPinned: true,
+      },
+      reactions: [
+        {
+          reaction: "acknowledged",
+          workosUserId: "user_contractor",
+        },
+      ],
+    });
+    expect(list[4].comment).toMatchObject({
+      parentAuthorDisplayNameSnapshot: "Contractor Author",
+      parentCommentId: comments[3],
+    });
+    const activityAfterInteractions = await fixture.base.run(
+      async (ctx) => (await ctx.db.get(postId))?.lastMeaningfulActivityAt
+    );
+    expect(activityAfterInteractions).toBe(activityBeforeInteractions);
+
+    await fixture.builderStaff.mutation(
+      (api as any).build_collaboration_editing.editBuildCollaborationComment,
+      {
+        buildId: fixture.buildId,
+        commentId: comments[4],
+        editReason: "Clarify without moving the reply",
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        references: [],
+        tiptapJson: textDocument("Clarified depth four reply"),
+      }
+    );
+    await fixture.contractor.mutation(
+      (api as any).build_collaboration_editing
+        .tombstoneBuildCollaborationComment,
+      {
+        buildId: fixture.buildId,
+        commentId: comments[1],
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const focused = await fixture.broker.query(
+      (api as any).build_collaboration_threads
+        .getFocusedBuildCollaborationCommentContext,
+      {
+        buildId: fixture.buildId,
+        commentId: comments[4],
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(focused).toMatchObject({
+      focusCommentId: comments[4],
+      postId,
+      state: "visible",
+    });
+    expect(focused.rows.map((row: any) => row.comment._id)).toEqual(comments);
+    expect(focused.rows[4].comment.parentCommentId).toBe(comments[3]);
+    expect(focused.rows[1]).toMatchObject({
+      comment: { contentState: "tombstoned" },
+      revision: { plainText: "This reply was removed by its author." },
+    });
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(postId, {
+        audienceFloorTier: 3,
+        audienceMode: "custom",
+      });
+      const audienceMember = await ctx.db
+        .query("buildCollaborationAudienceMembers")
+        .withIndex("by_postId_and_workosUserId", (query) =>
+          query
+            .eq("postId", postId)
+            .eq("workosUserId", "user_contractor")
+        )
+        .unique();
+      if (audienceMember) {
+        await ctx.db.delete(audienceMember._id);
+      }
+    });
+    const revoked = await fixture.contractor.query(
+      (api as any).build_collaboration_threads
+        .getFocusedBuildCollaborationCommentContext,
+      {
+        buildId: fixture.buildId,
+        commentId: comments[4],
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(revoked).toEqual({ state: "revoked" });
   });
 });

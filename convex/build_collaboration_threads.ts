@@ -10,11 +10,16 @@ import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaborat
 import {
   collaborationModeratedContent,
   collaborationTombstoneContent,
+  projectCollaborationRevisionForViewer,
 } from "./build_collaboration_content";
-import { collaborationCommentRowValidator } from "./build_collaboration_contracts";
+import {
+  collaborationCommentRowValidator,
+  collaborationFocusedCommentContextValidator,
+} from "./build_collaboration_contracts";
 import { collaborationModerationCapabilities } from "./build_collaboration_moderation";
 import { canonicalizeTiptapReferences } from "./build_collaboration_publication_bundle";
 import {
+  type CanonicalBuildCollaborationReference,
   resolveCanonicalBuildCollaborationReferences,
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
@@ -70,8 +75,11 @@ export const addBuildCollaborationComment = authenticatedMutation
       ? await ctx.db.get(args.parentCommentId)
       : null;
     if (
-      parent &&
-      (parent.postId !== post._id ||
+      args.parentCommentId &&
+      (!parent ||
+        parent.organizationId !== authorization.organizationId ||
+        parent.brokerageId !== authorization.brokerage._id ||
+        parent.postId !== post._id ||
         parent.buildId !== authorization.build._id ||
         parent.contentState !== "active")
     ) {
@@ -214,18 +222,224 @@ export const listBuildCollaborationComments = authenticatedQuery
         query.eq("postId", post._id)
       )
       .take(MAX_THREAD_COMMENTS);
-    return await Promise.all(
-      comments.map((comment) =>
-        projectCollaborationComment(ctx, authorization, comment)
-      )
-    );
+    return await projectThreadComments(ctx, authorization, comments);
   })
   .public();
+
+export const getFocusedBuildCollaborationCommentContext = authenticatedQuery
+  .input({
+    buildId: v.id("activeBuilds"),
+    commentId: v.id("buildCollaborationComments"),
+    organizationId: v.string(),
+  })
+  .returns(collaborationFocusedCommentContextValidator)
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
+    const focus = await ctx.db.get(args.commentId);
+    if (
+      !focus ||
+      focus.organizationId !== authorization.organizationId ||
+      focus.brokerageId !== authorization.brokerage._id ||
+      focus.buildId !== authorization.build._id
+    ) {
+      return { state: "revoked" as const };
+    }
+    const post = await ctx.db.get(focus.postId);
+    if (
+      !post ||
+      post.contentState !== "active" ||
+      !(await canReadCollaborationPost(ctx, authorization, post))
+    ) {
+      return { state: "revoked" as const };
+    }
+    const comments = (
+      await ctx.db
+        .query("buildCollaborationComments")
+        .withIndex("by_postId_and_createdAt", (query) =>
+          query.eq("postId", post._id)
+        )
+        .take(MAX_THREAD_COMMENTS)
+    ).filter(
+      (comment) =>
+        comment.organizationId === authorization.organizationId &&
+        comment.brokerageId === authorization.brokerage._id &&
+        comment.buildId === authorization.build._id &&
+        comment.postId === post._id
+    );
+    const selectedIds = focusedThreadCommentIds(comments, focus._id);
+    const selected = comments.filter((comment) => selectedIds.has(comment._id));
+    return {
+      focusCommentId: focus._id,
+      postId: post._id,
+      rows: await projectThreadComments(ctx, authorization, selected),
+      state: "visible" as const,
+    };
+  })
+  .public();
+
+async function projectThreadComments(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  comments: Doc<"buildCollaborationComments">[]
+) {
+  if (comments.length === 0) {
+    return [];
+  }
+  const scoped = comments.filter(
+    (comment) =>
+      comment.organizationId === authorization.organizationId &&
+      comment.brokerageId === authorization.brokerage._id &&
+      comment.buildId === authorization.build._id
+  );
+  const ordered = flattenThreadComments(scoped);
+  const postId = ordered[0]?.postId;
+  if (!postId) {
+    return [];
+  }
+  const [reactions, pins] = await Promise.all([
+    ctx.db
+      .query("buildCollaborationReactions")
+      .withIndex("by_postId_and_workosUserId", (query) =>
+        query.eq("postId", postId)
+      )
+      .take(MAX_THREAD_COMMENTS * 10),
+    ctx.db
+      .query("buildCollaborationPins")
+      .withIndex("by_postId_and_workosUserId_and_kind", (query) =>
+        query.eq("postId", postId)
+      )
+      .take(MAX_THREAD_COMMENTS * 2),
+  ]);
+  const commentById = new Map(scoped.map((comment) => [comment._id, comment]));
+  return await Promise.all(
+    ordered.map((comment) =>
+      projectCollaborationComment(ctx, authorization, comment, {
+        parent: comment.parentCommentId
+          ? commentById.get(comment.parentCommentId)
+          : undefined,
+        pins: pins.filter(
+          (pin) =>
+            pin.kind === "reply" &&
+            pin.commentId === comment._id &&
+            pin.organizationId === authorization.organizationId &&
+            pin.brokerageId === authorization.brokerage._id &&
+            pin.buildId === authorization.build._id &&
+            pin.postId === postId
+        ),
+        reactions: reactions.filter(
+          (reaction) =>
+            reaction.commentId === comment._id &&
+            reaction.organizationId === authorization.organizationId &&
+            reaction.brokerageId === authorization.brokerage._id &&
+            reaction.buildId === authorization.build._id &&
+            reaction.postId === postId
+        ),
+      })
+    )
+  );
+}
+
+function flattenThreadComments(comments: Doc<"buildCollaborationComments">[]) {
+  const byId = new Map(comments.map((comment) => [comment._id, comment]));
+  const children = new Map<
+    Id<"buildCollaborationComments"> | undefined,
+    Doc<"buildCollaborationComments">[]
+  >();
+  for (const comment of comments) {
+    const parentId =
+      comment.parentCommentId && byId.has(comment.parentCommentId)
+        ? comment.parentCommentId
+        : undefined;
+    const siblings = children.get(parentId) ?? [];
+    siblings.push(comment);
+    children.set(parentId, siblings);
+  }
+  for (const siblings of children.values()) {
+    siblings.sort(
+      (left, right) =>
+        left.createdAt - right.createdAt ||
+        left._creationTime - right._creationTime
+    );
+  }
+  const ordered: Doc<"buildCollaborationComments">[] = [];
+  const visited = new Set<Id<"buildCollaborationComments">>();
+  const visit = (comment: Doc<"buildCollaborationComments">) => {
+    if (visited.has(comment._id)) {
+      return;
+    }
+    visited.add(comment._id);
+    ordered.push(comment);
+    for (const child of children.get(comment._id) ?? []) {
+      visit(child);
+    }
+  };
+  for (const root of children.get(undefined) ?? []) {
+    visit(root);
+  }
+  for (const comment of comments) {
+    visit(comment);
+  }
+  return ordered;
+}
+
+function focusedThreadCommentIds(
+  comments: Doc<"buildCollaborationComments">[],
+  focusId: Id<"buildCollaborationComments">
+) {
+  const byId = new Map(comments.map((comment) => [comment._id, comment]));
+  const children = new Map<
+    Id<"buildCollaborationComments">,
+    Id<"buildCollaborationComments">[]
+  >();
+  for (const comment of comments) {
+    if (!comment.parentCommentId) {
+      continue;
+    }
+    const childIds = children.get(comment.parentCommentId) ?? [];
+    childIds.push(comment._id);
+    children.set(comment.parentCommentId, childIds);
+  }
+  const selected = new Set<Id<"buildCollaborationComments">>();
+  let current = byId.get(focusId);
+  let ancestrySteps = 0;
+  while (current && ancestrySteps <= MAX_LOGICAL_DEPTH) {
+    if (selected.has(current._id)) {
+      break;
+    }
+    selected.add(current._id);
+    current = current.parentCommentId
+      ? byId.get(current.parentCommentId)
+      : undefined;
+    ancestrySteps += 1;
+  }
+  const descendants = [focusId];
+  while (descendants.length > 0 && selected.size <= MAX_THREAD_COMMENTS) {
+    const parentId = descendants.shift();
+    if (!parentId) {
+      break;
+    }
+    for (const childId of children.get(parentId) ?? []) {
+      if (!selected.has(childId)) {
+        selected.add(childId);
+        descendants.push(childId);
+      }
+    }
+  }
+  return selected;
+}
 
 async function projectCollaborationComment(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
-  comment: Doc<"buildCollaborationComments">
+  comment: Doc<"buildCollaborationComments">,
+  context: {
+    parent?: Doc<"buildCollaborationComments">;
+    pins: Doc<"buildCollaborationPins">[];
+    reactions: Doc<"buildCollaborationReactions">[];
+  }
 ) {
   const currentRevisionId = comment.currentRevisionId;
   const unavailable = comment.contentState !== "active";
@@ -259,6 +473,32 @@ async function projectCollaborationComment(
       ? collaborationTombstoneContent("comment")
       : collaborationModeratedContent("comment")
     : null;
+  const { canonicalReferences, referenceSummaries } =
+    await projectCommentReferences(ctx, {
+      authorization,
+      comment,
+      currentRevisionId,
+      references,
+      unavailable,
+    });
+  const revisionIsOwned =
+    revision &&
+    revision.organizationId === authorization.organizationId &&
+    revision.brokerageId === authorization.brokerage._id &&
+    revision.buildId === authorization.build._id &&
+    revision.postId === comment.postId &&
+    revision.commentId === comment._id;
+  const projectedRevision =
+    revisionIsOwned && !unavailable
+      ? projectCollaborationRevisionForViewer({
+          references: canonicalReferences,
+          tiptapJson: revision.tiptapJson,
+        })
+      : replacement;
+  const viewerCanPin =
+    comment.contentState === "active" &&
+    (comment.authorWorkosUserId === authorization.viewer.subject ||
+      canPinForBuild(authorization));
   return {
     comment: {
       _creationTime: comment._creationTime,
@@ -268,59 +508,102 @@ async function projectCollaborationComment(
       contentState: comment.contentState,
       createdAt: comment.createdAt,
       logicalDepth: comment.logicalDepth,
+      parentAuthorDisplayNameSnapshot:
+        context.parent?.authorDisplayNameSnapshot,
+      parentCommentId: comment.parentCommentId,
+      pinCount: context.pins.length,
       revision: comment.revision,
       updatedAt: comment.updatedAt,
+      viewerCanPin,
       viewerCanAppeal: moderationCapabilities.canAppeal,
       viewerCanModerate: moderationCapabilities.canModerate,
       viewerCanResolveAppeal: moderationCapabilities.canResolveAppeal,
       viewerIsAuthor:
         comment.authorWorkosUserId === authorization.viewer.subject,
+      viewerPinned: context.pins.some(
+        (pin) => pin.workosUserId === authorization.viewer.subject
+      ),
     },
-    references: unavailable
-      ? []
-      : await Promise.all(
-          references.map(async (reference) => {
-            try {
-              const current = await resolveCurrentBuildCollaborationReference(
-                ctx,
-                {
-                  authorization,
-                  entityId: reference.entityId,
-                  entityKind: reference.entityKind,
-                }
-              );
-              return {
-                _creationTime: reference._creationTime,
-                _id: reference._id,
-                entityId: reference.entityId,
-                entityKind: reference.entityKind,
-                labelSnapshot: current.label,
-                summarySnapshot: current.summary,
-              };
-            } catch {
-              return {
-                _creationTime: reference._creationTime,
-                _id: reference._id,
-                entityId: reference.entityId,
-                entityKind: reference.entityKind,
-                labelSnapshot: "Unavailable reference",
-                summarySnapshot: undefined,
-              };
-            }
-          })
-        ),
-    revision: revision
-      ? {
-          _creationTime: revision._creationTime,
-          _id: revision._id,
-          createdAt: unavailable ? comment.updatedAt : revision.createdAt,
-          editReason: unavailable ? undefined : revision.editReason,
-          plainText: replacement?.plainText ?? revision.plainText,
-          revision: comment.revision,
-          tiptapJson: replacement?.tiptapJson ?? revision.tiptapJson,
-        }
-      : null,
+    reactions: context.reactions.map((reaction) => ({
+      _creationTime: reaction._creationTime,
+      _id: reaction._id,
+      reaction: reaction.reaction,
+      workosUserId: reaction.workosUserId,
+    })),
+    references: unavailable ? [] : referenceSummaries,
+    revision:
+      revisionIsOwned && projectedRevision
+        ? {
+            _creationTime: revision._creationTime,
+            _id: revision._id,
+            createdAt: unavailable ? comment.updatedAt : revision.createdAt,
+            editReason: unavailable ? undefined : revision.editReason,
+            plainText: projectedRevision.plainText,
+            revision: comment.revision,
+            tiptapJson: projectedRevision.tiptapJson,
+          }
+        : null,
   };
+}
+
+async function projectCommentReferences(
+  ctx: QueryCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    comment: Doc<"buildCollaborationComments">;
+    currentRevisionId?: Id<"buildCollaborationCommentRevisions">;
+    references: Doc<"buildCollaborationReferences">[];
+    unavailable: boolean;
+  }
+) {
+  const canonicalReferences: CanonicalBuildCollaborationReference[] = [];
+  const referenceSummaries: Array<{
+    _creationTime: number;
+    _id: Id<"buildCollaborationReferences">;
+    entityId: string;
+    entityKind: Doc<"buildCollaborationReferences">["entityKind"];
+    labelSnapshot: string;
+    summarySnapshot?: string;
+  }> = [];
+  if (input.unavailable) {
+    return { canonicalReferences, referenceSummaries };
+  }
+  for (const reference of input.references) {
+    if (
+      reference.organizationId !== input.authorization.organizationId ||
+      reference.brokerageId !== input.authorization.brokerage._id ||
+      reference.buildId !== input.authorization.build._id ||
+      reference.postId !== input.comment.postId ||
+      reference.ownerRecordId !== input.currentRevisionId
+    ) {
+      continue;
+    }
+    try {
+      const current = await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization: input.authorization,
+        entityId: reference.entityId,
+        entityKind: reference.entityKind,
+      });
+      canonicalReferences.push(current);
+      referenceSummaries.push({
+        _creationTime: reference._creationTime,
+        _id: reference._id,
+        entityId: reference.entityId,
+        entityKind: reference.entityKind,
+        labelSnapshot: current.label,
+        summarySnapshot: current.summary,
+      });
+    } catch {
+      referenceSummaries.push({
+        _creationTime: reference._creationTime,
+        _id: reference._id,
+        entityId: reference.entityId,
+        entityKind: reference.entityKind,
+        labelSnapshot: "Unavailable reference",
+      });
+    }
+  }
+  return { canonicalReferences, referenceSummaries };
 }
 
 export const reactToBuildCollaborationPost = authenticatedMutation
@@ -342,9 +625,10 @@ export const reactToBuildCollaborationPost = authenticatedMutation
     }
     const existing = await ctx.db
       .query("buildCollaborationReactions")
-      .withIndex("by_postId_and_workosUserId", (query) =>
+      .withIndex("by_postId_and_commentId_and_workosUserId", (query) =>
         query
           .eq("postId", post._id)
+          .eq("commentId", undefined)
           .eq("workosUserId", authorization.viewer.subject)
       )
       .unique();
@@ -373,6 +657,71 @@ export const reactToBuildCollaborationPost = authenticatedMutation
   })
   .public();
 
+export const reactToBuildCollaborationComment = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    commentId: v.id("buildCollaborationComments"),
+    organizationId: v.string(),
+    reaction: buildCollaborationReactionValidator,
+  })
+  .returns(v.union(v.id("buildCollaborationReactions"), v.null()))
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
+      ctx,
+      args
+    );
+    const comment = await ctx.db.get(args.commentId);
+    if (
+      !comment ||
+      comment.organizationId !== authorization.organizationId ||
+      comment.brokerageId !== authorization.brokerage._id ||
+      comment.buildId !== authorization.build._id ||
+      comment.contentState !== "active"
+    ) {
+      throw new Error("The reply is unavailable.");
+    }
+    const post = await ctx.db.get(comment.postId);
+    if (
+      !post ||
+      post.contentState !== "active" ||
+      !(await canReadCollaborationPost(ctx, authorization, post))
+    ) {
+      throw new Error("Forbidden: collaboration post");
+    }
+    const existing = await ctx.db
+      .query("buildCollaborationReactions")
+      .withIndex("by_commentId_and_workosUserId", (query) =>
+        query
+          .eq("commentId", comment._id)
+          .eq("workosUserId", authorization.viewer.subject)
+      )
+      .unique();
+    const now = Date.now();
+    if (existing?.reaction === args.reaction) {
+      await ctx.db.delete(existing._id);
+      return null;
+    }
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        reaction: args.reaction,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+    return await ctx.db.insert("buildCollaborationReactions", {
+      brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
+      commentId: comment._id,
+      createdAt: now,
+      organizationId: authorization.organizationId,
+      postId: post._id,
+      reaction: args.reaction,
+      updatedAt: now,
+      workosUserId: authorization.viewer.subject,
+    });
+  })
+  .public();
+
 export const toggleBuildCollaborationPin = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
@@ -391,15 +740,35 @@ export const toggleBuildCollaborationPin = authenticatedMutation
     if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
       throw new Error("Forbidden: collaboration post");
     }
-    if (
-      args.kind === "build" &&
-      (authorization.effectiveRole.role === "homeowner" ||
-        authorization.effectiveRole.role === "contractor")
-    ) {
+    if (args.kind === "build" && !canPinForBuild(authorization)) {
       throw new Error("Only the builder or lender team may pin for the Build.");
     }
     if (args.kind === "reply" && !args.commentId) {
       throw new Error("Reply pins require a comment.");
+    }
+    if (args.commentId && args.kind !== "reply") {
+      throw new Error("A comment can only be pinned as a reply.");
+    }
+    if (args.commentId) {
+      const comment = await ctx.db.get(args.commentId);
+      if (
+        !comment ||
+        comment.organizationId !== authorization.organizationId ||
+        comment.brokerageId !== authorization.brokerage._id ||
+        comment.buildId !== authorization.build._id ||
+        comment.postId !== post._id ||
+        comment.contentState !== "active"
+      ) {
+        throw new Error("The reply is unavailable.");
+      }
+      if (
+        comment.authorWorkosUserId !== authorization.viewer.subject &&
+        !canPinForBuild(authorization)
+      ) {
+        throw new Error(
+          "Only the reply author or Build coordination team may pin this reply."
+        );
+      }
     }
     const existing = await ctx.db
       .query("buildCollaborationPins")
@@ -427,6 +796,13 @@ export const toggleBuildCollaborationPin = authenticatedMutation
     });
   })
   .public();
+
+function canPinForBuild(authorization: ActiveBuildAuthorization) {
+  return !(
+    authorization.effectiveRole.role === "homeowner" ||
+    authorization.effectiveRole.role === "contractor"
+  );
+}
 
 export const toggleBuildCollaborationFollow = authenticatedMutation
   .input({
