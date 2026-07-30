@@ -8,7 +8,6 @@ import type { Id } from "./_generated/dataModel";
 import {
   type BuildCollaborationRole,
   buildCollaborationRoles,
-  collaborationRoleTier,
 } from "./build_collaboration_model";
 import { collaborationModerationCapabilities } from "./build_collaboration_moderation";
 import schema from "./schema";
@@ -174,6 +173,7 @@ async function seedModerationFixture() {
   });
   return {
     admin,
+    adminPeer: withIdentity(base, "admin", "user_admin_peer"),
     base,
     broker: withIdentity(base, "broker"),
     buildId,
@@ -210,6 +210,7 @@ async function publishPostAs(
   fixture: Awaited<ReturnType<typeof seedModerationFixture>>,
   author:
     | typeof fixture.admin
+    | typeof fixture.adminPeer
     | typeof fixture.broker
     | typeof fixture.builder
     | typeof fixture.builderStaff
@@ -249,8 +250,7 @@ describe("Build collaboration moderation hierarchy", () => {
           viewerWorkosUserId: `viewer_${viewerRole}`,
         });
         expect(capabilities.canModerate).toBe(
-          collaborationRoleTier(viewerRole) >
-            collaborationRoleTier(authorRole)
+          expectedModerationAuthority(viewerRole, authorRole)
         );
       }
       expect(
@@ -284,7 +284,7 @@ describe("Build collaboration moderation hierarchy", () => {
     );
     const adminPost = await publishPostAs(
       fixture,
-      fixture.admin,
+      fixture.adminPeer,
       "Admin content"
     );
 
@@ -350,6 +350,18 @@ describe("Build collaboration moderation hierarchy", () => {
         }
       )
     ).rejects.toThrow("Forbidden");
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_moderation
+        .moderateBuildCollaborationContent,
+      {
+        buildId: fixture.buildId,
+        entityId: adminPost,
+        entityKind: "post",
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Administrative peer review",
+      }
+    );
     await expect(
       fixture.contractor.mutation(
         (api as any).build_collaboration_moderation
@@ -469,7 +481,7 @@ describe("Build collaboration moderation hierarchy", () => {
       )
     ).rejects.toThrow("Forbidden");
     await expect(
-      fixture.homeowner.mutation(
+      fixture.builderStaff.mutation(
         (api as any).build_collaboration_moderation
           .moderateBuildCollaborationContent,
         {
@@ -483,7 +495,21 @@ describe("Build collaboration moderation hierarchy", () => {
       )
     ).rejects.toThrow("reason is required");
 
-    const caseId = (await fixture.homeowner.mutation(
+    await expect(
+      fixture.homeowner.mutation(
+        (api as any).build_collaboration_moderation
+          .moderateBuildCollaborationContent,
+        {
+          buildId: fixture.buildId,
+          entityId: postId,
+          entityKind: "post",
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Homeowners cannot moderate",
+        }
+      )
+    ).rejects.toThrow("Forbidden");
+    const caseId = (await fixture.builderStaff.mutation(
       (api as any).build_collaboration_moderation
         .moderateBuildCollaborationContent,
       {
@@ -699,7 +725,7 @@ describe("Build collaboration moderation hierarchy", () => {
         tiptapJson: textDocument("Unsafe reply"),
       }
     )) as Id<"buildCollaborationComments">;
-    await fixture.homeowner.mutation(
+    await fixture.builderStaff.mutation(
       (api as any).build_collaboration_moderation
         .moderateBuildCollaborationContent,
       {
@@ -734,3 +760,34 @@ describe("Build collaboration moderation hierarchy", () => {
     expect(JSON.stringify(rows[0])).not.toContain("Unsafe reply");
   });
 });
+
+function expectedModerationAuthority(
+  viewerRole: BuildCollaborationRole,
+  authorRole: BuildCollaborationRole
+) {
+  const allowedAuthors: Record<
+    BuildCollaborationRole,
+    ReadonlySet<BuildCollaborationRole>
+  > = {
+    admin: new Set(buildCollaborationRoles),
+    "principle-broker": new Set([
+      "broker",
+      "builder",
+      "broker-staff",
+      "builder-staff",
+      "homeowner",
+      "contractor",
+    ]),
+    broker: new Set(["builder-staff", "homeowner", "contractor"]),
+    builder: new Set(["builder-staff", "homeowner", "contractor"]),
+    "broker-staff": new Set([
+      "builder-staff",
+      "homeowner",
+      "contractor",
+    ]),
+    "builder-staff": new Set(["contractor"]),
+    homeowner: new Set(),
+    contractor: new Set(),
+  };
+  return allowedAuthors[viewerRole].has(authorRole);
+}

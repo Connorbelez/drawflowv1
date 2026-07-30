@@ -1478,6 +1478,7 @@ function CollaborationComment({
   return (
     <div
       className="flex gap-2"
+      data-testid={`collaboration-comment-${row.comment._id}`}
       style={{
         marginLeft: `${Math.min(row.comment.logicalDepth, 3) * 18}px`,
       }}
@@ -1506,13 +1507,15 @@ function CollaborationComment({
             value={parseDocument(row.revision.tiptapJson)}
           />
         ) : null}
-        <button
-          className="mt-1 text-muted-foreground text-xs hover:text-foreground"
-          onClick={() => onReply(row.comment._id)}
-          type="button"
-        >
-          Reply
-        </button>
+        {row.comment.contentState === "active" ? (
+          <button
+            className="mt-1 text-muted-foreground text-xs hover:text-foreground"
+            onClick={() => onReply(row.comment._id)}
+            type="button"
+          >
+            Reply
+          </button>
+        ) : null}
         {canViewHistory ? (
           <button
             className="mt-1 ml-3 text-muted-foreground text-xs hover:text-foreground"

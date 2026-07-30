@@ -6,11 +6,13 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { getFunctionName } from "convex/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  comments: [] as Array<Record<string, unknown>>,
   drafts: [] as Array<Record<string, unknown>>,
   feedStatus: "Exhausted" as "CanLoadMore" | "Exhausted",
   focusedPostId: "post-1" as string | null,
@@ -116,7 +118,7 @@ vi.mock("convex/react", () => ({
       functionName ===
       "build_collaboration_threads:listBuildCollaborationComments"
     ) {
-      return [];
+      return mocks.comments;
     }
     if (
       functionName ===
@@ -226,6 +228,7 @@ afterEach(() => {
   mocks.loadMore.mockClear();
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
+  mocks.comments = [];
   mocks.feedStatus = "Exhausted";
     mocks.focusedPostId = "post-1";
     mocks.postContentState = "active";
@@ -423,6 +426,58 @@ describe("BuildCollaborationFeed", () => {
         reason: "Unsafe instruction",
       })
     );
+  });
+
+  test("does not offer a guaranteed-failure reply action on moderated content", () => {
+    mocks.comments = [
+      {
+        comment: {
+          _id: "comment-1",
+          authorDisplayNameSnapshot: "Trade Partner",
+          authorRole: "contractor",
+          contentState: "moderated",
+          createdAt: Date.parse("2026-07-28T13:00:00.000Z"),
+          logicalDepth: 0,
+          revision: 1,
+          updatedAt: Date.parse("2026-07-28T13:05:00.000Z"),
+          viewerCanAppeal: false,
+          viewerCanModerate: false,
+          viewerCanResolveAppeal: false,
+          viewerIsAuthor: false,
+        },
+        references: [],
+        revision: {
+          plainText:
+            "This reply is unavailable while it is under moderation.",
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [
+                  {
+                    text: "This reply is unavailable while it is under moderation.",
+                    type: "text",
+                  },
+                ],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        },
+      },
+    ];
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        organizationId="org-1"
+      />
+    );
+
+    const comment = screen.getByTestId("collaboration-comment-comment-1");
+    expect(within(comment).getByText("Moderated")).toBeTruthy();
+    expect(
+      within(comment).queryByRole("button", { name: "Reply" })
+    ).toBeNull();
   });
 
   test("shows the complete effective bundle before a human approves an agent draft", async () => {

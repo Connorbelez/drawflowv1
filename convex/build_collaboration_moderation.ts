@@ -78,8 +78,10 @@ export function collaborationModerationCapabilities(input: {
     input.contentState === "active" &&
     !isAuthor &&
     Boolean(input.authorRole) &&
-    viewerTier >
-      collaborationRoleTier(input.authorRole as BuildCollaborationRole);
+    canRoleModerateAuthor(
+      input.viewerRole,
+      input.authorRole as BuildCollaborationRole
+    );
   const canAppeal =
     input.contentState === "moderated" &&
     isAuthor &&
@@ -91,6 +93,27 @@ export function collaborationModerationCapabilities(input: {
     viewerTier >= (input.minimumReviewerTier ?? 6) &&
     !isAuthor;
   return { canAppeal, canModerate, canResolveAppeal };
+}
+
+function canRoleModerateAuthor(
+  viewerRole: BuildCollaborationRole,
+  authorRole: BuildCollaborationRole
+) {
+  switch (viewerRole) {
+    case "admin":
+      return true;
+    case "principle-broker":
+      return collaborationRoleTier(authorRole) < 4;
+    case "broker":
+    case "builder":
+    case "broker-staff":
+      return collaborationRoleTier(authorRole) < 3;
+    case "builder-staff":
+      return authorRole === "contractor";
+    case "homeowner":
+    case "contractor":
+      return false;
+  }
 }
 
 export const getBuildCollaborationModerationContext = authenticatedQuery
