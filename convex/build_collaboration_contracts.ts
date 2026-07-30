@@ -20,7 +20,10 @@ import {
 export const collaborationPostSummaryValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("buildCollaborationPosts"),
+  acceptedCommentId: v.optional(v.id("buildCollaborationComments")),
   agentDrafted: v.boolean(),
+  announcementExpiresAt: v.optional(v.number()),
+  announcementProminent: v.boolean(),
   audienceMode: buildCollaborationAudienceModeValidator,
   authorDisplayNameSnapshot: v.string(),
   authorRole: v.optional(buildCollaborationRoleValidator),
@@ -32,14 +35,21 @@ export const collaborationPostSummaryValidator = v.object({
     v.literal("moderated")
   ),
   createdAt: v.number(),
+  decisionOutcome: v.optional(v.string()),
+  decisionOwnerDisplayName: v.optional(v.string()),
+  decisionOwnerWorkosUserId: v.optional(v.string()),
   postType: buildCollaborationPostTypeValidator,
   readRevision: v.number(),
+  resolutionSummary: v.optional(v.string()),
+  resolvedAt: v.optional(v.number()),
   revision: v.number(),
   source: buildCollaborationSourceValidator,
+  threadState: v.union(v.literal("open"), v.literal("resolved")),
   updatedAt: v.number(),
   viewerCanAppeal: v.boolean(),
   viewerCanModerate: v.boolean(),
   viewerCanResolveAppeal: v.boolean(),
+  viewerCanManageThread: v.boolean(),
   viewerIsAuthor: v.boolean(),
 });
 

@@ -17,6 +17,7 @@ import {
   resolveCanonicalBuildCollaborationReferences,
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
+import { reopenQuestionForUnavailableAcceptedAnswer } from "./build_collaboration_resolution";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildCollaborationReferenceKindValidator,
@@ -276,6 +277,12 @@ export const tombstoneBuildCollaborationComment = authenticatedMutation
       tombstonedAt: now,
       tombstonedByWorkosUserId: authorization.viewer.subject,
       updatedAt: now,
+    });
+    await reopenQuestionForUnavailableAcceptedAnswer(ctx, {
+      authorization,
+      commentId: comment._id,
+      now,
+      post,
     });
     await ctx.db.patch(post._id, {
       readRevision: (post.readRevision ?? post.revision) + 1,

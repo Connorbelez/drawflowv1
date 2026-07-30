@@ -12,6 +12,7 @@ import { getFunctionName } from "convex/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  acceptedCommentId: undefined as string | undefined,
   comments: [] as Array<Record<string, unknown>>,
   drafts: [] as Array<Record<string, unknown>>,
   feedStatus: "Exhausted" as "CanLoadMore" | "Exhausted",
@@ -20,7 +21,15 @@ const mocks = vi.hoisted(() => ({
   mutate: vi.fn().mockResolvedValue(null),
   onOpenReference: vi.fn(),
   postContentState: "active" as "active" | "tombstoned",
+  postResolutionSummary: undefined as string | undefined,
   postRevision: 1,
+  postThreadState: "open" as "open" | "resolved",
+  postType: "update" as
+    | "update"
+    | "question"
+    | "decision"
+    | "issue"
+    | "announcement",
   postViewerCanModerate: false,
   postViewerIsAuthor: true,
 }));
@@ -56,18 +65,23 @@ vi.mock("convex/react", () => ({
         pins: [],
         post: {
           _id: "post-1",
+          acceptedCommentId: mocks.acceptedCommentId,
+          announcementProminent: false,
           audienceMode: "build_wide",
           authorDisplayNameSnapshot: "Alex Chen",
           authorRole: "builder",
           contentState: mocks.postContentState,
           createdAt: Date.parse("2026-07-28T12:00:00.000Z"),
-          postType: "update",
+          postType: mocks.postType,
           readRevision: mocks.postRevision,
+          resolutionSummary: mocks.postResolutionSummary,
           revision: mocks.postRevision,
+          threadState: mocks.postThreadState,
           updatedAt: Date.parse("2026-07-28T12:00:00.000Z"),
           viewerCanAppeal: false,
           viewerCanModerate: mocks.postViewerCanModerate,
           viewerCanResolveAppeal: false,
+          viewerCanManageThread: true,
           viewerIsAuthor: mocks.postViewerIsAuthor,
         },
         reactions: [],
@@ -229,12 +243,16 @@ afterEach(() => {
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
   mocks.comments = [];
+  mocks.acceptedCommentId = undefined;
   mocks.feedStatus = "Exhausted";
-    mocks.focusedPostId = "post-1";
-    mocks.postContentState = "active";
-    mocks.postRevision = 1;
-    mocks.postViewerCanModerate = false;
-    mocks.postViewerIsAuthor = true;
+  mocks.focusedPostId = "post-1";
+  mocks.postContentState = "active";
+  mocks.postResolutionSummary = undefined;
+  mocks.postRevision = 1;
+  mocks.postThreadState = "open";
+  mocks.postType = "update";
+  mocks.postViewerCanModerate = false;
+  mocks.postViewerIsAuthor = true;
 });
 
 describe("BuildCollaborationFeed", () => {
@@ -478,6 +496,62 @@ describe("BuildCollaborationFeed", () => {
     expect(
       within(comment).queryByRole("button", { name: "Reply" })
     ).toBeNull();
+  });
+
+  test("presents the accepted visible reply as the resolved Question outcome", () => {
+    mocks.acceptedCommentId = "comment-1";
+    mocks.postResolutionSummary = "The revised engineer seal is acceptable.";
+    mocks.postThreadState = "resolved";
+    mocks.postType = "question";
+    mocks.comments = [
+      {
+        comment: {
+          _id: "comment-1",
+          authorDisplayNameSnapshot: "Maya Singh",
+          authorRole: "builder-staff",
+          contentState: "active",
+          createdAt: Date.parse("2026-07-28T13:00:00.000Z"),
+          logicalDepth: 0,
+          revision: 1,
+          updatedAt: Date.parse("2026-07-28T13:00:00.000Z"),
+          viewerCanAppeal: false,
+          viewerCanModerate: false,
+          viewerCanResolveAppeal: false,
+          viewerIsAuthor: false,
+        },
+        references: [],
+        revision: {
+          plainText: "The revised engineer seal is acceptable.",
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [
+                  {
+                    text: "The revised engineer seal is acceptable.",
+                    type: "text",
+                  },
+                ],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        },
+      },
+    ];
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        organizationId="org-1"
+      />
+    );
+
+    expect(screen.getAllByText("Accepted answer")).toHaveLength(2);
+    expect(
+      screen.getAllByText("The revised engineer seal is acceptable.")
+    ).toHaveLength(2);
+    expect(screen.getByText("Resolved")).toBeTruthy();
   });
 
   test("shows the complete effective bundle before a human approves an agent draft", async () => {

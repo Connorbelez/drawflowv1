@@ -18,6 +18,7 @@ import {
   resolveCanonicalBuildCollaborationReferences,
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
+import { reopenResolvedThreadForReply } from "./build_collaboration_resolution";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildCollaborationPinKindValidator,
@@ -137,6 +138,11 @@ export const addBuildCollaborationComment = authenticatedMutation
       }
     );
     await ctx.db.patch(commentId, { currentRevisionId: revisionId });
+    await reopenResolvedThreadForReply(ctx, {
+      authorization,
+      now,
+      post,
+    });
     await ctx.db.patch(post._id, {
       commentCount: post.commentCount + 1,
       lastMeaningfulActivityAt: now,

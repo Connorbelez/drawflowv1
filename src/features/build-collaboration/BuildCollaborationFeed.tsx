@@ -66,6 +66,7 @@ import {
   BuildCollaborationReferenceChip,
   BuildCollaborationReferenceSheet,
 } from "./BuildCollaborationReference.tsx";
+import { BuildCollaborationThreadSheet } from "./BuildCollaborationThreadSheet.tsx";
 import {
   CollaborationRichTextEditor,
   CollaborationRichTextPreview,
@@ -973,12 +974,14 @@ function CollaborationPostHeader({
   buildId,
   entry,
   onEdit,
+  onManageThread,
   onModerate,
   organizationId,
 }: {
   buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
   onEdit: () => void;
+  onManageThread: () => void;
   onModerate: () => void;
   organizationId: string;
 }) {
@@ -1037,67 +1040,123 @@ function CollaborationPostHeader({
             <span>{roleLabel(entry.post.authorRole)}</span>
             <span aria-hidden="true">·</span>
             <time>{formatTimestamp(entry.post.createdAt)}</time>
-            {entry.post.contentState === "active" ? (
-              entry.post.revision > 1 ? (
-                <Badge variant="outline">Edited</Badge>
-              ) : null
-            ) : (
-              <Badge variant="secondary">
-                {entry.post.contentState === "tombstoned"
-                  ? "Removed"
-                  : "Moderated"}
-              </Badge>
-            )}
-            <Badge variant="outline">
-              {postTypeLabel(entry.post.postType)}
-            </Badge>
+            <PostStatusBadges entry={entry} />
           </CardDescription>
         </div>
-        <CardAction>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  aria-label="Post actions"
-                  size="icon-sm"
-                  type="button"
-                  variant="ghost"
-                />
-              }
-            >
-              <MoreHorizontal aria-hidden="true" className="size-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuGroup>
-                {canViewHistory ? (
-                  <DropdownMenuItem onClick={onEdit}>
-                    <Pencil aria-hidden="true" className="size-4" />
-                    {canEdit ? "Edit post" : "View revision history"}
-                  </DropdownMenuItem>
-                ) : null}
-                {entry.post.viewerCanModerate ||
-                entry.post.viewerCanAppeal ||
-                entry.post.viewerCanResolveAppeal ? (
-                  <DropdownMenuItem onClick={onModerate}>
-                    <ShieldAlert aria-hidden="true" className="size-4" />
-                    {moderationActionLabel(entry.post)}
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuItem onClick={() => savePost("personal")}>
-                  Save privately
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => savePost("build")}>
-                  Pin for Build
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={followPost}>
-                  {entry.following ? "Unfollow thread" : "Follow thread"}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </CardAction>
+        <CollaborationPostActions
+          canEdit={canEdit}
+          canViewHistory={canViewHistory}
+          entry={entry}
+          followPost={followPost}
+          onEdit={onEdit}
+          onManageThread={onManageThread}
+          onModerate={onModerate}
+          savePost={savePost}
+        />
       </div>
     </CardHeader>
+  );
+}
+
+function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
+  const contentStatus =
+    entry.post.contentState === "tombstoned" ? "Removed" : "Moderated";
+  return (
+    <>
+      {entry.post.contentState === "active" ? (
+        entry.post.revision > 1 ? (
+          <Badge variant="outline">Edited</Badge>
+        ) : null
+      ) : (
+        <Badge variant="secondary">{contentStatus}</Badge>
+      )}
+      <Badge variant="outline">{postTypeLabel(entry.post.postType)}</Badge>
+      {entry.post.threadState === "resolved" ? <Badge>Resolved</Badge> : null}
+      {entry.post.postType === "announcement" ? (
+        <Badge
+          variant={entry.post.announcementProminent ? "secondary" : "outline"}
+        >
+          {entry.post.announcementProminent
+            ? "Prominent"
+            : "Prominence expired"}
+        </Badge>
+      ) : null}
+    </>
+  );
+}
+
+function CollaborationPostActions({
+  canEdit,
+  canViewHistory,
+  entry,
+  followPost,
+  onEdit,
+  onManageThread,
+  onModerate,
+  savePost,
+}: {
+  canEdit: boolean;
+  canViewHistory: boolean;
+  entry: CollaborationFeedPostEntry;
+  followPost: () => void;
+  onEdit: () => void;
+  onManageThread: () => void;
+  onModerate: () => void;
+  savePost: (kind: "build" | "personal") => Promise<unknown>;
+}) {
+  const canUseModeration =
+    entry.post.viewerCanModerate ||
+    entry.post.viewerCanAppeal ||
+    entry.post.viewerCanResolveAppeal;
+  return (
+    <CardAction>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              aria-label="Post actions"
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            />
+          }
+        >
+          <MoreHorizontal aria-hidden="true" className="size-4" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuGroup>
+            {canViewHistory ? (
+              <DropdownMenuItem onClick={onEdit}>
+                <Pencil aria-hidden="true" className="size-4" />
+                {canEdit ? "Edit post" : "View revision history"}
+              </DropdownMenuItem>
+            ) : null}
+            {canUseModeration ? (
+              <DropdownMenuItem onClick={onModerate}>
+                <ShieldAlert aria-hidden="true" className="size-4" />
+                {moderationActionLabel(entry.post)}
+              </DropdownMenuItem>
+            ) : null}
+            {entry.post.contentState === "active" ? (
+              <DropdownMenuItem onClick={onManageThread}>
+                {entry.post.viewerCanManageThread
+                  ? "Manage thread outcome"
+                  : "View thread outcome"}
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuItem onClick={() => savePost("personal")}>
+              Save privately
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => savePost("build")}>
+              Pin for Build
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={followPost}>
+              {entry.following ? "Unfollow thread" : "Follow thread"}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </CardAction>
   );
 }
 
@@ -1161,6 +1220,56 @@ function CollaborationPostFooter({
   );
 }
 
+function ThreadOutcomeSummary({
+  entry,
+}: {
+  entry: CollaborationFeedPostEntry;
+}) {
+  if (entry.post.threadState !== "resolved") {
+    return null;
+  }
+  return (
+    <Frame>
+      <FramePanel className="space-y-1 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="font-medium text-xs">
+            {entry.post.postType === "question"
+              ? "Accepted answer"
+              : entry.post.postType === "decision"
+                ? "Decision outcome"
+                : entry.post.postType === "issue"
+                  ? "Issue disposition"
+                  : "Resolution"}
+          </p>
+          {entry.post.resolvedAt ? (
+            <time className="text-muted-foreground text-xs">
+              {formatTimestamp(entry.post.resolvedAt)}
+            </time>
+          ) : null}
+        </div>
+        {entry.post.postType === "decision" ? (
+          <>
+            <p className="font-medium text-sm">{entry.post.decisionOutcome}</p>
+            <p className="text-muted-foreground text-xs">
+              Owner:{" "}
+              {entry.post.decisionOwnerDisplayName ??
+                "Former Build participant"}
+            </p>
+          </>
+        ) : entry.post.resolutionSummary ? (
+          <p className="text-muted-foreground text-sm">
+            {entry.post.resolutionSummary}
+          </p>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            This thread has been resolved.
+          </p>
+        )}
+      </FramePanel>
+    </Frame>
+  );
+}
+
 function CollaborationPostCard({
   buildId,
   entry,
@@ -1185,6 +1294,7 @@ function CollaborationPostCard({
   );
   const [moderationTarget, setModerationTarget] =
     useState<BuildCollaborationModerationEntity | null>(null);
+  const [threadSheetOpen, setThreadSheetOpen] = useState(false);
   const markViewed = useMutation(
     api.build_collaboration_threads.markBuildCollaborationPostViewed
   );
@@ -1237,6 +1347,7 @@ function CollaborationPostCard({
         buildId={buildId}
         entry={entry}
         onEdit={postEditTarget}
+        onManageThread={() => setThreadSheetOpen(true)}
         onModerate={() =>
           setModerationTarget({
             entityId: entry.post._id,
@@ -1278,6 +1389,7 @@ function CollaborationPostCard({
             })}
           </div>
         ) : null}
+        <ThreadOutcomeSummary entry={entry} />
       </CardPanel>
       {entry.post.contentState === "active" ? (
         <>
@@ -1307,6 +1419,7 @@ function CollaborationPostCard({
           </div>
           {tab === "discussion" ? (
             <CollaborationDiscussion
+              acceptedCommentId={entry.post.acceptedCommentId}
               buildId={buildId}
               onEditComment={setEditTarget}
               onFocusReference={onFocusReference}
@@ -1417,11 +1530,19 @@ function CollaborationPostCard({
         open={Boolean(moderationTarget)}
         organizationId={organizationId}
       />
+      <BuildCollaborationThreadSheet
+        buildId={buildId}
+        onOpenChange={setThreadSheetOpen}
+        open={threadSheetOpen}
+        organizationId={organizationId}
+        postId={entry.post._id}
+      />
     </Card>
   );
 }
 
 function CollaborationComment({
+  accepted,
   onEdit,
   onFocusReference,
   onModerate,
@@ -1430,6 +1551,7 @@ function CollaborationComment({
   row,
   tagOptions,
 }: {
+  accepted: boolean;
   onEdit: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
   onModerate: (target: BuildCollaborationModerationEntity) => void;
@@ -1497,6 +1619,7 @@ function CollaborationComment({
             {formatTimestamp(row.comment.createdAt)}
           </time>
           {statusBadge}
+          {accepted ? <Badge>Accepted answer</Badge> : null}
         </div>
         {row.revision ? (
           <CollaborationRichTextPreview
@@ -1550,6 +1673,7 @@ function CollaborationComment({
 }
 
 function CollaborationDiscussion({
+  acceptedCommentId,
   buildId,
   onEditComment,
   onFocusReference,
@@ -1559,6 +1683,7 @@ function CollaborationDiscussion({
   referenceByKey,
   tagOptions,
 }: {
+  acceptedCommentId?: Id<"buildCollaborationComments">;
   buildId: Id<"activeBuilds">;
   onEditComment: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
@@ -1630,6 +1755,7 @@ function CollaborationDiscussion({
     <CardPanel className="space-y-3 p-4">
       {((comments ?? []) as CollaborationCommentRow[]).map((row) => (
         <CollaborationComment
+          accepted={row.comment._id === acceptedCommentId}
           key={row.comment._id}
           onEdit={onEditComment}
           onFocusReference={onFocusReference}

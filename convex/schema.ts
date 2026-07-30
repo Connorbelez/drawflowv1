@@ -3129,6 +3129,45 @@ export default defineSchema({
       searchField: "plainText",
       filterFields: ["buildId", "organizationId"],
     }),
+  buildCollaborationDecisionOutcomeRevisions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    revision: v.number(),
+    outcome: v.string(),
+    ownerWorkosUserId: v.string(),
+    ownerDisplayNameSnapshot: v.string(),
+    changedByWorkosUserId: v.string(),
+    changedByRole: buildCollaborationRoleValidator,
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_revision", ["postId", "revision"])
+    .index("by_buildId_and_createdAt", ["buildId", "createdAt"]),
+  buildCollaborationThreadEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    eventType: v.union(
+      v.literal("resolved"),
+      v.literal("reopened"),
+      v.literal("reply_reopened"),
+      v.literal("accepted_answer_unavailable"),
+      v.literal("announcement_expiration_changed")
+    ),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    priorState: v.string(),
+    newState: v.string(),
+    reason: v.optional(v.string()),
+    acceptedCommentId: v.optional(v.id("buildCollaborationComments")),
+    decisionRevisionId: v.optional(
+      v.id("buildCollaborationDecisionOutcomeRevisions")
+    ),
+    createdAt: v.number(),
+  }).index("by_postId_and_createdAt", ["postId", "createdAt"]),
   buildCollaborationAudienceMembers: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

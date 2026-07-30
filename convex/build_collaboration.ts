@@ -40,7 +40,7 @@ import {
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import type { Id, MutationCtx } from "./types";
+import type { Doc, Id, MutationCtx } from "./types";
 
 const MAX_PLAIN_TEXT_LENGTH = 50_000;
 const MAX_RICH_TEXT_LENGTH = 250_000;
@@ -464,28 +464,12 @@ export const listBuildCollaborationFeed = authenticatedQuery
             following: false,
             kind: "post" as const,
             pins: [],
-            post: {
-              _creationTime: post._creationTime,
-              _id: post._id,
-              agentDrafted: post.agentDrafted,
-              audienceMode: post.audienceMode,
-              authorDisplayNameSnapshot: post.authorDisplayNameSnapshot,
-              authorRole: post.authorRole,
-              authorWorkosUserId: post.authorWorkosUserId,
-              commentCount: 0,
-              contentState: post.contentState,
-              createdAt: post.createdAt,
-              postType: post.postType,
-              readRevision: post.readRevision ?? post.revision,
-              revision: post.revision,
-              source: post.source,
-              updatedAt: post.updatedAt,
-              viewerCanAppeal: moderationCapabilities.canAppeal,
-              viewerCanModerate: moderationCapabilities.canModerate,
-              viewerCanResolveAppeal: moderationCapabilities.canResolveAppeal,
-              viewerIsAuthor:
-                post.authorWorkosUserId === authorization.viewer.subject,
-            },
+            post: collaborationPostSummary({
+              authorization,
+              moderationCapabilities,
+              post,
+              redacted: true,
+            }),
             reactions: [],
             receipts: [],
             references: [],
@@ -597,28 +581,12 @@ export const listBuildCollaborationFeed = authenticatedQuery
             _creationTime: pin._creationTime,
             _id: pin._id,
           })),
-          post: {
-            _creationTime: post._creationTime,
-            _id: post._id,
-            agentDrafted: post.agentDrafted,
-            audienceMode: post.audienceMode,
-            authorDisplayNameSnapshot: post.authorDisplayNameSnapshot,
-            authorRole: post.authorRole,
-            authorWorkosUserId: post.authorWorkosUserId,
-            commentCount: post.commentCount,
-            contentState: post.contentState,
-            createdAt: post.createdAt,
-            postType: post.postType,
-            readRevision: post.readRevision ?? post.revision,
-            revision: post.revision,
-            source: post.source,
-            updatedAt: post.updatedAt,
-            viewerCanAppeal: moderationCapabilities.canAppeal,
-            viewerCanModerate: moderationCapabilities.canModerate,
-            viewerCanResolveAppeal: moderationCapabilities.canResolveAppeal,
-            viewerIsAuthor:
-              post.authorWorkosUserId === authorization.viewer.subject,
-          },
+          post: collaborationPostSummary({
+            authorization,
+            moderationCapabilities,
+            post,
+            redacted: false,
+          }),
           reactions: reactions.map((reaction) => ({
             _creationTime: reaction._creationTime,
             _id: reaction._id,
@@ -684,6 +652,66 @@ export const listBuildCollaborationFeed = authenticatedQuery
     return { ...result, page };
   })
   .public();
+
+function collaborationPostSummary(input: {
+  authorization: ActiveBuildAuthorization;
+  moderationCapabilities: {
+    canAppeal: boolean;
+    canModerate: boolean;
+    canResolveAppeal: boolean;
+  };
+  post: Doc<"buildCollaborationPosts">;
+  redacted: boolean;
+}) {
+  const { authorization, moderationCapabilities, post, redacted } = input;
+  const viewerIsAuthor =
+    post.authorWorkosUserId === authorization.viewer.subject;
+  const decisionOwnerDisplayName =
+    !redacted && post.decisionOwnerWorkosUserId
+      ? (authorization.participants.find(
+          (participant) =>
+            participant.workosUserId === post.decisionOwnerWorkosUserId
+        )?.displayName ?? "Former Build participant")
+      : undefined;
+  return {
+    _creationTime: post._creationTime,
+    _id: post._id,
+    acceptedCommentId: redacted ? undefined : post.acceptedCommentId,
+    agentDrafted: post.agentDrafted,
+    announcementExpiresAt: redacted ? undefined : post.announcementExpiresAt,
+    announcementProminent:
+      !redacted &&
+      post.postType === "announcement" &&
+      (post.announcementExpiresAt === undefined ||
+        post.announcementExpiresAt > Date.now()),
+    audienceMode: post.audienceMode,
+    authorDisplayNameSnapshot: post.authorDisplayNameSnapshot,
+    authorRole: post.authorRole,
+    authorWorkosUserId: post.authorWorkosUserId,
+    commentCount: redacted ? 0 : post.commentCount,
+    contentState: post.contentState,
+    createdAt: post.createdAt,
+    decisionOutcome: redacted ? undefined : post.decisionOutcome,
+    decisionOwnerDisplayName,
+    decisionOwnerWorkosUserId: redacted
+      ? undefined
+      : post.decisionOwnerWorkosUserId,
+    postType: post.postType,
+    readRevision: post.readRevision ?? post.revision,
+    resolutionSummary: redacted ? undefined : post.resolutionSummary,
+    resolvedAt: post.resolvedAt,
+    revision: post.revision,
+    source: post.source,
+    threadState: post.threadState,
+    updatedAt: post.updatedAt,
+    viewerCanAppeal: moderationCapabilities.canAppeal,
+    viewerCanManageThread:
+      !redacted && (viewerIsAuthor || authorization.effectiveRole.tier >= 3),
+    viewerCanModerate: moderationCapabilities.canModerate,
+    viewerCanResolveAppeal: moderationCapabilities.canResolveAppeal,
+    viewerIsAuthor,
+  };
+}
 
 function validateRichTextContent(input: {
   plainText: string;

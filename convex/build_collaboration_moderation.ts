@@ -21,6 +21,7 @@ import {
   type CanonicalBuildCollaborationReference,
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
+import { reopenQuestionForUnavailableAcceptedAnswer } from "./build_collaboration_resolution";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildCollaborationAttachmentKindValidator,
@@ -319,6 +320,14 @@ export const moderateBuildCollaborationContent = authenticatedMutation
       timestamp: now,
       workosUserId: authorization.viewer.subject,
     });
+    if (entity.entityKind === "comment") {
+      await reopenQuestionForUnavailableAcceptedAnswer(ctx, {
+        authorization,
+        commentId: entity.comment._id,
+        now,
+        post: entity.post,
+      });
+    }
     await recordModerationTransition(ctx, {
       authorization,
       caseId,
