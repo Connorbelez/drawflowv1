@@ -595,6 +595,17 @@ describe("Build collaboration immutable editing", () => {
   test("tombstones posts without leaking or deleting durable records", async () => {
     const fixture = await seedEditingFixture();
     const postId = await publishPost(fixture, "Confidential original");
+    const hiddenCommentId = await fixture.admin.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Hidden with its parent thread",
+        postId,
+        references: [],
+        tiptapJson: textDocument("Hidden with its parent thread"),
+      }
+    );
     const seeded = await fixture.base.run(async (ctx) => {
       const post = await ctx.db.get(postId);
       const build = await ctx.db.get(fixture.buildId);
@@ -673,6 +684,17 @@ describe("Build collaboration immutable editing", () => {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
           postId,
+        }
+      )
+    ).rejects.toThrow("Forbidden");
+    await expect(
+      fixture.builder.query(
+        (api as any).build_collaboration_editing
+          .listBuildCollaborationCommentRevisionHistory,
+        {
+          buildId: fixture.buildId,
+          commentId: hiddenCommentId,
+          organizationId: ORGANIZATION_ID,
         }
       )
     ).rejects.toThrow("Forbidden");

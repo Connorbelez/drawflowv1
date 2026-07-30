@@ -348,7 +348,7 @@ export const listBuildCollaborationCommentRevisionHistory = authenticatedQuery
       throw new Error("Forbidden: collaboration reply history");
     }
     if (
-      comment.contentState !== "active" &&
+      (post.contentState !== "active" || comment.contentState !== "active") &&
       comment.authorWorkosUserId !== authorization.viewer.subject
     ) {
       throw new Error("Forbidden: collaboration reply history");
