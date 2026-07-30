@@ -60,6 +60,11 @@ import {
   FrameTitle,
 } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "#/components/ui/tooltip.tsx";
 import type { ProductionBuildDetail } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
 import {
   QuoteTemplateConfigurationPrototype,
@@ -464,7 +469,103 @@ function ScopeSelector({
   );
 }
 
-function CombinedScopeSelector({
+function SelectedScopeTooltip({
+  detail,
+  kind,
+  selected,
+}: {
+  detail: ProductionBuildDetail;
+  kind: QuoteKind;
+  selected: string[];
+}) {
+  const items = buildScopeItems(detail, kind).filter((item) =>
+    selected.includes(item.id)
+  );
+  const label = kind === "labour" ? "Labour" : "Materials";
+
+  return (
+    <div className="w-80 max-w-[calc(100vw-2rem)] space-y-2 p-2">
+      <div className="flex items-center justify-between gap-3 border-b pb-2">
+        <div>
+          <p className="font-semibold text-sm">{label} scope</p>
+          <p className="text-muted-foreground text-xs">
+            {items.length} selected for this Quote Round
+          </p>
+        </div>
+        <Badge variant={kind === "labour" ? "info" : "warning"}>
+          {items.length}
+        </Badge>
+      </div>
+      <div className="max-h-64 space-y-1 overflow-y-auto">
+        {items.map((item) => (
+          <div className="rounded-lg border bg-background p-2" key={item.id}>
+            <p className="font-medium text-xs">{item.title}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {item.milestone}
+            </p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {item.meta}
+            </p>
+          </div>
+        ))}
+        {items.length === 0 ? (
+          <p className="py-2 text-center text-muted-foreground text-xs">
+            No {label.toLowerCase()} items selected.
+          </p>
+        ) : null}
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        Hover or focus either tab at any time to inspect its locked selection.
+      </p>
+    </div>
+  );
+}
+
+function ScopeKindTab({
+  active,
+  detail,
+  kind,
+  onSelect,
+  selected,
+}: {
+  active: boolean;
+  detail: ProductionBuildDetail;
+  kind: QuoteKind;
+  onSelect: () => void;
+  selected: string[];
+}) {
+  const label = kind === "labour" ? "Labour" : "Materials";
+  const Icon = kind === "labour" ? HardHat : PackageCheck;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-pressed={active}
+            className="min-w-0 flex-1 justify-start"
+            onClick={onSelect}
+            variant={active ? "default" : "ghost"}
+          />
+        }
+      >
+        <Icon />
+        <span className="truncate">{label}</span>
+        <Badge
+          className="ml-auto min-w-6 justify-center"
+          variant={active ? "secondary" : "outline"}
+        >
+          {selected.length}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent className="p-0" side="bottom">
+        <SelectedScopeTooltip detail={detail} kind={kind} selected={selected} />
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function TabbedScopeSelector({
   detail,
   selectedLabour,
   selectedMaterials,
@@ -477,53 +578,69 @@ function CombinedScopeSelector({
   setSelectedLabour: (ids: string[]) => void;
   setSelectedMaterials: (ids: string[]) => void;
 }) {
+  const [activeKind, setActiveKind] = useState<QuoteKind>("labour");
+
   return (
-    <div className="space-y-7">
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-2 border-b pb-3">
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-info/10 text-info-foreground">
-              <HardHat className="size-5" />
-            </span>
-            <div>
-              <p className="font-semibold">Labour</p>
-              <p className="text-muted-foreground text-xs">
-                Select every sub-milestone whose work the recipient must price.
-              </p>
-            </div>
-          </div>
-          <Badge variant="info">{selectedLabour.length} selected</Badge>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
+        <ScopeKindTab
+          active={activeKind === "labour"}
+          detail={detail}
+          kind="labour"
+          onSelect={() => setActiveKind("labour")}
+          selected={selectedLabour}
+        />
+        <ScopeKindTab
+          active={activeKind === "material"}
+          detail={detail}
+          kind="material"
+          onSelect={() => setActiveKind("material")}
+          selected={selectedMaterials}
+        />
+      </div>
+
+      <div className="flex items-start gap-3 border-b pb-3">
+        <span
+          className={cn(
+            "grid size-10 shrink-0 place-items-center rounded-xl",
+            activeKind === "labour"
+              ? "bg-info/10 text-info-foreground"
+              : "bg-warning/10 text-warning-foreground"
+          )}
+        >
+          {activeKind === "labour" ? (
+            <HardHat className="size-5" />
+          ) : (
+            <PackageCheck className="size-5" />
+          )}
+        </span>
+        <div>
+          <p className="font-semibold">
+            {activeKind === "labour" ? "Labour" : "Materials"} scope
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {activeKind === "labour"
+              ? "Select every sub-milestone whose work the recipient must price."
+              : "Add supplied materials to the same recipient package."}
+          </p>
         </div>
+      </div>
+
+      {activeKind === "labour" ? (
         <ScopeSelector
           detail={detail}
           kind="labour"
           selected={selectedLabour}
           setSelected={setSelectedLabour}
         />
-      </section>
-
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-2 border-b pb-3">
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-warning/10 text-warning-foreground">
-              <PackageCheck className="size-5" />
-            </span>
-            <div>
-              <p className="font-semibold">Materials</p>
-              <p className="text-muted-foreground text-xs">
-                Add supplied materials to the same request and recipient form.
-              </p>
-            </div>
-          </div>
-          <Badge variant="warning">{selectedMaterials.length} selected</Badge>
-        </div>
+      ) : (
         <ScopeSelector
           detail={detail}
           kind="material"
           selected={selectedMaterials}
           setSelected={setSelectedMaterials}
         />
-      </section>
+      )}
     </div>
   );
 }
@@ -926,6 +1043,177 @@ function RecipientPreview({
   );
 }
 
+function MixedRecipientPreview({
+  detail,
+  labourItems,
+  materialItems,
+  recipient,
+}: {
+  detail: ProductionBuildDetail;
+  labourItems: ScopeItem[];
+  materialItems: ScopeItem[];
+  recipient: Recipient;
+}) {
+  const groups = [
+    { icon: HardHat, items: labourItems, label: "Labour" },
+    { icon: PackageCheck, items: materialItems, label: "Materials" },
+  ];
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="border-b bg-neutral-950 p-4 text-white">
+        <p className="text-[10px] text-white/55 uppercase tracking-[0.18em]">
+          Private quote invitation
+        </p>
+        <h3 className="mt-1 font-semibold text-base">
+          {detail.build.buildName}
+        </h3>
+        <p className="truncate text-white/65 text-xs">
+          Prepared for {recipient.name}
+        </p>
+      </div>
+      <CardPanel className="space-y-4 p-4">
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="info">{labourItems.length} labour</Badge>
+          <Badge variant="warning">{materialItems.length} materials</Badge>
+          <Badge variant="outline">Due Aug 18</Badge>
+        </div>
+
+        <div>
+          <p className="font-semibold text-sm">Site and schedule</p>
+          <div className="mt-2 grid gap-2">
+            <div className="rounded-xl bg-muted p-3">
+              <p className="text-muted-foreground text-xs">Exact location</p>
+              <p className="mt-1 font-medium text-sm">18 Willow Avenue</p>
+              <p className="text-muted-foreground text-xs">
+                Hamilton, Ontario · May 12–July 08
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="font-semibold text-sm">Scope to price</p>
+            <span className="text-muted-foreground text-xs">
+              {labourItems.length + materialItems.length} required
+            </span>
+          </div>
+          {groups.map(({ icon: Icon, items, label }) => (
+            <div className="space-y-1.5" key={label}>
+              <div className="flex items-center gap-2">
+                <Icon className="size-3.5 text-muted-foreground" />
+                <p className="font-medium text-xs">{label}</p>
+                <Badge className="ml-auto" variant="outline">
+                  {items.length}
+                </Badge>
+              </div>
+              {items.slice(0, 3).map((item) => (
+                <div
+                  className="flex items-center gap-2 rounded-lg border p-2.5 text-xs"
+                  key={item.id}
+                >
+                  <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                  <span className="text-muted-foreground">$0.00</span>
+                </div>
+              ))}
+              {items.length > 3 ? (
+                <p className="pl-1 text-[10px] text-muted-foreground">
+                  + {items.length - 3} more selected
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+          <div className="flex items-center gap-2">
+            <FileText className="size-4 text-primary" />
+            <p className="font-medium text-sm">Complete planning package</p>
+          </div>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Permit · timeline · specifications · 7 attachments · exact map
+          </p>
+        </div>
+        <Button className="w-full">Preview line-by-line quote</Button>
+      </CardPanel>
+    </Card>
+  );
+}
+
+function ScopeLockRecipientExperience({
+  detail,
+  recipients,
+  selectedLabour,
+  selectedMaterials,
+}: {
+  detail: ProductionBuildDetail;
+  recipients: Recipient[];
+  selectedLabour: string[];
+  selectedMaterials: string[];
+}) {
+  const [previewRecipient, setPreviewRecipient] = useState(
+    INITIAL_RECIPIENTS[0]?.id ?? ""
+  );
+  const recipient =
+    recipients.find((item) => item.id === previewRecipient) ??
+    recipients[0] ??
+    INITIAL_RECIPIENTS[0];
+  const labourItems = buildScopeItems(detail, "labour").filter((item) =>
+    selectedLabour.includes(item.id)
+  );
+  const materialItems = buildScopeItems(detail, "material").filter((item) =>
+    selectedMaterials.includes(item.id)
+  );
+
+  if (!recipient) {
+    return null;
+  }
+
+  return (
+    <Frame
+      className="self-start xl:sticky xl:top-[7.7rem]"
+      data-testid="quote-recipient-experience"
+    >
+      <FrameHeader className="gap-2">
+        <div className="flex items-center gap-2">
+          <Eye className="size-4 text-muted-foreground" />
+          <FrameTitle>Recipient experience</FrameTitle>
+        </div>
+        <FrameDescription>
+          Live preview of the identical private package.
+        </FrameDescription>
+        <select
+          aria-label="Preview recipient"
+          className="min-h-9 w-full rounded-lg border bg-background px-2 text-xs"
+          onChange={(event) => setPreviewRecipient(event.target.value)}
+          value={recipient.id}
+        >
+          {recipients.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+      </FrameHeader>
+      <FramePanel className="max-h-[calc(100vh-13rem)] overflow-y-auto bg-muted/40 p-3">
+        <MixedRecipientPreview
+          detail={detail}
+          labourItems={labourItems}
+          materialItems={materialItems}
+          recipient={recipient}
+        />
+      </FramePanel>
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
+        <Badge variant="success">Identical package</Badge>
+        <span className="text-muted-foreground">
+          Only the private envelope changes.
+        </span>
+      </div>
+    </Frame>
+  );
+}
+
 const SCOPE_LOCK_STAGES = [
   { icon: Layers3, id: "scope", label: "Scope" },
   { icon: FileCheck2, id: "package", label: "Package" },
@@ -935,6 +1223,47 @@ const SCOPE_LOCK_STAGES = [
 ] as const;
 
 type ScopeLockStage = (typeof SCOPE_LOCK_STAGES)[number]["id"];
+
+function PackageProofFrame({
+  labourCount,
+  materialCount,
+  recipientCount,
+}: {
+  labourCount: number;
+  materialCount: number;
+  recipientCount: number;
+}) {
+  return (
+    <Frame
+      className="hidden self-start 2xl:flex"
+      data-testid="quote-package-proof"
+    >
+      <FrameHeader>
+        <FrameTitle>Package proof</FrameTitle>
+        <FrameDescription>Read-only publication state.</FrameDescription>
+      </FrameHeader>
+      <FramePanel className="space-y-3 p-3">
+        <ProofMetric
+          icon={Layers3}
+          label="Scope"
+          value={`${labourCount} labour · ${materialCount} materials`}
+        />
+        <ProofMetric icon={FileCheck2} label="Disclosures" value="Complete" />
+        <ProofMetric
+          icon={Users}
+          label="Recipients"
+          value={`${recipientCount} private`}
+        />
+        <ProofMetric
+          icon={ReceiptText}
+          label="Response"
+          value="Template v3 · 4 custom + 2 fixed"
+        />
+        <ProofMetric icon={Clock3} label="Access" value="Expires Aug 25" />
+      </FramePanel>
+    </Frame>
+  );
+}
 
 function ScopeLockVariant({
   detail,
@@ -983,8 +1312,14 @@ function ScopeLockVariant({
         materialCount={selectedMaterials.length}
         recipients={recipients.length}
       />
-      <main className="mx-auto grid max-w-[1480px] gap-4 p-3 sm:p-5 lg:grid-cols-[220px_minmax(0,1fr)_280px]">
-        <Frame className="hidden self-start lg:flex">
+      <main className="mx-auto grid max-w-[1800px] gap-4 p-3 sm:p-5 xl:grid-cols-[200px_minmax(0,1fr)_360px] 2xl:grid-cols-[220px_200px_minmax(0,1fr)_360px]">
+        <PackageProofFrame
+          labourCount={selectedLabour.length}
+          materialCount={selectedMaterials.length}
+          recipientCount={recipients.length}
+        />
+
+        <Frame className="hidden self-start xl:flex">
           <FrameHeader>
             <FrameTitle>Publish package</FrameTitle>
             <FrameDescription>
@@ -1025,7 +1360,7 @@ function ScopeLockVariant({
           </FramePanel>
         </Frame>
 
-        <div className="min-w-0 max-w-full overflow-hidden lg:hidden">
+        <div className="min-w-0 max-w-full overflow-hidden xl:hidden">
           <div className="flex gap-1 overflow-x-auto pb-1">
             {SCOPE_LOCK_STAGES.map((item, index) => (
               <Button
@@ -1063,7 +1398,7 @@ function ScopeLockVariant({
           </FrameHeader>
           <FramePanel className="p-4 sm:p-5">
             {stage === "scope" ? (
-              <CombinedScopeSelector
+              <TabbedScopeSelector
                 detail={detail}
                 selectedLabour={selectedLabour}
                 selectedMaterials={selectedMaterials}
@@ -1171,35 +1506,12 @@ function ScopeLockVariant({
           </div>
         </Frame>
 
-        <Frame className="hidden self-start lg:flex">
-          <FrameHeader>
-            <FrameTitle>Package proof</FrameTitle>
-            <FrameDescription>Read-only publication state.</FrameDescription>
-          </FrameHeader>
-          <FramePanel className="space-y-3 p-3">
-            <ProofMetric
-              icon={Layers3}
-              label="Scope"
-              value={`${selectedLabour.length} labour · ${selectedMaterials.length} materials`}
-            />
-            <ProofMetric
-              icon={FileCheck2}
-              label="Disclosures"
-              value="Complete"
-            />
-            <ProofMetric
-              icon={Users}
-              label="Recipients"
-              value={`${recipients.length} private`}
-            />
-            <ProofMetric
-              icon={ReceiptText}
-              label="Response"
-              value="Template v3 · 4 custom + 2 fixed"
-            />
-            <ProofMetric icon={Clock3} label="Access" value="Expires Aug 25" />
-          </FramePanel>
-        </Frame>
+        <ScopeLockRecipientExperience
+          detail={detail}
+          recipients={recipients}
+          selectedLabour={selectedLabour}
+          selectedMaterials={selectedMaterials}
+        />
       </main>
     </div>
   );
