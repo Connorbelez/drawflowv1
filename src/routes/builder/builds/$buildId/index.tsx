@@ -33,6 +33,12 @@ import {
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
 import {
+  isQuoteRequestsPrototypeScenario,
+  QUOTE_REQUESTS_PROTOTYPE_VARIANT,
+  type QuoteRequestsPrototypeScenario,
+  QuoteRequestsWorkspacePrototype,
+} from "#/features/quote-solicitation/QuoteRequestsWorkspace.prototype.tsx";
+import {
   isQuoteComposerPrototypeVariant,
   type QuoteComposerPrototypeVariant,
   QuoteRoundComposerPrototype,
@@ -45,10 +51,12 @@ export type BuilderBuildSearch = {
   focus?: string;
   timeframe?: CalendarTimeframe;
   milestone?: string;
+  scenario?: QuoteRequestsPrototypeScenario;
   variant?:
     | MilestonePrototypeVariant
     | MilestoneStartPrototypeVariant
-    | QuoteComposerPrototypeVariant;
+    | QuoteComposerPrototypeVariant
+    | typeof QUOTE_REQUESTS_PROTOTYPE_VARIANT;
   tab?:
     | "calendar"
     | "contractors"
@@ -58,6 +66,7 @@ export type BuilderBuildSearch = {
     | "gantt"
     | "materials"
     | "milestones"
+    | "quotes"
     | "staff"
     | "timeline";
   rail?: "open" | "closed";
@@ -144,6 +153,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
       search.tab === "contractors" ||
       search.tab === "milestones" ||
       search.tab === "materials" ||
+      search.tab === "quotes" ||
       search.tab === "staff" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
@@ -165,9 +175,13 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
       search.variant === "quote-control-ledger" ||
       search.variant === "quote-template-guided" ||
       search.variant === "quote-template-registry" ||
-      search.variant === "quote-template-canvas"
+      search.variant === "quote-template-canvas" ||
+      search.variant === QUOTE_REQUESTS_PROTOTYPE_VARIANT
         ? (search.variant as BuilderBuildSearch["variant"])
         : undefined;
+    const scenario = isQuoteRequestsPrototypeScenario(search.scenario)
+      ? search.scenario
+      : undefined;
     const rail =
       search.rail === "closed" || search.rail === "open"
         ? (search.rail as BuilderBuildSearch["rail"])
@@ -185,6 +199,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
       ...(rail ? { rail } : {}),
+      ...(scenario ? { scenario } : {}),
       ...(tab ? { tab } : {}),
       ...(variant ? { variant } : {}),
     };
@@ -369,6 +384,10 @@ export function BuilderBuildWorkspaceRoute({
     import.meta.env.DEV && isMilestoneStartPrototypeVariant(search.variant);
   const quoteComposerPrototypeEnabled =
     import.meta.env.DEV && isQuoteComposerPrototypeVariant(search.variant);
+  const quoteRequestsPrototypeEnabled =
+    import.meta.env.DEV &&
+    search.tab === "quotes" &&
+    search.variant === QUOTE_REQUESTS_PROTOTYPE_VARIANT;
   const productionBuildQuery = useQuery(
     api.production_proposals.getActiveBuildDetailByString,
     visualFixtureEnabled
@@ -498,6 +517,7 @@ export function BuilderBuildWorkspaceRoute({
       | MilestonePrototypeVariant
       | MilestoneStartPrototypeVariant
       | QuoteComposerPrototypeVariant
+      | typeof QUOTE_REQUESTS_PROTOTYPE_VARIANT
   ) =>
     navigate({
       params: { buildId },
@@ -855,6 +875,22 @@ export function BuilderBuildWorkspaceRoute({
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
         prototypeMilestoneStartTrigger={milestoneStartPrototypeEnabled}
+        quotes={
+          quoteRequestsPrototypeEnabled ? (
+            <QuoteRequestsWorkspacePrototype
+              onScenarioChange={(scenario) =>
+                navigate({
+                  params: { buildId },
+                  replace: true,
+                  search: { ...search, scenario },
+                  to: `${routeBase}/builds/$buildId` as never,
+                })
+              }
+              onStartQuote={() => onChangePrototypeVariant("quote-scope-lock")}
+              scenario={search.scenario ?? "active"}
+            />
+          ) : null
+        }
         rail={search.rail}
         staff={
           includeStaffTab ? (
@@ -886,6 +922,7 @@ export function BuilderBuildWorkspaceRoute({
                 "milestones",
                 "contractors",
                 "materials",
+                "quotes",
                 "timeline",
                 "evidence",
                 "calendar",
@@ -918,7 +955,9 @@ export function BuilderBuildWorkspaceRoute({
           submilestoneKey={prototypeStartRequest?.submilestoneKey}
           variant={search.variant}
         />
-      ) : import.meta.env.DEV && search.variant ? (
+      ) : import.meta.env.DEV &&
+        search.variant &&
+        !quoteRequestsPrototypeEnabled ? (
         <MilestoneExecutionSheetPrototype
           detail={detail}
           milestoneKey={search.milestone}

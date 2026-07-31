@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import {
+  isQuoteRequestsPrototypeScenario,
+  QUOTE_REQUESTS_PROTOTYPE_VARIANT,
+} from "#/features/quote-solicitation/QuoteRequestsWorkspace.prototype.tsx";
 import {
   type BuilderBuildSearch,
   BuilderBuildWorkspaceRoute,
@@ -15,6 +19,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
       search.tab === "contractors" ||
       search.tab === "milestones" ||
       search.tab === "materials" ||
+      search.tab === "quotes" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
       search.tab === "details"
@@ -23,6 +28,13 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
     const milestone =
       typeof search.milestone === "string" ? search.milestone : undefined;
     const focus = normalizeBuildCollaborationFocus(search.focus);
+    const scenario = isQuoteRequestsPrototypeScenario(search.scenario)
+      ? search.scenario
+      : undefined;
+    const variant =
+      search.variant === QUOTE_REQUESTS_PROTOTYPE_VARIANT
+        ? search.variant
+        : undefined;
     const rail =
       search.rail === "closed" || search.rail === "open"
         ? (search.rail as BuilderBuildSearch["rail"])
@@ -40,7 +52,9 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
       ...(rail ? { rail } : {}),
+      ...(scenario ? { scenario } : {}),
       ...(tab ? { tab } : {}),
+      ...(variant ? { variant } : {}),
     };
   },
   component: BuilderStaffBuildRoute,

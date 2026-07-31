@@ -145,7 +145,7 @@ The route-addressable, mobile-responsive workflow launched from a Build Proposal
 _Avoid_: Quote-send modal, separate labour and material composers
 
 **Quote Requests Workspace**:
-The Build-scoped internal operations index for finding and managing Quote Rounds, including filters, deadlines, invitation and response status, reminders, and attention states. It lives in the Build Workspace Quotes tab and does not contain the full response-comparison experience.
+The Build-scoped internal operations index for finding and managing Quote Rounds, including filters, deadlines, invitation and response status, reminders, and attention states. Its selected Control Register interface combines a scalable ruled register and sortable cross-round facts, deterministic attention ranking with explicit exception reasons, and a compact non-draggable lifecycle rail that expands vertically on mobile. It lives in the Build Workspace Quotes tab and does not contain the full response-comparison experience.
 _Avoid_: Cross-Build inbox as the only quote view, inline comparison overload
 
 **Quote Round Detail and Comparison**:

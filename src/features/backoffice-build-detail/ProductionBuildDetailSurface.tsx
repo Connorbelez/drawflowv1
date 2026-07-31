@@ -795,6 +795,7 @@ export function ProductionBuildDetailSurface({
   onChangeRail,
   onChangeTab,
   prototypeMilestoneStartTrigger = false,
+  quotes,
   rail,
   staff,
   timelineWorkspace,
@@ -823,6 +824,7 @@ export function ProductionBuildDetailSurface({
   /** PROTOTYPE — exposes the real trigger for planned milestones before the production state model changes. */
   prototypeMilestoneStartTrigger?: boolean;
   rail?: "open" | "closed";
+  quotes?: React.ReactNode;
   staff?: React.ReactNode;
   timelineWorkspace?: ActiveBuildTimelineWorkspaceProps["workspace"] | null;
   visibleTabs?: BuildDetailSubTab[];
@@ -1095,6 +1097,7 @@ export function ProductionBuildDetailSurface({
               focusedReference={effectiveFocusedReference}
             />
           ) : null}
+          {activeTab === "quotes" ? quotes : null}
           {activeTab === "staff" ? staff : null}
           {activeTab === "calendar" ? (
             <ProductionCalendarTab
@@ -6055,16 +6058,16 @@ function ProductionBuildMaterialsTab({
     <MaterialPlanningTab
       actions={actions}
       budgetTreatmentEnabled
-      items={detail.costItems ?? []}
-      lockBudgetTreatment
-      milestones={milestones}
-      panelLayout="stacked"
-      readOnly={!actions}
       focusedItemId={
         focusedReference?.startsWith("material:")
           ? focusedReference.slice("material:".length)
           : undefined
       }
+      items={detail.costItems ?? []}
+      lockBudgetTreatment
+      milestones={milestones}
+      panelLayout="stacked"
+      readOnly={!actions}
       scopeLabel="Active Build"
     />
   );
