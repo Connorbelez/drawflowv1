@@ -2,11 +2,9 @@ import { v } from "convex/values";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { collaborationNotificationPreferenceValidator } from "./build_collaboration_contracts";
-import {
-  enqueueBuildCollaborationExternalDeliveries,
-  reconcileBuildCollaborationExternalDeliveries,
-} from "./build_collaboration_delivery";
+import { enqueueBuildCollaborationExternalDeliveries } from "./build_collaboration_delivery";
 import { externalDeliveryPlan } from "./build_collaboration_delivery_model";
+import { reconcileBuildCollaborationExternalDeliveries } from "./build_collaboration_delivery_reconciliation";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import type {
   NotificationEffectInput,

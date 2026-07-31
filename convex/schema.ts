@@ -3893,6 +3893,8 @@ export default defineSchema({
     eventKind: buildCollaborationNotificationKindValidator,
     dedupeKey: v.string(),
     batchKey: v.optional(v.string()),
+    batchRevision: v.optional(v.number()),
+    renderedItemSnapshot: v.optional(v.string()),
     collaborationPostId: v.optional(v.id("buildCollaborationPosts")),
     collaborationCommentId: v.optional(v.id("buildCollaborationComments")),
     collaborationActionItemId: v.optional(v.id("buildActionItems")),
@@ -3914,6 +3916,7 @@ export default defineSchema({
     .index("by_status_and_scheduledFor", ["status", "scheduledFor"])
     .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
     .index("by_providerOutboxId", ["providerOutboxId"])
+    .index("by_batchKey_and_status", ["batchKey", "status"])
     .index("by_organizationId_and_recipientWorkosUserId_and_dedupeKey", [
       "organizationId",
       "recipientWorkosUserId",
@@ -3933,10 +3936,9 @@ export default defineSchema({
       "recipientWorkosUserId",
       "status",
     ])
-    .index("by_buildId_recipientId_period_status_createdAt", [
+    .index("by_buildId_and_recipientWorkosUserId_and_status_and_createdAt", [
       "buildId",
       "recipientWorkosUserId",
-      "recipientParticipationPeriod",
       "status",
       "createdAt",
     ]),

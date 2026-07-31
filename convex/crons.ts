@@ -7,7 +7,7 @@ const crons = cronJobs();
 crons.interval(
   "deliver Build collaboration notifications",
   { minutes: 5 },
-  internal.build_collaboration_delivery
+  internal.build_collaboration_delivery_transport
     .processBuildCollaborationExternalDeliveries,
   {}
 );

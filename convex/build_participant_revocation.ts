@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { actionItemRequiresAcceptance } from "./build_action_item_governance";
-import { cancelQueuedBuildCollaborationExternalDeliveries } from "./build_collaboration_delivery";
+import { cancelQueuedBuildCollaborationExternalDeliveries } from "./build_collaboration_delivery_reconciliation";
 import { buildCollaborationRoleValidator } from "./build_collaboration_validators";
 import { enqueueParticipantRevocationNotifications } from "./build_participant_revocation_notifications";
 import { internalMutation } from "./fluent";

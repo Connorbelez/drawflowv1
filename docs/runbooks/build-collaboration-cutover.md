@@ -13,6 +13,12 @@ duplicating operational records.
 - Confirm the originating brokerage/lender WorkOS organization on every active
   Build in scope. Builds do not move organizations.
 - Keep collaboration disabled or migration-ready until parity checks pass.
+- Configure `BUILD_COLLABORATION_EMAIL_DELIVERY_URL`,
+  `BUILD_COLLABORATION_PUSH_DELIVERY_URL`, and
+  `BUILD_COLLABORATION_DELIVERY_BEARER_TOKEN` on the Convex deployment.
+- Configure `VITE_BUILD_COLLABORATION_PUSH_PUBLIC_KEY` with the matching
+  URL-safe VAPID public key in the web deployment. Push opt-in must remain
+  unavailable when this key is absent.
 
 ## Migration
 
@@ -105,3 +111,9 @@ bun run ui:html:audit
 Monitor authorization denials, restricted-placeholder disclosure alarms,
 notification fan-out, duplicate idempotency keys, stale draft approvals,
 Action Item revision conflicts, and migration parity.
+
+Verify one daily and one weekly digest, one immediate direct mention, an email
+retry using the same provider idempotency key, and a browser push opt-in through
+`/build-collaboration-push-sw.js`. Before provider handoff, revoke a participant
+and quarantine an attached collaboration asset; both queued payloads must be
+redacted and cancelled without a provider request.

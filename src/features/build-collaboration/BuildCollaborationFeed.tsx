@@ -3,7 +3,6 @@
 import type { JSONContent } from "@tiptap/react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
-  Bell,
   Flag,
   List,
   LockKeyhole,
@@ -69,6 +68,7 @@ import {
   type BuildCollaborationModerationEntity,
   BuildCollaborationModerationSheet,
 } from "./BuildCollaborationModerationSheet.tsx";
+import { BuildCollaborationNotificationCard } from "./BuildCollaborationNotificationControls.tsx";
 import {
   BuildCollaborationReferenceChip,
   BuildCollaborationReferenceSheet,
@@ -331,11 +331,6 @@ export function BuildCollaborationFeed({
     | { entry: CollaborationFeedPostEntry; state: "visible" }
     | { state: "revoked" }
     | undefined;
-  const notificationPreferences = useQuery(
-    api.build_collaboration_notifications
-      .getMyBuildCollaborationNotificationPreferences,
-    organizationId ? { buildId: activeBuildId, organizationId } : "skip"
-  );
   const drafts = useQuery(
     api.build_collaboration_drafts.listMyBuildCollaborationDrafts,
     organizationId ? { buildId: activeBuildId, organizationId } : "skip"
@@ -361,10 +356,6 @@ export function BuildCollaborationFeed({
   );
   const discardDraft = useMutation(
     api.build_collaboration_drafts.discardMyBuildCollaborationDraft
-  );
-  const updateNotificationPreferences = useMutation(
-    api.build_collaboration_notifications
-      .updateMyBuildCollaborationNotificationPreferences
   );
   const [filter, setFilter] = useState<FeedFilter>("all");
   const [search, setSearch] = useState("");
@@ -1152,49 +1143,10 @@ export function BuildCollaborationFeed({
           title="Participants"
           value={String(participants.length)}
         />
-        <SummaryCard
-          description="Immediate and digest delivery controls"
-          icon={<Bell aria-hidden="true" className="size-4" />}
-          title="Notifications"
-          value={notificationPreferences?.ordinaryMuted ? "Muted" : "On"}
+        <BuildCollaborationNotificationCard
+          activeBuildId={activeBuildId}
+          organizationId={organizationId}
         />
-        <Button
-          className="w-full"
-          onClick={async () => {
-            try {
-              const muted = notificationPreferences?.ordinaryMuted ?? false;
-              await updateNotificationPreferences({
-                buildId: activeBuildId,
-                channels: notificationPreferences?.channels ?? [
-                  "in_app",
-                  "email",
-                ],
-                digestCadence:
-                  notificationPreferences?.digestCadence ?? "daily",
-                digestEnabled: notificationPreferences?.digestEnabled ?? true,
-                ordinaryMuted: !muted,
-                organizationId,
-              });
-              toast.success(
-                muted
-                  ? "Ordinary collaboration notifications enabled."
-                  : "Ordinary collaboration notifications muted."
-              );
-            } catch (error) {
-              toast.error(
-                error instanceof Error
-                  ? error.message
-                  : "Unable to update notification preferences."
-              );
-            }
-          }}
-          type="button"
-          variant="outline"
-        >
-          {notificationPreferences?.ordinaryMuted
-            ? "Enable ordinary notifications"
-            : "Mute ordinary notifications"}
-        </Button>
       </aside>
 
       <BuildActionItemDetailSheet

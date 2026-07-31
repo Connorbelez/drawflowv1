@@ -296,7 +296,7 @@ async function processExternalDeliveries(
   now: number
 ) {
   await base.action(
-    (internal as any).build_collaboration_delivery
+    (internal as any).build_collaboration_delivery_transport
       .processBuildCollaborationExternalDeliveries,
     { asOf: now, batchSize: 100 }
   );
@@ -362,10 +362,15 @@ describe("Build collaboration external delivery", () => {
         (scheduled) =>
           scheduled.state.kind === "pending" &&
           scheduled.name.endsWith(
-            "build_collaboration_delivery:processBuildCollaborationExternalDeliveries"
+            "build_collaboration_delivery_transport:processBuildCollaborationExternalDeliveries"
           )
       )
     ).toBe(true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 202 }))
+    );
+    await processExternalDeliveries(fixture.base, Date.now());
   });
 
   test("enforces an approved delivery channel and bounds its rendered preview", async () => {
@@ -398,7 +403,7 @@ describe("Build collaboration external delivery", () => {
       }
     );
     await fixture.broker.mutation(
-      (api as any).build_collaboration_delivery
+      (api as any).build_collaboration_delivery_api
         .registerMyBuildCollaborationPushSubscription,
       {
         auth: "push-auth",
@@ -440,7 +445,7 @@ describe("Build collaboration external delivery", () => {
     const fixture = await seedDeliveryBuild();
     await expect(
       fixture.broker.query(
-        (api as any).build_collaboration_delivery
+        (api as any).build_collaboration_delivery_api
           .listMyBuildCollaborationExternalDeliveryActivity,
         { organizationId: "org_not_authorized" }
       )
@@ -462,7 +467,7 @@ describe("Build collaboration external delivery", () => {
       }
     );
     await fixture.broker.mutation(
-      (api as any).build_collaboration_delivery
+      (api as any).build_collaboration_delivery_api
         .registerMyBuildCollaborationPushSubscription,
       {
         auth: "push-auth",
@@ -471,6 +476,17 @@ describe("Build collaboration external delivery", () => {
         organizationId: ORGANIZATION_ID,
         p256dh: "push-public-key",
       }
+    );
+    expect(
+      await fixture.broker.query(
+        (api as any).build_collaboration_delivery_api
+          .getMyBuildCollaborationPushSubscription,
+        { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+      )
+    ).toEqual(
+      expect.objectContaining({
+        endpoint: "https://push.example.test/subscription",
+      })
     );
     const visiblePostId = await fixture.admin.mutation(
       (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
@@ -889,7 +905,7 @@ describe("Build collaboration external delivery", () => {
       })
     );
     await fixture.base.mutation(
-      (internal as any).build_collaboration_delivery
+      (internal as any).build_collaboration_delivery_maintenance
         .prepareDueBuildCollaborationExternalDeliveries,
       { asOf: Number.MAX_SAFE_INTEGER, batchSize: 100 }
     );
@@ -932,7 +948,7 @@ describe("Build collaboration external delivery", () => {
       throw new Error("Expected a revocation-safe outbox fixture.");
     }
     await fixture.base.action(
-      (internal as any).build_collaboration_delivery
+      (internal as any).build_collaboration_delivery_transport
         .dispatchBuildCollaborationExternalOutbox,
       { eventOutboxId: afterRevoke._id }
     );
@@ -949,7 +965,7 @@ describe("Build collaboration external delivery", () => {
       })
     );
     const firstOutboxIds = await fixture.base.mutation(
-      (internal as any).build_collaboration_delivery
+      (internal as any).build_collaboration_delivery_maintenance
         .prepareDueBuildCollaborationExternalDeliveries,
       { asOf: Date.now(), batchSize: 100 }
     );
@@ -966,7 +982,7 @@ describe("Build collaboration external delivery", () => {
       expect.objectContaining({ status: "dispatched" })
     );
     const early = await fixture.base.mutation(
-      (internal as any).build_collaboration_delivery
+      (internal as any).build_collaboration_delivery_maintenance
         .prepareDueBuildCollaborationExternalDeliveries,
       {
         asOf: (interrupted.delivery?.leaseExpiresAt ?? Date.now()) - 1,
@@ -975,7 +991,7 @@ describe("Build collaboration external delivery", () => {
     );
     expect(early).toEqual([]);
     const reclaimed = await fixture.base.mutation(
-      (internal as any).build_collaboration_delivery
+      (internal as any).build_collaboration_delivery_maintenance
         .prepareDueBuildCollaborationExternalDeliveries,
       {
         asOf: interrupted.delivery?.leaseExpiresAt ?? Number.MAX_SAFE_INTEGER,
@@ -1015,7 +1031,7 @@ describe("Build collaboration external delivery", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     await fixture.base.action(
-      (internal as any).build_collaboration_delivery
+      (internal as any).build_collaboration_delivery_transport
         .dispatchBuildCollaborationExternalOutbox,
       { eventOutboxId: reclaimed[0] }
     );
@@ -1027,6 +1043,104 @@ describe("Build collaboration external delivery", () => {
     );
     expect(sent).toEqual(
       expect.objectContaining({ attemptCount: 2, status: "sent" })
+    );
+  });
+
+  test("revalidates post-owned assets before provider handoff", async () => {
+    const fixture = await seedDeliveryBuild();
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, {
+        mentioned: true,
+        text: "Review the attached inspection record.",
+      })
+    );
+    const assetId = await fixture.base.run(async (ctx) => {
+      const delivery = (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).find((row) => row.recipientWorkosUserId === "user_broker");
+      const post = delivery?.collaborationPostId
+        ? await ctx.db.get(delivery.collaborationPostId)
+        : null;
+      if (!(delivery && post?.currentRevisionId)) {
+        throw new Error("Expected a published post delivery fixture.");
+      }
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Expected the delivery Build fixture.");
+      }
+      const storageId = await ctx.storage.store(
+        new Blob(["inspection"], { type: "application/pdf" })
+      );
+      const now = Date.now();
+      const createdAssetId = await ctx.db.insert("buildCollaborationAssets", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        fileName: "inspection.pdf",
+        maximumAudienceMode: "custom",
+        mimeType: "application/pdf",
+        organizationId: ORGANIZATION_ID,
+        originatingPostId: post._id,
+        readerWorkosUserIds: ["user_broker"],
+        sizeBytes: 10,
+        state: "available",
+        storageId,
+        updatedAt: now,
+        uploadedByWorkosUserId: "user_admin",
+        version: 1,
+      });
+      await ctx.db.insert("buildCollaborationAttachments", {
+        attachmentId: createdAssetId,
+        attachmentKind: "collaborationAsset",
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        createdByWorkosUserId: "user_admin",
+        organizationId: ORGANIZATION_ID,
+        ownerKind: "postRevision",
+        ownerRecordId: post.currentRevisionId,
+      });
+      return createdAssetId;
+    });
+    const outboxIds = await fixture.base.mutation(
+      (internal as any).build_collaboration_delivery_maintenance
+        .prepareDueBuildCollaborationExternalDeliveries,
+      { asOf: Date.now(), batchSize: 100 }
+    );
+    expect(outboxIds).toHaveLength(1);
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(assetId, {
+        scanMessage: "Malware scan failed.",
+        state: "quarantined",
+        updatedAt: Date.now(),
+      })
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await fixture.base.action(
+      (internal as any).build_collaboration_delivery_transport
+        .dispatchBuildCollaborationExternalOutbox,
+      { eventOutboxId: outboxIds[0] }
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    const state = await fixture.base.run(async (ctx) => ({
+      delivery: (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).find((row) => row.recipientWorkosUserId === "user_broker"),
+      outbox: await ctx.db.get(outboxIds[0]),
+    }));
+    expect(state.delivery).toEqual(
+      expect.objectContaining({
+        cancellationReason: "access_revoked",
+        status: "cancelled",
+      })
+    );
+    expect(state.outbox).toEqual(
+      expect.objectContaining({
+        payloadPreview: expect.stringContaining('"redacted":true'),
+        status: "failed",
+      })
     );
   });
 
@@ -1070,6 +1184,21 @@ describe("Build collaboration external delivery", () => {
       expect.objectContaining({ state: "failed" }),
     ]);
 
+    await fixture.base.run(async (ctx) => {
+      const post = failed.delivery?.collaborationPostId
+        ? await ctx.db.get(failed.delivery.collaborationPostId)
+        : null;
+      const revision = post?.currentRevisionId
+        ? await ctx.db.get(post.currentRevisionId)
+        : null;
+      if (!revision) {
+        throw new Error("Expected the retry post revision.");
+      }
+      await ctx.db.patch(revision._id, {
+        plainText: "Mutated after the first provider attempt.",
+      });
+    });
+
     await processExternalDeliveries(
       fixture.base,
       failed.delivery?.scheduledFor ?? Number.MAX_SAFE_INTEGER
@@ -1101,6 +1230,13 @@ describe("Build collaboration external delivery", () => {
     );
     expect(new Set(idempotencyKeys).size).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    const payloads = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(String(init?.body))
+    );
+    expect(payloads.map((payload) => payload.items[0].body)).toEqual([
+      "Retry this direct alert.",
+      "Retry this direct alert.",
+    ]);
   });
 
   test("keeps newly due digest work out of an existing retry batch", async () => {

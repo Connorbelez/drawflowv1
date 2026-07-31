@@ -62,6 +62,11 @@ const mocks = vi.hoisted(() => ({
     | "announcement",
   postViewerCanModerate: false,
   postViewerIsAuthor: true,
+  pushSubscription: null as null | {
+    _id: string;
+    createdAt: number;
+    endpoint: string;
+  },
   queueStatus: "Exhausted" as
     | "CanLoadMore"
     | "Exhausted"
@@ -568,6 +573,12 @@ vi.mock("convex/react", () => ({
         ordinaryMuted: false,
       };
     }
+    if (
+      functionName ===
+      "build_collaboration_delivery_api:getMyBuildCollaborationPushSubscription"
+    ) {
+      return mocks.pushSubscription;
+    }
     return [
       {
         entityId: "user-broker",
@@ -655,6 +666,11 @@ import {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+  Object.defineProperty(navigator, "serviceWorker", {
+    configurable: true,
+    value: undefined,
+  });
   cleanup();
   mocks.mutate.mockClear();
   mocks.loadMore.mockClear();
@@ -684,6 +700,7 @@ afterEach(() => {
   mocks.postType = "update";
   mocks.postViewerCanModerate = false;
   mocks.postViewerIsAuthor = true;
+  mocks.pushSubscription = null;
   mocks.queueStatus = "Exhausted";
   mocks.workflowAssignmentMode = "direct";
   mocks.workflowCanAccept = false;
@@ -691,6 +708,81 @@ afterEach(() => {
 });
 
 describe("BuildCollaborationFeed", () => {
+  test("exposes digest cadence and email delivery controls", async () => {
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(
+      screen.getByRole("combobox", { name: "Activity digest" })
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Email on" }));
+
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        channels: ["in_app"],
+        digestCadence: "daily",
+        digestEnabled: true,
+        ordinaryMuted: false,
+        organizationId: "org-1",
+      })
+    );
+  });
+
+  test("registers browser push before enabling the push channel", async () => {
+    vi.stubEnv("VITE_BUILD_COLLABORATION_PUSH_PUBLIC_KEY", "AQIDBA");
+    const unsubscribe = vi.fn().mockResolvedValue(true);
+    const subscribe = vi.fn().mockResolvedValue({
+      endpoint: "https://push.example.test/browser-subscription",
+      getKey: (name: string) =>
+        name === "auth"
+          ? new Uint8Array([1, 2]).buffer
+          : new Uint8Array([3, 4]).buffer,
+      unsubscribe,
+    });
+    const register = vi.fn().mockResolvedValue({
+      pushManager: { subscribe },
+    });
+    vi.stubGlobal("Notification", {
+      requestPermission: vi.fn().mockResolvedValue("granted"),
+    });
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: { register },
+    });
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Push off" }));
+
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        auth: "AQI",
+        buildId: "build-1",
+        endpoint: "https://push.example.test/browser-subscription",
+        organizationId: "org-1",
+        p256dh: "AwQ",
+      })
+    );
+    expect(register).toHaveBeenCalledWith(
+      "/build-collaboration-push-sw.js"
+    );
+    expect(subscribe).toHaveBeenCalledWith(
+      expect.objectContaining({ userVisibleOnly: true })
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channels: ["in_app", "email", "push"],
+          digestCadence: "daily",
+          digestEnabled: true,
+        })
+      )
+    );
+  });
+
   test("expires an Announcement badge when wall-clock time advances without a query write", () => {
     vi.useFakeTimers();
     const now = Date.parse("2026-07-30T12:00:00.000Z");

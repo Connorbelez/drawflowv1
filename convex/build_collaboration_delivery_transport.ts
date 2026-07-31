@@ -1,56 +1,95 @@
-export interface BuildCollaborationExternalPayload {
-  channel: "email" | "push";
-  contact:
-    | { email: string }
-    | { auth: string; endpoint: string; p256dh: string };
-  idempotencyKey: string;
-  items: Array<{
-    actionHref: string;
-    body: string;
-    occurredAt: number;
-    title: string;
-  }>;
-  recipientWorkosUserId: string;
-}
+import { v } from "convex/values";
 
-export async function sendBuildCollaborationExternalPayload(
-  payload: BuildCollaborationExternalPayload
+import { internal } from "./_generated/api";
+import {
+  BuildCollaborationDeliveryTransportError,
+  sendBuildCollaborationExternalPayload,
+} from "./build_collaboration_delivery_transport_provider";
+import { internalAction } from "./fluent";
+import type { ActionCtx, Id } from "./types";
+
+export const processBuildCollaborationExternalDeliveries = internalAction
+  .input({
+    asOf: v.optional(v.number()),
+    batchSize: v.optional(v.number()),
+    now: v.optional(v.number()),
+  })
+  .returns(v.number())
+  .handler(async (ctx, args): Promise<number> => {
+    const outboxIds = await ctx.runMutation(
+      internal.build_collaboration_delivery_maintenance
+        .prepareDueBuildCollaborationExternalDeliveries,
+      args
+    );
+    for (const eventOutboxId of outboxIds) {
+      await dispatchExternalOutbox(ctx, eventOutboxId);
+    }
+    return outboxIds.length;
+  })
+  .internal();
+
+export const dispatchBuildCollaborationExternalOutbox = internalAction
+  .input({ eventOutboxId: v.id("eventOutbox") })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    await dispatchExternalOutbox(ctx, args.eventOutboxId);
+    return null;
+  })
+  .internal();
+
+async function dispatchExternalOutbox(
+  ctx: ActionCtx,
+  eventOutboxId: Id<"eventOutbox">
 ) {
-  const endpoint =
-    payload.channel === "email"
-      ? process.env.BUILD_COLLABORATION_EMAIL_DELIVERY_URL?.trim()
-      : process.env.BUILD_COLLABORATION_PUSH_DELIVERY_URL?.trim();
-  if (!endpoint) {
-    throw new Error(`${payload.channel} delivery endpoint is not configured.`);
+  const prepared = await ctx.runMutation(
+    internal.build_collaboration_delivery_maintenance
+      .prepareBuildCollaborationExternalOutbox,
+    { eventOutboxId }
+  );
+  if (!prepared) {
+    return;
   }
-  const token = process.env.BUILD_COLLABORATION_DELIVERY_BEARER_TOKEN?.trim();
-  const response = await fetch(endpoint, {
-    body: JSON.stringify(payload),
-    headers: {
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      "content-type": "application/json",
-      "idempotency-key": payload.idempotencyKey,
-    },
-    method: "POST",
-  });
-  if (!response.ok) {
-    throw new BuildCollaborationDeliveryTransportError(response.status);
+  try {
+    const response = await sendBuildCollaborationExternalPayload({
+      channel: prepared.channel,
+      contact: prepared.contact,
+      idempotencyKey: prepared.idempotencyKey,
+      items: prepared.items,
+      recipientWorkosUserId: prepared.recipientWorkosUserId,
+    });
+    await ctx.runMutation(
+      internal.build_collaboration_delivery_maintenance
+        .completeBuildCollaborationExternalDeliveryAttempt,
+      {
+        eventOutboxId,
+        providerMessageId: response.providerMessageId,
+        responseCode: response.responseCode,
+        succeeded: true,
+      }
+    );
+  } catch (error) {
+    await ctx.runMutation(
+      internal.build_collaboration_delivery_maintenance
+        .completeBuildCollaborationExternalDeliveryAttempt,
+      {
+        error: safeDeliveryError(error),
+        eventOutboxId,
+        responseCode:
+          error instanceof BuildCollaborationDeliveryTransportError
+            ? error.responseCode
+            : undefined,
+        succeeded: false,
+      }
+    );
   }
-  return {
-    providerMessageId:
-      response.headers.get("x-message-id") ??
-      response.headers.get("x-request-id") ??
-      undefined,
-    responseCode: response.status,
-  };
 }
 
-export class BuildCollaborationDeliveryTransportError extends Error {
-  readonly responseCode: number;
-
-  constructor(responseCode: number) {
-    super(`External delivery failed with HTTP ${responseCode}.`);
-    this.name = "BuildCollaborationDeliveryTransportError";
-    this.responseCode = responseCode;
+function safeDeliveryError(error: unknown) {
+  if (error instanceof BuildCollaborationDeliveryTransportError) {
+    return error.message;
   }
+  if (error instanceof Error && error.message.includes("not configured")) {
+    return error.message;
+  }
+  return "External delivery failed.";
 }

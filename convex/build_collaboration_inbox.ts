@@ -251,6 +251,23 @@ async function canReadAttachedNotificationContext(
   authorization: ActiveBuildAuthorization,
   record: Doc<"recipientDeliveries">
 ) {
+  if (!(await canReadDirectNotificationContext(ctx, authorization, record))) {
+    return false;
+  }
+  const owners = await notificationContextOwners(ctx, record);
+  for (const owner of owners) {
+    if (!(await canReadOwnedNotificationContext(ctx, authorization, owner))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function canReadDirectNotificationContext(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  record: Doc<"recipientDeliveries">
+) {
   if (record.collaborationReferenceId) {
     const reference = await ctx.db.get(record.collaborationReferenceId);
     if (
@@ -295,6 +312,141 @@ async function canReadAttachedNotificationContext(
     }
   }
   return true;
+}
+
+interface NotificationContextOwner {
+  ownerKind:
+    | "postRevision"
+    | "commentRevision"
+    | "actionItem"
+    | "actionItemComment";
+  ownerRecordId: string;
+}
+
+async function notificationContextOwners(
+  ctx: QueryCtx,
+  record: Doc<"recipientDeliveries">
+) {
+  const owners: NotificationContextOwner[] = [];
+  if (record.collaborationPostId) {
+    const post = await ctx.db.get(record.collaborationPostId);
+    if (post?.currentRevisionId) {
+      owners.push({
+        ownerKind: "postRevision",
+        ownerRecordId: post.currentRevisionId,
+      });
+    }
+  }
+  if (record.collaborationCommentId) {
+    const comment = await ctx.db.get(record.collaborationCommentId);
+    if (comment?.currentRevisionId) {
+      owners.push({
+        ownerKind: "commentRevision",
+        ownerRecordId: comment.currentRevisionId,
+      });
+    }
+  }
+  if (record.collaborationActionItemId) {
+    owners.push({
+      ownerKind: "actionItem",
+      ownerRecordId: record.collaborationActionItemId,
+    });
+  }
+  return owners;
+}
+
+async function canReadOwnedNotificationContext(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  owner: NotificationContextOwner
+) {
+  const references = ctx.db
+    .query("buildCollaborationReferences")
+    .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+      query
+        .eq("ownerKind", owner.ownerKind)
+        .eq("ownerRecordId", owner.ownerRecordId)
+    );
+  for await (const reference of references) {
+    if (
+      reference.organizationId !== authorization.organizationId ||
+      reference.brokerageId !== authorization.brokerage._id ||
+      reference.buildId !== authorization.build._id
+    ) {
+      return false;
+    }
+    try {
+      await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization,
+        entityId: reference.entityId,
+        entityKind: reference.entityKind,
+      });
+    } catch {
+      return false;
+    }
+  }
+  const attachments = ctx.db
+    .query("buildCollaborationAttachments")
+    .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+      query
+        .eq("ownerKind", owner.ownerKind)
+        .eq("ownerRecordId", owner.ownerRecordId)
+    );
+  for await (const attachment of attachments) {
+    if (
+      !(await canReadCollaborationNotificationAttachment(
+        ctx,
+        authorization,
+        attachment
+      ))
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function canReadCollaborationNotificationAttachment(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  attachment: Doc<"buildCollaborationAttachments">
+) {
+  if (
+    attachment.organizationId !== authorization.organizationId ||
+    attachment.brokerageId !== authorization.brokerage._id ||
+    attachment.buildId !== authorization.build._id
+  ) {
+    return false;
+  }
+  if (
+    attachment.attachmentKind === "document" ||
+    attachment.attachmentKind === "evidenceAsset"
+  ) {
+    try {
+      await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization,
+        entityId: attachment.attachmentId,
+        entityKind: attachment.attachmentKind,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const assetId = ctx.db.normalizeId(
+    "buildCollaborationAssets",
+    attachment.attachmentId
+  );
+  const asset = assetId ? await ctx.db.get(assetId) : null;
+  return Boolean(
+    asset &&
+      asset.state === "available" &&
+      asset.organizationId === authorization.organizationId &&
+      asset.brokerageId === authorization.brokerage._id &&
+      asset.buildId === authorization.build._id &&
+      (asset.maximumAudienceMode === "build_wide" ||
+        asset.readerWorkosUserIds?.includes(authorization.viewer.subject))
+  );
 }
 
 function projectStoredDelivery(
