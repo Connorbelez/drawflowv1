@@ -419,8 +419,8 @@ export const continueBuildCollaborationExternalDeliveryReconciliation =
           brokerageId: build.brokerageId,
           buildId: build._id,
           channels: preference?.channels ?? ["in_app", "email"],
-          digestCadence: preference?.digestCadence ?? "never",
-          digestEnabled: preference?.digestEnabled ?? false,
+          digestCadence: preference?.digestCadence ?? "daily",
+          digestEnabled: preference?.digestEnabled ?? true,
           now: Date.now(),
           ordinaryMuted: preference?.ordinaryMuted ?? false,
           organizationId: build.organizationId,
@@ -830,9 +830,7 @@ export const registerMyBuildCollaborationPushSubscription =
       const now = Date.now();
       const existing = await ctx.db
         .query("buildCollaborationPushSubscriptions")
-        .withIndex(
-          "by_organizationId_and_workosUserId_and_endpoint",
-          (query) =>
+        .withIndex("by_organizationId_and_workosUserId_and_endpoint", (query) =>
           query
             .eq("organizationId", authorization.organizationId)
             .eq("workosUserId", authorization.viewer.subject)
@@ -924,9 +922,9 @@ export const listMyBuildCollaborationExternalDeliveryActivity =
         .withIndex(
           "by_organizationId_and_recipientWorkosUserId_and_createdAt",
           (query) =>
-          query
-            .eq("organizationId", organizationId)
-            .eq("recipientWorkosUserId", ctx.viewer.subject)
+            query
+              .eq("organizationId", organizationId)
+              .eq("recipientWorkosUserId", ctx.viewer.subject)
         )
         .order("desc")
         .take(100);
@@ -1085,9 +1083,7 @@ async function deliveryContact(
   }
   const subscription = await ctx.db
     .query("buildCollaborationPushSubscriptions")
-    .withIndex(
-      "by_organizationId_and_workosUserId_and_state",
-      (query) =>
+    .withIndex("by_organizationId_and_workosUserId_and_state", (query) =>
       query
         .eq("organizationId", delivery.organizationId)
         .eq("workosUserId", delivery.recipientWorkosUserId)

@@ -328,8 +328,8 @@ describe("Build collaboration external delivery", () => {
     );
     expect(defaults).toEqual(
       expect.objectContaining({
-        digestCadence: "never",
-        digestEnabled: false,
+        digestCadence: "daily",
+        digestEnabled: true,
       })
     );
     await fixture.admin.mutation(

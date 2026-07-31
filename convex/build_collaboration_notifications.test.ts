@@ -102,7 +102,7 @@ describe("Build collaboration notification classification", () => {
       false
     );
     expect(isMandatoryBuildCollaborationNotification("followed_reply")).toBe(
-      false
+      true
     );
     expect(
       isMandatoryBuildCollaborationNotification("acknowledgement_received")

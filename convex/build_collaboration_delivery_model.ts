@@ -2,7 +2,6 @@ import type { BuildCollaborationNotificationKind } from "./build_collaboration_n
 
 const OPTIONAL_KINDS = new Set<BuildCollaborationNotificationKind>([
   "ordinary_activity",
-  "followed_reply",
   "acknowledgement_received",
 ]);
 

@@ -56,9 +56,9 @@ describe("Build collaboration external delivery model", () => {
         digestCadence: "never",
         digestEnabled: false,
         kind: "followed_reply",
-        ordinaryMuted: false,
+        ordinaryMuted: true,
       })
-    ).toEqual([]);
+    ).toEqual([{ cadence: "immediate", channel: "email" }]);
     expect(
       externalDeliveryPlan({
         channels: ["email"],

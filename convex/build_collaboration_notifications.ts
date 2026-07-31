@@ -31,7 +31,7 @@ export type BuildCollaborationNotificationKind =
   | "escalation";
 
 const OPTIONAL_NOTIFICATION_KINDS = new Set<BuildCollaborationNotificationKind>(
-  ["ordinary_activity", "followed_reply", "acknowledgement_received"]
+  ["ordinary_activity", "acknowledgement_received"]
 );
 
 export function isMandatoryBuildCollaborationNotification(
@@ -131,31 +131,15 @@ export async function emitCanonicalBuildCollaborationNotification(
         .eq("workosUserId", input.recipientWorkosUserId)
     )
     .first();
-  // General Build activity is digest-only and therefore opt-in. Direct and
-  // critical events retain the product default of immediate in-app + email.
-  if (input.kind === "ordinary_activity" && !preference) {
+  const channels = selectedNotificationChannels({
+    approvedChannel: input.approvedChannel,
+    mandatory,
+    ordinaryMuted: preference?.ordinaryMuted ?? false,
+    preferredChannels: preference?.channels ?? ["in_app", "email"],
+  });
+  if (!channels) {
     return null;
   }
-  if (!mandatory && preference?.ordinaryMuted) {
-    if (input.approvedChannel) {
-      throw new Error(
-        "The approved notification channel conflicts with the recipient's mute preference."
-      );
-    }
-    return null;
-  }
-  const preferredChannels = preference?.channels ?? ["in_app", "email"];
-  if (
-    input.approvedChannel &&
-    !preferredChannels.includes(input.approvedChannel)
-  ) {
-    throw new Error(
-      `The approved ${input.approvedChannel} notification channel is not enabled for this recipient.`
-    );
-  }
-  const channels = input.approvedChannel
-    ? [input.approvedChannel]
-    : preferredChannels;
   const inAppVisible = mandatory || channels.includes("in_app");
   const externalPlan = externalDeliveryPlan({
     channels,
@@ -240,6 +224,33 @@ export async function emitCanonicalBuildCollaborationNotification(
   return recipientDeliveryId;
 }
 
+function selectedNotificationChannels(input: {
+  approvedChannel?: "in_app" | "email" | "push";
+  mandatory: boolean;
+  ordinaryMuted: boolean;
+  preferredChannels: Array<"in_app" | "email" | "push">;
+}): Array<"in_app" | "email" | "push"> | null {
+  if (!input.mandatory && input.ordinaryMuted) {
+    if (input.approvedChannel) {
+      throw new Error(
+        "The approved notification channel conflicts with the recipient's mute preference."
+      );
+    }
+    return null;
+  }
+  if (
+    input.approvedChannel &&
+    !input.preferredChannels.includes(input.approvedChannel)
+  ) {
+    throw new Error(
+      `The approved ${input.approvedChannel} notification channel is not enabled for this recipient.`
+    );
+  }
+  return input.approvedChannel
+    ? [input.approvedChannel]
+    : input.preferredChannels;
+}
+
 export const getMyBuildCollaborationNotificationPreferences = authenticatedQuery
   .input({
     buildId: v.id("activeBuilds"),
@@ -261,8 +272,8 @@ export const getMyBuildCollaborationNotificationPreferences = authenticatedQuery
       .first();
     return {
       channels: preference?.channels ?? ["in_app", "email"],
-      digestCadence: preference?.digestCadence ?? "never",
-      digestEnabled: preference?.digestEnabled ?? false,
+      digestCadence: preference?.digestCadence ?? "daily",
+      digestEnabled: preference?.digestEnabled ?? true,
       ordinaryMuted: preference?.ordinaryMuted ?? false,
       workosUserId: authorization.viewer.subject,
     };

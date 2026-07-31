@@ -2996,7 +2996,7 @@ describe("Build collaboration canonical reference authorization", () => {
           delivery.collaborationEventKind === "followed_reply" &&
           delivery.recipientWorkosUserId === "user_admin",
       ),
-    ).toBe(false);
+    ).toBe(true);
 
     await admin.mutation(
       (api as any).build_collaboration_notifications
@@ -3059,7 +3059,7 @@ describe("Build collaboration canonical reference authorization", () => {
     );
   });
 
-  test("defers ordinary publication activity while emitting direct and critical events immediately", async () => {
+  test("digests ordinary publication activity while emitting direct and critical events immediately", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     await addBuildParticipant(base, {
       buildId,
@@ -3095,9 +3095,30 @@ describe("Build collaboration canonical reference authorization", () => {
         }),
       },
     );
-    expect(
-      await base.run(async (ctx) => ctx.db.query("recipientDeliveries").collect()),
-    ).toEqual([]);
+    const ordinaryState = await base.run(async (ctx) => ({
+      canonical: await ctx.db.query("recipientDeliveries").collect(),
+      external: await ctx.db
+        .query("buildCollaborationExternalDeliveries")
+        .collect(),
+    }));
+    expect(ordinaryState.canonical).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          collaborationEventKind: "ordinary_activity",
+          recipientWorkosUserId: "user_broker",
+        }),
+      ]),
+    );
+    expect(ordinaryState.external).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cadence: "daily",
+          deliveryMode: "digest",
+          eventKind: "ordinary_activity",
+          recipientWorkosUserId: "user_broker",
+        }),
+      ]),
+    );
 
     await admin.mutation(
       (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
@@ -3139,12 +3160,14 @@ describe("Build collaboration canonical reference authorization", () => {
     const directDeliveries = await base.run(async (ctx) =>
       ctx.db.query("recipientDeliveries").collect(),
     );
-    expect(directDeliveries).toEqual([
-      expect.objectContaining({
-        collaborationEventKind: "direct_mention",
-        recipientWorkosUserId: "user_broker",
-      }),
-    ]);
+    expect(directDeliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          collaborationEventKind: "direct_mention",
+          recipientWorkosUserId: "user_broker",
+        }),
+      ]),
+    );
   });
 
   test("paginates past more than one hundred unreadable rows without starving an older readable notification", async () => {
