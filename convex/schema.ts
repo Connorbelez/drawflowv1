@@ -15,6 +15,7 @@ import {
   buildCollaborationContentStateValidator,
   buildCollaborationDraftStateValidator,
   buildCollaborationNotificationChannelValidator,
+  buildCollaborationNotificationKindValidator,
   buildCollaborationOwnerKindValidator,
   buildCollaborationPinKindValidator,
   buildCollaborationPostTypeValidator,
@@ -2590,6 +2591,13 @@ export default defineSchema({
     actionRequired: v.boolean(),
     body: v.string(),
     brokerageId: v.id("brokerages"),
+    collaborationActionItemId: v.optional(v.id("buildActionItems")),
+    collaborationBuildId: v.optional(v.id("activeBuilds")),
+    collaborationCommentId: v.optional(v.id("buildCollaborationComments")),
+    collaborationEventKind: v.optional(
+      buildCollaborationNotificationKindValidator
+    ),
+    collaborationPostId: v.optional(v.id("buildCollaborationPosts")),
     createdAt: v.number(),
     dedupeKey: v.string(),
     entityId: v.string(),

@@ -57,6 +57,26 @@ export async function resolveCurrentCollaborationPostReaderIds(
     .map((participant) => participant.workosUserId);
 }
 
+export async function resolveCurrentCollaborationNotificationReaderIds(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  post: Doc<"buildCollaborationPosts">
+) {
+  const readerIds = await resolveCurrentCollaborationPostReaderIds(
+    ctx,
+    authorization,
+    post
+  );
+  if (
+    post.authorWorkosUserId &&
+    (post.authorRole === "admin" || post.authorRole === "principle-broker") &&
+    !readerIds.includes(post.authorWorkosUserId)
+  ) {
+    readerIds.push(post.authorWorkosUserId);
+  }
+  return readerIds;
+}
+
 export function canSeeCollaborationReceipt(
   authorization: ActiveBuildAuthorization,
   receipt: Pick<

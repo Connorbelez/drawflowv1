@@ -30,12 +30,19 @@ import {
   filterReadableBuildActionItems,
   requireReadableActionItem,
 } from "./build_action_items";
-import { resolveCurrentCollaborationPostReaderIds } from "./build_collaboration_access";
+import {
+  resolveCurrentCollaborationNotificationReaderIds,
+  resolveCurrentCollaborationPostReaderIds,
+} from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import {
   type BuildCollaborationRole,
   collaborationRoleTier,
 } from "./build_collaboration_model";
+import {
+  emitCanonicalBuildCollaborationNotification,
+  notificationKindForDeadlineStage,
+} from "./build_collaboration_notifications";
 import {
   canonicalizeTiptapReferences,
   referenceInputValidator,
@@ -1037,7 +1044,11 @@ async function emitEligibleDeadlineStages(
     throw new Error("Action Item parent post scope integrity failure.");
   }
   const readers = new Set(
-    await resolveCurrentCollaborationPostReaderIds(ctx, authorization, post)
+    await resolveCurrentCollaborationNotificationReaderIds(
+      ctx,
+      authorization,
+      post
+    )
   );
   const responsibleId = item.assigneeWorkosUserId ?? item.creatorWorkosUserId;
   for (const stage of stages) {
@@ -1053,6 +1064,7 @@ async function emitEligibleDeadlineStages(
     await emitDeadlineStage(ctx, {
       authorization,
       item,
+      readerIds: readers,
       recipientWorkosUserId,
       stage,
     });
@@ -1112,24 +1124,13 @@ async function emitDeadlineStage(
   input: {
     authorization: ActiveBuildAuthorization;
     item: Doc<"buildActionItems">;
+    readerIds: Set<string>;
     recipientWorkosUserId: string;
     stage: BuildActionItemDeadlineStage;
   }
 ) {
   const dueAt = input.item.dueAt as number;
   const dedupeKey = `build-action-item:${input.item._id}:schedule:${input.item.deadlineScheduleGeneration ?? 0}:${input.stage}:${dueAt}`;
-  const existing = await ctx.db
-    .query("recipientDeliveries")
-    .withIndex("by_recipient_dedupe", (query) =>
-      query
-        .eq("organizationId", input.authorization.organizationId)
-        .eq("recipientWorkosUserId", input.recipientWorkosUserId)
-        .eq("dedupeKey", dedupeKey)
-    )
-    .first();
-  if (existing) {
-    return;
-  }
   const now = Date.now();
   const title = deadlineTitle(input.stage);
   const recipientRole = input.authorization.participants.find(
@@ -1140,25 +1141,25 @@ async function emitDeadlineStage(
     buildId: input.item.buildId,
     recipientRole,
   });
-  await ctx.db.insert("recipientDeliveries", {
+  const deliveryId = await emitCanonicalBuildCollaborationNotification(ctx, {
+    actionItemId: input.item._id,
     actionLabel: "Open Action Item",
-    actionRequired: input.stage !== "before",
+    authorization: input.authorization,
     body: `${input.item.title} · due ${new Date(dueAt).toISOString()}`,
-    brokerageId: input.authorization.brokerage._id,
-    createdAt: now,
     dedupeKey,
     entityId: input.item._id,
-    entityLabel: input.authorization.build.buildName,
     entityType: "buildActionItem",
     href,
-    organizationId: input.authorization.organizationId,
+    kind: notificationKindForDeadlineStage(input.stage),
+    now,
+    postId: input.item.originatingPostId,
+    readerIds: input.readerIds,
     recipientWorkosUserId: input.recipientWorkosUserId,
-    resolutionMode: "recipient",
-    sourceLabel: "Build collaboration",
-    status: "unread",
     title,
-    updatedAt: now,
   });
+  if (!deliveryId) {
+    return;
+  }
   const payload = JSON.stringify({
     actionItemId: input.item._id,
     dueAt,

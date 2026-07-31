@@ -102,11 +102,8 @@ export function NotificationInbox({
           </div>
         </SheetHeader>
         <SheetPanel className="grid content-start gap-4">
-          <div
-            aria-label="Notification filters"
-            className="flex gap-2"
-            role="group"
-          >
+          <fieldset className="flex gap-2">
+            <legend className="sr-only">Notification filters</legend>
             <Button
               aria-pressed={filter === "all"}
               onClick={() => setFilter("all")}
@@ -123,7 +120,7 @@ export function NotificationInbox({
             >
               Action required
             </Button>
-          </div>
+          </fieldset>
 
           {errorMessage ? (
             <p
@@ -134,57 +131,42 @@ export function NotificationInbox({
             </p>
           ) : null}
 
-          {workosOrganizationId ? (
-            inbox === undefined ? (
-              <InboxState message="Loading notifications…" />
-            ) : deliveries.length === 0 ? (
-              <InboxState
-                message={
-                  filter === "actionRequired"
-                    ? "No notifications require action."
-                    : "No notifications yet."
-                }
-              />
-            ) : (
-              <ol className="grid gap-3">
-                {deliveries.map((delivery) => (
-                  <li key={delivery._id}>
-                    <RecipientDeliveryCard
-                      delivery={delivery}
-                      onDismiss={() =>
-                        runDeliveryMutation(() =>
-                          dismiss({
-                            deliveryId: delivery._id,
-                            workosOrganizationId,
-                          })
-                        )
-                      }
-                      onOpen={() =>
-                        delivery.status === "unread"
-                          ? runDeliveryMutation(() =>
-                              markRead({
-                                deliveryId: delivery._id,
-                                workosOrganizationId,
-                              })
-                            )
-                          : undefined
-                      }
-                      onResolve={() =>
-                        runDeliveryMutation(() =>
-                          resolve({
-                            deliveryId: delivery._id,
-                            workosOrganizationId,
-                          })
-                        )
-                      }
-                    />
-                  </li>
-                ))}
-              </ol>
-            )
-          ) : (
-            <InboxState message="Choose an organization to view notifications." />
-          )}
+          <InboxDeliveries
+            deliveries={deliveries}
+            filter={filter}
+            inboxLoaded={inbox !== undefined}
+            onDismiss={(delivery) =>
+              workosOrganizationId
+                ? runDeliveryMutation(() =>
+                    dismiss({
+                      deliveryId: delivery._id,
+                      workosOrganizationId,
+                    })
+                  )
+                : undefined
+            }
+            onOpen={(delivery) =>
+              workosOrganizationId && delivery.status === "unread"
+                ? runDeliveryMutation(() =>
+                    markRead({
+                      deliveryId: delivery._id,
+                      workosOrganizationId,
+                    })
+                  )
+                : undefined
+            }
+            onResolve={(delivery) =>
+              workosOrganizationId
+                ? runDeliveryMutation(() =>
+                    resolve({
+                      deliveryId: delivery._id,
+                      workosOrganizationId,
+                    })
+                  )
+                : undefined
+            }
+            organizationSelected={Boolean(workosOrganizationId)}
+          />
         </SheetPanel>
       </SheetContent>
     </Sheet>
@@ -193,8 +175,60 @@ export function NotificationInbox({
 
 function useRecipientInbox(workosOrganizationId?: string | null) {
   return useQuery(
-    api.production_proposals.listRecipientInbox,
+    api.build_collaboration_inbox.listRecipientInbox,
     workosOrganizationId ? { workosOrganizationId } : "skip"
+  );
+}
+
+function InboxDeliveries({
+  deliveries,
+  filter,
+  inboxLoaded,
+  onDismiss,
+  onOpen,
+  onResolve,
+  organizationSelected,
+}: {
+  deliveries: RecipientDelivery[];
+  filter: InboxFilter;
+  inboxLoaded: boolean;
+  onDismiss: (delivery: RecipientDelivery) => void;
+  onOpen: (delivery: RecipientDelivery) => void;
+  onResolve: (delivery: RecipientDelivery) => void;
+  organizationSelected: boolean;
+}) {
+  if (!organizationSelected) {
+    return (
+      <InboxState message="Choose an organization to view notifications." />
+    );
+  }
+  if (!inboxLoaded) {
+    return <InboxState message="Loading notifications…" />;
+  }
+  if (deliveries.length === 0) {
+    return (
+      <InboxState
+        message={
+          filter === "actionRequired"
+            ? "No notifications require action."
+            : "No notifications yet."
+        }
+      />
+    );
+  }
+  return (
+    <ol className="grid gap-3">
+      {deliveries.map((delivery) => (
+        <li key={delivery._id}>
+          <RecipientDeliveryCard
+            delivery={delivery}
+            onDismiss={() => onDismiss(delivery)}
+            onOpen={() => onOpen(delivery)}
+            onResolve={() => onResolve(delivery)}
+          />
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -237,7 +271,11 @@ function RecipientDeliveryCard({
         <Button
           data-testid={`recipient-delivery-open-${delivery._id}`}
           onClick={onOpen}
-          render={<a href={delivery.href} />}
+          render={
+            <a href={delivery.href}>
+              <span className="sr-only">{delivery.actionLabel}</span>
+            </a>
+          }
           size="sm"
         >
           {delivery.actionLabel}

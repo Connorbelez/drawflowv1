@@ -1,7 +1,12 @@
 import { v } from "convex/values";
 import { authenticatedMutation } from "./authz";
-import { canReadCollaborationPost } from "./build_collaboration_access";
+import {
+  canReadCollaborationPost,
+  resolveCurrentCollaborationNotificationReaderIds,
+} from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
+import type { Id } from "./types";
 
 export const acknowledgeBuildCollaborationPost = authenticatedMutation
   .input({
@@ -45,23 +50,52 @@ export const acknowledgeBuildCollaborationPost = authenticatedMutation
     if (existing && existing.acknowledgedRevision >= post.revision) {
       return existing._id;
     }
+    const now = Date.now();
+    let acknowledgementId: Id<"buildCollaborationAcknowledgements">;
     if (existing) {
       await ctx.db.patch(existing._id, {
-        acknowledgedAt: Date.now(),
+        acknowledgedAt: now,
         acknowledgedRevision: post.revision,
         targetId: target._id,
       });
-      return existing._id;
+      acknowledgementId = existing._id;
+    } else {
+      acknowledgementId = await ctx.db.insert(
+        "buildCollaborationAcknowledgements",
+        {
+          acknowledgedAt: now,
+          acknowledgedRevision: post.revision,
+          brokerageId: authorization.brokerage._id,
+          buildId: authorization.build._id,
+          organizationId: authorization.organizationId,
+          postId: post._id,
+          targetId: target._id,
+          workosUserId: authorization.viewer.subject,
+        }
+      );
     }
-    return await ctx.db.insert("buildCollaborationAcknowledgements", {
-      acknowledgedAt: Date.now(),
-      acknowledgedRevision: post.revision,
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
-      organizationId: authorization.organizationId,
-      postId: post._id,
-      targetId: target._id,
-      workosUserId: authorization.viewer.subject,
-    });
+    const readerIds = await resolveCurrentCollaborationNotificationReaderIds(
+      ctx,
+      authorization,
+      post
+    );
+    if (post.authorWorkosUserId) {
+      await emitCanonicalBuildCollaborationNotification(ctx, {
+        actionLabel: "Open thread",
+        authorization,
+        body: `${authorization.viewer.email ?? authorization.viewer.subject} acknowledged the thread.`,
+        dedupeKey: `build-collaboration:acknowledgement:${acknowledgementId}:revision:${post.revision}:${post.authorWorkosUserId}`,
+        entityId: post._id,
+        entityType: "buildCollaborationPost",
+        href: `/backoffice/builds/${authorization.build._id}?tab=details&collaborationPost=${post._id}`,
+        kind: "acknowledgement_received",
+        now,
+        postId: post._id,
+        readerIds,
+        recipientWorkosUserId: post.authorWorkosUserId,
+        title: "Thread acknowledged",
+      });
+    }
+    return acknowledgementId;
   })
   .public();

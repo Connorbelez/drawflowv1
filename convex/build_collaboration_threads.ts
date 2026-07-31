@@ -4,6 +4,7 @@ import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
   canReadCollaborationPost,
+  resolveCurrentCollaborationNotificationReaderIds,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
@@ -17,6 +18,7 @@ import {
   collaborationFocusedCommentContextValidator,
 } from "./build_collaboration_contracts";
 import { collaborationModerationCapabilities } from "./build_collaboration_moderation";
+import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
 import { canonicalizeTiptapReferences } from "./build_collaboration_publication_bundle";
 import {
   type CanonicalBuildCollaborationReference,
@@ -36,6 +38,7 @@ const MAX_COMMENT_TEXT_LENGTH = 25_000;
 const MAX_COMMENT_RICH_TEXT_LENGTH = 125_000;
 const MAX_THREAD_COMMENTS = 1000;
 const MAX_LOGICAL_DEPTH = 50;
+const MAX_THREAD_FOLLOWS = 2000;
 
 const referenceInputValidator = v.object({
   entityKind: buildCollaborationReferenceKindValidator,
@@ -179,6 +182,21 @@ export const addBuildCollaborationComment = authenticatedMutation
       postId: post._id,
       reason: "commenter",
       workosUserId: authorization.viewer.subject,
+    });
+    const notificationReaderIds =
+      await resolveCurrentCollaborationNotificationReaderIds(
+        ctx,
+        authorization,
+        post
+      );
+    await emitCommentNotifications(ctx, {
+      authorization,
+      commentId,
+      now,
+      plainText: content.plainText,
+      post,
+      readerIds: notificationReaderIds,
+      references,
     });
     await ctx.db.insert("auditEvents", {
       actorRoles: authorization.roles,
@@ -791,16 +809,42 @@ export const toggleBuildCollaborationPin = authenticatedMutation
       await ctx.db.delete(existing._id);
       return null;
     }
-    return await ctx.db.insert("buildCollaborationPins", {
+    const now = Date.now();
+    const pinId = await ctx.db.insert("buildCollaborationPins", {
       brokerageId: authorization.brokerage._id,
       buildId: authorization.build._id,
       commentId: args.commentId,
-      createdAt: Date.now(),
+      createdAt: now,
       kind: args.kind,
       organizationId: authorization.organizationId,
       postId: post._id,
       workosUserId: authorization.viewer.subject,
     });
+    if (args.kind === "build") {
+      const readerIds = await resolveCurrentCollaborationNotificationReaderIds(
+        ctx,
+        authorization,
+        post
+      );
+      for (const recipientWorkosUserId of readerIds) {
+        await emitCanonicalBuildCollaborationNotification(ctx, {
+          actionLabel: "Open pinned thread",
+          authorization,
+          body: "A collaboration thread was pinned for this Build.",
+          dedupeKey: `build-collaboration:pin:${pinId}:${recipientWorkosUserId}`,
+          entityId: post._id,
+          entityType: "buildCollaborationPost",
+          href: `/backoffice/builds/${authorization.build._id}?tab=details&collaborationPost=${post._id}`,
+          kind: "build_wide_pin",
+          now,
+          postId: post._id,
+          readerIds,
+          recipientWorkosUserId,
+          title: "Thread pinned for the Build",
+        });
+      }
+    }
+    return pinId;
   })
   .public();
 
@@ -941,6 +985,70 @@ async function ensureFollow(
     updatedAt: input.now,
     workosUserId: input.workosUserId,
   });
+}
+
+async function emitCommentNotifications(
+  ctx: MutationCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    commentId: Id<"buildCollaborationComments">;
+    now: number;
+    plainText: string;
+    post: Doc<"buildCollaborationPosts">;
+    readerIds: string[];
+    references: CanonicalBuildCollaborationReference[];
+  }
+) {
+  const mentionedIds = new Set(
+    input.references.flatMap((reference) =>
+      reference.entityKind === "participant" ? [reference.entityId] : []
+    )
+  );
+  for (const recipientWorkosUserId of mentionedIds) {
+    await emitCanonicalBuildCollaborationNotification(ctx, {
+      actionLabel: "Open reply",
+      authorization: input.authorization,
+      body: input.plainText,
+      commentId: input.commentId,
+      dedupeKey: `build-collaboration:comment:${input.commentId}:direct-mention:${recipientWorkosUserId}`,
+      entityId: input.post._id,
+      entityType: "buildCollaborationComment",
+      href: `/backoffice/builds/${input.authorization.build._id}?tab=details&collaborationPost=${input.post._id}&focus=comment%3A${input.commentId}`,
+      kind: "direct_mention",
+      now: input.now,
+      postId: input.post._id,
+      readerIds: input.readerIds,
+      recipientWorkosUserId,
+      title: "You were mentioned in a reply",
+    });
+  }
+  const follows = await ctx.db
+    .query("buildCollaborationFollows")
+    .withIndex("by_postId_and_workosUserId", (query) =>
+      query.eq("postId", input.post._id)
+    )
+    .take(MAX_THREAD_FOLLOWS);
+  for (const follow of follows) {
+    if (!(follow.active && !mentionedIds.has(follow.workosUserId))) {
+      continue;
+    }
+    await emitCanonicalBuildCollaborationNotification(ctx, {
+      actionLabel: "Open reply",
+      authorization: input.authorization,
+      body: input.plainText,
+      commentId: input.commentId,
+      dedupeKey: `build-collaboration:comment:${input.commentId}:followed-reply:${follow.workosUserId}`,
+      entityId: input.post._id,
+      entityType: "buildCollaborationComment",
+      href: `/backoffice/builds/${input.authorization.build._id}?tab=details&collaborationPost=${input.post._id}&focus=comment%3A${input.commentId}`,
+      kind: "followed_reply",
+      now: input.now,
+      postId: input.post._id,
+      readerIds: input.readerIds,
+      recipientWorkosUserId: follow.workosUserId,
+      title: "New reply in a followed thread",
+    });
+  }
 }
 
 function assertHumanPublication(subject: string) {

@@ -389,8 +389,18 @@ export async function projectActiveBuildParticipants(
       implicit.set(profile.accountWorkosUserId, "contractor");
     }
   }
+  const removedParticipants = await ctx.db
+    .query("buildParticipants")
+    .withIndex("by_buildId_and_status", (query) =>
+      query.eq("buildId", input.build._id).eq("status", "removed")
+    )
+    .take(500);
+  const explicitlyRemovedIds = new Set(
+    removedParticipants.map((participant) => participant.workosUserId)
+  );
   for (const [workosUserId, role] of implicit) {
     if (
+      explicitlyRemovedIds.has(workosUserId) ||
       projections.some(
         (participant) => participant.workosUserId === workosUserId
       )

@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -1188,6 +1189,22 @@ describe("Build collaboration publication and feed", () => {
       subject: "user_builder_staff",
     });
 
+    const requiredDelivery = await base.run(async (ctx) =>
+      ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient", (query) =>
+          query
+            .eq("organizationId", ORGANIZATION_ID)
+            .eq("recipientWorkosUserId", "user_builder_staff"),
+        )
+        .first(),
+    );
+    expect(requiredDelivery).toMatchObject({
+      actionRequired: true,
+      collaborationEventKind: "acknowledgement_required",
+      collaborationPostId: postId,
+    });
+
     const before = await builderStaff.query(
       (api as any).build_collaboration.listBuildCollaborationFeed,
       {
@@ -1206,6 +1223,26 @@ describe("Build collaboration publication and feed", () => {
         .acknowledgeBuildCollaborationPost,
       { buildId, organizationId: ORGANIZATION_ID, postId },
     );
+    const receivedDelivery = await base.run(async (ctx) =>
+      ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient", (query) =>
+          query
+            .eq("organizationId", ORGANIZATION_ID)
+            .eq("recipientWorkosUserId", "user_admin"),
+        )
+        .filter((query) =>
+          query.eq(
+            query.field("collaborationEventKind"),
+            "acknowledgement_received",
+          ),
+        )
+        .first(),
+    );
+    expect(receivedDelivery).toMatchObject({
+      collaborationPostId: postId,
+      recipientWorkosUserId: "user_admin",
+    });
     const after = await builderStaff.query(
       (api as any).build_collaboration.listBuildCollaborationFeed,
       {
@@ -2407,6 +2444,503 @@ describe("Build collaboration canonical reference authorization", () => {
       publish({ entityId: entities.drawId, entityKind: "draw" }),
     ).rejects.toThrow(
       "The referenced entity is not readable by every publication reader.",
+    );
+  });
+
+  test("applies mandatory precedence, deterministic dedupe, mute rules, and transaction rollback", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Broker Reviewer",
+      role: "broker",
+      subject: "user_broker",
+    });
+    await admin.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) {
+        throw new Error("Active Build fixture is unavailable.");
+      }
+      await ctx.db.insert("buildCollaborationNotificationPreferences", {
+        brokerageId: build.brokerageId,
+        buildId,
+        channels: [],
+        createdAt: 1,
+        digestCadence: "never",
+        digestEnabled: false,
+        ordinaryMuted: true,
+        organizationId: ORGANIZATION_ID,
+        updatedAt: 1,
+        workosUserId: "user_broker",
+      });
+      const brokerage = await ctx.db.get(build.brokerageId);
+      const authorization = {
+        brokerage,
+        build,
+        organizationId: ORGANIZATION_ID,
+        viewer: { subject: "user_admin" },
+      } as never;
+      const common = {
+        actionLabel: "Open thread",
+        authorization,
+        body: "Canonical notification body",
+        entityId: "notification-source-1",
+        entityType: "buildCollaborationPost",
+        href: `/backoffice/builds/${buildId}?tab=details`,
+        now: 10,
+        readerIds: ["user_admin", "user_broker"],
+        recipientWorkosUserId: "user_broker",
+        title: "Canonical notification",
+      } as const;
+      expect(
+        await emitCanonicalBuildCollaborationNotification(ctx as never, {
+          ...common,
+          dedupeKey: "notification:ordinary-muted",
+          kind: "ordinary_activity",
+        }),
+      ).toBeNull();
+      const first = await emitCanonicalBuildCollaborationNotification(
+        ctx as never,
+        {
+          ...common,
+          dedupeKey: "notification:mandatory-dedupe",
+          kind: "direct_mention",
+        },
+      );
+      const replay = await emitCanonicalBuildCollaborationNotification(
+        ctx as never,
+        {
+          ...common,
+          dedupeKey: "notification:mandatory-dedupe",
+          kind: "direct_mention",
+        },
+      );
+      expect(replay).toBe(first);
+    });
+    await expect(
+      admin.run(async (ctx) => {
+        const build = await ctx.db.get(buildId);
+        const brokerage = build ? await ctx.db.get(build.brokerageId) : null;
+        if (!(build && brokerage)) {
+          throw new Error("Active Build fixture is unavailable.");
+        }
+        await emitCanonicalBuildCollaborationNotification(ctx as never, {
+          actionLabel: "Open thread",
+          authorization: {
+            brokerage,
+            build,
+            organizationId: ORGANIZATION_ID,
+            viewer: { subject: "user_admin" },
+          } as never,
+          body: "Must roll back",
+          dedupeKey: "notification:forced-rollback",
+          entityId: "notification-source-2",
+          entityType: "buildCollaborationPost",
+          href: `/backoffice/builds/${buildId}?tab=details`,
+          kind: "assignment",
+          now: 20,
+          readerIds: ["user_admin", "user_broker"],
+          recipientWorkosUserId: "user_broker",
+          title: "Must roll back",
+        });
+        throw new Error("Force transaction rollback");
+      }),
+    ).rejects.toThrow("Force transaction rollback");
+    const deliveries = await base.run(async (ctx) =>
+      ctx.db.query("recipientDeliveries").collect(),
+    );
+    expect(deliveries).toEqual([
+      expect.objectContaining({
+        actionRequired: true,
+        collaborationEventKind: "direct_mention",
+        dedupeKey: "notification:mandatory-dedupe",
+      }),
+    ]);
+  });
+
+  test("rebuilds notification previews from readable canonical data and hides them after access revocation", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Broker Reviewer",
+      role: "broker",
+      subject: "user_broker",
+    });
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Site Contractor",
+      role: "contractor",
+      subject: "user_contractor",
+    });
+    const broker = withIdentity(base, {
+      roles: ["broker"],
+      subject: "user_broker",
+    });
+    const contractor = withIdentity(base, {
+      roles: ["contractor"],
+      subject: "user_contractor",
+    });
+    const restrictedPostId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "author_tier_and_higher",
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Restricted lender coordination.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                { text: "Restricted lender coordination.", type: "text" },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) {
+        throw new Error("Active Build fixture is unavailable.");
+      }
+      await ctx.db.insert("recipientDeliveries", {
+        actionLabel: "Open thread",
+        actionRequired: true,
+        body: "RESTRICTED LEAKED PREVIEW",
+        brokerageId: build.brokerageId,
+        collaborationBuildId: buildId,
+        collaborationEventKind: "direct_mention",
+        collaborationPostId: restrictedPostId,
+        createdAt: 1,
+        dedupeKey: "notification:restricted-stale-row",
+        entityId: restrictedPostId,
+        entityLabel: "RESTRICTED LEAKED LABEL",
+        entityType: "buildCollaborationPost",
+        href: `/backoffice/builds/${buildId}?tab=details`,
+        organizationId: ORGANIZATION_ID,
+        recipientWorkosUserId: "user_contractor",
+        resolutionMode: "recipient",
+        sourceLabel: "Build collaboration",
+        status: "unread",
+        title: "RESTRICTED LEAKED TITLE",
+        updatedAt: 1,
+      });
+    });
+    const restrictedInbox = await contractor.query(
+      (api as any).build_collaboration_inbox.listRecipientInbox,
+      { workosOrganizationId: ORGANIZATION_ID },
+    );
+    expect(restrictedInbox.deliveries).toEqual([]);
+    expect(JSON.stringify(restrictedInbox)).not.toContain("RESTRICTED");
+    const postId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "build_wide",
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Untrusted client preview.",
+        postType: "update",
+        references: [
+          {
+            entityId: "user_broker",
+            entityKind: "participant",
+            label: "Untrusted label",
+          },
+        ],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Canonical readable update.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    await base.run(async (ctx) => {
+      const delivery = await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient", (query) =>
+          query
+            .eq("organizationId", ORGANIZATION_ID)
+            .eq("recipientWorkosUserId", "user_broker"),
+        )
+        .first();
+      if (!delivery) {
+        throw new Error("Notification fixture is unavailable.");
+      }
+      await ctx.db.patch(delivery._id, {
+        body: "RESTRICTED STORED PREVIEW",
+        entityLabel: "RESTRICTED ENTITY LABEL",
+      });
+    });
+    const before = await broker.query(
+      (api as any).build_collaboration_inbox.listRecipientInbox,
+      { workosOrganizationId: ORGANIZATION_ID },
+    );
+    expect(before.deliveries).toEqual([
+      expect.objectContaining({
+        body: "Canonical readable update.",
+        entityId: postId,
+        entityLabel: "147 Cedar Ridge",
+      }),
+    ]);
+    expect(JSON.stringify(before)).not.toContain("RESTRICTED");
+
+    await base.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query.eq("buildId", buildId).eq("workosUserId", "user_broker"),
+        )
+        .unique();
+      if (!participant) {
+        throw new Error("Participant fixture is unavailable.");
+      }
+      await ctx.db.patch(participant._id, {
+        removedAt: 100,
+        status: "removed",
+        updatedAt: 100,
+        validUntil: 100,
+      });
+    });
+    const after = await broker.query(
+      (api as any).build_collaboration_inbox.listRecipientInbox,
+      { workosOrganizationId: ORGANIZATION_ID },
+    );
+    expect(after).toEqual({
+      actionRequiredCount: 0,
+      deliveries: [],
+      unreadCount: 0,
+    });
+    const deliveryCountBefore = await base.run(async (ctx) =>
+      ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient", (query) =>
+          query
+            .eq("organizationId", ORGANIZATION_ID)
+            .eq("recipientWorkosUserId", "user_broker"),
+        )
+        .collect()
+        .then((records) => records.length),
+    );
+    await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "build_wide",
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Update after participant revocation.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                { text: "Update after participant revocation.", type: "text" },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    const deliveryCountAfter = await base.run(async (ctx) =>
+      ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient", (query) =>
+          query
+            .eq("organizationId", ORGANIZATION_ID)
+            .eq("recipientWorkosUserId", "user_broker"),
+        )
+        .collect()
+        .then((records) => records.length),
+    );
+    expect(deliveryCountAfter).toBe(deliveryCountBefore);
+  });
+
+  test("emits mention, followed-reply, and Build-wide pin events with follow mute semantics", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Broker Reviewer",
+      role: "broker",
+      subject: "user_broker",
+    });
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Site Contractor",
+      role: "contractor",
+      subject: "user_contractor",
+    });
+    const broker = withIdentity(base, {
+      roles: ["broker"],
+      subject: "user_broker",
+    });
+    const contractor = withIdentity(base, {
+      roles: ["contractor"],
+      subject: "user_contractor",
+    });
+    const postId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "build_wide",
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Follow this coordination thread.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                { text: "Follow this coordination thread.", type: "text" },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    await base.run(async (ctx) => {
+      for (const delivery of await ctx.db.query("recipientDeliveries").collect()) {
+        await ctx.db.delete(delivery._id);
+      }
+    });
+    await admin.mutation(
+      (api as any).build_collaboration_notifications
+        .updateMyBuildCollaborationNotificationPreferences,
+      {
+        buildId,
+        channels: ["in_app"],
+        digestCadence: "daily",
+        digestEnabled: true,
+        ordinaryMuted: true,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    await contractor.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Broker, please review this reply.",
+        postId,
+        references: [
+          {
+            entityId: "user_broker",
+            entityKind: "participant",
+            label: "Broker Reviewer",
+          },
+        ],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                { text: "Broker, please review this reply.", type: "text" },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    let deliveries = await base.run(async (ctx) =>
+      ctx.db.query("recipientDeliveries").collect(),
+    );
+    expect(deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          collaborationEventKind: "direct_mention",
+          recipientWorkosUserId: "user_broker",
+        }),
+      ]),
+    );
+    expect(
+      deliveries.some(
+        (delivery) =>
+          delivery.collaborationEventKind === "followed_reply" &&
+          delivery.recipientWorkosUserId === "user_admin",
+      ),
+    ).toBe(false);
+
+    await admin.mutation(
+      (api as any).build_collaboration_notifications
+        .updateMyBuildCollaborationNotificationPreferences,
+      {
+        buildId,
+        channels: ["in_app"],
+        digestCadence: "daily",
+        digestEnabled: true,
+        ordinaryMuted: false,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    await contractor.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "A second followed reply.",
+        postId,
+        references: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "A second followed reply.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    await broker.mutation(
+      (api as any).build_collaboration_threads.toggleBuildCollaborationPin,
+      {
+        buildId,
+        kind: "build",
+        organizationId: ORGANIZATION_ID,
+        postId,
+      },
+    );
+    deliveries = await base.run(async (ctx) =>
+      ctx.db.query("recipientDeliveries").collect(),
+    );
+    expect(deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          collaborationEventKind: "followed_reply",
+          recipientWorkosUserId: "user_admin",
+        }),
+        expect.objectContaining({
+          collaborationEventKind: "build_wide_pin",
+          recipientWorkosUserId: "user_admin",
+        }),
+        expect.objectContaining({
+          collaborationEventKind: "build_wide_pin",
+          recipientWorkosUserId: "user_contractor",
+        }),
+      ]),
     );
   });
 });

@@ -165,3 +165,18 @@ export const buildCollaborationNotificationChannelValidator = v.union(
   v.literal("email"),
   v.literal("push")
 );
+
+export const buildCollaborationNotificationKindValidator = v.union(
+  v.literal("ordinary_activity"),
+  v.literal("direct_mention"),
+  v.literal("assignment"),
+  v.literal("assignment_request"),
+  v.literal("followed_reply"),
+  v.literal("required_approval"),
+  v.literal("blocker"),
+  v.literal("build_wide_pin"),
+  v.literal("acknowledgement_required"),
+  v.literal("acknowledgement_received"),
+  v.literal("reminder"),
+  v.literal("escalation")
+);

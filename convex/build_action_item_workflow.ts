@@ -14,9 +14,13 @@ import {
   type BuildActionItemOperation,
 } from "./build_action_item_rbac";
 import { requireReadableActionItem } from "./build_action_items";
-import { resolveCurrentCollaborationPostReaderIds } from "./build_collaboration_access";
+import { resolveCurrentCollaborationNotificationReaderIds } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { collaborationRoleTier } from "./build_collaboration_model";
+import {
+  emitCanonicalBuildCollaborationNotification,
+  notificationKindForActionItemWorkflowEvent,
+} from "./build_collaboration_notifications";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
   buildActionItemStatusValidator,
@@ -728,7 +732,11 @@ async function activeActionItemReaders(
     return new Set<string>();
   }
   const readerIds = new Set(
-    await resolveCurrentCollaborationPostReaderIds(ctx, authorization, post)
+    await resolveCurrentCollaborationNotificationReaderIds(
+      ctx,
+      authorization,
+      post
+    )
   );
   const [activePeriods, removedPeriods] = await Promise.all([
     ctx.db
@@ -881,37 +889,21 @@ async function insertWorkflowDelivery(
   if (!activeReaders.has(recipientWorkosUserId)) {
     return null;
   }
-  const dedupeKey = `build-action-item:${input.item._id}:${input.eventType}:${input.updated.currentRevision}`;
-  const existing = await ctx.db
-    .query("recipientDeliveries")
-    .withIndex("by_recipient_dedupe", (query) =>
-      query
-        .eq("organizationId", input.authorization.organizationId)
-        .eq("recipientWorkosUserId", recipientWorkosUserId)
-        .eq("dedupeKey", dedupeKey)
-    )
-    .unique();
-  if (existing) {
-    return existing._id;
-  }
-  return await ctx.db.insert("recipientDeliveries", {
+  return await emitCanonicalBuildCollaborationNotification(ctx, {
+    actionItemId: input.item._id,
     actionLabel: "Open Action Item",
-    actionRequired: true,
+    authorization: input.authorization,
     body: input.updated.title,
-    brokerageId: input.authorization.brokerage._id,
-    createdAt: input.now,
-    dedupeKey,
+    dedupeKey: `build-action-item:${input.item._id}:${input.eventType}:${input.updated.currentRevision}:${recipientWorkosUserId}`,
     entityId: input.item._id,
-    entityLabel: input.authorization.build.buildName,
     entityType: "buildActionItem",
     href: `/backoffice/builds/${input.authorization.build._id}?tab=details&focus=actionItem%3A${input.item._id}`,
-    organizationId: input.authorization.organizationId,
+    kind: notificationKindForActionItemWorkflowEvent(input.eventType),
+    now: input.now,
+    postId: input.item.originatingPostId,
+    readerIds: activeReaders,
     recipientWorkosUserId,
-    resolutionMode: "recipient",
-    sourceLabel: "Build collaboration",
-    status: "unread",
     title: workflowNotificationTitle(input.eventType),
-    updatedAt: input.now,
   });
 }
 

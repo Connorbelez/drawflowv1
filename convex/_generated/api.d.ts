@@ -39,6 +39,7 @@ import type * as build_collaboration_drafts from "../build_collaboration_drafts.
 import type * as build_collaboration_editing from "../build_collaboration_editing.js";
 import type * as build_collaboration_focus from "../build_collaboration_focus.js";
 import type * as build_collaboration_human from "../build_collaboration_human.js";
+import type * as build_collaboration_inbox from "../build_collaboration_inbox.js";
 import type * as build_collaboration_migrations from "../build_collaboration_migrations.js";
 import type * as build_collaboration_model from "../build_collaboration_model.js";
 import type * as build_collaboration_moderation from "../build_collaboration_moderation.js";
@@ -128,6 +129,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_editing: typeof build_collaboration_editing;
   build_collaboration_focus: typeof build_collaboration_focus;
   build_collaboration_human: typeof build_collaboration_human;
+  build_collaboration_inbox: typeof build_collaboration_inbox;
   build_collaboration_migrations: typeof build_collaboration_migrations;
   build_collaboration_model: typeof build_collaboration_model;
   build_collaboration_moderation: typeof build_collaboration_moderation;

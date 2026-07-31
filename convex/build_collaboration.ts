@@ -190,8 +190,22 @@ export async function prepareBuildCollaborationPublication(
     references,
     tiptapJson: canonicalContent.tiptapJson,
   };
+  const acknowledgementTargetIds = bundle.acknowledgementRequired
+    ? audience.readerIds.filter((workosUserId) => {
+        const participant = input.authorization.participants.find(
+          (candidate) => candidate.workosUserId === workosUserId
+        );
+        return (
+          workosUserId !== input.authorization.viewer.subject &&
+          participant !== undefined &&
+          collaborationRoleTier(participant.role) <=
+            input.authorization.effectiveRole.tier
+        );
+      })
+    : [];
   const effectiveNotificationEffects =
     await resolveBuildCollaborationPublicationNotifications(ctx, {
+      acknowledgementTargetIds,
       actionAssigneeIds: bundle.actionItems.flatMap((item) =>
         item.assigneeWorkosUserId ? [item.assigneeWorkosUserId] : []
       ),
@@ -363,6 +377,19 @@ export async function publishBuildCollaborationBundle(
     }
   }
   await fanOutBuildCollaborationPublication(ctx, {
+    acknowledgementTargetIds: bundle.acknowledgementRequired
+      ? audience.readerIds.filter((workosUserId) => {
+          const participant = authorization.participants.find(
+            (candidate) => candidate.workosUserId === workosUserId
+          );
+          return (
+            workosUserId !== authorization.viewer.subject &&
+            participant !== undefined &&
+            collaborationRoleTier(participant.role) <=
+              authorization.effectiveRole.tier
+          );
+        })
+      : [],
     actionAssigneeIds: bundle.actionItems.flatMap((item) =>
       item.assigneeWorkosUserId ? [item.assigneeWorkosUserId] : []
     ),
