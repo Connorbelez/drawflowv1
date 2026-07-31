@@ -150,3 +150,8 @@ Then register one endpoint as a second WorkOS user and verify ownership transfer
 atomically, the prior user's subscription is revoked, and the prior user's push
 preference is removed when no device remains. Disabling push on one browser must
 leave the browser subscription and every other Build/device opt-in intact.
+Endpoint ownership revisions and Build bindings are authoritative. A transfer
+cleanup job must match the ownership revision that scheduled it; a stale job must
+not revoke an endpoint that has since returned to the prior user. Build device
+limits are counted from the current binding projection after stale bindings are
+pruned, never from unfiltered historical subscription rows.

@@ -2711,6 +2711,7 @@ export default defineSchema({
     endpoint: v.string(),
     p256dh: v.string(),
     auth: v.string(),
+    ownershipRevision: v.optional(v.number()),
     state: v.union(v.literal("active"), v.literal("revoked")),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2751,6 +2752,23 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_endpoint", ["endpoint"]),
+  buildCollaborationPushEndpointBuildBindings: defineTable({
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    endpoint: v.string(),
+    workosUserId: v.string(),
+    subscriptionId: v.id("buildCollaborationPushSubscriptions"),
+    ownershipRevision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_endpoint", ["buildId", "endpoint"])
+    .index("by_organizationId_and_workosUserId_and_buildId", [
+      "organizationId",
+      "workosUserId",
+      "buildId",
+      "endpoint",
+    ]),
   operationsQueueHandoffs: defineTable({
     acknowledgementState: operationsHandoffAcknowledgementStateValidator,
     acknowledgedAt: v.optional(v.number()),

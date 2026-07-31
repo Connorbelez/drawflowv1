@@ -46,31 +46,77 @@ export async function ownedActivePushSubscriptions(
     workosUserId: string;
   }
 ) {
-  const subscriptions = await ctx.db
-    .query("buildCollaborationPushSubscriptions")
-    .withIndex(
-      "by_organizationId_and_workosUserId_and_buildId_and_state",
-      (query) =>
-        query
-          .eq("organizationId", identity.organizationId)
-          .eq("workosUserId", identity.workosUserId)
-          .eq("buildId", identity.buildId)
-          .eq("state", "active")
+  const bindings = await ctx.db
+    .query("buildCollaborationPushEndpointBuildBindings")
+    .withIndex("by_organizationId_and_workosUserId_and_buildId", (query) =>
+      query
+        .eq("organizationId", identity.organizationId)
+        .eq("workosUserId", identity.workosUserId)
+        .eq("buildId", identity.buildId)
     )
-    .take(MAX_ACTIVE_PUSH_DEVICES_PER_BUILD);
+    .take(MAX_ACTIVE_PUSH_DEVICES_PER_BUILD + 1);
+  if (bindings.length > MAX_ACTIVE_PUSH_DEVICES_PER_BUILD) {
+    throw new Error("Push device binding integrity failure.");
+  }
   const owned: Doc<"buildCollaborationPushSubscriptions">[] = [];
-  for (const subscription of subscriptions) {
+  for (const binding of bindings) {
     const owner = await ctx.db
       .query("buildCollaborationPushEndpointOwners")
       .withIndex("by_endpoint", (query) =>
-        query.eq("endpoint", subscription.endpoint)
+        query.eq("endpoint", binding.endpoint)
       )
       .unique();
-    if (owner?.workosUserId === identity.workosUserId) {
+    const subscription = await ctx.db.get(binding.subscriptionId);
+    if (
+      owner?.workosUserId === identity.workosUserId &&
+      owner.revision === binding.ownershipRevision &&
+      subscription?.state === "active" &&
+      subscription.organizationId === identity.organizationId &&
+      subscription.buildId === identity.buildId &&
+      subscription.workosUserId === identity.workosUserId &&
+      subscription.endpoint === binding.endpoint &&
+      subscription.ownershipRevision === binding.ownershipRevision
+    ) {
       owned.push(subscription);
     }
   }
   return owned;
+}
+
+export async function removeStalePushBindings(
+  ctx: MutationCtx,
+  identity: {
+    buildId: Id<"activeBuilds">;
+    organizationId: string;
+    workosUserId: string;
+  }
+) {
+  const bindings = await ctx.db
+    .query("buildCollaborationPushEndpointBuildBindings")
+    .withIndex("by_organizationId_and_workosUserId_and_buildId", (query) =>
+      query
+        .eq("organizationId", identity.organizationId)
+        .eq("workosUserId", identity.workosUserId)
+        .eq("buildId", identity.buildId)
+    )
+    .take(MAX_ACTIVE_PUSH_DEVICES_PER_BUILD + 1);
+  if (bindings.length > MAX_ACTIVE_PUSH_DEVICES_PER_BUILD) {
+    throw new Error("Push device binding integrity failure.");
+  }
+  for (const binding of bindings) {
+    const owner = await ctx.db
+      .query("buildCollaborationPushEndpointOwners")
+      .withIndex("by_endpoint", (query) =>
+        query.eq("endpoint", binding.endpoint)
+      )
+      .unique();
+    if (
+      owner?.workosUserId !== identity.workosUserId ||
+      owner.revision !== binding.ownershipRevision
+    ) {
+      await ctx.db.delete(binding._id);
+    }
+  }
 }
 
 export async function removePushPreferenceWhenNoDevices(

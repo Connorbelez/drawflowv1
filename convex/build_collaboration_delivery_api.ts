@@ -8,6 +8,7 @@ import {
   MAX_ACTIVE_PUSH_DEVICES_PER_BUILD,
   ownedActivePushSubscriptions,
   removePushPreferenceWhenNoDevices,
+  removeStalePushBindings,
 } from "./build_collaboration_push";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Id } from "./types";
@@ -57,8 +58,18 @@ export const getMyBuildCollaborationPushSubscription = authenticatedQuery
       .query("buildCollaborationPushEndpointOwners")
       .withIndex("by_endpoint", (query) => query.eq("endpoint", endpoint))
       .unique();
+    const binding = await ctx.db
+      .query("buildCollaborationPushEndpointBuildBindings")
+      .withIndex("by_buildId_and_endpoint", (query) =>
+        query.eq("buildId", authorization.build._id).eq("endpoint", endpoint)
+      )
+      .unique();
     return subscription?.state === "active" &&
-      owner?.workosUserId === authorization.viewer.subject
+      owner?.workosUserId === authorization.viewer.subject &&
+      binding?.workosUserId === authorization.viewer.subject &&
+      binding.subscriptionId === subscription._id &&
+      binding.ownershipRevision === owner.revision &&
+      subscription.ownershipRevision === owner.revision
       ? {
           _id: subscription._id,
           createdAt: subscription.createdAt,
@@ -87,6 +98,27 @@ export const registerMyBuildCollaborationPushSubscription =
       const auth = bounded(args.auth, "Push auth key", 512);
       const p256dh = bounded(args.p256dh, "Push public key", 512);
       const now = Date.now();
+      await removeStalePushBindings(ctx, {
+        buildId: authorization.build._id,
+        organizationId: authorization.organizationId,
+        workosUserId: authorization.viewer.subject,
+      });
+      const activeDevices = await ownedActivePushSubscriptions(ctx, {
+        buildId: authorization.build._id,
+        organizationId: authorization.organizationId,
+        workosUserId: authorization.viewer.subject,
+      });
+      const alreadyActive = activeDevices.some(
+        (subscription) => subscription.endpoint === endpoint
+      );
+      if (
+        !alreadyActive &&
+        activeDevices.length >= MAX_ACTIVE_PUSH_DEVICES_PER_BUILD
+      ) {
+        throw new Error(
+          `Push notifications support up to ${MAX_ACTIVE_PUSH_DEVICES_PER_BUILD} devices per Build.`
+        );
+      }
       const endpointOwner = await ctx.db
         .query("buildCollaborationPushEndpointOwners")
         .withIndex("by_endpoint", (query) => query.eq("endpoint", endpoint))
@@ -95,9 +127,12 @@ export const registerMyBuildCollaborationPushSubscription =
         endpointOwner?.workosUserId === authorization.viewer.subject
           ? undefined
           : endpointOwner?.workosUserId;
+      const ownershipRevision = endpointOwner
+        ? endpointOwner.revision + (priorWorkosUserId ? 1 : 0)
+        : 1;
       if (endpointOwner) {
         await ctx.db.patch(endpointOwner._id, {
-          revision: endpointOwner.revision + 1,
+          revision: ownershipRevision,
           updatedAt: now,
           workosUserId: authorization.viewer.subject,
         });
@@ -122,24 +157,12 @@ export const registerMyBuildCollaborationPushSubscription =
               .eq("endpoint", endpoint)
         )
         .unique();
-      const activeDevices = await ownedActivePushSubscriptions(ctx, {
-        buildId: authorization.build._id,
-        organizationId: authorization.organizationId,
-        workosUserId: authorization.viewer.subject,
-      });
-      if (
-        existing?.state !== "active" &&
-        activeDevices.length >= MAX_ACTIVE_PUSH_DEVICES_PER_BUILD
-      ) {
-        throw new Error(
-          `Push notifications support up to ${MAX_ACTIVE_PUSH_DEVICES_PER_BUILD} devices per Build.`
-        );
-      }
       let subscriptionId: Id<"buildCollaborationPushSubscriptions">;
       if (existing) {
         await ctx.db.patch(existing._id, {
           auth,
           buildId: authorization.build._id,
+          ownershipRevision,
           p256dh,
           revokedAt: undefined,
           state: "active",
@@ -155,6 +178,7 @@ export const registerMyBuildCollaborationPushSubscription =
             createdAt: now,
             endpoint,
             organizationId: authorization.organizationId,
+            ownershipRevision,
             p256dh,
             state: "active",
             updatedAt: now,
@@ -162,13 +186,40 @@ export const registerMyBuildCollaborationPushSubscription =
           }
         );
       }
+      const buildBinding = await ctx.db
+        .query("buildCollaborationPushEndpointBuildBindings")
+        .withIndex("by_buildId_and_endpoint", (query) =>
+          query.eq("buildId", authorization.build._id).eq("endpoint", endpoint)
+        )
+        .unique();
+      const binding = {
+        organizationId: authorization.organizationId,
+        buildId: authorization.build._id,
+        endpoint,
+        workosUserId: authorization.viewer.subject,
+        subscriptionId,
+        ownershipRevision,
+        updatedAt: now,
+      };
+      if (buildBinding) {
+        await ctx.db.patch(buildBinding._id, binding);
+      } else {
+        await ctx.db.insert("buildCollaborationPushEndpointBuildBindings", {
+          ...binding,
+          createdAt: now,
+        });
+      }
       await addPushPreference(ctx, authorization, now);
       if (priorWorkosUserId) {
         await ctx.scheduler.runAfter(
           0,
           internal.build_collaboration_push_maintenance
             .cleanupTransferredBuildCollaborationPushEndpoint,
-          { endpoint, priorWorkosUserId }
+          {
+            endpoint,
+            expectedOwnershipRevision: ownershipRevision,
+            priorWorkosUserId,
+          }
         );
       }
       return subscriptionId;
@@ -204,12 +255,22 @@ export const revokeMyBuildCollaborationPushSubscription = authenticatedMutation
       .query("buildCollaborationPushEndpointOwners")
       .withIndex("by_endpoint", (query) => query.eq("endpoint", endpoint))
       .unique();
+    const binding = await ctx.db
+      .query("buildCollaborationPushEndpointBuildBindings")
+      .withIndex("by_buildId_and_endpoint", (query) =>
+        query.eq("buildId", authorization.build._id).eq("endpoint", endpoint)
+      )
+      .unique();
     if (
       !subscription ||
       subscription.organizationId !== authorization.organizationId ||
       subscription.workosUserId !== authorization.viewer.subject ||
       subscription.buildId !== authorization.build._id ||
-      owner?.workosUserId !== authorization.viewer.subject
+      owner?.workosUserId !== authorization.viewer.subject ||
+      subscription.ownershipRevision !== owner.revision ||
+      binding?.workosUserId !== authorization.viewer.subject ||
+      binding.subscriptionId !== subscription._id ||
+      binding.ownershipRevision !== owner.revision
     ) {
       throw new Error("Push subscription is unavailable.");
     }
@@ -219,6 +280,7 @@ export const revokeMyBuildCollaborationPushSubscription = authenticatedMutation
       state: "revoked",
       updatedAt: now,
     });
+    await ctx.db.delete(binding._id);
     await removePushPreferenceWhenNoDevices(
       ctx,
       {

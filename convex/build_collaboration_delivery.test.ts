@@ -544,6 +544,117 @@ describe("Build collaboration external delivery", () => {
     expect(brokerPreference.channels).not.toContain("push");
   });
 
+  test("does not let stale transfer cleanup revoke an endpoint reacquired by its original user", async () => {
+    vi.useFakeTimers();
+    const fixture = await seedDeliveryBuild();
+    const endpoint = "https://push.example.test/round-trip-browser";
+    const register = async (
+      actor: typeof fixture.broker,
+      key: string
+    ) =>
+      await actor.mutation(
+        (api as any).build_collaboration_delivery_api
+          .registerMyBuildCollaborationPushSubscription,
+        {
+          auth: `${key}-auth`,
+          buildId: fixture.buildId,
+          endpoint,
+          organizationId: ORGANIZATION_ID,
+          p256dh: `${key}-key`,
+        }
+      );
+
+    await register(fixture.broker, "broker-first");
+    await register(fixture.admin as typeof fixture.broker, "admin");
+    await register(fixture.broker, "broker-current");
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+
+    expect(
+      await fixture.broker.query(
+        (api as any).build_collaboration_delivery_api
+          .getMyBuildCollaborationPushSubscription,
+        { buildId: fixture.buildId, endpoint, organizationId: ORGANIZATION_ID }
+      )
+    ).toEqual(expect.objectContaining({ endpoint }));
+    expect(
+      await fixture.admin.query(
+        (api as any).build_collaboration_delivery_api
+          .getMyBuildCollaborationPushSubscription,
+        { buildId: fixture.buildId, endpoint, organizationId: ORGANIZATION_ID }
+      )
+    ).toBeNull();
+    const owner = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("buildCollaborationPushEndpointOwners")
+        .withIndex("by_endpoint", (query) => query.eq("endpoint", endpoint))
+        .unique()
+    );
+    expect(owner).toMatchObject({ revision: 3, workosUserId: "user_broker" });
+  });
+
+  test("prunes stale ownership bindings before enforcing the per-Build device cap", async () => {
+    const fixture = await seedDeliveryBuild();
+    const staleEndpoints = Array.from(
+      { length: 20 },
+      (_, index) => `https://push.example.test/stale-${index}`
+    );
+    for (const endpoint of staleEndpoints) {
+      await fixture.broker.mutation(
+        (api as any).build_collaboration_delivery_api
+          .registerMyBuildCollaborationPushSubscription,
+        {
+          auth: `auth-${endpoint}`,
+          buildId: fixture.buildId,
+          endpoint,
+          organizationId: ORGANIZATION_ID,
+          p256dh: `key-${endpoint}`,
+        }
+      );
+    }
+    await fixture.base.run(async (ctx) => {
+      const owners = await ctx.db
+        .query("buildCollaborationPushEndpointOwners")
+        .collect();
+      for (const owner of owners) {
+        await ctx.db.patch(owner._id, {
+          revision: owner.revision + 1,
+          workosUserId: "user_admin",
+        });
+      }
+    });
+
+    const currentEndpoint = "https://push.example.test/current-device";
+    await expect(
+      fixture.broker.mutation(
+        (api as any).build_collaboration_delivery_api
+          .registerMyBuildCollaborationPushSubscription,
+        {
+          auth: "current-auth",
+          buildId: fixture.buildId,
+          endpoint: currentEndpoint,
+          organizationId: ORGANIZATION_ID,
+          p256dh: "current-key",
+        }
+      )
+    ).resolves.toBeDefined();
+    const bindings = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("buildCollaborationPushEndpointBuildBindings")
+        .withIndex(
+          "by_organizationId_and_workosUserId_and_buildId",
+          (query) =>
+            query
+              .eq("organizationId", ORGANIZATION_ID)
+              .eq("workosUserId", "user_broker")
+              .eq("buildId", fixture.buildId)
+        )
+        .collect()
+    );
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]?.endpoint).toBe(currentEndpoint);
+  });
+
   test("revokes only the current Build device and removes push after the last device", async () => {
     const fixture = await seedDeliveryBuild();
     const endpoints = [

@@ -5,9 +5,24 @@ import { removePushPreferenceWhenNoDevices } from "./build_collaboration_push";
 import { internalMutation } from "./fluent";
 
 export const cleanupTransferredBuildCollaborationPushEndpoint = internalMutation
-  .input({ endpoint: v.string(), priorWorkosUserId: v.string() })
+  .input({
+    endpoint: v.string(),
+    expectedOwnershipRevision: v.number(),
+    priorWorkosUserId: v.string(),
+  })
   .returns(v.null())
   .handler(async (ctx, args) => {
+    const owner = await ctx.db
+      .query("buildCollaborationPushEndpointOwners")
+      .withIndex("by_endpoint", (query) => query.eq("endpoint", args.endpoint))
+      .unique();
+    if (
+      !owner ||
+      owner.revision !== args.expectedOwnershipRevision ||
+      owner.workosUserId === args.priorWorkosUserId
+    ) {
+      return null;
+    }
     const subscription = await ctx.db
       .query("buildCollaborationPushSubscriptions")
       .withIndex("by_endpoint_and_workosUserId_and_state", (query) =>
@@ -27,6 +42,19 @@ export const cleanupTransferredBuildCollaborationPushEndpoint = internalMutation
       updatedAt: now,
     });
     if (subscription.buildId) {
+      const buildId = subscription.buildId;
+      const binding = await ctx.db
+        .query("buildCollaborationPushEndpointBuildBindings")
+        .withIndex("by_buildId_and_endpoint", (query) =>
+          query.eq("buildId", buildId).eq("endpoint", args.endpoint)
+        )
+        .unique();
+      if (
+        binding?.subscriptionId === subscription._id &&
+        binding.workosUserId === args.priorWorkosUserId
+      ) {
+        await ctx.db.delete(binding._id);
+      }
       await removePushPreferenceWhenNoDevices(
         ctx,
         {
