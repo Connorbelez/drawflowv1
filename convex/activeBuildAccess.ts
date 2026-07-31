@@ -39,12 +39,23 @@ export async function authorizeActiveBuildAccess(
     organizationId: string;
   }
 ): Promise<ActiveBuildAuthorization> {
+  return await authorizeActiveBuildAccessForViewer(ctx, ctx.viewer, input);
+}
+
+export async function authorizeActiveBuildAccessForViewer(
+  ctx: QueryCtx | MutationCtx,
+  viewer: AuthorizedViewer,
+  input: {
+    buildId: Id<"activeBuilds">;
+    organizationId: string;
+  }
+): Promise<ActiveBuildAuthorization> {
   const organizationId = input.organizationId.trim();
   if (!organizationId) {
     throw new Error("Organization is required.");
   }
 
-  const viewerRoles = normalizeRoleSlugs(ctx.viewer.roles);
+  const viewerRoles = normalizeRoleSlugs(viewer.roles);
 
   const brokerage = await ctx.db
     .query("brokerages")
@@ -82,7 +93,7 @@ export async function authorizeActiveBuildAccess(
   const latestViewerParticipation = await ctx.db
     .query("buildParticipants")
     .withIndex("by_buildId_and_workosUserId_and_participationPeriod", (query) =>
-      query.eq("buildId", build._id).eq("workosUserId", ctx.viewer.subject)
+      query.eq("buildId", build._id).eq("workosUserId", viewer.subject)
     )
     .order("desc")
     .first();
@@ -100,13 +111,13 @@ export async function authorizeActiveBuildAccess(
   await requireOrganizationAccess(ctx, {
     hasActiveBuildGrant: Boolean(viewerGrant),
     organizationId,
-    viewer: ctx.viewer,
+    viewer,
     viewerRoles,
   });
   const derivedRole = await resolveDerivedBuildRole(ctx, {
     build,
     proposal,
-    viewer: ctx.viewer,
+    viewer,
     viewerRoles,
   });
   const effectiveRole = resolveEffectiveCollaborationRole([
@@ -120,7 +131,7 @@ export async function authorizeActiveBuildAccess(
       (await canAccessBuild(ctx, {
         build,
         proposal,
-        viewer: ctx.viewer,
+        viewer,
         viewerGrant,
         viewerRoles,
       }))
@@ -136,15 +147,15 @@ export async function authorizeActiveBuildAccess(
   });
   if (
     !participants.some(
-      (participant) => participant.workosUserId === ctx.viewer.subject
+      (participant) => participant.workosUserId === viewer.subject
     )
   ) {
     participants.push({
-      displayName: ctx.viewer.email ?? ctx.viewer.subject,
+      displayName: viewer.email ?? viewer.subject,
       participationPeriod: 1,
       role: effectiveRole.role,
       source: "derived",
-      workosUserId: ctx.viewer.subject,
+      workosUserId: viewer.subject,
     });
   }
 
@@ -166,7 +177,7 @@ export async function authorizeActiveBuildAccess(
         )
       ),
     ],
-    viewer: ctx.viewer,
+    viewer,
   };
 }
 

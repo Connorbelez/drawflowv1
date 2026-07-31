@@ -257,11 +257,13 @@ describe("Build collaboration external delivery", () => {
       })
     );
 
-    const deliveries = await fixture.base.run(async (ctx) =>
-      (await ctx.db.query("buildCollaborationExternalDeliveries").collect()).filter(
-        (row) => row.recipientWorkosUserId === "user_broker"
-      )
-    );
+    const state = await fixture.base.run(async (ctx) => ({
+      deliveries: (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).filter((row) => row.recipientWorkosUserId === "user_broker"),
+      scheduled: await ctx.db.system.query("_scheduled_functions").collect(),
+    }));
+    const deliveries = state.deliveries;
     expect(deliveries).toEqual([
       expect.objectContaining({
         cadence: "immediate",
@@ -272,6 +274,15 @@ describe("Build collaboration external delivery", () => {
         status: "queued",
       }),
     ]);
+    expect(
+      state.scheduled.some(
+        (scheduled) =>
+          scheduled.state.kind === "pending" &&
+          scheduled.name.endsWith(
+            "build_collaboration_delivery:processBuildCollaborationExternalDeliveries"
+          )
+      )
+    ).toBe(true);
   });
 
   test("bundles ordinary activity into ACL-safe daily email and push digests", async () => {
