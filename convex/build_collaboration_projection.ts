@@ -1,5 +1,6 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { canSeeCollaborationReceipt } from "./build_collaboration_access";
+import { projectCollaborationAssetAttachments } from "./build_collaboration_asset_projection";
 import {
   collaborationModeratedContent,
   collaborationTombstoneContent,
@@ -55,6 +56,7 @@ export async function projectReadableBuildCollaborationPost(
     return {
       acknowledgement: { acknowledged: false, required: false },
       actionItems: [],
+      attachments: [],
       following: false,
       kind: "post" as const,
       pins: [],
@@ -148,6 +150,12 @@ export async function projectReadableBuildCollaborationPost(
   const acknowledgementTarget = acknowledgementTargets.find(
     (target) => !target.waivedAt
   );
+  const attachments = await projectCollaborationAssetAttachments(ctx, {
+    buildId: authorization.build._id,
+    organizationId: authorization.organizationId,
+    ownerKind: "postRevision",
+    ownerRecordId: revision._id,
+  });
   const projectedResolutionSummary =
     post.postType === "question" &&
     post.threadState === "resolved" &&
@@ -179,6 +187,7 @@ export async function projectReadableBuildCollaborationPost(
       status: item.status,
       title: item.title,
     })),
+    attachments,
     following: follows.some((follow) => follow.active),
     kind: "post" as const,
     pins: pins.map((pin) => ({

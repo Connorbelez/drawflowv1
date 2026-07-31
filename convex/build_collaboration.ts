@@ -8,6 +8,7 @@ import {
 } from "./build_action_item_deadline_model";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { isCleanCollaborationAsset } from "./build_collaboration_asset_access";
 import { collaborationFeedResultValidator } from "./build_collaboration_contracts";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
@@ -32,7 +33,7 @@ import {
 } from "./build_collaboration_publication_bundle";
 import { resolveCanonicalBuildCollaborationReferences } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import type { Id, MutationCtx } from "./types";
+import type { Doc, Id, MutationCtx } from "./types";
 
 const MAX_PLAIN_TEXT_LENGTH = 50_000;
 const MAX_RICH_TEXT_LENGTH = 250_000;
@@ -107,6 +108,11 @@ export async function prepareBuildCollaborationPublication(
     authorization: input.authorization,
     excludedReaderIds: normalizedEffectiveBundle.excludedReaderIds,
     requestedReaderIds: normalizedEffectiveBundle.requestedReaderIds,
+  });
+  await validatePublicationAssets(ctx, {
+    assetIds: normalizedEffectiveBundle.attachmentAssetIds,
+    authorization: input.authorization,
+    readerIds: audience.readerIds,
   });
   const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
     authorization: input.authorization,
@@ -296,9 +302,12 @@ export async function publishBuildCollaborationBundle(
   });
   await persistAttachments(ctx, {
     assetIds: bundle.attachmentAssetIds,
+    audienceMode: bundle.audienceMode,
     authorization,
     now,
+    postId,
     postRevisionId,
+    readerWorkosUserIds: audience.readerIds,
   });
   await createActionItems(ctx, {
     actionItems: bundle.actionItems,
@@ -488,13 +497,90 @@ function resolveEffectiveActionItems(input: {
   });
 }
 
-async function persistAttachments(
+async function validatePublicationAssets(
   ctx: MutationCtx,
   input: {
     assetIds: Id<"buildCollaborationAssets">[];
     authorization: ActiveBuildAuthorization;
+    readerIds: string[];
+  }
+) {
+  if (new Set(input.assetIds).size > 25) {
+    throw new Error("A publication may contain at most 25 attachments.");
+  }
+  for (const assetId of new Set(input.assetIds)) {
+    const asset = await ctx.db.get(assetId);
+    if (
+      !asset ||
+      asset.buildId !== input.authorization.build._id ||
+      asset.organizationId !== input.authorization.organizationId ||
+      asset.brokerageId !== input.authorization.brokerage._id ||
+      asset.state !== "available" ||
+      !isCleanCollaborationAsset(asset)
+    ) {
+      throw new Error("A proposed collaboration asset is unavailable.");
+    }
+    if (asset.readerWorkosUserIds) {
+      const allowedReaders = new Set(asset.readerWorkosUserIds);
+      if (!input.readerIds.every((readerId) => allowedReaders.has(readerId))) {
+        throw new Error(
+          "A proposed collaboration asset cannot be shared with this audience."
+        );
+      }
+    }
+    if (!asset.originatingPostId) {
+      const session = asset.stagingSessionId
+        ? await ctx.db.get(asset.stagingSessionId)
+        : null;
+      if (
+        !session ||
+        session.state !== "finalized" ||
+        session.organizationId !== input.authorization.organizationId ||
+        session.buildId !== input.authorization.build._id ||
+        !(await canPublishStagedAssetSession(ctx, input.authorization, session))
+      ) {
+        throw new Error("A proposed collaboration asset is orphaned.");
+      }
+    }
+  }
+}
+
+async function canPublishStagedAssetSession(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  session: Doc<"buildCollaborationAssetStagingSessions">
+) {
+  if (session.ownerWorkosUserId === authorization.viewer.subject) {
+    return true;
+  }
+  if (session.contextKind !== "draft" || !session.contextRecordId) {
+    return false;
+  }
+  const draftId = ctx.db.normalizeId(
+    "buildCollaborationDrafts",
+    session.contextRecordId
+  );
+  const draft = draftId ? await ctx.db.get(draftId) : null;
+  return Boolean(
+    draft &&
+      draft.buildId === authorization.build._id &&
+      draft.organizationId === authorization.organizationId &&
+      (draft.approvalOwnerWorkosUserId ?? draft.ownerWorkosUserId) ===
+        authorization.viewer.subject &&
+      (draft.state === "active" || draft.state === "scheduled")
+  );
+}
+
+async function persistAttachments(
+  ctx: MutationCtx,
+  input: {
+    assetIds: Id<"buildCollaborationAssets">[];
+    audienceMode: "build_wide" | "author_tier_and_higher" | "custom";
+    authorization: ActiveBuildAuthorization;
     now: number;
+    postId: Id<"buildCollaborationPosts">;
     postRevisionId: Id<"buildCollaborationPostRevisions">;
+    readerWorkosUserIds: string[];
   }
 ) {
   for (const assetId of new Set(input.assetIds)) {
@@ -504,7 +590,8 @@ async function persistAttachments(
       asset.buildId !== input.authorization.build._id ||
       asset.organizationId !== input.authorization.organizationId ||
       asset.brokerageId !== input.authorization.brokerage._id ||
-      asset.state !== "available"
+      asset.state !== "available" ||
+      !isCleanCollaborationAsset(asset)
     ) {
       throw new Error("A proposed collaboration asset is unavailable.");
     }
@@ -518,6 +605,35 @@ async function persistAttachments(
       organizationId: input.authorization.organizationId,
       ownerKind: "postRevision",
       ownerRecordId: input.postRevisionId,
+    });
+    if (!asset.originatingPostId) {
+      await ctx.db.patch(asset._id, {
+        maximumAudienceMode: input.audienceMode,
+        originatingPostId: input.postId,
+        publishedAt: input.now,
+        publishedOwnerKind: "postRevision",
+        publishedOwnerRecordId: input.postRevisionId,
+        readerWorkosUserIds: [...new Set(input.readerWorkosUserIds)].sort(),
+        updatedAt: input.now,
+      });
+    }
+    await ctx.db.insert("auditEvents", {
+      actorRoles: input.authorization.roles,
+      actorWorkosUserId: input.authorization.viewer.subject,
+      brokerageId: input.authorization.brokerage._id,
+      command: "persistBuildCollaborationAttachment",
+      createdAt: input.now,
+      entityId: asset._id,
+      entityType: "buildCollaborationAsset",
+      eventType: "build.collaboration.asset.published",
+      newState: JSON.stringify({
+        ownerKind: "postRevision",
+        ownerRecordId: input.postRevisionId,
+        postId: input.postId,
+        version: asset.version,
+      }),
+      organizationId: input.authorization.organizationId,
+      warnings: [],
     });
   }
 }

@@ -33,6 +33,10 @@ import type * as build_collaboration_access from "../build_collaboration_access.
 import type * as build_collaboration_acknowledgements from "../build_collaboration_acknowledgements.js";
 import type * as build_collaboration_actor from "../build_collaboration_actor.js";
 import type * as build_collaboration_asset_access from "../build_collaboration_asset_access.js";
+import type * as build_collaboration_asset_actions from "../build_collaboration_asset_actions.js";
+import type * as build_collaboration_asset_maintenance from "../build_collaboration_asset_maintenance.js";
+import type * as build_collaboration_asset_projection from "../build_collaboration_asset_projection.js";
+import type * as build_collaboration_assets from "../build_collaboration_assets.js";
 import type * as build_collaboration_content from "../build_collaboration_content.js";
 import type * as build_collaboration_contracts from "../build_collaboration_contracts.js";
 import type * as build_collaboration_delivery from "../build_collaboration_delivery.js";
@@ -135,6 +139,10 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_acknowledgements: typeof build_collaboration_acknowledgements;
   build_collaboration_actor: typeof build_collaboration_actor;
   build_collaboration_asset_access: typeof build_collaboration_asset_access;
+  build_collaboration_asset_actions: typeof build_collaboration_asset_actions;
+  build_collaboration_asset_maintenance: typeof build_collaboration_asset_maintenance;
+  build_collaboration_asset_projection: typeof build_collaboration_asset_projection;
+  build_collaboration_assets: typeof build_collaboration_assets;
   build_collaboration_content: typeof build_collaboration_content;
   build_collaboration_contracts: typeof build_collaboration_contracts;
   build_collaboration_delivery: typeof build_collaboration_delivery;

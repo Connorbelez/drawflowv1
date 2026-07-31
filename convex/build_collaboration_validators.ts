@@ -134,6 +134,26 @@ export const buildCollaborationAssetStateValidator = v.union(
   v.literal("superseded")
 );
 
+export const buildCollaborationAssetScanStateValidator = v.union(
+  v.literal("pending"),
+  v.literal("clean"),
+  v.literal("rejected"),
+  v.literal("error")
+);
+
+export const buildCollaborationAssetStagingContextValidator = v.union(
+  v.literal("composer"),
+  v.literal("draft"),
+  v.literal("post"),
+  v.literal("actionItem")
+);
+
+export const buildCollaborationAssetStagingStateValidator = v.union(
+  v.literal("open"),
+  v.literal("finalized"),
+  v.literal("abandoned")
+);
+
 export const buildCollaborationAttachmentKindValidator = v.union(
   v.literal("collaborationAsset"),
   v.literal("document"),

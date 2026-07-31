@@ -72,7 +72,7 @@ const detailValidator = v.union(
         mimeType: v.string(),
         sizeBytes: v.number(),
         state: buildCollaborationAssetStateValidator,
-        url: v.union(v.string(), v.null()),
+        version: v.number(),
       })
     ),
     comments: v.array(
@@ -220,7 +220,7 @@ export const getBuildActionItemDetail = authenticatedQuery
           !asset ||
           asset.buildId !== authorization.build._id ||
           asset.organizationId !== authorization.organizationId ||
-          asset.state !== "available" ||
+          (asset.state !== "available" && asset.state !== "superseded") ||
           !(await canUseCollaborationAssetForPost(ctx, {
             asset,
             authorization,
@@ -235,7 +235,7 @@ export const getBuildActionItemDetail = authenticatedQuery
           mimeType: asset.mimeType,
           sizeBytes: asset.sizeBytes,
           state: asset.state,
-          url: await ctx.storage.getUrl(asset.storageId),
+          version: asset.version,
         };
       })
     );
@@ -417,90 +417,6 @@ export const addBuildActionItemComment = authenticatedMutation
       }),
     ]);
     return commentId;
-  })
-  .public();
-
-export const generateBuildActionItemAttachmentUploadUrl = authenticatedMutation
-  .input({
-    buildId: v.id("activeBuilds"),
-    organizationId: v.string(),
-    postId: v.id("buildCollaborationPosts"),
-  })
-  .returns(v.string())
-  .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
-      ctx,
-      args
-    );
-    const post = await ctx.db.get(args.postId);
-    if (
-      !post ||
-      post.buildId !== authorization.build._id ||
-      !(await canReadCollaborationPost(ctx, authorization, post))
-    ) {
-      throw new Error("Action Item parent post is unavailable.");
-    }
-    return await ctx.storage.generateUploadUrl();
-  })
-  .public();
-
-export const registerBuildActionItemAttachment = authenticatedMutation
-  .input({
-    buildId: v.id("activeBuilds"),
-    fileName: v.string(),
-    mimeType: v.optional(v.string()),
-    organizationId: v.string(),
-    postId: v.id("buildCollaborationPosts"),
-    storageId: v.id("_storage"),
-  })
-  .returns(v.id("buildCollaborationAssets"))
-  .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
-      ctx,
-      args
-    );
-    const post = await ctx.db.get(args.postId);
-    if (
-      !post ||
-      post.buildId !== authorization.build._id ||
-      !(await canReadCollaborationPost(ctx, authorization, post))
-    ) {
-      throw new Error("Action Item parent post is unavailable.");
-    }
-    const metadata = await ctx.db.system.get(args.storageId);
-    if (!metadata) {
-      throw new Error("Uploaded Action Item attachment is unavailable.");
-    }
-    const fileName = args.fileName.trim();
-    if (!(fileName && fileName.length <= 240)) {
-      throw new Error("Attachment file names must be 1–240 characters.");
-    }
-    const now = Date.now();
-    const readerWorkosUserIds = await resolveCurrentCollaborationPostReaderIds(
-      ctx,
-      authorization,
-      post
-    );
-    return await ctx.db.insert("buildCollaborationAssets", {
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
-      createdAt: now,
-      fileName,
-      maximumAudienceMode: post.audienceMode,
-      mimeType:
-        metadata.contentType ??
-        args.mimeType?.trim() ??
-        "application/octet-stream",
-      organizationId: authorization.organizationId,
-      originatingPostId: post._id,
-      readerWorkosUserIds: [...new Set(readerWorkosUserIds)].sort(),
-      sizeBytes: metadata.size,
-      state: "available",
-      storageId: args.storageId,
-      updatedAt: now,
-      uploadedByWorkosUserId: authorization.viewer.subject,
-      version: 1,
-    });
   })
   .public();
 

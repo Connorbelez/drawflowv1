@@ -202,6 +202,7 @@ function queueRowFixture(input: {
 }
 
 vi.mock("convex/react", () => ({
+  useAction: () => mocks.mutate,
   useMutation: () => mocks.mutate,
   usePaginatedQuery: (reference: unknown, args?: Record<string, unknown> | "skip") => {
     const functionName = getFunctionName(

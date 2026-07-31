@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -1470,6 +1470,704 @@ describe("Build collaboration publication and feed", () => {
     expect(JSON.stringify(contractorFeed.page[0])).not.toContain("user_admin");
   });
 });
+
+describe("Build collaboration governed assets", () => {
+  test("finalizes through the public scan action and only returns a clean asset", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const staged = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    const storageId = await base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["scanner action fixture"], { type: "text/plain" }),
+      ),
+    );
+    const hash = "a".repeat(64);
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ clean: true, sha256: hash }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        },
+      ),
+    );
+    vi.stubEnv(
+      "BUILD_COLLABORATION_ASSET_SCAN_URL",
+      "https://scanner.example.test/v1/scan",
+    );
+    vi.stubEnv("BUILD_COLLABORATION_ASSET_SCAN_BEARER_TOKEN", "scanner-secret");
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const status = await admin.action(
+        (api as any).build_collaboration_asset_actions
+          .finalizeAndScanBuildCollaborationAssetUpload,
+        {
+          buildId,
+          contentHashSha256: hash,
+          fileName: "scanner-fixture.txt",
+          mimeType: "text/plain",
+          organizationId: ORGANIZATION_ID,
+          stagingSessionId: staged.stagingSessionId,
+          storageId,
+        },
+      );
+      expect(status).toMatchObject({
+        contentHashSha256: hash,
+        scanState: "clean",
+        state: "available",
+        version: 1,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://scanner.example.test/v1/scan",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer scanner-secret",
+          }),
+          method: "POST",
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("quarantines, scans, publishes, versions, downloads, and audits immutable assets", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const staged = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const storageId = await base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["governed footing photo"], { type: "image/jpeg" })
+      )
+    );
+    const hash = "d".repeat(64);
+    const assetId = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .finalizeBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contentHashSha256: hash,
+        fileName: "footing.jpg",
+        mimeType: "image/jpeg",
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: staged.stagingSessionId,
+        storageId,
+      }
+    );
+    const publication = {
+      actionItems: [],
+      attachmentAssetIds: [assetId],
+      audienceMode: "build_wide" as const,
+      buildId,
+      organizationId: ORGANIZATION_ID,
+      plainText: "Attached footing photo.",
+      postType: "update" as const,
+      references: [],
+      requestedReaderIds: [],
+      tiptapJson: JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Attached footing photo.", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      }),
+    };
+    const postsBefore = await base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationPosts").collect()).length
+    );
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        publication
+      )
+    ).rejects.toThrow("asset is unavailable");
+    expect(
+      await base.run(async (ctx) =>
+        (await ctx.db.query("buildCollaborationPosts").collect()).length
+      )
+    ).toBe(postsBefore);
+
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId,
+        computedHashSha256: hash,
+        outcome: "clean",
+        provider: "test-scanner",
+      }
+    );
+    const postId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      publication
+    );
+    const downloadUrl = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .authorizeBuildCollaborationAssetDownload,
+      { assetId, buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(downloadUrl).toContain("http");
+
+    const replacementSession = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const replacementStorageId = await base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["new governed footing photo"], { type: "image/jpeg" })
+      )
+    );
+    const replacementHash = "e".repeat(64);
+    const replacementId = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .finalizeBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contentHashSha256: replacementHash,
+        fileName: "footing-v2.jpg",
+        mimeType: "image/jpeg",
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: replacementSession.stagingSessionId,
+        storageId: replacementStorageId,
+        supersedesAssetId: assetId,
+      }
+    );
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId: replacementId,
+        computedHashSha256: replacementHash,
+        outcome: "clean",
+        provider: "test-scanner",
+      }
+    );
+
+    const state = await base.run(async (ctx) => {
+      const audits = await ctx.db.query("auditEvents").collect();
+      const attachments = await ctx.db
+        .query("buildCollaborationAttachments")
+        .withIndex(
+          "by_buildId_and_attachmentKind_and_attachmentId",
+          (query) =>
+            query
+              .eq("buildId", buildId)
+              .eq("attachmentKind", "collaborationAsset")
+              .eq("attachmentId", assetId)
+        )
+        .collect();
+      return {
+        audits: audits.filter((audit) => audit.entityId === assetId),
+        attachments,
+        original: await ctx.db.get(assetId),
+        replacement: await ctx.db.get(replacementId),
+      };
+    });
+    expect(state.original).toMatchObject({ state: "superseded", version: 1 });
+    expect(state.replacement).toMatchObject({
+      state: "available",
+      supersedesAssetId: assetId,
+      version: 2,
+    });
+    expect(state.attachments).toEqual([
+      expect.objectContaining({ ownerKind: "postRevision" }),
+    ]);
+    expect(state.audits.map((audit) => audit.eventType)).toEqual(
+      expect.arrayContaining([
+        "build.collaboration.asset.quarantined",
+        "build.collaboration.asset.scan_passed",
+        "build.collaboration.asset.published",
+        "build.collaboration.asset.download_authorized",
+      ])
+    );
+    expect(postId).toBeDefined();
+  });
+
+  test("keeps draft assets private, publishes comment assets atomically, and rejects cross-Build reuse", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const postId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      collaborationPublicationFixture({
+        buildId,
+        plainText: "A post with a governed reply attachment.",
+      }),
+    );
+    const commentSession = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "post",
+        contextRecordId: postId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    const commentStorageId = await base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["comment attachment"], { type: "application/pdf" }),
+      ),
+    );
+    const commentHash = "3".repeat(64);
+    const commentAssetId = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .finalizeBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contentHashSha256: commentHash,
+        fileName: "comment-attachment.pdf",
+        mimeType: "application/pdf",
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: commentSession.stagingSessionId,
+        storageId: commentStorageId,
+      },
+    );
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId: commentAssetId,
+        computedHashSha256: commentHash,
+        outcome: "clean",
+        provider: "test-scanner",
+      },
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        attachmentAssetIds: [commentAssetId],
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "The governed report is attached.",
+        postId,
+        references: [],
+        tiptapJson: collaborationDocument(
+          "The governed report is attached.",
+        ),
+      },
+    );
+    const comments = await admin.query(
+      (api as any).build_collaboration_threads
+        .listBuildCollaborationComments,
+      { buildId, organizationId: ORGANIZATION_ID, postId },
+    );
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.attachments).toEqual([
+      expect.objectContaining({
+        assetId: commentAssetId,
+        fileName: "comment-attachment.pdf",
+        state: "available",
+        version: 1,
+      }),
+    ]);
+
+    const draftBundle = collaborationPublicationFixture({
+      buildId,
+      plainText: "A private draft with a governed attachment.",
+    });
+    const initialDraft = await admin.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      draftBundle,
+    );
+    const draftSession = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "draft",
+        contextRecordId: initialDraft.draftId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    const draftStorageId = await base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["private draft attachment"], { type: "image/jpeg" }),
+      ),
+    );
+    const draftHash = "4".repeat(64);
+    const draftAssetId = (await admin.mutation(
+      (api as any).build_collaboration_assets
+        .finalizeBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contentHashSha256: draftHash,
+        fileName: "private-draft.jpg",
+        mimeType: "image/jpeg",
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: draftSession.stagingSessionId,
+        storageId: draftStorageId,
+      },
+    )) as Id<"buildCollaborationAssets">;
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId: draftAssetId,
+        computedHashSha256: draftHash,
+        outcome: "clean",
+        provider: "test-scanner",
+      },
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      {
+        ...draftBundle,
+        attachmentAssetIds: [draftAssetId],
+        draftId: initialDraft.draftId,
+      },
+    );
+    const beforeDiscard = await base.run(async (ctx) => ({
+      asset: await ctx.db.get(draftAssetId),
+      attachments: await ctx.db
+        .query("buildCollaborationAttachments")
+        .withIndex(
+          "by_buildId_and_attachmentKind_and_attachmentId",
+          (query) =>
+            query
+              .eq("buildId", buildId)
+              .eq("attachmentKind", "collaborationAsset")
+              .eq("attachmentId", draftAssetId),
+        )
+        .collect(),
+    }));
+    expect(beforeDiscard.attachments).toEqual([]);
+    expect(beforeDiscard.asset?.originatingPostId).toBeUndefined();
+    await admin.mutation(
+      (api as any).build_collaboration_drafts.discardMyBuildCollaborationDraft,
+      {
+        buildId,
+        draftId: initialDraft.draftId,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    const afterDiscard = await base.run(async (ctx) => {
+      const session = await ctx.db.get(draftSession.stagingSessionId);
+      const audits = await ctx.db.query("auditEvents").collect();
+      return {
+        asset: await ctx.db.get(draftAssetId),
+        audit: audits.find(
+          (audit) =>
+            audit.entityId === draftAssetId &&
+            audit.eventType === "build.collaboration.asset.abandoned",
+        ),
+        session,
+      };
+    });
+    expect(afterDiscard.asset).toMatchObject({ state: "rejected" });
+    expect(afterDiscard.session).toMatchObject({ state: "abandoned" });
+    expect(afterDiscard.audit).toBeDefined();
+
+    const secondBuildId = await base.run(async (ctx) => {
+      const sourceBuild = await ctx.db.get(buildId);
+      if (!sourceBuild) {
+        throw new Error("Active Build fixture is unavailable.");
+      }
+      const { _creationTime, _id, ...copy } = sourceBuild;
+      return await ctx.db.insert("activeBuilds", {
+        ...copy,
+        buildName: "148 Cedar Ridge",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        collaborationPublicationFixture({
+          attachmentAssetIds: [commentAssetId],
+          buildId: secondBuildId,
+          plainText: "A cross-Build attachment must fail.",
+        }),
+      ),
+    ).rejects.toThrow("asset is unavailable");
+  });
+
+  test("rejects scanner failures, orphan assets, tenant forgery, and removed-reader downloads", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Builder Reader",
+      role: "builder",
+      subject: "user_asset_reader",
+    });
+    const reader = withIdentity(base, {
+      roles: ["builder"],
+      subject: "user_asset_reader",
+    });
+    const session = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const storageId = await base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["unsafe bytes"], { type: "application/pdf" })
+      )
+    );
+    const assetId = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .finalizeBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contentHashSha256: "f".repeat(64),
+        fileName: "inspection.pdf",
+        mimeType: "application/pdf",
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: session.stagingSessionId,
+        storageId,
+      }
+    );
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId,
+        computedHashSha256: "0".repeat(64),
+        outcome: "clean",
+        provider: "test-scanner",
+      }
+    );
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        { assetId, buildId, organizationId: ORGANIZATION_ID }
+      )
+    ).rejects.toThrow("unavailable");
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_assets
+          .beginBuildCollaborationAssetUpload,
+        {
+          buildId,
+          contextKind: "composer",
+          organizationId: "org_forged",
+        }
+      )
+    ).rejects.toThrow();
+
+    const orphanId = await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const orphanStorageId = await ctx.storage.store(
+        new Blob(["orphan"], { type: "text/plain" })
+      );
+      const now = Date.now();
+      return await ctx.db.insert("buildCollaborationAssets", {
+        brokerageId: build.brokerageId,
+        buildId,
+        contentHashSha256: "1".repeat(64),
+        createdAt: now,
+        fileName: "orphan.txt",
+        maximumAudienceMode: "build_wide",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        scanState: "clean",
+        sizeBytes: 6,
+        state: "available",
+        storageId: orphanStorageId,
+        updatedAt: now,
+        uploadedByWorkosUserId: "user_admin",
+        version: 1,
+      });
+    });
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        {
+          actionItems: [],
+          attachmentAssetIds: [orphanId],
+          audienceMode: "build_wide",
+          buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "Orphan should fail.",
+          postType: "update",
+          references: [],
+          requestedReaderIds: [],
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [{ text: "Orphan should fail.", type: "text" }],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        }
+      )
+    ).rejects.toThrow("orphaned");
+
+    const publishedAssetId = await createPublishedAssetFixture({
+      admin,
+      base,
+      buildId,
+    });
+    await expect(
+      reader.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId: publishedAssetId,
+          buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toContain("http");
+    await base.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query.eq("buildId", buildId).eq("workosUserId", "user_asset_reader")
+        )
+        .unique();
+      if (participant) {
+        await ctx.db.patch(participant._id, { status: "removed", updatedAt: Date.now() });
+      }
+    });
+    await expect(
+      reader.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId: publishedAssetId,
+          buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow();
+  });
+});
+
+async function createPublishedAssetFixture(input: {
+  admin: ReturnType<typeof withIdentity>;
+  base: ReturnType<typeof convexTest>;
+  buildId: Id<"activeBuilds">;
+}) {
+  const staging = await input.admin.mutation(
+    (api as any).build_collaboration_assets.beginBuildCollaborationAssetUpload,
+    {
+      buildId: input.buildId,
+      contextKind: "composer",
+      organizationId: ORGANIZATION_ID,
+    }
+  );
+  const storageId = await input.base.run(async (ctx) =>
+    await ctx.storage.store(new Blob(["reader asset"], { type: "text/plain" }))
+  );
+  const hash = "2".repeat(64);
+  const assetId = await input.admin.mutation(
+    (api as any).build_collaboration_assets
+      .finalizeBuildCollaborationAssetUpload,
+    {
+      buildId: input.buildId,
+      contentHashSha256: hash,
+      fileName: "reader.txt",
+      mimeType: "text/plain",
+      organizationId: ORGANIZATION_ID,
+      stagingSessionId: staging.stagingSessionId,
+      storageId,
+    }
+  );
+  await input.base.mutation(
+    (internal as any).build_collaboration_asset_maintenance
+      .recordBuildCollaborationAssetScanResult,
+    {
+      assetId,
+      computedHashSha256: hash,
+      outcome: "clean",
+      provider: "test-scanner",
+    }
+  );
+  await input.admin.mutation(
+    (api as any).build_collaboration
+      .approveAndPublishBuildCollaborationBundle,
+    {
+      actionItems: [],
+      attachmentAssetIds: [assetId],
+      audienceMode: "build_wide",
+      buildId: input.buildId,
+      organizationId: ORGANIZATION_ID,
+      plainText: "Published reader asset.",
+      postType: "update",
+      references: [],
+      requestedReaderIds: [],
+      tiptapJson: JSON.stringify({
+        content: [
+          {
+            content: [{ text: "Published reader asset.", type: "text" }],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      }),
+    }
+  );
+  return assetId;
+}
+
+function collaborationPublicationFixture(input: {
+  attachmentAssetIds?: Id<"buildCollaborationAssets">[];
+  buildId: Id<"activeBuilds">;
+  plainText: string;
+}) {
+  return {
+    actionItems: [],
+    attachmentAssetIds: input.attachmentAssetIds ?? [],
+    audienceMode: "build_wide" as const,
+    buildId: input.buildId,
+    organizationId: ORGANIZATION_ID,
+    plainText: input.plainText,
+    postType: "update" as const,
+    references: [],
+    requestedReaderIds: [],
+    tiptapJson: collaborationDocument(input.plainText),
+  };
+}
+
+function collaborationDocument(plainText: string) {
+  return JSON.stringify({
+    content: [
+      {
+        content: [{ text: plainText, type: "text" }],
+        type: "paragraph",
+      },
+    ],
+    type: "doc",
+  });
+}
 
 describe("Build collaboration tenant rollout", () => {
   test("fails closed for both missing and disabled tenant settings", async () => {

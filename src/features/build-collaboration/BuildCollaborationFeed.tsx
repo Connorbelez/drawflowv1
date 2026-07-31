@@ -1,13 +1,19 @@
 "use client";
 
 import type { JSONContent } from "@tiptap/react";
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import {
+  useAction,
+  useMutation,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import {
   Flag,
   List,
   LockKeyhole,
   MessageCircle,
   MoreHorizontal,
+  Paperclip,
   Pencil,
   Pin,
   Search,
@@ -60,6 +66,7 @@ import {
   BuildCollaborationActionItems,
 } from "./BuildCollaborationActionItems.tsx";
 import { BuildCollaborationApprovalReview } from "./BuildCollaborationApprovalReview.tsx";
+import { BuildCollaborationAssetList } from "./BuildCollaborationAssetList.tsx";
 import {
   type BuildCollaborationEditingEntity,
   BuildCollaborationEditSheet,
@@ -74,6 +81,7 @@ import {
   BuildCollaborationReferenceSheet,
 } from "./BuildCollaborationReference.tsx";
 import { BuildCollaborationThreadSheet } from "./BuildCollaborationThreadSheet.tsx";
+import { uploadGovernedCollaborationAssets } from "./build-collaboration-asset-upload.ts";
 import {
   CollaborationRichTextEditor,
   CollaborationRichTextPreview,
@@ -357,6 +365,13 @@ export function BuildCollaborationFeed({
   const discardDraft = useMutation(
     api.build_collaboration_drafts.discardMyBuildCollaborationDraft
   );
+  const beginAssetUpload = useMutation(
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+  );
+  const finalizeAndScanAsset = useAction(
+    api.build_collaboration_asset_actions
+      .finalizeAndScanBuildCollaborationAssetUpload
+  );
   const [filter, setFilter] = useState<FeedFilter>("all");
   const [search, setSearch] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
@@ -368,6 +383,10 @@ export function BuildCollaborationFeed({
   const [references, setReferences] = useState<CollaborationTagReference[]>([]);
   const [actionTitle, setActionTitle] = useState("");
   const [acknowledgementRequired, setAcknowledgementRequired] = useState(false);
+  const [attachmentAssetIds, setAttachmentAssetIds] = useState<
+    Id<"buildCollaborationAssets">[]
+  >([]);
+  const [composerFiles, setComposerFiles] = useState<File[]>([]);
   const [publishing, setPublishing] = useState(false);
   const [editingHumanDraftId, setEditingHumanDraftId] =
     useState<Id<"buildCollaborationDrafts"> | null>(null);
@@ -534,6 +553,8 @@ export function BuildCollaborationFeed({
     setDocument(emptyDocument());
     setReferences([]);
     setActionTitle("");
+    setAttachmentAssetIds([]);
+    setComposerFiles([]);
     setAcknowledgementRequired(false);
     setRequestedReaderIds([]);
     setPostType("update");
@@ -542,7 +563,9 @@ export function BuildCollaborationFeed({
     setComposerOpen(false);
   };
 
-  const buildComposerBundle = (): CollaborationDraftBundle | null => {
+  const buildComposerBundle = (
+    assets = attachmentAssetIds
+  ): CollaborationDraftBundle | null => {
     const plainText = plainTextFromDocument(document);
     if (!plainText) {
       return null;
@@ -550,7 +573,7 @@ export function BuildCollaborationFeed({
     return {
       acknowledgementRequired,
       actionItems: composerActionItems(actionTitle),
-      attachmentAssetIds: [],
+      attachmentAssetIds: assets,
       audienceMode,
       excludedReaderIds: [],
       notificationEffects: [],
@@ -572,13 +595,29 @@ export function BuildCollaborationFeed({
   };
 
   const publishComposerPost = async () => {
-    const bundle = buildComposerBundle();
-    if (!(bundle && organizationId) || publishing) {
+    if (!(buildComposerBundle() && organizationId) || publishing) {
       toast.error("Write an update before publishing.");
       return;
     }
     setPublishing(true);
     try {
+      const uploadedAssetIds = await uploadGovernedCollaborationAssets(
+        composerFiles,
+        {
+          beginUpload: beginAssetUpload,
+          buildId: activeBuildId,
+          contextKind: editingHumanDraftId ? "draft" : "composer",
+          contextRecordId: editingHumanDraftId ?? undefined,
+          finalizeAndScan: finalizeAndScanAsset,
+          organizationId,
+        }
+      );
+      const bundle = buildComposerBundle([
+        ...new Set([...attachmentAssetIds, ...uploadedAssetIds]),
+      ]);
+      if (!bundle) {
+        throw new Error("Write an update before publishing.");
+      }
       if (editingHumanDraftId) {
         await saveDraft({
           ...bundle,
@@ -611,47 +650,58 @@ export function BuildCollaborationFeed({
   };
 
   const saveCurrentDraft = async () => {
-    if (!organizationId) {
+    if (!(organizationId && !publishing)) {
       return;
     }
-    const plainText = plainTextFromDocument(document);
-    if (!plainText) {
+    const bundle = buildComposerBundle();
+    if (!bundle) {
       toast.error("Write an update before saving the draft.");
       return;
     }
+    setPublishing(true);
     try {
-      await saveDraft({
-        acknowledgementRequired,
-        actionItems: composerActionItems(actionTitle),
-        audienceMode,
-        buildId: activeBuildId,
-        draftId: editingHumanDraftId ?? undefined,
+      const draftId = await ensureComposerDraftId({
+        activeBuildId,
+        bundle,
+        editingHumanDraftId,
         organizationId,
-        plainText,
-        postType,
-        preparedByAgent: false,
-        references: references.map((reference, index) => ({
-          entityId: reference.id,
-          entityKind:
-            referenceByKey.get(`${reference.kind}:${reference.id}`)
-              ?.entityKind ?? toBackendReferenceKind(reference.kind),
-          label: reference.label,
-          primary:
-            index ===
-            references.findIndex(
-              (candidate) => candidate.kind !== "participant"
-            ),
-          summary: reference.summary,
-        })),
-        requestedReaderIds: audienceMode === "custom" ? requestedReaderIds : [],
-        tiptapJson: JSON.stringify(document),
+        saveDraft,
       });
+      const uploadedAssetIds = await uploadGovernedCollaborationAssets(
+        composerFiles,
+        {
+          beginUpload: beginAssetUpload,
+          buildId: activeBuildId,
+          contextKind: "draft",
+          contextRecordId: draftId,
+          finalizeAndScan: finalizeAndScanAsset,
+          organizationId,
+        }
+      );
+      const assetIds = [
+        ...new Set([...attachmentAssetIds, ...uploadedAssetIds]),
+      ];
+      if (editingHumanDraftId || uploadedAssetIds.length > 0) {
+        const finalBundle = buildComposerBundle(assetIds);
+        if (!finalBundle) {
+          throw new Error("The collaboration draft became invalid.");
+        }
+        await saveDraft({
+          ...finalBundle,
+          buildId: activeBuildId,
+          draftId,
+          organizationId,
+          preparedByAgent: false,
+        });
+      }
       toast.success("Draft saved.");
       resetComposer();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Unable to save draft."
       );
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -663,6 +713,8 @@ export function BuildCollaborationFeed({
     }
     setAcknowledgementRequired(bundle.acknowledgementRequired ?? false);
     setActionTitle(bundle.actionItems[0]?.title ?? "");
+    setAttachmentAssetIds(bundle.attachmentAssetIds ?? []);
+    setComposerFiles([]);
     setAudienceMode(bundle.audienceMode);
     setDocument(parseDocument(bundle.tiptapJson));
     setHtml(`<p>${escapeHtml(bundle.plainText)}</p>`);
@@ -943,6 +995,12 @@ export function BuildCollaborationFeed({
                   tagOptions={tagOptions}
                   value={html}
                 />
+                <ComposerAttachmentInput
+                  existingCount={attachmentAssetIds.length}
+                  files={composerFiles}
+                  onFilesChange={setComposerFiles}
+                  savingDraft={Boolean(editingHumanDraftId)}
+                />
                 <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <Input
                     onChange={(event) => setActionTitle(event.target.value)}
@@ -1204,6 +1262,79 @@ export function BuildCollaborationFeed({
         reference={focusedReference}
       />
     </section>
+  );
+}
+
+async function ensureComposerDraftId(input: {
+  activeBuildId: Id<"activeBuilds">;
+  bundle: CollaborationDraftBundle;
+  editingHumanDraftId: Id<"buildCollaborationDrafts"> | null;
+  organizationId: string;
+  saveDraft: (
+    args: CollaborationDraftBundle & {
+      buildId: Id<"activeBuilds">;
+      draftId?: Id<"buildCollaborationDrafts">;
+      organizationId: string;
+      preparedByAgent: boolean;
+    }
+  ) => Promise<{ draftId: Id<"buildCollaborationDrafts"> }>;
+}) {
+  if (input.editingHumanDraftId) {
+    return input.editingHumanDraftId;
+  }
+  const created = await input.saveDraft({
+    ...input.bundle,
+    buildId: input.activeBuildId,
+    organizationId: input.organizationId,
+    preparedByAgent: false,
+  });
+  if (!created.draftId) {
+    throw new Error("The collaboration draft could not be created.");
+  }
+  return created.draftId;
+}
+
+function ComposerAttachmentInput({
+  existingCount,
+  files,
+  onFilesChange,
+  savingDraft,
+}: {
+  existingCount: number;
+  files: File[];
+  onFilesChange: (files: File[]) => void;
+  savingDraft: boolean;
+}) {
+  const hasAttachments = files.length > 0 || existingCount > 0;
+  let status = "";
+  if (existingCount > 0) {
+    status = `${existingCount} scanned attachment${existingCount === 1 ? "" : "s"} already linked. `;
+  }
+  if (files.length > 0) {
+    status += `${files.length} file${files.length === 1 ? "" : "s"} will be hashed and scanned before ${savingDraft ? "the draft is saved" : "publication"}.`;
+  }
+  return (
+    <div className="space-y-2">
+      <label
+        className="flex items-center gap-2 font-medium text-sm"
+        htmlFor="build-collaboration-attachments"
+      >
+        <Paperclip aria-hidden="true" className="size-4" />
+        Governed attachments
+      </label>
+      <Input
+        id="build-collaboration-attachments"
+        multiple
+        nativeInput
+        onChange={(event) =>
+          onFilesChange(Array.from(event.target.files ?? []))
+        }
+        type="file"
+      />
+      {hasAttachments ? (
+        <p className="text-muted-foreground text-xs">{status}</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -1662,6 +1793,11 @@ function CollaborationPostCard({
             })}
           </div>
         ) : null}
+        <BuildCollaborationAssetList
+          assets={entry.attachments}
+          buildId={buildId}
+          organizationId={organizationId}
+        />
         <ThreadOutcomeSummary entry={entry} />
       </CardPanel>
       {entry.post.contentState === "active" ? (
@@ -1929,6 +2065,11 @@ function CollaborationComment({
             value={parseDocument(row.revision.tiptapJson)}
           />
         ) : null}
+        <BuildCollaborationAssetList
+          assets={row.attachments}
+          buildId={buildId}
+          organizationId={organizationId}
+        />
         {row.comment.contentState === "active" ? (
           <button
             className="mt-1 text-muted-foreground text-xs hover:text-foreground"
@@ -2147,6 +2288,13 @@ function CollaborationDiscussion({
   const addComment = useMutation(
     api.build_collaboration_threads.addBuildCollaborationComment
   );
+  const beginAssetUpload = useMutation(
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+  );
+  const finalizeAndScanAsset = useAction(
+    api.build_collaboration_asset_actions
+      .finalizeAndScanBuildCollaborationAssetUpload
+  );
   const react = useMutation(
     api.build_collaboration_threads.reactToBuildCollaborationPost
   );
@@ -2157,6 +2305,7 @@ function CollaborationDiscussion({
   const [replyReferences, setReplyReferences] = useState<
     CollaborationTagReference[]
   >([]);
+  const [replyFiles, setReplyFiles] = useState<File[]>([]);
   const [replyingTo, setReplyingTo] =
     useState<Id<"buildCollaborationComments">>();
   const [submittingReply, setSubmittingReply] = useState(false);
@@ -2195,7 +2344,19 @@ function CollaborationDiscussion({
     }
     setSubmittingReply(true);
     try {
+      const attachmentAssetIds = await uploadGovernedCollaborationAssets(
+        replyFiles,
+        {
+          beginUpload: beginAssetUpload,
+          buildId,
+          contextKind: "post",
+          contextRecordId: postId,
+          finalizeAndScan: finalizeAndScanAsset,
+          organizationId,
+        }
+      );
       const commentId = await addComment({
+        attachmentAssetIds,
         buildId,
         organizationId,
         parentCommentId: replyingTo,
@@ -2215,6 +2376,7 @@ function CollaborationDiscussion({
       setReplyHtml("");
       setReplyDocument(emptyDocument());
       setReplyReferences([]);
+      setReplyFiles([]);
       setReplyingTo(undefined);
       setPendingFocusCommentId(commentId);
     } catch (error) {
@@ -2332,6 +2494,23 @@ function CollaborationDiscussion({
         tagOptions={tagOptions}
         value={replyHtml}
       />
+      <div className="space-y-1">
+        <Input
+          aria-label="Reply attachments"
+          multiple
+          nativeInput
+          onChange={(event) =>
+            setReplyFiles(Array.from(event.target.files ?? []))
+          }
+          type="file"
+        />
+        {replyFiles.length > 0 ? (
+          <p className="text-muted-foreground text-xs">
+            {replyFiles.length} file{replyFiles.length === 1 ? "" : "s"} will be
+            scanned before the reply is published.
+          </p>
+        ) : null}
+      </div>
       <div className="flex items-center justify-between gap-3">
         <div className="flex gap-1">
           {(["acknowledged", "agree", "question"] as const).map((reaction) => (

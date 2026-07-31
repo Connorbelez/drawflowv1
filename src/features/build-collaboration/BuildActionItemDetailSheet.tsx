@@ -1,14 +1,14 @@
 "use client";
 
 import type { JSONContent } from "@tiptap/react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { History, MessageCircle, Paperclip, ShieldCheck } from "lucide-react";
+import { History, MessageCircle, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "#/components/ui/badge.tsx";
-import { Button, buttonVariants } from "#/components/ui/button.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import { Card, CardPanel } from "#/components/ui/card.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
@@ -32,7 +32,9 @@ import {
 } from "#/components/ui/sheet.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { BuildCollaborationAssetList } from "./BuildCollaborationAssetList.tsx";
 import { BuildCollaborationReferenceChip } from "./BuildCollaborationReference.tsx";
+import { uploadGovernedCollaborationAssets } from "./build-collaboration-asset-upload.ts";
 import {
   CollaborationRichTextEditor,
   CollaborationRichTextPreview,
@@ -150,11 +152,12 @@ function ActionItemCreatePanel({
   const createActionItem = useMutation(
     api.build_action_items.createBuildActionItem
   );
-  const generateUploadUrl = useMutation(
-    api.build_action_item_details.generateBuildActionItemAttachmentUploadUrl
+  const beginAssetUpload = useMutation(
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
-  const registerAttachment = useMutation(
-    api.build_action_item_details.registerBuildActionItemAttachment
+  const finalizeAndScanAsset = useAction(
+    api.build_collaboration_asset_actions
+      .finalizeAndScanBuildCollaborationAssetUpload
   );
   const [title, setTitle] = useState("");
   const [document, setDocument] = useState<JSONContent>(emptyDocument());
@@ -184,13 +187,17 @@ function ActionItemCreatePanel({
     }
     setSubmitting(true);
     try {
-      const attachmentAssetIds = await uploadAttachments(files, {
-        buildId,
-        generateUploadUrl,
-        organizationId,
-        postId,
-        registerAttachment,
-      });
+      const attachmentAssetIds = await uploadGovernedCollaborationAssets(
+        files,
+        {
+          beginUpload: beginAssetUpload,
+          buildId,
+          contextKind: "post",
+          contextRecordId: postId,
+          finalizeAndScan: finalizeAndScanAsset,
+          organizationId,
+        }
+      );
       const actionItemId = await createActionItem({
         assigneeWorkosUserId: assigneeWorkosUserId || undefined,
         attachmentAssetIds,
@@ -644,8 +651,10 @@ function VisibleActionItemDetail({
           </Button>
         </section>
         <DetailContext
+          buildId={buildId}
           detail={detail}
           onReferenceOpen={onReferenceOpen}
+          organizationId={organizationId}
           tagOptions={tagOptions}
         />
         <ActionItemStructurePanel
@@ -827,12 +836,16 @@ function ActionItemWorkflowPanel({
 }
 
 function DetailContext({
+  buildId,
   detail,
   onReferenceOpen,
+  organizationId,
   tagOptions,
 }: {
+  buildId: Id<"activeBuilds">;
   detail: VisibleActionItemDetail;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
+  organizationId: string;
   tagOptions: CollaborationTagOption[];
 }) {
   return (
@@ -866,31 +879,11 @@ function DetailContext({
           );
         })}
       </div>
-      {detail.attachments.map((attachment) => (
-        <Card key={attachment.assetId}>
-          <CardPanel className="flex items-center gap-3 p-3">
-            <Paperclip aria-hidden="true" className="size-4 text-primary" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium text-sm">
-                {attachment.fileName}
-              </p>
-              <p className="text-muted-foreground text-xs">
-                {attachment.mimeType} · {attachment.state}
-              </p>
-            </div>
-            {attachment.url ? (
-              <a
-                className={buttonVariants({ size: "sm", variant: "outline" })}
-                href={attachment.url}
-                rel="noreferrer"
-                target="_blank"
-              >
-                Open
-              </a>
-            ) : null}
-          </CardPanel>
-        </Card>
-      ))}
+      <BuildCollaborationAssetList
+        assets={detail.attachments}
+        buildId={buildId}
+        organizationId={organizationId}
+      />
     </section>
   );
 }
@@ -1412,60 +1405,6 @@ function Field({
       {children}
     </div>
   );
-}
-
-async function uploadAttachments(
-  files: File[],
-  context: {
-    buildId: Id<"activeBuilds">;
-    generateUploadUrl: (args: {
-      buildId: Id<"activeBuilds">;
-      organizationId: string;
-      postId: Id<"buildCollaborationPosts">;
-    }) => Promise<string>;
-    organizationId: string;
-    postId: Id<"buildCollaborationPosts">;
-    registerAttachment: (args: {
-      buildId: Id<"activeBuilds">;
-      fileName: string;
-      mimeType?: string;
-      organizationId: string;
-      postId: Id<"buildCollaborationPosts">;
-      storageId: Id<"_storage">;
-    }) => Promise<Id<"buildCollaborationAssets">>;
-  }
-) {
-  const assetIds: Id<"buildCollaborationAssets">[] = [];
-  for (const file of files) {
-    const uploadUrl = await context.generateUploadUrl({
-      buildId: context.buildId,
-      organizationId: context.organizationId,
-      postId: context.postId,
-    });
-    const response = await fetch(uploadUrl, {
-      body: file,
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      method: "POST",
-    });
-    if (!response.ok) {
-      throw new Error(`Unable to upload ${file.name}.`);
-    }
-    const payload = (await response.json()) as { storageId?: string };
-    if (!payload.storageId) {
-      throw new Error(`Upload for ${file.name} did not return a storage ID.`);
-    }
-    assetIds.push(
-      await context.registerAttachment({
-        buildId: context.buildId,
-        fileName: file.name,
-        mimeType: file.type || undefined,
-        organizationId: context.organizationId,
-        postId: context.postId,
-        storageId: payload.storageId as Id<"_storage">,
-      })
-    );
-  }
-  return assetIds;
 }
 
 function parseSnapshot(snapshotJson: string) {

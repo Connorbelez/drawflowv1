@@ -19,7 +19,10 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
-import { canUseCollaborationAssetForPost } from "./build_collaboration_asset_access";
+import {
+  canUseCollaborationAssetForPost,
+  isCleanCollaborationAsset,
+} from "./build_collaboration_asset_access";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
@@ -1045,6 +1048,11 @@ async function persistBuildActionItemAttachments(
   if (assetIds.length > 20) {
     throw new Error("Action Items may contain at most 20 attachments.");
   }
+  const readerWorkosUserIds = await resolveCurrentCollaborationPostReaderIds(
+    ctx,
+    input.authorization,
+    input.post
+  );
   for (const assetId of assetIds) {
     const asset = await ctx.db.get(assetId);
     if (
@@ -1053,6 +1061,7 @@ async function persistBuildActionItemAttachments(
       asset.brokerageId !== input.authorization.brokerage._id ||
       asset.buildId !== input.authorization.build._id ||
       asset.state !== "available" ||
+      !isCleanCollaborationAsset(asset) ||
       !(await canUseCollaborationAssetForPost(ctx, {
         asset,
         authorization: input.authorization,
@@ -1071,6 +1080,34 @@ async function persistBuildActionItemAttachments(
       organizationId: input.authorization.organizationId,
       ownerKind: "actionItem",
       ownerRecordId: input.actionItemId,
+    });
+    if (!asset.originatingPostId) {
+      await ctx.db.patch(asset._id, {
+        maximumAudienceMode: input.post.audienceMode,
+        originatingPostId: input.post._id,
+        publishedAt: input.now,
+        publishedOwnerKind: "actionItem",
+        publishedOwnerRecordId: input.actionItemId,
+        readerWorkosUserIds: [...new Set(readerWorkosUserIds)].sort(),
+        updatedAt: input.now,
+      });
+    }
+    await ctx.db.insert("auditEvents", {
+      actorRoles: input.authorization.roles,
+      actorWorkosUserId: input.authorization.viewer.subject,
+      brokerageId: input.authorization.brokerage._id,
+      command: "persistBuildActionItemAttachment",
+      createdAt: input.now,
+      entityId: asset._id,
+      entityType: "buildCollaborationAsset",
+      eventType: "build.collaboration.asset.published",
+      newState: JSON.stringify({
+        actionItemId: input.actionItemId,
+        ownerKind: "actionItem",
+        version: asset.version,
+      }),
+      organizationId: input.authorization.organizationId,
+      warnings: [],
     });
   }
 }

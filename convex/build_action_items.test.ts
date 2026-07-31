@@ -223,11 +223,13 @@ describe("Build Action Item server authorization", () => {
       return await ctx.db.insert("buildCollaborationAssets", {
         brokerageId: build.brokerageId,
         buildId: build._id,
+        contentHashSha256: "a".repeat(64),
         createdAt: now,
         fileName: "inspection.txt",
         maximumAudienceMode: "build_wide",
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
+        scanState: "clean",
         sizeBytes: 21,
         state: "available",
         storageId,
@@ -476,7 +478,7 @@ describe("Build Action Item server authorization", () => {
     expect(effects.outbox).toHaveLength(1);
     expect(effects.projections).toHaveLength(3);
     expect(effects.requests).toHaveLength(1);
-    expect(effects.auditCount - baseline.auditCount).toBe(1);
+    expect(effects.auditCount - baseline.auditCount).toBe(2);
     expect(effects.outboxCount - baseline.outboxCount).toBe(1);
     expect(effects.post?.openActionItemCount).toBe(
       (baseline.post?.openActionItemCount ?? 0) + 1
@@ -617,6 +619,7 @@ describe("Build Action Item server authorization", () => {
       return await ctx.db.insert("buildCollaborationAssets", {
         brokerageId: build.brokerageId,
         buildId: build._id,
+        contentHashSha256: "b".repeat(64),
         createdAt: now,
         fileName: "builder-only.txt",
         maximumAudienceMode: "custom",
@@ -624,6 +627,7 @@ describe("Build Action Item server authorization", () => {
         organizationId: ORGANIZATION_ID,
         originatingPostId: restrictedPostId,
         readerWorkosUserIds: ["user_builder"],
+        scanState: "clean",
         sizeBytes: 21,
         state: "available",
         storageId,
@@ -713,6 +717,7 @@ describe("Build Action Item server authorization", () => {
         return await ctx.db.insert("buildCollaborationAssets", {
           brokerageId: build.brokerageId,
           buildId: build._id,
+          contentHashSha256: "c".repeat(64),
           createdAt: now,
           fileName: input.fileName,
           maximumAudienceMode: input.audienceMode,
@@ -720,6 +725,7 @@ describe("Build Action Item server authorization", () => {
           organizationId: ORGANIZATION_ID,
           originatingPostId: input.postId,
           readerWorkosUserIds: input.readerWorkosUserIds,
+          scanState: "clean",
           sizeBytes: input.fileName.length,
           state: "available",
           storageId,

@@ -112,6 +112,64 @@ Rollback is UI/configuration-only:
 - do not delete migrated posts or restore dual writes;
 - diagnose and correct the migration, then re-run the idempotent parity checks.
 
+## Governed Asset Activation
+
+Configure the production Convex deployment before enabling collaboration
+attachments:
+
+- `BUILD_COLLABORATION_ASSET_SCAN_URL` must be an HTTPS endpoint reachable from
+  Convex actions.
+- `BUILD_COLLABORATION_ASSET_SCAN_BEARER_TOKEN` is optional only when the
+  scanner authenticates the caller by another production control. Never put the
+  scanner credential in the browser or Vercel client environment.
+- The scanner receives `fileUrl`, `fileName`, `mimeType`, `sizeBytes`, and the
+  uploader-computed `contentHashSha256`. It must return JSON containing
+  `clean`, `sha256`, and an optional bounded `message`.
+- A clean verdict is accepted only when the scanner-computed SHA-256 exactly
+  matches the hash finalized with the upload. Missing configuration, network
+  failure, non-2xx responses, malformed responses, explicit rejection, and
+  hash mismatch all fail closed; the asset remains quarantined or rejected.
+
+The release supports files from 1 byte through 100 MB. Upload staging is
+private, Build- and tenant-bound, owned by the initiating human, and expires
+after 24 hours. Publication creates the first shared attachment record in the
+same Convex transaction as its post, comment, or Action Item. Discarding a
+private draft abandons its staging session and rejects an otherwise unattached
+asset without deleting its audit history. A replacement is a new immutable
+version; the prior version becomes `superseded` and remains readable through
+historical revisions whose current ACL still permits it.
+
+Before activation, perform all of these canaries against the production tenant:
+
+1. Upload a harmless text file and image through a private draft. Confirm each
+   is quarantined before the scanner response and becomes `available` only
+   after a clean matching hash.
+2. Publish one asset on a post, one on a reply, and one on an Action Item.
+   Confirm each owning revision and `build.collaboration.asset.published` audit
+   event exist and no attachment row existed while the draft was private.
+3. Replace one published asset. Confirm the original row and historical
+   attachment still exist with version 1 while the replacement is version 2.
+4. Attempt a known scanner rejection, a hash mismatch, an attachment from a
+   different Build, and a direct reference to an orphan asset. None may publish
+   or return a download URL.
+5. Authorize a download, remove that participant, and retry. The second request
+   must be denied. Confirm every successful authorization produced a
+   `build.collaboration.asset.download_authorized` audit event.
+6. Discard a draft containing a clean staged asset. Confirm the staging session
+   is `abandoned`, the unattached asset is `rejected`, and an
+   `build.collaboration.asset.abandoned` audit event exists.
+
+Existing asset rows without a clean scan verdict and content hash are legacy
+untrusted data and intentionally remain unavailable. Do not relabel them clean
+or bulk-attach them. Re-ingest the original bytes through the governed upload
+and scanner path when they must be retained.
+
+Evidence Assets remain owned by the Evidence Package workflow. A failed or
+missing geofence must continue to preserve the uploaded Evidence as
+location-unverified and route it to lender/admin review; never convert, delete,
+or reject that Evidence merely because it is also referenced from a
+collaboration post.
+
 ## Verification
 
 ```sh
@@ -125,7 +183,8 @@ bun run ui:html:audit
 
 Monitor authorization denials, restricted-placeholder disclosure alarms,
 notification fan-out, duplicate idempotency keys, stale draft approvals,
-Action Item revision conflicts, and migration parity.
+Action Item revision conflicts, asset scan failures and hash mismatches,
+abandoned staging volume, denied download attempts, and migration parity.
 
 Verify one daily and one weekly digest, one immediate direct mention, an email
 retry using the same provider idempotency key, and a browser push opt-in through

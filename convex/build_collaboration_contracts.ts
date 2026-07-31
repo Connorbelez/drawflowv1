@@ -8,6 +8,7 @@ import {
   buildActionItemWorkKindValidator,
   buildActionRelationKindValidator,
   buildCollaborationActorKindValidator,
+  buildCollaborationAssetStateValidator,
   buildCollaborationAudienceModeValidator,
   buildCollaborationDraftStateValidator,
   buildCollaborationNotificationChannelValidator,
@@ -94,6 +95,15 @@ export const collaborationPinSummaryValidator = v.object({
   _id: v.id("buildCollaborationPins"),
 });
 
+export const collaborationAssetSummaryValidator = v.object({
+  assetId: v.id("buildCollaborationAssets"),
+  fileName: v.string(),
+  mimeType: v.string(),
+  sizeBytes: v.number(),
+  state: buildCollaborationAssetStateValidator,
+  version: v.number(),
+});
+
 export const collaborationReceiptSummaryValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("buildCollaborationReceipts"),
@@ -115,6 +125,7 @@ export const collaborationReadableFeedPostEntryValidator = v.object({
     required: v.boolean(),
   }),
   actionItems: v.array(collaborationActionItemSummaryValidator),
+  attachments: v.array(collaborationAssetSummaryValidator),
   following: v.boolean(),
   kind: v.literal("post"),
   pins: v.array(collaborationPinSummaryValidator),
@@ -182,6 +193,7 @@ export const collaborationCommentRevisionSummaryValidator = v.object({
 });
 
 export const collaborationCommentRowValidator = v.object({
+  attachments: v.array(collaborationAssetSummaryValidator),
   comment: collaborationCommentSummaryValidator,
   reactions: v.array(collaborationReactionSummaryValidator),
   references: v.array(collaborationReferenceSummaryValidator),

@@ -9,6 +9,7 @@ import {
   prepareBuildCollaborationPublication,
   publishBuildCollaborationBundle,
 } from "./build_collaboration";
+import { reconcileDraftAssetStagingSessions } from "./build_collaboration_assets";
 import { collaborationDraftSummaryValidator } from "./build_collaboration_contracts";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
@@ -82,6 +83,12 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
         throw new Error("Published or discarded drafts cannot be edited.");
       }
       await invalidateDraftApprovals(ctx, draft._id, now);
+      await reconcileDraftAssetStagingSessions(ctx, {
+        authorization,
+        draftId: draft._id,
+        now,
+        retainedAssetIds: bundle.attachmentAssetIds,
+      });
       await ctx.db.patch(draft._id, {
         bundleHash,
         bundleJson,
@@ -203,6 +210,12 @@ export const discardMyBuildCollaborationDraft = authenticatedMutation
     }
     const now = Date.now();
     await invalidateDraftApprovals(ctx, draft._id, now);
+    await reconcileDraftAssetStagingSessions(ctx, {
+      authorization,
+      draftId: draft._id,
+      now,
+      retainedAssetIds: [],
+    });
     await ctx.db.patch(draft._id, { state: "discarded", updatedAt: now });
     return null;
   })

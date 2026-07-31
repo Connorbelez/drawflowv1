@@ -9,6 +9,9 @@ import {
   buildActionRelationKindValidator,
   buildCollaborationActorKindValidator,
   buildCollaborationApprovalStateValidator,
+  buildCollaborationAssetScanStateValidator,
+  buildCollaborationAssetStagingContextValidator,
+  buildCollaborationAssetStagingStateValidator,
   buildCollaborationAssetStateValidator,
   buildCollaborationAttachmentKindValidator,
   buildCollaborationAudienceModeValidator,
@@ -3857,6 +3860,11 @@ export default defineSchema({
     mimeType: v.string(),
     sizeBytes: v.number(),
     state: buildCollaborationAssetStateValidator,
+    scanState: v.optional(buildCollaborationAssetScanStateValidator),
+    contentHashSha256: v.optional(v.string()),
+    stagingSessionId: v.optional(
+      v.id("buildCollaborationAssetStagingSessions")
+    ),
     uploadedByWorkosUserId: v.string(),
     version: v.number(),
     supersedesAssetId: v.optional(v.id("buildCollaborationAssets")),
@@ -3864,6 +3872,10 @@ export default defineSchema({
     originatingPostId: v.optional(v.id("buildCollaborationPosts")),
     readerWorkosUserIds: v.optional(v.array(v.string())),
     scanMessage: v.optional(v.string()),
+    scanCompletedAt: v.optional(v.number()),
+    publishedAt: v.optional(v.number()),
+    publishedOwnerKind: v.optional(buildCollaborationOwnerKindValidator),
+    publishedOwnerRecordId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -3872,7 +3884,32 @@ export default defineSchema({
       "state",
       "createdAt",
     ])
+    .index("by_storageId", ["storageId"])
     .index("by_supersedesAssetId", ["supersedesAssetId"]),
+  buildCollaborationAssetStagingSessions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    ownerWorkosUserId: v.string(),
+    contextKind: buildCollaborationAssetStagingContextValidator,
+    contextRecordId: v.optional(v.string()),
+    state: buildCollaborationAssetStagingStateValidator,
+    assetId: v.optional(v.id("buildCollaborationAssets")),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_ownerWorkosUserId_and_state", [
+      "buildId",
+      "ownerWorkosUserId",
+      "state",
+    ])
+    .index("by_contextKind_and_contextRecordId_and_state", [
+      "contextKind",
+      "contextRecordId",
+      "state",
+    ])
+    .index("by_assetId", ["assetId"]),
   buildCollaborationAttachments: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
