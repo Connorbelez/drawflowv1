@@ -137,7 +137,7 @@ A Quote Round whose scope contains planned materials and whose recipients are Su
 _Avoid_: Labour quote, mixed quote
 
 **Quote Package Revision**:
-An immutable, recipient-visible snapshot of the permit, timeline dates, location, scope, specifications, attachments, and response schema published for a Quote Round. Material changes produce a new revision rather than silently changing what recipients were asked to price.
+An immutable, recipient-visible snapshot of the permit, timeline dates, location, scope, specifications, attachments, and response schema published for a Quote Round. Each selected Sub-milestone's Scope of Work remains the canonical TipTap rich-text document: publication preserves and recipient surfaces faithfully render its headings, paragraphs, ordered and unordered lists, emphasis, links, line breaks, and supported embedded content rather than flattening it into plain text or a lossy excerpt. Material changes produce a new revision rather than silently changing what recipients were asked to price.
 _Avoid_: Live Build view, mutable quote package
 
 **Quote Round Composer**:

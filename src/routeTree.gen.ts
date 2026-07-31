@@ -22,6 +22,7 @@ import { Route as ContractorIndexRouteImport } from './routes/contractor/index'
 import { Route as BuilderIndexRouteImport } from './routes/builder/index'
 import { Route as BuilderStaffIndexRouteImport } from './routes/builder-staff/index'
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
+import { Route as QuoteQuoteInvitationTokenRouteImport } from './routes/quote.$quoteInvitationToken'
 import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
 import { Route as DemoWorkosRouteImport } from './routes/demo/workos'
@@ -161,6 +162,12 @@ const BackofficeIndexRoute = BackofficeIndexRouteImport.update({
   path: '/',
   getParentRoute: () => BackofficeRouteRoute,
 } as any)
+const QuoteQuoteInvitationTokenRoute =
+  QuoteQuoteInvitationTokenRouteImport.update({
+    id: '/quote/$quoteInvitationToken',
+    path: '/quote/$quoteInvitationToken',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const PrototypeBuildCollaborationRoute =
   PrototypeBuildCollaborationRouteImport.update({
     id: '/prototype/build-collaboration',
@@ -600,6 +607,7 @@ export interface FileRoutesByFullPath {
   '/demo/workos': typeof DemoWorkosRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/quote/$quoteInvitationToken': typeof QuoteQuoteInvitationTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
   '/builder/': typeof BuilderIndexRoute
@@ -676,6 +684,7 @@ export interface FileRoutesByTo {
   '/demo/workos': typeof DemoWorkosRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/quote/$quoteInvitationToken': typeof QuoteQuoteInvitationTokenRoute
   '/backoffice': typeof BackofficeIndexRoute
   '/builder-staff': typeof BuilderStaffIndexRoute
   '/builder': typeof BuilderIndexRoute
@@ -759,6 +768,7 @@ export interface FileRoutesById {
   '/demo/workos': typeof DemoWorkosRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/quote/$quoteInvitationToken': typeof QuoteQuoteInvitationTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
   '/builder/': typeof BuilderIndexRoute
@@ -849,6 +859,7 @@ export interface FileRouteTypes {
     | '/demo/workos'
     | '/proposal-claim/$claimToken'
     | '/prototype/build-collaboration'
+    | '/quote/$quoteInvitationToken'
     | '/backoffice/'
     | '/builder-staff/'
     | '/builder/'
@@ -925,6 +936,7 @@ export interface FileRouteTypes {
     | '/demo/workos'
     | '/proposal-claim/$claimToken'
     | '/prototype/build-collaboration'
+    | '/quote/$quoteInvitationToken'
     | '/backoffice'
     | '/builder-staff'
     | '/builder'
@@ -1007,6 +1019,7 @@ export interface FileRouteTypes {
     | '/demo/workos'
     | '/proposal-claim/$claimToken'
     | '/prototype/build-collaboration'
+    | '/quote/$quoteInvitationToken'
     | '/backoffice/'
     | '/builder-staff/'
     | '/builder/'
@@ -1073,6 +1086,7 @@ export interface RootRouteChildren {
   ProtectedAccessRoute: typeof ProtectedAccessRoute
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
+  QuoteQuoteInvitationTokenRoute: typeof QuoteQuoteInvitationTokenRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
   NewsitevisitBuildIdSiteVisitTokenRoute: typeof NewsitevisitBuildIdSiteVisitTokenRoute
@@ -1170,6 +1184,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/backoffice/'
       preLoaderRoute: typeof BackofficeIndexRouteImport
       parentRoute: typeof BackofficeRouteRoute
+    }
+    '/quote/$quoteInvitationToken': {
+      id: '/quote/$quoteInvitationToken'
+      path: '/quote/$quoteInvitationToken'
+      fullPath: '/quote/$quoteInvitationToken'
+      preLoaderRoute: typeof QuoteQuoteInvitationTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/prototype/build-collaboration': {
       id: '/prototype/build-collaboration'
@@ -2075,6 +2096,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProtectedAccessRoute: ProtectedAccessRoute,
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,
+  QuoteQuoteInvitationTokenRoute: QuoteQuoteInvitationTokenRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
   NewsitevisitBuildIdSiteVisitTokenRoute:
