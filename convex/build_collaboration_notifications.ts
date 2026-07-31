@@ -8,7 +8,10 @@ import {
 } from "./build_collaboration_delivery";
 import { externalDeliveryPlan } from "./build_collaboration_delivery_model";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
-import type { NotificationEffectInput } from "./build_collaboration_publication_bundle";
+import type {
+  NotificationEffectInput,
+  ResolvedNotificationEffect,
+} from "./build_collaboration_publication_bundle";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { buildCollaborationNotificationChannelValidator } from "./build_collaboration_validators";
 import type { Id, MutationCtx } from "./types";
@@ -90,6 +93,7 @@ export async function emitCanonicalBuildCollaborationNotification(
   ctx: MutationCtx,
   input: {
     actionItemId?: Id<"buildActionItems">;
+    approvedChannel?: "in_app" | "email" | "push";
     assetId?: Id<"buildCollaborationAssets">;
     actionLabel: string;
     authorization: ActiveBuildAuthorization;
@@ -133,9 +137,25 @@ export async function emitCanonicalBuildCollaborationNotification(
     return null;
   }
   if (!mandatory && preference?.ordinaryMuted) {
+    if (input.approvedChannel) {
+      throw new Error(
+        "The approved notification channel conflicts with the recipient's mute preference."
+      );
+    }
     return null;
   }
-  const channels = preference?.channels ?? ["in_app", "email"];
+  const preferredChannels = preference?.channels ?? ["in_app", "email"];
+  if (
+    input.approvedChannel &&
+    !preferredChannels.includes(input.approvedChannel)
+  ) {
+    throw new Error(
+      `The approved ${input.approvedChannel} notification channel is not enabled for this recipient.`
+    );
+  }
+  const channels = input.approvedChannel
+    ? [input.approvedChannel]
+    : preferredChannels;
   const inAppVisible = mandatory || channels.includes("in_app");
   const externalPlan = externalDeliveryPlan({
     channels,
@@ -145,6 +165,11 @@ export async function emitCanonicalBuildCollaborationNotification(
     ordinaryMuted: preference?.ordinaryMuted,
   });
   if (!(inAppVisible || externalPlan.length)) {
+    if (input.approvedChannel) {
+      throw new Error(
+        "The approved notification channel conflicts with the recipient's digest preference."
+      );
+    }
     return null;
   }
   const existing = await ctx.db
@@ -313,7 +338,7 @@ export async function fanOutBuildCollaborationPublication(
     acknowledgementTargetIds: string[];
     actionAssigneeIds: string[];
     authorization: ActiveBuildAuthorization;
-    effects: NotificationEffectInput[];
+    effects: ResolvedNotificationEffect[];
     plainText: string;
     postId: string;
     postType: "update" | "question" | "issue" | "decision" | "announcement";
@@ -329,7 +354,7 @@ export async function fanOutBuildCollaborationPublication(
 async function fanOutPublicationEffect(
   ctx: MutationCtx,
   input: Parameters<typeof fanOutBuildCollaborationPublication>[1],
-  effect: NotificationEffectInput
+  effect: ResolvedNotificationEffect
 ) {
   for (const recipientWorkosUserId of effect.recipientWorkosUserIds) {
     for (const kind of publicationNotificationKinds(
@@ -338,6 +363,7 @@ async function fanOutPublicationEffect(
     )) {
       await emitCanonicalBuildCollaborationNotification(ctx, {
         actionLabel: "Open thread",
+        approvedChannel: effect.approvedChannel,
         authorization: input.authorization,
         body: effect.summary || input.plainText.slice(0, 280),
         dedupeKey: `build-collaboration:${input.postId}:${kind}:${recipientWorkosUserId}`,
@@ -416,7 +442,12 @@ export function resolveBuildCollaborationPublicationNotifications(input: {
         "Notification recipients must be able to read the approved publication."
       );
     }
-    return { ...effect, recipientWorkosUserIds, summary };
+    return {
+      ...effect,
+      approvedChannel: effect.channel,
+      recipientWorkosUserIds,
+      summary,
+    };
   });
   return [
     ...(defaultRecipients.length

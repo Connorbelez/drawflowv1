@@ -2666,7 +2666,10 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_organization_and_attemptedAt", ["organizationId", "attemptedAt"])
+    .index("by_organizationId_and_attemptedAt", [
+      "organizationId",
+      "attemptedAt",
+    ])
     .index("by_providerIdempotencyKey", ["providerIdempotencyKey"]),
   buildCollaborationPushSubscriptions: defineTable({
     organizationId: v.string(),
@@ -2679,8 +2682,12 @@ export default defineSchema({
     updatedAt: v.number(),
     revokedAt: v.optional(v.number()),
   })
-    .index("by_user_and_state", ["organizationId", "workosUserId", "state"])
-    .index("by_user_and_endpoint", [
+    .index("by_organizationId_and_workosUserId_and_state", [
+      "organizationId",
+      "workosUserId",
+      "state",
+    ])
+    .index("by_organizationId_and_workosUserId_and_endpoint", [
       "organizationId",
       "workosUserId",
       "endpoint",
@@ -3907,7 +3914,7 @@ export default defineSchema({
     .index("by_status_and_scheduledFor", ["status", "scheduledFor"])
     .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
     .index("by_providerOutboxId", ["providerOutboxId"])
-    .index("by_recipient_and_dedupeKey", [
+    .index("by_organizationId_and_recipientWorkosUserId_and_dedupeKey", [
       "organizationId",
       "recipientWorkosUserId",
       "dedupeKey",
@@ -3916,14 +3923,7 @@ export default defineSchema({
       "recipientDeliveryId",
       "channel",
     ])
-    .index("by_recipient_channel_cadence_status", [
-      "organizationId",
-      "recipientWorkosUserId",
-      "channel",
-      "cadence",
-      "status",
-    ])
-    .index("by_recipient_and_createdAt", [
+    .index("by_organizationId_and_recipientWorkosUserId_and_createdAt", [
       "organizationId",
       "recipientWorkosUserId",
       "createdAt",
@@ -3932,6 +3932,13 @@ export default defineSchema({
       "buildId",
       "recipientWorkosUserId",
       "status",
+    ])
+    .index("by_buildId_recipientId_period_status_createdAt", [
+      "buildId",
+      "recipientWorkosUserId",
+      "recipientParticipationPeriod",
+      "status",
+      "createdAt",
     ]),
   buildDocuments: defineTable({
     brokerageId: v.id("brokerages"),

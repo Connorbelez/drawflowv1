@@ -36,14 +36,15 @@ export async function processParticipantRevocationCleanupBatch(
     return { actionItemCount: 0, complete: true };
   }
   const now = Date.now();
-  await cancelQueuedBuildCollaborationExternalDeliveries(ctx, {
-    buildId: participant.buildId,
-    cancellationReason: "participant_access_revoked",
-    createdAtThrough: participant.removedAt ?? now,
-    now,
-    participationPeriod: participant.participationPeriod,
-    recipientWorkosUserId: participant.workosUserId,
-  });
+  const externalDeliveryCleanup =
+    await cancelQueuedBuildCollaborationExternalDeliveries(ctx, {
+      buildId: participant.buildId,
+      cancellationReason: "participant_access_revoked",
+      createdAtThrough: participant.removedAt ?? now,
+      now,
+      participationPeriod: participant.participationPeriod,
+      recipientWorkosUserId: participant.workosUserId,
+    });
   const follows = await ctx.db
     .query("buildCollaborationFollows")
     .withIndex("by_buildId_and_workosUserId_and_active", (query) =>
@@ -128,7 +129,10 @@ export async function processParticipantRevocationCleanupBatch(
     });
   }
 
-  const complete = follows.length <= CLEANUP_BATCH_SIZE && !actionOverflow;
+  const complete =
+    externalDeliveryCleanup.complete &&
+    follows.length <= CLEANUP_BATCH_SIZE &&
+    !actionOverflow;
   if (complete) {
     await ctx.db.patch(participant._id, {
       revocationCleanupCompletedAt: now,

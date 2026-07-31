@@ -200,9 +200,39 @@ async function seedQueuedExternalDeliveries(
   });
 }
 
+async function muteBuilderOrdinaryActivity(
+  base: ReturnType<typeof convexTest>,
+  buildId: Id<"activeBuilds">
+) {
+  await base.run(async (ctx) => {
+    const build = await ctx.db.get(buildId);
+    if (!build) {
+      throw new Error("Delivery Build fixture is unavailable.");
+    }
+    const now = Date.now();
+    await ctx.db.insert("buildCollaborationNotificationPreferences", {
+      brokerageId: build.brokerageId,
+      buildId,
+      channels: ["in_app", "email"],
+      createdAt: now,
+      digestCadence: "never",
+      digestEnabled: false,
+      ordinaryMuted: true,
+      organizationId: ORGANIZATION_ID,
+      updatedAt: now,
+      workosUserId: "user_builder",
+    });
+  });
+}
+
 function publicationArgs(
   buildId: Id<"activeBuilds">,
-  input: { assigned?: boolean; mentioned?: boolean; text: string }
+  input: {
+    assigned?: boolean;
+    mentioned?: boolean;
+    notificationChannel?: "in_app" | "email" | "push";
+    text: string;
+  }
 ) {
   return {
     actionItems: input.assigned
@@ -227,6 +257,15 @@ function publicationArgs(
       : [],
     audienceMode: "build_wide" as const,
     buildId,
+    notificationEffects: input.notificationChannel
+      ? [
+          {
+            channel: input.notificationChannel,
+            recipientWorkosUserIds: ["user_broker"],
+            summary: input.text,
+          },
+        ]
+      : [],
     organizationId: ORGANIZATION_ID,
     plainText: input.text,
     postType: "update" as const,
@@ -327,6 +366,85 @@ describe("Build collaboration external delivery", () => {
           )
       )
     ).toBe(true);
+  });
+
+  test("enforces an approved delivery channel and bounds its rendered preview", async () => {
+    const fixture = await seedDeliveryBuild();
+    const text = `Approved push alert ${"x".repeat(1200)}`;
+    const args = publicationArgs(fixture.buildId, {
+      mentioned: true,
+      notificationChannel: "push",
+      text,
+    });
+
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        args
+      )
+    ).rejects.toThrow("approved push notification channel is not enabled");
+
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_notifications
+        .updateMyBuildCollaborationNotificationPreferences,
+      {
+        buildId: fixture.buildId,
+        channels: ["in_app", "email", "push"],
+        digestCadence: "daily",
+        digestEnabled: true,
+        ordinaryMuted: false,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_delivery
+        .registerMyBuildCollaborationPushSubscription,
+      {
+        auth: "push-auth",
+        buildId: fixture.buildId,
+        endpoint: "https://push.example.test/subscription",
+        organizationId: ORGANIZATION_ID,
+        p256dh: "push-public-key",
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      args
+    );
+
+    const deliveries = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationExternalDeliveries").collect()).filter(
+        (row) => row.recipientWorkosUserId === "user_broker"
+      )
+    );
+    expect(deliveries.map((delivery) => delivery.channel).sort()).toEqual([
+      "email",
+      "push",
+    ]);
+
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response(null, { status: 202 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await processExternalDeliveries(fixture.base, Date.now());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      const payload = JSON.parse(String(init?.body));
+      expect(payload.items[0].body.length).toBeLessThanOrEqual(280);
+    }
+  });
+
+  test("authorizes delivery activity against the requested tenant", async () => {
+    const fixture = await seedDeliveryBuild();
+    await expect(
+      fixture.broker.query(
+        (api as any).build_collaboration_delivery
+          .listMyBuildCollaborationExternalDeliveryActivity,
+        { organizationId: "org_not_authorized" }
+      )
+    ).rejects.toThrow();
   });
 
   test("bundles ordinary activity into ACL-safe daily email and push digests", async () => {
@@ -525,7 +643,7 @@ describe("Build collaboration external delivery", () => {
     expect(weekly?.scheduledFor).not.toBe(daily?.scheduledFor);
 
     const fetchMock = vi.fn(
-      async () =>
+      async (_url: string | URL | Request, _init?: RequestInit) =>
         new Response(null, {
           headers: { "x-message-id": "cadence-message" },
           status: 202,
@@ -536,12 +654,24 @@ describe("Build collaboration external delivery", () => {
       fixture.base,
       daily?.scheduledFor ?? Date.now()
     );
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some(([, init]) =>
+        String(init?.body).includes(
+          '"recipientWorkosUserId":"user_broker"'
+        )
+      )
+    ).toBe(false);
     await processExternalDeliveries(
       fixture.base,
       weekly?.scheduledFor ?? Number.MAX_SAFE_INTEGER
     );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      fetchMock.mock.calls.filter(([, init]) =>
+        String(init?.body).includes(
+          '"recipientWorkosUserId":"user_broker"'
+        )
+      )
+    ).toHaveLength(1);
   });
 
   test("does not backfill historical notifications when a channel is enabled", async () => {
@@ -565,8 +695,10 @@ describe("Build collaboration external delivery", () => {
         organizationId: ORGANIZATION_ID,
       }
     );
-    let deliveries = await fixture.base.run((ctx) =>
-      ctx.db.query("buildCollaborationExternalDeliveries").collect()
+    let deliveries = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationExternalDeliveries").collect()).filter(
+        (row) => row.recipientWorkosUserId === "user_broker"
+      )
     );
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0].channel).toBe("email");
@@ -578,8 +710,10 @@ describe("Build collaboration external delivery", () => {
         text: "Future email and push mention.",
       })
     );
-    deliveries = await fixture.base.run((ctx) =>
-      ctx.db.query("buildCollaborationExternalDeliveries").collect()
+    deliveries = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationExternalDeliveries").collect()).filter(
+        (row) => row.recipientWorkosUserId === "user_broker"
+      )
     );
     expect(deliveries).toHaveLength(3);
     expect(deliveries.filter((row) => row.channel === "push")).toHaveLength(1);
@@ -687,6 +821,7 @@ describe("Build collaboration external delivery", () => {
           reason: "Overflow revocation coverage.",
         }
       );
+      await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
       await fixture.admin.mutation(
         (api as any).build_participants.reinviteBuildParticipant,
         {
@@ -721,7 +856,6 @@ describe("Build collaboration external delivery", () => {
           updatedAt: now,
         });
       });
-      await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
     } finally {
       vi.useRealTimers();
     }
@@ -967,5 +1101,75 @@ describe("Build collaboration external delivery", () => {
     );
     expect(new Set(idempotencyKeys).size).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("keeps newly due digest work out of an existing retry batch", async () => {
+    const fixture = await seedDeliveryBuild();
+    await muteBuilderOrdinaryActivity(fixture.base, fixture.buildId);
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_notifications
+        .updateMyBuildCollaborationNotificationPreferences,
+      {
+        buildId: fixture.buildId,
+        channels: ["in_app", "email"],
+        digestCadence: "daily",
+        digestEnabled: true,
+        ordinaryMuted: false,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, { text: "Original digest item." })
+    );
+    const first = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationExternalDeliveries").collect()).find(
+        (row) => row.recipientWorkosUserId === "user_broker"
+      )
+    );
+    if (!first) {
+      throw new Error("Expected an original digest delivery.");
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await processExternalDeliveries(fixture.base, first.scheduledFor);
+    const failed = await fixture.base.run((ctx) => ctx.db.get(first._id));
+    expect(failed).toEqual(
+      expect.objectContaining({ batchKey: expect.any(String), status: "queued" })
+    );
+
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, { text: "Newly due digest item." })
+    );
+    const second = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationExternalDeliveries").collect()).find(
+        (row) =>
+          row.recipientWorkosUserId === "user_broker" && row._id !== first._id
+      )
+    );
+    if (!(failed && second)) {
+      throw new Error("Expected both retry and newly due digest deliveries.");
+    }
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(second._id, { scheduledFor: failed.scheduledFor })
+    );
+    await processExternalDeliveries(fixture.base, failed.scheduledFor);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const payloads = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(String(init?.body))
+    );
+    expect(payloads[1].idempotencyKey).toBe(payloads[0].idempotencyKey);
+    expect(payloads[2].idempotencyKey).not.toBe(payloads[0].idempotencyKey);
+    expect(payloads[1].items.map((item: { body: string }) => item.body)).toEqual([
+      "Original digest item.",
+    ]);
+    expect(payloads[2].items.map((item: { body: string }) => item.body)).toEqual([
+      "Newly due digest item.",
+    ]);
   });
 });

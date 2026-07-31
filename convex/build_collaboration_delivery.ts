@@ -208,9 +208,52 @@ export async function cancelQueuedBuildCollaborationExternalDeliveries(
     recipientWorkosUserId: string;
   }
 ) {
+  let complete = true;
   for (const status of unsentDeliveryStatuses) {
-    await cancelExternalDeliveryPage(ctx, input, status, null);
+    const currentPeriodComplete = await cancelExternalDeliveryPage(
+      ctx,
+      input,
+      status,
+      null,
+      false
+    );
+    const legacyComplete =
+      input.participationPeriod === undefined
+        ? true
+        : await cancelLegacyExternalDeliveryBatch(ctx, input, status);
+    complete = currentPeriodComplete && legacyComplete && complete;
   }
+  return { complete };
+}
+
+async function cancelLegacyExternalDeliveryBatch(
+  ctx: MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    cancellationReason: string;
+    createdAtThrough?: number;
+    now: number;
+    recipientWorkosUserId: string;
+  },
+  status: UnsentDeliveryStatus
+) {
+  const query = ctx.db
+    .query("buildCollaborationExternalDeliveries")
+    .withIndex("by_buildId_recipientId_period_status_createdAt", (range) => {
+      const scoped = range
+        .eq("buildId", input.buildId)
+        .eq("recipientWorkosUserId", input.recipientWorkosUserId)
+        .eq("recipientParticipationPeriod", undefined)
+        .eq("status", status);
+      return input.createdAtThrough === undefined
+        ? scoped
+        : scoped.lte("createdAt", input.createdAtThrough);
+    });
+  const rows = await query.take(DELIVERY_MAINTENANCE_BATCH_SIZE);
+  for (const external of rows) {
+    await cancelDelivery(ctx, external, input.now, input.cancellationReason);
+  }
+  return rows.length < DELIVERY_MAINTENANCE_BATCH_SIZE;
 }
 
 async function reconcileExternalDeliveryPage(
@@ -290,17 +333,25 @@ async function cancelExternalDeliveryPage(
     recipientWorkosUserId: string;
   },
   status: UnsentDeliveryStatus,
-  cursor: string | null
-): Promise<void> {
-  const page = await ctx.db
+  cursor: string | null,
+  scheduleContinuation = true
+): Promise<boolean> {
+  const deliveryQuery = ctx.db
     .query("buildCollaborationExternalDeliveries")
-    .withIndex("by_buildId_and_recipientWorkosUserId_and_status", (query) =>
-      query
+    .withIndex("by_buildId_recipientId_period_status_createdAt", (query) => {
+      const scoped = query
         .eq("buildId", input.buildId)
         .eq("recipientWorkosUserId", input.recipientWorkosUserId)
-        .eq("status", status)
-    )
-    .paginate({ cursor, numItems: DELIVERY_MAINTENANCE_BATCH_SIZE });
+        .eq("recipientParticipationPeriod", input.participationPeriod)
+        .eq("status", status);
+      return input.createdAtThrough === undefined
+        ? scoped
+        : scoped.lte("createdAt", input.createdAtThrough);
+    });
+  const page = await deliveryQuery.paginate({
+    cursor,
+    numItems: DELIVERY_MAINTENANCE_BATCH_SIZE,
+  });
   for (const external of page.page) {
     if (
       (external.recipientParticipationPeriod !== undefined &&
@@ -314,7 +365,7 @@ async function cancelExternalDeliveryPage(
     }
     await cancelDelivery(ctx, external, input.now, input.cancellationReason);
   }
-  if (!page.isDone) {
+  if (!page.isDone && scheduleContinuation) {
     await ctx.scheduler.runAfter(
       0,
       internal.build_collaboration_delivery
@@ -330,6 +381,7 @@ async function cancelExternalDeliveryPage(
       }
     );
   }
+  return page.isDone;
 }
 
 const unsentDeliveryStatusValidator = v.union(
@@ -405,7 +457,8 @@ export const continueBuildCollaborationExternalDeliveryCancellation =
           recipientWorkosUserId: args.recipientWorkosUserId,
         },
         args.status,
-        args.cursor
+        args.cursor,
+        true
       );
       return null;
     })
@@ -777,7 +830,9 @@ export const registerMyBuildCollaborationPushSubscription =
       const now = Date.now();
       const existing = await ctx.db
         .query("buildCollaborationPushSubscriptions")
-        .withIndex("by_user_and_endpoint", (query) =>
+        .withIndex(
+          "by_organizationId_and_workosUserId_and_endpoint",
+          (query) =>
           query
             .eq("organizationId", authorization.organizationId)
             .eq("workosUserId", authorization.viewer.subject)
@@ -866,7 +921,9 @@ export const listMyBuildCollaborationExternalDeliveryActivity =
       const brokerage = await authorizeInboxOrganization(ctx, organizationId);
       const rows = await ctx.db
         .query("buildCollaborationExternalDeliveries")
-        .withIndex("by_recipient_and_createdAt", (query) =>
+        .withIndex(
+          "by_organizationId_and_recipientWorkosUserId_and_createdAt",
+          (query) =>
           query
             .eq("organizationId", organizationId)
             .eq("recipientWorkosUserId", ctx.viewer.subject)
@@ -942,7 +999,8 @@ function deliveryGroup(
       row.buildId === seed.buildId &&
       row.recipientWorkosUserId === seed.recipientWorkosUserId &&
       row.channel === seed.channel &&
-      row.cadence === seed.cadence
+      row.cadence === seed.cadence &&
+      row.batchKey === seed.batchKey
   );
 }
 
@@ -1027,7 +1085,9 @@ async function deliveryContact(
   }
   const subscription = await ctx.db
     .query("buildCollaborationPushSubscriptions")
-    .withIndex("by_user_and_state", (query) =>
+    .withIndex(
+      "by_organizationId_and_workosUserId_and_state",
+      (query) =>
       query
         .eq("organizationId", delivery.organizationId)
         .eq("workosUserId", delivery.recipientWorkosUserId)

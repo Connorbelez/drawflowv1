@@ -92,6 +92,10 @@ export interface NotificationEffectInput {
   summary: string;
 }
 
+export interface ResolvedNotificationEffect extends NotificationEffectInput {
+  approvedChannel?: NotificationEffectInput["channel"];
+}
+
 export interface SharedMutationInput {
   entityId?: string;
   entityKind: string;
@@ -104,7 +108,7 @@ export interface BuildCollaborationPublicationBundle {
   actionItems: ActionItemInput[];
   attachmentAssetIds: Id<"buildCollaborationAssets">[];
   audienceMode: "build_wide" | "author_tier_and_higher" | "custom";
-  effectiveNotificationEffects: NotificationEffectInput[];
+  effectiveNotificationEffects: ResolvedNotificationEffect[];
   effectiveReaderIds: string[];
   excludedReaderIds: string[];
   mandatoryReaderIds: string[];

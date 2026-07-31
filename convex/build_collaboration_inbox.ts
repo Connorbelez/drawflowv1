@@ -84,7 +84,7 @@ export const listRecipientInbox = authenticatedQuery
   })
   .public();
 
-async function authorizeInboxOrganization(
+export async function authorizeInboxOrganization(
   ctx: QueryCtx & { viewer: AuthorizedViewer },
   organizationId: string
 ) {
@@ -208,7 +208,7 @@ export async function projectAuthorizedCollaborationDelivery(
     }
     return projectStoredDelivery(record, {
       actionLabel: "Open reply",
-      body: revision.plainText,
+      body: boundedNotificationPreview(revision.plainText),
       entityId: comment._id,
       entityLabel: authorization.build.buildName,
       entityType: "buildCollaborationComment",
@@ -229,7 +229,7 @@ export async function projectAuthorizedCollaborationDelivery(
   }
   return projectStoredDelivery(record, {
     actionLabel: "Open thread",
-    body: revision.plainText,
+    body: boundedNotificationPreview(revision.plainText),
     entityId: post._id,
     entityLabel: authorization.build.buildName,
     entityType: "buildCollaborationPost",
@@ -240,6 +240,10 @@ export async function projectAuthorizedCollaborationDelivery(
     }),
     title: canonicalNotificationTitle(record.collaborationEventKind),
   });
+}
+
+function boundedNotificationPreview(value: string) {
+  return value.slice(0, 280);
 }
 
 async function canReadAttachedNotificationContext(
