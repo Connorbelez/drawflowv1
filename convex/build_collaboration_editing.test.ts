@@ -585,6 +585,110 @@ describe("Build collaboration immutable editing", () => {
     ]);
   });
 
+  test("keeps revoked governed assets only on immutable historical revisions", async () => {
+    const fixture = await seedEditingFixture();
+    const postId = await publishPost(fixture, "Post whose asset is revoked");
+    const seeded = await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(postId);
+      if (!post?.currentRevisionId) {
+        throw new Error("Post revision fixture unavailable.");
+      }
+      const storageId = await ctx.storage.store(
+        new Blob(["revoked attachment"], { type: "text/plain" })
+      );
+      const now = Date.now();
+      const assetId = await ctx.db.insert("buildCollaborationAssets", {
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        contentHashSha256: "b".repeat(64),
+        createdAt: now,
+        fileName: "revoked.txt",
+        maximumAudienceMode: post.audienceMode,
+        mimeType: "text/plain",
+        organizationId: post.organizationId,
+        originatingPostId: post._id,
+        publishedAt: now,
+        publishedOwnerKind: "postRevision",
+        publishedOwnerRecordId: post.currentRevisionId,
+        readerWorkosUserIds: ["user_admin", "user_builder"],
+        scanState: "clean",
+        sizeBytes: 18,
+        state: "available",
+        storageId,
+        updatedAt: now,
+        uploadedByWorkosUserId: "user_admin",
+        version: 1,
+      });
+      await ctx.db.patch(assetId, { lineageRootAssetId: assetId });
+      await ctx.db.insert("buildCollaborationAttachments", {
+        attachmentId: assetId,
+        attachmentKind: "collaborationAsset",
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        createdAt: now,
+        createdByWorkosUserId: "user_admin",
+        organizationId: post.organizationId,
+        ownerKind: "postRevision",
+        ownerRecordId: post.currentRevisionId,
+      });
+      await ctx.db.patch(assetId, {
+        scanMessage: "Removed after a policy recheck.",
+        scanState: "rejected",
+        state: "rejected",
+        storageDeletedAt: now + 1,
+        updatedAt: now + 1,
+      });
+      return { assetId, historicalRevisionId: post.currentRevisionId };
+    });
+
+    const editedRevisionId = await fixture.admin.mutation(
+      (api as any).build_collaboration_editing.editBuildCollaborationPost,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        postId,
+        references: [],
+        tiptapJson: textDocument("Edited after governed asset revocation"),
+      }
+    );
+    const attachmentRows = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("buildCollaborationAttachments")
+        .withIndex(
+          "by_buildId_and_attachmentKind_and_attachmentId",
+          (query) =>
+            query
+              .eq("buildId", fixture.buildId)
+              .eq("attachmentKind", "collaborationAsset")
+              .eq("attachmentId", seeded.assetId)
+        )
+        .collect()
+    );
+    expect(attachmentRows).toEqual([
+      expect.objectContaining({
+        ownerKind: "postRevision",
+        ownerRecordId: seeded.historicalRevisionId,
+      }),
+    ]);
+    expect(
+      attachmentRows.some((row) => row.ownerRecordId === editedRevisionId)
+    ).toBe(false);
+    const feed = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }
+    );
+    const postEntry = feed.page.find(
+      (candidate: any) =>
+        candidate.kind === "post" && candidate.post._id === postId
+    );
+    expect(postEntry.attachments).toEqual([]);
+  });
+
   test("edits and tombstones replies without changing post content history", async () => {
     const fixture = await seedEditingFixture();
     const postId = await publishPost(fixture);

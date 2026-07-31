@@ -1,4 +1,5 @@
 import type { JSONContent } from "@tiptap/react";
+import { useQuery } from "convex/react";
 import type React from "react";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -10,18 +11,28 @@ import {
   CardPanel,
   CardTitle,
 } from "#/components/ui/card.tsx";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
+import {
+  BuildCollaborationAssetList,
+  type BuildCollaborationAssetSummary,
+} from "./BuildCollaborationAssetList.tsx";
 import { CollaborationRichTextPreview } from "./CollaborationRichTextEditor.tsx";
 import type { CollaborationDraftBundle } from "./model.ts";
 
 export function BuildCollaborationApprovalReview({
   bundle,
+  buildId,
   onApprove,
   onCancel,
+  organizationId,
   publishing,
 }: {
   bundle: CollaborationDraftBundle;
+  buildId: Id<"activeBuilds">;
   onApprove: () => void;
   onCancel: () => void;
+  organizationId: string;
   publishing: boolean;
 }) {
   const references = bundle.references ?? [];
@@ -30,6 +41,11 @@ export function BuildCollaborationApprovalReview({
   const notifications =
     bundle.effectiveNotificationEffects ?? bundle.notificationEffects ?? [];
   const sharedMutations = bundle.sharedMutations ?? [];
+  const assetReview = useGovernedAssetReview({
+    assetIds: assets,
+    buildId,
+    organizationId,
+  });
 
   return (
     <Card data-testid="build-collaboration-approval-review">
@@ -91,9 +107,11 @@ export function BuildCollaborationApprovalReview({
           )}
         </ReviewSection>
         <ReviewSection label={`Assets (${assets.length})`}>
-          <p className="text-sm">
-            {assets.length > 0 ? assets.join(", ") : "No attached assets."}
-          </p>
+          <GovernedAssetReview
+            buildId={buildId}
+            organizationId={organizationId}
+            review={assetReview}
+          />
         </ReviewSection>
         <ReviewSection label={`Action Items (${actionItems.length})`}>
           {actionItems.length > 0 ? (
@@ -174,12 +192,103 @@ export function BuildCollaborationApprovalReview({
           <Button onClick={onCancel} type="button" variant="ghost">
             Back to editing
           </Button>
-          <Button disabled={publishing} onClick={onApprove} type="button">
+          <Button
+            disabled={publishing || !assetReview.ready}
+            onClick={onApprove}
+            type="button"
+          >
             {publishing ? "Publishing…" : "Approve exact bundle & publish"}
           </Button>
         </div>
       </CardPanel>
     </Card>
+  );
+}
+
+interface GovernedAssetReviewState {
+  assets: BuildCollaborationAssetSummary[];
+  loading: boolean;
+  ready: boolean;
+  requestedCount: number;
+}
+
+function useGovernedAssetReview(input: {
+  assetIds: string[];
+  buildId: Id<"activeBuilds">;
+  organizationId: string;
+}): GovernedAssetReviewState {
+  const statuses = useQuery(
+    api.build_collaboration_assets.listBuildCollaborationAssetStatuses,
+    input.assetIds.length > 0
+      ? {
+          assetIds: input.assetIds as Id<"buildCollaborationAssets">[],
+          buildId: input.buildId,
+          organizationId: input.organizationId,
+        }
+      : "skip"
+  );
+  const assets =
+    statuses?.map((asset) => ({
+      assetId: asset._id,
+      contentHashSha256: asset.contentHashSha256,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      scanMessage: asset.scanMessage,
+      scanState: asset.scanState,
+      sizeBytes: asset.sizeBytes,
+      state: asset.state,
+      version: asset.version,
+    })) ?? [];
+  const ready =
+    input.assetIds.length === 0 ||
+    (statuses !== undefined &&
+      assets.length === input.assetIds.length &&
+      assets.every(
+        (asset) =>
+          asset.scanState === "clean" &&
+          (asset.state === "available" || asset.state === "superseded")
+      ));
+  return {
+    assets,
+    loading: input.assetIds.length > 0 && statuses === undefined,
+    ready,
+    requestedCount: input.assetIds.length,
+  };
+}
+
+function GovernedAssetReview({
+  buildId,
+  organizationId,
+  review,
+}: {
+  buildId: Id<"activeBuilds">;
+  organizationId: string;
+  review: GovernedAssetReviewState;
+}) {
+  if (review.requestedCount === 0) {
+    return <p className="text-sm">No attached assets.</p>;
+  }
+  if (review.loading) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        Loading governed asset review…
+      </p>
+    );
+  }
+  if (review.assets.length !== review.requestedCount) {
+    return (
+      <p className="text-destructive text-sm">
+        One or more governed assets are unavailable. Return to editing before
+        publishing.
+      </p>
+    );
+  }
+  return (
+    <BuildCollaborationAssetList
+      assets={review.assets}
+      buildId={buildId}
+      organizationId={organizationId}
+    />
   );
 }
 

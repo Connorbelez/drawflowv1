@@ -224,7 +224,33 @@ export const abandonBuildCollaborationAssetUploadAfterFailure = internalMutation
   .returns(v.null())
   .handler(async (ctx, args) => {
     const session = await ctx.db.get(args.stagingSessionId);
-    if (!session || session.state !== "open" || session.assetId) {
+    if (
+      !session ||
+      session.state !== "open" ||
+      session.assetId ||
+      session.pendingStorageId !== args.storageId
+    ) {
+      return null;
+    }
+    const [boundAsset, boundSessions] = await Promise.all([
+      ctx.db
+        .query("buildCollaborationAssets")
+        .withIndex("by_storageId", (query) =>
+          query.eq("storageId", args.storageId)
+        )
+        .unique(),
+      ctx.db
+        .query("buildCollaborationAssetStagingSessions")
+        .withIndex("by_pendingStorageId", (query) =>
+          query.eq("pendingStorageId", args.storageId)
+        )
+        .take(2),
+    ]);
+    if (
+      boundAsset ||
+      boundSessions.length !== 1 ||
+      boundSessions[0]?._id !== session._id
+    ) {
       return null;
     }
     const now = Date.now();

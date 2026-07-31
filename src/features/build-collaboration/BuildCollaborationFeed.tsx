@@ -399,6 +399,43 @@ export function BuildCollaborationFeed({
   const [attachmentAssetIds, setAttachmentAssetIds] = useState<
     Id<"buildCollaborationAssets">[]
   >([]);
+  const composerAssetStatuses = useQuery(
+    api.build_collaboration_assets.listBuildCollaborationAssetStatuses,
+    attachmentAssetIds.length > 0 && organizationId
+      ? {
+          assetIds: attachmentAssetIds,
+          buildId: activeBuildId,
+          organizationId,
+        }
+      : "skip"
+  );
+  const composerAssetStatusById = new Map(
+    (composerAssetStatuses ?? []).map((asset) => [asset._id, asset])
+  );
+  const composerAssets: BuildCollaborationAssetSummary[] =
+    attachmentAssetIds.map((assetId) => {
+      const asset = composerAssetStatusById.get(assetId);
+      return asset
+        ? {
+            assetId: asset._id,
+            contentHashSha256: asset.contentHashSha256,
+            fileName: asset.fileName,
+            mimeType: asset.mimeType,
+            scanMessage: asset.scanMessage,
+            scanState: asset.scanState,
+            sizeBytes: asset.sizeBytes,
+            state: asset.state,
+            version: asset.version,
+          }
+        : {
+            assetId,
+            fileName: "Unavailable governed attachment",
+            mimeType: "Metadata unavailable",
+            sizeBytes: 0,
+            state: "rejected",
+            version: 1,
+          };
+    });
   const [composerFiles, setComposerFiles] = useState<File[]>([]);
   const [publishing, setPublishing] = useState(false);
   const [editingHumanDraftId, setEditingHumanDraftId] =
@@ -672,6 +709,53 @@ export function BuildCollaborationFeed({
     }
   };
 
+  const removeComposerAttachment = async (
+    asset: BuildCollaborationAssetSummary
+  ) => {
+    if (publishing) {
+      return;
+    }
+    const retainedAssetIds = attachmentAssetIds.filter(
+      (assetId) => assetId !== asset.assetId
+    );
+    setPublishing(true);
+    try {
+      if (editingHumanDraftId) {
+        const bundle = buildComposerBundle(retainedAssetIds);
+        if (!bundle) {
+          throw new Error(
+            "The draft content must remain valid while removing an attachment."
+          );
+        }
+        await saveDraft({
+          ...bundle,
+          buildId: activeBuildId,
+          draftId: editingHumanDraftId,
+          organizationId,
+          preparedByAgent: false,
+        });
+      } else {
+        await abandonGovernedCollaborationAssets({
+          abandonAssets,
+          assetIds: [asset.assetId],
+          buildId: activeBuildId,
+          organizationId,
+          reason: "Removed from the unpublished composer.",
+        });
+      }
+      setAttachmentAssetIds(retainedAssetIds);
+      toast.success(`${asset.fileName} removed.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to remove the attachment."
+      );
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const saveCurrentDraft = async () => {
     if (!(organizationId && !publishing)) {
       return;
@@ -897,6 +981,7 @@ export function BuildCollaborationFeed({
                       bundle ? (
                         <CardPanel className="border-t p-3">
                           <BuildCollaborationApprovalReview
+                            buildId={activeBuildId}
                             bundle={bundle}
                             onApprove={async () => {
                               if (publishing) {
@@ -924,6 +1009,7 @@ export function BuildCollaborationFeed({
                               }
                             }}
                             onCancel={() => setReviewingDraftId(null)}
+                            organizationId={organizationId}
                             publishing={publishing}
                           />
                         </CardPanel>
@@ -1029,9 +1115,13 @@ export function BuildCollaborationFeed({
                   value={html}
                 />
                 <ComposerAttachmentInput
+                  assets={composerAssets}
+                  buildId={activeBuildId}
                   existingCount={attachmentAssetIds.length}
                   files={composerFiles}
                   onFilesChange={setComposerFiles}
+                  onRemove={removeComposerAttachment}
+                  organizationId={organizationId}
                   savingDraft={Boolean(editingHumanDraftId)}
                 />
                 <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -1328,14 +1418,22 @@ async function ensureComposerDraftId(input: {
 }
 
 function ComposerAttachmentInput({
+  assets,
+  buildId,
   existingCount,
   files,
   onFilesChange,
+  onRemove,
+  organizationId,
   savingDraft,
 }: {
+  assets: BuildCollaborationAssetSummary[];
+  buildId: Id<"activeBuilds">;
   existingCount: number;
   files: File[];
   onFilesChange: (files: File[]) => void;
+  onRemove: (asset: BuildCollaborationAssetSummary) => Promise<void>;
+  organizationId: string;
   savingDraft: boolean;
 }) {
   const hasAttachments = files.length > 0 || existingCount > 0;
@@ -1366,6 +1464,14 @@ function ComposerAttachmentInput({
       />
       {hasAttachments ? (
         <p className="text-muted-foreground text-xs">{status}</p>
+      ) : null}
+      {assets.length > 0 ? (
+        <BuildCollaborationAssetList
+          assets={assets}
+          buildId={buildId}
+          onRemove={onRemove}
+          organizationId={organizationId}
+        />
       ) : null}
     </div>
   );

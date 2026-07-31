@@ -1708,6 +1708,16 @@ describe("Build collaboration governed assets", () => {
     const conflictingStorageId = await base.run(async (ctx) =>
       await ctx.storage.store(new Blob(["conflicting"], { type: "text/plain" }))
     );
+    await admin.mutation(
+      (api as any).build_collaboration_assets
+        .registerBuildCollaborationAssetUploadedStorage,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: conflictingSession.stagingSessionId,
+        storageId: conflictingStorageId,
+      }
+    );
     await expect(
       admin.action(
         (api as any).build_collaboration_asset_actions
@@ -1924,6 +1934,34 @@ describe("Build collaboration governed assets", () => {
         draftId: initialDraft.draftId,
       },
     );
+    const openSession = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "draft",
+        contextRecordId: initialDraft.draftId,
+        fileName: "unfinished-draft.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 17,
+      }
+    );
+    const openStorageId = await base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["unfinished upload"], { type: "text/plain" })
+      )
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_assets
+        .registerBuildCollaborationAssetUploadedStorage,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: openSession.stagingSessionId,
+        storageId: openStorageId,
+      }
+    );
     const beforeDiscard = await base.run(async (ctx) => ({
       asset: await ctx.db.get(draftAssetId),
       attachments: await ctx.db
@@ -1950,6 +1988,7 @@ describe("Build collaboration governed assets", () => {
     );
     const afterDiscard = await base.run(async (ctx) => {
       const session = await ctx.db.get(draftSession.stagingSessionId);
+      const openStagingSession = await ctx.db.get(openSession.stagingSessionId);
       const audits = await ctx.db.query("auditEvents").collect();
       return {
         asset: await ctx.db.get(draftAssetId),
@@ -1957,11 +1996,17 @@ describe("Build collaboration governed assets", () => {
           (audit) =>
             audit.entityId === draftAssetId &&
             audit.eventType === "build.collaboration.asset.abandoned",
-        ),
+          ),
+        openStagingSession,
+        openStorage: await ctx.db.system.get(openStorageId),
         session,
       };
     });
     expect(afterDiscard.asset).toMatchObject({ state: "rejected" });
+    expect(afterDiscard.openStagingSession).toMatchObject({
+      state: "abandoned",
+    });
+    expect(afterDiscard.openStorage).toBeNull();
     expect(afterDiscard.session).toMatchObject({ state: "abandoned" });
     await base.mutation(
       (internal as any).build_collaboration_asset_maintenance
@@ -2178,6 +2223,114 @@ describe("Build collaboration governed assets", () => {
     ).rejects.toThrow();
   });
 
+  test("never deletes storage owned by a published asset or another staging session", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const publishedAssetId = await createPublishedAssetFixture({
+      admin,
+      base,
+      buildId,
+    });
+    const publishedAsset = await base.run(async (ctx) =>
+      await ctx.db.get(publishedAssetId)
+    );
+    if (!publishedAsset) {
+      throw new Error("Published asset fixture unavailable.");
+    }
+    const attackerSession = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        fileName: publishedAsset.fileName,
+        mimeType: publishedAsset.mimeType,
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: publishedAsset.sizeBytes,
+      }
+    );
+    await expect(
+      admin.action(
+        (api as any).build_collaboration_asset_actions
+          .finalizeAndScanBuildCollaborationAssetUpload,
+        {
+          buildId,
+          contentHashSha256: publishedAsset.contentHashSha256,
+          fileName: publishedAsset.fileName,
+          mimeType: publishedAsset.mimeType,
+          organizationId: ORGANIZATION_ID,
+          stagingSessionId: attackerSession.stagingSessionId,
+          storageId: publishedAsset.storageId,
+        }
+      )
+    ).rejects.toThrow("already been finalized");
+    expect(
+      await base.run(async (ctx) =>
+        await ctx.db.system.get(publishedAsset.storageId)
+      )
+    ).not.toBeNull();
+
+    const ownerSession = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        fileName: "owned.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 5,
+      }
+    );
+    const ownerStorageId = await base.run(async (ctx) =>
+      await ctx.storage.store(new Blob(["owned"], { type: "text/plain" }))
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_assets
+        .registerBuildCollaborationAssetUploadedStorage,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: ownerSession.stagingSessionId,
+        storageId: ownerStorageId,
+      }
+    );
+    const secondSession = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        fileName: "stolen.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 5,
+      }
+    );
+    await expect(
+      admin.action(
+        (api as any).build_collaboration_asset_actions
+          .finalizeAndScanBuildCollaborationAssetUpload,
+        {
+          buildId,
+          contentHashSha256: "d".repeat(64),
+          fileName: "stolen.txt",
+          mimeType: "text/plain",
+          organizationId: ORGANIZATION_ID,
+          stagingSessionId: secondSession.stagingSessionId,
+          storageId: ownerStorageId,
+        }
+      )
+    ).rejects.toThrow("another session");
+    const retained = await base.run(async (ctx) => ({
+      ownerSession: await ctx.db.get(ownerSession.stagingSessionId),
+      secondSession: await ctx.db.get(secondSession.stagingSessionId),
+      storage: await ctx.db.system.get(ownerStorageId),
+    }));
+    expect(retained.ownerSession).toMatchObject({ state: "open" });
+    expect(retained.secondSession).toMatchObject({ state: "open" });
+    expect(retained.storage).not.toBeNull();
+  });
+
   test("lets a trusted agent stage a complete asset bundle while keeping publication human-only", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     const agent = withIdentity(base, {
@@ -2272,6 +2425,35 @@ describe("Build collaboration governed assets", () => {
       }
     );
     expect(approvalOwnerStaging.stagingSessionId).toBeDefined();
+
+    const approvalOwnerStatuses = await admin.query(
+      (api as any).build_collaboration_assets
+        .listBuildCollaborationAssetStatuses,
+      {
+        assetIds: [assetId],
+        buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(approvalOwnerStatuses).toEqual([
+      expect.objectContaining({
+        _id: assetId,
+        contentHashSha256: hash,
+        fileName: "agent-evidence.txt",
+        scanState: "clean",
+      }),
+    ]);
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId,
+          buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toContain("http");
 
     const postId: Id<"buildCollaborationPosts"> = await admin.mutation(
       (api as any).build_collaboration_drafts

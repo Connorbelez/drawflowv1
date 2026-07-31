@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     | "draw_blocker",
   announcementExpiresAt: undefined as number | undefined,
   announcementProminent: false,
+  assetStatuses: [] as Array<Record<string, unknown>>,
   buildActionItems: [] as Array<Record<string, unknown>>,
   comments: [] as Array<Record<string, unknown>>,
   commentsLoading: false,
@@ -551,6 +552,20 @@ vi.mock("convex/react", () => ({
     }
     if (
       functionName ===
+      "build_collaboration_assets:listBuildCollaborationAssetStatuses"
+    ) {
+      if (args === "skip") {
+        return undefined;
+      }
+      const requested = new Set(
+        Array.isArray(args?.assetIds) ? args.assetIds : []
+      );
+      return mocks.assetStatuses.filter((asset) =>
+        requested.has(asset._id)
+      );
+    }
+    if (
+      functionName ===
       "build_action_item_queues:listMyBuildActionItemQueue"
     ) {
       return args === "skip" ? undefined : mocks.personalActionItems;
@@ -697,6 +712,7 @@ afterEach(() => {
   mocks.actionItemWorkKind = "ordinary";
   mocks.announcementExpiresAt = undefined;
   mocks.announcementProminent = false;
+  mocks.assetStatuses = [];
   mocks.buildActionItems = [];
   mocks.feedStatus = "Exhausted";
   mocks.focusedCommentContext = undefined;
@@ -1938,7 +1954,100 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.queryByText("Human approval checkpoint")).toBeNull();
   });
 
+  test("removes an individual governed attachment from an edited draft", async () => {
+    mocks.assetStatuses = [
+      {
+        _id: "asset-remove-1",
+        contentHashSha256: "a".repeat(64),
+        fileName: "mistaken-photo.jpg",
+        mimeType: "image/jpeg",
+        scanState: "clean",
+        sizeBytes: 2048,
+        state: "available",
+        version: 1,
+      },
+    ];
+    mocks.drafts = [
+      {
+        _creationTime: Date.now(),
+        _id: "human-draft-remove",
+        approvalOwnerWorkosUserId: "user_admin",
+        bundleJson: JSON.stringify({
+          actionItems: [],
+          attachmentAssetIds: ["asset-remove-1"],
+          audienceMode: "build_wide",
+          effectiveNotificationEffects: [],
+          effectiveReaderIds: ["user_admin"],
+          excludedReaderIds: [],
+          mandatoryReaderIds: ["user_admin"],
+          notificationEffects: [],
+          plainText: "Draft with one mistaken attachment.",
+          postType: "update",
+          references: [],
+          requestedReaderIds: [],
+          sharedMutations: [],
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [
+                  { text: "Draft with one mistaken attachment.", type: "text" },
+                ],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        }),
+        preparedByActorKind: "human",
+        preparedByAgent: false,
+        preparedByWorkosUserId: "user_admin",
+        revision: 1,
+        state: "active",
+        updatedAt: Date.now(),
+      },
+    ];
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("mistaken-photo.jpg")).toBeTruthy();
+    mocks.mutate.mockClear();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove mistaken-photo.jpg" })
+    );
+
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attachmentAssetIds: [],
+          buildId: "build-1",
+          draftId: "human-draft-remove",
+          organizationId: "org-1",
+        })
+      )
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Remove mistaken-photo.jpg" })
+      ).toBeNull()
+    );
+  });
+
   test("shows the complete effective bundle before a human approves an agent draft", async () => {
+    mocks.assetStatuses = [
+      {
+        _id: "asset-1",
+        contentHashSha256:
+          "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        fileName: "engineer-seal.pdf",
+        mimeType: "application/pdf",
+        scanState: "clean",
+        sizeBytes: 24_576,
+        state: "available",
+        version: 1,
+      },
+    ];
     mocks.drafts = [
       {
         _creationTime: Date.now(),
@@ -2047,7 +2156,10 @@ describe("BuildCollaborationFeed", () => {
       screen.getByText(/Explicit exclusions: user_contractor/),
     ).toBeTruthy();
     expect(screen.getAllByText(/Foundation completion photo/)).toHaveLength(2);
-    expect(screen.getByText(/asset-1/)).toBeTruthy();
+    expect(screen.getByText("engineer-seal.pdf")).toBeTruthy();
+    expect(screen.getByText(/Scan: clean/)).toBeTruthy();
+    expect(screen.getByText(/SHA-256 1234567890ab/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open" })).toBeTruthy();
     expect(screen.getByText(/Upload engineer seal/)).toBeTruthy();
     expect(screen.getAllByText(/Attach the sealed report/)).toHaveLength(2);
     expect(screen.getByText(/assigned/)).toBeTruthy();

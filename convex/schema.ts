@@ -3920,6 +3920,7 @@ export default defineSchema({
       "state",
     ])
     .index("by_assetId", ["assetId"])
+    .index("by_pendingStorageId", ["pendingStorageId"])
     .index("by_state_and_expiresAt", ["state", "expiresAt"]),
   buildCollaborationAttachments: defineTable({
     organizationId: v.string(),

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation } from "convex/react";
-import { Paperclip, RefreshCw } from "lucide-react";
+import { Paperclip, RefreshCw, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -12,8 +12,11 @@ import type { Id } from "../../../convex/_generated/dataModel";
 
 export interface BuildCollaborationAssetSummary {
   assetId: Id<"buildCollaborationAssets">;
+  contentHashSha256?: string;
   fileName: string;
   mimeType: string;
+  scanMessage?: string;
+  scanState?: "pending" | "clean" | "rejected" | "error";
   sizeBytes: number;
   state: "staged" | "quarantined" | "available" | "rejected" | "superseded";
   version: number;
@@ -22,11 +25,13 @@ export interface BuildCollaborationAssetSummary {
 export function BuildCollaborationAssetList({
   assets = [],
   buildId,
+  onRemove,
   onReplace,
   organizationId,
 }: {
   assets?: BuildCollaborationAssetSummary[];
   buildId: Id<"activeBuilds">;
+  onRemove?: (asset: BuildCollaborationAssetSummary) => Promise<void>;
   onReplace?: (
     asset: BuildCollaborationAssetSummary,
     file: File
@@ -62,6 +67,7 @@ export function BuildCollaborationAssetList({
           asset={asset}
           key={asset.assetId}
           onOpen={open}
+          onRemove={onRemove}
           onReplace={onReplace}
         />
       ))}
@@ -72,16 +78,19 @@ export function BuildCollaborationAssetList({
 function AssetCard({
   asset,
   onOpen,
+  onRemove,
   onReplace,
 }: {
   asset: BuildCollaborationAssetSummary;
   onOpen: (asset: BuildCollaborationAssetSummary) => Promise<void>;
+  onRemove?: (asset: BuildCollaborationAssetSummary) => Promise<void>;
   onReplace?: (
     asset: BuildCollaborationAssetSummary,
     file: File
   ) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [removing, setRemoving] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const replace = async (file?: File) => {
     if (!(file && onReplace)) {
@@ -97,6 +106,17 @@ function AssetCard({
       }
     }
   };
+  const remove = async () => {
+    if (!onRemove) {
+      return;
+    }
+    setRemoving(true);
+    try {
+      await onRemove(asset);
+    } finally {
+      setRemoving(false);
+    }
+  };
   return (
     <Card>
       <CardPanel className="flex items-center gap-3 p-3">
@@ -106,6 +126,15 @@ function AssetCard({
           <p className="text-muted-foreground text-xs">
             {asset.mimeType} · {formatBytes(asset.sizeBytes)} · v{asset.version}
           </p>
+          {asset.scanState ? (
+            <p className="text-muted-foreground text-xs">
+              Scan: {asset.scanState}
+              {asset.contentHashSha256
+                ? ` · SHA-256 ${shortHash(asset.contentHashSha256)}`
+                : ""}
+              {asset.scanMessage ? ` · ${asset.scanMessage}` : ""}
+            </p>
+          ) : null}
         </div>
         {onReplace && asset.state === "available" ? (
           <>
@@ -128,17 +157,36 @@ function AssetCard({
             </Button>
           </>
         ) : null}
-        <Button
-          onClick={() => onOpen(asset)}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          Open
-        </Button>
+        {onRemove ? (
+          <Button
+            aria-label={`Remove ${asset.fileName}`}
+            disabled={removing}
+            onClick={remove}
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          >
+            <X aria-hidden="true" className="size-3.5" />
+          </Button>
+        ) : null}
+        {asset.scanState === "clean" &&
+        (asset.state === "available" || asset.state === "superseded") ? (
+          <Button
+            onClick={() => onOpen(asset)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Open
+          </Button>
+        ) : null}
       </CardPanel>
     </Card>
   );
+}
+
+function shortHash(hash: string) {
+  return hash.length > 20 ? `${hash.slice(0, 12)}…${hash.slice(-8)}` : hash;
 }
 
 function formatBytes(sizeBytes: number) {

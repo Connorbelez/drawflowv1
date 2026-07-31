@@ -48,6 +48,7 @@ export function isCleanCollaborationAsset(
   return (
     asset.scanState === "clean" &&
     Boolean(asset.contentHashSha256) &&
+    !asset.storageDeletedAt &&
     (asset.state === "available" || asset.state === "superseded")
   );
 }
@@ -92,9 +93,35 @@ export async function canReadCollaborationAsset(
     session &&
       session.organizationId === input.authorization.organizationId &&
       session.buildId === input.authorization.build._id &&
-      session.ownerWorkosUserId === input.authorization.viewer.subject &&
+      (session.ownerWorkosUserId === input.authorization.viewer.subject ||
+        (await isDraftApprovalOwner(ctx, input.authorization, session))) &&
       session.state === "finalized" &&
       session.expiresAt > Date.now()
+  );
+}
+
+async function isDraftApprovalOwner(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  session: Doc<"buildCollaborationAssetStagingSessions">
+) {
+  if (
+    authorization.viewer.actorKind !== "human" ||
+    session.contextKind !== "draft" ||
+    !session.contextRecordId
+  ) {
+    return false;
+  }
+  const draftId = ctx.db.normalizeId(
+    "buildCollaborationDrafts",
+    session.contextRecordId
+  );
+  const draft = draftId ? await ctx.db.get(draftId) : null;
+  return Boolean(
+    draft &&
+      draft.organizationId === authorization.organizationId &&
+      draft.buildId === authorization.build._id &&
+      draft.approvalOwnerWorkosUserId === authorization.viewer.subject
   );
 }
 

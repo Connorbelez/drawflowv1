@@ -6,6 +6,7 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { canUseCollaborationAssetForPost } from "./build_collaboration_asset_access";
 import {
   canonicalizeEditedCollaborationContent,
   collaborationContentHash,
@@ -104,6 +105,7 @@ export const editBuildCollaborationPost = authenticatedMutation
       fromOwnerKind: "postRevision",
       fromOwnerRecordId: post.currentRevisionId,
       now,
+      post,
       toOwnerKind: "postRevision",
       toOwnerRecordId: revisionId,
     });
@@ -196,6 +198,7 @@ export const editBuildCollaborationComment = authenticatedMutation
       fromOwnerKind: "commentRevision",
       fromOwnerRecordId: comment.currentRevisionId,
       now,
+      post,
       toOwnerKind: "commentRevision",
       toOwnerRecordId: revisionId,
     });
@@ -230,6 +233,7 @@ async function carryForwardRevisionAttachments(
     fromOwnerKind: "postRevision" | "commentRevision";
     fromOwnerRecordId?: string;
     now: number;
+    post: Doc<"buildCollaborationPosts">;
     toOwnerKind: "postRevision" | "commentRevision";
     toOwnerRecordId: string;
   }
@@ -257,6 +261,25 @@ async function carryForwardRevisionAttachments(
       attachment.buildId !== input.authorization.build._id
     ) {
       throw new Error("A prior revision attachment is outside this Build.");
+    }
+    if (attachment.attachmentKind === "collaborationAsset") {
+      const assetId = ctx.db.normalizeId(
+        "buildCollaborationAssets",
+        attachment.attachmentId
+      );
+      const asset = assetId ? await ctx.db.get(assetId) : null;
+      if (
+        !(
+          asset &&
+          (await canUseCollaborationAssetForPost(ctx, {
+            asset,
+            authorization: input.authorization,
+            post: input.post,
+          }))
+        )
+      ) {
+        continue;
+      }
     }
     await ctx.db.insert("buildCollaborationAttachments", {
       attachmentId: attachment.attachmentId,

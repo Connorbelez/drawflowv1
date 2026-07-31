@@ -197,6 +197,28 @@ export const registerBuildCollaborationAssetUploadedStorage =
       if (!metadata) {
         throw new Error("The uploaded file is unavailable.");
       }
+      const [existingAsset, existingSessions] = await Promise.all([
+        ctx.db
+          .query("buildCollaborationAssets")
+          .withIndex("by_storageId", (query) =>
+            query.eq("storageId", args.storageId)
+          )
+          .unique(),
+        ctx.db
+          .query("buildCollaborationAssetStagingSessions")
+          .withIndex("by_pendingStorageId", (query) =>
+            query.eq("pendingStorageId", args.storageId)
+          )
+          .take(2),
+      ]);
+      if (
+        existingAsset ||
+        existingSessions.some(
+          (existingSession) => existingSession._id !== session._id
+        )
+      ) {
+        throw new Error("This uploaded storage identity is already in use.");
+      }
       await ctx.db.patch(session._id, {
         pendingStorageId: args.storageId,
         updatedAt: now,
@@ -238,6 +260,21 @@ async function finalizeAssetUpload(
   if (session.pendingStorageId && session.pendingStorageId !== args.storageId) {
     throw new Error(
       "The uploaded storage identity does not match its staging session."
+    );
+  }
+  const pendingStorageSessions = await ctx.db
+    .query("buildCollaborationAssetStagingSessions")
+    .withIndex("by_pendingStorageId", (query) =>
+      query.eq("pendingStorageId", args.storageId)
+    )
+    .take(2);
+  if (
+    pendingStorageSessions.some(
+      (pendingStorageSession) => pendingStorageSession._id !== session._id
+    )
+  ) {
+    throw new Error(
+      "This uploaded storage identity belongs to another session."
     );
   }
   assertAssetSize(metadata.size);
@@ -846,22 +883,72 @@ export async function reconcileDraftAssetStagingSessions(
   }
 ) {
   const retained = new Set(input.retainedAssetIds);
-  const sessions = await ctx.db
-    .query("buildCollaborationAssetStagingSessions")
-    .withIndex("by_contextKind_and_contextRecordId_and_state", (query) =>
-      query
-        .eq("contextKind", "draft")
-        .eq("contextRecordId", input.draftId)
-        .eq("state", "finalized")
+  const sessions = (
+    await Promise.all(
+      (["open", "finalized"] as const).map((state) =>
+        ctx.db
+          .query("buildCollaborationAssetStagingSessions")
+          .withIndex("by_contextKind_and_contextRecordId_and_state", (query) =>
+            query
+              .eq("contextKind", "draft")
+              .eq("contextRecordId", input.draftId)
+              .eq("state", state)
+          )
+          .take(100)
+      )
     )
-    .take(100);
+  ).flat();
   for (const session of sessions) {
     if (
       session.organizationId !== input.authorization.organizationId ||
       session.buildId !== input.authorization.build._id ||
-      !session.assetId ||
-      retained.has(session.assetId)
+      (session.assetId && retained.has(session.assetId))
     ) {
+      continue;
+    }
+    if (!session.assetId) {
+      let storageDeleted = false;
+      if (session.pendingStorageId) {
+        const pendingStorageId = session.pendingStorageId;
+        const [boundAsset, boundSessions] = await Promise.all([
+          ctx.db
+            .query("buildCollaborationAssets")
+            .withIndex("by_storageId", (query) =>
+              query.eq("storageId", pendingStorageId)
+            )
+            .unique(),
+          ctx.db
+            .query("buildCollaborationAssetStagingSessions")
+            .withIndex("by_pendingStorageId", (query) =>
+              query.eq("pendingStorageId", pendingStorageId)
+            )
+            .take(2),
+        ]);
+        if (
+          !boundAsset &&
+          boundSessions.length === 1 &&
+          boundSessions[0]?._id === session._id
+        ) {
+          await ctx.storage.delete(pendingStorageId);
+          storageDeleted = true;
+        }
+      }
+      await ctx.db.patch(session._id, {
+        state: "abandoned",
+        updatedAt: input.now,
+      });
+      await recordAssetAudit(ctx, input.authorization, {
+        command: "reconcileDraftAssetStagingSessions",
+        entityId: session._id,
+        entityType: "buildCollaborationAssetStagingSession",
+        eventType: "build.collaboration.asset.upload_abandoned",
+        newState: JSON.stringify({
+          reason: "Removed from its private draft before finalization.",
+          state: "abandoned",
+          storageDeleted,
+        }),
+        now: input.now,
+      });
       continue;
     }
     const assetId = session.assetId;
