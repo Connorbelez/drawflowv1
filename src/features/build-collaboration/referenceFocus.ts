@@ -8,6 +8,7 @@ export const BUILD_COLLABORATION_FOCUS_KINDS = [
   "material",
   "milestone",
   "participant",
+  "post",
   "siteVisit",
   "submilestone",
 ] as const;

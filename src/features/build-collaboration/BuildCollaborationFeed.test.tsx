@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
   focusedCommentContext: undefined as
     | Record<string, unknown>
     | undefined,
+  focusedPostContext: undefined as Record<string, unknown> | undefined,
   focusedPostId: "post-1" as string | null,
   loadMore: vi.fn(),
   mutate: vi.fn().mockResolvedValue(null),
@@ -106,6 +107,56 @@ function commentRowFixture(id: string, text: string) {
             content: [{ text, type: "text" }],
             type: "paragraph",
           },
+        ],
+        type: "doc",
+      }),
+    },
+  };
+}
+
+function focusedPostEntryFixture(id: string, text: string) {
+  const now = Date.parse("2026-07-28T12:00:00.000Z");
+  return {
+    acknowledgement: { acknowledged: false, required: false },
+    actionItems: [],
+    following: false,
+    kind: "post",
+    pins: [],
+    post: {
+      _creationTime: now,
+      _id: id,
+      agentDrafted: false,
+      announcementProminent: false,
+      audienceMode: "build_wide",
+      authorDisplayNameSnapshot: "Priya Raman",
+      authorRole: "broker",
+      commentCount: 0,
+      contentState: "active",
+      createdAt: now,
+      postType: "update",
+      readRevision: 1,
+      revision: 1,
+      source: "human",
+      threadState: "open",
+      updatedAt: now,
+      viewerCanAppeal: false,
+      viewerCanManageThread: true,
+      viewerCanModerate: false,
+      viewerCanResolveAppeal: false,
+      viewerIsAuthor: false,
+    },
+    reactions: [],
+    receipts: [],
+    references: [],
+    revision: {
+      _creationTime: now,
+      _id: `revision-${id}`,
+      createdAt: now,
+      plainText: text,
+      revision: 1,
+      tiptapJson: JSON.stringify({
+        content: [
+          { content: [{ text, type: "text" }], type: "paragraph" },
         ],
         type: "doc",
       }),
@@ -275,6 +326,12 @@ vi.mock("convex/react", () => ({
             postId: mocks.focusedPostId,
           }
         : null;
+    }
+    if (
+      functionName ===
+      "build_collaboration_focus:getFocusedBuildCollaborationPostContext"
+    ) {
+      return args === "skip" ? undefined : mocks.focusedPostContext;
     }
     if (
       functionName ===
@@ -618,6 +675,7 @@ afterEach(() => {
   mocks.buildActionItems = [];
   mocks.feedStatus = "Exhausted";
   mocks.focusedCommentContext = undefined;
+  mocks.focusedPostContext = undefined;
   mocks.focusedPostId = "post-1";
   mocks.postContentState = "active";
   mocks.postResolutionSummary = undefined;
@@ -1201,6 +1259,50 @@ describe("BuildCollaborationFeed", () => {
     );
 
     await waitFor(() => expect(mocks.loadMore).toHaveBeenCalledWith(20));
+  });
+
+  test("hydrates and focuses a notification post outside the loaded feed page", async () => {
+    mocks.focusedPostContext = {
+      entry: focusedPostEntryFixture(
+        "post-outside-first-page",
+        "Focused notification thread."
+      ),
+      state: "visible",
+    };
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="post:post-outside-first-page"
+        organizationId="org-1"
+      />
+    );
+
+    expect(await screen.findByText("Focused notification thread.")).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("collaboration-post-post-outside-first-page")
+        .getAttribute("data-focused")
+    ).toBe("true");
+    expect(screen.queryByText("Foundation evidence is ready for review.")).toBeNull();
+  });
+
+  test("keeps revoked focused posts disclosure-safe", async () => {
+    mocks.focusedPostContext = { state: "revoked" };
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="post:post-revoked"
+        organizationId="org-1"
+      />
+    );
+
+    expect(
+      await screen.findByText(
+        "This focused post is unavailable or your access was revoked."
+      )
+    ).toBeTruthy();
+    expect(screen.queryByText("Foundation evidence is ready for review.")).toBeNull();
   });
 
   test("opens a focused detail sheet for any Build participant role", async () => {

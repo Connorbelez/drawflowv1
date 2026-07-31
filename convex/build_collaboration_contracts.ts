@@ -103,30 +103,42 @@ export const collaborationReceiptSummaryValidator = v.object({
   workosUserId: v.string(),
 });
 
+export const collaborationUnavailableFeedEntryValidator = v.object({
+  kind: v.literal("unavailable"),
+  placeholderKey: v.string(),
+});
+
+export const collaborationReadableFeedPostEntryValidator = v.object({
+  acknowledgement: v.object({
+    acknowledged: v.boolean(),
+    dueAt: v.optional(v.number()),
+    required: v.boolean(),
+  }),
+  actionItems: v.array(collaborationActionItemSummaryValidator),
+  following: v.boolean(),
+  kind: v.literal("post"),
+  pins: v.array(collaborationPinSummaryValidator),
+  post: collaborationPostSummaryValidator,
+  reactions: v.array(collaborationReactionSummaryValidator),
+  receipts: v.array(collaborationReceiptSummaryValidator),
+  references: v.array(collaborationReferenceSummaryValidator),
+  revision: collaborationPostRevisionSummaryValidator,
+});
+
 export const collaborationFeedEntryValidator = v.union(
   v.object({
     kind: v.literal("restricted"),
     placeholderKey: v.string(),
   }),
+  collaborationUnavailableFeedEntryValidator,
+  collaborationReadableFeedPostEntryValidator
+);
+
+export const collaborationFocusedPostContextValidator = v.union(
+  v.object({ state: v.literal("revoked") }),
   v.object({
-    kind: v.literal("unavailable"),
-    placeholderKey: v.string(),
-  }),
-  v.object({
-    acknowledgement: v.object({
-      acknowledged: v.boolean(),
-      dueAt: v.optional(v.number()),
-      required: v.boolean(),
-    }),
-    actionItems: v.array(collaborationActionItemSummaryValidator),
-    following: v.boolean(),
-    kind: v.literal("post"),
-    pins: v.array(collaborationPinSummaryValidator),
-    post: collaborationPostSummaryValidator,
-    reactions: v.array(collaborationReactionSummaryValidator),
-    receipts: v.array(collaborationReceiptSummaryValidator),
-    references: v.array(collaborationReferenceSummaryValidator),
-    revision: collaborationPostRevisionSummaryValidator,
+    entry: collaborationReadableFeedPostEntryValidator,
+    state: v.literal("visible"),
   })
 );
 

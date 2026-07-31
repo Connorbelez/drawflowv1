@@ -14,11 +14,10 @@ export function buildCollaborationDeepLink(input: {
   ) {
     search.push("tab=details");
   }
-  if (input.postId) {
-    search.push(`collaborationPost=${encodeURIComponent(input.postId)}`);
-  }
-  if (input.focus) {
-    search.push(`focus=${encodeURIComponent(input.focus)}`);
+  const focus =
+    input.focus ?? (input.postId ? `post:${input.postId}` : undefined);
+  if (focus) {
+    search.push(`focus=${encodeURIComponent(focus)}`);
   }
   return `${prefix}/${input.buildId}${search.length ? `?${search.join("&")}` : ""}`;
 }

@@ -189,6 +189,12 @@ function focusedCommentIdFromReference(reference?: string) {
     : undefined;
 }
 
+function focusedPostIdFromReference(reference?: string) {
+  return reference?.startsWith("post:")
+    ? reference.slice("post:".length)
+    : undefined;
+}
+
 function focusedActionItemQueryArgs({
   actionItemId,
   buildId,
@@ -221,6 +227,21 @@ function focusedCommentQueryArgs({
     commentId: commentId as Id<"buildCollaborationComments">,
     organizationId,
   };
+}
+
+function focusedPostQueryArgs({
+  buildId,
+  organizationId,
+  postId,
+}: {
+  buildId: Id<"activeBuilds">;
+  organizationId?: string;
+  postId?: string;
+}) {
+  if (!(postId && organizationId)) {
+    return "skip" as const;
+  }
+  return { buildId, organizationId, postId };
 }
 
 function moderationActionLabel(input: {
@@ -276,6 +297,7 @@ export function BuildCollaborationFeed({
   const focusedCommentId = focusedCommentIdFromReference(
     focusedEntityReference
   );
+  const focusedPostId = focusedPostIdFromReference(focusedEntityReference);
   const focusedActionItemContext = useQuery(
     api.build_collaboration_focus.getFocusedBuildActionItemContext,
     focusedActionItemQueryArgs({
@@ -298,6 +320,17 @@ export function BuildCollaborationFeed({
       organizationId,
     })
   );
+  const focusedPostContext = useQuery(
+    api.build_collaboration_focus.getFocusedBuildCollaborationPostContext,
+    focusedPostQueryArgs({
+      buildId: activeBuildId,
+      organizationId,
+      postId: focusedPostId,
+    })
+  ) as
+    | { entry: CollaborationFeedPostEntry; state: "visible" }
+    | { state: "revoked" }
+    | undefined;
   const notificationPreferences = useQuery(
     api.build_collaboration_notifications
       .getMyBuildCollaborationNotificationPreferences,
@@ -459,8 +492,12 @@ export function BuildCollaborationFeed({
     (option) => option.kind === "participant"
   );
   const feedEntries = useMemo(
-    () => feed.results as CollaborationFeedEntry[],
-    [feed.results]
+    () =>
+      mergeFocusedPostEntry(
+        feed.results as CollaborationFeedEntry[],
+        focusedPostContext
+      ),
+    [feed.results, focusedPostContext]
   );
   useEffect(() => {
     const focusedPostId =
@@ -512,15 +549,22 @@ export function BuildCollaborationFeed({
       return true;
     });
   }, [feedEntries, filter, search]);
-  const { displayedResults, focusedPostEntry } =
-    focusedCommentCollaborationResults({
-      context: focusedCommentContext,
-      feedEntries,
-      focusedCommentId: focusedCommentId as
-        | Id<"buildCollaborationComments">
-        | undefined,
-      visibleResults,
-    });
+  const {
+    displayedResults: commentFocusedResults,
+    focusedPostEntry: commentFocusedPostEntry,
+  } = focusedCommentCollaborationResults({
+    context: focusedCommentContext,
+    feedEntries,
+    focusedCommentId: focusedCommentId as
+      | Id<"buildCollaborationComments">
+      | undefined,
+    visibleResults,
+  });
+  const displayedResults = focusedPostCollaborationResults({
+    feedEntries,
+    focusedPostId,
+    otherwise: commentFocusedResults,
+  });
 
   const resetComposer = () => {
     setHtml("");
@@ -1011,8 +1055,12 @@ export function BuildCollaborationFeed({
         ) : null}
         <FocusedDiscussionStatus
           focused={Boolean(focusedCommentId)}
-          postHydrated={Boolean(focusedPostEntry)}
+          postHydrated={Boolean(commentFocusedPostEntry)}
           state={focusedCommentContext?.state}
+        />
+        <FocusedPostStatus
+          focused={Boolean(focusedPostId)}
+          state={focusedPostContext?.state}
         />
         {displayedResults.map((entry) =>
           entry.kind === "restricted" ? (
@@ -1032,6 +1080,7 @@ export function BuildCollaborationFeed({
                   ? focusedCommentContext.focusCommentId
                   : undefined
               }
+              focusedPost={entry.post._id === focusedPostId}
               focusedReference={focusedEntityReference}
               key={entry.post._id}
               onCreateActionItem={(postId) =>
@@ -1549,6 +1598,7 @@ function CollaborationPostCard({
   buildId,
   entry,
   focusedCommentId,
+  focusedPost,
   focusedReference,
   onCreateActionItem,
   onFocusReference,
@@ -1560,6 +1610,7 @@ function CollaborationPostCard({
   buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
   focusedCommentId?: Id<"buildCollaborationComments">;
+  focusedPost: boolean;
   focusedReference?: string;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
   onFocusReference: (reference: FocusedReference) => void;
@@ -1568,6 +1619,9 @@ function CollaborationPostCard({
   referenceByKey: Map<string, ReferenceOption>;
   tagOptions: ReferenceOption[];
 }) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  useFocusedCollaborationPostCard(cardRef, focusedPost);
+  const focusPresentation = focusedPostCardPresentation(focusedPost);
   const [tab, setTab] = useState<"actions" | "discussion">("discussion");
   const [actionView, setActionView] = useState<"board" | "list">("list");
   const [editTarget, setEditTarget] = useState<CollaborationEditTarget | null>(
@@ -1623,7 +1677,13 @@ function CollaborationPostCard({
   };
 
   return (
-    <Card data-testid={`collaboration-post-${entry.post._id}`}>
+    <Card
+      className={focusPresentation.className}
+      data-focused={focusPresentation.dataFocused}
+      data-testid={`collaboration-post-${entry.post._id}`}
+      ref={cardRef}
+      tabIndex={focusPresentation.tabIndex}
+    >
       <CollaborationPostHeader
         buildId={buildId}
         entry={entry}
@@ -2439,6 +2499,92 @@ function FocusedDiscussionStatus({
     );
   }
   return null;
+}
+
+function FocusedPostStatus({
+  focused,
+  state,
+}: {
+  focused: boolean;
+  state?: "revoked" | "visible";
+}) {
+  if (!focused || state === "visible") {
+    return null;
+  }
+  return (
+    <Frame>
+      <FramePanel aria-live="polite" className="text-muted-foreground text-sm">
+        {state === "revoked"
+          ? "This focused post is unavailable or your access was revoked."
+          : "Loading focused post…"}
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function mergeFocusedPostEntry(
+  entries: CollaborationFeedEntry[],
+  context?:
+    | { entry: CollaborationFeedPostEntry; state: "visible" }
+    | { state: "revoked" }
+) {
+  if (
+    context?.state !== "visible" ||
+    entries.some(
+      (entry) =>
+        entry.kind === "post" && entry.post._id === context.entry.post._id
+    )
+  ) {
+    return entries;
+  }
+  return [context.entry, ...entries];
+}
+
+function focusedPostCollaborationResults({
+  feedEntries,
+  focusedPostId,
+  otherwise,
+}: {
+  feedEntries: CollaborationFeedEntry[];
+  focusedPostId?: string;
+  otherwise: CollaborationFeedEntry[];
+}) {
+  if (!focusedPostId) {
+    return otherwise;
+  }
+  const focusedPostEntry = feedEntries.find(
+    (entry): entry is CollaborationFeedPostEntry =>
+      entry.kind === "post" && entry.post._id === focusedPostId
+  );
+  return focusedPostEntry ? [focusedPostEntry] : [];
+}
+
+function useFocusedCollaborationPostCard(
+  cardRef: React.RefObject<HTMLDivElement | null>,
+  focused: boolean
+) {
+  useEffect(() => {
+    if (!focused) {
+      return;
+    }
+    cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    cardRef.current?.focus({ preventScroll: true });
+  }, [cardRef, focused]);
+}
+
+function focusedPostCardPresentation(focused: boolean) {
+  if (!focused) {
+    return {
+      className: undefined,
+      dataFocused: undefined,
+      tabIndex: undefined,
+    };
+  }
+  return {
+    className: "ring-2 ring-primary ring-offset-2",
+    dataFocused: "true",
+    tabIndex: -1,
+  } as const;
 }
 
 function focusedCommentCollaborationResults({

@@ -13,6 +13,7 @@ describe("normalizeBuildCollaborationFocus", () => {
     "material:material-1",
     "milestone:milestone-1",
     "participant:user-1",
+    "post:post-1",
     "siteVisit:visit-1",
     "submilestone:submilestone-1",
   ])("preserves a supported focus target: %s", (focus) => {

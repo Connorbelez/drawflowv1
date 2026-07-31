@@ -1780,6 +1780,88 @@ describe("Build collaboration tenant rollout", () => {
 });
 
 describe("Build collaboration canonical reference authorization", () => {
+  test("hydrates an authorized focused post without leaking hidden or forged targets", async () => {
+    const fixture = await seedActiveBuild();
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Site Contractor",
+      role: "contractor",
+      subject: "user_contractor",
+    });
+    const postId = await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "custom",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Focused broker-only post.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Focused broker-only post.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      }
+    );
+
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationPostContext,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId,
+        }
+      )
+    ).resolves.toEqual(
+      expect.objectContaining({
+        entry: expect.objectContaining({
+          kind: "post",
+          post: expect.objectContaining({ _id: postId }),
+          revision: expect.objectContaining({
+            plainText: "Focused broker-only post.",
+          }),
+        }),
+        state: "visible",
+      })
+    );
+
+    const contractor = withIdentity(fixture.base, {
+      roles: ["contractor"],
+      subject: "user_contractor",
+    });
+    await expect(
+      contractor.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationPostContext,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId,
+        }
+      )
+    ).resolves.toEqual({ state: "revoked" });
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationPostContext,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: "forged-post-id",
+        }
+      )
+    ).resolves.toEqual({ state: "revoked" });
+  });
+
   test("resolves an authorized focused Action Item without leaking hidden or forged targets", async () => {
     const fixture = await seedActiveBuild();
     await addBuildParticipant(fixture.base, {
@@ -3268,9 +3350,7 @@ describe("Build collaboration canonical reference authorization", () => {
       expect(inbox.page[0].href).toContain(
         `${recipient.expectedPrefix}/${buildId}`,
       );
-      expect(inbox.page[0].href).toContain(
-        `collaborationPost=${encodeURIComponent(postId)}`,
-      );
+      expect(inbox.page[0].href).not.toContain("collaborationPost=");
       expect(inbox.page[0].href).toContain(
         `focus=${encodeURIComponent(`comment:${commentId}`)}`,
       );
