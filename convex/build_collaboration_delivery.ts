@@ -11,12 +11,15 @@ import {
   BuildCollaborationDeliveryTransportError,
   sendBuildCollaborationExternalPayload,
 } from "./build_collaboration_delivery_transport";
-import { projectAuthorizedCollaborationDelivery } from "./build_collaboration_inbox";
+import {
+  authorizeInboxOrganization,
+  projectAuthorizedCollaborationDelivery,
+} from "./build_collaboration_inbox";
 import type { BuildCollaborationNotificationKind } from "./build_collaboration_notifications";
 import { authorizeBuildCollaborationRecipient } from "./build_collaboration_recipient_access";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { internalAction, internalMutation } from "./fluent";
-import type { Doc, Id, MutationCtx } from "./types";
+import type { ActionCtx, Doc, Id, MutationCtx } from "./types";
 
 const MAX_DELIVERY_ATTEMPTS = 5;
 const MAX_DIGEST_ITEMS = 100;
@@ -82,6 +85,11 @@ export async function enqueueBuildCollaborationExternalDeliveries(
   if (!canonical) {
     return;
   }
+  const recipientParticipationPeriod =
+    await currentRecipientParticipationPeriod(ctx, {
+      buildId: input.buildId,
+      recipientWorkosUserId: input.recipientWorkosUserId,
+    });
   let queuedImmediateDelivery = false;
   const targets = externalDeliveryPlan(input);
   for (const target of targets) {
@@ -119,6 +127,7 @@ export async function enqueueBuildCollaborationExternalDeliveries(
       eventKind: input.kind,
       organizationId: input.organizationId,
       recipientDeliveryId: input.recipientDeliveryId,
+      recipientParticipationPeriod,
       recipientWorkosUserId: input.recipientWorkosUserId,
       scheduledFor:
         target.cadence === "immediate"
@@ -195,6 +204,7 @@ export async function cancelQueuedBuildCollaborationExternalDeliveries(
     cancellationReason: string;
     createdAtThrough?: number;
     now: number;
+    participationPeriod?: number;
     recipientWorkosUserId: string;
   }
 ) {
@@ -276,6 +286,7 @@ async function cancelExternalDeliveryPage(
     cancellationReason: string;
     createdAtThrough?: number;
     now: number;
+    participationPeriod?: number;
     recipientWorkosUserId: string;
   },
   status: UnsentDeliveryStatus,
@@ -292,8 +303,12 @@ async function cancelExternalDeliveryPage(
     .paginate({ cursor, numItems: DELIVERY_MAINTENANCE_BATCH_SIZE });
   for (const external of page.page) {
     if (
-      input.createdAtThrough !== undefined &&
-      external.createdAt > input.createdAtThrough
+      (external.recipientParticipationPeriod !== undefined &&
+        input.participationPeriod !== undefined &&
+        external.recipientParticipationPeriod !== input.participationPeriod) ||
+      (external.recipientParticipationPeriod === undefined &&
+        input.createdAtThrough !== undefined &&
+        external.createdAt > input.createdAtThrough)
     ) {
       continue;
     }
@@ -310,6 +325,7 @@ async function cancelExternalDeliveryPage(
         createdAtThrough: input.createdAtThrough,
         cursor: page.continueCursor,
         recipientWorkosUserId: input.recipientWorkosUserId,
+        participationPeriod: input.participationPeriod,
         status,
       }
     );
@@ -373,6 +389,7 @@ export const continueBuildCollaborationExternalDeliveryCancellation =
       createdAtThrough: v.optional(v.number()),
       cursor: v.union(v.string(), v.null()),
       recipientWorkosUserId: v.string(),
+      participationPeriod: v.optional(v.number()),
       status: unsentDeliveryStatusValidator,
     })
     .returns(v.null())
@@ -384,6 +401,7 @@ export const continueBuildCollaborationExternalDeliveryCancellation =
           cancellationReason: args.cancellationReason,
           createdAtThrough: args.createdAtThrough,
           now: Date.now(),
+          participationPeriod: args.participationPeriod,
           recipientWorkosUserId: args.recipientWorkosUserId,
         },
         args.status,
@@ -493,11 +511,7 @@ export const processBuildCollaborationExternalDeliveries = internalAction
       args
     );
     for (const eventOutboxId of outboxIds) {
-      await ctx.runAction(
-        internal.build_collaboration_delivery
-          .dispatchBuildCollaborationExternalOutbox,
-        { eventOutboxId }
-      );
+      await dispatchExternalOutbox(ctx, eventOutboxId);
     }
     return outboxIds.length;
   })
@@ -690,50 +704,57 @@ export const dispatchBuildCollaborationExternalOutbox = internalAction
   .input({ eventOutboxId: v.id("eventOutbox") })
   .returns(v.null())
   .handler(async (ctx, args) => {
-    const prepared = await ctx.runMutation(
-      internal.build_collaboration_delivery
-        .prepareBuildCollaborationExternalOutbox,
-      args
-    );
-    if (!prepared) {
-      return null;
-    }
-    try {
-      const response = await sendBuildCollaborationExternalPayload({
-        channel: prepared.channel,
-        contact: prepared.contact,
-        idempotencyKey: prepared.idempotencyKey,
-        items: prepared.items,
-        recipientWorkosUserId: prepared.recipientWorkosUserId,
-      });
-      await ctx.runMutation(
-        internal.build_collaboration_delivery
-          .completeBuildCollaborationExternalDeliveryAttempt,
-        {
-          eventOutboxId: args.eventOutboxId,
-          providerMessageId: response.providerMessageId,
-          responseCode: response.responseCode,
-          succeeded: true,
-        }
-      );
-    } catch (error) {
-      await ctx.runMutation(
-        internal.build_collaboration_delivery
-          .completeBuildCollaborationExternalDeliveryAttempt,
-        {
-          error: safeDeliveryError(error),
-          eventOutboxId: args.eventOutboxId,
-          responseCode:
-            error instanceof BuildCollaborationDeliveryTransportError
-              ? error.responseCode
-              : undefined,
-          succeeded: false,
-        }
-      );
-    }
+    await dispatchExternalOutbox(ctx, args.eventOutboxId);
     return null;
   })
   .internal();
+
+async function dispatchExternalOutbox(
+  ctx: ActionCtx,
+  eventOutboxId: Id<"eventOutbox">
+) {
+  const prepared = await ctx.runMutation(
+    internal.build_collaboration_delivery
+      .prepareBuildCollaborationExternalOutbox,
+    { eventOutboxId }
+  );
+  if (!prepared) {
+    return;
+  }
+  try {
+    const response = await sendBuildCollaborationExternalPayload({
+      channel: prepared.channel,
+      contact: prepared.contact,
+      idempotencyKey: prepared.idempotencyKey,
+      items: prepared.items,
+      recipientWorkosUserId: prepared.recipientWorkosUserId,
+    });
+    await ctx.runMutation(
+      internal.build_collaboration_delivery
+        .completeBuildCollaborationExternalDeliveryAttempt,
+      {
+        eventOutboxId,
+        providerMessageId: response.providerMessageId,
+        responseCode: response.responseCode,
+        succeeded: true,
+      }
+    );
+  } catch (error) {
+    await ctx.runMutation(
+      internal.build_collaboration_delivery
+        .completeBuildCollaborationExternalDeliveryAttempt,
+      {
+        error: safeDeliveryError(error),
+        eventOutboxId,
+        responseCode:
+          error instanceof BuildCollaborationDeliveryTransportError
+            ? error.responseCode
+            : undefined,
+        succeeded: false,
+      }
+    );
+  }
+}
 
 export const registerMyBuildCollaborationPushSubscription =
   authenticatedMutation
@@ -841,26 +862,30 @@ export const listMyBuildCollaborationExternalDeliveryActivity =
       )
     )
     .handler(async (ctx, args) => {
+      const organizationId = args.organizationId.trim();
+      const brokerage = await authorizeInboxOrganization(ctx, organizationId);
       const rows = await ctx.db
         .query("buildCollaborationExternalDeliveries")
         .withIndex("by_recipient_and_createdAt", (query) =>
           query
-            .eq("organizationId", args.organizationId.trim())
+            .eq("organizationId", organizationId)
             .eq("recipientWorkosUserId", ctx.viewer.subject)
         )
         .order("desc")
         .take(100);
-      return rows.map((row) => ({
-        _id: row._id,
-        attemptCount: row.attemptCount,
-        cadence: row.cadence,
-        channel: row.channel,
-        createdAt: row.createdAt,
-        safeError: row.lastError,
-        scheduledFor: row.scheduledFor,
-        status: row.status,
-        updatedAt: row.updatedAt,
-      }));
+      return rows
+        .filter((row) => row.brokerageId === brokerage._id)
+        .map((row) => ({
+          _id: row._id,
+          attemptCount: row.attemptCount,
+          cadence: row.cadence,
+          channel: row.channel,
+          createdAt: row.createdAt,
+          safeError: row.lastError,
+          scheduledFor: row.scheduledFor,
+          status: row.status,
+          updatedAt: row.updatedAt,
+        }));
     })
     .public();
 
@@ -1016,6 +1041,26 @@ async function deliveryContact(
         p256dh: subscription.p256dh,
       }
     : null;
+}
+
+async function currentRecipientParticipationPeriod(
+  ctx: MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    recipientWorkosUserId: string;
+  }
+) {
+  const participant = await ctx.db
+    .query("buildParticipants")
+    .withIndex("by_buildId_and_workosUserId", (query) =>
+      query
+        .eq("buildId", input.buildId)
+        .eq("workosUserId", input.recipientWorkosUserId)
+    )
+    .order("desc")
+    .filter((query) => query.neq(query.field("status"), "removed"))
+    .first();
+  return participant?.participationPeriod;
 }
 
 async function cancelDelivery(

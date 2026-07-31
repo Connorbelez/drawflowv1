@@ -190,6 +190,7 @@ async function seedQueuedExternalDeliveries(
         deliveryMode: "digest",
         eventKind: "ordinary_activity",
         organizationId: ORGANIZATION_ID,
+        recipientParticipationPeriod: 1,
         recipientWorkosUserId: "user_broker",
         scheduledFor: now + 86_400_000,
         status: "queued",
@@ -686,7 +687,6 @@ describe("Build collaboration external delivery", () => {
           reason: "Overflow revocation coverage.",
         }
       );
-      vi.advanceTimersByTime(1);
       await fixture.admin.mutation(
         (api as any).build_participants.reinviteBuildParticipant,
         {
@@ -714,6 +714,7 @@ describe("Build collaboration external delivery", () => {
           deliveryMode: "immediate",
           eventKind: "direct_mention",
           organizationId: ORGANIZATION_ID,
+          recipientParticipationPeriod: 2,
           recipientWorkosUserId: "user_broker",
           scheduledFor: now,
           status: "queued",
@@ -735,7 +736,13 @@ describe("Build collaboration external delivery", () => {
     ).toBe(true);
     expect(
       rows.find((row) => row.dedupeKey === "reinvited-period-delivery")
-    ).toEqual(expect.objectContaining({ status: "queued" }));
+    ).toEqual(
+      expect.objectContaining({
+        createdAt: rows[0]?.cancelledAt,
+        recipientParticipationPeriod: 2,
+        status: "queued",
+      })
+    );
   });
 
   test("scrubs an already-rendered outbox when access is revoked before send", async () => {

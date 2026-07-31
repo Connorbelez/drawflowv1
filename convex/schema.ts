@@ -3878,6 +3878,7 @@ export default defineSchema({
     brokerageId: v.id("brokerages"),
     buildId: v.id("activeBuilds"),
     recipientWorkosUserId: v.string(),
+    recipientParticipationPeriod: v.optional(v.number()),
     recipientDeliveryId: v.optional(v.id("recipientDeliveries")),
     channel: v.union(v.literal("email"), v.literal("push")),
     deliveryMode: v.union(v.literal("immediate"), v.literal("digest")),

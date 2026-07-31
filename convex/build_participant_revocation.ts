@@ -41,6 +41,7 @@ export async function processParticipantRevocationCleanupBatch(
     cancellationReason: "participant_access_revoked",
     createdAtThrough: participant.removedAt ?? now,
     now,
+    participationPeriod: participant.participationPeriod,
     recipientWorkosUserId: participant.workosUserId,
   });
   const follows = await ctx.db
