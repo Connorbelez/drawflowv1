@@ -35,6 +35,9 @@ import type * as build_collaboration_actor from "../build_collaboration_actor.js
 import type * as build_collaboration_asset_access from "../build_collaboration_asset_access.js";
 import type * as build_collaboration_content from "../build_collaboration_content.js";
 import type * as build_collaboration_contracts from "../build_collaboration_contracts.js";
+import type * as build_collaboration_delivery from "../build_collaboration_delivery.js";
+import type * as build_collaboration_delivery_model from "../build_collaboration_delivery_model.js";
+import type * as build_collaboration_delivery_transport from "../build_collaboration_delivery_transport.js";
 import type * as build_collaboration_drafts from "../build_collaboration_drafts.js";
 import type * as build_collaboration_editing from "../build_collaboration_editing.js";
 import type * as build_collaboration_focus from "../build_collaboration_focus.js";
@@ -48,6 +51,7 @@ import type * as build_collaboration_notifications from "../build_collaboration_
 import type * as build_collaboration_pin_migration from "../build_collaboration_pin_migration.js";
 import type * as build_collaboration_projection from "../build_collaboration_projection.js";
 import type * as build_collaboration_publication_bundle from "../build_collaboration_publication_bundle.js";
+import type * as build_collaboration_recipient_access from "../build_collaboration_recipient_access.js";
 import type * as build_collaboration_references from "../build_collaboration_references.js";
 import type * as build_collaboration_resolution from "../build_collaboration_resolution.js";
 import type * as build_collaboration_resolution_migration from "../build_collaboration_resolution_migration.js";
@@ -127,6 +131,9 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_asset_access: typeof build_collaboration_asset_access;
   build_collaboration_content: typeof build_collaboration_content;
   build_collaboration_contracts: typeof build_collaboration_contracts;
+  build_collaboration_delivery: typeof build_collaboration_delivery;
+  build_collaboration_delivery_model: typeof build_collaboration_delivery_model;
+  build_collaboration_delivery_transport: typeof build_collaboration_delivery_transport;
   build_collaboration_drafts: typeof build_collaboration_drafts;
   build_collaboration_editing: typeof build_collaboration_editing;
   build_collaboration_focus: typeof build_collaboration_focus;
@@ -140,6 +147,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_pin_migration: typeof build_collaboration_pin_migration;
   build_collaboration_projection: typeof build_collaboration_projection;
   build_collaboration_publication_bundle: typeof build_collaboration_publication_bundle;
+  build_collaboration_recipient_access: typeof build_collaboration_recipient_access;
   build_collaboration_references: typeof build_collaboration_references;
   build_collaboration_resolution: typeof build_collaboration_resolution;
   build_collaboration_resolution_migration: typeof build_collaboration_resolution_migration;

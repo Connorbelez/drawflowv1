@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { actionItemRequiresAcceptance } from "./build_action_item_governance";
+import { cancelQueuedBuildCollaborationExternalDeliveries } from "./build_collaboration_delivery";
 import { buildCollaborationRoleValidator } from "./build_collaboration_validators";
 import { enqueueParticipantRevocationNotifications } from "./build_participant_revocation_notifications";
 import { internalMutation } from "./fluent";
@@ -35,6 +36,12 @@ export async function processParticipantRevocationCleanupBatch(
     return { actionItemCount: 0, complete: true };
   }
   const now = Date.now();
+  await cancelQueuedBuildCollaborationExternalDeliveries(ctx, {
+    buildId: participant.buildId,
+    cancellationReason: "participant_access_revoked",
+    now,
+    recipientWorkosUserId: participant.workosUserId,
+  });
   const follows = await ctx.db
     .query("buildCollaborationFollows")
     .withIndex("by_buildId_and_workosUserId_and_active", (query) =>

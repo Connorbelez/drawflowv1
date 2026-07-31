@@ -4,6 +4,14 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
+crons.interval(
+  "deliver Build collaboration notifications",
+  { minutes: 5 },
+  internal.build_collaboration_delivery
+    .processBuildCollaborationExternalDeliveries,
+  {}
+);
+
 crons.hourly(
   "process Build Action Item deadlines",
   { minuteUTC: 5 },

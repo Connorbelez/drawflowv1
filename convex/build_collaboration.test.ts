@@ -670,6 +670,9 @@ describe("Build collaboration publication and feed", () => {
       const approvals = await ctx.db
         .query("buildCollaborationPublicationApprovals")
         .collect();
+      const externalDeliveries = await ctx.db
+        .query("buildCollaborationExternalDeliveries")
+        .collect();
       const actionItems = await ctx.db
         .query("buildActionItems")
         .withIndex("by_originatingPostId_and_status", (query) =>
@@ -684,6 +687,7 @@ describe("Build collaboration publication and feed", () => {
         actionItems,
         approvals,
         deliveries,
+        externalDeliveries,
         outbox,
         readers,
         references,
@@ -732,10 +736,16 @@ describe("Build collaboration publication and feed", () => {
         summarySnapshot: "Broker on this Build",
       }),
     ]);
-    expect(persisted.outbox.map((event) => event.eventType)).toEqual(
+    expect(persisted.outbox.map((event) => event.eventType)).toContain(
+      "build_collaboration.shared_mutation.requested",
+    );
+    expect(persisted.externalDeliveries).toEqual(
       expect.arrayContaining([
-        "build_collaboration.notification.email",
-        "build_collaboration.shared_mutation.requested",
+        expect.objectContaining({
+          channel: "email",
+          eventKind: "assignment",
+          status: "queued",
+        }),
       ]),
     );
     expect(persisted.approvals).toEqual(

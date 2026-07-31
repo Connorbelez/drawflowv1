@@ -3,13 +3,14 @@ import {
   paginationResultValidator,
 } from "convex/server";
 import { v } from "convex/values";
-
+import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import type { AuthorizedViewer } from "./authz";
 import { authenticatedQuery } from "./authz";
 import { requireReadableActionItem } from "./build_action_items";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import type { BuildCollaborationNotificationKind } from "./build_collaboration_notifications";
+import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Doc, QueryCtx } from "./types";
 
@@ -62,10 +63,12 @@ export const listRecipientInbox = authenticatedQuery
         numItems: Math.min(100, Math.max(1, args.paginationOpts.numItems)),
       });
     const visibleRecords = args.includeResolved
-      ? records.page
+      ? records.page.filter((record) => record.inAppVisible !== false)
       : records.page.filter(
           (record) =>
-            record.status !== "dismissed" && record.status !== "resolved"
+            record.inAppVisible !== false &&
+            record.status !== "dismissed" &&
+            record.status !== "resolved"
         );
     const deliveries: ReturnType<typeof projectStoredDelivery>[] = [];
     for (const record of visibleRecords) {
@@ -129,91 +132,165 @@ async function projectReadableDelivery(
       buildId: record.collaborationBuildId,
       organizationId: record.organizationId,
     });
-    if (record.collaborationActionItemId) {
-      const item = await requireReadableActionItem(
-        ctx,
-        authorization,
-        record.collaborationActionItemId
-      );
-      return projectStoredDelivery(record, {
-        actionLabel: "Open Action Item",
-        body: item.title,
-        entityId: item._id,
-        entityLabel: authorization.build.buildName,
-        entityType: "buildActionItem",
-        href: buildCollaborationDeepLink({
-          buildId: authorization.build._id,
-          focus: `actionItem:${item._id}`,
-          postId: item.originatingPostId,
-          recipientRole: authorization.effectiveRole.role,
-        }),
-        title: canonicalNotificationTitle(record.collaborationEventKind),
-      });
-    }
-    const post = record.collaborationPostId
-      ? await ctx.db.get(record.collaborationPostId)
-      : null;
+    return await projectAuthorizedCollaborationDelivery(
+      ctx,
+      authorization,
+      record
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function projectAuthorizedCollaborationDelivery(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  record: Doc<"recipientDeliveries">
+) {
+  if (
+    record.collaborationBuildId !== authorization.build._id ||
+    record.organizationId !== authorization.organizationId ||
+    record.brokerageId !== authorization.brokerage._id ||
+    record.recipientWorkosUserId !== authorization.viewer.subject
+  ) {
+    return null;
+  }
+  if (!(await canReadAttachedNotificationContext(ctx, authorization, record))) {
+    return null;
+  }
+  if (record.collaborationActionItemId) {
+    const item = await requireReadableActionItem(
+      ctx,
+      authorization,
+      record.collaborationActionItemId
+    );
+    return projectStoredDelivery(record, {
+      actionLabel: "Open Action Item",
+      body: item.title,
+      entityId: item._id,
+      entityLabel: authorization.build.buildName,
+      entityType: "buildActionItem",
+      href: buildCollaborationDeepLink({
+        buildId: authorization.build._id,
+        focus: `actionItem:${item._id}`,
+        postId: item.originatingPostId,
+        recipientRole: authorization.effectiveRole.role,
+      }),
+      title: canonicalNotificationTitle(record.collaborationEventKind),
+    });
+  }
+  const post = record.collaborationPostId
+    ? await ctx.db.get(record.collaborationPostId)
+    : null;
+  if (
+    !post ||
+    post.contentState !== "active" ||
+    !(await canReadCollaborationPost(ctx, authorization, post))
+  ) {
+    return null;
+  }
+  if (record.collaborationCommentId) {
+    const comment = await ctx.db.get(record.collaborationCommentId);
     if (
-      !post ||
-      post.contentState !== "active" ||
-      !(await canReadCollaborationPost(ctx, authorization, post))
+      !comment ||
+      comment.contentState !== "active" ||
+      comment.postId !== post._id ||
+      comment.buildId !== authorization.build._id ||
+      comment.organizationId !== authorization.organizationId
     ) {
       return null;
     }
-    if (record.collaborationCommentId) {
-      const comment = await ctx.db.get(record.collaborationCommentId);
-      if (
-        !comment ||
-        comment.contentState !== "active" ||
-        comment.postId !== post._id ||
-        comment.buildId !== authorization.build._id ||
-        comment.organizationId !== authorization.organizationId
-      ) {
-        return null;
-      }
-      const revision = comment.currentRevisionId
-        ? await ctx.db.get(comment.currentRevisionId)
-        : null;
-      if (!revision || revision.commentId !== comment._id) {
-        return null;
-      }
-      return projectStoredDelivery(record, {
-        actionLabel: "Open reply",
-        body: revision.plainText,
-        entityId: comment._id,
-        entityLabel: authorization.build.buildName,
-        entityType: "buildCollaborationComment",
-        href: buildCollaborationDeepLink({
-          buildId: authorization.build._id,
-          focus: `comment:${comment._id}`,
-          postId: post._id,
-          recipientRole: authorization.effectiveRole.role,
-        }),
-        title: canonicalNotificationTitle(record.collaborationEventKind),
-      });
-    }
-    const revision = post.currentRevisionId
-      ? await ctx.db.get(post.currentRevisionId)
+    const revision = comment.currentRevisionId
+      ? await ctx.db.get(comment.currentRevisionId)
       : null;
-    if (!revision || revision.postId !== post._id) {
+    if (!revision || revision.commentId !== comment._id) {
       return null;
     }
     return projectStoredDelivery(record, {
-      actionLabel: "Open thread",
+      actionLabel: "Open reply",
       body: revision.plainText,
-      entityId: post._id,
+      entityId: comment._id,
       entityLabel: authorization.build.buildName,
-      entityType: "buildCollaborationPost",
+      entityType: "buildCollaborationComment",
       href: buildCollaborationDeepLink({
         buildId: authorization.build._id,
+        focus: `comment:${comment._id}`,
         postId: post._id,
         recipientRole: authorization.effectiveRole.role,
       }),
       title: canonicalNotificationTitle(record.collaborationEventKind),
     });
-  } catch {
+  }
+  const revision = post.currentRevisionId
+    ? await ctx.db.get(post.currentRevisionId)
+    : null;
+  if (!revision || revision.postId !== post._id) {
     return null;
   }
+  return projectStoredDelivery(record, {
+    actionLabel: "Open thread",
+    body: revision.plainText,
+    entityId: post._id,
+    entityLabel: authorization.build.buildName,
+    entityType: "buildCollaborationPost",
+    href: buildCollaborationDeepLink({
+      buildId: authorization.build._id,
+      postId: post._id,
+      recipientRole: authorization.effectiveRole.role,
+    }),
+    title: canonicalNotificationTitle(record.collaborationEventKind),
+  });
+}
+
+async function canReadAttachedNotificationContext(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  record: Doc<"recipientDeliveries">
+) {
+  if (record.collaborationReferenceId) {
+    const reference = await ctx.db.get(record.collaborationReferenceId);
+    if (
+      !reference ||
+      reference.organizationId !== authorization.organizationId ||
+      reference.buildId !== authorization.build._id ||
+      !(
+        record.collaborationPostId ||
+        record.collaborationCommentId ||
+        record.collaborationActionItemId
+      )
+    ) {
+      return false;
+    }
+    try {
+      await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization,
+        entityId: reference.entityId,
+        entityKind: reference.entityKind,
+      });
+    } catch {
+      return false;
+    }
+  }
+  if (record.collaborationAssetId) {
+    const asset = await ctx.db.get(record.collaborationAssetId);
+    if (
+      !asset ||
+      asset.state !== "available" ||
+      asset.organizationId !== authorization.organizationId ||
+      asset.brokerageId !== authorization.brokerage._id ||
+      asset.buildId !== authorization.build._id ||
+      !(record.collaborationPostId || record.collaborationActionItemId)
+    ) {
+      return false;
+    }
+    if (
+      asset.maximumAudienceMode !== "build_wide" &&
+      !asset.readerWorkosUserIds?.includes(authorization.viewer.subject)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function projectStoredDelivery(

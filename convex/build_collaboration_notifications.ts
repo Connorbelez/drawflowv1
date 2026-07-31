@@ -2,6 +2,9 @@ import { v } from "convex/values";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { collaborationNotificationPreferenceValidator } from "./build_collaboration_contracts";
+import { enqueueBuildCollaborationExternalDeliveries } from "./build_collaboration_delivery";
+import { externalDeliveryPlan } from "./build_collaboration_delivery_model";
+import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import type { NotificationEffectInput } from "./build_collaboration_publication_bundle";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { buildCollaborationNotificationChannelValidator } from "./build_collaboration_validators";
@@ -84,6 +87,7 @@ export async function emitCanonicalBuildCollaborationNotification(
   ctx: MutationCtx,
   input: {
     actionItemId?: Id<"buildActionItems">;
+    assetId?: Id<"buildCollaborationAssets">;
     actionLabel: string;
     authorization: ActiveBuildAuthorization;
     body: string;
@@ -96,6 +100,7 @@ export async function emitCanonicalBuildCollaborationNotification(
     kind: BuildCollaborationNotificationKind;
     now: number;
     postId?: Id<"buildCollaborationPosts">;
+    referenceId?: Id<"buildCollaborationReferences">;
     readerIds: Iterable<string>;
     recipientWorkosUserId: string;
     resolutionMode?: "domain" | "recipient";
@@ -119,11 +124,24 @@ export async function emitCanonicalBuildCollaborationNotification(
         .eq("workosUserId", input.recipientWorkosUserId)
     )
     .first();
-  if (
-    !mandatory &&
-    (preference?.ordinaryMuted ||
-      (preference && !preference.channels.includes("in_app")))
-  ) {
+  // General Build activity is digest-only and therefore opt-in. Direct and
+  // critical events retain the product default of immediate in-app + email.
+  if (input.kind === "ordinary_activity" && !preference) {
+    return null;
+  }
+  if (!mandatory && preference?.ordinaryMuted) {
+    return null;
+  }
+  const channels = preference?.channels ?? ["in_app", "email"];
+  const inAppVisible = mandatory || channels.includes("in_app");
+  const externalPlan = externalDeliveryPlan({
+    channels,
+    digestCadence: preference?.digestCadence,
+    digestEnabled: preference?.digestEnabled,
+    kind: input.kind,
+    ordinaryMuted: preference?.ordinaryMuted,
+  });
+  if (!(inAppVisible || externalPlan.length)) {
     return null;
   }
   const existing = await ctx.db
@@ -136,24 +154,40 @@ export async function emitCanonicalBuildCollaborationNotification(
     )
     .first();
   if (existing) {
+    await enqueueBuildCollaborationExternalDeliveries(ctx, {
+      brokerageId: input.authorization.brokerage._id,
+      buildId: input.authorization.build._id,
+      channels,
+      digestCadence: preference?.digestCadence,
+      digestEnabled: preference?.digestEnabled,
+      kind: input.kind,
+      now: input.now,
+      ordinaryMuted: preference?.ordinaryMuted,
+      organizationId: input.authorization.organizationId,
+      recipientDeliveryId: existing._id,
+      recipientWorkosUserId: input.recipientWorkosUserId,
+    });
     return existing._id;
   }
-  return await ctx.db.insert("recipientDeliveries", {
+  const recipientDeliveryId = await ctx.db.insert("recipientDeliveries", {
     actionLabel: input.actionLabel,
     actionRequired: mandatory,
     body: input.body.slice(0, 280),
     brokerageId: input.authorization.brokerage._id,
     collaborationActionItemId: input.actionItemId,
+    collaborationAssetId: input.assetId,
     collaborationBuildId: input.authorization.build._id,
     collaborationCommentId: input.commentId,
     collaborationEventKind: input.kind,
     collaborationPostId: input.postId,
+    collaborationReferenceId: input.referenceId,
     createdAt: input.now,
     dedupeKey: input.dedupeKey,
     entityId: input.entityId,
     entityLabel: input.entityLabel ?? input.authorization.build.buildName,
     entityType: input.entityType,
     href: input.href,
+    inAppVisible,
     organizationId: input.authorization.organizationId,
     recipientWorkosUserId: input.recipientWorkosUserId,
     resolutionMode: input.resolutionMode ?? "recipient",
@@ -162,6 +196,20 @@ export async function emitCanonicalBuildCollaborationNotification(
     title: input.title,
     updatedAt: input.now,
   });
+  await enqueueBuildCollaborationExternalDeliveries(ctx, {
+    brokerageId: input.authorization.brokerage._id,
+    buildId: input.authorization.build._id,
+    channels,
+    digestCadence: preference?.digestCadence,
+    digestEnabled: preference?.digestEnabled,
+    kind: input.kind,
+    now: input.now,
+    ordinaryMuted: preference?.ordinaryMuted,
+    organizationId: input.authorization.organizationId,
+    recipientDeliveryId,
+    recipientWorkosUserId: input.recipientWorkosUserId,
+  });
+  return recipientDeliveryId;
 }
 
 export const getMyBuildCollaborationNotificationPreferences = authenticatedQuery
@@ -269,23 +317,6 @@ async function fanOutPublicationEffect(
   input: Parameters<typeof fanOutBuildCollaborationPublication>[1],
   effect: NotificationEffectInput
 ) {
-  if (effect.channel !== "in_app") {
-    await ctx.db.insert("eventOutbox", {
-      brokerageId: input.authorization.brokerage._id,
-      createdAt: input.now,
-      eventType: `build_collaboration.notification.${effect.channel}`,
-      organizationId: input.authorization.organizationId,
-      payloadPreview: JSON.stringify({
-        postId: input.postId,
-        recipientWorkosUserIds: effect.recipientWorkosUserIds,
-        summary: effect.summary,
-      }),
-      relatedEntityId: input.postId,
-      relatedEntityType: "buildCollaborationPost",
-      status: "pending",
-    });
-    return;
-  }
   for (const recipientWorkosUserId of effect.recipientWorkosUserIds) {
     for (const kind of publicationNotificationKinds(
       input,
@@ -298,7 +329,10 @@ async function fanOutPublicationEffect(
         dedupeKey: `build-collaboration:${input.postId}:${kind}:${recipientWorkosUserId}`,
         entityId: input.postId,
         entityType: "buildCollaborationPost",
-        href: `/backoffice/builds/${input.authorization.build._id}?tab=details&collaborationPost=${input.postId}`,
+        href: buildCollaborationDeepLink({
+          buildId: input.authorization.build._id,
+          postId: input.postId,
+        }),
         kind,
         now: input.now,
         postId: input.postId as Id<"buildCollaborationPosts">,
@@ -317,7 +351,7 @@ function publicationNotificationKinds(
   input: Parameters<typeof fanOutBuildCollaborationPublication>[1],
   recipientWorkosUserId: string
 ): BuildCollaborationNotificationKind[] {
-  return notificationKindsForPublicationRecipient({
+  const kinds = notificationKindsForPublicationRecipient({
     acknowledgementRequired: input.acknowledgementTargetIds.includes(
       recipientWorkosUserId
     ),
@@ -325,6 +359,7 @@ function publicationNotificationKinds(
     mentioned: input.referencedParticipantIds.includes(recipientWorkosUserId),
     postType: input.postType,
   });
+  return kinds.length ? kinds : ["ordinary_activity"];
 }
 
 export function resolveBuildCollaborationPublicationNotifications(input: {
@@ -338,24 +373,12 @@ export function resolveBuildCollaborationPublicationNotifications(input: {
   requestedEffects: NotificationEffectInput[];
 }) {
   const readerIds = new Set(input.readerIds);
-  const directlyAddressed = new Set([
-    ...input.acknowledgementTargetIds,
-    ...input.actionAssigneeIds,
-    ...input.referencedParticipantIds,
-  ]);
   const defaultRecipients: string[] = [];
   for (const recipientWorkosUserId of input.readerIds
     .filter(
       (workosUserId) => workosUserId !== input.authorization.viewer.subject
     )
     .slice(0, 1000)) {
-    const mandatory =
-      directlyAddressed.has(recipientWorkosUserId) ||
-      input.postType === "announcement" ||
-      input.postType === "issue";
-    if (!mandatory) {
-      continue;
-    }
     defaultRecipients.push(recipientWorkosUserId);
   }
   const requestedEffects = input.requestedEffects.map((effect) => {
