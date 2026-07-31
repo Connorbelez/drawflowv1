@@ -353,6 +353,9 @@ export function BuildCollaborationFeed({
   const saveDraft = useMutation(
     api.build_collaboration_drafts.saveMyBuildCollaborationDraft
   );
+  const publishHumanPost = useMutation(
+    api.build_collaboration.approveAndPublishBuildCollaborationBundle
+  );
   const publishDraft = useMutation(
     api.build_collaboration_drafts.approveAndPublishBuildCollaborationDraft
   );
@@ -375,9 +378,7 @@ export function BuildCollaborationFeed({
   const [actionTitle, setActionTitle] = useState("");
   const [acknowledgementRequired, setAcknowledgementRequired] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [pendingComposerApproval, setPendingComposerApproval] =
-    useState<CollaborationDraftBundle | null>(null);
-  const [pendingComposerDraftId, setPendingComposerDraftId] =
+  const [editingHumanDraftId, setEditingHumanDraftId] =
     useState<Id<"buildCollaborationDrafts"> | null>(null);
   const [reviewingDraftId, setReviewingDraftId] =
     useState<Id<"buildCollaborationDrafts"> | null>(null);
@@ -397,35 +398,6 @@ export function BuildCollaborationFeed({
   const personalQueue = actionItemQueueState(personalActionItems);
   const buildQueue = actionItemQueueState(buildActionItems);
   const entityQueue = actionItemQueueState(focusedEntityActionItems);
-  const composerRevisionKey = useMemo(
-    () =>
-      JSON.stringify({
-        acknowledgementRequired,
-        actionTitle,
-        audienceMode,
-        document,
-        postType,
-        references,
-        requestedReaderIds,
-      }),
-    [
-      acknowledgementRequired,
-      actionTitle,
-      audienceMode,
-      document,
-      postType,
-      references,
-      requestedReaderIds,
-    ]
-  );
-
-  useEffect(() => {
-    if (composerRevisionKey) {
-      setPendingComposerApproval(null);
-      setPendingComposerDraftId(null);
-    }
-  }, [composerRevisionKey]);
-
   const tagOptions = useMemo<ReferenceOption[]>(
     () => (rawTagOptions ?? []).map(toCollaborationTagOption),
     [rawTagOptions]
@@ -575,8 +547,7 @@ export function BuildCollaborationFeed({
     setRequestedReaderIds([]);
     setPostType("update");
     setAudienceMode("build_wide");
-    setPendingComposerApproval(null);
-    setPendingComposerDraftId(null);
+    setEditingHumanDraftId(null);
     setComposerOpen(false);
   };
 
@@ -609,7 +580,7 @@ export function BuildCollaborationFeed({
     };
   };
 
-  const requestComposerApproval = async () => {
+  const publishComposerPost = async () => {
     const bundle = buildComposerBundle();
     if (!(bundle && organizationId) || publishing) {
       toast.error("Write an update before publishing.");
@@ -617,42 +588,26 @@ export function BuildCollaborationFeed({
     }
     setPublishing(true);
     try {
-      const prepared = await saveDraft({
-        ...bundle,
-        buildId: activeBuildId,
-        organizationId,
-      });
-      const effectiveBundle = parseDraftBundle(prepared.bundleJson);
-      if (!effectiveBundle) {
-        throw new Error("The prepared publication bundle is invalid.");
+      if (editingHumanDraftId) {
+        await saveDraft({
+          ...bundle,
+          buildId: activeBuildId,
+          draftId: editingHumanDraftId,
+          organizationId,
+          preparedByAgent: false,
+        });
+        await publishDraft({
+          buildId: activeBuildId,
+          draftId: editingHumanDraftId,
+          organizationId,
+        });
+      } else {
+        await publishHumanPost({
+          ...bundle,
+          buildId: activeBuildId,
+          organizationId,
+        });
       }
-      setPendingComposerApproval(effectiveBundle);
-      setPendingComposerDraftId(prepared.draftId);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to prepare publication review."
-      );
-    } finally {
-      setPublishing(false);
-    }
-  };
-
-  const publishBundle = async () => {
-    if (
-      !(organizationId && pendingComposerApproval && pendingComposerDraftId) ||
-      publishing
-    ) {
-      return;
-    }
-    setPublishing(true);
-    try {
-      await publishDraft({
-        buildId: activeBuildId,
-        draftId: pendingComposerDraftId,
-        organizationId,
-      });
       toast.success("Update published.");
       resetComposer();
     } catch (error) {
@@ -679,6 +634,7 @@ export function BuildCollaborationFeed({
         actionItems: composerActionItems(actionTitle),
         audienceMode,
         buildId: activeBuildId,
+        draftId: editingHumanDraftId ?? undefined,
         organizationId,
         plainText,
         postType,
@@ -735,6 +691,7 @@ export function BuildCollaborationFeed({
       })
     );
     setRequestedReaderIds(bundle.requestedReaderIds);
+    setEditingHumanDraftId(draft._id);
     setComposerOpen(true);
   };
 
@@ -764,8 +721,8 @@ export function BuildCollaborationFeed({
               <div>
                 <p className="font-medium text-sm">Drafts awaiting you</p>
                 <p className="text-muted-foreground text-xs">
-                  Publication is always a human-in-the-loop action and you
-                  remain the author.
+                  Assistant-prepared drafts require your approval. Your own
+                  drafts can publish directly under your name.
                 </p>
               </div>
               <div className="space-y-2">
@@ -789,21 +746,52 @@ export function BuildCollaborationFeed({
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          <Button
-                            onClick={() => loadDraftIntoComposer(draft)}
-                            size="sm"
-                            type="button"
-                            variant="outline"
-                          >
-                            Review
-                          </Button>
-                          <Button
-                            onClick={() => setReviewingDraftId(draft._id)}
-                            size="sm"
-                            type="button"
-                          >
-                            Review exact bundle
-                          </Button>
+                          {draft.preparedByAgent ? null : (
+                            <Button
+                              onClick={() => loadDraftIntoComposer(draft)}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              Edit
+                            </Button>
+                          )}
+                          {draft.preparedByAgent ? (
+                            <Button
+                              onClick={() => setReviewingDraftId(draft._id)}
+                              size="sm"
+                              type="button"
+                            >
+                              Review exact bundle
+                            </Button>
+                          ) : (
+                            <Button
+                              disabled={publishing}
+                              onClick={async () => {
+                                setPublishing(true);
+                                try {
+                                  await publishDraft({
+                                    buildId: activeBuildId,
+                                    draftId: draft._id,
+                                    organizationId,
+                                  });
+                                  toast.success("Draft published.");
+                                } catch (error) {
+                                  toast.error(
+                                    error instanceof Error
+                                      ? error.message
+                                      : "Unable to publish draft."
+                                  );
+                                } finally {
+                                  setPublishing(false);
+                                }
+                              }}
+                              size="sm"
+                              type="button"
+                            >
+                              Publish
+                            </Button>
+                          )}
                           <Button
                             onClick={async () => {
                               try {
@@ -828,7 +816,9 @@ export function BuildCollaborationFeed({
                           </Button>
                         </div>
                       </CardPanel>
-                      {reviewingDraftId === draft._id && bundle ? (
+                      {draft.preparedByAgent &&
+                      reviewingDraftId === draft._id &&
+                      bundle ? (
                         <CardPanel className="border-t p-3">
                           <BuildCollaborationApprovalReview
                             bundle={bundle}
@@ -872,6 +862,7 @@ export function BuildCollaborationFeed({
         <Frame>
           <FramePanel className="p-0">
             <button
+              aria-label="What should people involved in this Build know?"
               className="flex w-full items-center gap-3 px-4 py-4 text-left"
               onClick={() => setComposerOpen(true)}
               type="button"
@@ -985,11 +976,11 @@ export function BuildCollaborationFeed({
                     </Button>
                     <Button
                       disabled={publishing}
-                      onClick={requestComposerApproval}
+                      onClick={publishComposerPost}
                       type="button"
                     >
                       <Send aria-hidden="true" className="size-4" />
-                      Review publication
+                      Publish
                     </Button>
                   </div>
                 </div>
@@ -1003,17 +994,6 @@ export function BuildCollaborationFeed({
                   />
                   Require acknowledgement from participants at or below my role
                 </label>
-                {pendingComposerApproval ? (
-                  <BuildCollaborationApprovalReview
-                    bundle={pendingComposerApproval}
-                    onApprove={publishBundle}
-                    onCancel={() => {
-                      setPendingComposerApproval(null);
-                      setPendingComposerDraftId(null);
-                    }}
-                    publishing={publishing}
-                  />
-                ) : null}
               </div>
             ) : null}
           </FramePanel>

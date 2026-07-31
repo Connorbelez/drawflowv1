@@ -748,39 +748,7 @@ describe("Build collaboration publication and feed", () => {
         }),
       ]),
     );
-    expect(persisted.approvals).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          bundleJsonSnapshot: expect.stringContaining(
-            "Canonical TipTap publication text.",
-          ),
-          readerSummaryJson: expect.stringContaining("effectiveReaderIds"),
-          state: "published",
-        }),
-      ]),
-    );
-    const approvedBundle = JSON.parse(
-      persisted.approvals.find((approval) => approval.state === "published")
-        ?.bundleJsonSnapshot ?? "{}",
-    );
-    expect(approvedBundle.actionItems).toEqual([
-      expect.objectContaining({
-        assigneeWorkosUserId: "user_broker",
-        descriptionPlainText: "Upload the sealed report.",
-        effectiveAssignmentState: "assigned",
-        priority: "none",
-        requiresAcceptance: false,
-        title: "Upload engineer seal",
-      }),
-    ]);
-    expect(approvedBundle.sharedMutations).toEqual([
-      {
-        entityId: "evidence-package-1",
-        entityKind: "evidencePackage",
-        operation: "request_review",
-        summary: "Request lender evidence review",
-      },
-    ]);
+    expect(persisted.approvals).toEqual([]);
   });
 
   test("rejects custom readers and notification recipients outside the active Build", async () => {
@@ -945,6 +913,56 @@ describe("Build collaboration publication and feed", () => {
         { buildId, draftId, organizationId: ORGANIZATION_ID },
       ),
     ).rejects.toThrow("This draft is no longer publishable.");
+  });
+
+  test("publishes a human-authored draft without creating a HITL approval", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const preparedDraft = await admin.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      {
+        acknowledgementRequired: false,
+        actionItems: [],
+        audienceMode: "build_wide",
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Written and submitted entirely by a human.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [
+                {
+                  text: "Written and submitted entirely by a human.",
+                  type: "text",
+                },
+              ],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    const draftId = preparedDraft.draftId as Id<"buildCollaborationDrafts">;
+    const postId = await admin.mutation(
+      (api as any).build_collaboration_drafts
+        .approveAndPublishBuildCollaborationDraft,
+      { buildId, draftId, organizationId: ORGANIZATION_ID },
+    );
+    const result = await base.run(async (ctx) => ({
+      approvals: (
+        await ctx.db.query("buildCollaborationPublicationApprovals").collect()
+      ).filter((approval) => approval.draftId === draftId),
+      post: await ctx.db.get(postId),
+    }));
+    expect(result.post).toMatchObject({
+      agentDrafted: false,
+      authorWorkosUserId: "user_admin",
+      source: "human",
+    });
+    expect(result.approvals).toEqual([]);
   });
 
   test("invalidates human approval when the exact prepared bundle changes", async () => {

@@ -1726,6 +1726,86 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Resolved")).toBeTruthy();
   });
 
+  test("publishes a human-authored composer post without showing a HITL checkpoint", async () => {
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /What should people involved in this Build know\?/,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buildId: "build-1",
+          organizationId: "org-1",
+          plainText: "Useful accountable work.",
+        }),
+      ),
+    );
+    expect(screen.queryByText("Human approval checkpoint")).toBeNull();
+  });
+
+  test("offers direct publish for a human-authored saved draft", async () => {
+    mocks.drafts = [
+      {
+        _creationTime: Date.now(),
+        _id: "human-draft-1",
+        approvalOwnerWorkosUserId: "user_admin",
+        bundleJson: JSON.stringify({
+          actionItems: [],
+          attachmentAssetIds: [],
+          audienceMode: "build_wide",
+          effectiveNotificationEffects: [],
+          effectiveReaderIds: ["user_admin"],
+          excludedReaderIds: [],
+          mandatoryReaderIds: ["user_admin"],
+          notificationEffects: [],
+          plainText: "Human saved draft.",
+          postType: "update",
+          references: [],
+          requestedReaderIds: [],
+          sharedMutations: [],
+          tiptapJson: JSON.stringify({
+            content: [
+              {
+                content: [{ text: "Human saved draft.", type: "text" }],
+                type: "paragraph",
+              },
+            ],
+            type: "doc",
+          }),
+        }),
+        preparedByActorKind: "human",
+        preparedByAgent: false,
+        preparedByWorkosUserId: "user_admin",
+        revision: 1,
+        state: "active",
+        updatedAt: Date.now(),
+      },
+    ];
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Review exact bundle" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        draftId: "human-draft-1",
+        organizationId: "org-1",
+      }),
+    );
+    expect(screen.queryByText("Human approval checkpoint")).toBeNull();
+  });
+
   test("shows the complete effective bundle before a human approves an agent draft", async () => {
     mocks.drafts = [
       {

@@ -259,47 +259,48 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
       );
     }
     const now = Date.now();
-    const approvalId = await ctx.db.insert(
-      "buildCollaborationPublicationApprovals",
-      {
-        approvedAt: now,
-        approvingActorKind: authorization.viewer.actorKind,
-        approvingWorkosUserId: authorization.viewer.subject,
-        brokerageId: authorization.brokerage._id,
-        buildId: authorization.build._id,
-        bundleHash: draft.bundleHash,
-        bundleJsonSnapshot: draft.bundleJson,
-        draftId: draft._id,
-        draftRevision: draft.revision,
-        mutationSummaryJson: JSON.stringify({
-          actionItemCount: bundle.actionItems.length,
-          attachmentAssetCount: bundle.attachmentAssetIds.length,
-          notificationEffectCount: bundle.effectiveNotificationEffects.length,
-          referenceCount: bundle.references.length,
-          sharedMutationCount: bundle.sharedMutations.length,
-        }),
-        organizationId: authorization.organizationId,
-        readerSummaryJson: JSON.stringify({
-          audienceMode: bundle.audienceMode,
-          effectiveReaderIds: bundle.effectiveReaderIds,
-          excludedReaderIds: bundle.excludedReaderIds,
-          mandatoryReaderIds: bundle.mandatoryReaderIds,
-          requestedReaderIds: bundle.requestedReaderIds,
-        }),
-        scheduledFor: draft.scheduledFor,
-        state: "approved",
-      }
-    );
+    const approvalId = draft.preparedByAgent
+      ? await ctx.db.insert("buildCollaborationPublicationApprovals", {
+          approvedAt: now,
+          approvingActorKind: authorization.viewer.actorKind,
+          approvingWorkosUserId: authorization.viewer.subject,
+          brokerageId: authorization.brokerage._id,
+          buildId: authorization.build._id,
+          bundleHash: draft.bundleHash,
+          bundleJsonSnapshot: draft.bundleJson,
+          draftId: draft._id,
+          draftRevision: draft.revision,
+          mutationSummaryJson: JSON.stringify({
+            actionItemCount: bundle.actionItems.length,
+            attachmentAssetCount: bundle.attachmentAssetIds.length,
+            notificationEffectCount: bundle.effectiveNotificationEffects.length,
+            referenceCount: bundle.references.length,
+            sharedMutationCount: bundle.sharedMutations.length,
+          }),
+          organizationId: authorization.organizationId,
+          readerSummaryJson: JSON.stringify({
+            audienceMode: bundle.audienceMode,
+            effectiveReaderIds: bundle.effectiveReaderIds,
+            excludedReaderIds: bundle.excludedReaderIds,
+            mandatoryReaderIds: bundle.mandatoryReaderIds,
+            requestedReaderIds: bundle.requestedReaderIds,
+          }),
+          scheduledFor: draft.scheduledFor,
+          state: "approved",
+        })
+      : null;
     const postId = await publishBuildCollaborationBundle(ctx, {
       agentDrafted: draft.preparedByAgent ?? false,
       audience,
       authorization,
       bundle,
     });
-    await ctx.db.patch(approvalId, {
-      publishedAt: now,
-      state: "published",
-    });
+    if (approvalId) {
+      await ctx.db.patch(approvalId, {
+        publishedAt: now,
+        state: "published",
+      });
+    }
     await ctx.db.patch(draft._id, {
       state: "published",
       updatedAt: now,

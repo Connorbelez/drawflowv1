@@ -26,10 +26,8 @@ import {
   type BuildCollaborationPublicationBundleInput,
   canonicalizeTiptapContent,
   canonicalizeTiptapReferences,
-  canonicalPublicationBundleJson,
   normalizePublicationBundle,
   publicationBundleFields,
-  publicationBundleHash,
   type ReferenceInput,
 } from "./build_collaboration_publication_bundle";
 import { resolveCanonicalBuildCollaborationReferences } from "./build_collaboration_references";
@@ -60,43 +58,12 @@ export const approveAndPublishBuildCollaborationBundle = authenticatedMutation
         bundle: args,
       }
     );
-    const bundleJson = canonicalPublicationBundleJson(bundle);
-    const bundleHash = await publicationBundleHash(bundleJson);
-    const now = Date.now();
-    const draftId = await ctx.db.insert("buildCollaborationDrafts", {
-      approvalOwnerWorkosUserId: authorization.viewer.subject,
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
-      bundleHash,
-      bundleJson,
-      createdAt: now,
-      organizationId: authorization.organizationId,
-      ownerWorkosUserId: authorization.viewer.subject,
-      preparedByActorKind: "human",
-      preparedByAgent: false,
-      preparedByWorkosUserId: authorization.viewer.subject,
-      revision: 1,
-      state: "active",
-      updatedAt: now,
-    });
-    const approvalId = await recordPublicationApproval(ctx, {
-      authorization,
-      bundle,
-      bundleHash,
-      bundleJson,
-      draftId,
-      draftRevision: 1,
-      now,
-    });
-    const postId = await publishBuildCollaborationBundle(ctx, {
+    return await publishBuildCollaborationBundle(ctx, {
       agentDrafted: false,
       audience,
       authorization,
       bundle,
     });
-    await ctx.db.patch(approvalId, { publishedAt: now, state: "published" });
-    await ctx.db.patch(draftId, { state: "published", updatedAt: now });
-    return postId;
   })
   .public();
 
@@ -583,47 +550,6 @@ async function persistApprovedSharedMutations(
       status: "pending",
     });
   }
-}
-
-async function recordPublicationApproval(
-  ctx: MutationCtx,
-  input: {
-    authorization: ActiveBuildAuthorization;
-    bundle: BuildCollaborationPublicationBundle;
-    bundleHash: string;
-    bundleJson: string;
-    draftId: Id<"buildCollaborationDrafts">;
-    draftRevision: number;
-    now: number;
-  }
-) {
-  return await ctx.db.insert("buildCollaborationPublicationApprovals", {
-    approvedAt: input.now,
-    approvingActorKind: "human",
-    approvingWorkosUserId: input.authorization.viewer.subject,
-    brokerageId: input.authorization.brokerage._id,
-    buildId: input.authorization.build._id,
-    bundleHash: input.bundleHash,
-    bundleJsonSnapshot: input.bundleJson,
-    draftId: input.draftId,
-    draftRevision: input.draftRevision,
-    mutationSummaryJson: JSON.stringify({
-      actionItemCount: input.bundle.actionItems.length,
-      attachmentAssetCount: input.bundle.attachmentAssetIds.length,
-      notificationEffectCount: input.bundle.effectiveNotificationEffects.length,
-      referenceCount: input.bundle.references.length,
-      sharedMutationCount: input.bundle.sharedMutations.length,
-    }),
-    organizationId: input.authorization.organizationId,
-    readerSummaryJson: JSON.stringify({
-      audienceMode: input.bundle.audienceMode,
-      effectiveReaderIds: input.bundle.effectiveReaderIds,
-      excludedReaderIds: input.bundle.excludedReaderIds,
-      mandatoryReaderIds: input.bundle.mandatoryReaderIds,
-      requestedReaderIds: input.bundle.requestedReaderIds,
-    }),
-    state: "approved",
-  });
 }
 
 function resolvePublicationAudience(input: {
