@@ -55,6 +55,8 @@ import type * as build_collaboration_notifications from "../build_collaboration_
 import type * as build_collaboration_pin_migration from "../build_collaboration_pin_migration.js";
 import type * as build_collaboration_projection from "../build_collaboration_projection.js";
 import type * as build_collaboration_publication_bundle from "../build_collaboration_publication_bundle.js";
+import type * as build_collaboration_push from "../build_collaboration_push.js";
+import type * as build_collaboration_push_maintenance from "../build_collaboration_push_maintenance.js";
 import type * as build_collaboration_recipient_access from "../build_collaboration_recipient_access.js";
 import type * as build_collaboration_references from "../build_collaboration_references.js";
 import type * as build_collaboration_resolution from "../build_collaboration_resolution.js";
@@ -155,6 +157,8 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_pin_migration: typeof build_collaboration_pin_migration;
   build_collaboration_projection: typeof build_collaboration_projection;
   build_collaboration_publication_bundle: typeof build_collaboration_publication_bundle;
+  build_collaboration_push: typeof build_collaboration_push;
+  build_collaboration_push_maintenance: typeof build_collaboration_push_maintenance;
   build_collaboration_recipient_access: typeof build_collaboration_recipient_access;
   build_collaboration_references: typeof build_collaboration_references;
   build_collaboration_resolution: typeof build_collaboration_resolution;

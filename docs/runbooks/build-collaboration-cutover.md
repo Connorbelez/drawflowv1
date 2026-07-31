@@ -39,6 +39,21 @@ The migration is idempotent. Each legacy note uses
 
 Re-running the migration must produce zero duplicate posts.
 
+Before enabling external delivery, cancel any pre-remediation unsent delivery
+that cannot prove the exact post/comment revision that created it. Run each
+status in bounded pages and pass the returned `continueCursor` back until
+`isDone` is true:
+
+```sh
+bun x convex run --prod build_collaboration_delivery_maintenance:cancelLegacyDeliveriesMissingSourceRevision '{"status":"queued"}'
+bun x convex run --prod build_collaboration_delivery_maintenance:cancelLegacyDeliveriesMissingSourceRevision '{"status":"failed"}'
+bun x convex run --prod build_collaboration_delivery_maintenance:cancelLegacyDeliveriesMissingSourceRevision '{"status":"dispatched"}'
+```
+
+Do not reconstruct a missing revision from the post's current revision. A
+legacy row without original revision provenance must remain cancelled and can
+only be replaced by a new canonical notification event.
+
 Then initialize the indexed Action Item deadline scheduler and canonical
 due-first queue order for every legacy row:
 
@@ -120,7 +135,10 @@ redacted and cancelled without a provider request.
 
 External delivery retries must retain one immutable batch record: exact member
 delivery IDs, original source-revision IDs, payload snapshot, and a
-collision-resistant provider idempotency key. If any member loses access, the
+collision-resistant provider idempotency key. The batch also snapshots the
+email destination or complete Build/device push destination set. If a
+destination changes, cancel the old batch and create a new batch/key before
+sending. If any member loses access, the
 whole batch is cancelled and its outbox is redacted; survivors must not be
 rebatched under a new key. Verify this by editing a post after a failed provider
 attempt, revoking access to an attachment on the original revision, and

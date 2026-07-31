@@ -38,6 +38,12 @@ const recipientDeliveryProjectionValidator = v.object({
   updatedAt: v.number(),
 });
 
+interface CollaborationDeliverySourceRevision {
+  commentRevisionId?: Id<"buildCollaborationCommentRevisions">;
+  postRevisionId?: Id<"buildCollaborationPostRevisions">;
+  requireExact?: boolean;
+}
+
 export const listRecipientInbox = authenticatedQuery
   .input({
     includeResolved: v.optional(v.boolean()),
@@ -146,10 +152,7 @@ export async function projectAuthorizedCollaborationDelivery(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
   record: Doc<"recipientDeliveries">,
-  sourceRevision?: {
-    commentRevisionId?: Id<"buildCollaborationCommentRevisions">;
-    postRevisionId?: Id<"buildCollaborationPostRevisions">;
-  }
+  sourceRevision?: CollaborationDeliverySourceRevision
 ) {
   if (!matchesAuthorizedDelivery(authorization, record)) {
     return null;
@@ -267,10 +270,7 @@ async function canReadAttachedNotificationContext(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
   record: Doc<"recipientDeliveries">,
-  sourceRevision?: {
-    commentRevisionId?: Id<"buildCollaborationCommentRevisions">;
-    postRevisionId?: Id<"buildCollaborationPostRevisions">;
-  }
+  sourceRevision?: CollaborationDeliverySourceRevision
 ) {
   if (!(await canReadDirectNotificationContext(ctx, authorization, record))) {
     return false;
@@ -356,51 +356,35 @@ async function notificationContextOwners(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
   record: Doc<"recipientDeliveries">,
-  sourceRevision?: {
-    commentRevisionId?: Id<"buildCollaborationCommentRevisions">;
-    postRevisionId?: Id<"buildCollaborationPostRevisions">;
-  }
+  sourceRevision?: CollaborationDeliverySourceRevision
 ) {
   const owners: NotificationContextOwner[] = [];
   if (record.collaborationPostId) {
-    const post = await ctx.db.get(record.collaborationPostId);
-    const postRevisionId =
-      sourceRevision?.postRevisionId ?? post?.currentRevisionId;
-    if (postRevisionId) {
-      const revision = await ctx.db.get(postRevisionId);
-      if (
-        !revision ||
-        revision.postId !== record.collaborationPostId ||
-        revision.organizationId !== authorization.organizationId ||
-        revision.buildId !== authorization.build._id
-      ) {
-        return null;
-      }
-      owners.push({
-        ownerKind: "postRevision",
-        ownerRecordId: postRevisionId,
-      });
+    const owner = await postRevisionNotificationOwner(
+      ctx,
+      authorization,
+      record,
+      sourceRevision
+    );
+    if (owner === null) {
+      return null;
+    }
+    if (owner) {
+      owners.push(owner);
     }
   }
   if (record.collaborationCommentId) {
-    const comment = await ctx.db.get(record.collaborationCommentId);
-    const commentRevisionId =
-      sourceRevision?.commentRevisionId ?? comment?.currentRevisionId;
-    if (commentRevisionId) {
-      const revision = await ctx.db.get(commentRevisionId);
-      if (
-        !revision ||
-        revision.commentId !== record.collaborationCommentId ||
-        revision.postId !== record.collaborationPostId ||
-        revision.organizationId !== authorization.organizationId ||
-        revision.buildId !== authorization.build._id
-      ) {
-        return null;
-      }
-      owners.push({
-        ownerKind: "commentRevision",
-        ownerRecordId: commentRevisionId,
-      });
+    const owner = await commentRevisionNotificationOwner(
+      ctx,
+      authorization,
+      record,
+      sourceRevision
+    );
+    if (owner === null) {
+      return null;
+    }
+    if (owner) {
+      owners.push(owner);
     }
   }
   if (record.collaborationActionItemId) {
@@ -410,6 +394,66 @@ async function notificationContextOwners(
     });
   }
   return owners;
+}
+
+async function postRevisionNotificationOwner(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  record: Doc<"recipientDeliveries">,
+  sourceRevision?: CollaborationDeliverySourceRevision
+): Promise<NotificationContextOwner | null | undefined> {
+  if (!record.collaborationPostId) {
+    return;
+  }
+  if (sourceRevision?.requireExact && !sourceRevision.postRevisionId) {
+    return null;
+  }
+  const post = await ctx.db.get(record.collaborationPostId);
+  const revisionId = sourceRevision?.postRevisionId ?? post?.currentRevisionId;
+  if (!revisionId) {
+    return;
+  }
+  const revision = await ctx.db.get(revisionId);
+  if (
+    !revision ||
+    revision.postId !== record.collaborationPostId ||
+    revision.organizationId !== authorization.organizationId ||
+    revision.buildId !== authorization.build._id
+  ) {
+    return null;
+  }
+  return { ownerKind: "postRevision", ownerRecordId: revisionId };
+}
+
+async function commentRevisionNotificationOwner(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  record: Doc<"recipientDeliveries">,
+  sourceRevision?: CollaborationDeliverySourceRevision
+): Promise<NotificationContextOwner | null | undefined> {
+  if (!record.collaborationCommentId) {
+    return;
+  }
+  if (sourceRevision?.requireExact && !sourceRevision.commentRevisionId) {
+    return null;
+  }
+  const comment = await ctx.db.get(record.collaborationCommentId);
+  const revisionId =
+    sourceRevision?.commentRevisionId ?? comment?.currentRevisionId;
+  if (!revisionId) {
+    return;
+  }
+  const revision = await ctx.db.get(revisionId);
+  if (
+    !revision ||
+    revision.commentId !== record.collaborationCommentId ||
+    revision.postId !== record.collaborationPostId ||
+    revision.organizationId !== authorization.organizationId ||
+    revision.buildId !== authorization.build._id
+  ) {
+    return null;
+  }
+  return { ownerKind: "commentRevision", ownerRecordId: revisionId };
 }
 
 async function canReadOwnedNotificationContext(

@@ -2667,6 +2667,7 @@ export default defineSchema({
     deliveryIds: v.array(v.id("buildCollaborationExternalDeliveries")),
     providerIdempotencyKey: v.string(),
     payloadSnapshot: v.string(),
+    contactSnapshot: v.string(),
     state: buildCollaborationDeliveryBatchStateValidator,
     completedAt: v.optional(v.number()),
     cancelledAt: v.optional(v.number()),
@@ -2737,7 +2738,19 @@ export default defineSchema({
       "buildId",
       "state",
     ])
-    .index("by_endpoint_and_state", ["endpoint", "state"]),
+    .index("by_endpoint_and_state", ["endpoint", "state"])
+    .index("by_endpoint_and_workosUserId_and_state", [
+      "endpoint",
+      "workosUserId",
+      "state",
+    ]),
+  buildCollaborationPushEndpointOwners: defineTable({
+    endpoint: v.string(),
+    workosUserId: v.string(),
+    revision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_endpoint", ["endpoint"]),
   operationsQueueHandoffs: defineTable({
     acknowledgementState: operationsHandoffAcknowledgementStateValidator,
     acknowledgedAt: v.optional(v.number()),

@@ -1,9 +1,11 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import {
   externalDeliveryPlan,
   nextBuildCollaborationRetryAt,
 } from "./build_collaboration_delivery_model";
 import { projectAuthorizedCollaborationDelivery } from "./build_collaboration_inbox";
+import { ownedActivePushSubscriptions } from "./build_collaboration_push";
 import { authorizeBuildCollaborationRecipient } from "./build_collaboration_recipient_access";
 import { internalMutation } from "./fluent";
 import type { Doc, Id, MutationCtx } from "./types";
@@ -28,6 +30,16 @@ interface ImmutableBatchPayload {
   items: PreparedDeliveryItem["item"][];
   recipientWorkosUserId: string;
 }
+
+type DeliveryContact =
+  | { email: string }
+  | {
+      subscriptions: Array<{
+        auth: string;
+        endpoint: string;
+        p256dh: string;
+      }>;
+    };
 
 interface CompleteExternalDeliveryInput {
   error?: string;
@@ -105,6 +117,59 @@ export const prepareDueBuildCollaborationExternalDeliveries = internalMutation
   })
   .internal();
 
+const legacyDeliveryStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("failed"),
+  v.literal("dispatched")
+);
+
+export const cancelLegacyDeliveriesMissingSourceRevision = internalMutation
+  .input({
+    cursor: v.optional(v.union(v.string(), v.null())),
+    status: legacyDeliveryStatusValidator,
+  })
+  .returns(
+    v.object({
+      cancelled: v.number(),
+      continueCursor: v.string(),
+      isDone: v.boolean(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const page = await ctx.db
+      .query("buildCollaborationExternalDeliveries")
+      .withIndex("by_status_and_scheduledFor", (query) =>
+        query.eq("status", args.status)
+      )
+      .paginate({ cursor: args.cursor ?? null, numItems: 100 });
+    const now = Date.now();
+    let cancelled = 0;
+    for (const delivery of page.page) {
+      const missingPostRevision =
+        Boolean(delivery.collaborationPostId) &&
+        !delivery.collaborationPostRevisionId;
+      const missingCommentRevision =
+        Boolean(delivery.collaborationCommentId) &&
+        !delivery.collaborationCommentRevisionId;
+      if (!(missingPostRevision || missingCommentRevision)) {
+        continue;
+      }
+      await cancelBuildCollaborationExternalDelivery(
+        ctx,
+        delivery,
+        now,
+        "missing_source_revision"
+      );
+      cancelled += 1;
+    }
+    return {
+      cancelled,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  })
+  .internal();
+
 async function prepareExternalDeliveryBatch(
   ctx: MutationCtx,
   input: {
@@ -149,6 +214,22 @@ async function prepareExternalDeliveryBatch(
   if (!prepared.length) {
     return null;
   }
+  const firstPrepared = prepared[0];
+  if (!firstPrepared) {
+    return null;
+  }
+  const contact = await deliveryContact(ctx, firstPrepared.delivery);
+  if (!contact) {
+    for (const { delivery } of prepared) {
+      await cancelBuildCollaborationExternalDelivery(
+        ctx,
+        delivery,
+        input.asOf,
+        "delivery_contact_unavailable"
+      );
+    }
+    return null;
+  }
   const deliveryIds = prepared.map(({ delivery }) => delivery._id);
   const providerIdempotencyKey = `build-collaboration-delivery:${crypto.randomUUID()}`;
   const payload: ImmutableBatchPayload = {
@@ -163,6 +244,7 @@ async function prepareExternalDeliveryBatch(
     buildId: input.seed.buildId,
     cadence: input.seed.cadence,
     channel: input.seed.channel,
+    contactSnapshot: JSON.stringify(contact),
     createdAt: input.asOf,
     deliveryIds,
     organizationId: input.seed.organizationId,
@@ -225,9 +307,14 @@ async function prepareExistingDeliveryBatch(
     return null;
   }
   const payload = parseBatchPayload(batch.payloadSnapshot);
+  const snapshotContact = parseDeliveryContact(batch.contactSnapshot);
   const deliveries = await loadBatchDeliveries(ctx, batch);
   if (
-    !payload ||
+    !(
+      payload &&
+      snapshotContact &&
+      contactMatchesChannel(snapshotContact, batch.channel)
+    ) ||
     deliveries.length !== batch.deliveryIds.length ||
     payload.deliveryIds.length !== batch.deliveryIds.length ||
     payload.deliveryIds.some((id, index) => id !== batch.deliveryIds[index])
@@ -240,6 +327,20 @@ async function prepareExistingDeliveryBatch(
       await cancelDeliveryBatch(ctx, batch, asOf, "access_revoked");
       return null;
     }
+  }
+  const seed = deliveries[0];
+  if (!seed) {
+    await cancelDeliveryBatch(ctx, batch, asOf, "invalid_batch_snapshot");
+    return null;
+  }
+  const currentContact = await deliveryContact(ctx, seed);
+  if (!currentContact) {
+    await cancelDeliveryBatch(ctx, batch, asOf, "delivery_contact_unavailable");
+    return null;
+  }
+  if (!deliveryContactsEqual(snapshotContact, currentContact)) {
+    await supersedeBatchForDestinationChange(ctx, batch, deliveries, asOf);
+    return null;
   }
   const outboxId = await insertBatchOutbox(ctx, batch, payload, asOf);
   const attemptNumber =
@@ -315,9 +416,17 @@ export const prepareBuildCollaborationExternalOutbox = internalMutation
     const batchId = deliveries[0]?.batchId;
     const batch = batchId ? await ctx.db.get(batchId) : null;
     const payload = batch ? parseBatchPayload(batch.payloadSnapshot) : null;
+    const snapshotContact = batch
+      ? parseDeliveryContact(batch.contactSnapshot)
+      : null;
     const exactDeliveries = batch ? await loadBatchDeliveries(ctx, batch) : [];
     if (
-      !(batch && payload) ||
+      !(
+        batch &&
+        payload &&
+        snapshotContact &&
+        contactMatchesChannel(snapshotContact, batch.channel)
+      ) ||
       batch.state !== "sending" ||
       exactDeliveries.length !== batch.deliveryIds.length ||
       exactDeliveries.some(
@@ -356,13 +465,22 @@ export const prepareBuildCollaborationExternalOutbox = internalMutation
       );
       return null;
     }
-    const contact = await deliveryContact(ctx, seed);
-    if (!contact) {
+    const currentContact = await deliveryContact(ctx, seed);
+    if (!currentContact) {
       await cancelDeliveryBatch(
         ctx,
         batch,
         Date.now(),
         "delivery_contact_unavailable"
+      );
+      return null;
+    }
+    if (!deliveryContactsEqual(snapshotContact, currentContact)) {
+      await supersedeBatchForDestinationChange(
+        ctx,
+        batch,
+        exactDeliveries,
+        Date.now()
       );
       return null;
     }
@@ -382,7 +500,7 @@ export const prepareBuildCollaborationExternalOutbox = internalMutation
     return {
       attemptId: attempt._id,
       channel: batch.channel,
-      contact,
+      contact: snapshotContact,
       idempotencyKey: batch.providerIdempotencyKey,
       items: payload.items,
       recipientWorkosUserId: batch.recipientWorkosUserId,
@@ -636,7 +754,7 @@ async function revalidateDelivery(
     }).some(
       (target) =>
         target.channel === delivery.channel &&
-        target.cadence === delivery.cadence
+        (delivery.batchId !== undefined || target.cadence === delivery.cadence)
     );
     if (!selected) {
       return null;
@@ -648,6 +766,7 @@ async function revalidateDelivery(
       {
         commentRevisionId: delivery.collaborationCommentRevisionId,
         postRevisionId: delivery.collaborationPostRevisionId,
+        requireExact: true,
       }
     );
     return projected
@@ -679,25 +798,20 @@ async function deliveryContact(
   if (delivery.channel === "email") {
     return user.email.trim() ? { email: user.email.trim() } : null;
   }
-  const subscriptions = await ctx.db
-    .query("buildCollaborationPushSubscriptions")
-    .withIndex(
-      "by_organizationId_and_workosUserId_and_buildId_and_state",
-      (query) =>
-        query
-          .eq("organizationId", delivery.organizationId)
-          .eq("workosUserId", delivery.recipientWorkosUserId)
-          .eq("buildId", delivery.buildId)
-          .eq("state", "active")
-    )
-    .take(20);
+  const subscriptions = await ownedActivePushSubscriptions(ctx, {
+    buildId: delivery.buildId,
+    organizationId: delivery.organizationId,
+    workosUserId: delivery.recipientWorkosUserId,
+  });
   return subscriptions.length
     ? {
-        subscriptions: subscriptions.map((subscription) => ({
-          auth: subscription.auth,
-          endpoint: subscription.endpoint,
-          p256dh: subscription.p256dh,
-        })),
+        subscriptions: subscriptions
+          .map((subscription) => ({
+            auth: subscription.auth,
+            endpoint: subscription.endpoint,
+            p256dh: subscription.p256dh,
+          }))
+          .sort((left, right) => left.endpoint.localeCompare(right.endpoint)),
       }
     : null;
 }
@@ -796,6 +910,40 @@ async function cancelDeliveryBatch(
     state: "cancelled",
     updatedAt: now,
   });
+}
+
+async function supersedeBatchForDestinationChange(
+  ctx: MutationCtx,
+  batch: Doc<"buildCollaborationDeliveryBatches">,
+  deliveries: Doc<"buildCollaborationExternalDeliveries">[],
+  now: number
+) {
+  await cancelDeliveryBatch(ctx, batch, now, "delivery_destination_changed");
+  for (const delivery of deliveries) {
+    if (delivery.status === "sent") {
+      continue;
+    }
+    await ctx.db.patch(delivery._id, {
+      batchId: undefined,
+      batchKey: undefined,
+      batchRevision: undefined,
+      cancellationReason: undefined,
+      cancelledAt: undefined,
+      lastError: undefined,
+      leaseExpiresAt: undefined,
+      providerOutboxId: undefined,
+      renderedItemSnapshot: undefined,
+      scheduledFor: now,
+      status: "queued",
+      updatedAt: now,
+    });
+  }
+  await ctx.scheduler.runAfter(
+    0,
+    internal.build_collaboration_delivery_transport
+      .processBuildCollaborationExternalDeliveries,
+    { asOf: now, batchSize: MAX_DIGEST_ITEMS }
+  );
 }
 
 async function redactFailedOutbox(
@@ -968,4 +1116,55 @@ function parseBatchPayload(value: string): ImmutableBatchPayload | null {
   } catch {
     return null;
   }
+}
+
+function parseDeliveryContact(value: string): DeliveryContact | null {
+  try {
+    const parsed = JSON.parse(value) as Partial<DeliveryContact>;
+    if ("email" in parsed && typeof parsed.email === "string") {
+      return { email: parsed.email };
+    }
+    if (!("subscriptions" in parsed && Array.isArray(parsed.subscriptions))) {
+      return null;
+    }
+    const subscriptions = parsed.subscriptions.filter(
+      (
+        subscription
+      ): subscription is {
+        auth: string;
+        endpoint: string;
+        p256dh: string;
+      } =>
+        typeof subscription === "object" &&
+        subscription !== null &&
+        typeof subscription.auth === "string" &&
+        typeof subscription.endpoint === "string" &&
+        typeof subscription.p256dh === "string"
+    );
+    if (
+      subscriptions.length !== parsed.subscriptions.length ||
+      subscriptions.length < 1 ||
+      subscriptions.length > 20
+    ) {
+      return null;
+    }
+    return {
+      subscriptions: subscriptions.sort((left, right) =>
+        left.endpoint.localeCompare(right.endpoint)
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function contactMatchesChannel(
+  contact: DeliveryContact,
+  channel: "email" | "push"
+) {
+  return channel === "email" ? "email" in contact : "subscriptions" in contact;
+}
+
+function deliveryContactsEqual(left: DeliveryContact, right: DeliveryContact) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

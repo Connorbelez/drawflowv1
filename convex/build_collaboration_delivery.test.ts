@@ -315,6 +315,7 @@ describe("Build collaboration external delivery", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
@@ -493,6 +494,7 @@ describe("Build collaboration external delivery", () => {
   });
 
   test("atomically transfers a shared browser endpoint to its current WorkOS user", async () => {
+    vi.useFakeTimers();
     const fixture = await seedDeliveryBuild();
     const endpoint = "https://push.example.test/shared-browser";
     await fixture.broker.mutation(
@@ -517,6 +519,8 @@ describe("Build collaboration external delivery", () => {
         p256dh: "admin-key",
       }
     );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
 
     expect(
       await fixture.broker.query(
@@ -1561,6 +1565,19 @@ describe("Build collaboration external delivery", () => {
       expect.objectContaining({ state: "failed" }),
     ]);
 
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_notifications
+        .updateMyBuildCollaborationNotificationPreferences,
+      {
+        buildId: fixture.buildId,
+        channels: ["in_app", "email"],
+        digestCadence: "weekly",
+        digestEnabled: true,
+        ordinaryMuted: false,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+
     await fixture.base.run(async (ctx) => {
       const post = failed.delivery?.collaborationPostId
         ? await ctx.db.get(failed.delivery.collaborationPostId)
@@ -1614,6 +1631,116 @@ describe("Build collaboration external delivery", () => {
       "Retry this direct alert.",
       "Retry this direct alert.",
     ]);
+  });
+
+  test("supersedes a failed batch before sending to a changed email destination", async () => {
+    const fixture = await seedDeliveryBuild();
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, {
+        mentioned: true,
+        text: "Destination snapshot alert.",
+      })
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await processExternalDeliveries(fixture.base, Date.now());
+    const failed = await fixture.base.run(async (ctx) => {
+      const delivery = (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).find((row) => row.recipientWorkosUserId === "user_broker");
+      const batch = delivery?.batchId ? await ctx.db.get(delivery.batchId) : null;
+      if (!(delivery && batch)) {
+        throw new Error("Expected a failed destination batch.");
+      }
+      return { batch, delivery };
+    });
+    await fixture.base.mutation(
+      (internal as any).workosProjection.ingestWorkosEvent,
+      {
+        data: {
+          email: "broker-updated@example.com",
+          email_verified: true,
+          first_name: "Broker",
+          id: "user_broker",
+          last_name: "Reviewer",
+        },
+        event: "user.updated",
+        id: "delivery_user_broker_email_updated",
+      }
+    );
+
+    await processExternalDeliveries(fixture.base, failed.delivery.scheduledFor);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const superseded = await fixture.base.run(async (ctx) => ({
+      batch: await ctx.db.get(failed.batch._id),
+      delivery: await ctx.db.get(failed.delivery._id),
+    }));
+    expect(superseded.batch).toEqual(
+      expect.objectContaining({ state: "cancelled" })
+    );
+    expect(superseded.delivery).toEqual(
+      expect.objectContaining({ status: "queued" })
+    );
+    expect(superseded.delivery?.batchId).toBeUndefined();
+
+    await processExternalDeliveries(fixture.base, Number.MAX_SAFE_INTEGER);
+    const payloads = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(String(init?.body))
+    );
+    const brokerPayloads = payloads.filter(
+      (payload) => payload.recipientWorkosUserId === "user_broker"
+    );
+    expect(brokerPayloads).toHaveLength(2);
+    expect(brokerPayloads[0].contact).toEqual({
+      email: "user_broker@example.com",
+    });
+    expect(brokerPayloads[1].contact).toEqual({
+      email: "broker-updated@example.com",
+    });
+    expect(brokerPayloads[1].idempotencyKey).not.toBe(
+      brokerPayloads[0].idempotencyKey
+    );
+  });
+
+  test("cancels legacy unsent rows that lack their original source revision", async () => {
+    const fixture = await seedDeliveryBuild();
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, {
+        mentioned: true,
+        text: "Legacy source revision alert.",
+      })
+    );
+    const deliveryId = await fixture.base.run(async (ctx) => {
+      const delivery = (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).find((row) => row.recipientWorkosUserId === "user_broker");
+      if (!delivery) {
+        throw new Error("Expected a legacy source delivery.");
+      }
+      await ctx.db.patch(delivery._id, {
+        collaborationPostRevisionId: undefined,
+      });
+      return delivery._id;
+    });
+
+    const result = await fixture.base.mutation(
+      (internal as any).build_collaboration_delivery_maintenance
+        .cancelLegacyDeliveriesMissingSourceRevision,
+      { status: "queued" }
+    );
+
+    expect(result.cancelled).toBeGreaterThanOrEqual(1);
+    expect(await fixture.base.run((ctx) => ctx.db.get(deliveryId))).toEqual(
+      expect.objectContaining({
+        cancellationReason: "missing_source_revision",
+        status: "cancelled",
+      })
+    );
   });
 
   test("keeps newly due digest work out of an existing retry batch", async () => {
