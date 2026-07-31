@@ -184,6 +184,48 @@ location-unverified and route it to lender/admin review; never convert, delete,
 or reject that Evidence merely because it is also referenced from a
 collaboration post.
 
+## Operational Event Activation
+
+Evidence and Site Visit events are published from their authoritative Convex
+mutation. Do not introduce a client-side dual write or an asynchronous repair
+path: if collaboration is active, the operational state change, system post,
+canonical reference, notification fan-out, and deterministic remediation
+Action Item commit or roll back together. When collaboration is disabled, the
+authoritative Evidence or Site Visit mutation continues and emits no
+collaboration records.
+
+Before enabling the operational event integration for a production tenant, run
+these Build-local canaries:
+
+1. Submit one location-verified Evidence Asset and one location-unverified
+   Evidence Asset. Confirm deterministic `operational:evidence:*` event keys,
+   canonical Evidence references, and exactly one policy-created remediation
+   Action Item for the unverified Asset.
+2. Reject an Evidence review, repeat the identical review request, then accept
+   the revised package. Confirm the retry creates no additional post,
+   reference, notification, or Action Item and that acceptance creates a
+   distinct completed event.
+3. Schedule and reschedule a Site Visit, then repeat the same schedule. Confirm
+   only the material schedule changes emit posts. Complete one Visit and flag
+   another; both must deep-link to the existing focused Site Visit detail.
+4. Submit a tokenized Site Visit report outside the configured geofence.
+   Confirm the original Evidence Asset and bytes remain present, its canonical
+   location attempt and failure fields are preserved, and lender/admin review
+   receives both the issue post and duplicate-safe remediation work.
+5. Replay one system-event idempotency key and confirm the original post ID is
+   returned with no new fan-out. Attempt a reference from another Build and
+   confirm the entire transaction rolls back.
+6. View the Evidence events as Admin, Broker, Builder Staff, Contractor, and
+   Homeowner. Authorized lender/builder readers receive the complete post;
+   excluded readers receive only a stable restricted placeholder with no
+   metadata. Site Visit visibility must match its canonical entity ACL.
+
+Monitor `build.collaboration.system_event.published` and
+`build.collaboration.action_item.policy_created` audit/outbox events by tenant
+and event key. Alert on duplicate system-event keys, transaction failures,
+missing canonical references, notification fan-out drift, or a remediation post
+whose open Action Item count is zero.
+
 ## Verification
 
 ```sh

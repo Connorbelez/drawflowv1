@@ -29,6 +29,14 @@ import {
 import { createContractorProfileInviteClaim } from "./contractorOnboarding";
 import { normalizeContractorEmail } from "./contractorWorkspace";
 import {
+  publishEvidenceLocationUnverifiedCollaborationEvent,
+  publishEvidenceReviewCollaborationEvent,
+  publishEvidenceSubmittedCollaborationEvents,
+  publishSiteVisitCompletionCollaborationEvents,
+  publishSiteVisitRescheduledCollaborationEvent,
+  publishSiteVisitScheduledCollaborationEvent,
+} from "./build_collaboration_operational_events";
+import {
   type coerceSiteVisitGuidanceInput,
   defaultSiteVisitGuidance,
   guidanceHtmlExceedsMaxLength,
@@ -9615,10 +9623,11 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       url: `/newsitevisit/${String(args.buildId)}/${visitId}`,
       visitId,
     };
-    await ctx.db.insert("buildSiteVisits", {
+    const siteVisitId = await ctx.db.insert("buildSiteVisits", {
       brokerageId: auth.brokerage._id,
       buildId: args.buildId,
       buildMilestoneId: milestone._id,
+      collaborationEventRevision: 1,
       createdAt: now,
       evidencePackageId,
       scopeBoundAt: now,
@@ -9657,6 +9666,14 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       priorState: JSON.stringify(milestone.completionReview),
       reason: args.note,
     });
+    const persistedVisit = await ctx.db.get(siteVisitId);
+    if (!persistedVisit) {
+      throw new Error("Scheduled Site Visit became unavailable.");
+    }
+    await publishSiteVisitScheduledCollaborationEvent(ctx, {
+      revision: 1,
+      visit: persistedVisit,
+    });
     return siteVisit;
   })
   .public();
@@ -9689,9 +9706,21 @@ export const rescheduleActiveBuildSiteVisit = authenticatedMutation
     }
     const priorState = JSON.stringify(visit);
     const requestedDay = Math.max(0, Math.round(args.requestedDay));
+    const requestedTime =
+      args.requestedTime === undefined
+        ? visit.requestedTime
+        : normalizeOptionalString(args.requestedTime);
+    const scheduleChanged =
+      requestedDay !== visit.requestedDay ||
+      requestedTime !== visit.requestedTime;
+    const collaborationEventRevision = scheduleChanged
+      ? (visit.collaborationEventRevision ?? 1) + 1
+      : visit.collaborationEventRevision;
     await ctx.db.patch(visit._id, {
+      collaborationEventRevision,
       note: args.note ?? visit.note,
       requestedDay,
+      requestedTime,
       updatedAt: Date.now(),
     });
     await writeActiveBuildEvent(ctx, {
@@ -9701,12 +9730,23 @@ export const rescheduleActiveBuildSiteVisit = authenticatedMutation
       eventType: "site_visit.rescheduled",
       newState: JSON.stringify({
         requestedDay,
-        requestedTime: args.requestedTime,
+        requestedTime,
         visitId: args.visitId,
       }),
       priorState,
       reason: args.reason,
     });
+    if (scheduleChanged) {
+      const persistedVisit = await ctx.db.get(visit._id);
+      if (!persistedVisit) {
+        throw new Error("Rescheduled Site Visit became unavailable.");
+      }
+      await publishSiteVisitRescheduledCollaborationEvent(ctx, {
+        reason: args.reason,
+        revision: collaborationEventRevision ?? 1,
+        visit: persistedVisit,
+      });
+    }
     return null;
   })
   .public();
@@ -16417,9 +16457,10 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
       throw new Error("Production active-build evidence asset already exists.");
     }
     const now = Date.now();
-    await ctx.db.insert("buildEvidenceAssets", {
+    const assetId = await ctx.db.insert("buildEvidenceAssets", {
       brokerageId: auth.brokerage._id,
       buildId: args.buildId,
+      collaborationEventRevision: 1,
       contractorIds: args.asset.contractorIds,
       createdAt: now,
       evidenceKey: args.asset.evidenceKey,
@@ -16449,6 +16490,14 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
       command: "createActiveBuildTimelineEvidenceAsset",
       eventType: "active_build.evidence.created",
       newState: JSON.stringify(args.asset),
+    });
+    const persistedAsset = await ctx.db.get(assetId);
+    if (!persistedAsset) {
+      throw new Error("Submitted Evidence became unavailable.");
+    }
+    await publishEvidenceSubmittedCollaborationEvents(ctx, {
+      asset: persistedAsset,
+      revision: 1,
     });
     return null;
   })
@@ -17036,6 +17085,10 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
     }
     const now = Date.now();
     const note = args.note?.trim();
+    const statusChanged = visit.status !== args.status;
+    const collaborationEventRevision = statusChanged
+      ? (visit.collaborationEventRevision ?? 1) + 1
+      : visit.collaborationEventRevision;
     const siteVisit = {
       ...(visit.note ? { note: visit.note } : {}),
       ...(note
@@ -17058,6 +17111,7 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
       new Date(now).toISOString()
     );
     await ctx.db.patch(visit._id, {
+      collaborationEventRevision,
       completedAt: siteVisit.completedAt,
       recordNote: note,
       recordNoteFormat: note ? ("plain_text" as const) : undefined,
@@ -17077,6 +17131,16 @@ export const recordActiveBuildSiteVisit = authenticatedMutation
       priorState: JSON.stringify(visit),
       reason: note,
     });
+    if (statusChanged) {
+      const persistedVisit = await ctx.db.get(visit._id);
+      if (!persistedVisit) {
+        throw new Error("Recorded Site Visit became unavailable.");
+      }
+      await publishSiteVisitCompletionCollaborationEvents(ctx, {
+        revision: collaborationEventRevision ?? 1,
+        visit: persistedVisit,
+      });
+    }
     return null;
   })
   .public();
@@ -17393,8 +17457,17 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       missingPrerequisites,
       prerequisiteException: args.prerequisiteException,
     });
+    const unverifiedEvidence: Array<{
+      asset: Doc<"buildEvidenceAssets">;
+      revision: number;
+    }> = [];
     for (const asset of visitEvidence) {
-      await ctx.db.patch(asset._id, {
+      const collaborationEventRevision =
+        submissionContext.locationAttempt.verified
+          ? asset.collaborationEventRevision
+          : (asset.collaborationEventRevision ?? 1) + 1;
+      const evidencePatch = {
+        collaborationEventRevision,
         locationVerified: submissionContext.locationAttempt.verified,
         ...(submissionContext.locationAttempt.accuracyMeters === undefined
           ? {}
@@ -17423,13 +17496,22 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
             }),
         siteVisitId: visit._id,
         updatedAt: Date.now(),
-      });
+      };
+      await ctx.db.patch(asset._id, evidencePatch);
+      if (!submissionContext.locationAttempt.verified) {
+        unverifiedEvidence.push({
+          asset: { ...asset, ...evidencePatch },
+          revision: collaborationEventRevision ?? 1,
+        });
+      }
     }
     const milestone = await ctx.db.get(visit.buildMilestoneId);
     if (!milestone) {
       throw new Error("Site visit milestone was not found.");
     }
     const now = Date.now();
+    const collaborationEventRevision =
+      (visit.collaborationEventRevision ?? 1) + 1;
     const completedAt = new Date(now).toISOString();
     const siteVisit = {
       ...(visit.note ? { note: visit.note } : {}),
@@ -17453,6 +17535,7 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       completedAt
     );
     await ctx.db.patch(visit._id, {
+      collaborationEventRevision,
       completedAt,
       locationAttempt: submissionContext.locationAttempt,
       missingPrerequisites: submissionContext.missingPrerequisites,
@@ -17528,6 +17611,20 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       reportNotes: reportNotesText,
       visit: { ...visit, ...siteVisit },
     });
+    for (const unverified of unverifiedEvidence) {
+      await publishEvidenceLocationUnverifiedCollaborationEvent(ctx, {
+        asset: unverified.asset,
+        revision: unverified.revision,
+      });
+    }
+    const persistedVisit = await ctx.db.get(visit._id);
+    if (!persistedVisit) {
+      throw new Error("Submitted Site Visit became unavailable.");
+    }
+    await publishSiteVisitCompletionCollaborationEvents(ctx, {
+      revision: collaborationEventRevision,
+      visit: persistedVisit,
+    });
     return null;
   })
   .public();
@@ -17561,6 +17658,18 @@ export const reviewActiveBuildEvidence = authenticatedMutation
     const existingReview = activeBuildCompletionReviewRecord(
       milestone.completionReview
     );
+    const existingEvidenceReview = activeBuildCompletionReviewRecord(
+      existingReview.evidenceReview
+    );
+    const reviewChanged = args.accepted
+      ? existingEvidenceReview.accepted !== true ||
+        existingEvidenceReview.note !== note
+      : existingReview.status !== "approved" &&
+        (existingReview.status !== "revisionRequested" ||
+          existingReview.note !== note);
+    const collaborationEvidenceEventRevision = reviewChanged
+      ? (milestone.collaborationEvidenceEventRevision ?? 0) + 1
+      : milestone.collaborationEvidenceEventRevision;
     const completionReview = args.accepted
       ? {
           ...activeBuildPendingCompletionReview(existingReview),
@@ -17580,6 +17689,7 @@ export const reviewActiveBuildEvidence = authenticatedMutation
             status: "revisionRequested",
           };
     await ctx.db.patch(milestone._id, {
+      collaborationEvidenceEventRevision,
       completionReview,
       evidenceState: args.accepted ? "Accepted" : "Info requested",
       status:
@@ -17598,6 +17708,18 @@ export const reviewActiveBuildEvidence = authenticatedMutation
       priorState: JSON.stringify(milestone.completionReview),
       reason: note,
     });
+    if (reviewChanged) {
+      const persistedMilestone = await ctx.db.get(milestone._id);
+      if (!persistedMilestone) {
+        throw new Error("Reviewed Evidence milestone became unavailable.");
+      }
+      await publishEvidenceReviewCollaborationEvent(ctx, {
+        accepted: args.accepted,
+        milestone: persistedMilestone,
+        note,
+        revision: collaborationEvidenceEventRevision ?? 1,
+      });
+    }
     return null;
   })
   .public();
