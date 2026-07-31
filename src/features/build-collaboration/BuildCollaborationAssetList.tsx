@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation } from "convex/react";
-import { Paperclip } from "lucide-react";
+import { Paperclip, RefreshCw } from "lucide-react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "#/components/ui/button.tsx";
@@ -21,10 +22,15 @@ export interface BuildCollaborationAssetSummary {
 export function BuildCollaborationAssetList({
   assets = [],
   buildId,
+  onReplace,
   organizationId,
 }: {
   assets?: BuildCollaborationAssetSummary[];
   buildId: Id<"activeBuilds">;
+  onReplace?: (
+    asset: BuildCollaborationAssetSummary,
+    file: File
+  ) => Promise<void>;
   organizationId: string;
 }) {
   const authorizeDownload = useMutation(
@@ -52,28 +58,86 @@ export function BuildCollaborationAssetList({
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {assets.map((asset) => (
-        <Card key={asset.assetId}>
-          <CardPanel className="flex items-center gap-3 p-3">
-            <Paperclip aria-hidden="true" className="size-4 text-primary" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium text-sm">{asset.fileName}</p>
-              <p className="text-muted-foreground text-xs">
-                {asset.mimeType} · {formatBytes(asset.sizeBytes)} · v
-                {asset.version}
-              </p>
-            </div>
-            <Button
-              onClick={() => open(asset)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Open
-            </Button>
-          </CardPanel>
-        </Card>
+        <AssetCard
+          asset={asset}
+          key={asset.assetId}
+          onOpen={open}
+          onReplace={onReplace}
+        />
       ))}
     </div>
+  );
+}
+
+function AssetCard({
+  asset,
+  onOpen,
+  onReplace,
+}: {
+  asset: BuildCollaborationAssetSummary;
+  onOpen: (asset: BuildCollaborationAssetSummary) => Promise<void>;
+  onReplace?: (
+    asset: BuildCollaborationAssetSummary,
+    file: File
+  ) => Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [replacing, setReplacing] = useState(false);
+  const replace = async (file?: File) => {
+    if (!(file && onReplace)) {
+      return;
+    }
+    setReplacing(true);
+    try {
+      await onReplace(asset, file);
+    } finally {
+      setReplacing(false);
+      if (inputRef.current) {
+        inputRef.current.value = "";
+      }
+    }
+  };
+  return (
+    <Card>
+      <CardPanel className="flex items-center gap-3 p-3">
+        <Paperclip aria-hidden="true" className="size-4 text-primary" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium text-sm">{asset.fileName}</p>
+          <p className="text-muted-foreground text-xs">
+            {asset.mimeType} · {formatBytes(asset.sizeBytes)} · v{asset.version}
+          </p>
+        </div>
+        {onReplace && asset.state === "available" ? (
+          <>
+            <input
+              aria-label={`Choose a replacement for ${asset.fileName}`}
+              className="sr-only"
+              onChange={(event) => replace(event.target.files?.[0])}
+              ref={inputRef}
+              type="file"
+            />
+            <Button
+              disabled={replacing}
+              onClick={() => inputRef.current?.click()}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <RefreshCw aria-hidden="true" className="size-3.5" />
+              {replacing ? "Replacing…" : "Replace"}
+            </Button>
+          </>
+        ) : null}
+        <Button
+          onClick={() => onOpen(asset)}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Open
+        </Button>
+      </CardPanel>
+    </Card>
   );
 }
 

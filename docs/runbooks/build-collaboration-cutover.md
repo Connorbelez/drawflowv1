@@ -130,14 +130,19 @@ attachments:
   failure, non-2xx responses, malformed responses, explicit rejection, and
   hash mismatch all fail closed; the asset remains quarantined or rejected.
 
-The release supports files from 1 byte through 100 MB. Upload staging is
-private, Build- and tenant-bound, owned by the initiating human, and expires
-after 24 hours. Publication creates the first shared attachment record in the
-same Convex transaction as its post, comment, or Action Item. Discarding a
-private draft abandons its staging session and rejects an otherwise unattached
-asset without deleting its audit history. A replacement is a new immutable
-version; the prior version becomes `superseded` and remains readable through
-historical revisions whose current ACL still permits it.
+The release supports files from 1 byte through 100 MB and at most 25 active
+staging sessions per participant and Build. Upload staging is private, Build-
+and tenant-bound, owned by the initiating human or trusted draft-preparation
+agent, and expires after 24 hours. The browser registers the returned Convex
+storage identity before finalization so failed, interrupted, and expired
+uploads can delete their unowned bytes. Publication marks the session
+`consumed` and creates the first shared attachment record in the same Convex
+transaction as its post, comment, or Action Item. Discarding a private draft
+abandons its staging session, rejects an otherwise unattached asset, and
+deletes its stored bytes without deleting the audit history. A replacement is
+a new immutable version; scanning it never changes the current version. Only
+publishing the replacement atomically marks the prior version `superseded`, and
+historical revisions retain their original attachment references and ACLs.
 
 Before activation, perform all of these canaries against the production tenant:
 
@@ -147,8 +152,11 @@ Before activation, perform all of these canaries against the production tenant:
 2. Publish one asset on a post, one on a reply, and one on an Action Item.
    Confirm each owning revision and `build.collaboration.asset.published` audit
    event exist and no attachment row existed while the draft was private.
-3. Replace one published asset. Confirm the original row and historical
-   attachment still exist with version 1 while the replacement is version 2.
+3. Replace one published asset from its attachment card. Before publishing the
+   replacement reply, confirm the original remains `available`. After
+   publication, confirm the original row and historical attachment still exist
+   with version 1 while the replacement is version 2 and the staging session is
+   `consumed`.
 4. Attempt a known scanner rejection, a hash mismatch, an attachment from a
    different Build, and a direct reference to an orphan asset. None may publish
    or return a download URL.
@@ -157,7 +165,13 @@ Before activation, perform all of these canaries against the production tenant:
    `build.collaboration.asset.download_authorized` audit event.
 6. Discard a draft containing a clean staged asset. Confirm the staging session
    is `abandoned`, the unattached asset is `rejected`, and an
-   `build.collaboration.asset.abandoned` audit event exists.
+   `build.collaboration.asset.abandoned` audit event exists. Deliver a delayed
+   clean scan result and confirm it cannot resurrect the asset.
+7. Interrupt one registered upload before finalization and expire its staging
+   session. Confirm the storage object is deleted. Reject or abandon a version
+   2 replacement, retry from the original, and confirm the retry is the sole
+   publishable successor with a linear version number. Attempt two concurrent
+   replacements and confirm the second fails closed and its storage is cleaned.
 
 Existing asset rows without a clean scan verdict and content hash are legacy
 untrusted data and intentionally remain unavailable. Do not relabel them clean

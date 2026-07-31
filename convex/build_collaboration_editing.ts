@@ -99,6 +99,14 @@ export const editBuildCollaborationPost = authenticatedMutation
       references,
       timestamp: now,
     });
+    await carryForwardRevisionAttachments(ctx, {
+      authorization,
+      fromOwnerKind: "postRevision",
+      fromOwnerRecordId: post.currentRevisionId,
+      now,
+      toOwnerKind: "postRevision",
+      toOwnerRecordId: revisionId,
+    });
     const primaryReference = references.find((reference) => reference.primary);
     await ctx.db.patch(post._id, {
       currentRevisionId: revisionId,
@@ -183,6 +191,14 @@ export const editBuildCollaborationComment = authenticatedMutation
       references,
       timestamp: now,
     });
+    await carryForwardRevisionAttachments(ctx, {
+      authorization,
+      fromOwnerKind: "commentRevision",
+      fromOwnerRecordId: comment.currentRevisionId,
+      now,
+      toOwnerKind: "commentRevision",
+      toOwnerRecordId: revisionId,
+    });
     await ctx.db.patch(comment._id, {
       currentRevisionId: revisionId,
       revision,
@@ -206,6 +222,55 @@ export const editBuildCollaborationComment = authenticatedMutation
     return revisionId;
   })
   .public();
+
+async function carryForwardRevisionAttachments(
+  ctx: MutationCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    fromOwnerKind: "postRevision" | "commentRevision";
+    fromOwnerRecordId?: string;
+    now: number;
+    toOwnerKind: "postRevision" | "commentRevision";
+    toOwnerRecordId: string;
+  }
+) {
+  if (!input.fromOwnerRecordId) {
+    return;
+  }
+  const attachments = await ctx.db
+    .query("buildCollaborationAttachments")
+    .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+      query
+        .eq("ownerKind", input.fromOwnerKind)
+        .eq("ownerRecordId", input.fromOwnerRecordId as string)
+    )
+    .take(26);
+  if (attachments.length > 25) {
+    throw new Error(
+      "A collaboration revision may contain at most 25 attachments."
+    );
+  }
+  for (const attachment of attachments) {
+    if (
+      attachment.organizationId !== input.authorization.organizationId ||
+      attachment.brokerageId !== input.authorization.brokerage._id ||
+      attachment.buildId !== input.authorization.build._id
+    ) {
+      throw new Error("A prior revision attachment is outside this Build.");
+    }
+    await ctx.db.insert("buildCollaborationAttachments", {
+      attachmentId: attachment.attachmentId,
+      attachmentKind: attachment.attachmentKind,
+      brokerageId: attachment.brokerageId,
+      buildId: attachment.buildId,
+      createdAt: input.now,
+      createdByWorkosUserId: input.authorization.viewer.subject,
+      organizationId: attachment.organizationId,
+      ownerKind: input.toOwnerKind,
+      ownerRecordId: input.toOwnerRecordId,
+    });
+  }
+}
 
 export const tombstoneBuildCollaborationPost = authenticatedMutation
   .input({

@@ -432,6 +432,159 @@ describe("Build collaboration immutable editing", () => {
     ]);
   });
 
+  test("carries governed attachments forward without mutating immutable revision history", async () => {
+    const fixture = await seedEditingFixture();
+    const postId = await publishPost(fixture, "Post with governed evidence");
+    const seededPostAttachment = await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(postId);
+      if (!post?.currentRevisionId) {
+        throw new Error("Post revision fixture unavailable.");
+      }
+      const storageId = await ctx.storage.store(
+        new Blob(["immutable attachment"], { type: "text/plain" })
+      );
+      const now = Date.now();
+      const assetId = await ctx.db.insert("buildCollaborationAssets", {
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        contentHashSha256: "a".repeat(64),
+        createdAt: now,
+        fileName: "immutable.txt",
+        maximumAudienceMode: post.audienceMode,
+        mimeType: "text/plain",
+        organizationId: post.organizationId,
+        originatingPostId: post._id,
+        publishedAt: now,
+        publishedOwnerKind: "postRevision",
+        publishedOwnerRecordId: post.currentRevisionId,
+        readerWorkosUserIds: ["user_admin", "user_builder"],
+        scanState: "clean",
+        sizeBytes: 20,
+        state: "available",
+        storageId,
+        updatedAt: now,
+        uploadedByWorkosUserId: "user_admin",
+        version: 1,
+      });
+      await ctx.db.patch(assetId, { lineageRootAssetId: assetId });
+      await ctx.db.insert("buildCollaborationAttachments", {
+        attachmentId: assetId,
+        attachmentKind: "collaborationAsset",
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        createdAt: now,
+        createdByWorkosUserId: "user_admin",
+        organizationId: post.organizationId,
+        ownerKind: "postRevision",
+        ownerRecordId: post.currentRevisionId,
+      });
+      return { assetId, revisionId: post.currentRevisionId };
+    });
+
+    const editedPostRevisionId = await fixture.admin.mutation(
+      (api as any).build_collaboration_editing.editBuildCollaborationPost,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        postId,
+        references: [],
+        tiptapJson: textDocument("Edited post with governed evidence"),
+      }
+    );
+    const commentId: Id<"buildCollaborationComments"> =
+      await fixture.admin.mutation(
+        (api as any).build_collaboration_threads.addBuildCollaborationComment,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "Reply with the same governed evidence",
+          postId,
+          references: [],
+          tiptapJson: textDocument("Reply with the same governed evidence"),
+        }
+      );
+    const originalCommentRevisionId = await fixture.base.run(async (ctx) => {
+      const comment = await ctx.db.get(commentId);
+      if (!comment?.currentRevisionId) {
+        throw new Error("Comment revision fixture unavailable.");
+      }
+      const post = await ctx.db.get(postId);
+      if (!post) {
+        throw new Error("Post fixture unavailable.");
+      }
+      await ctx.db.insert("buildCollaborationAttachments", {
+        attachmentId: seededPostAttachment.assetId,
+        attachmentKind: "collaborationAsset",
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        createdAt: Date.now(),
+        createdByWorkosUserId: "user_admin",
+        organizationId: post.organizationId,
+        ownerKind: "commentRevision",
+        ownerRecordId: comment.currentRevisionId,
+      });
+      return comment.currentRevisionId;
+    });
+    const editedCommentRevisionId = await fixture.admin.mutation(
+      (api as any).build_collaboration_editing.editBuildCollaborationComment,
+      {
+        buildId: fixture.buildId,
+        commentId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        references: [],
+        tiptapJson: textDocument("Edited reply with governed evidence"),
+      }
+    );
+
+    const attachmentOwners = await fixture.base.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("buildCollaborationAttachments")
+        .withIndex(
+          "by_buildId_and_attachmentKind_and_attachmentId",
+          (query) =>
+            query
+              .eq("buildId", fixture.buildId)
+              .eq("attachmentKind", "collaborationAsset")
+              .eq("attachmentId", seededPostAttachment.assetId)
+        )
+        .collect();
+      return rows.map((row) => `${row.ownerKind}:${row.ownerRecordId}`).sort();
+    });
+    expect(attachmentOwners).toEqual(
+      [
+        `postRevision:${seededPostAttachment.revisionId}`,
+        `postRevision:${editedPostRevisionId}`,
+        `commentRevision:${originalCommentRevisionId}`,
+        `commentRevision:${editedCommentRevisionId}`,
+      ].sort()
+    );
+
+    const feed = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }
+    );
+    const postEntry = feed.page.find(
+      (candidate: any) =>
+        candidate.kind === "post" && candidate.post._id === postId
+    );
+    expect(postEntry.attachments).toEqual([
+      expect.objectContaining({ assetId: seededPostAttachment.assetId }),
+    ]);
+    const comments = await fixture.admin.query(
+      (api as any).build_collaboration_threads.listBuildCollaborationComments,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID, postId }
+    );
+    expect(comments[0].attachments).toEqual([
+      expect.objectContaining({ assetId: seededPostAttachment.assetId }),
+    ]);
+  });
+
   test("edits and tombstones replies without changing post content history", async () => {
     const fixture = await seedEditingFixture();
     const postId = await publishPost(fixture);

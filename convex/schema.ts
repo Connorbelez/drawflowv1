@@ -3867,12 +3867,14 @@ export default defineSchema({
     ),
     uploadedByWorkosUserId: v.string(),
     version: v.number(),
+    lineageRootAssetId: v.optional(v.id("buildCollaborationAssets")),
     supersedesAssetId: v.optional(v.id("buildCollaborationAssets")),
     maximumAudienceMode: buildCollaborationAudienceModeValidator,
     originatingPostId: v.optional(v.id("buildCollaborationPosts")),
     readerWorkosUserIds: v.optional(v.array(v.string())),
     scanMessage: v.optional(v.string()),
     scanCompletedAt: v.optional(v.number()),
+    storageDeletedAt: v.optional(v.number()),
     publishedAt: v.optional(v.number()),
     publishedOwnerKind: v.optional(buildCollaborationOwnerKindValidator),
     publishedOwnerRecordId: v.optional(v.string()),
@@ -3885,7 +3887,11 @@ export default defineSchema({
       "createdAt",
     ])
     .index("by_storageId", ["storageId"])
-    .index("by_supersedesAssetId", ["supersedesAssetId"]),
+    .index("by_supersedesAssetId", ["supersedesAssetId"])
+    .index("by_lineageRootAssetId_and_version", [
+      "lineageRootAssetId",
+      "version",
+    ]),
   buildCollaborationAssetStagingSessions: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -3893,8 +3899,12 @@ export default defineSchema({
     ownerWorkosUserId: v.string(),
     contextKind: buildCollaborationAssetStagingContextValidator,
     contextRecordId: v.optional(v.string()),
+    expectedFileName: v.optional(v.string()),
+    expectedMimeType: v.optional(v.string()),
+    expectedSizeBytes: v.optional(v.number()),
     state: buildCollaborationAssetStagingStateValidator,
     assetId: v.optional(v.id("buildCollaborationAssets")),
+    pendingStorageId: v.optional(v.id("_storage")),
     expiresAt: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -3909,7 +3919,8 @@ export default defineSchema({
       "contextRecordId",
       "state",
     ])
-    .index("by_assetId", ["assetId"]),
+    .index("by_assetId", ["assetId"])
+    .index("by_state_and_expiresAt", ["state", "expiresAt"]),
   buildCollaborationAttachments: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

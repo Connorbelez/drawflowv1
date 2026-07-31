@@ -16,3 +16,25 @@ export async function authorizeActiveBuildHumanCollaborationAccess(
   await requireHumanCollaborationActor(ctx, authorization);
   return authorization;
 }
+
+export async function authorizeActiveBuildCollaborationPreparerAccess(
+  ctx: Parameters<typeof authorizeActiveBuildCollaborationAccess>[0],
+  input: {
+    buildId: Id<"activeBuilds">;
+    organizationId: string;
+  }
+) {
+  const authorization = await authorizeActiveBuildCollaborationAccess(
+    ctx,
+    input
+  );
+  if (
+    authorization.viewer.actorKind !== "human" &&
+    authorization.viewer.actorKind !== "agent"
+  ) {
+    throw new Error(
+      "Collaboration preparation requires a trusted human or agent actor."
+    );
+  }
+  return authorization;
+}

@@ -61,15 +61,31 @@ export const recordBuildCollaborationAssetScanResult = internalMutation
     const asset = await ctx.db.get(args.assetId);
     if (
       !asset ||
+      asset.state !== "quarantined" ||
       asset.scanState === "clean" ||
       asset.scanState === "rejected"
     ) {
       return null;
     }
     const now = Date.now();
+    const session = asset.stagingSessionId
+      ? await ctx.db.get(asset.stagingSessionId)
+      : null;
+    if (
+      !session ||
+      session.assetId !== asset._id ||
+      session.state !== "finalized" ||
+      session.expiresAt <= now
+    ) {
+      await rejectUnpublishedAsset(ctx, asset, {
+        message: "The asset staging session is no longer active.",
+        now,
+        provider: args.provider,
+      });
+      return null;
+    }
     const { clean, rejected, scanMessage, scanState, state } =
       resolveScanResult(asset, args);
-    await supersedePriorAssetVersion(ctx, asset, clean, now);
     await ctx.db.patch(asset._id, {
       scanCompletedAt: now,
       scanMessage,
@@ -136,29 +152,6 @@ function resolveScanResult(
   };
 }
 
-async function supersedePriorAssetVersion(
-  ctx: MutationCtx,
-  asset: Doc<"buildCollaborationAssets">,
-  clean: boolean,
-  now: number
-) {
-  if (!(clean && asset.supersedesAssetId)) {
-    return;
-  }
-  const prior = await ctx.db.get(asset.supersedesAssetId);
-  if (
-    prior &&
-    prior.organizationId === asset.organizationId &&
-    prior.buildId === asset.buildId &&
-    (prior.state === "available" || prior.state === "superseded")
-  ) {
-    await ctx.db.patch(prior._id, {
-      state: "superseded",
-      updatedAt: now,
-    });
-  }
-}
-
 export const processBuildCollaborationAssetScan = internalAction
   .input({ assetId: v.id("buildCollaborationAssets") })
   .returns(v.null())
@@ -221,6 +214,170 @@ export const processBuildCollaborationAssetScan = internalAction
     return null;
   })
   .internal();
+
+export const abandonBuildCollaborationAssetUploadAfterFailure = internalMutation
+  .input({
+    message: v.string(),
+    stagingSessionId: v.id("buildCollaborationAssetStagingSessions"),
+    storageId: v.id("_storage"),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const session = await ctx.db.get(args.stagingSessionId);
+    if (!session || session.state !== "open" || session.assetId) {
+      return null;
+    }
+    const now = Date.now();
+    await ctx.storage.delete(args.storageId);
+    await ctx.db.patch(session._id, { state: "abandoned", updatedAt: now });
+    await ctx.db.insert("auditEvents", {
+      actorRoles: ["system"],
+      actorWorkosUserId: "system:asset-upload-cleanup",
+      brokerageId: session.brokerageId,
+      command: "abandonBuildCollaborationAssetUploadAfterFailure",
+      createdAt: now,
+      entityId: session._id,
+      entityType: "buildCollaborationAssetStagingSession",
+      eventType: "build.collaboration.asset.upload_abandoned",
+      newState: JSON.stringify({ state: "abandoned" }),
+      organizationId: session.organizationId,
+      warnings: [boundedMessage(args.message) ?? "Upload finalization failed."],
+    });
+    return null;
+  })
+  .internal();
+
+export const expireBuildCollaborationAssetStagingSession = internalMutation
+  .input({
+    stagingSessionId: v.id("buildCollaborationAssetStagingSessions"),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const session = await ctx.db.get(args.stagingSessionId);
+    if (
+      !session ||
+      (session.state !== "open" && session.state !== "finalized") ||
+      session.expiresAt > Date.now()
+    ) {
+      return null;
+    }
+    await expireStagingSession(ctx, session, Date.now());
+    return null;
+  })
+  .internal();
+
+export const expireBuildCollaborationAssetStagingSessions = internalMutation
+  .input({
+    state: v.union(v.literal("open"), v.literal("finalized")),
+  })
+  .returns(v.number())
+  .handler(async (ctx, args) => {
+    const now = Date.now();
+    const sessions = await ctx.db
+      .query("buildCollaborationAssetStagingSessions")
+      .withIndex("by_state_and_expiresAt", (query) =>
+        query.eq("state", args.state).lt("expiresAt", now)
+      )
+      .take(100);
+    for (const session of sessions) {
+      await expireStagingSession(ctx, session, now);
+    }
+    return sessions.length;
+  })
+  .internal();
+
+async function expireStagingSession(
+  ctx: MutationCtx,
+  session: Doc<"buildCollaborationAssetStagingSessions">,
+  now: number
+) {
+  const asset = session.assetId ? await ctx.db.get(session.assetId) : null;
+  const attachments = asset
+    ? await ctx.db
+        .query("buildCollaborationAttachments")
+        .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
+          query
+            .eq("buildId", session.buildId)
+            .eq("attachmentKind", "collaborationAsset")
+            .eq("attachmentId", asset._id)
+        )
+        .take(1)
+    : [];
+  const shouldDeleteStorage = Boolean(
+    asset &&
+      !asset.publishedAt &&
+      !asset.storageDeletedAt &&
+      attachments.length === 0
+  );
+  const shouldDeletePendingStorage = Boolean(
+    !asset && session.pendingStorageId
+  );
+  if (shouldDeletePendingStorage && session.pendingStorageId) {
+    await ctx.storage.delete(session.pendingStorageId);
+  }
+  if (asset && shouldDeleteStorage) {
+    await ctx.storage.delete(asset.storageId);
+    await ctx.db.patch(asset._id, {
+      scanCompletedAt: now,
+      scanMessage: "The private asset staging session expired.",
+      scanState: "rejected",
+      state: "rejected",
+      storageDeletedAt: now,
+      updatedAt: now,
+    });
+  }
+  await ctx.db.patch(session._id, { state: "abandoned", updatedAt: now });
+  await ctx.db.insert("auditEvents", {
+    actorRoles: ["system"],
+    actorWorkosUserId: "system:asset-staging-expiry",
+    brokerageId: session.brokerageId,
+    command: "expireBuildCollaborationAssetStagingSession",
+    createdAt: now,
+    entityId: asset?._id ?? session._id,
+    entityType: asset
+      ? "buildCollaborationAsset"
+      : "buildCollaborationAssetStagingSession",
+    eventType: "build.collaboration.asset.staging_expired",
+    newState: JSON.stringify({
+      assetState: asset && !asset.publishedAt ? "rejected" : asset?.state,
+      sessionState: "abandoned",
+      storageDeleted: shouldDeleteStorage || shouldDeletePendingStorage,
+    }),
+    organizationId: session.organizationId,
+    warnings: [],
+  });
+}
+
+async function rejectUnpublishedAsset(
+  ctx: MutationCtx,
+  asset: Doc<"buildCollaborationAssets">,
+  input: { message: string; now: number; provider: string }
+) {
+  if (!asset.storageDeletedAt) {
+    await ctx.storage.delete(asset.storageId);
+  }
+  await ctx.db.patch(asset._id, {
+    scanCompletedAt: input.now,
+    scanMessage: input.message,
+    scanState: "rejected",
+    state: "rejected",
+    storageDeletedAt: input.now,
+    updatedAt: input.now,
+  });
+  await ctx.db.insert("auditEvents", {
+    actorRoles: ["system"],
+    actorWorkosUserId: `asset-scanner:${boundedProvider(input.provider)}`,
+    brokerageId: asset.brokerageId,
+    command: "recordBuildCollaborationAssetScanResult",
+    createdAt: input.now,
+    entityId: asset._id,
+    entityType: "buildCollaborationAsset",
+    eventType: "build.collaboration.asset.scan_ignored",
+    newState: JSON.stringify({ scanState: "rejected", state: "rejected" }),
+    organizationId: asset.organizationId,
+    warnings: [input.message],
+  });
+}
 
 async function recordResult(
   ctx: ActionCtx,

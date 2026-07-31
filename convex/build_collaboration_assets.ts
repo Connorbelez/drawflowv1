@@ -7,7 +7,7 @@ import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
-import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { authorizeActiveBuildCollaborationPreparerAccess } from "./build_collaboration_actor";
 import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { buildCollaborationAssetStagingContextValidator } from "./build_collaboration_validators";
@@ -15,6 +15,7 @@ import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_ASSET_BYTES = 100 * 1024 * 1024;
 const MAX_ASSETS_PER_REQUEST = 100;
+const MAX_ACTIVE_STAGING_SESSIONS = 25;
 const STAGING_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const BLOCKED_MIME_TYPES = new Set([
@@ -78,7 +79,10 @@ export const beginBuildCollaborationAssetUpload = authenticatedMutation
     buildId: v.id("activeBuilds"),
     contextKind: buildCollaborationAssetStagingContextValidator,
     contextRecordId: v.optional(v.string()),
+    fileName: v.string(),
+    mimeType: v.optional(v.string()),
     organizationId: v.string(),
+    sizeBytes: v.number(),
   })
   .returns(
     v.object({
@@ -88,16 +92,26 @@ export const beginBuildCollaborationAssetUpload = authenticatedMutation
     })
   )
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
+    const authorization = await authorizeActiveBuildCollaborationPreparerAccess(
       ctx,
       args
     );
+    if (
+      authorization.viewer.actorKind === "agent" &&
+      args.contextKind !== "draft"
+    ) {
+      throw new Error("Agents may stage assets only inside an owned draft.");
+    }
+    const expectedFileName = boundedText(args.fileName, "File name", 240);
+    const expectedMimeType = canonicalMimeType(undefined, args.mimeType);
+    assertAssetSize(args.sizeBytes);
     const contextRecordId = await authorizeStagingContext(ctx, {
       authorization,
       contextKind: args.contextKind,
       contextRecordId: args.contextRecordId,
     });
     const now = Date.now();
+    await assertStagingCapacity(ctx, authorization, now);
     const expiresAt = now + STAGING_SESSION_TTL_MS;
     const stagingSessionId = await ctx.db.insert(
       "buildCollaborationAssetStagingSessions",
@@ -107,6 +121,9 @@ export const beginBuildCollaborationAssetUpload = authenticatedMutation
         contextKind: args.contextKind,
         contextRecordId,
         createdAt: now,
+        expectedFileName,
+        expectedMimeType,
+        expectedSizeBytes: args.sizeBytes,
         expiresAt,
         organizationId: authorization.organizationId,
         ownerWorkosUserId: authorization.viewer.subject,
@@ -119,9 +136,21 @@ export const beginBuildCollaborationAssetUpload = authenticatedMutation
       entityId: stagingSessionId,
       entityType: "buildCollaborationAssetStagingSession",
       eventType: "build.collaboration.asset.upload_authorized",
-      newState: JSON.stringify({ contextKind: args.contextKind, expiresAt }),
+      newState: JSON.stringify({
+        contextKind: args.contextKind,
+        expectedFileName,
+        expectedMimeType,
+        expectedSizeBytes: args.sizeBytes,
+        expiresAt,
+      }),
       now,
     });
+    await ctx.scheduler.runAt(
+      expiresAt,
+      internal.build_collaboration_asset_maintenance
+        .expireBuildCollaborationAssetStagingSession,
+      { stagingSessionId }
+    );
     return {
       expiresAt,
       stagingSessionId,
@@ -139,6 +168,43 @@ export const finalizeBuildCollaborationAssetUpload = authenticatedMutation
   )
   .public();
 
+export const registerBuildCollaborationAssetUploadedStorage =
+  authenticatedMutation
+    .input({
+      buildId: v.id("activeBuilds"),
+      organizationId: v.string(),
+      stagingSessionId: v.id("buildCollaborationAssetStagingSessions"),
+      storageId: v.id("_storage"),
+    })
+    .returns(v.null())
+    .handler(async (ctx, args) => {
+      const authorization =
+        await authorizeActiveBuildCollaborationPreparerAccess(ctx, args);
+      const now = Date.now();
+      const session = await requireOwnedOpenSession(
+        ctx,
+        authorization,
+        args.stagingSessionId,
+        now
+      );
+      if (
+        session.pendingStorageId &&
+        session.pendingStorageId !== args.storageId
+      ) {
+        throw new Error("This staging session already owns another upload.");
+      }
+      const metadata = await ctx.db.system.get(args.storageId);
+      if (!metadata) {
+        throw new Error("The uploaded file is unavailable.");
+      }
+      await ctx.db.patch(session._id, {
+        pendingStorageId: args.storageId,
+        updatedAt: now,
+      });
+      return null;
+    })
+    .public();
+
 export const finalizeBuildCollaborationAssetUploadForAction =
   authenticatedMutation
     .input(finalizeAssetUploadFields)
@@ -154,7 +220,7 @@ async function finalizeAssetUpload(
   args: FinalizeAssetUploadInput,
   options: { scanInBackground: boolean }
 ) {
-  const authorization = await authorizeActiveBuildHumanCollaborationAccess(
+  const authorization = await authorizeActiveBuildCollaborationPreparerAccess(
     ctx,
     args
   );
@@ -169,9 +235,12 @@ async function finalizeAssetUpload(
   if (!metadata) {
     throw new Error("The uploaded file is unavailable.");
   }
-  if (metadata.size <= 0 || metadata.size > MAX_ASSET_BYTES) {
-    throw new Error("Collaboration files must be between 1 byte and 100 MB.");
+  if (session.pendingStorageId && session.pendingStorageId !== args.storageId) {
+    throw new Error(
+      "The uploaded storage identity does not match its staging session."
+    );
   }
+  assertAssetSize(metadata.size);
   const existingStorage = await ctx.db
     .query("buildCollaborationAssets")
     .withIndex("by_storageId", (query) => query.eq("storageId", args.storageId))
@@ -181,12 +250,20 @@ async function finalizeAssetUpload(
   }
   const fileName = boundedText(args.fileName, "File name", 240);
   const mimeType = canonicalMimeType(metadata.contentType, args.mimeType);
+  if (
+    (session.expectedFileName && session.expectedFileName !== fileName) ||
+    (session.expectedMimeType && session.expectedMimeType !== mimeType) ||
+    (session.expectedSizeBytes !== undefined &&
+      session.expectedSizeBytes !== metadata.size)
+  ) {
+    throw new Error("The uploaded file does not match its staging intent.");
+  }
   const contentHashSha256 = args.contentHashSha256.trim().toLowerCase();
   if (!SHA256_PATTERN.test(contentHashSha256)) {
     throw new Error("A valid SHA-256 content hash is required.");
   }
-  const supersededAsset = args.supersedesAssetId
-    ? await requireVersionSource(ctx, authorization, args.supersedesAssetId)
+  const versionPlacement = args.supersedesAssetId
+    ? await resolveVersionPlacement(ctx, authorization, args.supersedesAssetId)
     : null;
   const { maximumAudienceMode, readerWorkosUserIds } = await stagingAudience(
     ctx,
@@ -201,6 +278,7 @@ async function finalizeAssetUpload(
     fileName,
     maximumAudienceMode,
     mimeType,
+    lineageRootAssetId: versionPlacement?.lineageRootAssetId,
     organizationId: authorization.organizationId,
     readerWorkosUserIds,
     scanState: "pending",
@@ -208,11 +286,14 @@ async function finalizeAssetUpload(
     stagingSessionId: session._id,
     state: "quarantined",
     storageId: args.storageId,
-    supersedesAssetId: supersededAsset?._id,
+    supersedesAssetId: versionPlacement?.predecessorAssetId,
     updatedAt: now,
     uploadedByWorkosUserId: authorization.viewer.subject,
-    version: supersededAsset ? supersededAsset.version + 1 : 1,
+    version: versionPlacement?.version ?? 1,
   });
+  if (!versionPlacement) {
+    await ctx.db.patch(assetId, { lineageRootAssetId: assetId });
+  }
   await ctx.db.patch(session._id, {
     assetId,
     state: "finalized",
@@ -229,7 +310,7 @@ async function finalizeAssetUpload(
       scanState: "pending",
       sizeBytes: metadata.size,
       storageId: args.storageId,
-      version: supersededAsset ? supersededAsset.version + 1 : 1,
+      version: versionPlacement?.version ?? 1,
     }),
     now,
   });
@@ -280,7 +361,7 @@ export const authorizeBuildCollaborationAssetDownload = authenticatedMutation
   })
   .returns(v.string())
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
+    const authorization = await authorizeActiveBuildCollaborationPreparerAccess(
       ctx,
       args
     );
@@ -306,6 +387,65 @@ export const authorizeBuildCollaborationAssetDownload = authenticatedMutation
       now: Date.now(),
     });
     return url;
+  })
+  .public();
+
+export const abandonMyBuildCollaborationAssets = authenticatedMutation
+  .input({
+    assetIds: v.array(v.id("buildCollaborationAssets")),
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+    reason: v.string(),
+  })
+  .returns(v.number())
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeActiveBuildCollaborationPreparerAccess(
+      ctx,
+      args
+    );
+    const assetIds = [...new Set(args.assetIds)];
+    if (assetIds.length > 25) {
+      throw new Error("At most 25 staged assets may be abandoned at once.");
+    }
+    const reason = boundedText(args.reason, "Abandonment reason", 500);
+    const now = Date.now();
+    let abandoned = 0;
+    for (const assetId of assetIds) {
+      const asset = await ctx.db.get(assetId);
+      const session = asset?.stagingSessionId
+        ? await ctx.db.get(asset.stagingSessionId)
+        : null;
+      if (
+        !(asset && session) ||
+        asset.organizationId !== authorization.organizationId ||
+        asset.buildId !== authorization.build._id ||
+        asset.brokerageId !== authorization.brokerage._id ||
+        asset.publishedAt ||
+        !(await canManageStagingSession(ctx, authorization, session))
+      ) {
+        throw new Error("A staged collaboration asset is unavailable.");
+      }
+      const attachments = await ctx.db
+        .query("buildCollaborationAttachments")
+        .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
+          query
+            .eq("buildId", authorization.build._id)
+            .eq("attachmentKind", "collaborationAsset")
+            .eq("attachmentId", asset._id)
+        )
+        .take(1);
+      if (attachments.length > 0) {
+        throw new Error("Published collaboration assets cannot be abandoned.");
+      }
+      await abandonUnpublishedAsset(ctx, authorization, {
+        asset,
+        now,
+        reason,
+        session,
+      });
+      abandoned += 1;
+    }
+    return abandoned;
   })
   .public();
 
@@ -336,7 +476,11 @@ async function authorizeStagingContext(
       !draft ||
       draft.buildId !== input.authorization.build._id ||
       draft.organizationId !== input.authorization.organizationId ||
-      draft.ownerWorkosUserId !== input.authorization.viewer.subject ||
+      (draft.ownerWorkosUserId !== input.authorization.viewer.subject &&
+        !(
+          input.authorization.viewer.actorKind === "human" &&
+          draft.approvalOwnerWorkosUserId === input.authorization.viewer.subject
+        )) ||
       (draft.state !== "active" && draft.state !== "scheduled")
     ) {
       throw new Error("The collaboration draft is unavailable.");
@@ -379,7 +523,7 @@ async function requireOwnedOpenSession(
     session.organizationId !== authorization.organizationId ||
     session.brokerageId !== authorization.brokerage._id ||
     session.buildId !== authorization.build._id ||
-    session.ownerWorkosUserId !== authorization.viewer.subject ||
+    !(await canManageStagingSession(ctx, authorization, session)) ||
     session.state !== "open" ||
     session.expiresAt <= now
   ) {
@@ -393,7 +537,7 @@ async function requireOwnedOpenSession(
   return session;
 }
 
-async function requireVersionSource(
+async function resolveVersionPlacement(
   ctx: MutationCtx,
   authorization: ActiveBuildAuthorization,
   assetId: Id<"buildCollaborationAssets">
@@ -405,12 +549,62 @@ async function requireVersionSource(
     asset.brokerageId !== authorization.brokerage._id ||
     asset.buildId !== authorization.build._id ||
     asset.scanState !== "clean" ||
-    (asset.state !== "available" && asset.state !== "superseded") ||
+    asset.state !== "available" ||
+    !asset.publishedAt ||
     !(await canReadCollaborationAsset(ctx, { asset, authorization }))
   ) {
     throw new Error("The prior asset version is unavailable.");
   }
-  return asset;
+  const lineageRootAssetId = asset.lineageRootAssetId ?? asset._id;
+  const lineage = await ctx.db
+    .query("buildCollaborationAssets")
+    .withIndex("by_lineageRootAssetId_and_version", (query) =>
+      query.eq("lineageRootAssetId", lineageRootAssetId)
+    )
+    .order("desc")
+    .take(101);
+  if (lineage.length > 100) {
+    throw new Error("This asset has reached its 100-version limit.");
+  }
+  const latest = lineage[0] ?? asset;
+  if (
+    latest._id !== asset._id &&
+    (latest.state !== "rejected" || latest.publishedAt !== undefined)
+  ) {
+    throw new Error(
+      "A newer asset version already exists; refresh before replacing it."
+    );
+  }
+  return {
+    lineageRootAssetId,
+    predecessorAssetId: latest._id,
+    version: latest.version + 1,
+  };
+}
+
+async function assertStagingCapacity(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  now: number
+) {
+  let activeCount = 0;
+  for (const state of ["open", "finalized"] as const) {
+    const sessions = await ctx.db
+      .query("buildCollaborationAssetStagingSessions")
+      .withIndex("by_buildId_and_ownerWorkosUserId_and_state", (query) =>
+        query
+          .eq("buildId", authorization.build._id)
+          .eq("ownerWorkosUserId", authorization.viewer.subject)
+          .eq("state", state)
+      )
+      .take(MAX_ACTIVE_STAGING_SESSIONS + 1);
+    activeCount += sessions.filter((session) => session.expiresAt > now).length;
+  }
+  if (activeCount >= MAX_ACTIVE_STAGING_SESSIONS) {
+    throw new Error(
+      `At most ${MAX_ACTIVE_STAGING_SESSIONS} active asset uploads are allowed per participant and Build.`
+    );
+  }
 }
 
 async function stagingAudience(
@@ -481,6 +675,34 @@ async function readablePost(
   return post;
 }
 
+async function canManageStagingSession(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  session: Doc<"buildCollaborationAssetStagingSessions">
+) {
+  if (session.ownerWorkosUserId === authorization.viewer.subject) {
+    return true;
+  }
+  if (
+    authorization.viewer.actorKind !== "human" ||
+    session.contextKind !== "draft" ||
+    !session.contextRecordId
+  ) {
+    return false;
+  }
+  const draftId = ctx.db.normalizeId(
+    "buildCollaborationDrafts",
+    session.contextRecordId
+  );
+  const draft = draftId ? await ctx.db.get(draftId) : null;
+  return Boolean(
+    draft &&
+      draft.organizationId === authorization.organizationId &&
+      draft.buildId === authorization.build._id &&
+      draft.approvalOwnerWorkosUserId === authorization.viewer.subject
+  );
+}
+
 async function canInspectAsset(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
@@ -529,6 +751,16 @@ function canonicalMimeType(metadataType?: string, submittedType?: string) {
   return mimeType;
 }
 
+function assertAssetSize(sizeBytes: number) {
+  if (
+    !Number.isSafeInteger(sizeBytes) ||
+    sizeBytes <= 0 ||
+    sizeBytes > MAX_ASSET_BYTES
+  ) {
+    throw new Error("Collaboration files must be between 1 byte and 100 MB.");
+  }
+}
+
 function boundedText(value: string, label: string, max: number) {
   const normalized = value.trim();
   if (!normalized || normalized.length > max) {
@@ -564,6 +796,46 @@ async function recordAssetAudit(
   });
 }
 
+async function abandonUnpublishedAsset(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  input: {
+    asset: Doc<"buildCollaborationAssets">;
+    now: number;
+    reason: string;
+    session: Doc<"buildCollaborationAssetStagingSessions">;
+  }
+) {
+  if (!input.asset.storageDeletedAt) {
+    await ctx.storage.delete(input.asset.storageId);
+  }
+  await ctx.db.patch(input.asset._id, {
+    scanCompletedAt: input.now,
+    scanMessage: input.reason,
+    scanState: "rejected",
+    state: "rejected",
+    storageDeletedAt: input.now,
+    updatedAt: input.now,
+  });
+  await ctx.db.patch(input.session._id, {
+    state: "abandoned",
+    updatedAt: input.now,
+  });
+  await recordAssetAudit(ctx, authorization, {
+    command: "abandonMyBuildCollaborationAssets",
+    entityId: input.asset._id,
+    entityType: "buildCollaborationAsset",
+    eventType: "build.collaboration.asset.abandoned",
+    newState: JSON.stringify({
+      reason: input.reason,
+      sessionState: "abandoned",
+      state: "rejected",
+      storageDeleted: true,
+    }),
+    now: input.now,
+  });
+}
+
 export async function reconcileDraftAssetStagingSessions(
   ctx: MutationCtx,
   input: {
@@ -593,6 +865,7 @@ export async function reconcileDraftAssetStagingSessions(
       continue;
     }
     const assetId = session.assetId;
+    const asset = await ctx.db.get(assetId);
     const attachments = await ctx.db
       .query("buildCollaborationAttachments")
       .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
@@ -602,31 +875,17 @@ export async function reconcileDraftAssetStagingSessions(
           .eq("attachmentId", assetId)
       )
       .take(1);
-    await ctx.db.patch(session._id, {
-      state: "abandoned",
-      updatedAt: input.now,
-    });
-    if (attachments.length === 0) {
-      await ctx.db.patch(assetId, {
-        scanMessage: "Removed from its private draft before publication.",
-        state: "rejected",
-        updatedAt: input.now,
+    if (asset && attachments.length === 0 && !asset.publishedAt) {
+      await abandonUnpublishedAsset(ctx, input.authorization, {
+        asset,
+        now: input.now,
+        reason: "Removed from its private draft before publication.",
+        session,
       });
-      await ctx.db.insert("auditEvents", {
-        actorRoles: input.authorization.roles,
-        actorWorkosUserId: input.authorization.viewer.subject,
-        brokerageId: input.authorization.brokerage._id,
-        command: "reconcileDraftAssetStagingSessions",
-        createdAt: input.now,
-        entityId: assetId,
-        entityType: "buildCollaborationAsset",
-        eventType: "build.collaboration.asset.abandoned",
-        newState: JSON.stringify({
-          draftId: input.draftId,
-          state: "rejected",
-        }),
-        organizationId: input.authorization.organizationId,
-        warnings: [],
+    } else {
+      await ctx.db.patch(session._id, {
+        state: "abandoned",
+        updatedAt: input.now,
       });
     }
   }

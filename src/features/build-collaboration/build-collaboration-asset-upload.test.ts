@@ -28,14 +28,18 @@ describe("uploadGovernedCollaborationAssets", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
+    const abandonAssets = vi.fn(async () => 0);
+    const registerUpload = vi.fn(async () => null);
 
     const result = await uploadGovernedCollaborationAssets([file], {
+      abandonAssets,
       beginUpload: beginUpload as never,
       buildId: "build-1" as never,
       contextKind: "post",
       contextRecordId: "post-1",
       finalizeAndScan: finalizeAndScan as never,
       organizationId: "org-1",
+      registerUpload,
     });
 
     expect(result).toEqual(["asset-1"]);
@@ -43,7 +47,10 @@ describe("uploadGovernedCollaborationAssets", () => {
       buildId: "build-1",
       contextKind: "post",
       contextRecordId: "post-1",
+      fileName: "inspection.txt",
+      mimeType: "text/plain",
       organizationId: "org-1",
+      sizeBytes: 5,
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://uploads.example.test/asset",
@@ -62,7 +69,15 @@ describe("uploadGovernedCollaborationAssets", () => {
       organizationId: "org-1",
       stagingSessionId: "staging-1",
       storageId: "storage-1",
+      supersedesAssetId: undefined,
     });
+    expect(registerUpload).toHaveBeenCalledWith({
+      buildId: "build-1",
+      organizationId: "org-1",
+      stagingSessionId: "staging-1",
+      storageId: "storage-1",
+    });
+    expect(abandonAssets).not.toHaveBeenCalled();
   });
 
   test("fails closed when scanning does not release the asset", async () => {
@@ -78,8 +93,10 @@ describe("uploadGovernedCollaborationAssets", () => {
       ),
     );
 
+    const abandonAssets = vi.fn(async () => 1);
     await expect(
       uploadGovernedCollaborationAssets([file], {
+        abandonAssets,
         beginUpload: (async () => ({
           stagingSessionId: "staging-2",
           uploadUrl: "https://uploads.example.test/unsafe",
@@ -93,8 +110,15 @@ describe("uploadGovernedCollaborationAssets", () => {
           state: "rejected",
         })) as never,
         organizationId: "org-1",
+        registerUpload: async () => null,
       }),
     ).rejects.toThrow("Malware signature detected.");
+    expect(abandonAssets).toHaveBeenCalledWith({
+      assetIds: ["asset-2"],
+      buildId: "build-1",
+      organizationId: "org-1",
+      reason: "Upload bundle did not reach publication.",
+    });
   });
 });
 

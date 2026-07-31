@@ -220,7 +220,22 @@ describe("Build Action Item server authorization", () => {
         new Blob(["inspection attachment"], { type: "text/plain" })
       );
       const now = Date.now();
-      return await ctx.db.insert("buildCollaborationAssets", {
+      const stagingSessionId = await ctx.db.insert(
+        "buildCollaborationAssetStagingSessions",
+        {
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          contextKind: "post",
+          contextRecordId: fixture.postId,
+          createdAt: now,
+          expiresAt: now + 60_000,
+          organizationId: ORGANIZATION_ID,
+          ownerWorkosUserId: "user_contractor_creator",
+          state: "finalized",
+          updatedAt: now,
+        }
+      );
+      const assetId = await ctx.db.insert("buildCollaborationAssets", {
         brokerageId: build.brokerageId,
         buildId: build._id,
         contentHashSha256: "a".repeat(64),
@@ -231,12 +246,16 @@ describe("Build Action Item server authorization", () => {
         organizationId: ORGANIZATION_ID,
         scanState: "clean",
         sizeBytes: 21,
+        stagingSessionId,
         state: "available",
         storageId,
         updatedAt: now,
         uploadedByWorkosUserId: "user_contractor_creator",
         version: 1,
       });
+      await ctx.db.patch(assetId, { lineageRootAssetId: assetId });
+      await ctx.db.patch(stagingSessionId, { assetId });
+      return assetId;
     });
     const baseline = await fixture.base.run(async (ctx) => {
       const post = await ctx.db.get(
@@ -724,6 +743,7 @@ describe("Build Action Item server authorization", () => {
           mimeType: "text/plain",
           organizationId: ORGANIZATION_ID,
           originatingPostId: input.postId,
+          publishedAt: now,
           readerWorkosUserIds: input.readerWorkosUserIds,
           scanState: "clean",
           sizeBytes: input.fileName.length,

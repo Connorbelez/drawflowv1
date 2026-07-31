@@ -82,7 +82,24 @@ export const finalizeAndScanBuildCollaborationAssetUpload = authenticatedAction
   })
   .returns(assetStatusValidator)
   .handler(async (ctx, args): Promise<AssetStatus> => {
-    const assetId = await ctx.runMutation(finalizeAssetUploadMutation, args);
+    let assetId: Id<"buildCollaborationAssets">;
+    try {
+      assetId = await ctx.runMutation(finalizeAssetUploadMutation, args);
+    } catch (error) {
+      await ctx.runMutation(
+        internal.build_collaboration_asset_maintenance
+          .abandonBuildCollaborationAssetUploadAfterFailure,
+        {
+          message:
+            error instanceof Error
+              ? error.message
+              : "Asset upload finalization failed.",
+          stagingSessionId: args.stagingSessionId,
+          storageId: args.storageId,
+        }
+      );
+      throw error;
+    }
     await ctx.runAction(
       internal.build_collaboration_asset_maintenance
         .processBuildCollaborationAssetScan,

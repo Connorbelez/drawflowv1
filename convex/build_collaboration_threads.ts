@@ -8,11 +8,8 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
-import {
-  canUseCollaborationAssetForPost,
-  isCleanCollaborationAsset,
-} from "./build_collaboration_asset_access";
 import { projectCollaborationAssetAttachments } from "./build_collaboration_asset_projection";
+import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import {
   collaborationModeratedContent,
   collaborationTombstoneContent,
@@ -240,64 +237,18 @@ async function persistCommentAttachments(
     revisionId: Id<"buildCollaborationCommentRevisions">;
   }
 ) {
-  if (new Set(input.assetIds).size > 25) {
-    throw new Error("A comment may contain at most 25 attachments.");
-  }
-  for (const assetId of new Set(input.assetIds)) {
-    const asset = await ctx.db.get(assetId);
-    if (
-      !asset ||
-      asset.state !== "available" ||
-      !isCleanCollaborationAsset(asset) ||
-      !(await canUseCollaborationAssetForPost(ctx, {
-        asset,
-        authorization: input.authorization,
-        post: input.post,
-      }))
-    ) {
-      throw new Error("A proposed comment attachment is unavailable.");
-    }
-    await ctx.db.insert("buildCollaborationAttachments", {
-      attachmentId: asset._id,
-      attachmentKind: "collaborationAsset",
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      createdByWorkosUserId: input.authorization.viewer.subject,
-      organizationId: input.authorization.organizationId,
-      ownerKind: "commentRevision",
-      ownerRecordId: input.revisionId,
-    });
-    if (!asset.originatingPostId) {
-      await ctx.db.patch(asset._id, {
-        maximumAudienceMode: input.post.audienceMode,
-        originatingPostId: input.post._id,
-        publishedAt: input.now,
-        publishedOwnerKind: "commentRevision",
-        publishedOwnerRecordId: input.revisionId,
-        readerWorkosUserIds: [...new Set(input.readerWorkosUserIds)].sort(),
-        updatedAt: input.now,
-      });
-    }
-    await ctx.db.insert("auditEvents", {
-      actorRoles: input.authorization.roles,
-      actorWorkosUserId: input.authorization.viewer.subject,
-      brokerageId: input.authorization.brokerage._id,
-      command: "persistBuildCollaborationCommentAttachment",
-      createdAt: input.now,
-      entityId: asset._id,
-      entityType: "buildCollaborationAsset",
-      eventType: "build.collaboration.asset.published",
-      newState: JSON.stringify({
-        ownerKind: "commentRevision",
-        ownerRecordId: input.revisionId,
-        postId: input.post._id,
-        version: asset.version,
-      }),
-      organizationId: input.authorization.organizationId,
-      warnings: [],
-    });
-  }
+  await persistGovernedCollaborationAssetAttachments(ctx, {
+    assetIds: input.assetIds,
+    authorization: input.authorization,
+    command: "persistBuildCollaborationCommentAttachment",
+    maxAttachments: 25,
+    now: input.now,
+    ownerKind: "commentRevision",
+    ownerRecordId: input.revisionId,
+    post: input.post,
+    readerWorkosUserIds: input.readerWorkosUserIds,
+    unavailableMessage: "A proposed comment attachment is unavailable.",
+  });
 }
 
 export const listBuildCollaborationComments = authenticatedQuery

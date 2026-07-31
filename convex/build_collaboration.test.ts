@@ -1480,7 +1480,10 @@ describe("Build collaboration governed assets", () => {
       {
         buildId,
         contextKind: "composer",
+        fileName: "scanner-fixture.txt",
+        mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
+        sizeBytes: 22,
       },
     );
     const storageId = await base.run(async (ctx) =>
@@ -1548,7 +1551,10 @@ describe("Build collaboration governed assets", () => {
       {
         buildId,
         contextKind: "composer",
+        fileName: "footing.jpg",
+        mimeType: "image/jpeg",
         organizationId: ORGANIZATION_ID,
+        sizeBytes: 22,
       }
     );
     const storageId = await base.run(async (ctx) =>
@@ -1557,7 +1563,7 @@ describe("Build collaboration governed assets", () => {
       )
     );
     const hash = "d".repeat(64);
-    const assetId = await admin.mutation(
+    const assetId: Id<"buildCollaborationAssets"> = await admin.mutation(
       (api as any).build_collaboration_assets
         .finalizeBuildCollaborationAssetUpload,
       {
@@ -1616,7 +1622,7 @@ describe("Build collaboration governed assets", () => {
         provider: "test-scanner",
       }
     );
-    const postId = await admin.mutation(
+    const postId: Id<"buildCollaborationPosts"> = await admin.mutation(
       (api as any).build_collaboration
         .approveAndPublishBuildCollaborationBundle,
       publication
@@ -1627,6 +1633,9 @@ describe("Build collaboration governed assets", () => {
       { assetId, buildId, organizationId: ORGANIZATION_ID }
     );
     expect(downloadUrl).toContain("http");
+    await base.run(async (ctx) => {
+      await ctx.db.patch(assetId, { lineageRootAssetId: undefined });
+    });
 
     const replacementSession = await admin.mutation(
       (api as any).build_collaboration_assets
@@ -1634,7 +1643,10 @@ describe("Build collaboration governed assets", () => {
       {
         buildId,
         contextKind: "composer",
+        fileName: "footing-v2.jpg",
+        mimeType: "image/jpeg",
         organizationId: ORGANIZATION_ID,
+        sizeBytes: 26,
       }
     );
     const replacementStorageId = await base.run(async (ctx) =>
@@ -1643,7 +1655,7 @@ describe("Build collaboration governed assets", () => {
       )
     );
     const replacementHash = "e".repeat(64);
-    const replacementId = await admin.mutation(
+    const replacementId: Id<"buildCollaborationAssets"> = await admin.mutation(
       (api as any).build_collaboration_assets
         .finalizeBuildCollaborationAssetUpload,
       {
@@ -1665,6 +1677,71 @@ describe("Build collaboration governed assets", () => {
         computedHashSha256: replacementHash,
         outcome: "clean",
         provider: "test-scanner",
+      }
+    );
+
+    const beforeReplacementPublication = await base.run(async (ctx) => ({
+      original: await ctx.db.get(assetId),
+      replacement: await ctx.db.get(replacementId),
+    }));
+    expect(beforeReplacementPublication.original).toMatchObject({
+      state: "available",
+      version: 1,
+    });
+    expect(beforeReplacementPublication.replacement).toMatchObject({
+      state: "available",
+      version: 2,
+    });
+    expect(beforeReplacementPublication.replacement?.publishedAt).toBeUndefined();
+    const conflictingSession = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        fileName: "conflicting.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 11,
+      }
+    );
+    const conflictingStorageId = await base.run(async (ctx) =>
+      await ctx.storage.store(new Blob(["conflicting"], { type: "text/plain" }))
+    );
+    await expect(
+      admin.action(
+        (api as any).build_collaboration_asset_actions
+          .finalizeAndScanBuildCollaborationAssetUpload,
+        {
+          buildId,
+          contentHashSha256: "7".repeat(64),
+          fileName: "conflicting.txt",
+          mimeType: "text/plain",
+          organizationId: ORGANIZATION_ID,
+          stagingSessionId: conflictingSession.stagingSessionId,
+          storageId: conflictingStorageId,
+          supersedesAssetId: assetId,
+        }
+      )
+    ).rejects.toThrow("newer asset version");
+    const conflictingCleanup = await base.run(async (ctx) => ({
+      session: await ctx.db.get(conflictingSession.stagingSessionId),
+      storage: await ctx.db.system.get(conflictingStorageId),
+    }));
+    expect(conflictingCleanup.session).toMatchObject({ state: "abandoned" });
+    expect(conflictingCleanup.storage).toBeNull();
+    await admin.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        attachmentAssetIds: [replacementId],
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Published the governed replacement.",
+        postId,
+        references: [],
+        tiptapJson: collaborationDocument(
+          "Published the governed replacement."
+        ),
       }
     );
 
@@ -1725,7 +1802,10 @@ describe("Build collaboration governed assets", () => {
         buildId,
         contextKind: "post",
         contextRecordId: postId,
+        fileName: "comment-attachment.pdf",
+        mimeType: "application/pdf",
         organizationId: ORGANIZATION_ID,
+        sizeBytes: 18,
       },
     );
     const commentStorageId = await base.run(async (ctx) =>
@@ -1801,7 +1881,10 @@ describe("Build collaboration governed assets", () => {
         buildId,
         contextKind: "draft",
         contextRecordId: initialDraft.draftId,
+        fileName: "private-draft.jpg",
+        mimeType: "image/jpeg",
         organizationId: ORGANIZATION_ID,
+        sizeBytes: 24,
       },
     );
     const draftStorageId = await base.run(async (ctx) =>
@@ -1880,6 +1963,25 @@ describe("Build collaboration governed assets", () => {
     });
     expect(afterDiscard.asset).toMatchObject({ state: "rejected" });
     expect(afterDiscard.session).toMatchObject({ state: "abandoned" });
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId: draftAssetId,
+        computedHashSha256: draftHash,
+        outcome: "clean",
+        provider: "late-test-scanner",
+      }
+    );
+    const afterLateScan = await base.run(async (ctx) => ({
+      asset: await ctx.db.get(draftAssetId),
+      storage: await ctx.db.system.get(draftStorageId),
+    }));
+    expect(afterLateScan.asset).toMatchObject({
+      scanState: "rejected",
+      state: "rejected",
+    });
+    expect(afterLateScan.storage).toBeNull();
     expect(afterDiscard.audit).toBeDefined();
 
     const secondBuildId = await base.run(async (ctx) => {
@@ -1926,7 +2028,10 @@ describe("Build collaboration governed assets", () => {
       {
         buildId,
         contextKind: "composer",
+        fileName: "inspection.pdf",
+        mimeType: "application/pdf",
         organizationId: ORGANIZATION_ID,
+        sizeBytes: 12,
       }
     );
     const storageId = await base.run(async (ctx) =>
@@ -1971,7 +2076,10 @@ describe("Build collaboration governed assets", () => {
         {
           buildId,
           contextKind: "composer",
+          fileName: "forged.txt",
+          mimeType: "text/plain",
           organizationId: "org_forged",
+          sizeBytes: 1,
         }
       )
     ).rejects.toThrow();
@@ -2069,26 +2177,391 @@ describe("Build collaboration governed assets", () => {
       )
     ).rejects.toThrow();
   });
+
+  test("lets a trusted agent stage a complete asset bundle while keeping publication human-only", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const agent = withIdentity(base, {
+      actorKind: "agent",
+      roles: ["admin"],
+      subject: "svc-asset-preparer",
+    });
+    const draftBundle = {
+      ...collaborationPublicationFixture({
+        buildId,
+        plainText: "Agent-prepared update with governed evidence.",
+      }),
+      approvalOwnerWorkosUserId: "user_admin",
+    };
+    const draft = await agent.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      draftBundle
+    );
+    const staging = await agent.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "draft",
+        contextRecordId: draft.draftId,
+        fileName: "agent-evidence.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 20,
+      }
+    );
+    const storageId = await base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["agent prepared asset"], { type: "text/plain" })
+      )
+    );
+    const hash = "8".repeat(64);
+    const assetId: Id<"buildCollaborationAssets"> = await agent.mutation(
+      (api as any).build_collaboration_assets
+        .finalizeBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contentHashSha256: hash,
+        fileName: "agent-evidence.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: staging.stagingSessionId,
+        storageId,
+      }
+    );
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId,
+        computedHashSha256: hash,
+        outcome: "clean",
+        provider: "test-scanner",
+      }
+    );
+    await agent.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      {
+        ...draftBundle,
+        attachmentAssetIds: [assetId],
+        draftId: draft.draftId,
+      }
+    );
+    await expect(
+      agent.mutation(
+        (api as any).build_collaboration_drafts
+          .approveAndPublishBuildCollaborationDraft,
+        {
+          buildId,
+          draftId: draft.draftId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow();
+
+    const approvalOwnerStaging = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "draft",
+        contextRecordId: draft.draftId,
+        fileName: "human-review.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 1,
+      }
+    );
+    expect(approvalOwnerStaging.stagingSessionId).toBeDefined();
+
+    const postId: Id<"buildCollaborationPosts"> = await admin.mutation(
+      (api as any).build_collaboration_drafts
+        .approveAndPublishBuildCollaborationDraft,
+      {
+        buildId,
+        draftId: draft.draftId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const published = await base.run(async (ctx) => ({
+      asset: await ctx.db.get(assetId),
+      post: await ctx.db.get(postId),
+      session: await ctx.db.get(staging.stagingSessionId),
+    }));
+    expect(published.asset?.publishedAt).toEqual(expect.any(Number));
+    expect(published.post?.authorWorkosUserId).toBe("user_admin");
+    expect(published.session).toMatchObject({ state: "consumed" });
+  });
+
+  test("keeps replacement history linear across a rejected and abandoned attempt", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const originalAssetId = await createPublishedAssetFixture({
+      admin,
+      base,
+      buildId,
+    });
+    const original = await base.run(async (ctx) =>
+      await ctx.db.get(originalAssetId)
+    );
+    if (!original?.originatingPostId) {
+      throw new Error("Published asset fixture has no originating post.");
+    }
+
+    const rejectedSession = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "post",
+        contextRecordId: original.originatingPostId,
+        fileName: "reader-v2.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 15,
+      }
+    );
+    const rejectedStorageId = await base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["bad replacement"], { type: "text/plain" })
+      )
+    );
+    const rejectedAssetId: Id<"buildCollaborationAssets"> =
+      await admin.mutation(
+        (api as any).build_collaboration_assets
+          .finalizeBuildCollaborationAssetUpload,
+        {
+          buildId,
+          contentHashSha256: "b".repeat(64),
+          fileName: "reader-v2.txt",
+          mimeType: "text/plain",
+          organizationId: ORGANIZATION_ID,
+          stagingSessionId: rejectedSession.stagingSessionId,
+          storageId: rejectedStorageId,
+          supersedesAssetId: originalAssetId,
+        }
+      );
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId: rejectedAssetId,
+        message: "Rejected fixture",
+        outcome: "rejected",
+        provider: "test-scanner",
+      }
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_assets
+        .abandonMyBuildCollaborationAssets,
+      {
+        assetIds: [rejectedAssetId],
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        reason: "Retry with a corrected replacement.",
+      }
+    );
+
+    const retrySession = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "post",
+        contextRecordId: original.originatingPostId,
+        fileName: "reader-v3.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 16,
+      }
+    );
+    const retryStorageId = await base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["good replacement"], { type: "text/plain" })
+      )
+    );
+    const retryHash = "c".repeat(64);
+    const retryAssetId: Id<"buildCollaborationAssets"> = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .finalizeBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contentHashSha256: retryHash,
+        fileName: "reader-v3.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: retrySession.stagingSessionId,
+        storageId: retryStorageId,
+        supersedesAssetId: originalAssetId,
+      }
+    );
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId: retryAssetId,
+        computedHashSha256: retryHash,
+        outcome: "clean",
+        provider: "test-scanner",
+      }
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        attachmentAssetIds: [retryAssetId],
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Corrected replacement published.",
+        postId: original.originatingPostId,
+        references: [],
+        tiptapJson: collaborationDocument("Corrected replacement published."),
+      }
+    );
+
+    const lineage = await base.run(async (ctx) => ({
+      original: await ctx.db.get(originalAssetId),
+      rejected: await ctx.db.get(rejectedAssetId),
+      retry: await ctx.db.get(retryAssetId),
+      rejectedStorage: await ctx.db.system.get(rejectedStorageId),
+    }));
+    expect(lineage.original).toMatchObject({ state: "superseded", version: 1 });
+    expect(lineage.rejected).toMatchObject({ state: "rejected", version: 2 });
+    expect(lineage.retry).toMatchObject({
+      state: "available",
+      supersedesAssetId: rejectedAssetId,
+      version: 3,
+    });
+    expect(lineage.rejectedStorage).toBeNull();
+  });
+
+  test("rejects oversized staging intent before upload and expires unpublished storage", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_assets
+          .beginBuildCollaborationAssetUpload,
+        {
+          buildId,
+          contextKind: "composer",
+          fileName: "too-large.bin",
+          mimeType: "application/octet-stream",
+          organizationId: ORGANIZATION_ID,
+          sizeBytes: 100 * 1024 * 1024 + 1,
+        }
+      )
+    ).rejects.toThrow("100 MB");
+
+    const pendingStaging = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        fileName: "pending.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 14,
+      }
+    );
+    const pendingStorageId = await base.run(async (ctx) =>
+      await ctx.storage.store(new Blob(["pending upload"], { type: "text/plain" }))
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_assets
+        .registerBuildCollaborationAssetUploadedStorage,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: pendingStaging.stagingSessionId,
+        storageId: pendingStorageId,
+      }
+    );
+    await base.run(async (ctx) => {
+      await ctx.db.patch(pendingStaging.stagingSessionId, {
+        expiresAt: Date.now() - 1,
+      });
+    });
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .expireBuildCollaborationAssetStagingSession,
+      { stagingSessionId: pendingStaging.stagingSessionId }
+    );
+    expect(
+      await base.run(async (ctx) => await ctx.db.system.get(pendingStorageId))
+    ).toBeNull();
+
+    const staging = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        fileName: "expired.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 13,
+      }
+    );
+    const storageId = await base.run(async (ctx) =>
+      await ctx.storage.store(new Blob(["expired asset"], { type: "text/plain" }))
+    );
+    const assetId = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .finalizeBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contentHashSha256: "9".repeat(64),
+        fileName: "expired.txt",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: staging.stagingSessionId,
+        storageId,
+      }
+    );
+    await base.run(async (ctx) => {
+      await ctx.db.patch(staging.stagingSessionId, {
+        expiresAt: Date.now() - 1,
+      });
+    });
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .expireBuildCollaborationAssetStagingSession,
+      { stagingSessionId: staging.stagingSessionId }
+    );
+    const expired = await base.run(async (ctx) => ({
+      asset: await ctx.db.get(assetId),
+      session: await ctx.db.get(staging.stagingSessionId),
+      storage: await ctx.db.system.get(storageId),
+    }));
+    expect(expired.asset).toMatchObject({
+      scanState: "rejected",
+      state: "rejected",
+      storageDeletedAt: expect.any(Number),
+    });
+    expect(expired.session).toMatchObject({ state: "abandoned" });
+    expect(expired.storage).toBeNull();
+  });
 });
 
 async function createPublishedAssetFixture(input: {
   admin: ReturnType<typeof withIdentity>;
   base: ReturnType<typeof convexTest>;
   buildId: Id<"activeBuilds">;
-}) {
+}): Promise<Id<"buildCollaborationAssets">> {
   const staging = await input.admin.mutation(
     (api as any).build_collaboration_assets.beginBuildCollaborationAssetUpload,
     {
       buildId: input.buildId,
       contextKind: "composer",
+      fileName: "reader.txt",
+      mimeType: "text/plain",
       organizationId: ORGANIZATION_ID,
+      sizeBytes: 12,
     }
   );
   const storageId = await input.base.run(async (ctx) =>
     await ctx.storage.store(new Blob(["reader asset"], { type: "text/plain" }))
   );
   const hash = "2".repeat(64);
-  const assetId = await input.admin.mutation(
+  const assetId: Id<"buildCollaborationAssets"> = await input.admin.mutation(
     (api as any).build_collaboration_assets
       .finalizeBuildCollaborationAssetUpload,
     {

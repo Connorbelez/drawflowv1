@@ -9,6 +9,7 @@ import {
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { isCleanCollaborationAsset } from "./build_collaboration_asset_access";
+import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import { collaborationFeedResultValidator } from "./build_collaboration_contracts";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
@@ -583,59 +584,22 @@ async function persistAttachments(
     readerWorkosUserIds: string[];
   }
 ) {
-  for (const assetId of new Set(input.assetIds)) {
-    const asset = await ctx.db.get(assetId);
-    if (
-      !asset ||
-      asset.buildId !== input.authorization.build._id ||
-      asset.organizationId !== input.authorization.organizationId ||
-      asset.brokerageId !== input.authorization.brokerage._id ||
-      asset.state !== "available" ||
-      !isCleanCollaborationAsset(asset)
-    ) {
-      throw new Error("A proposed collaboration asset is unavailable.");
-    }
-    await ctx.db.insert("buildCollaborationAttachments", {
-      attachmentId: asset._id,
-      attachmentKind: "collaborationAsset",
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      createdByWorkosUserId: input.authorization.viewer.subject,
-      organizationId: input.authorization.organizationId,
-      ownerKind: "postRevision",
-      ownerRecordId: input.postRevisionId,
-    });
-    if (!asset.originatingPostId) {
-      await ctx.db.patch(asset._id, {
-        maximumAudienceMode: input.audienceMode,
-        originatingPostId: input.postId,
-        publishedAt: input.now,
-        publishedOwnerKind: "postRevision",
-        publishedOwnerRecordId: input.postRevisionId,
-        readerWorkosUserIds: [...new Set(input.readerWorkosUserIds)].sort(),
-        updatedAt: input.now,
-      });
-    }
-    await ctx.db.insert("auditEvents", {
-      actorRoles: input.authorization.roles,
-      actorWorkosUserId: input.authorization.viewer.subject,
-      brokerageId: input.authorization.brokerage._id,
-      command: "persistBuildCollaborationAttachment",
-      createdAt: input.now,
-      entityId: asset._id,
-      entityType: "buildCollaborationAsset",
-      eventType: "build.collaboration.asset.published",
-      newState: JSON.stringify({
-        ownerKind: "postRevision",
-        ownerRecordId: input.postRevisionId,
-        postId: input.postId,
-        version: asset.version,
-      }),
-      organizationId: input.authorization.organizationId,
-      warnings: [],
-    });
+  const post = await ctx.db.get(input.postId);
+  if (!post) {
+    throw new Error("The collaboration post is unavailable.");
   }
+  await persistGovernedCollaborationAssetAttachments(ctx, {
+    assetIds: input.assetIds,
+    authorization: input.authorization,
+    command: "persistBuildCollaborationAttachment",
+    maxAttachments: 25,
+    now: input.now,
+    ownerKind: "postRevision",
+    ownerRecordId: input.postRevisionId,
+    post,
+    readerWorkosUserIds: input.readerWorkosUserIds,
+    unavailableMessage: "A proposed collaboration asset is unavailable.",
+  });
 }
 
 async function persistApprovedSharedMutations(

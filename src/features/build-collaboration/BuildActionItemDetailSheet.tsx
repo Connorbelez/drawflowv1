@@ -32,9 +32,15 @@ import {
 } from "#/components/ui/sheet.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { BuildCollaborationAssetList } from "./BuildCollaborationAssetList.tsx";
+import {
+  BuildCollaborationAssetList,
+  type BuildCollaborationAssetSummary,
+} from "./BuildCollaborationAssetList.tsx";
 import { BuildCollaborationReferenceChip } from "./BuildCollaborationReference.tsx";
-import { uploadGovernedCollaborationAssets } from "./build-collaboration-asset-upload.ts";
+import {
+  abandonGovernedCollaborationAssets,
+  uploadGovernedCollaborationAssets,
+} from "./build-collaboration-asset-upload.ts";
 import {
   CollaborationRichTextEditor,
   CollaborationRichTextPreview,
@@ -155,9 +161,16 @@ function ActionItemCreatePanel({
   const beginAssetUpload = useMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
+  const registerAssetUpload = useMutation(
+    api.build_collaboration_assets
+      .registerBuildCollaborationAssetUploadedStorage
+  );
   const finalizeAndScanAsset = useAction(
     api.build_collaboration_asset_actions
       .finalizeAndScanBuildCollaborationAssetUpload
+  );
+  const abandonAssets = useMutation(
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const [title, setTitle] = useState("");
   const [document, setDocument] = useState<JSONContent>(emptyDocument());
@@ -186,21 +199,21 @@ function ActionItemCreatePanel({
       return;
     }
     setSubmitting(true);
+    let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
     try {
-      const attachmentAssetIds = await uploadGovernedCollaborationAssets(
-        files,
-        {
-          beginUpload: beginAssetUpload,
-          buildId,
-          contextKind: "post",
-          contextRecordId: postId,
-          finalizeAndScan: finalizeAndScanAsset,
-          organizationId,
-        }
-      );
+      uploadedAssetIds = await uploadGovernedCollaborationAssets(files, {
+        abandonAssets,
+        beginUpload: beginAssetUpload,
+        buildId,
+        contextKind: "post",
+        contextRecordId: postId,
+        finalizeAndScan: finalizeAndScanAsset,
+        organizationId,
+        registerUpload: registerAssetUpload,
+      });
       const actionItemId = await createActionItem({
         assigneeWorkosUserId: assigneeWorkosUserId || undefined,
-        attachmentAssetIds,
+        attachmentAssetIds: uploadedAssetIds,
         buildId,
         descriptionPlainText: plainTextFromDocument(document),
         descriptionTiptapJson: JSON.stringify(document),
@@ -229,6 +242,13 @@ function ActionItemCreatePanel({
       onCreated?.(actionItemId);
       onOpenChange(false);
     } catch (error) {
+      await abandonGovernedCollaborationAssets({
+        abandonAssets,
+        assetIds: uploadedAssetIds,
+        buildId,
+        organizationId,
+        reason: "Action Item creation failed after asset upload.",
+      });
       toast.error(
         error instanceof Error ? error.message : "Unable to create Action Item."
       );
@@ -434,6 +454,23 @@ function VisibleActionItemDetail({
   const addComment = useMutation(
     api.build_action_item_details.addBuildActionItemComment
   );
+  const addReplacementComment = useMutation(
+    api.build_collaboration_threads.addBuildCollaborationComment
+  );
+  const beginReplacementUpload = useMutation(
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+  );
+  const registerReplacementUpload = useMutation(
+    api.build_collaboration_assets
+      .registerBuildCollaborationAssetUploadedStorage
+  );
+  const finalizeAndScanReplacement = useAction(
+    api.build_collaboration_asset_actions
+      .finalizeAndScanBuildCollaborationAssetUpload
+  );
+  const abandonReplacementAssets = useMutation(
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
+  );
   const assignActionItem = useMutation(
     api.build_action_item_workflow.assignBuildActionItem
   );
@@ -464,6 +501,58 @@ function VisibleActionItemDetail({
   const [saving, setSaving] = useState(false);
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [transitionReason, setTransitionReason] = useState("");
+
+  const replaceAsset = async (
+    asset: BuildCollaborationAssetSummary,
+    file: File
+  ) => {
+    let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
+    try {
+      uploadedAssetIds = await uploadGovernedCollaborationAssets([file], {
+        abandonAssets: abandonReplacementAssets,
+        beginUpload: beginReplacementUpload,
+        buildId,
+        contextKind: "post",
+        contextRecordId: detail.item.originatingPostId,
+        finalizeAndScan: finalizeAndScanReplacement,
+        organizationId,
+        registerUpload: registerReplacementUpload,
+        supersedesAssetId: asset.assetId,
+      });
+      const plainText = `Replaced ${asset.fileName} v${asset.version} with ${file.name} v${asset.version + 1} for ${detail.item.title}.`;
+      await addReplacementComment({
+        attachmentAssetIds: uploadedAssetIds,
+        buildId,
+        organizationId,
+        plainText,
+        postId: detail.item.originatingPostId,
+        references: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: plainText, type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      });
+      toast.success("Attachment replacement published to the parent thread.");
+    } catch (error) {
+      await abandonGovernedCollaborationAssets({
+        abandonAssets: abandonReplacementAssets,
+        assetIds: uploadedAssetIds,
+        buildId,
+        organizationId,
+        reason: "Action Item attachment replacement failed.",
+      });
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to publish the attachment replacement."
+      );
+    }
+  };
 
   useEffect(() => {
     setTitle(detail.item.title);
@@ -654,6 +743,7 @@ function VisibleActionItemDetail({
           buildId={buildId}
           detail={detail}
           onReferenceOpen={onReferenceOpen}
+          onReplaceAsset={replaceAsset}
           organizationId={organizationId}
           tagOptions={tagOptions}
         />
@@ -839,12 +929,17 @@ function DetailContext({
   buildId,
   detail,
   onReferenceOpen,
+  onReplaceAsset,
   organizationId,
   tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
   detail: VisibleActionItemDetail;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
+  onReplaceAsset: (
+    asset: BuildCollaborationAssetSummary,
+    file: File
+  ) => Promise<void>;
   organizationId: string;
   tagOptions: CollaborationTagOption[];
 }) {
@@ -882,6 +977,7 @@ function DetailContext({
       <BuildCollaborationAssetList
         assets={detail.attachments}
         buildId={buildId}
+        onReplace={onReplaceAsset}
         organizationId={organizationId}
       />
     </section>

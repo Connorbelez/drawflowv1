@@ -151,6 +151,7 @@ export const buildCollaborationAssetStagingContextValidator = v.union(
 export const buildCollaborationAssetStagingStateValidator = v.union(
   v.literal("open"),
   v.literal("finalized"),
+  v.literal("consumed"),
   v.literal("abandoned")
 );
 

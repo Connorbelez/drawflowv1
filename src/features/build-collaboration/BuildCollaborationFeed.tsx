@@ -66,7 +66,10 @@ import {
   BuildCollaborationActionItems,
 } from "./BuildCollaborationActionItems.tsx";
 import { BuildCollaborationApprovalReview } from "./BuildCollaborationApprovalReview.tsx";
-import { BuildCollaborationAssetList } from "./BuildCollaborationAssetList.tsx";
+import {
+  BuildCollaborationAssetList,
+  type BuildCollaborationAssetSummary,
+} from "./BuildCollaborationAssetList.tsx";
 import {
   type BuildCollaborationEditingEntity,
   BuildCollaborationEditSheet,
@@ -81,7 +84,10 @@ import {
   BuildCollaborationReferenceSheet,
 } from "./BuildCollaborationReference.tsx";
 import { BuildCollaborationThreadSheet } from "./BuildCollaborationThreadSheet.tsx";
-import { uploadGovernedCollaborationAssets } from "./build-collaboration-asset-upload.ts";
+import {
+  abandonGovernedCollaborationAssets,
+  uploadGovernedCollaborationAssets,
+} from "./build-collaboration-asset-upload.ts";
 import {
   CollaborationRichTextEditor,
   CollaborationRichTextPreview,
@@ -368,9 +374,16 @@ export function BuildCollaborationFeed({
   const beginAssetUpload = useMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
+  const registerAssetUpload = useMutation(
+    api.build_collaboration_assets
+      .registerBuildCollaborationAssetUploadedStorage
+  );
   const finalizeAndScanAsset = useAction(
     api.build_collaboration_asset_actions
       .finalizeAndScanBuildCollaborationAssetUpload
+  );
+  const abandonAssets = useMutation(
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const [filter, setFilter] = useState<FeedFilter>("all");
   const [search, setSearch] = useState("");
@@ -600,16 +613,19 @@ export function BuildCollaborationFeed({
       return;
     }
     setPublishing(true);
+    let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
     try {
-      const uploadedAssetIds = await uploadGovernedCollaborationAssets(
+      uploadedAssetIds = await uploadGovernedCollaborationAssets(
         composerFiles,
         {
+          abandonAssets,
           beginUpload: beginAssetUpload,
           buildId: activeBuildId,
           contextKind: editingHumanDraftId ? "draft" : "composer",
           contextRecordId: editingHumanDraftId ?? undefined,
           finalizeAndScan: finalizeAndScanAsset,
           organizationId,
+          registerUpload: registerAssetUpload,
         }
       );
       const bundle = buildComposerBundle([
@@ -641,6 +657,13 @@ export function BuildCollaborationFeed({
       toast.success("Update published.");
       resetComposer();
     } catch (error) {
+      await abandonGovernedCollaborationAssets({
+        abandonAssets,
+        assetIds: uploadedAssetIds,
+        buildId: activeBuildId,
+        organizationId,
+        reason: "Post publication failed after asset upload.",
+      });
       toast.error(
         error instanceof Error ? error.message : "Unable to publish update."
       );
@@ -659,6 +682,7 @@ export function BuildCollaborationFeed({
       return;
     }
     setPublishing(true);
+    let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
     try {
       const draftId = await ensureComposerDraftId({
         activeBuildId,
@@ -667,15 +691,17 @@ export function BuildCollaborationFeed({
         organizationId,
         saveDraft,
       });
-      const uploadedAssetIds = await uploadGovernedCollaborationAssets(
+      uploadedAssetIds = await uploadGovernedCollaborationAssets(
         composerFiles,
         {
+          abandonAssets,
           beginUpload: beginAssetUpload,
           buildId: activeBuildId,
           contextKind: "draft",
           contextRecordId: draftId,
           finalizeAndScan: finalizeAndScanAsset,
           organizationId,
+          registerUpload: registerAssetUpload,
         }
       );
       const assetIds = [
@@ -697,6 +723,13 @@ export function BuildCollaborationFeed({
       toast.success("Draft saved.");
       resetComposer();
     } catch (error) {
+      await abandonGovernedCollaborationAssets({
+        abandonAssets,
+        assetIds: uploadedAssetIds,
+        buildId: activeBuildId,
+        organizationId,
+        reason: "Draft persistence failed after asset upload.",
+      });
       toast.error(
         error instanceof Error ? error.message : "Unable to save draft."
       );
@@ -1699,6 +1732,23 @@ function CollaborationPostCard({
   const transitionAction = useMutation(
     api.build_action_item_workflow.transitionBuildActionItem
   );
+  const addReplacementComment = useMutation(
+    api.build_collaboration_threads.addBuildCollaborationComment
+  );
+  const beginReplacementUpload = useMutation(
+    api.build_collaboration_assets.beginBuildCollaborationAssetUpload
+  );
+  const registerReplacementUpload = useMutation(
+    api.build_collaboration_assets
+      .registerBuildCollaborationAssetUploadedStorage
+  );
+  const finalizeAndScanReplacement = useAction(
+    api.build_collaboration_asset_actions
+      .finalizeAndScanBuildCollaborationAssetUpload
+  );
+  const abandonReplacementAssets = useMutation(
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
+  );
 
   useEffect(() => {
     if (
@@ -1723,6 +1773,59 @@ function CollaborationPostCard({
     const option = referenceByKey.get(`${reference.kind}:${reference.id}`);
     if (option) {
       onFocusReference(option);
+    }
+  };
+  const replaceAsset = async (
+    asset: BuildCollaborationAssetSummary,
+    file: File,
+    parentCommentId?: Id<"buildCollaborationComments">
+  ) => {
+    let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
+    try {
+      uploadedAssetIds = await uploadGovernedCollaborationAssets([file], {
+        abandonAssets: abandonReplacementAssets,
+        beginUpload: beginReplacementUpload,
+        buildId,
+        contextKind: "post",
+        contextRecordId: entry.post._id,
+        finalizeAndScan: finalizeAndScanReplacement,
+        organizationId,
+        registerUpload: registerReplacementUpload,
+        supersedesAssetId: asset.assetId,
+      });
+      const plainText = `Replaced ${asset.fileName} v${asset.version} with ${file.name} v${asset.version + 1}.`;
+      await addReplacementComment({
+        attachmentAssetIds: uploadedAssetIds,
+        buildId,
+        organizationId,
+        parentCommentId,
+        plainText,
+        postId: entry.post._id,
+        references: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: plainText, type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      });
+      toast.success("Attachment replacement published.");
+    } catch (error) {
+      await abandonGovernedCollaborationAssets({
+        abandonAssets: abandonReplacementAssets,
+        assetIds: uploadedAssetIds,
+        buildId,
+        organizationId,
+        reason: "Attachment replacement publication failed.",
+      });
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to publish the attachment replacement."
+      );
     }
   };
   const postEditTarget = () => {
@@ -1796,6 +1899,7 @@ function CollaborationPostCard({
         <BuildCollaborationAssetList
           assets={entry.attachments}
           buildId={buildId}
+          onReplace={(asset, file) => replaceAsset(asset, file)}
           organizationId={organizationId}
         />
         <ThreadOutcomeSummary entry={entry} />
@@ -1834,6 +1938,7 @@ function CollaborationPostCard({
               onEditComment={setEditTarget}
               onFocusReference={onFocusReference}
               onModerateComment={setModerationTarget}
+              onReplaceAsset={replaceAsset}
               organizationId={organizationId}
               postId={entry.post._id}
               referenceByKey={referenceByKey}
@@ -1955,6 +2060,7 @@ function CollaborationComment({
   onEdit,
   onFocusReference,
   onModerate,
+  onReplaceAsset,
   onReply,
   onTreeFocus,
   organizationId,
@@ -1970,6 +2076,11 @@ function CollaborationComment({
   onEdit: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
   onModerate: (target: BuildCollaborationModerationEntity) => void;
+  onReplaceAsset: (
+    asset: BuildCollaborationAssetSummary,
+    file: File,
+    parentCommentId?: Id<"buildCollaborationComments">
+  ) => Promise<void>;
   onReply: (commentId: Id<"buildCollaborationComments">) => void;
   onTreeFocus: (commentId: Id<"buildCollaborationComments">) => void;
   organizationId: string;
@@ -2068,6 +2179,9 @@ function CollaborationComment({
         <BuildCollaborationAssetList
           assets={row.attachments}
           buildId={buildId}
+          onReplace={(asset, file) =>
+            onReplaceAsset(asset, file, row.comment._id)
+          }
           organizationId={organizationId}
         />
         {row.comment.contentState === "active" ? (
@@ -2259,6 +2373,7 @@ function CollaborationDiscussion({
   onEditComment,
   onFocusReference,
   onModerateComment,
+  onReplaceAsset,
   organizationId,
   postId,
   referenceByKey,
@@ -2270,6 +2385,11 @@ function CollaborationDiscussion({
   onEditComment: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
   onModerateComment: (target: BuildCollaborationModerationEntity) => void;
+  onReplaceAsset: (
+    asset: BuildCollaborationAssetSummary,
+    file: File,
+    parentCommentId?: Id<"buildCollaborationComments">
+  ) => Promise<void>;
   organizationId: string;
   postId: Id<"buildCollaborationPosts">;
   referenceByKey: Map<string, ReferenceOption>;
@@ -2291,9 +2411,16 @@ function CollaborationDiscussion({
   const beginAssetUpload = useMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
+  const registerAssetUpload = useMutation(
+    api.build_collaboration_assets
+      .registerBuildCollaborationAssetUploadedStorage
+  );
   const finalizeAndScanAsset = useAction(
     api.build_collaboration_asset_actions
       .finalizeAndScanBuildCollaborationAssetUpload
+  );
+  const abandonAssets = useMutation(
+    api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const react = useMutation(
     api.build_collaboration_threads.reactToBuildCollaborationPost
@@ -2343,20 +2470,20 @@ function CollaborationDiscussion({
       return;
     }
     setSubmittingReply(true);
+    let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
     try {
-      const attachmentAssetIds = await uploadGovernedCollaborationAssets(
-        replyFiles,
-        {
-          beginUpload: beginAssetUpload,
-          buildId,
-          contextKind: "post",
-          contextRecordId: postId,
-          finalizeAndScan: finalizeAndScanAsset,
-          organizationId,
-        }
-      );
+      uploadedAssetIds = await uploadGovernedCollaborationAssets(replyFiles, {
+        abandonAssets,
+        beginUpload: beginAssetUpload,
+        buildId,
+        contextKind: "post",
+        contextRecordId: postId,
+        finalizeAndScan: finalizeAndScanAsset,
+        organizationId,
+        registerUpload: registerAssetUpload,
+      });
       const commentId = await addComment({
-        attachmentAssetIds,
+        attachmentAssetIds: uploadedAssetIds,
         buildId,
         organizationId,
         parentCommentId: replyingTo,
@@ -2380,6 +2507,13 @@ function CollaborationDiscussion({
       setReplyingTo(undefined);
       setPendingFocusCommentId(commentId);
     } catch (error) {
+      await abandonGovernedCollaborationAssets({
+        abandonAssets,
+        assetIds: uploadedAssetIds,
+        buildId,
+        organizationId,
+        reason: "Reply publication failed after asset upload.",
+      });
       toast.error(
         error instanceof Error ? error.message : "Unable to publish reply."
       );
@@ -2447,6 +2581,7 @@ function CollaborationDiscussion({
               onEdit={onEditComment}
               onFocusReference={onFocusReference}
               onModerate={onModerateComment}
+              onReplaceAsset={onReplaceAsset}
               onReply={setReplyingTo}
               onTreeFocus={setActiveTreeCommentId}
               organizationId={organizationId}
