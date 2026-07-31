@@ -593,6 +593,54 @@ describe("Build collaboration external delivery", () => {
     expect(owner).toMatchObject({ revision: 3, workosUserId: "user_broker" });
   });
 
+  test("cleans every displaced owner across a multi-hop endpoint transfer", async () => {
+    vi.useFakeTimers();
+    const fixture = await seedDeliveryBuild();
+    const thirdOwner = withIdentity(fixture.base, {
+      roles: ["admin"],
+      subject: "user_admin_successor",
+    });
+    const endpoint = "https://push.example.test/multi-hop-browser";
+    const register = async (actor: typeof fixture.broker, key: string) =>
+      await actor.mutation(
+        (api as any).build_collaboration_delivery_api
+          .registerMyBuildCollaborationPushSubscription,
+        {
+          auth: `${key}-auth`,
+          buildId: fixture.buildId,
+          endpoint,
+          organizationId: ORGANIZATION_ID,
+          p256dh: `${key}-key`,
+        }
+      );
+
+    await register(fixture.broker, "broker");
+    await register(fixture.admin as typeof fixture.broker, "admin");
+    await register(thirdOwner as typeof fixture.broker, "successor");
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    vi.useRealTimers();
+
+    const subscriptions = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("buildCollaborationPushSubscriptions")
+        .withIndex("by_endpoint_and_state", (query) =>
+          query.eq("endpoint", endpoint).eq("state", "active")
+        )
+        .collect()
+    );
+    expect(subscriptions).toHaveLength(1);
+    expect(subscriptions[0]?.workosUserId).toBe("user_admin_successor");
+    for (const actor of [fixture.broker, fixture.admin]) {
+      expect(
+        await actor.query(
+          (api as any).build_collaboration_delivery_api
+            .getMyBuildCollaborationPushSubscription,
+          { buildId: fixture.buildId, endpoint, organizationId: ORGANIZATION_ID }
+        )
+      ).toBeNull();
+    }
+  });
+
   test("prunes stale ownership bindings before enforcing the per-Build device cap", async () => {
     const fixture = await seedDeliveryBuild();
     const staleEndpoints = Array.from(
@@ -642,7 +690,7 @@ describe("Build collaboration external delivery", () => {
       await ctx.db
         .query("buildCollaborationPushEndpointBuildBindings")
         .withIndex(
-          "by_organizationId_and_workosUserId_and_buildId",
+          "by_organizationId_and_workosUserId_and_buildId_and_endpoint",
           (query) =>
             query
               .eq("organizationId", ORGANIZATION_ID)

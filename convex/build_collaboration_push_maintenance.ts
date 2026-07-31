@@ -18,7 +18,7 @@ export const cleanupTransferredBuildCollaborationPushEndpoint = internalMutation
       .unique();
     if (
       !owner ||
-      owner.revision !== args.expectedOwnershipRevision ||
+      owner.revision < args.expectedOwnershipRevision ||
       owner.workosUserId === args.priorWorkosUserId
     ) {
       return null;

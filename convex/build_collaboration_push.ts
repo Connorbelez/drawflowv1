@@ -48,11 +48,13 @@ export async function ownedActivePushSubscriptions(
 ) {
   const bindings = await ctx.db
     .query("buildCollaborationPushEndpointBuildBindings")
-    .withIndex("by_organizationId_and_workosUserId_and_buildId", (query) =>
-      query
-        .eq("organizationId", identity.organizationId)
-        .eq("workosUserId", identity.workosUserId)
-        .eq("buildId", identity.buildId)
+    .withIndex(
+      "by_organizationId_and_workosUserId_and_buildId_and_endpoint",
+      (query) =>
+        query
+          .eq("organizationId", identity.organizationId)
+          .eq("workosUserId", identity.workosUserId)
+          .eq("buildId", identity.buildId)
     )
     .take(MAX_ACTIVE_PUSH_DEVICES_PER_BUILD + 1);
   if (bindings.length > MAX_ACTIVE_PUSH_DEVICES_PER_BUILD) {
@@ -93,11 +95,13 @@ export async function removeStalePushBindings(
 ) {
   const bindings = await ctx.db
     .query("buildCollaborationPushEndpointBuildBindings")
-    .withIndex("by_organizationId_and_workosUserId_and_buildId", (query) =>
-      query
-        .eq("organizationId", identity.organizationId)
-        .eq("workosUserId", identity.workosUserId)
-        .eq("buildId", identity.buildId)
+    .withIndex(
+      "by_organizationId_and_workosUserId_and_buildId_and_endpoint",
+      (query) =>
+        query
+          .eq("organizationId", identity.organizationId)
+          .eq("workosUserId", identity.workosUserId)
+          .eq("buildId", identity.buildId)
     )
     .take(MAX_ACTIVE_PUSH_DEVICES_PER_BUILD + 1);
   if (bindings.length > MAX_ACTIVE_PUSH_DEVICES_PER_BUILD) {

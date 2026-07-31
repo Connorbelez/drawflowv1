@@ -2763,7 +2763,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_buildId_and_endpoint", ["buildId", "endpoint"])
-    .index("by_organizationId_and_workosUserId_and_buildId", [
+    .index("by_organizationId_and_workosUserId_and_buildId_and_endpoint", [
       "organizationId",
       "workosUserId",
       "buildId",
