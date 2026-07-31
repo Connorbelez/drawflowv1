@@ -1,5 +1,6 @@
 export const BUILD_COLLABORATION_FOCUS_KINDS = [
   "actionItem",
+  "comment",
   "document",
   "draw",
   "evidenceAsset",

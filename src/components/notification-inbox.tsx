@@ -31,7 +31,7 @@ export function NotificationInbox({
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const inbox = useRecipientInbox(open ? workosOrganizationId : null);
+  const inbox = useRecipientInbox(workosOrganizationId, open);
   const markRead = useMutation(
     api.production_proposals.markRecipientDeliveryRead
   );
@@ -174,17 +174,24 @@ export function NotificationInbox({
   );
 }
 
-function useRecipientInbox(workosOrganizationId?: string | null) {
+function useRecipientInbox(
+  workosOrganizationId?: string | null,
+  exhaustPages = false
+) {
   const inbox = usePaginatedQuery(
     api.build_collaboration_inbox.listRecipientInbox,
     workosOrganizationId ? { workosOrganizationId } : "skip",
     { initialNumItems: 100 }
   );
   useEffect(() => {
-    if (workosOrganizationId && inbox.status === "CanLoadMore") {
+    if (
+      exhaustPages &&
+      workosOrganizationId &&
+      inbox.status === "CanLoadMore"
+    ) {
       inbox.loadMore(100);
     }
-  }, [inbox.loadMore, inbox.status, workosOrganizationId]);
+  }, [exhaustPages, inbox.loadMore, inbox.status, workosOrganizationId]);
   return useMemo(() => {
     const deliveries = inbox.results;
     return {

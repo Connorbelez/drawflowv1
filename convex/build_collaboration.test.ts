@@ -3148,6 +3148,135 @@ describe("Build collaboration canonical reference authorization", () => {
     expect(JSON.stringify(secondPage)).not.toContain("RESTRICTED");
   });
 
+  test("projects collaboration notification deep links onto every recipient's current role-safe Build route", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const recipients = [
+      {
+        expectedPrefix: "/builder/builds",
+        role: "builder" as const,
+        subject: "user_builder",
+      },
+      {
+        expectedPrefix: "/builder-staff/builds",
+        role: "builder-staff" as const,
+        subject: "user_builder_staff",
+      },
+      {
+        expectedPrefix: "/contractor/builds",
+        role: "contractor" as const,
+        subject: "user_contractor",
+      },
+      {
+        expectedPrefix: "/homeowner/builds",
+        role: "homeowner" as const,
+        subject: "user_homeowner",
+      },
+    ];
+    for (const recipient of recipients.slice(1)) {
+      await addBuildParticipant(base, {
+        buildId,
+        displayName: recipient.subject,
+        role: recipient.role,
+        subject: recipient.subject,
+      });
+    }
+    const postId = await admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "build_wide",
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Role-safe routing thread.",
+        postType: "update",
+        references: [],
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Role-safe routing thread.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    const commentId = await admin.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Focus this reply.",
+        postId,
+        references: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Focus this reply.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+    await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) {
+        throw new Error("Active Build fixture is unavailable.");
+      }
+      for (const delivery of await ctx.db.query("recipientDeliveries").collect()) {
+        await ctx.db.delete(delivery._id);
+      }
+      for (const [index, recipient] of recipients.entries()) {
+        await ctx.db.insert("recipientDeliveries", {
+          actionLabel: "Open reply",
+          actionRequired: true,
+          body: "Untrusted stored reply preview",
+          brokerageId: build.brokerageId,
+          collaborationBuildId: buildId,
+          collaborationCommentId: commentId,
+          collaborationEventKind: "direct_mention",
+          collaborationPostId: postId,
+          createdAt: index + 1,
+          dedupeKey: `notification:role-route:${recipient.subject}`,
+          entityId: commentId,
+          entityLabel: "Untrusted stored Build label",
+          entityType: "buildCollaborationComment",
+          href: `/backoffice/builds/${buildId}`,
+          organizationId: ORGANIZATION_ID,
+          recipientWorkosUserId: recipient.subject,
+          resolutionMode: "recipient",
+          sourceLabel: "Build collaboration",
+          status: "unread",
+          title: "Untrusted stored title",
+          updatedAt: index + 1,
+        });
+      }
+    });
+
+    for (const recipient of recipients) {
+      const inbox = await withIdentity(base, {
+        roles: [recipient.role],
+        subject: recipient.subject,
+      }).query((api as any).build_collaboration_inbox.listRecipientInbox, {
+        paginationOpts: { cursor: null, numItems: 100 },
+        workosOrganizationId: ORGANIZATION_ID,
+      });
+      expect(inbox.page).toHaveLength(1);
+      expect(inbox.page[0].href).toContain(
+        `${recipient.expectedPrefix}/${buildId}`,
+      );
+      expect(inbox.page[0].href).toContain(
+        `collaborationPost=${encodeURIComponent(postId)}`,
+      );
+      expect(inbox.page[0].href).toContain(
+        `focus=${encodeURIComponent(`comment:${commentId}`)}`,
+      );
+    }
+  });
+
   test("revalidates a global author's current WorkOS role before future notifications", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     for (const subject of ["user_staff_demoted", "user_staff_revoked"]) {

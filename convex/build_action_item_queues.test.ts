@@ -219,9 +219,7 @@ describe("Build Action Item queues, deadlines, and escalation", () => {
         buildId: "build-1",
         recipientRole: "contractor",
       })
-    ).toBe(
-      "/contractor/builds/build-1?tab=details&focus=actionItem%3Aaction-1"
-    );
+    ).toBe("/contractor/builds/build-1?focus=actionItem%3Aaction-1");
     expect(
       buildActionItemDeadlineHref({
         actionItemId: "action-1",

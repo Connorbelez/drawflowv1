@@ -16,7 +16,15 @@ vi.mock("convex/react", () => ({
     reference: unknown,
     args: unknown,
     options: unknown
-  ) => usePaginatedQuery(reference, args, options),
+  ) =>
+    args === "skip"
+      ? {
+          isLoading: true,
+          loadMore,
+          results: [],
+          status: "LoadingFirstPage",
+        }
+      : usePaginatedQuery(reference, args, options),
 }));
 
 import { NotificationInbox } from "./notification-inbox.tsx";
@@ -76,6 +84,11 @@ describe("NotificationInbox", () => {
     const trigger = screen.getByRole("button", {
       name: "Notifications, 2 unread",
     });
+    expect(usePaginatedQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      { workosOrganizationId: "org_production_foundation" },
+      { initialNumItems: 100 }
+    );
     trigger.focus();
     fireEvent.click(trigger);
 
@@ -204,6 +217,7 @@ describe("NotificationInbox", () => {
     render(
       <NotificationInbox workosOrganizationId="org_production_foundation" />
     );
+    expect(loadMore).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
     await waitFor(() => expect(loadMore).toHaveBeenCalledWith(100));
     expect(screen.getByText("0+ require action")).toBeTruthy();

@@ -8,6 +8,7 @@ import type { AuthorizedViewer } from "./authz";
 import { authenticatedQuery } from "./authz";
 import { requireReadableActionItem } from "./build_action_items";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import type { BuildCollaborationNotificationKind } from "./build_collaboration_notifications";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Doc, QueryCtx } from "./types";
@@ -140,7 +141,12 @@ async function projectReadableDelivery(
         entityId: item._id,
         entityLabel: authorization.build.buildName,
         entityType: "buildActionItem",
-        href: `/backoffice/builds/${authorization.build._id}?tab=details&focus=actionItem%3A${item._id}`,
+        href: buildCollaborationDeepLink({
+          buildId: authorization.build._id,
+          focus: `actionItem:${item._id}`,
+          postId: item.originatingPostId,
+          recipientRole: authorization.effectiveRole.role,
+        }),
         title: canonicalNotificationTitle(record.collaborationEventKind),
       });
     }
@@ -177,7 +183,12 @@ async function projectReadableDelivery(
         entityId: comment._id,
         entityLabel: authorization.build.buildName,
         entityType: "buildCollaborationComment",
-        href: `/backoffice/builds/${authorization.build._id}?tab=details&collaborationPost=${post._id}&focus=comment%3A${comment._id}`,
+        href: buildCollaborationDeepLink({
+          buildId: authorization.build._id,
+          focus: `comment:${comment._id}`,
+          postId: post._id,
+          recipientRole: authorization.effectiveRole.role,
+        }),
         title: canonicalNotificationTitle(record.collaborationEventKind),
       });
     }
@@ -193,7 +204,11 @@ async function projectReadableDelivery(
       entityId: post._id,
       entityLabel: authorization.build.buildName,
       entityType: "buildCollaborationPost",
-      href: `/backoffice/builds/${authorization.build._id}?tab=details&collaborationPost=${post._id}`,
+      href: buildCollaborationDeepLink({
+        buildId: authorization.build._id,
+        postId: post._id,
+        recipientRole: authorization.effectiveRole.role,
+      }),
       title: canonicalNotificationTitle(record.collaborationEventKind),
     });
   } catch {

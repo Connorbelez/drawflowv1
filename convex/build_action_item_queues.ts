@@ -35,6 +35,7 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import {
   type BuildCollaborationRole,
   collaborationRoleTier,
@@ -1198,19 +1199,11 @@ export function buildActionItemDeadlineHref(input: {
   buildId: string;
   recipientRole: BuildCollaborationRole | undefined;
 }) {
-  let prefix = "/backoffice/builds";
-  if (input.recipientRole === "contractor") {
-    prefix = "/contractor/builds";
-  } else if (input.recipientRole === "homeowner") {
-    prefix = "/homeowner/builds";
-  } else if (input.recipientRole === "builder-staff") {
-    prefix = "/builder-staff/builds";
-  } else if (input.recipientRole === "builder") {
-    prefix = "/builder/builds";
-  }
-  return `${prefix}/${input.buildId}?tab=details&focus=${encodeURIComponent(
-    `actionItem:${input.actionItemId}`
-  )}`;
+  return buildCollaborationDeepLink({
+    buildId: input.buildId,
+    focus: `actionItem:${input.actionItemId}`,
+    recipientRole: input.recipientRole,
+  });
 }
 
 function deadlineTitle(stage: BuildActionItemDeadlineStage) {

@@ -5,6 +5,7 @@ import { normalizeBuildCollaborationFocus } from "./referenceFocus";
 describe("normalizeBuildCollaborationFocus", () => {
   test.each([
     "actionItem:action-1",
+    "comment:comment-1",
     "document:document-1",
     "draw:draw-1",
     "evidenceAsset:asset-1",
