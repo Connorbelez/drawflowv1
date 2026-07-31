@@ -249,6 +249,17 @@ describe("Build collaboration external delivery", () => {
 
   test("queues direct email immediately while keeping push opt-in", async () => {
     const fixture = await seedDeliveryBuild();
+    const defaults = await fixture.broker.query(
+      (api as any).build_collaboration_notifications
+        .getMyBuildCollaborationNotificationPreferences,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(defaults).toEqual(
+      expect.objectContaining({
+        digestCadence: "never",
+        digestEnabled: false,
+      })
+    );
     await fixture.admin.mutation(
       (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
       publicationArgs(fixture.buildId, {
@@ -433,6 +444,73 @@ describe("Build collaboration external delivery", () => {
     ]);
   });
 
+  test("reschedules queued digest work when cadence changes", async () => {
+    const fixture = await seedDeliveryBuild();
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_notifications
+        .updateMyBuildCollaborationNotificationPreferences,
+      {
+        buildId: fixture.buildId,
+        channels: ["in_app", "email"],
+        digestCadence: "daily",
+        digestEnabled: true,
+        ordinaryMuted: false,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, { text: "Cadence-safe update." })
+    );
+    const daily = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationExternalDeliveries").collect()).find(
+        (row) => row.recipientWorkosUserId === "user_broker"
+      )
+    );
+    expect(daily).toEqual(expect.objectContaining({ cadence: "daily" }));
+
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_notifications
+        .updateMyBuildCollaborationNotificationPreferences,
+      {
+        buildId: fixture.buildId,
+        channels: ["in_app", "email"],
+        digestCadence: "weekly",
+        digestEnabled: true,
+        ordinaryMuted: false,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const weekly = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationExternalDeliveries").collect()).find(
+        (row) => row.recipientWorkosUserId === "user_broker"
+      )
+    );
+    expect(weekly).toEqual(
+      expect.objectContaining({ cadence: "weekly", status: "queued" })
+    );
+    expect(weekly?.scheduledFor).not.toBe(daily?.scheduledFor);
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, {
+          headers: { "x-message-id": "cadence-message" },
+          status: 202,
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await processExternalDeliveries(
+      fixture.base,
+      daily?.scheduledFor ?? Date.now()
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    await processExternalDeliveries(
+      fixture.base,
+      weekly?.scheduledFor ?? Number.MAX_SAFE_INTEGER
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test("cancels queued delivery immediately when participation is revoked", async () => {
     const fixture = await seedDeliveryBuild();
     await fixture.admin.mutation(
@@ -537,6 +615,97 @@ describe("Build collaboration external delivery", () => {
       { eventOutboxId: afterRevoke._id }
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("reclaims an interrupted dispatch after its lease with stable idempotency", async () => {
+    const fixture = await seedDeliveryBuild();
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, {
+        mentioned: true,
+        text: "Lease recovery alert.",
+      })
+    );
+    const firstOutboxIds = await fixture.base.mutation(
+      (internal as any).build_collaboration_delivery
+        .prepareDueBuildCollaborationExternalDeliveries,
+      { asOf: Date.now(), batchSize: 100 }
+    );
+    expect(firstOutboxIds).toHaveLength(1);
+    const interrupted = await fixture.base.run(async (ctx) => ({
+      attempts: await ctx.db
+        .query("buildCollaborationDeliveryAttempts")
+        .collect(),
+      delivery: (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).find((row) => row.recipientWorkosUserId === "user_broker"),
+    }));
+    expect(interrupted.delivery).toEqual(
+      expect.objectContaining({ status: "dispatched" })
+    );
+    const early = await fixture.base.mutation(
+      (internal as any).build_collaboration_delivery
+        .prepareDueBuildCollaborationExternalDeliveries,
+      {
+        asOf: (interrupted.delivery?.leaseExpiresAt ?? Date.now()) - 1,
+        batchSize: 100,
+      }
+    );
+    expect(early).toEqual([]);
+    const reclaimed = await fixture.base.mutation(
+      (internal as any).build_collaboration_delivery
+        .prepareDueBuildCollaborationExternalDeliveries,
+      {
+        asOf: interrupted.delivery?.leaseExpiresAt ?? Number.MAX_SAFE_INTEGER,
+        batchSize: 100,
+      }
+    );
+    expect(reclaimed).toHaveLength(1);
+    const afterReclaim = await fixture.base.run(async (ctx) => ({
+      attempts: await ctx.db
+        .query("buildCollaborationDeliveryAttempts")
+        .collect(),
+      outboxes: (
+        await ctx.db.query("eventOutbox").collect()
+      ).filter((row) =>
+        row.eventType.startsWith("build_collaboration.external_delivery.")
+      ),
+    }));
+    expect(afterReclaim.attempts).toHaveLength(2);
+    expect(afterReclaim.attempts[0]).toEqual(
+      expect.objectContaining({
+        safeError: "dispatch_lease_expired",
+        state: "failed",
+      })
+    );
+    expect(afterReclaim.attempts[1].providerIdempotencyKey).toBe(
+      afterReclaim.attempts[0].providerIdempotencyKey
+    );
+    expect(afterReclaim.outboxes[0]).toEqual(
+      expect.objectContaining({
+        payloadPreview: expect.stringContaining('"redacted":true'),
+        status: "failed",
+      })
+    );
+
+    const fetchMock = vi.fn(
+      async () => new Response(null, { status: 202 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await fixture.base.action(
+      (internal as any).build_collaboration_delivery
+        .dispatchBuildCollaborationExternalOutbox,
+      { eventOutboxId: reclaimed[0] }
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const sent = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationExternalDeliveries").collect()).find(
+        (row) => row.recipientWorkosUserId === "user_broker"
+      )
+    );
+    expect(sent).toEqual(
+      expect.objectContaining({ attemptCount: 2, status: "sent" })
+    );
   });
 
   test("retries provider failures with one stable idempotency key", async () => {

@@ -2,7 +2,10 @@ import { v } from "convex/values";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { collaborationNotificationPreferenceValidator } from "./build_collaboration_contracts";
-import { enqueueBuildCollaborationExternalDeliveries } from "./build_collaboration_delivery";
+import {
+  enqueueBuildCollaborationExternalDeliveries,
+  reconcileBuildCollaborationExternalDeliveries,
+} from "./build_collaboration_delivery";
 import { externalDeliveryPlan } from "./build_collaboration_delivery_model";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import type { NotificationEffectInput } from "./build_collaboration_publication_bundle";
@@ -233,8 +236,8 @@ export const getMyBuildCollaborationNotificationPreferences = authenticatedQuery
       .first();
     return {
       channels: preference?.channels ?? ["in_app", "email"],
-      digestCadence: preference?.digestCadence ?? "daily",
-      digestEnabled: preference?.digestEnabled ?? true,
+      digestCadence: preference?.digestCadence ?? "never",
+      digestEnabled: preference?.digestEnabled ?? false,
       ordinaryMuted: preference?.ordinaryMuted ?? false,
       workosUserId: authorization.viewer.subject,
     };
@@ -289,6 +292,17 @@ export const updateMyBuildCollaborationNotificationPreferences =
           workosUserId: authorization.viewer.subject,
         });
       }
+      await reconcileBuildCollaborationExternalDeliveries(ctx, {
+        brokerageId: authorization.brokerage._id,
+        buildId: authorization.build._id,
+        channels: patch.channels,
+        digestCadence: patch.digestCadence,
+        digestEnabled: patch.digestEnabled,
+        now,
+        ordinaryMuted: patch.ordinaryMuted,
+        organizationId: authorization.organizationId,
+        recipientWorkosUserId: authorization.viewer.subject,
+      });
       return null;
     })
     .public();

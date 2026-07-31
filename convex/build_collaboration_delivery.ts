@@ -20,6 +20,7 @@ import type { Doc, Id, MutationCtx } from "./types";
 
 const MAX_DELIVERY_ATTEMPTS = 5;
 const MAX_DIGEST_ITEMS = 100;
+const DISPATCH_LEASE_MS = 10 * 60 * 1000;
 
 interface PreparedDeliveryItem {
   delivery: Doc<"buildCollaborationExternalDeliveries">;
@@ -79,7 +80,8 @@ export async function enqueueBuildCollaborationExternalDeliveries(
     return;
   }
   let queuedImmediateDelivery = false;
-  for (const target of externalDeliveryPlan(input)) {
+  const targets = externalDeliveryPlan(input);
+  for (const target of targets) {
     const existing = await ctx.db
       .query("buildCollaborationExternalDeliveries")
       .withIndex("by_recipientDeliveryId_and_channel", (query) =>
@@ -89,6 +91,12 @@ export async function enqueueBuildCollaborationExternalDeliveries(
       )
       .unique();
     if (existing) {
+      queuedImmediateDelivery ||= await rescheduleExistingExternalDelivery(
+        ctx,
+        existing,
+        target,
+        input.now
+      );
       continue;
     }
     await ctx.db.insert("buildCollaborationExternalDeliveries", {
@@ -125,6 +133,104 @@ export async function enqueueBuildCollaborationExternalDeliveries(
         .processBuildCollaborationExternalDeliveries,
       { asOf: input.now, batchSize: 100 }
     );
+  }
+}
+
+async function rescheduleExistingExternalDelivery(
+  ctx: MutationCtx,
+  existing: Doc<"buildCollaborationExternalDeliveries">,
+  target: ReturnType<typeof externalDeliveryPlan>[number],
+  now: number
+) {
+  if (existing.status === "sent") {
+    return false;
+  }
+  if (existing.status === "dispatched") {
+    await cancelDelivery(ctx, existing, now, "notification_preference_changed");
+  }
+  await ctx.db.patch(existing._id, {
+    cadence: target.cadence,
+    cancellationReason: undefined,
+    cancelledAt: undefined,
+    deliveryMode: target.cadence === "immediate" ? "immediate" : "digest",
+    lastError: undefined,
+    leaseExpiresAt: undefined,
+    providerOutboxId: undefined,
+    scheduledFor:
+      target.cadence === "immediate"
+        ? now
+        : nextBuildCollaborationDigestAt(now, target.cadence),
+    status: "queued",
+    updatedAt: now,
+  });
+  return target.cadence === "immediate";
+}
+
+export async function reconcileBuildCollaborationExternalDeliveries(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    buildId: Id<"activeBuilds">;
+    channels: Array<"in_app" | "email" | "push">;
+    digestCadence: "daily" | "weekly" | "never";
+    digestEnabled: boolean;
+    now: number;
+    ordinaryMuted: boolean;
+    organizationId: string;
+    recipientWorkosUserId: string;
+  }
+) {
+  const canonicalRows = await ctx.db
+    .query("recipientDeliveries")
+    .withIndex("by_recipient", (query) =>
+      query
+        .eq("organizationId", input.organizationId)
+        .eq("recipientWorkosUserId", input.recipientWorkosUserId)
+    )
+    .order("desc")
+    .take(500);
+  for (const canonical of canonicalRows) {
+    if (
+      canonical.collaborationBuildId !== input.buildId ||
+      !canonical.collaborationEventKind
+    ) {
+      continue;
+    }
+    const plan = externalDeliveryPlan({
+      channels: input.channels,
+      digestCadence: input.digestCadence,
+      digestEnabled: input.digestEnabled,
+      kind: canonical.collaborationEventKind,
+      ordinaryMuted: input.ordinaryMuted,
+    });
+    const plannedChannels = new Set(plan.map((target) => target.channel));
+    for (const channel of ["email", "push"] as const) {
+      const external = await ctx.db
+        .query("buildCollaborationExternalDeliveries")
+        .withIndex("by_recipientDeliveryId_and_channel", (query) =>
+          query.eq("recipientDeliveryId", canonical._id).eq("channel", channel)
+        )
+        .unique();
+      if (
+        external &&
+        !plannedChannels.has(channel) &&
+        (external.status === "queued" ||
+          external.status === "failed" ||
+          external.status === "dispatched")
+      ) {
+        await cancelDelivery(
+          ctx,
+          external,
+          input.now,
+          "notification_preference_changed"
+        );
+      }
+    }
+    await enqueueBuildCollaborationExternalDeliveries(ctx, {
+      ...input,
+      kind: canonical.collaborationEventKind,
+      recipientDeliveryId: canonical._id,
+    });
   }
 }
 
@@ -215,6 +321,7 @@ export const prepareDueBuildCollaborationExternalDeliveries = internalMutation
           batchKey: providerIdempotencyKey,
           lastAttemptAt: asOf,
           lastError: undefined,
+          leaseExpiresAt: asOf + DISPATCH_LEASE_MS,
           providerOutboxId: outboxId,
           status: "dispatched",
           updatedAt: asOf,
@@ -398,6 +505,7 @@ export const completeBuildCollaborationExternalDeliveryAttempt =
         if (args.succeeded) {
           await ctx.db.patch(delivery._id, {
             lastError: undefined,
+            leaseExpiresAt: undefined,
             sentAt: timestamp,
             status: "sent",
             updatedAt: timestamp,
@@ -405,6 +513,7 @@ export const completeBuildCollaborationExternalDeliveryAttempt =
         } else {
           await ctx.db.patch(delivery._id, {
             lastError: safeError ?? "External delivery failed.",
+            leaseExpiresAt: undefined,
             providerOutboxId: undefined,
             scheduledFor: nextBuildCollaborationRetryAt(
               timestamp,
@@ -641,7 +750,21 @@ async function dueExternalDeliveries(
       query.eq("status", "failed").lte("scheduledFor", asOf)
     )
     .take(batchSize - queued.length);
-  return [...queued, ...failed].sort(
+  if (queued.length + failed.length >= batchSize) {
+    return [...queued, ...failed].sort(
+      (left, right) => left.scheduledFor - right.scheduledFor
+    );
+  }
+  const expiredDispatched = await ctx.db
+    .query("buildCollaborationExternalDeliveries")
+    .withIndex("by_status_and_leaseExpiresAt", (query) =>
+      query.eq("status", "dispatched").lte("leaseExpiresAt", asOf)
+    )
+    .take(batchSize - queued.length - failed.length);
+  for (const delivery of expiredDispatched) {
+    await reclaimExpiredDispatch(ctx, delivery, asOf);
+  }
+  return [...queued, ...failed, ...expiredDispatched].sort(
     (left, right) => left.scheduledFor - right.scheduledFor
   );
 }
@@ -770,6 +893,7 @@ async function cancelDelivery(
   await ctx.db.patch(delivery._id, {
     cancellationReason: reason,
     cancelledAt: now,
+    leaseExpiresAt: undefined,
     status: "cancelled",
     updatedAt: now,
   });
@@ -798,6 +922,48 @@ async function cancelDelivery(
       });
     }
   }
+}
+
+async function reclaimExpiredDispatch(
+  ctx: MutationCtx,
+  delivery: Doc<"buildCollaborationExternalDeliveries">,
+  now: number
+) {
+  if (delivery.providerOutboxId) {
+    const outbox = await ctx.db.get(delivery.providerOutboxId);
+    if (outbox?.status === "pending") {
+      await ctx.db.patch(outbox._id, {
+        payloadPreview: JSON.stringify({
+          reason: "dispatch_lease_expired",
+          redacted: true,
+        }),
+        processedAt: now,
+        status: "failed",
+      });
+    }
+  }
+  const attempt = await ctx.db
+    .query("buildCollaborationDeliveryAttempts")
+    .withIndex("by_providerIdempotencyKey", (query) =>
+      query.eq("providerIdempotencyKey", delivery.batchKey ?? "")
+    )
+    .order("desc")
+    .first();
+  if (attempt?.state === "sending") {
+    await ctx.db.patch(attempt._id, {
+      completedAt: now,
+      safeError: "dispatch_lease_expired",
+      state: "failed",
+      updatedAt: now,
+    });
+  }
+  await ctx.db.patch(delivery._id, {
+    lastError: "Dispatch lease expired before provider completion.",
+    leaseExpiresAt: undefined,
+    providerOutboxId: undefined,
+    status: "failed",
+    updatedAt: now,
+  });
 }
 
 function stableBatchKey(

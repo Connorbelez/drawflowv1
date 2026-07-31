@@ -3904,6 +3904,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_status_and_scheduledFor", ["status", "scheduledFor"])
+    .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
     .index("by_providerOutboxId", ["providerOutboxId"])
     .index("by_recipient_and_dedupeKey", [
       "organizationId",
