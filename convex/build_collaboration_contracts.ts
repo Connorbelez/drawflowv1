@@ -244,13 +244,39 @@ export const buildActionItemValidator = v.object({
   creatorRole: v.optional(buildCollaborationRoleValidator),
   creatorWorkosUserId: v.string(),
   currentRevision: v.number(),
+  queueSortAt: v.optional(v.number()),
   descriptionPlainText: v.string(),
   descriptionTiptapJson: v.string(),
   dueAt: v.optional(v.number()),
+  dueDateOverrideReason: v.optional(v.string()),
+  dueDateOverriddenAt: v.optional(v.number()),
+  dueDateOverriddenByWorkosUserId: v.optional(v.string()),
+  deadlineNextAt: v.optional(v.number()),
+  deadlineScheduleGeneration: v.optional(v.number()),
+  deadlineNextStage: v.optional(
+    v.union(
+      v.literal("before"),
+      v.literal("due"),
+      v.literal("overdue"),
+      v.literal("escalated")
+    )
+  ),
+  deadlineProcessingFailure: v.optional(v.string()),
+  deadlineProcessingFailedAt: v.optional(v.number()),
+  deadlineProcessingState: v.optional(
+    v.union(
+      v.literal("pending"),
+      v.literal("complete"),
+      v.literal("quarantined")
+    )
+  ),
+  dueDatePolicyKey: v.optional(v.string()),
+  dueDateSource: v.optional(v.union(v.literal("manual"), v.literal("policy"))),
   organizationId: v.string(),
   originatingPostId: v.id("buildCollaborationPosts"),
   parentActionItemId: v.optional(v.id("buildActionItems")),
   previousActiveStatus: v.optional(buildActionItemStatusValidator),
+  policyDueAt: v.optional(v.number()),
   primaryReferenceId: v.optional(v.string()),
   primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
   priority: buildActionItemPriorityValidator,

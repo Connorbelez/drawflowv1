@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     | "draw_blocker",
   announcementExpiresAt: undefined as number | undefined,
   announcementProminent: false,
+  buildActionItems: [] as Array<Record<string, unknown>>,
   comments: [] as Array<Record<string, unknown>>,
   commentsLoading: false,
   drafts: [] as Array<Record<string, unknown>>,
@@ -38,6 +39,7 @@ const mocks = vi.hoisted(() => ({
     label: string;
     summary: string;
   }>,
+  entityActionItems: [] as Array<Record<string, unknown>>,
   feedStatus: "Exhausted" as "CanLoadMore" | "Exhausted",
   focusedCommentContext: undefined as
     | Record<string, unknown>
@@ -46,6 +48,7 @@ const mocks = vi.hoisted(() => ({
   loadMore: vi.fn(),
   mutate: vi.fn().mockResolvedValue(null),
   onOpenReference: vi.fn(),
+  personalActionItems: [] as Array<Record<string, unknown>>,
   postContentState: "active" as "active" | "tombstoned",
   postResolutionSummary: undefined as string | undefined,
   postRevision: 1,
@@ -58,6 +61,11 @@ const mocks = vi.hoisted(() => ({
     | "announcement",
   postViewerCanModerate: false,
   postViewerIsAuthor: true,
+  queueStatus: "Exhausted" as
+    | "CanLoadMore"
+    | "Exhausted"
+    | "LoadingFirstPage"
+    | "LoadingMore",
   workflowAssignmentMode: "direct" as "direct" | "request",
   workflowCanAccept: false,
   workflowTransitions: [
@@ -105,11 +113,68 @@ function commentRowFixture(id: string, text: string) {
   };
 }
 
+function queueRowFixture(input: {
+  buildId: string;
+  buildName: string;
+  id: string;
+  overdue?: boolean;
+  title: string;
+}) {
+  const now = Date.parse("2026-07-28T12:00:00.000Z");
+  return {
+    buildId: input.buildId,
+    buildName: input.buildName,
+    checklist: [],
+    item: {
+      _id: input.id,
+      assignmentState: "assigned",
+      currentRevision: 1,
+      dueAt: now - 1,
+      priority: "high",
+      status: "todo",
+      title: input.title,
+      updatedAt: now,
+    },
+    overdue: input.overdue ?? false,
+    overdueByMs: input.overdue ? 1 : undefined,
+    queueScope: "personal",
+    relations: [],
+  };
+}
+
 vi.mock("convex/react", () => ({
   useMutation: () => mocks.mutate,
-  usePaginatedQuery: () => ({
-    loadMore: mocks.loadMore,
-    results: [
+  usePaginatedQuery: (reference: unknown, args?: Record<string, unknown> | "skip") => {
+    const functionName = getFunctionName(
+      reference as Parameters<typeof getFunctionName>[0]
+    );
+    if (
+      functionName ===
+      "build_action_item_queues:listMyBuildActionItemQueue"
+    ) {
+      return {
+        loadMore: mocks.loadMore,
+        results: args === "skip" ? [] : mocks.personalActionItems,
+        status: args === "skip" ? "LoadingFirstPage" : mocks.queueStatus,
+      };
+    }
+    if (
+      functionName === "build_action_item_queues:listBuildActionItemQueue"
+    ) {
+      return {
+        loadMore: mocks.loadMore,
+        results:
+          args === "skip"
+            ? []
+            : args?.scope === "entity"
+              ? mocks.entityActionItems
+              : mocks.buildActionItems,
+        status: args === "skip" ? "LoadingFirstPage" : mocks.queueStatus,
+      };
+    }
+    return {
+      loadMore: mocks.loadMore,
+      results: [
       {
         kind: "restricted",
         placeholderKey: "restricted-first-page-0",
@@ -186,8 +251,9 @@ vi.mock("convex/react", () => ({
         },
       },
     ],
-    status: mocks.feedStatus,
-  }),
+      status: mocks.feedStatus,
+    };
+  },
   useQuery: (reference: unknown, args?: Record<string, unknown> | "skip") => {
     const functionName = getFunctionName(
       reference as Parameters<typeof getFunctionName>[0]
@@ -214,6 +280,9 @@ vi.mock("convex/react", () => ({
       functionName ===
       "build_action_item_details:getBuildActionItemDetail"
     ) {
+      if (args !== "skip" && typeof args?.actionItemId !== "string") {
+        throw new Error("Action Item detail queries require a string ID.");
+      }
       if (mocks.actionItemDetailState === "revoked") {
         return { state: "revoked" };
       }
@@ -416,6 +485,23 @@ vi.mock("convex/react", () => ({
     }
     if (
       functionName ===
+      "build_action_item_queues:listMyBuildActionItemQueue"
+    ) {
+      return args === "skip" ? undefined : mocks.personalActionItems;
+    }
+    if (
+      functionName ===
+      "build_action_item_queues:listBuildActionItemQueue"
+    ) {
+      if (args === "skip") {
+        return undefined;
+      }
+      return args?.scope === "entity"
+        ? mocks.entityActionItems
+        : mocks.buildActionItems;
+    }
+    if (
+      functionName ===
       "build_collaboration_notifications:getMyBuildCollaborationNotificationPreferences"
     ) {
       return {
@@ -505,7 +591,10 @@ vi.mock(
   }),
 );
 
-import { BuildCollaborationFeed } from "./BuildCollaborationFeed";
+import {
+  buildActionItemQueueHref,
+  BuildCollaborationFeed,
+} from "./BuildCollaborationFeed";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -515,6 +604,8 @@ afterEach(() => {
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
   mocks.editorReferences = [];
+  mocks.entityActionItems = [];
+  mocks.personalActionItems = [];
   mocks.comments = [];
   mocks.commentsLoading = false;
   mocks.acceptedCommentId = undefined;
@@ -524,6 +615,7 @@ afterEach(() => {
   mocks.actionItemWorkKind = "ordinary";
   mocks.announcementExpiresAt = undefined;
   mocks.announcementProminent = false;
+  mocks.buildActionItems = [];
   mocks.feedStatus = "Exhausted";
   mocks.focusedCommentContext = undefined;
   mocks.focusedPostId = "post-1";
@@ -534,6 +626,7 @@ afterEach(() => {
   mocks.postType = "update";
   mocks.postViewerCanModerate = false;
   mocks.postViewerIsAuthor = true;
+  mocks.queueStatus = "Exhausted";
   mocks.workflowAssignmentMode = "direct";
   mocks.workflowCanAccept = false;
   mocks.workflowTransitions = ["in_progress", "blocked", "cancelled"];
@@ -611,6 +704,138 @@ describe("BuildCollaborationFeed", () => {
         name: "Foundation completion photo",
       }),
     ).toBeNull();
+  });
+
+  test("shows the viewer's authorized cross-Build assignment queue", () => {
+    mocks.personalActionItems = [
+      queueRowFixture({
+        buildId: "build-2",
+        buildName: "Lake House",
+        id: "action-personal",
+        overdue: true,
+        title: "Confirm framing inspection",
+      }),
+    ];
+    mocks.buildActionItems = [
+      {
+        ...queueRowFixture({
+          buildId: "build-1",
+          buildName: "Foundation Build",
+          id: "action-build",
+          title: "Resolve site access",
+        }),
+        queueScope: "build",
+      },
+    ];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getByText("My Action Items")).toBeTruthy();
+    expect(screen.getByText("Confirm framing inspection")).toBeTruthy();
+    expect(screen.getByText("Lake House")).toBeTruthy();
+    expect(screen.getByText("Overdue")).toBeTruthy();
+    expect(screen.getByText("Build Action Items")).toBeTruthy();
+    expect(screen.getByText("Resolve site access")).toBeTruthy();
+    expect(
+      buildActionItemQueueHref(
+        "https://drawflow.example/builder/builds/build-1?tab=details&rail=closed",
+        "build-2",
+        "action-personal"
+      )
+    ).toBe(
+      "/builder/builds/build-2?tab=details&focus=actionItem%3Aaction-personal"
+    );
+    expect(
+      buildActionItemQueueHref(
+        "https://drawflow.example/builder-staff/builds/build-1?tab=details",
+        "build-2",
+        "action-personal"
+      )
+    ).toBe(
+      "/builder-staff/builds/build-2?tab=details&focus=actionItem%3Aaction-personal"
+    );
+  });
+
+  test("makes every queued Action Item accessible through an explicit view-all control", () => {
+    mocks.personalActionItems = Array.from({ length: 16 }, (_, index) =>
+      queueRowFixture({
+        buildId: "build-1",
+        buildName: "Foundation Build",
+        id: `action-personal-${index + 1}`,
+        title: `Queued action ${index + 1}`,
+      })
+    );
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.queryByText("Queued action 6")).toBeNull();
+    expect(screen.queryByText("Queued action 16")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show 5 more of 11" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Show 5 more of 6" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show 1 more of 1" }));
+    for (let index = 1; index <= 16; index += 1) {
+      expect(screen.getByText(`Queued action ${index}`)).toBeTruthy();
+    }
+    expect(screen.queryByRole("button", { name: /Show .* more of/ })).toBeNull();
+  });
+
+  test("loads the next server page after the visible queue page is exhausted", () => {
+    mocks.queueStatus = "CanLoadMore";
+    mocks.personalActionItems = Array.from({ length: 5 }, (_, index) =>
+      queueRowFixture({
+        buildId: "build-1",
+        buildName: "Foundation Build",
+        id: `paged-action-${index + 1}`,
+        title: `Paged action ${index + 1}`,
+      })
+    );
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Load more Action Items" })[0]
+    );
+    expect(mocks.loadMore).toHaveBeenCalledWith(20);
+  });
+
+  test("projects related Action Items into a referenced entity sheet", async () => {
+    mocks.entityActionItems = [
+      {
+        ...queueRowFixture({
+          buildId: "build-1",
+          buildName: "Foundation Build",
+          id: "action-entity",
+          title: "Replace blurred foundation photo",
+        }),
+        queueScope: "entity",
+      },
+    ];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    fireEvent.click(screen.getByText("Foundation completion photo"));
+
+    expect(screen.getByText("Related Action Items")).toBeTruthy();
+    expect(screen.getByText("Replace blurred foundation photo")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open Replace blurred foundation photo",
+      })
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Upload engineer seal" })
+      ).toBeTruthy()
+    );
   });
 
   test("opens the containing Action Items tab for a focused Action Item", async () => {

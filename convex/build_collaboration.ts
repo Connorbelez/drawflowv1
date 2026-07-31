@@ -3,6 +3,10 @@ import { v } from "convex/values";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
+  buildActionItemQueueSortAt,
+  resetBuildActionItemDeadlineSchedule,
+} from "./build_action_item_deadline_model";
+import {
   canReadCollaborationPost,
   canSeeCollaborationReceipt,
 } from "./build_collaboration_access";
@@ -1122,6 +1126,10 @@ async function createActionItems(
     const primaryReference = actionItem.references?.find(
       (reference) => reference.primary
     );
+    const deadlineSchedule = resetBuildActionItemDeadlineSchedule(
+      actionItem.dueAt,
+      "todo"
+    );
     const actionItemId = await ctx.db.insert("buildActionItems", {
       assigneeWorkosUserId: assignee,
       assignedByWorkosUserId: assignee
@@ -1139,11 +1147,14 @@ async function createActionItems(
       descriptionPlainText,
       descriptionTiptapJson,
       dueAt: actionItem.dueAt,
+      dueDateSource: actionItem.dueAt === undefined ? undefined : "manual",
+      ...deadlineSchedule,
       originatingPostId: input.postId,
       organizationId: input.authorization.organizationId,
       priority: actionItem.priority ?? "none",
       primaryReferenceId: primaryReference?.entityId,
       primaryReferenceKind: primaryReference?.entityKind,
+      queueSortAt: buildActionItemQueueSortAt(actionItem.dueAt, "todo"),
       requiresAcceptance,
       status: "todo",
       title: actionItem.title,
@@ -1174,6 +1185,7 @@ async function createActionItems(
       authorization: input.authorization,
       now: input.now,
       postId: input.postId,
+      queueSortAt: buildActionItemQueueSortAt(actionItem.dueAt, "todo"),
       references: actionItem.references ?? [],
     });
   }
@@ -1221,6 +1233,7 @@ async function persistActionItemReferences(
     authorization: ActiveBuildAuthorization;
     now: number;
     postId: Id<"buildCollaborationPosts">;
+    queueSortAt: number;
     references: ReferenceInput[];
   }
 ) {
@@ -1237,6 +1250,7 @@ async function persistActionItemReferences(
       ownerRecordId: input.actionItemId,
       postId: input.postId,
       primary: reference.primary ?? false,
+      actionItemQueueSortAt: input.queueSortAt,
       summarySnapshot: reference.summary,
     });
   }

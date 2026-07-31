@@ -64,18 +64,33 @@ export async function resolveCanonicalBuildCollaborationReferences(
     return participant;
   });
 
-  const canonical: CanonicalBuildCollaborationReference[] = [];
+  const unique = new Map<string, ReferenceCandidate>();
+  let selectedPrimaryKey: string | undefined;
   for (const submitted of input.references) {
     const entityId = submitted.entityId.trim();
     if (!entityId) {
       throw new Error("Every collaboration reference requires an entity ID.");
     }
+    const key = `${submitted.entityKind}:${entityId}`;
+    if (submitted.primary && selectedPrimaryKey === undefined) {
+      selectedPrimaryKey = key;
+    }
+    if (!unique.has(key)) {
+      unique.set(key, {
+        entityId,
+        entityKind: submitted.entityKind,
+      });
+    }
+  }
+  selectedPrimaryKey ??= unique.keys().next().value;
+  const canonical: CanonicalBuildCollaborationReference[] = [];
+  for (const [key, submitted] of unique) {
     canonical.push(
       await resolveCanonicalReference(ctx, {
         authorization: input.authorization,
-        entityId,
+        entityId: submitted.entityId,
         entityKind: submitted.entityKind,
-        primary: submitted.primary ?? false,
+        primary: key === selectedPrimaryKey,
         readers,
       })
     );

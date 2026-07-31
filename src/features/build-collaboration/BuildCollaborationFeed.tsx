@@ -56,7 +56,10 @@ import {
   BuildActionItemDetailSheet,
   type BuildActionItemSheetTarget,
 } from "./BuildActionItemDetailSheet.tsx";
-import { BuildCollaborationActionItems } from "./BuildCollaborationActionItems.tsx";
+import {
+  BuildCollaborationActionItemQueue,
+  BuildCollaborationActionItems,
+} from "./BuildCollaborationActionItems.tsx";
 import { BuildCollaborationApprovalReview } from "./BuildCollaborationApprovalReview.tsx";
 import {
   type BuildCollaborationEditingEntity,
@@ -79,6 +82,7 @@ import {
 import {
   type AudienceMode,
   audienceLabel,
+  type CollaborationActionItemQueueRow,
   type CollaborationCommentRow,
   type CollaborationDraftBundle,
   type CollaborationDraftSummary,
@@ -103,6 +107,75 @@ import {
   toCollaborationTagOption,
   toEditorReferenceKind,
 } from "./model.ts";
+
+const BUILD_WORKSPACE_PATH_PATTERN =
+  /(\/(?:backoffice|builder-staff|builder|contractor|homeowner)\/builds\/)[^/]+/;
+
+function focusedEntityQueueArgs({
+  buildId,
+  organizationId,
+  reference,
+}: {
+  buildId: Id<"activeBuilds">;
+  organizationId?: string;
+  reference: FocusedReference | null;
+}) {
+  if (
+    !reference ||
+    reference.entityKind === "participant" ||
+    reference.entityKind === "actionItem" ||
+    !organizationId
+  ) {
+    return "skip" as const;
+  }
+  return {
+    buildId,
+    entityId: reference.id,
+    entityKind: reference.entityKind,
+    organizationId,
+    scope: "entity" as const,
+  };
+}
+
+function buildQueueArgs(buildId: Id<"activeBuilds">, organizationId?: string) {
+  return organizationId
+    ? { buildId, organizationId, scope: "build" as const }
+    : ("skip" as const);
+}
+
+function actionItemQueueState(query: {
+  loadMore: (count: number) => void;
+  results: CollaborationActionItemQueueRow[];
+  status: "CanLoadMore" | "Exhausted" | "LoadingFirstPage" | "LoadingMore";
+}) {
+  return {
+    hasMore: query.status === "CanLoadMore",
+    loadMore: () => query.loadMore(20),
+    loading: query.status === "LoadingFirstPage",
+    loadingMore: query.status === "LoadingMore",
+    rows: query.results,
+  };
+}
+
+export function buildActionItemQueueHref(
+  currentHref: string,
+  buildId: string,
+  actionItemId: string
+) {
+  const url = new URL(currentHref, "http://localhost");
+  const nextPath = url.pathname.replace(
+    BUILD_WORKSPACE_PATH_PATTERN,
+    `$1${encodeURIComponent(buildId)}`
+  );
+  if (nextPath === url.pathname) {
+    throw new Error("Unable to resolve the current Build workspace route.");
+  }
+  url.pathname = nextPath;
+  url.search = "";
+  url.searchParams.set("tab", "details");
+  url.searchParams.set("focus", `actionItem:${actionItemId}`);
+  return `${url.pathname}${url.search}`;
+}
 
 function focusedActionItemIdFromReference(reference?: string) {
   return reference?.startsWith("actionItem:")
@@ -234,6 +307,16 @@ export function BuildCollaborationFeed({
     api.build_collaboration_drafts.listMyBuildCollaborationDrafts,
     organizationId ? { buildId: activeBuildId, organizationId } : "skip"
   );
+  const personalActionItems = usePaginatedQuery(
+    api.build_action_item_queues.listMyBuildActionItemQueue,
+    organizationId ? { organizationId } : "skip",
+    { initialNumItems: 20 }
+  );
+  const buildActionItems = usePaginatedQuery(
+    api.build_action_item_queues.listBuildActionItemQueue,
+    buildQueueArgs(activeBuildId, organizationId),
+    { initialNumItems: 20 }
+  );
   const saveDraft = useMutation(
     api.build_collaboration_drafts.saveMyBuildCollaborationDraft
   );
@@ -269,6 +352,18 @@ export function BuildCollaborationFeed({
     useState<FocusedReference | null>(null);
   const [actionItemSheetTarget, setActionItemSheetTarget] =
     useState<BuildActionItemSheetTarget | null>(null);
+  const focusedEntityActionItems = usePaginatedQuery(
+    api.build_action_item_queues.listBuildActionItemQueue,
+    focusedEntityQueueArgs({
+      buildId: activeBuildId,
+      organizationId,
+      reference: focusedReference,
+    }),
+    { initialNumItems: 20 }
+  );
+  const personalQueue = actionItemQueueState(personalActionItems);
+  const buildQueue = actionItemQueueState(buildActionItems);
+  const entityQueue = actionItemQueueState(focusedEntityActionItems);
   const composerRevisionKey = useMemo(
     () =>
       JSON.stringify({
@@ -982,23 +1077,45 @@ export function BuildCollaborationFeed({
             ).length
           )}
         />
-        <SummaryCard
-          description="Open work attached to visible posts"
-          icon={<Flag aria-hidden="true" className="size-4" />}
-          title="Action Items"
-          value={String(
-            feedEntries.reduce(
-              (total, entry) =>
-                total +
-                (entry.kind === "post"
-                  ? entry.actionItems.filter(
-                      (item) =>
-                        item.status !== "done" && item.status !== "cancelled"
-                    ).length
-                  : 0),
-              0
-            )
-          )}
+        <BuildCollaborationActionItemQueue
+          emptyLabel="No open work for you across your authorized Builds."
+          hasMore={personalQueue.hasMore}
+          loading={personalQueue.loading}
+          loadingMore={personalQueue.loadingMore}
+          onLoadMore={personalQueue.loadMore}
+          onOpen={(row) => {
+            if (row.buildId === activeBuildId) {
+              setActionItemSheetTarget({
+                actionItemId: row.item._id,
+                kind: "detail",
+              });
+              return;
+            }
+            window.location.assign(
+              buildActionItemQueueHref(
+                window.location.href,
+                row.buildId,
+                row.item._id
+              )
+            );
+          }}
+          rows={personalQueue.rows}
+          title="My Action Items"
+        />
+        <BuildCollaborationActionItemQueue
+          emptyLabel="No open Action Items on this Build."
+          hasMore={buildQueue.hasMore}
+          loading={buildQueue.loading}
+          loadingMore={buildQueue.loadingMore}
+          onLoadMore={buildQueue.loadMore}
+          onOpen={(row) =>
+            setActionItemSheetTarget({
+              actionItemId: row.item._id,
+              kind: "detail",
+            })
+          }
+          rows={buildQueue.rows}
+          title="Build Action Items"
         />
         <SummaryCard
           description="Authorized people and organizations"
@@ -1065,12 +1182,21 @@ export function BuildCollaborationFeed({
         target={actionItemSheetTarget}
       />
       <BuildCollaborationReferenceSheet
+        actionItems={entityQueue.rows}
+        actionItemsHasMore={entityQueue.hasMore}
+        actionItemsLoading={entityQueue.loading}
+        actionItemsLoadingMore={entityQueue.loadingMore}
         focusedWorkspace={
           Boolean(focusedReference) &&
           focusedReference?.entityKind === "participant" &&
           focusedEntityReference ===
             `${focusedReference?.entityKind}:${focusedReference?.id}`
         }
+        onLoadMoreActionItems={entityQueue.loadMore}
+        onOpenActionItem={(actionItemId) => {
+          setFocusedReference(null);
+          setActionItemSheetTarget({ actionItemId, kind: "detail" });
+        }}
         onOpenChange={(open) => {
           if (!open) {
             setFocusedReference(null);

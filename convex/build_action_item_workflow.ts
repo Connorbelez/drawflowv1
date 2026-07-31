@@ -2,8 +2,13 @@ import { v } from "convex/values";
 
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
+import {
+  buildActionItemQueueSortAt,
+  resetBuildActionItemDeadlineSchedule,
+} from "./build_action_item_deadline_model";
 import { actionItemRequiresAcceptance } from "./build_action_item_governance";
 import { recordBuildActionItemRevision } from "./build_action_item_history";
+import { syncBuildActionItemReferenceQueueSortAt } from "./build_action_item_queue_projection";
 import {
   authorizeBuildActionItemOperation,
   type BuildActionItemOperation,
@@ -250,6 +255,11 @@ export const transitionBuildActionItem = authenticatedMutation
       reason,
     });
     await ctx.db.patch(item._id, transition.patch);
+    await syncBuildActionItemReferenceQueueSortAt(
+      ctx,
+      item,
+      transition.patch.queueSortAt
+    );
     const updated = await requireUpdatedItem(ctx, item._id);
     const activeReaderIds = await activeActionItemReaders(
       ctx,
@@ -399,6 +409,17 @@ function resolveTransitionChange(input: {
     input.nextStatus === "blocked" || input.nextStatus === "cancelled";
   const completionRequested = input.nextStatus === "in_review" && governed;
   const completed = input.nextStatus === "done";
+  const deadlineSchedule =
+    input.nextStatus === "done" ||
+    input.nextStatus === "cancelled" ||
+    input.item.status === "done" ||
+    input.item.status === "cancelled"
+      ? resetBuildActionItemDeadlineSchedule(
+          input.item.dueAt,
+          input.nextStatus,
+          input.item.deadlineScheduleGeneration
+        )
+      : {};
   return {
     eventType: workflowTransitionEventType(
       input.item,
@@ -428,9 +449,14 @@ function resolveTransitionChange(input: {
           ? input.item.completionRequestedByWorkosUserId
           : undefined,
       currentRevision: input.item.currentRevision + 1,
+      ...deadlineSchedule,
       previousActiveStatus: enteringExceptional
         ? (input.item.previousActiveStatus ?? input.item.status)
         : undefined,
+      queueSortAt: buildActionItemQueueSortAt(
+        input.item.dueAt,
+        input.nextStatus
+      ),
       status: input.nextStatus,
       updatedAt: input.now,
     },

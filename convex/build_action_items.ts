@@ -1,8 +1,13 @@
 import { v } from "convex/values";
 
 import { authenticatedMutation, authenticatedQuery } from "./authz";
+import {
+  buildActionItemQueueSortAt,
+  resetBuildActionItemDeadlineSchedule,
+} from "./build_action_item_deadline_model";
 import { actionItemRequiresAcceptance } from "./build_action_item_governance";
 import { recordBuildActionItemRevision } from "./build_action_item_history";
+import { syncBuildActionItemReferenceQueueSortAt } from "./build_action_item_queue_projection";
 import {
   authorizeBuildActionItemOperation,
   type BuildActionItemAuthorizationDecision,
@@ -116,6 +121,10 @@ export const createBuildActionItem = authenticatedMutation
           (args.requiresAcceptance ?? false) || workKind !== "ordinary",
       });
     const now = Date.now();
+    const deadlineSchedule = resetBuildActionItemDeadlineSchedule(
+      args.dueAt,
+      "todo"
+    );
     const actionItemId = await ctx.db.insert("buildActionItems", {
       assigneeWorkosUserId: assignee,
       assignedByWorkosUserId: assignee
@@ -133,12 +142,15 @@ export const createBuildActionItem = authenticatedMutation
         description.plainText || args.descriptionPlainText?.trim() || "",
       descriptionTiptapJson: description.tiptapJson,
       dueAt: args.dueAt,
+      dueDateSource: args.dueAt === undefined ? undefined : "manual",
+      ...deadlineSchedule,
       originatingPostId: post._id,
       organizationId: authorization.organizationId,
       parentActionItemId: parentActionItem?._id,
       priority: args.priority ?? "none",
       primaryReferenceId: primaryReference?.entityId,
       primaryReferenceKind: primaryReference?.entityKind,
+      queueSortAt: buildActionItemQueueSortAt(args.dueAt, "todo"),
       requiresAcceptance,
       status: "todo",
       title,
@@ -196,6 +208,7 @@ export const createBuildActionItem = authenticatedMutation
         authorization,
         now,
         postId: post._id,
+        queueSortAt: buildActionItemQueueSortAt(args.dueAt, "todo"),
         references,
       }),
       persistBuildActionItemActivity(ctx, {
@@ -303,19 +316,19 @@ export const listBuildActionItems = authenticatedQuery
   })
   .public();
 
-async function projectBuildActionItemList(
+export async function projectBuildActionItemList(
   ctx: QueryCtx,
   authorization: ActionItemAuthorization,
   items: Doc<"buildActionItems">[]
 ) {
-  const readable: Doc<"buildActionItems">[] = [];
+  const readable = await filterReadableBuildActionItems(
+    ctx,
+    authorization,
+    items
+  );
   const postAccess = new Map<string, boolean>();
-  for (const item of items) {
-    if (
-      await canReadActionItemProjection(ctx, authorization, item, postAccess)
-    ) {
-      readable.push(item);
-    }
+  for (const item of readable) {
+    postAccess.set(item.originatingPostId, true);
   }
   const [activeRelations, suspendedRelations] = await Promise.all([
     ctx.db
@@ -394,6 +407,23 @@ async function projectBuildActionItemList(
       relations: relationsBySource.get(item._id) ?? [],
     }))
   );
+}
+
+export async function filterReadableBuildActionItems(
+  ctx: QueryCtx,
+  authorization: ActionItemAuthorization,
+  items: Doc<"buildActionItems">[]
+) {
+  const readable: Doc<"buildActionItems">[] = [];
+  const postAccess = new Map<string, boolean>();
+  for (const item of items) {
+    if (
+      await canReadActionItemProjection(ctx, authorization, item, postAccess)
+    ) {
+      readable.push(item);
+    }
+  }
+  return readable;
 }
 
 async function canReadActionItemProjection(
@@ -504,13 +534,18 @@ export const updateBuildActionItem = authenticatedMutation
     if (args.priority !== undefined) {
       patch.priority = args.priority;
     }
-    if (args.dueAt !== undefined) {
-      patch.dueAt = args.dueAt ?? undefined;
-    }
+    applyManualDueDatePatch(item, args.dueAt, patch);
     if (args.requiresAcceptance !== undefined) {
       patch.requiresAcceptance = args.requiresAcceptance;
     }
     await ctx.db.patch(item._id, patch);
+    if (patch.queueSortAt !== undefined) {
+      await syncBuildActionItemReferenceQueueSortAt(
+        ctx,
+        item,
+        patch.queueSortAt
+      );
+    }
     const updatedItem = await ctx.db.get(item._id);
     if (!updatedItem) {
       throw new Error("Action Item became unavailable during update.");
@@ -546,6 +581,36 @@ export const updateBuildActionItem = authenticatedMutation
     return item._id;
   })
   .public();
+
+function applyManualDueDatePatch(
+  item: Doc<"buildActionItems">,
+  dueAt: number | null | undefined,
+  patch: Partial<Doc<"buildActionItems">>
+) {
+  if (dueAt === undefined) {
+    return;
+  }
+  const normalizedDueAt = dueAt ?? undefined;
+  if (normalizedDueAt === item.dueAt) {
+    return;
+  }
+  if (item.dueDateSource === "policy") {
+    throw new Error(
+      "Policy due dates require a reasoned override through the policy deadline workflow."
+    );
+  }
+  patch.dueAt = normalizedDueAt;
+  patch.dueDateSource = dueAt === null ? undefined : "manual";
+  Object.assign(
+    patch,
+    { queueSortAt: buildActionItemQueueSortAt(normalizedDueAt, item.status) },
+    resetBuildActionItemDeadlineSchedule(
+      normalizedDueAt,
+      item.status,
+      item.deadlineScheduleGeneration
+    )
+  );
+}
 
 export async function requireReadableActionItem(
   ctx: QueryCtx,
@@ -966,6 +1031,7 @@ async function persistBuildActionItemReferences(
     authorization: ActionItemAuthorization;
     now: number;
     postId: Id<"buildCollaborationPosts">;
+    queueSortAt: number;
     references: CanonicalBuildCollaborationReference[];
   }
 ) {
@@ -982,6 +1048,7 @@ async function persistBuildActionItemReferences(
       ownerRecordId: input.actionItemId,
       postId: input.postId,
       primary: reference.primary ?? false,
+      actionItemQueueSortAt: input.queueSortAt,
       summarySnapshot: reference.summary,
     });
   }

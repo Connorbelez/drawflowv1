@@ -16,7 +16,11 @@ duplicating operational records.
 
 ## Migration
 
-Run `build_collaboration_migrations.runBuildCollaborationNoteBackfill`.
+Run the legacy Note migration first:
+
+```sh
+bun x convex run --prod build_collaboration_migrations:runBuildCollaborationNoteBackfill
+```
 
 The migration is idempotent. Each legacy note uses
 `buildNote:<legacy note id>` as `importedSourceId`:
@@ -28,6 +32,32 @@ The migration is idempotent. Each legacy note uses
   meaningful-activity bump.
 
 Re-running the migration must produce zero duplicate posts.
+
+Then initialize the indexed Action Item deadline scheduler and canonical
+due-first queue order for every legacy row:
+
+```sh
+bun x convex run --prod build_action_item_deadline_migrations:runBuildActionItemDeadlineScheduleBackfill
+bun x convex run --prod build_action_item_deadline_migrations:runBuildActionItemReferenceQueueSortBackfill
+```
+
+The backfill is idempotent: it initializes missing `deadlineProcessingState`
+and `queueSortAt` fields without replacing existing values, then projects each
+Action Item's canonical queue order onto its entity-reference rows. Before
+activation, verify that no legacy Action Item still has either field absent,
+that every Action Item reference has `actionItemQueueSortAt`, that open dated
+items are `pending` with the expected `deadlineNextAt`, that undated or closed
+items are `complete`, and that the first Build, post, personal, and entity queue
+pages contain overdue work before upcoming, undated, and closed work. An entity
+queue page must be composed from matching reference rows rather than unrelated
+Build work. Duplicate Action Item references to the same entity are collapsed
+to the earliest row; if any duplicate was primary, the retained row is primary.
+The reference migration intentionally processes one reference row per Convex
+transaction. Each row may validate the Action Item's full supported
+100-reference set, so increasing this batch size without a new read-budget proof
+is prohibited.
+Re-run the command after a failed or interrupted deployment; the migration
+component resumes safely from its recorded cursor.
 
 ## Parity Checks
 

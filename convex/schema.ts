@@ -3325,6 +3325,7 @@ export default defineSchema({
     primary: v.boolean(),
     labelSnapshot: v.string(),
     summarySnapshot: v.optional(v.string()),
+    actionItemQueueSortAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_ownerKind_and_ownerRecordId", ["ownerKind", "ownerRecordId"])
@@ -3332,6 +3333,13 @@ export default defineSchema({
       "buildId",
       "entityKind",
       "entityId",
+    ])
+    .index("by_build_entity_owner_queueSort", [
+      "buildId",
+      "entityKind",
+      "entityId",
+      "ownerKind",
+      "actionItemQueueSortAt",
     ])
     .index("by_postId", ["postId"]),
   buildCollaborationFollows: defineTable({
@@ -3460,6 +3468,33 @@ export default defineSchema({
     assignmentState: buildActionAssignmentStateValidator,
     assignmentRequestedAt: v.optional(v.number()),
     dueAt: v.optional(v.number()),
+    dueDateSource: v.optional(
+      v.union(v.literal("manual"), v.literal("policy"))
+    ),
+    dueDatePolicyKey: v.optional(v.string()),
+    policyDueAt: v.optional(v.number()),
+    dueDateOverrideReason: v.optional(v.string()),
+    dueDateOverriddenAt: v.optional(v.number()),
+    dueDateOverriddenByWorkosUserId: v.optional(v.string()),
+    deadlineNextAt: v.optional(v.number()),
+    deadlineScheduleGeneration: v.optional(v.number()),
+    deadlineNextStage: v.optional(
+      v.union(
+        v.literal("before"),
+        v.literal("due"),
+        v.literal("overdue"),
+        v.literal("escalated")
+      )
+    ),
+    deadlineProcessingState: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("complete"),
+        v.literal("quarantined")
+      )
+    ),
+    deadlineProcessingFailure: v.optional(v.string()),
+    deadlineProcessingFailedAt: v.optional(v.number()),
     requiresAcceptance: v.boolean(),
     blockedReason: v.optional(v.string()),
     cancellationReason: v.optional(v.string()),
@@ -3470,17 +3505,23 @@ export default defineSchema({
     completedByWorkosUserId: v.optional(v.string()),
     completionAcceptedByWorkosUserId: v.optional(v.string()),
     currentRevision: v.number(),
+    queueSortAt: v.optional(v.number()),
     primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
     primaryReferenceId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_originatingPostId_and_status", ["originatingPostId", "status"])
+    .index("by_originatingPostId_and_queueSortAt", [
+      "originatingPostId",
+      "queueSortAt",
+    ])
     .index("by_buildId_and_status_and_updatedAt", [
       "buildId",
       "status",
       "updatedAt",
     ])
+    .index("by_buildId_and_queueSortAt", ["buildId", "queueSortAt"])
     .index("by_buildId_and_assigneeWorkosUserId_and_status", [
       "buildId",
       "assigneeWorkosUserId",
@@ -3491,10 +3532,28 @@ export default defineSchema({
       "assigneeWorkosUserId",
       "status",
     ])
-    .index("by_parentActionItemId_and_status", [
-      "parentActionItemId",
-      "status",
-    ]),
+    .index("by_organizationId_and_assigneeWorkosUserId_and_updatedAt", [
+      "organizationId",
+      "assigneeWorkosUserId",
+      "updatedAt",
+    ])
+    .index("by_organizationId_and_assigneeWorkosUserId_and_queueSortAt", [
+      "organizationId",
+      "assigneeWorkosUserId",
+      "queueSortAt",
+    ])
+    .index("by_parentActionItemId_and_status", ["parentActionItemId", "status"])
+    .index("by_deadlineProcessingState_and_nextDeadlineAt", [
+      "deadlineProcessingState",
+      "deadlineNextAt",
+    ])
+    .index("by_buildId_and_deadlineProcessingState_and_nextDeadlineAt", [
+      "buildId",
+      "deadlineProcessingState",
+      "deadlineNextAt",
+    ])
+    .index("by_dueAt", ["dueAt"])
+    .index("by_buildId_and_dueAt", ["buildId", "dueAt"]),
   buildActionItemEvents: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

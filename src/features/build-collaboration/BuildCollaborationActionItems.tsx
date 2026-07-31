@@ -1,5 +1,5 @@
-import { ArrowUpRight, Plus } from "lucide-react";
-import { useState } from "react";
+import { ArrowUpRight, Flag, Plus } from "lucide-react";
+import { type Dispatch, type SetStateAction, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -15,7 +15,11 @@ import {
   SelectValue,
 } from "#/components/ui/select.tsx";
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { ActionStatus, CollaborationActionItem } from "./model.ts";
+import type {
+  ActionStatus,
+  CollaborationActionItem,
+  CollaborationActionItemQueueRow,
+} from "./model.ts";
 
 type MoveActionItem = (
   actionItemId: Id<"buildActionItems">,
@@ -23,6 +27,145 @@ type MoveActionItem = (
   reason?: string,
   expectedRevision?: number
 ) => Promise<void>;
+
+export function BuildCollaborationActionItemQueue({
+  emptyLabel,
+  hasMore = false,
+  loading = false,
+  loadingMore = false,
+  onLoadMore,
+  onOpen,
+  rows,
+  title,
+}: {
+  emptyLabel: string;
+  hasMore?: boolean;
+  loading?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
+  onOpen: (row: CollaborationActionItemQueueRow) => void;
+  rows: CollaborationActionItemQueueRow[];
+  title: string;
+}) {
+  const [visibleCount, setVisibleCount] = useState(5);
+  const visibleRows = rows.slice(0, visibleCount);
+  const remainingCount = Math.max(0, rows.length - visibleRows.length);
+  return (
+    <Frame>
+      <FramePanel className="space-y-3 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Flag aria-hidden="true" className="size-4 text-primary" />
+            <p className="font-medium text-sm">{title}</p>
+          </div>
+          <Badge variant="outline">
+            {rows.length}
+            {hasMore ? "+" : ""}
+          </Badge>
+        </div>
+        {loading ? (
+          <p className="text-muted-foreground text-xs">Loading work…</p>
+        ) : rows.length === 0 ? (
+          <div className="space-y-2">
+            <p className="text-muted-foreground text-xs">{emptyLabel}</p>
+            <QueueLoadMoreButton
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadMore={onLoadMore}
+              remainingCount={0}
+              setVisibleCount={setVisibleCount}
+              totalRows={rows.length}
+            />
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {visibleRows.map((row) => (
+              <Card className="rounded-xl" key={row.item._id}>
+                <CardPanel className="space-y-2 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-sm">
+                        {row.item.title}
+                      </p>
+                      <p className="truncate text-muted-foreground text-xs">
+                        {row.buildName}
+                      </p>
+                    </div>
+                    {row.overdue ? (
+                      <Badge variant="destructive">Overdue</Badge>
+                    ) : null}
+                  </div>
+                  <Button
+                    aria-label={`Open ${row.item.title}`}
+                    className="w-full justify-between"
+                    onClick={() => onOpen(row)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    Open details
+                    <ArrowUpRight aria-hidden="true" className="size-4" />
+                  </Button>
+                </CardPanel>
+              </Card>
+            ))}
+            <QueueLoadMoreButton
+              hasMore={hasMore}
+              loadingMore={loadingMore}
+              onLoadMore={onLoadMore}
+              remainingCount={remainingCount}
+              setVisibleCount={setVisibleCount}
+              totalRows={rows.length}
+            />
+          </div>
+        )}
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function QueueLoadMoreButton({
+  hasMore,
+  loadingMore,
+  onLoadMore,
+  remainingCount,
+  setVisibleCount,
+  totalRows,
+}: {
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore?: () => void;
+  remainingCount: number;
+  setVisibleCount: Dispatch<SetStateAction<number>>;
+  totalRows: number;
+}) {
+  if (!(remainingCount > 0 || hasMore)) {
+    return null;
+  }
+  const label = loadingMore
+    ? "Loading more…"
+    : remainingCount > 0
+      ? `Show ${Math.min(5, remainingCount)} more of ${remainingCount}`
+      : "Load more Action Items";
+  return (
+    <Button
+      className="w-full"
+      disabled={loadingMore}
+      onClick={() => {
+        if (remainingCount > 0) {
+          setVisibleCount((current) => Math.min(current + 5, totalRows));
+          return;
+        }
+        onLoadMore?.();
+      }}
+      size="sm"
+      type="button"
+      variant="ghost"
+    >
+      {label}
+    </Button>
+  );
+}
 
 export function BuildCollaborationActionItems({
   actionView,

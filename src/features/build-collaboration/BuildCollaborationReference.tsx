@@ -15,7 +15,12 @@ import {
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
-import type { FocusedReference } from "./model.ts";
+import type { Id } from "../../../convex/_generated/dataModel";
+import { BuildCollaborationActionItemQueue } from "./BuildCollaborationActionItems.tsx";
+import type {
+  CollaborationActionItemQueueRow,
+  FocusedReference,
+} from "./model.ts";
 
 export function BuildCollaborationReferenceChip({
   onOpen,
@@ -65,13 +70,25 @@ export function BuildCollaborationReferenceChip({
 }
 
 export function BuildCollaborationReferenceSheet({
+  actionItems = [],
+  actionItemsHasMore = false,
+  actionItemsLoading = false,
+  actionItemsLoadingMore = false,
+  onLoadMoreActionItems,
   focusedWorkspace = false,
+  onOpenActionItem,
   onOpenChange,
   onOpenWorkspace,
   reference,
 }: {
+  actionItems?: CollaborationActionItemQueueRow[];
+  actionItemsHasMore?: boolean;
+  actionItemsLoading?: boolean;
+  actionItemsLoadingMore?: boolean;
   focusedWorkspace?: boolean;
+  onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
   onOpenChange: (open: boolean) => void;
+  onLoadMoreActionItems?: () => void;
   onOpenWorkspace: () => void;
   reference: FocusedReference | null;
 }) {
@@ -97,6 +114,18 @@ export function BuildCollaborationReferenceSheet({
               </p>
             </FramePanel>
           </Frame>
+          {reference && reference.entityKind !== "participant" ? (
+            <BuildCollaborationActionItemQueue
+              emptyLabel="No open Action Items reference this work."
+              hasMore={actionItemsHasMore}
+              loading={actionItemsLoading}
+              loadingMore={actionItemsLoadingMore}
+              onLoadMore={onLoadMoreActionItems}
+              onOpen={(row) => onOpenActionItem(row.item._id)}
+              rows={actionItems}
+              title="Related Action Items"
+            />
+          ) : null}
           {focusedWorkspace ? (
             <p className="text-muted-foreground text-sm">
               Focused participant detail for this Build.

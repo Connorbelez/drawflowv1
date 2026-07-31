@@ -1763,7 +1763,12 @@ describe("Build collaboration canonical reference authorization", () => {
           organizationId: ORGANIZATION_ID,
         },
       ),
-    ).resolves.toEqual({ postId: expect.any(String) });
+    ).resolves.toEqual(
+      expect.objectContaining({
+        actionItemId: entities.actionItemId,
+        postId: expect.any(String),
+      })
+    );
 
     const contractor = withIdentity(fixture.base, {
       roles: ["contractor"],

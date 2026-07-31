@@ -18,6 +18,9 @@ export type CollaborationFeedPostEntry = Extract<
 >;
 export type CollaborationActionItem =
   CollaborationFeedPostEntry["actionItems"][number];
+export type CollaborationActionItemQueueRow = FunctionReturnType<
+  typeof api.build_action_item_queues.listBuildActionItemQueue
+>["page"][number];
 export type CollaborationFeedReference =
   CollaborationFeedPostEntry["references"][number];
 export type CollaborationCommentRow = FunctionReturnType<
