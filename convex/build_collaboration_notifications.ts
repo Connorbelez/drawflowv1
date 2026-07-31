@@ -77,7 +77,7 @@ export function notificationKindsForPublicationRecipient(input: {
   if (input.postType === "issue") {
     kinds.push("blocker");
   }
-  return kinds.length ? kinds : ["ordinary_activity"];
+  return kinds;
 }
 
 export async function emitCanonicalBuildCollaborationNotification(
@@ -327,19 +327,16 @@ function publicationNotificationKinds(
   });
 }
 
-export async function resolveBuildCollaborationPublicationNotifications(
-  ctx: MutationCtx,
-  input: {
-    acknowledgementTargetIds: string[];
-    actionAssigneeIds: string[];
-    authorization: ActiveBuildAuthorization;
-    plainText: string;
-    postType: "update" | "question" | "issue" | "decision" | "announcement";
-    readerIds: string[];
-    referencedParticipantIds: string[];
-    requestedEffects: NotificationEffectInput[];
-  }
-) {
+export function resolveBuildCollaborationPublicationNotifications(input: {
+  acknowledgementTargetIds: string[];
+  actionAssigneeIds: string[];
+  authorization: ActiveBuildAuthorization;
+  plainText: string;
+  postType: "update" | "question" | "issue" | "decision" | "announcement";
+  readerIds: string[];
+  referencedParticipantIds: string[];
+  requestedEffects: NotificationEffectInput[];
+}) {
   const readerIds = new Set(input.readerIds);
   const directlyAddressed = new Set([
     ...input.acknowledgementTargetIds,
@@ -352,23 +349,11 @@ export async function resolveBuildCollaborationPublicationNotifications(
       (workosUserId) => workosUserId !== input.authorization.viewer.subject
     )
     .slice(0, 1000)) {
-    const preference = await ctx.db
-      .query("buildCollaborationNotificationPreferences")
-      .withIndex("by_buildId_and_workosUserId", (query) =>
-        query
-          .eq("buildId", input.authorization.build._id)
-          .eq("workosUserId", recipientWorkosUserId)
-      )
-      .first();
     const mandatory =
       directlyAddressed.has(recipientWorkosUserId) ||
       input.postType === "announcement" ||
       input.postType === "issue";
-    if (
-      !mandatory &&
-      (preference?.ordinaryMuted ||
-        (preference && !preference.channels.includes("in_app")))
-    ) {
+    if (!mandatory) {
       continue;
     }
     defaultRecipients.push(recipientWorkosUserId);

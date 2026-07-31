@@ -1,4 +1,5 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
+import { normalizeRoleSlugs } from "./authz";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import type { Doc, QueryCtx } from "./types";
 
@@ -70,11 +71,39 @@ export async function resolveCurrentCollaborationNotificationReaderIds(
   if (
     post.authorWorkosUserId &&
     (post.authorRole === "admin" || post.authorRole === "principle-broker") &&
+    (await hasCurrentGlobalCollaborationRole(
+      ctx,
+      authorization.organizationId,
+      post.authorWorkosUserId
+    )) &&
     !readerIds.includes(post.authorWorkosUserId)
   ) {
     readerIds.push(post.authorWorkosUserId);
   }
   return readerIds;
+}
+
+async function hasCurrentGlobalCollaborationRole(
+  ctx: QueryCtx,
+  organizationId: string,
+  workosUserId: string
+) {
+  const membership = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user_and_organization", (query) =>
+      query
+        .eq("workosUserId", workosUserId)
+        .eq("workosOrganizationId", organizationId)
+    )
+    .first();
+  if (membership?.status !== "active") {
+    return false;
+  }
+  const roles = normalizeRoleSlugs([
+    membership.roleSlug,
+    ...membership.roleSlugs,
+  ]);
+  return roles.includes("admin") || roles.includes("principle-broker");
 }
 
 export function canSeeCollaborationReceipt(

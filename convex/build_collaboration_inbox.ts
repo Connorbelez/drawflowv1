@@ -1,3 +1,7 @@
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { v } from "convex/values";
 
 import type { AuthorizedViewer } from "./authz";
@@ -35,15 +39,10 @@ const recipientDeliveryProjectionValidator = v.object({
 export const listRecipientInbox = authenticatedQuery
   .input({
     includeResolved: v.optional(v.boolean()),
+    paginationOpts: paginationOptsValidator,
     workosOrganizationId: v.string(),
   })
-  .returns(
-    v.object({
-      actionRequiredCount: v.number(),
-      deliveries: v.array(recipientDeliveryProjectionValidator),
-      unreadCount: v.number(),
-    })
-  )
+  .returns(paginationResultValidator(recipientDeliveryProjectionValidator))
   .handler(async (ctx, args) => {
     const brokerage = await authorizeInboxOrganization(
       ctx,
@@ -57,10 +56,13 @@ export const listRecipientInbox = authenticatedQuery
           .eq("recipientWorkosUserId", ctx.viewer.subject)
       )
       .order("desc")
-      .take(100);
+      .paginate({
+        cursor: args.paginationOpts.cursor,
+        numItems: Math.min(100, Math.max(1, args.paginationOpts.numItems)),
+      });
     const visibleRecords = args.includeResolved
-      ? records
-      : records.filter(
+      ? records.page
+      : records.page.filter(
           (record) =>
             record.status !== "dismissed" && record.status !== "resolved"
         );
@@ -74,17 +76,7 @@ export const listRecipientInbox = authenticatedQuery
         deliveries.push(projected);
       }
     }
-    return {
-      actionRequiredCount: deliveries.filter(
-        (delivery) =>
-          delivery.actionRequired &&
-          delivery.status !== "dismissed" &&
-          delivery.status !== "resolved"
-      ).length,
-      deliveries,
-      unreadCount: deliveries.filter((delivery) => delivery.status === "unread")
-        .length,
-    };
+    return { ...records, page: deliveries };
   })
   .public();
 

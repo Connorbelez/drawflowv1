@@ -6,12 +6,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 const markRead = vi.fn();
 const dismiss = vi.fn();
 const resolve = vi.fn();
+const loadMore = vi.fn();
 const useMutation = vi.fn();
-const useQuery = vi.fn();
+const usePaginatedQuery = vi.fn();
 
 vi.mock("convex/react", () => ({
   useMutation: (reference: unknown) => useMutation(reference),
-  useQuery: (reference: unknown, args: unknown) => useQuery(reference, args),
+  usePaginatedQuery: (
+    reference: unknown,
+    args: unknown,
+    options: unknown
+  ) => usePaginatedQuery(reference, args, options),
 }));
 
 import { NotificationInbox } from "./notification-inbox.tsx";
@@ -53,10 +58,11 @@ describe("NotificationInbox", () => {
       const mutations = [markRead, dismiss, resolve];
       return mutations[(useMutation.mock.calls.length - 1) % mutations.length];
     });
-    useQuery.mockReturnValue({
-      actionRequiredCount: 2,
-      deliveries: [recipientDelivery, domainDelivery],
-      unreadCount: 2,
+    usePaginatedQuery.mockReturnValue({
+      isLoading: false,
+      loadMore,
+      results: [recipientDelivery, domainDelivery],
+      status: "Exhausted",
     });
   });
 
@@ -81,7 +87,12 @@ describe("NotificationInbox", () => {
   });
 
   test("shows explicit loading, empty, and safe mutation error states", async () => {
-    useQuery.mockReturnValue(undefined);
+    usePaginatedQuery.mockReturnValue({
+      isLoading: true,
+      loadMore,
+      results: [],
+      status: "LoadingFirstPage",
+    });
     const loadingView = render(
       <NotificationInbox workosOrganizationId="org_production_foundation" />
     );
@@ -89,10 +100,11 @@ describe("NotificationInbox", () => {
     expect(await screen.findByText("Loading notifications…")).toBeTruthy();
     loadingView.unmount();
 
-    useQuery.mockReturnValue({
-      actionRequiredCount: 0,
-      deliveries: [],
-      unreadCount: 0,
+    usePaginatedQuery.mockReturnValue({
+      isLoading: false,
+      loadMore,
+      results: [],
+      status: "Exhausted",
     });
     const emptyView = render(
       <NotificationInbox workosOrganizationId="org_production_foundation" />
@@ -101,10 +113,11 @@ describe("NotificationInbox", () => {
     expect(await screen.findByText("No notifications yet.")).toBeTruthy();
     emptyView.unmount();
 
-    useQuery.mockReturnValue({
-      actionRequiredCount: 2,
-      deliveries: [recipientDelivery, domainDelivery],
-      unreadCount: 2,
+    usePaginatedQuery.mockReturnValue({
+      isLoading: false,
+      loadMore,
+      results: [recipientDelivery, domainDelivery],
+      status: "Exhausted",
     });
     dismiss.mockRejectedValueOnce(new Error("Request ID internal-123"));
     render(
@@ -179,5 +192,20 @@ describe("NotificationInbox", () => {
     expect(document.body.textContent).not.toMatch(
       /recipientWorkosUserId|payloadPreview|requestId|stack/i
     );
+  });
+
+  test("continues through raw pages until notification counts are complete", async () => {
+    usePaginatedQuery.mockReturnValue({
+      isLoading: false,
+      loadMore,
+      results: [],
+      status: "CanLoadMore",
+    });
+    render(
+      <NotificationInbox workosOrganizationId="org_production_foundation" />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    await waitFor(() => expect(loadMore).toHaveBeenCalledWith(100));
+    expect(screen.getByText("0+ require action")).toBeTruthy();
   });
 });

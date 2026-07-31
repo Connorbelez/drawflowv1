@@ -53,7 +53,7 @@ describe("Build collaboration notification classification", () => {
         mentioned: false,
         postType: "update",
       })
-    ).toEqual(["ordinary_activity"]);
+    ).toEqual([]);
   });
 
   test("classifies assignments, approval requests, blockers, reminders, and escalation", () => {

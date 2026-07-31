@@ -389,18 +389,30 @@ export async function projectActiveBuildParticipants(
       implicit.set(profile.accountWorkosUserId, "contractor");
     }
   }
-  const removedParticipants = await ctx.db
-    .query("buildParticipants")
-    .withIndex("by_buildId_and_status", (query) =>
-      query.eq("buildId", input.build._id).eq("status", "removed")
+  const latestImplicitParticipation = new Map(
+    await Promise.all(
+      [...implicit.keys()].map(
+        async (workosUserId) =>
+          [
+            workosUserId,
+            await ctx.db
+              .query("buildParticipants")
+              .withIndex(
+                "by_buildId_and_workosUserId_and_participationPeriod",
+                (query) =>
+                  query
+                    .eq("buildId", input.build._id)
+                    .eq("workosUserId", workosUserId)
+              )
+              .order("desc")
+              .first(),
+          ] as const
+      )
     )
-    .take(500);
-  const explicitlyRemovedIds = new Set(
-    removedParticipants.map((participant) => participant.workosUserId)
   );
   for (const [workosUserId, role] of implicit) {
     if (
-      explicitlyRemovedIds.has(workosUserId) ||
+      latestImplicitParticipation.get(workosUserId)?.status === "removed" ||
       projections.some(
         (participant) => participant.workosUserId === workosUserId
       )

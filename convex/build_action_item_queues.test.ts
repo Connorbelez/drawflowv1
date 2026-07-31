@@ -897,8 +897,13 @@ describe("Build Action Item queues, deadlines, and escalation", () => {
       ),
       post: await ctx.db.get(fixture.postIds[0]),
     }));
+    const deadlineDeliveries = effects.deliveries.filter((row) =>
+      ["reminder", "escalation"].includes(
+        row.collaborationEventKind ?? ""
+      )
+    );
     expect(
-      effects.deliveries
+      deadlineDeliveries
         .filter((row) => row.recipientWorkosUserId === "user_assignee")
         .map((row) => row.dedupeKey)
     ).toEqual(
@@ -909,24 +914,24 @@ describe("Build Action Item queues, deadlines, and escalation", () => {
       ])
     );
     expect(
-      effects.deliveries.some(
+      deadlineDeliveries.some(
         (row) =>
           row.recipientWorkosUserId === "user_builder" &&
           row.dedupeKey.includes(":escalated:")
       )
     ).toBe(true);
-    expect(effects.deliveries).toHaveLength(4);
+    expect(deadlineDeliveries).toHaveLength(4);
     expect(
-      effects.deliveries.find(
+      deadlineDeliveries.find(
         (row) => row.recipientWorkosUserId === "user_assignee"
       )?.href
     ).toContain("/contractor/builds/");
     expect(
-      effects.deliveries.find(
+      deadlineDeliveries.find(
         (row) => row.recipientWorkosUserId === "user_builder"
       )?.href
     ).toContain("/builder/builds/");
-    expect(effects.deliveries.every((row) => row.href.includes("%3A"))).toBe(
+    expect(deadlineDeliveries.every((row) => row.href.includes("%3A"))).toBe(
       true
     );
     expect(effects.outbox).toHaveLength(4);
@@ -961,7 +966,13 @@ describe("Build Action Item queues, deadlines, and escalation", () => {
       ),
       item: await ctx.db.get(itemId as Id<"buildActionItems">),
     }));
-    expect(sameDeadlineReplay.deliveries).toHaveLength(4);
+    expect(
+      sameDeadlineReplay.deliveries.filter((row) =>
+        ["reminder", "escalation"].includes(
+          row.collaborationEventKind ?? ""
+        )
+      )
+    ).toHaveLength(4);
     expect(sameDeadlineReplay.item?.deadlineScheduleGeneration).toBe(1);
 
     await fixture.builder.mutation(
@@ -995,9 +1006,15 @@ describe("Build Action Item queues, deadlines, and escalation", () => {
       ),
       item: await ctx.db.get(itemId as Id<"buildActionItems">),
     }));
-    expect(repeatedDeadline.deliveries).toHaveLength(6);
+    const repeatedDeadlineNotifications = repeatedDeadline.deliveries.filter(
+      (row) =>
+        ["reminder", "escalation"].includes(
+          row.collaborationEventKind ?? ""
+        )
+    );
+    expect(repeatedDeadlineNotifications).toHaveLength(6);
     expect(
-      new Set(repeatedDeadline.deliveries.map((row) => row.dedupeKey)).size
+      new Set(repeatedDeadlineNotifications.map((row) => row.dedupeKey)).size
     ).toBe(6);
     expect(repeatedDeadline.item?.deadlineScheduleGeneration).toBe(3);
   });
@@ -1300,7 +1317,13 @@ describe("Build Action Item queues, deadlines, and escalation", () => {
       deadlineNextStage: "overdue",
       deadlineProcessingState: "pending",
     });
-    expect(result.validDeliveries).toHaveLength(2);
+    expect(
+      result.validDeliveries.filter((row) =>
+        ["reminder", "escalation"].includes(
+          row.collaborationEventKind ?? ""
+        )
+      )
+    ).toHaveLength(2);
   });
 
   test("backfills legacy deadline schedules before the indexed processor is activated", async () => {

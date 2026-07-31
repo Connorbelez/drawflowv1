@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
   buildActionItemQueueSortAt,
@@ -21,6 +22,7 @@ import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaborat
 import { canUseCollaborationAssetForPost } from "./build_collaboration_asset_access";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { collaborationRoleTier } from "./build_collaboration_model";
+import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
 import {
   canonicalizeTiptapReferences,
   referenceInputValidator,
@@ -218,6 +220,16 @@ export const createBuildActionItem = authenticatedMutation
         postId: post._id,
         references,
       }),
+      emitCreatedActionItemAssignmentNotification(ctx, {
+        actionItemId,
+        assignee,
+        assignmentState,
+        authorization,
+        now,
+        postId: post._id,
+        readerIds,
+        title,
+      }),
       ctx.db.insert("auditEvents", {
         actorRoles: authorization.roles,
         actorWorkosUserId: authorization.viewer.subject,
@@ -285,6 +297,45 @@ export const createBuildActionItem = authenticatedMutation
     return actionItemId;
   })
   .public();
+
+async function emitCreatedActionItemAssignmentNotification(
+  ctx: MutationCtx,
+  input: {
+    actionItemId: Id<"buildActionItems">;
+    assignee?: string;
+    assignmentState: "assigned" | "requested" | "unassigned";
+    authorization: ActiveBuildAuthorization;
+    now: number;
+    postId: Id<"buildCollaborationPosts">;
+    readerIds: string[];
+    title: string;
+  }
+) {
+  if (!input.assignee) {
+    return null;
+  }
+  const kind =
+    input.assignmentState === "requested" ? "assignment_request" : "assignment";
+  return await emitCanonicalBuildCollaborationNotification(ctx, {
+    actionItemId: input.actionItemId,
+    actionLabel: "Open Action Item",
+    authorization: input.authorization,
+    body: input.title,
+    dedupeKey: `build-action-item:${input.actionItemId}:created:${kind}:${input.assignee}`,
+    entityId: input.actionItemId,
+    entityType: "buildActionItem",
+    href: `/backoffice/builds/${input.authorization.build._id}?tab=details&focus=actionItem%3A${input.actionItemId}`,
+    kind,
+    now: input.now,
+    postId: input.postId,
+    readerIds: input.readerIds,
+    recipientWorkosUserId: input.assignee,
+    title:
+      kind === "assignment_request"
+        ? "Action Item assignment requested"
+        : "Action Item assigned",
+  });
+}
 
 export const listBuildActionItems = authenticatedQuery
   .input({

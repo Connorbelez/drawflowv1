@@ -204,7 +204,7 @@ export async function prepareBuildCollaborationPublication(
       })
     : [];
   const effectiveNotificationEffects =
-    await resolveBuildCollaborationPublicationNotifications(ctx, {
+    await resolveBuildCollaborationPublicationNotifications({
       acknowledgementTargetIds,
       actionAssigneeIds: bundle.actionItems.flatMap((item) =>
         item.assigneeWorkosUserId ? [item.assigneeWorkosUserId] : []

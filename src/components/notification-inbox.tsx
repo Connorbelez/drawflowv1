@@ -2,8 +2,8 @@
 
 import { Notification03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useMutation, useQuery } from "convex/react";
-import { useState } from "react";
+import { useMutation, usePaginatedQuery } from "convex/react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -92,11 +92,12 @@ export function NotificationInbox({
                 Recipient-scoped updates and legal next actions.
               </SheetDescription>
             </div>
-            {inbox ? (
+            {inbox.loaded ? (
               <Badge
                 variant={inbox.actionRequiredCount > 0 ? "warning" : "outline"}
               >
-                {inbox.actionRequiredCount} require action
+                {inbox.actionRequiredCount}
+                {inbox.countsComplete ? "" : "+"} require action
               </Badge>
             ) : null}
           </div>
@@ -134,7 +135,7 @@ export function NotificationInbox({
           <InboxDeliveries
             deliveries={deliveries}
             filter={filter}
-            inboxLoaded={inbox !== undefined}
+            inboxLoaded={inbox.loaded}
             onDismiss={(delivery) =>
               workosOrganizationId
                 ? runDeliveryMutation(() =>
@@ -174,10 +175,32 @@ export function NotificationInbox({
 }
 
 function useRecipientInbox(workosOrganizationId?: string | null) {
-  return useQuery(
+  const inbox = usePaginatedQuery(
     api.build_collaboration_inbox.listRecipientInbox,
-    workosOrganizationId ? { workosOrganizationId } : "skip"
+    workosOrganizationId ? { workosOrganizationId } : "skip",
+    { initialNumItems: 100 }
   );
+  useEffect(() => {
+    if (workosOrganizationId && inbox.status === "CanLoadMore") {
+      inbox.loadMore(100);
+    }
+  }, [inbox.loadMore, inbox.status, workosOrganizationId]);
+  return useMemo(() => {
+    const deliveries = inbox.results;
+    return {
+      actionRequiredCount: deliveries.filter(
+        (delivery) =>
+          delivery.actionRequired &&
+          delivery.status !== "dismissed" &&
+          delivery.status !== "resolved"
+      ).length,
+      countsComplete: inbox.status === "Exhausted",
+      deliveries,
+      loaded: inbox.status !== "LoadingFirstPage",
+      unreadCount: deliveries.filter((delivery) => delivery.status === "unread")
+        .length,
+    };
+  }, [inbox.results, inbox.status]);
 }
 
 function InboxDeliveries({

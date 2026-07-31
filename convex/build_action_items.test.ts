@@ -2625,6 +2625,78 @@ describe("Build Action Item server authorization", () => {
     ]);
   });
 
+  test("direct creation notifies assigned and requested assignees despite mute while suppressing self-assignment", async () => {
+    const fixture = await seedActionItemBuild();
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.insert("buildCollaborationNotificationPreferences", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        channels: [],
+        createdAt: 1,
+        digestCadence: "never",
+        digestEnabled: false,
+        ordinaryMuted: true,
+        organizationId: ORGANIZATION_ID,
+        updatedAt: 1,
+        workosUserId: "user_contractor_reader",
+      });
+    });
+
+    const assignedId = await fixture.builder.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_reader",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Inspect the footing forms",
+      }
+    );
+    const requestedId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_builder",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Approve the trade handoff",
+      }
+    );
+    const selfAssignedId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_creator",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Upload the field photo",
+      }
+    );
+
+    const deliveries = await fixture.base.run(async (ctx) =>
+      ctx.db.query("recipientDeliveries").collect()
+    );
+    expect(deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          collaborationActionItemId: assignedId,
+          collaborationEventKind: "assignment",
+          recipientWorkosUserId: "user_contractor_reader",
+        }),
+        expect.objectContaining({
+          collaborationActionItemId: requestedId,
+          collaborationEventKind: "assignment_request",
+          recipientWorkosUserId: "user_builder",
+        }),
+      ])
+    );
+    expect(
+      deliveries.some(
+        (delivery) => delivery.collaborationActionItemId === selfAssignedId
+      )
+    ).toBe(false);
+  });
+
   test("ordinary work completes by its assignee and reopens only with a reason", async () => {
     const fixture = await seedActionItemBuild();
     const actionItemId = await fixture.creator.mutation(
@@ -2821,10 +2893,18 @@ describe("Build Action Item server authorization", () => {
       )
     ).toHaveLength(3);
     expect(
-      persisted.deliveries.map(
-        (delivery) => delivery.recipientWorkosUserId
-      )
-    ).toEqual(["user_builder", "user_contractor_creator"]);
+      persisted.deliveries.map((delivery) => ({
+        kind: delivery.collaborationEventKind,
+        recipient: delivery.recipientWorkosUserId,
+      }))
+    ).toEqual([
+      { kind: "assignment", recipient: "user_contractor_creator" },
+      { kind: "required_approval", recipient: "user_builder" },
+      {
+        kind: "acknowledgement_received",
+        recipient: "user_contractor_creator",
+      },
+    ]);
   });
 
   test("canonical governed references cannot be downgraded by a submitted ordinary work type", async () => {
