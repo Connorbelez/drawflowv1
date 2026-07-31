@@ -21,6 +21,23 @@ interface PreparedDeliveryItem {
   };
 }
 
+interface ImmutableBatchPayload {
+  channel: "email" | "push";
+  deliveryIds: Id<"buildCollaborationExternalDeliveries">[];
+  idempotencyKey: string;
+  items: PreparedDeliveryItem["item"][];
+  recipientWorkosUserId: string;
+}
+
+interface CompleteExternalDeliveryInput {
+  error?: string;
+  eventOutboxId: Id<"eventOutbox">;
+  providerMessageId?: string;
+  responseCode?: number;
+  succeeded: boolean;
+  timestamp?: number;
+}
+
 const externalChannelValidator = v.union(v.literal("email"), v.literal("push"));
 const preparedItemValidator = v.object({
   actionHref: v.string(),
@@ -35,7 +52,15 @@ const preparedOutboxValidator = v.union(
     channel: externalChannelValidator,
     contact: v.union(
       v.object({ email: v.string() }),
-      v.object({ auth: v.string(), endpoint: v.string(), p256dh: v.string() })
+      v.object({
+        subscriptions: v.array(
+          v.object({
+            auth: v.string(),
+            endpoint: v.string(),
+            p256dh: v.string(),
+          })
+        ),
+      })
     ),
     idempotencyKey: v.string(),
     items: v.array(preparedItemValidator),
@@ -88,6 +113,13 @@ async function prepareExternalDeliveryBatch(
     seed: Doc<"buildCollaborationExternalDeliveries">;
   }
 ) {
+  if (input.seed.batchId) {
+    return await prepareExistingDeliveryBatch(
+      ctx,
+      input.seed.batchId,
+      input.asOf
+    );
+  }
   const prepared: PreparedDeliveryItem[] = [];
   for (const delivery of input.group) {
     const currentItem = await revalidateDelivery(ctx, delivery);
@@ -118,16 +150,28 @@ async function prepareExternalDeliveryBatch(
     return null;
   }
   const deliveryIds = prepared.map(({ delivery }) => delivery._id);
-  const providerIdempotencyKey =
-    input.seed.batchKey ??
-    stableBatchKey(prepared.map(({ delivery }) => delivery));
-  const payload = {
+  const providerIdempotencyKey = `build-collaboration-delivery:${crypto.randomUUID()}`;
+  const payload: ImmutableBatchPayload = {
     channel: input.seed.channel,
     deliveryIds,
     idempotencyKey: providerIdempotencyKey,
     items: prepared.map(({ item }) => item),
     recipientWorkosUserId: input.seed.recipientWorkosUserId,
   };
+  const batchId = await ctx.db.insert("buildCollaborationDeliveryBatches", {
+    brokerageId: input.seed.brokerageId,
+    buildId: input.seed.buildId,
+    cadence: input.seed.cadence,
+    channel: input.seed.channel,
+    createdAt: input.asOf,
+    deliveryIds,
+    organizationId: input.seed.organizationId,
+    payloadSnapshot: JSON.stringify(payload),
+    providerIdempotencyKey,
+    recipientWorkosUserId: input.seed.recipientWorkosUserId,
+    state: "sending",
+    updatedAt: input.asOf,
+  });
   const outboxId = await ctx.db.insert("eventOutbox", {
     brokerageId: input.seed.brokerageId,
     createdAt: input.asOf,
@@ -143,6 +187,7 @@ async function prepareExternalDeliveryBatch(
   for (const { delivery, item } of prepared) {
     await ctx.db.patch(delivery._id, {
       attemptCount: delivery.attemptCount + 1,
+      batchId,
       batchKey: providerIdempotencyKey,
       lastAttemptAt: input.asOf,
       lastError: undefined,
@@ -157,6 +202,7 @@ async function prepareExternalDeliveryBatch(
   await ctx.db.insert("buildCollaborationDeliveryAttempts", {
     attemptNumber,
     attemptedAt: input.asOf,
+    batchId,
     brokerageId: input.seed.brokerageId,
     channel: input.seed.channel,
     createdAt: input.asOf,
@@ -167,6 +213,85 @@ async function prepareExternalDeliveryBatch(
     updatedAt: input.asOf,
   });
   return outboxId;
+}
+
+async function prepareExistingDeliveryBatch(
+  ctx: MutationCtx,
+  batchId: Id<"buildCollaborationDeliveryBatches">,
+  asOf: number
+) {
+  const batch = await ctx.db.get(batchId);
+  if (!batch || (batch.state !== "failed" && batch.state !== "sending")) {
+    return null;
+  }
+  const payload = parseBatchPayload(batch.payloadSnapshot);
+  const deliveries = await loadBatchDeliveries(ctx, batch);
+  if (
+    !payload ||
+    deliveries.length !== batch.deliveryIds.length ||
+    payload.deliveryIds.length !== batch.deliveryIds.length ||
+    payload.deliveryIds.some((id, index) => id !== batch.deliveryIds[index])
+  ) {
+    await cancelDeliveryBatch(ctx, batch, asOf, "invalid_batch_snapshot");
+    return null;
+  }
+  for (const delivery of deliveries) {
+    if (!(await revalidateDelivery(ctx, delivery))) {
+      await cancelDeliveryBatch(ctx, batch, asOf, "access_revoked");
+      return null;
+    }
+  }
+  const outboxId = await insertBatchOutbox(ctx, batch, payload, asOf);
+  const attemptNumber =
+    Math.max(...deliveries.map((delivery) => delivery.attemptCount)) + 1;
+  for (const delivery of deliveries) {
+    await ctx.db.patch(delivery._id, {
+      attemptCount: delivery.attemptCount + 1,
+      lastAttemptAt: asOf,
+      lastError: undefined,
+      leaseExpiresAt: asOf + DISPATCH_LEASE_MS,
+      providerOutboxId: outboxId,
+      status: "dispatched",
+      updatedAt: asOf,
+    });
+  }
+  await ctx.db.patch(batch._id, {
+    safeError: undefined,
+    state: "sending",
+    updatedAt: asOf,
+  });
+  await ctx.db.insert("buildCollaborationDeliveryAttempts", {
+    attemptNumber,
+    attemptedAt: asOf,
+    batchId: batch._id,
+    brokerageId: batch.brokerageId,
+    channel: batch.channel,
+    createdAt: asOf,
+    deliveryIds: batch.deliveryIds,
+    organizationId: batch.organizationId,
+    providerIdempotencyKey: batch.providerIdempotencyKey,
+    state: "sending",
+    updatedAt: asOf,
+  });
+  return outboxId;
+}
+
+async function insertBatchOutbox(
+  ctx: MutationCtx,
+  batch: Doc<"buildCollaborationDeliveryBatches">,
+  payload: ImmutableBatchPayload,
+  now: number
+) {
+  return await ctx.db.insert("eventOutbox", {
+    brokerageId: batch.brokerageId,
+    createdAt: now,
+    eventType: `build_collaboration.external_delivery.${batch.channel}`,
+    organizationId: batch.organizationId,
+    payloadPreview: JSON.stringify(payload),
+    relatedEntityId: batch.buildId,
+    relatedEntityType: "buildCollaborationExternalDelivery",
+    status: "pending",
+  });
 }
 
 export const prepareBuildCollaborationExternalOutbox = internalMutation
@@ -187,107 +312,80 @@ export const prepareBuildCollaborationExternalOutbox = internalMutation
         query.eq("providerOutboxId", outbox._id)
       )
       .take(MAX_DIGEST_ITEMS);
-    const prepared: PreparedDeliveryItem[] = [];
-    let invalidated = false;
-    for (const delivery of deliveries) {
-      const currentItem = await revalidateDelivery(ctx, delivery);
-      if (!currentItem) {
-        await cancelBuildCollaborationExternalDelivery(
+    const batchId = deliveries[0]?.batchId;
+    const batch = batchId ? await ctx.db.get(batchId) : null;
+    const payload = batch ? parseBatchPayload(batch.payloadSnapshot) : null;
+    const exactDeliveries = batch ? await loadBatchDeliveries(ctx, batch) : [];
+    if (
+      !(batch && payload) ||
+      batch.state !== "sending" ||
+      exactDeliveries.length !== batch.deliveryIds.length ||
+      exactDeliveries.some(
+        (delivery) => delivery.providerOutboxId !== outbox._id
+      )
+    ) {
+      if (batch) {
+        await cancelDeliveryBatch(
           ctx,
-          delivery,
+          batch,
           Date.now(),
-          "access_revoked"
+          "invalid_batch_snapshot"
         );
-        invalidated = true;
-        continue;
       }
-      const item = delivery.renderedItemSnapshot
-        ? parseRenderedItemSnapshot(delivery.renderedItemSnapshot)
-        : currentItem;
-      if (!item) {
-        await cancelBuildCollaborationExternalDelivery(
-          ctx,
-          delivery,
-          Date.now(),
-          "invalid_payload_snapshot"
-        );
-        invalidated = true;
-        continue;
-      }
-      prepared.push({ delivery, item });
-    }
-    if (invalidated || !prepared.length) {
-      const retryAt = Date.now();
-      for (const { delivery } of prepared) {
-        await ctx.db.patch(delivery._id, {
-          batchKey: undefined,
-          batchRevision: (delivery.batchRevision ?? 0) + 1,
-          lastError: "Delivery batch was invalidated by an access change.",
-          providerOutboxId: undefined,
-          renderedItemSnapshot: undefined,
-          scheduledFor: retryAt,
-          status: "queued",
-          updatedAt: retryAt,
-        });
-      }
-      await ctx.db.patch(outbox._id, {
-        payloadPreview: JSON.stringify({
-          reason: "access_revoked",
-          redacted: true,
-        }),
-        processedAt: Date.now(),
-        status: "failed",
-      });
+      await redactFailedOutbox(
+        ctx,
+        outbox._id,
+        "invalid_batch_snapshot",
+        Date.now()
+      );
       return null;
     }
-    const seed = prepared[0].delivery;
+    for (const delivery of exactDeliveries) {
+      if (!(await revalidateDelivery(ctx, delivery))) {
+        await cancelDeliveryBatch(ctx, batch, Date.now(), "access_revoked");
+        return null;
+      }
+    }
+    const seed = exactDeliveries[0];
+    if (!seed) {
+      await cancelDeliveryBatch(
+        ctx,
+        batch,
+        Date.now(),
+        "invalid_batch_snapshot"
+      );
+      return null;
+    }
     const contact = await deliveryContact(ctx, seed);
     if (!contact) {
-      for (const { delivery } of prepared) {
-        await cancelBuildCollaborationExternalDelivery(
-          ctx,
-          delivery,
-          Date.now(),
-          "delivery_contact_unavailable"
-        );
-      }
-      await ctx.db.patch(outbox._id, {
-        payloadPreview: JSON.stringify({
-          reason: "delivery_contact_unavailable",
-          redacted: true,
-        }),
-        processedAt: Date.now(),
-        status: "failed",
-      });
+      await cancelDeliveryBatch(
+        ctx,
+        batch,
+        Date.now(),
+        "delivery_contact_unavailable"
+      );
       return null;
     }
     const attempt = await ctx.db
       .query("buildCollaborationDeliveryAttempts")
-      .withIndex("by_providerIdempotencyKey", (query) =>
-        query.eq("providerIdempotencyKey", seed.batchKey ?? "")
+      .withIndex("by_batchId_and_state", (query) =>
+        query.eq("batchId", batch._id).eq("state", "sending")
       )
       .order("desc")
       .first();
-    if (!attempt || attempt.state !== "sending") {
+    if (!attempt) {
       return null;
     }
-    const safePayload = {
-      channel: seed.channel,
-      deliveryIds: prepared.map(({ delivery }) => delivery._id),
-      idempotencyKey: attempt.providerIdempotencyKey,
-      items: prepared.map(({ item }) => item),
-      recipientWorkosUserId: seed.recipientWorkosUserId,
-    };
     await ctx.db.patch(outbox._id, {
-      payloadPreview: JSON.stringify(safePayload),
+      payloadPreview: batch.payloadSnapshot,
     });
     return {
       attemptId: attempt._id,
-      channel: seed.channel,
+      channel: batch.channel,
       contact,
-      idempotencyKey: attempt.providerIdempotencyKey,
-      items: prepared.map(({ item }) => item),
-      recipientWorkosUserId: seed.recipientWorkosUserId,
+      idempotencyKey: batch.providerIdempotencyKey,
+      items: payload.items,
+      recipientWorkosUserId: batch.recipientWorkosUserId,
     };
   })
   .internal();
@@ -303,75 +401,127 @@ export const completeBuildCollaborationExternalDeliveryAttempt =
       timestamp: v.optional(v.number()),
     })
     .returns(v.null())
-    .handler(async (ctx, args) => {
-      const timestamp = args.timestamp ?? Date.now();
-      const outbox = await ctx.db.get(args.eventOutboxId);
-      if (!outbox) {
-        return null;
-      }
-      const deliveries = await ctx.db
-        .query("buildCollaborationExternalDeliveries")
-        .withIndex("by_providerOutboxId", (query) =>
-          query.eq("providerOutboxId", outbox._id)
-        )
-        .take(MAX_DIGEST_ITEMS);
-      if (!deliveries.some((row) => row.status === "dispatched")) {
-        return null;
-      }
-      const safeError = args.error?.slice(0, 280);
-      for (const delivery of deliveries) {
-        if (delivery.status !== "dispatched") {
-          continue;
-        }
-        if (args.succeeded) {
-          await ctx.db.patch(delivery._id, {
-            lastError: undefined,
-            leaseExpiresAt: undefined,
-            sentAt: timestamp,
-            status: "sent",
-            updatedAt: timestamp,
-          });
-        } else {
-          await ctx.db.patch(delivery._id, {
-            lastError: safeError ?? "External delivery failed.",
-            leaseExpiresAt: undefined,
-            providerOutboxId: undefined,
-            scheduledFor: nextBuildCollaborationRetryAt(
-              timestamp,
-              delivery.attemptCount
-            ),
-            status:
-              delivery.attemptCount >= MAX_DELIVERY_ATTEMPTS
-                ? "cancelled"
-                : "queued",
-            updatedAt: timestamp,
-          });
-        }
-      }
-      await ctx.db.patch(outbox._id, {
-        processedAt: timestamp,
-        status: args.succeeded ? "processed" : "failed",
-      });
-      const attempt = await ctx.db
-        .query("buildCollaborationDeliveryAttempts")
-        .withIndex("by_providerIdempotencyKey", (query) =>
-          query.eq("providerIdempotencyKey", deliveries[0]?.batchKey ?? "")
-        )
-        .order("desc")
-        .first();
-      if (attempt?.state === "sending") {
-        await ctx.db.patch(attempt._id, {
-          completedAt: timestamp,
-          providerMessageId: args.providerMessageId?.slice(0, 280),
-          responseCode: args.responseCode,
-          safeError,
-          state: args.succeeded ? "succeeded" : "failed",
-          updatedAt: timestamp,
-        });
-      }
-      return null;
-    })
+    .handler((ctx, args) => completeExternalDeliveryAttempt(ctx, args))
     .internal();
+
+async function completeExternalDeliveryAttempt(
+  ctx: MutationCtx,
+  args: CompleteExternalDeliveryInput
+) {
+  const timestamp = args.timestamp ?? Date.now();
+  const outbox = await ctx.db.get(args.eventOutboxId);
+  if (!outbox) {
+    return null;
+  }
+  const deliveries = await ctx.db
+    .query("buildCollaborationExternalDeliveries")
+    .withIndex("by_providerOutboxId", (query) =>
+      query.eq("providerOutboxId", outbox._id)
+    )
+    .take(MAX_DIGEST_ITEMS);
+  if (!deliveries.some((row) => row.status === "dispatched")) {
+    return null;
+  }
+  const batchId = deliveries[0]?.batchId;
+  const batch = batchId ? await ctx.db.get(batchId) : null;
+  if (!batch || deliveries.some((delivery) => delivery.batchId !== batch._id)) {
+    return null;
+  }
+  const safeError = args.error?.slice(0, 280);
+  const exhausted = deliveries.some(
+    (delivery) => delivery.attemptCount >= MAX_DELIVERY_ATTEMPTS
+  );
+  await patchCompletedDeliveryRows(ctx, deliveries, {
+    exhausted,
+    safeError,
+    succeeded: args.succeeded,
+    timestamp,
+  });
+  await ctx.db.patch(outbox._id, {
+    processedAt: timestamp,
+    status: args.succeeded ? "processed" : "failed",
+  });
+  await completeSendingAttempt(ctx, batch._id, args, safeError, timestamp);
+  await ctx.db.patch(batch._id, {
+    cancelledAt: !args.succeeded && exhausted ? timestamp : undefined,
+    completedAt: args.succeeded ? timestamp : undefined,
+    safeError: args.succeeded
+      ? undefined
+      : (safeError ?? "External delivery failed."),
+    state: args.succeeded ? "succeeded" : exhausted ? "cancelled" : "failed",
+    updatedAt: timestamp,
+  });
+  return null;
+}
+
+async function patchCompletedDeliveryRows(
+  ctx: MutationCtx,
+  deliveries: Doc<"buildCollaborationExternalDeliveries">[],
+  input: {
+    exhausted: boolean;
+    safeError?: string;
+    succeeded: boolean;
+    timestamp: number;
+  }
+) {
+  for (const delivery of deliveries) {
+    if (delivery.status !== "dispatched") {
+      continue;
+    }
+    if (input.succeeded) {
+      await ctx.db.patch(delivery._id, {
+        lastError: undefined,
+        leaseExpiresAt: undefined,
+        sentAt: input.timestamp,
+        status: "sent",
+        updatedAt: input.timestamp,
+      });
+      continue;
+    }
+    await ctx.db.patch(delivery._id, {
+      cancellationReason: input.exhausted
+        ? "delivery_attempts_exhausted"
+        : undefined,
+      cancelledAt: input.exhausted ? input.timestamp : undefined,
+      lastError: input.safeError ?? "External delivery failed.",
+      leaseExpiresAt: undefined,
+      providerOutboxId: undefined,
+      scheduledFor: nextBuildCollaborationRetryAt(
+        input.timestamp,
+        delivery.attemptCount
+      ),
+      status: input.exhausted ? "cancelled" : "queued",
+      updatedAt: input.timestamp,
+    });
+  }
+}
+
+async function completeSendingAttempt(
+  ctx: MutationCtx,
+  batchId: Id<"buildCollaborationDeliveryBatches">,
+  args: CompleteExternalDeliveryInput,
+  safeError: string | undefined,
+  timestamp: number
+) {
+  const attempt = await ctx.db
+    .query("buildCollaborationDeliveryAttempts")
+    .withIndex("by_batchId_and_state", (query) =>
+      query.eq("batchId", batchId).eq("state", "sending")
+    )
+    .order("desc")
+    .first();
+  if (!attempt) {
+    return;
+  }
+  await ctx.db.patch(attempt._id, {
+    completedAt: timestamp,
+    providerMessageId: args.providerMessageId?.slice(0, 280),
+    responseCode: args.responseCode,
+    safeError,
+    state: args.succeeded ? "succeeded" : "failed",
+    updatedAt: timestamp,
+  });
+}
 
 async function dueExternalDeliveries(
   ctx: MutationCtx,
@@ -418,25 +568,21 @@ async function deliveryGroup(
   seed: Doc<"buildCollaborationExternalDeliveries">,
   asOf: number
 ) {
+  if (seed.batchId) {
+    const batch = await ctx.db.get(seed.batchId);
+    if (!batch) {
+      return [seed];
+    }
+    return (await loadBatchDeliveries(ctx, batch))
+      .filter(
+        (row) =>
+          (row.status === "queued" || row.status === "failed") &&
+          row.scheduledFor <= asOf
+      )
+      .sort((left, right) => left.createdAt - right.createdAt);
+  }
   if (seed.deliveryMode === "immediate") {
     return [seed];
-  }
-  if (seed.batchKey) {
-    const queued = await ctx.db
-      .query("buildCollaborationExternalDeliveries")
-      .withIndex("by_batchKey_and_status", (query) =>
-        query.eq("batchKey", seed.batchKey).eq("status", "queued")
-      )
-      .take(MAX_DIGEST_ITEMS);
-    const failed = await ctx.db
-      .query("buildCollaborationExternalDeliveries")
-      .withIndex("by_batchKey_and_status", (query) =>
-        query.eq("batchKey", seed.batchKey).eq("status", "failed")
-      )
-      .take(MAX_DIGEST_ITEMS);
-    return [...queued, ...failed]
-      .filter((row) => row.scheduledFor <= asOf)
-      .sort((left, right) => left.createdAt - right.createdAt);
   }
   return due.filter(
     (row) =>
@@ -446,7 +592,7 @@ async function deliveryGroup(
       row.recipientWorkosUserId === seed.recipientWorkosUserId &&
       row.channel === seed.channel &&
       row.cadence === seed.cadence &&
-      row.batchKey === undefined
+      row.batchId === undefined
   );
 }
 
@@ -498,7 +644,11 @@ async function revalidateDelivery(
     const projected = await projectAuthorizedCollaborationDelivery(
       ctx,
       authorization,
-      canonical
+      canonical,
+      {
+        commentRevisionId: delivery.collaborationCommentRevisionId,
+        postRevisionId: delivery.collaborationPostRevisionId,
+      }
     );
     return projected
       ? {
@@ -529,20 +679,25 @@ async function deliveryContact(
   if (delivery.channel === "email") {
     return user.email.trim() ? { email: user.email.trim() } : null;
   }
-  const subscription = await ctx.db
+  const subscriptions = await ctx.db
     .query("buildCollaborationPushSubscriptions")
-    .withIndex("by_organizationId_and_workosUserId_and_state", (query) =>
-      query
-        .eq("organizationId", delivery.organizationId)
-        .eq("workosUserId", delivery.recipientWorkosUserId)
-        .eq("state", "active")
+    .withIndex(
+      "by_organizationId_and_workosUserId_and_buildId_and_state",
+      (query) =>
+        query
+          .eq("organizationId", delivery.organizationId)
+          .eq("workosUserId", delivery.recipientWorkosUserId)
+          .eq("buildId", delivery.buildId)
+          .eq("state", "active")
     )
-    .first();
-  return subscription
+    .take(20);
+  return subscriptions.length
     ? {
-        auth: subscription.auth,
-        endpoint: subscription.endpoint,
-        p256dh: subscription.p256dh,
+        subscriptions: subscriptions.map((subscription) => ({
+          auth: subscription.auth,
+          endpoint: subscription.endpoint,
+          p256dh: subscription.p256dh,
+        })),
       }
     : null;
 }
@@ -553,6 +708,13 @@ export async function cancelBuildCollaborationExternalDelivery(
   now: number,
   reason: string
 ) {
+  if (delivery.batchId) {
+    const batch = await ctx.db.get(delivery.batchId);
+    if (batch) {
+      await cancelDeliveryBatch(ctx, batch, now, reason);
+      return;
+    }
+  }
   await ctx.db.patch(delivery._id, {
     cancellationReason: reason,
     cancelledAt: now,
@@ -587,11 +749,138 @@ export async function cancelBuildCollaborationExternalDelivery(
   }
 }
 
+async function cancelDeliveryBatch(
+  ctx: MutationCtx,
+  batch: Doc<"buildCollaborationDeliveryBatches">,
+  now: number,
+  reason: string
+) {
+  const deliveries = await loadBatchDeliveries(ctx, batch);
+  const outboxIds = new Set(
+    deliveries.flatMap((delivery) =>
+      delivery.providerOutboxId ? [delivery.providerOutboxId] : []
+    )
+  );
+  for (const delivery of deliveries) {
+    if (delivery.status === "sent") {
+      continue;
+    }
+    await ctx.db.patch(delivery._id, {
+      cancellationReason: reason,
+      cancelledAt: now,
+      leaseExpiresAt: undefined,
+      providerOutboxId: undefined,
+      status: "cancelled",
+      updatedAt: now,
+    });
+  }
+  for (const outboxId of outboxIds) {
+    await redactFailedOutbox(ctx, outboxId, reason, now);
+  }
+  const attempts = ctx.db
+    .query("buildCollaborationDeliveryAttempts")
+    .withIndex("by_batchId_and_state", (query) =>
+      query.eq("batchId", batch._id).eq("state", "sending")
+    );
+  for await (const attempt of attempts) {
+    await ctx.db.patch(attempt._id, {
+      completedAt: now,
+      safeError: reason,
+      state: "failed",
+      updatedAt: now,
+    });
+  }
+  await ctx.db.patch(batch._id, {
+    cancelledAt: now,
+    safeError: reason,
+    state: "cancelled",
+    updatedAt: now,
+  });
+}
+
+async function redactFailedOutbox(
+  ctx: MutationCtx,
+  outboxId: Id<"eventOutbox">,
+  reason: string,
+  now: number
+) {
+  const outbox = await ctx.db.get(outboxId);
+  if (outbox?.status === "pending") {
+    await ctx.db.patch(outbox._id, {
+      payloadPreview: JSON.stringify({ reason, redacted: true }),
+      processedAt: now,
+      status: "failed",
+    });
+  }
+}
+
+async function loadBatchDeliveries(
+  ctx: MutationCtx,
+  batch: Doc<"buildCollaborationDeliveryBatches">
+) {
+  const deliveries: Doc<"buildCollaborationExternalDeliveries">[] = [];
+  for (const deliveryId of batch.deliveryIds) {
+    const delivery = await ctx.db.get(deliveryId);
+    if (delivery?.batchId === batch._id) {
+      deliveries.push(delivery);
+    }
+  }
+  return deliveries;
+}
+
 async function reclaimExpiredDispatch(
   ctx: MutationCtx,
   delivery: Doc<"buildCollaborationExternalDeliveries">,
   now: number
 ) {
+  if (delivery.batchId) {
+    const batch = await ctx.db.get(delivery.batchId);
+    if (!batch || batch.state !== "sending") {
+      return;
+    }
+    const deliveries = await loadBatchDeliveries(ctx, batch);
+    for (const member of deliveries) {
+      if (member.providerOutboxId) {
+        await redactFailedOutbox(
+          ctx,
+          member.providerOutboxId,
+          "dispatch_lease_expired",
+          now
+        );
+      }
+      if (member.status === "dispatched") {
+        await ctx.db.patch(member._id, {
+          lastError: "Dispatch lease expired before provider completion.",
+          leaseExpiresAt: undefined,
+          providerOutboxId: undefined,
+          scheduledFor: now,
+          status: "failed",
+          updatedAt: now,
+        });
+      }
+    }
+    const attempt = await ctx.db
+      .query("buildCollaborationDeliveryAttempts")
+      .withIndex("by_batchId_and_state", (query) =>
+        query.eq("batchId", batch._id).eq("state", "sending")
+      )
+      .order("desc")
+      .first();
+    if (attempt) {
+      await ctx.db.patch(attempt._id, {
+        completedAt: now,
+        safeError: "dispatch_lease_expired",
+        state: "failed",
+        updatedAt: now,
+      });
+    }
+    await ctx.db.patch(batch._id, {
+      safeError: "dispatch_lease_expired",
+      state: "failed",
+      updatedAt: now,
+    });
+    return;
+  }
   if (delivery.providerOutboxId) {
     const outbox = await ctx.db.get(delivery.providerOutboxId);
     if (outbox?.status === "pending") {
@@ -629,20 +918,6 @@ async function reclaimExpiredDispatch(
   });
 }
 
-function stableBatchKey(
-  deliveries: Doc<"buildCollaborationExternalDeliveries">[]
-) {
-  const value = deliveries
-    .map((delivery) => `${delivery.dedupeKey}@${delivery.batchRevision ?? 0}`)
-    .sort()
-    .join(":");
-  let hash = 7;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) % 2_147_483_647;
-  }
-  return `build-collaboration-delivery:${hash.toString(36)}`;
-}
-
 function parseRenderedItemSnapshot(value: string) {
   try {
     const parsed = JSON.parse(value) as Partial<PreparedDeliveryItem["item"]>;
@@ -659,6 +934,36 @@ function parseRenderedItemSnapshot(value: string) {
       body: parsed.body,
       occurredAt: parsed.occurredAt,
       title: parsed.title,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseBatchPayload(value: string): ImmutableBatchPayload | null {
+  try {
+    const parsed = JSON.parse(value) as Partial<ImmutableBatchPayload>;
+    if (
+      (parsed.channel !== "email" && parsed.channel !== "push") ||
+      !Array.isArray(parsed.deliveryIds) ||
+      typeof parsed.idempotencyKey !== "string" ||
+      !Array.isArray(parsed.items) ||
+      typeof parsed.recipientWorkosUserId !== "string"
+    ) {
+      return null;
+    }
+    const items = parsed.items.map((item) =>
+      parseRenderedItemSnapshot(JSON.stringify(item))
+    );
+    if (items.some((item) => !item)) {
+      return null;
+    }
+    return {
+      channel: parsed.channel,
+      deliveryIds: parsed.deliveryIds,
+      idempotencyKey: parsed.idempotencyKey,
+      items: items as PreparedDeliveryItem["item"][],
+      recipientWorkosUserId: parsed.recipientWorkosUserId,
     };
   } catch {
     return null;

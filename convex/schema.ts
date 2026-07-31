@@ -588,6 +588,13 @@ const buildCollaborationDeliveryAttemptStateValidator = v.union(
   v.literal("failed")
 );
 
+const buildCollaborationDeliveryBatchStateValidator = v.union(
+  v.literal("sending"),
+  v.literal("succeeded"),
+  v.literal("failed"),
+  v.literal("cancelled")
+);
+
 const operationsHandoffAcknowledgementStateValidator = v.union(
   v.literal("pending_decision"),
   v.literal("returned"),
@@ -2650,9 +2657,33 @@ export default defineSchema({
       "recipientWorkosUserId",
       "dedupeKey",
     ]),
+  buildCollaborationDeliveryBatches: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    recipientWorkosUserId: v.string(),
+    channel: buildCollaborationExternalChannelValidator,
+    cadence: v.optional(buildCollaborationDeliveryCadenceValidator),
+    deliveryIds: v.array(v.id("buildCollaborationExternalDeliveries")),
+    providerIdempotencyKey: v.string(),
+    payloadSnapshot: v.string(),
+    state: buildCollaborationDeliveryBatchStateValidator,
+    completedAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    safeError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_providerIdempotencyKey", ["providerIdempotencyKey"])
+    .index("by_organizationId_and_recipientWorkosUserId_and_createdAt", [
+      "organizationId",
+      "recipientWorkosUserId",
+      "createdAt",
+    ]),
   buildCollaborationDeliveryAttempts: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
+    batchId: v.optional(v.id("buildCollaborationDeliveryBatches")),
     deliveryIds: v.array(v.id("buildCollaborationExternalDeliveries")),
     channel: buildCollaborationExternalChannelValidator,
     attemptNumber: v.number(),
@@ -2670,9 +2701,11 @@ export default defineSchema({
       "organizationId",
       "attemptedAt",
     ])
+    .index("by_batchId_and_state", ["batchId", "state"])
     .index("by_providerIdempotencyKey", ["providerIdempotencyKey"]),
   buildCollaborationPushSubscriptions: defineTable({
     organizationId: v.string(),
+    buildId: v.optional(v.id("activeBuilds")),
     workosUserId: v.string(),
     endpoint: v.string(),
     p256dh: v.string(),
@@ -2691,7 +2724,20 @@ export default defineSchema({
       "organizationId",
       "workosUserId",
       "endpoint",
-    ]),
+    ])
+    .index("by_organizationId_and_workosUserId_and_buildId_and_endpoint", [
+      "organizationId",
+      "workosUserId",
+      "buildId",
+      "endpoint",
+    ])
+    .index("by_organizationId_and_workosUserId_and_buildId_and_state", [
+      "organizationId",
+      "workosUserId",
+      "buildId",
+      "state",
+    ])
+    .index("by_endpoint_and_state", ["endpoint", "state"]),
   operationsQueueHandoffs: defineTable({
     acknowledgementState: operationsHandoffAcknowledgementStateValidator,
     acknowledgedAt: v.optional(v.number()),
@@ -3892,11 +3938,18 @@ export default defineSchema({
     cadence: v.optional(buildCollaborationDeliveryCadenceValidator),
     eventKind: buildCollaborationNotificationKindValidator,
     dedupeKey: v.string(),
+    batchId: v.optional(v.id("buildCollaborationDeliveryBatches")),
     batchKey: v.optional(v.string()),
     batchRevision: v.optional(v.number()),
     renderedItemSnapshot: v.optional(v.string()),
     collaborationPostId: v.optional(v.id("buildCollaborationPosts")),
+    collaborationPostRevisionId: v.optional(
+      v.id("buildCollaborationPostRevisions")
+    ),
     collaborationCommentId: v.optional(v.id("buildCollaborationComments")),
+    collaborationCommentRevisionId: v.optional(
+      v.id("buildCollaborationCommentRevisions")
+    ),
     collaborationActionItemId: v.optional(v.id("buildActionItems")),
     collaborationReferenceId: v.optional(v.id("buildCollaborationReferences")),
     collaborationAssetId: v.optional(v.id("buildCollaborationAssets")),

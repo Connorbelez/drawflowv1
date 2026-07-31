@@ -27,6 +27,12 @@ export async function enqueueBuildCollaborationExternalDeliveries(
   if (!canonical) {
     return;
   }
+  const post = canonical.collaborationPostId
+    ? await ctx.db.get(canonical.collaborationPostId)
+    : null;
+  const comment = canonical.collaborationCommentId
+    ? await ctx.db.get(canonical.collaborationCommentId)
+    : null;
   const recipientParticipationPeriod =
     await currentRecipientParticipationPeriod(ctx, {
       buildId: input.buildId,
@@ -61,7 +67,9 @@ export async function enqueueBuildCollaborationExternalDeliveries(
       collaborationActionItemId: canonical.collaborationActionItemId,
       collaborationAssetId: canonical.collaborationAssetId,
       collaborationCommentId: canonical.collaborationCommentId,
+      collaborationCommentRevisionId: comment?.currentRevisionId,
       collaborationPostId: canonical.collaborationPostId,
+      collaborationPostRevisionId: post?.currentRevisionId,
       collaborationReferenceId: canonical.collaborationReferenceId,
       createdAt: input.now,
       dedupeKey: `build-collaboration-external:${input.recipientDeliveryId}:${target.channel}`,

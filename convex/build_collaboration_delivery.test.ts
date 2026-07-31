@@ -452,6 +452,157 @@ describe("Build collaboration external delivery", () => {
     ).rejects.toThrow();
   });
 
+  test("delivers push notifications to every active device registered for the Build", async () => {
+    const fixture = await seedDeliveryBuild();
+    for (const endpoint of ["device-one", "device-two"]) {
+      await fixture.broker.mutation(
+        (api as any).build_collaboration_delivery_api
+          .registerMyBuildCollaborationPushSubscription,
+        {
+          auth: `auth-${endpoint}`,
+          buildId: fixture.buildId,
+          endpoint: `https://push.example.test/${endpoint}`,
+          organizationId: ORGANIZATION_ID,
+          p256dh: `key-${endpoint}`,
+        }
+      );
+    }
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, {
+        mentioned: true,
+        text: "Notify every registered browser.",
+      })
+    );
+    const requests: Array<Record<string, any>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return new Response(null, { status: 202 });
+      })
+    );
+
+    await processExternalDeliveries(fixture.base, Date.now());
+
+    const push = requests.find((request) => request.channel === "push");
+    expect(push?.contact.subscriptions).toEqual([
+      expect.objectContaining({ endpoint: "https://push.example.test/device-one" }),
+      expect.objectContaining({ endpoint: "https://push.example.test/device-two" }),
+    ]);
+  });
+
+  test("atomically transfers a shared browser endpoint to its current WorkOS user", async () => {
+    const fixture = await seedDeliveryBuild();
+    const endpoint = "https://push.example.test/shared-browser";
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_delivery_api
+        .registerMyBuildCollaborationPushSubscription,
+      {
+        auth: "broker-auth",
+        buildId: fixture.buildId,
+        endpoint,
+        organizationId: ORGANIZATION_ID,
+        p256dh: "broker-key",
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_delivery_api
+        .registerMyBuildCollaborationPushSubscription,
+      {
+        auth: "admin-auth",
+        buildId: fixture.buildId,
+        endpoint,
+        organizationId: ORGANIZATION_ID,
+        p256dh: "admin-key",
+      }
+    );
+
+    expect(
+      await fixture.broker.query(
+        (api as any).build_collaboration_delivery_api
+          .getMyBuildCollaborationPushSubscription,
+        { buildId: fixture.buildId, endpoint, organizationId: ORGANIZATION_ID }
+      )
+    ).toBeNull();
+    expect(
+      await fixture.admin.query(
+        (api as any).build_collaboration_delivery_api
+          .getMyBuildCollaborationPushSubscription,
+        { buildId: fixture.buildId, endpoint, organizationId: ORGANIZATION_ID }
+      )
+    ).toEqual(expect.objectContaining({ endpoint }));
+    const brokerPreference = await fixture.broker.query(
+      (api as any).build_collaboration_notifications
+        .getMyBuildCollaborationNotificationPreferences,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(brokerPreference.channels).not.toContain("push");
+  });
+
+  test("revokes only the current Build device and removes push after the last device", async () => {
+    const fixture = await seedDeliveryBuild();
+    const endpoints = [
+      "https://push.example.test/device-one",
+      "https://push.example.test/device-two",
+    ];
+    for (const endpoint of endpoints) {
+      await fixture.broker.mutation(
+        (api as any).build_collaboration_delivery_api
+          .registerMyBuildCollaborationPushSubscription,
+        {
+          auth: `auth-${endpoint}`,
+          buildId: fixture.buildId,
+          endpoint,
+          organizationId: ORGANIZATION_ID,
+          p256dh: `key-${endpoint}`,
+        }
+      );
+    }
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_delivery_api
+        .revokeMyBuildCollaborationPushSubscription,
+      {
+        buildId: fixture.buildId,
+        endpoint: endpoints[0],
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const afterFirst = await fixture.broker.query(
+      (api as any).build_collaboration_notifications
+        .getMyBuildCollaborationNotificationPreferences,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(afterFirst.channels).toContain("push");
+    expect(
+      await fixture.broker.query(
+        (api as any).build_collaboration_delivery_api
+          .getMyBuildCollaborationPushSubscription,
+        {
+          buildId: fixture.buildId,
+          endpoint: endpoints[1],
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).not.toBeNull();
+
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_delivery_api
+        .revokeMyBuildCollaborationPushSubscription,
+      {
+        buildId: fixture.buildId,
+        endpoint: endpoints[1],
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const afterLast = await fixture.broker.query(
+      (api as any).build_collaboration_notifications
+        .getMyBuildCollaborationNotificationPreferences,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(afterLast.channels).not.toContain("push");
+  });
+
   test("bundles ordinary activity into ACL-safe daily email and push digests", async () => {
     const fixture = await seedDeliveryBuild();
     await fixture.broker.mutation(
@@ -481,7 +632,11 @@ describe("Build collaboration external delivery", () => {
       await fixture.broker.query(
         (api as any).build_collaboration_delivery_api
           .getMyBuildCollaborationPushSubscription,
-        { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+        {
+          buildId: fixture.buildId,
+          endpoint: "https://push.example.test/subscription",
+          organizationId: ORGANIZATION_ID,
+        }
       )
     ).toEqual(
       expect.objectContaining({
@@ -1136,6 +1291,228 @@ describe("Build collaboration external delivery", () => {
         status: "cancelled",
       })
     );
+    expect(state.outbox).toEqual(
+      expect.objectContaining({
+        payloadPreview: expect.stringContaining('"redacted":true'),
+        status: "failed",
+      })
+    );
+  });
+
+  test("revalidates the exact source revision before retrying an immutable batch", async () => {
+    const fixture = await seedDeliveryBuild();
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, {
+        mentioned: true,
+        text: "Original restricted attachment context.",
+      })
+    );
+    const assetId = await fixture.base.run(async (ctx) => {
+      const delivery = (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).find((row) => row.recipientWorkosUserId === "user_broker");
+      const post = delivery?.collaborationPostId
+        ? await ctx.db.get(delivery.collaborationPostId)
+        : null;
+      const build = await ctx.db.get(fixture.buildId);
+      if (!(delivery?.collaborationPostRevisionId && post && build)) {
+        throw new Error("Expected an exact source revision fixture.");
+      }
+      const storageId = await ctx.storage.store(
+        new Blob(["restricted"], { type: "application/pdf" })
+      );
+      const now = Date.now();
+      const createdAssetId = await ctx.db.insert("buildCollaborationAssets", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        fileName: "restricted.pdf",
+        maximumAudienceMode: "custom",
+        mimeType: "application/pdf",
+        organizationId: ORGANIZATION_ID,
+        originatingPostId: post._id,
+        readerWorkosUserIds: ["user_broker"],
+        sizeBytes: 10,
+        state: "available",
+        storageId,
+        updatedAt: now,
+        uploadedByWorkosUserId: "user_admin",
+        version: 1,
+      });
+      await ctx.db.insert("buildCollaborationAttachments", {
+        attachmentId: createdAssetId,
+        attachmentKind: "collaborationAsset",
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        createdByWorkosUserId: "user_admin",
+        organizationId: ORGANIZATION_ID,
+        ownerKind: "postRevision",
+        ownerRecordId: delivery.collaborationPostRevisionId,
+      });
+      return createdAssetId;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await processExternalDeliveries(fixture.base, Date.now());
+    const failed = await fixture.base.run(async (ctx) => {
+      const delivery = (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).find((row) => row.recipientWorkosUserId === "user_broker");
+      const batch = delivery?.batchId ? await ctx.db.get(delivery.batchId) : null;
+      const post = delivery?.collaborationPostId
+        ? await ctx.db.get(delivery.collaborationPostId)
+        : null;
+      const sourceRevision = delivery?.collaborationPostRevisionId
+        ? await ctx.db.get(delivery.collaborationPostRevisionId)
+        : null;
+      if (!(delivery && batch && post && sourceRevision)) {
+        throw new Error("Expected a failed immutable batch.");
+      }
+      const now = Date.now();
+      const editedRevisionId = await ctx.db.insert(
+        "buildCollaborationPostRevisions",
+        {
+          authorRole: sourceRevision.authorRole,
+          authorWorkosUserId: sourceRevision.authorWorkosUserId,
+          brokerageId: sourceRevision.brokerageId,
+          buildId: sourceRevision.buildId,
+          contentHash: "edited-without-attachment",
+          createdAt: now,
+          organizationId: sourceRevision.organizationId,
+          plainText: "Edited without the restricted attachment.",
+          postId: sourceRevision.postId,
+          revision: sourceRevision.revision + 1,
+          tiptapJson: sourceRevision.tiptapJson,
+        }
+      );
+      await ctx.db.patch(post._id, {
+        currentRevisionId: editedRevisionId,
+        revision: post.revision + 1,
+        updatedAt: now,
+      });
+      await ctx.db.patch(assetId, {
+        scanMessage: "Access revoked after original attempt.",
+        state: "quarantined",
+        updatedAt: now,
+      });
+      return {
+        batchId: batch._id,
+        deliveryId: delivery._id,
+        payloadSnapshot: batch.payloadSnapshot,
+        providerIdempotencyKey: batch.providerIdempotencyKey,
+        scheduledFor: delivery.scheduledFor,
+      };
+    });
+
+    await processExternalDeliveries(fixture.base, failed.scheduledFor);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const state = await fixture.base.run(async (ctx) => ({
+      batch: await ctx.db.get(failed.batchId),
+      delivery: await ctx.db.get(failed.deliveryId),
+    }));
+    expect(state.batch).toEqual(
+      expect.objectContaining({
+        payloadSnapshot: failed.payloadSnapshot,
+        providerIdempotencyKey: failed.providerIdempotencyKey,
+        state: "cancelled",
+      })
+    );
+    expect(state.delivery).toEqual(
+      expect.objectContaining({
+        cancellationReason: "access_revoked",
+        status: "cancelled",
+      })
+    );
+  });
+
+  test("cancels an entire immutable digest batch when one source loses access", async () => {
+    const fixture = await seedDeliveryBuild();
+    const firstPostId = await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, { text: "First digest member." })
+    );
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, { text: "Second digest member." })
+    );
+    const deliveries = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationExternalDeliveries").collect()).filter(
+        (row) => row.recipientWorkosUserId === "user_broker"
+      )
+    );
+    const outboxIds = await fixture.base.mutation(
+      (internal as any).build_collaboration_delivery_maintenance
+        .prepareDueBuildCollaborationExternalDeliveries,
+      {
+        asOf: Math.max(...deliveries.map((delivery) => delivery.scheduledFor)),
+        batchSize: 100,
+      }
+    );
+    expect(outboxIds.length).toBeGreaterThanOrEqual(1);
+    const brokerOutboxId = await fixture.base.run(async (ctx) => {
+      const refreshed = await Promise.all(
+        deliveries.map((delivery) => ctx.db.get(delivery._id))
+      );
+      const ids = [
+        ...new Set(
+          refreshed.flatMap((delivery) =>
+            delivery?.providerOutboxId ? [delivery.providerOutboxId] : []
+          )
+        ),
+      ];
+      if (ids.length !== 1 || !ids[0]) {
+        throw new Error("Expected one immutable broker digest batch.");
+      }
+      return ids[0];
+    });
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_editing
+        .tombstoneBuildCollaborationPost,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        postId: firstPostId,
+      }
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fixture.base.action(
+      (internal as any).build_collaboration_delivery_transport
+        .dispatchBuildCollaborationExternalOutbox,
+      { eventOutboxId: brokerOutboxId }
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const state = await fixture.base.run(async (ctx) => ({
+      batches: (
+        await ctx.db.query("buildCollaborationDeliveryBatches").collect()
+      ).filter((row) => row.recipientWorkosUserId === "user_broker"),
+      deliveries: (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).filter((row) => row.recipientWorkosUserId === "user_broker"),
+      outbox: await ctx.db.get(brokerOutboxId),
+    }));
+    expect(state.batches).toEqual([
+      expect.objectContaining({
+        deliveryIds: expect.arrayContaining(deliveries.map((row) => row._id)),
+        state: "cancelled",
+      }),
+    ]);
+    expect(state.deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "cancelled" }),
+        expect.objectContaining({ status: "cancelled" }),
+      ])
+    );
+    expect(state.deliveries.some((row) => row.status === "queued")).toBe(false);
     expect(state.outbox).toEqual(
       expect.objectContaining({
         payloadPreview: expect.stringContaining('"redacted":true'),

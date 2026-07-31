@@ -2,7 +2,13 @@ export interface BuildCollaborationExternalPayload {
   channel: "email" | "push";
   contact:
     | { email: string }
-    | { auth: string; endpoint: string; p256dh: string };
+    | {
+        subscriptions: Array<{
+          auth: string;
+          endpoint: string;
+          p256dh: string;
+        }>;
+      };
   idempotencyKey: string;
   items: Array<{
     actionHref: string;

@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { Bell } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -44,16 +44,53 @@ function pushKeyToBase64Url(value: ArrayBuffer) {
 type NotificationChannel = "in_app" | "email" | "push";
 type DigestCadence = "daily" | "weekly" | "never";
 
+const pushServiceWorkerPath = "/build-collaboration-push-sw.js";
+
+async function serializeBrowserPushSubscription(
+  subscription: PushSubscription,
+  newlyCreated: boolean
+) {
+  const auth = subscription.getKey("auth");
+  const p256dh = subscription.getKey("p256dh");
+  if (!(auth && p256dh)) {
+    if (newlyCreated) {
+      await subscription.unsubscribe();
+    }
+    throw new Error("The browser returned an incomplete push subscription.");
+  }
+  return {
+    auth: pushKeyToBase64Url(auth),
+    endpoint: subscription.endpoint,
+    newlyCreated,
+    p256dh: pushKeyToBase64Url(p256dh),
+    subscription,
+  };
+}
+
+async function currentBrowserPushSubscription() {
+  if (!("serviceWorker" in navigator)) {
+    return null;
+  }
+  const registration =
+    (await navigator.serviceWorker.getRegistration("/")) ??
+    (await navigator.serviceWorker.getRegistration(pushServiceWorkerPath));
+  return (await registration?.pushManager.getSubscription()) ?? null;
+}
+
 async function createBrowserPushSubscription() {
   if (!("Notification" in window && "serviceWorker" in navigator)) {
     throw new Error("Push notifications are not supported by this browser.");
+  }
+  const existingSubscription = await currentBrowserPushSubscription();
+  if (existingSubscription) {
+    return await serializeBrowserPushSubscription(existingSubscription, false);
   }
   const permission = await Notification.requestPermission();
   if (permission !== "granted") {
     throw new Error("Push notification permission was not granted.");
   }
   const registration = await navigator.serviceWorker.register(
-    "/build-collaboration-push-sw.js"
+    pushServiceWorkerPath
   );
   const applicationServerKey = pushApplicationServerKey(
     import.meta.env.VITE_BUILD_COLLABORATION_PUSH_PUBLIC_KEY
@@ -65,25 +102,7 @@ async function createBrowserPushSubscription() {
     applicationServerKey,
     userVisibleOnly: true,
   });
-  const auth = subscription.getKey("auth");
-  const p256dh = subscription.getKey("p256dh");
-  if (!(auth && p256dh)) {
-    await subscription.unsubscribe();
-    throw new Error("The browser returned an incomplete push subscription.");
-  }
-  return {
-    auth: pushKeyToBase64Url(auth),
-    endpoint: subscription.endpoint,
-    p256dh: pushKeyToBase64Url(p256dh),
-    subscription,
-  };
-}
-
-async function unsubscribeBrowserPush() {
-  const registration = await navigator.serviceWorker?.getRegistration(
-    "/build-collaboration-push-sw.js"
-  );
-  await (await registration?.pushManager.getSubscription())?.unsubscribe();
+  return await serializeBrowserPushSubscription(subscription, true);
 }
 
 function useBuildCollaborationNotificationControls(input: {
@@ -97,13 +116,43 @@ function useBuildCollaborationNotificationControls(input: {
       ? { buildId: input.activeBuildId, organizationId: input.organizationId }
       : "skip"
   );
-  const pushSubscription = useQuery(
+  const [browserEndpoint, setBrowserEndpoint] = useState<
+    string | null | undefined
+  >(undefined);
+  useEffect(() => {
+    let active = true;
+    currentBrowserPushSubscription()
+      .then((subscription) => {
+        if (active) {
+          setBrowserEndpoint(subscription?.endpoint ?? null);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setBrowserEndpoint(null);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const storedPushSubscription = useQuery(
     api.build_collaboration_delivery_api
       .getMyBuildCollaborationPushSubscription,
-    input.organizationId
-      ? { buildId: input.activeBuildId, organizationId: input.organizationId }
+    input.organizationId && browserEndpoint
+      ? {
+          buildId: input.activeBuildId,
+          endpoint: browserEndpoint,
+          organizationId: input.organizationId,
+        }
       : "skip"
   );
+  const pushSubscription =
+    browserEndpoint === undefined
+      ? undefined
+      : browserEndpoint === null
+        ? null
+        : storedPushSubscription;
   const updatePreferences = useMutation(
     api.build_collaboration_notifications
       .updateMyBuildCollaborationNotificationPreferences
@@ -162,32 +211,19 @@ function useBuildCollaborationNotificationControls(input: {
 
   const enablePush = async (organizationId: string) => {
     const browser = await createBrowserPushSubscription();
-    let subscriptionId: Id<"buildCollaborationPushSubscriptions"> | undefined;
     try {
-      subscriptionId = await registerPush({
+      await registerPush({
         auth: browser.auth,
         buildId: input.activeBuildId,
         endpoint: browser.endpoint,
         organizationId,
         p256dh: browser.p256dh,
       });
-      await save({
-        channels: Array.from(
-          new Set([
-            ...(preferences?.channels ?? ["in_app", "email"]),
-            "push" as const,
-          ])
-        ),
-      });
+      setBrowserEndpoint(browser.endpoint);
     } catch (error) {
-      if (subscriptionId) {
-        await revokePush({
-          buildId: input.activeBuildId,
-          organizationId,
-          subscriptionId,
-        }).catch(() => undefined);
+      if (browser.newlyCreated) {
+        await browser.subscription.unsubscribe().catch(() => undefined);
       }
-      await browser.subscription.unsubscribe();
       throw error;
     }
   };
@@ -198,15 +234,9 @@ function useBuildCollaborationNotificationControls(input: {
     }
     await revokePush({
       buildId: input.activeBuildId,
+      endpoint: pushSubscription.endpoint,
       organizationId,
-      subscriptionId: pushSubscription._id,
     });
-    await save({
-      channels: (preferences?.channels ?? ["in_app", "email"]).filter(
-        (channel) => channel !== "push"
-      ),
-    });
-    await unsubscribeBrowserPush().catch(() => undefined);
   };
 
   const togglePush = async () => {
@@ -215,7 +245,7 @@ function useBuildCollaborationNotificationControls(input: {
     }
     setSaving(true);
     try {
-      if (pushSubscription) {
+      if (pushSubscription && preferences?.channels.includes("push")) {
         await disablePush(input.organizationId);
         toast.success("Push notifications disabled.");
       } else {
@@ -252,6 +282,9 @@ export function BuildCollaborationNotificationCard({
   const channels = preferences?.channels ?? ["in_app", "email"];
   const emailEnabled = channels.includes("email");
   const muted = preferences?.ordinaryMuted ?? false;
+  const pushEnabled = Boolean(
+    pushSubscription && preferences?.channels.includes("push")
+  );
   return (
     <Card>
       <CardHeader className="flex-row items-start gap-3 p-4">
@@ -323,14 +356,18 @@ export function BuildCollaborationNotificationCard({
             Email {emailEnabled ? "on" : "off"}
           </Button>
           <Button
-            aria-pressed={Boolean(pushSubscription)}
-            disabled={saving || pushSubscription === undefined}
+            aria-pressed={pushEnabled}
+            disabled={
+              saving ||
+              pushSubscription === undefined ||
+              preferences === undefined
+            }
             onClick={togglePush}
             size="sm"
             type="button"
             variant="outline"
           >
-            Push {pushSubscription ? "on" : "off"}
+            Push {pushEnabled ? "on" : "off"}
           </Button>
         </div>
         <Button

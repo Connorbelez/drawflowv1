@@ -12,7 +12,7 @@ import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import type { BuildCollaborationNotificationKind } from "./build_collaboration_notifications";
 import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import type { Doc, QueryCtx } from "./types";
+import type { Doc, Id, QueryCtx } from "./types";
 
 const recipientDeliveryStatusValidator = v.union(
   v.literal("unread"),
@@ -145,17 +145,23 @@ async function projectReadableDelivery(
 export async function projectAuthorizedCollaborationDelivery(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
-  record: Doc<"recipientDeliveries">
+  record: Doc<"recipientDeliveries">,
+  sourceRevision?: {
+    commentRevisionId?: Id<"buildCollaborationCommentRevisions">;
+    postRevisionId?: Id<"buildCollaborationPostRevisions">;
+  }
 ) {
-  if (
-    record.collaborationBuildId !== authorization.build._id ||
-    record.organizationId !== authorization.organizationId ||
-    record.brokerageId !== authorization.brokerage._id ||
-    record.recipientWorkosUserId !== authorization.viewer.subject
-  ) {
+  if (!matchesAuthorizedDelivery(authorization, record)) {
     return null;
   }
-  if (!(await canReadAttachedNotificationContext(ctx, authorization, record))) {
+  if (
+    !(await canReadAttachedNotificationContext(
+      ctx,
+      authorization,
+      record,
+      sourceRevision
+    ))
+  ) {
     return null;
   }
   if (record.collaborationActionItemId) {
@@ -200,9 +206,9 @@ export async function projectAuthorizedCollaborationDelivery(
     ) {
       return null;
     }
-    const revision = comment.currentRevisionId
-      ? await ctx.db.get(comment.currentRevisionId)
-      : null;
+    const revisionId =
+      sourceRevision?.commentRevisionId ?? comment.currentRevisionId;
+    const revision = revisionId ? await ctx.db.get(revisionId) : null;
     if (!revision || revision.commentId !== comment._id) {
       return null;
     }
@@ -221,9 +227,8 @@ export async function projectAuthorizedCollaborationDelivery(
       title: canonicalNotificationTitle(record.collaborationEventKind),
     });
   }
-  const revision = post.currentRevisionId
-    ? await ctx.db.get(post.currentRevisionId)
-    : null;
+  const revisionId = sourceRevision?.postRevisionId ?? post.currentRevisionId;
+  const revision = revisionId ? await ctx.db.get(revisionId) : null;
   if (!revision || revision.postId !== post._id) {
     return null;
   }
@@ -242,6 +247,18 @@ export async function projectAuthorizedCollaborationDelivery(
   });
 }
 
+function matchesAuthorizedDelivery(
+  authorization: ActiveBuildAuthorization,
+  record: Doc<"recipientDeliveries">
+) {
+  return (
+    record.collaborationBuildId === authorization.build._id &&
+    record.organizationId === authorization.organizationId &&
+    record.brokerageId === authorization.brokerage._id &&
+    record.recipientWorkosUserId === authorization.viewer.subject
+  );
+}
+
 function boundedNotificationPreview(value: string) {
   return value.slice(0, 280);
 }
@@ -249,12 +266,24 @@ function boundedNotificationPreview(value: string) {
 async function canReadAttachedNotificationContext(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
-  record: Doc<"recipientDeliveries">
+  record: Doc<"recipientDeliveries">,
+  sourceRevision?: {
+    commentRevisionId?: Id<"buildCollaborationCommentRevisions">;
+    postRevisionId?: Id<"buildCollaborationPostRevisions">;
+  }
 ) {
   if (!(await canReadDirectNotificationContext(ctx, authorization, record))) {
     return false;
   }
-  const owners = await notificationContextOwners(ctx, record);
+  const owners = await notificationContextOwners(
+    ctx,
+    authorization,
+    record,
+    sourceRevision
+  );
+  if (!owners) {
+    return false;
+  }
   for (const owner of owners) {
     if (!(await canReadOwnedNotificationContext(ctx, authorization, owner))) {
       return false;
@@ -325,24 +354,52 @@ interface NotificationContextOwner {
 
 async function notificationContextOwners(
   ctx: QueryCtx,
-  record: Doc<"recipientDeliveries">
+  authorization: ActiveBuildAuthorization,
+  record: Doc<"recipientDeliveries">,
+  sourceRevision?: {
+    commentRevisionId?: Id<"buildCollaborationCommentRevisions">;
+    postRevisionId?: Id<"buildCollaborationPostRevisions">;
+  }
 ) {
   const owners: NotificationContextOwner[] = [];
   if (record.collaborationPostId) {
     const post = await ctx.db.get(record.collaborationPostId);
-    if (post?.currentRevisionId) {
+    const postRevisionId =
+      sourceRevision?.postRevisionId ?? post?.currentRevisionId;
+    if (postRevisionId) {
+      const revision = await ctx.db.get(postRevisionId);
+      if (
+        !revision ||
+        revision.postId !== record.collaborationPostId ||
+        revision.organizationId !== authorization.organizationId ||
+        revision.buildId !== authorization.build._id
+      ) {
+        return null;
+      }
       owners.push({
         ownerKind: "postRevision",
-        ownerRecordId: post.currentRevisionId,
+        ownerRecordId: postRevisionId,
       });
     }
   }
   if (record.collaborationCommentId) {
     const comment = await ctx.db.get(record.collaborationCommentId);
-    if (comment?.currentRevisionId) {
+    const commentRevisionId =
+      sourceRevision?.commentRevisionId ?? comment?.currentRevisionId;
+    if (commentRevisionId) {
+      const revision = await ctx.db.get(commentRevisionId);
+      if (
+        !revision ||
+        revision.commentId !== record.collaborationCommentId ||
+        revision.postId !== record.collaborationPostId ||
+        revision.organizationId !== authorization.organizationId ||
+        revision.buildId !== authorization.build._id
+      ) {
+        return null;
+      }
       owners.push({
         ownerKind: "commentRevision",
-        ownerRecordId: comment.currentRevisionId,
+        ownerRecordId: commentRevisionId,
       });
     }
   }

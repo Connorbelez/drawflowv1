@@ -50,6 +50,9 @@ const mocks = vi.hoisted(() => ({
   mutate: vi.fn().mockResolvedValue(null),
   onOpenReference: vi.fn(),
   personalActionItems: [] as Array<Record<string, unknown>>,
+  preferenceChannels: ["in_app", "email"] as Array<
+    "in_app" | "email" | "push"
+  >,
   postContentState: "active" as "active" | "tombstoned",
   postResolutionSummary: undefined as string | undefined,
   postRevision: 1,
@@ -567,7 +570,7 @@ vi.mock("convex/react", () => ({
       "build_collaboration_notifications:getMyBuildCollaborationNotificationPreferences"
     ) {
       return {
-        channels: ["in_app", "email"],
+        channels: mocks.preferenceChannels,
         digestCadence: "daily",
         digestEnabled: true,
         ordinaryMuted: false,
@@ -577,7 +580,12 @@ vi.mock("convex/react", () => ({
       functionName ===
       "build_collaboration_delivery_api:getMyBuildCollaborationPushSubscription"
     ) {
-      return mocks.pushSubscription;
+      return args !== "skip" &&
+        mocks.pushSubscription?.endpoint === args?.endpoint
+        ? mocks.pushSubscription
+        : args === "skip"
+          ? undefined
+          : null;
     }
     return [
       {
@@ -700,6 +708,7 @@ afterEach(() => {
   mocks.postType = "update";
   mocks.postViewerCanModerate = false;
   mocks.postViewerIsAuthor = true;
+  mocks.preferenceChannels = ["in_app", "email"];
   mocks.pushSubscription = null;
   mocks.queueStatus = "Exhausted";
   mocks.workflowAssignmentMode = "direct";
@@ -730,7 +739,7 @@ describe("BuildCollaborationFeed", () => {
     );
   });
 
-  test("registers browser push before enabling the push channel", async () => {
+  test("atomically registers the current browser before showing push as enabled", async () => {
     vi.stubEnv("VITE_BUILD_COLLABORATION_PUSH_PUBLIC_KEY", "AQIDBA");
     const unsubscribe = vi.fn().mockResolvedValue(true);
     const subscribe = vi.fn().mockResolvedValue({
@@ -744,17 +753,24 @@ describe("BuildCollaborationFeed", () => {
     const register = vi.fn().mockResolvedValue({
       pushManager: { subscribe },
     });
+    const getRegistration = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("Notification", {
       requestPermission: vi.fn().mockResolvedValue("granted"),
     });
     Object.defineProperty(navigator, "serviceWorker", {
       configurable: true,
-      value: { register },
+      value: { getRegistration, register },
     });
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
     );
 
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Push off" }) as HTMLButtonElement)
+          .disabled
+      ).toBe(false)
+    );
     fireEvent.click(screen.getByRole("button", { name: "Push off" }));
 
     await waitFor(() =>
@@ -772,15 +788,38 @@ describe("BuildCollaborationFeed", () => {
     expect(subscribe).toHaveBeenCalledWith(
       expect.objectContaining({ userVisibleOnly: true })
     );
-    await waitFor(() =>
-      expect(mocks.mutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          channels: ["in_app", "email", "push"],
-          digestCadence: "daily",
-          digestEnabled: true,
-        })
-      )
+    expect(unsubscribe).not.toHaveBeenCalled();
+  });
+
+  test("does not treat another registered device as this browser's push opt-in", async () => {
+    mocks.preferenceChannels = ["in_app", "email", "push"];
+    mocks.pushSubscription = {
+      _id: "subscription-device-one",
+      createdAt: Date.now(),
+      endpoint: "https://push.example.test/device-one",
+    };
+    const browserSubscription = {
+      endpoint: "https://push.example.test/device-two",
+      getKey: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        getRegistration: vi.fn().mockResolvedValue({
+          pushManager: {
+            getSubscription: vi.fn().mockResolvedValue(browserSubscription),
+          },
+        }),
+      },
+    });
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
     );
+
+    expect(await screen.findByRole("button", { name: "Push off" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Push on" })).toBeNull();
   });
 
   test("expires an Announcement badge when wall-clock time advances without a query write", () => {

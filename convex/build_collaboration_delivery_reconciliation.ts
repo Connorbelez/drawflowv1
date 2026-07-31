@@ -22,7 +22,7 @@ export async function rescheduleExistingExternalDelivery(
   if (existing.status === "sent") {
     return false;
   }
-  if (existing.status === "dispatched") {
+  if (existing.status === "dispatched" || existing.batchId) {
     await cancelBuildCollaborationExternalDelivery(
       ctx,
       existing,
@@ -31,6 +31,9 @@ export async function rescheduleExistingExternalDelivery(
     );
   }
   await ctx.db.patch(existing._id, {
+    batchId: undefined,
+    batchKey: undefined,
+    batchRevision: undefined,
     cadence: target.cadence,
     cancellationReason: undefined,
     cancelledAt: undefined,
@@ -38,6 +41,7 @@ export async function rescheduleExistingExternalDelivery(
     lastError: undefined,
     leaseExpiresAt: undefined,
     providerOutboxId: undefined,
+    renderedItemSnapshot: undefined,
     scheduledFor:
       target.cadence === "immediate"
         ? now

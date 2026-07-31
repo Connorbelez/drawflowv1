@@ -117,3 +117,18 @@ retry using the same provider idempotency key, and a browser push opt-in through
 `/build-collaboration-push-sw.js`. Before provider handoff, revoke a participant
 and quarantine an attached collaboration asset; both queued payloads must be
 redacted and cancelled without a provider request.
+
+External delivery retries must retain one immutable batch record: exact member
+delivery IDs, original source-revision IDs, payload snapshot, and a
+collision-resistant provider idempotency key. If any member loses access, the
+whole batch is cancelled and its outbox is redacted; survivors must not be
+rebatched under a new key. Verify this by editing a post after a failed provider
+attempt, revoking access to an attachment on the original revision, and
+confirming the retry performs no provider request.
+
+Push subscriptions are Build- and browser-endpoint-scoped. Register two browser
+endpoints for one participant and verify the provider payload contains both.
+Then register one endpoint as a second WorkOS user and verify ownership transfers
+atomically, the prior user's subscription is revoked, and the prior user's push
+preference is removed when no device remains. Disabling push on one browser must
+leave the browser subscription and every other Build/device opt-in intact.
