@@ -193,6 +193,7 @@ export async function cancelQueuedBuildCollaborationExternalDeliveries(
   input: {
     buildId: Id<"activeBuilds">;
     cancellationReason: string;
+    createdAtThrough?: number;
     now: number;
     recipientWorkosUserId: string;
   }
@@ -273,6 +274,7 @@ async function cancelExternalDeliveryPage(
   input: {
     buildId: Id<"activeBuilds">;
     cancellationReason: string;
+    createdAtThrough?: number;
     now: number;
     recipientWorkosUserId: string;
   },
@@ -289,6 +291,12 @@ async function cancelExternalDeliveryPage(
     )
     .paginate({ cursor, numItems: DELIVERY_MAINTENANCE_BATCH_SIZE });
   for (const external of page.page) {
+    if (
+      input.createdAtThrough !== undefined &&
+      external.createdAt > input.createdAtThrough
+    ) {
+      continue;
+    }
     await cancelDelivery(ctx, external, input.now, input.cancellationReason);
   }
   if (!page.isDone) {
@@ -299,6 +307,7 @@ async function cancelExternalDeliveryPage(
       {
         buildId: input.buildId,
         cancellationReason: input.cancellationReason,
+        createdAtThrough: input.createdAtThrough,
         cursor: page.continueCursor,
         recipientWorkosUserId: input.recipientWorkosUserId,
         status,
@@ -361,6 +370,7 @@ export const continueBuildCollaborationExternalDeliveryCancellation =
     .input({
       buildId: v.id("activeBuilds"),
       cancellationReason: v.string(),
+      createdAtThrough: v.optional(v.number()),
       cursor: v.union(v.string(), v.null()),
       recipientWorkosUserId: v.string(),
       status: unsentDeliveryStatusValidator,
@@ -372,6 +382,7 @@ export const continueBuildCollaborationExternalDeliveryCancellation =
         {
           buildId: args.buildId,
           cancellationReason: args.cancellationReason,
+          createdAtThrough: args.createdAtThrough,
           now: Date.now(),
           recipientWorkosUserId: args.recipientWorkosUserId,
         },

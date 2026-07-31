@@ -185,7 +185,7 @@ async function seedQueuedExternalDeliveries(
         buildId,
         cadence: "daily",
         channel: "email",
-        createdAt: now + index,
+        createdAt: now - count + index,
         dedupeKey: `overflow-delivery-${index}`,
         deliveryMode: "digest",
         eventKind: "ordinary_activity",
@@ -193,7 +193,7 @@ async function seedQueuedExternalDeliveries(
         recipientWorkosUserId: "user_broker",
         scheduledFor: now + 86_400_000,
         status: "queued",
-        updatedAt: now + index,
+        updatedAt: now - count + index,
       });
     }
   });
@@ -686,6 +686,40 @@ describe("Build collaboration external delivery", () => {
           reason: "Overflow revocation coverage.",
         }
       );
+      vi.advanceTimersByTime(1);
+      await fixture.admin.mutation(
+        (api as any).build_participants.reinviteBuildParticipant,
+        {
+          buildId: fixture.buildId,
+          displayName: "Broker Reviewer",
+          organizationId: ORGANIZATION_ID,
+          role: "broker",
+          workosUserId: "user_broker",
+        }
+      );
+      await fixture.base.run(async (ctx) => {
+        const build = await ctx.db.get(fixture.buildId);
+        if (!build) {
+          throw new Error("Delivery Build fixture is unavailable.");
+        }
+        const now = Date.now();
+        await ctx.db.insert("buildCollaborationExternalDeliveries", {
+          attemptCount: 0,
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          cadence: "immediate",
+          channel: "email",
+          createdAt: now,
+          dedupeKey: "reinvited-period-delivery",
+          deliveryMode: "immediate",
+          eventKind: "direct_mention",
+          organizationId: ORGANIZATION_ID,
+          recipientWorkosUserId: "user_broker",
+          scheduledFor: now,
+          status: "queued",
+          updatedAt: now,
+        });
+      });
       await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
     } finally {
       vi.useRealTimers();
@@ -693,8 +727,15 @@ describe("Build collaboration external delivery", () => {
     const rows = await fixture.base.run((ctx) =>
       ctx.db.query("buildCollaborationExternalDeliveries").collect()
     );
-    expect(rows).toHaveLength(501);
-    expect(rows.every((row) => row.status === "cancelled")).toBe(true);
+    expect(rows).toHaveLength(502);
+    expect(
+      rows
+        .filter((row) => row.dedupeKey.startsWith("overflow-delivery-"))
+        .every((row) => row.status === "cancelled")
+    ).toBe(true);
+    expect(
+      rows.find((row) => row.dedupeKey === "reinvited-period-delivery")
+    ).toEqual(expect.objectContaining({ status: "queued" }));
   });
 
   test("scrubs an already-rendered outbox when access is revoked before send", async () => {

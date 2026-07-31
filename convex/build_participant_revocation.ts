@@ -39,6 +39,7 @@ export async function processParticipantRevocationCleanupBatch(
   await cancelQueuedBuildCollaborationExternalDeliveries(ctx, {
     buildId: participant.buildId,
     cancellationReason: "participant_access_revoked",
+    createdAtThrough: participant.removedAt ?? now,
     now,
     recipientWorkosUserId: participant.workosUserId,
   });
