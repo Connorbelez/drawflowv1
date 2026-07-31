@@ -9573,9 +9573,30 @@ export const deleteProposalReminderCalendarEvent = authenticatedMutation
   })
   .public();
 
+function activeBuildSiteVisitScheduleResponse(
+  visit: Doc<"buildSiteVisits">
+) {
+  return {
+    evidencePackageId: visit.evidencePackageId,
+    scopeBoundAt: visit.scopeBoundAt,
+    workOrderId: visit.workOrderId,
+    note: visit.note,
+    requestedAt: visit.requestedAt,
+    requestedDay: visit.requestedDay,
+    requestedTime: visit.requestedTime,
+    siteVisitGuidance: visit.siteVisitGuidance,
+    status: visit.status,
+    submilestoneKeys: visit.submilestoneKeys,
+    tokenExpiresAt: visit.tokenExpiresAt,
+    url: visit.url,
+    visitId: visit.visitId,
+  };
+}
+
 export const scheduleActiveBuildSiteVisit = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
+    idempotencyKey: v.string(),
     milestoneKey: v.string(),
     note: v.optional(v.string()),
     requestedDay: v.number(),
@@ -9592,6 +9613,23 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       args.workosOrganizationId
     );
     requireBackofficeActiveBuildWrite(auth);
+    const idempotencyKey = args.idempotencyKey.trim();
+    if (!idempotencyKey || idempotencyKey.length > 240) {
+      throw new Error(
+        "Site Visit schedule idempotency key must be 1 to 240 characters."
+      );
+    }
+    const existingVisit = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_build_schedule_idempotency", (query) =>
+        query
+          .eq("buildId", args.buildId)
+          .eq("scheduleIdempotencyKey", idempotencyKey)
+      )
+      .unique();
+    if (existingVisit) {
+      return activeBuildSiteVisitScheduleResponse(existingVisit);
+    }
     const milestone = await getActiveBuildMilestoneOrThrow(
       ctx,
       args.buildId,
@@ -9638,6 +9676,7 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       requestedAt: siteVisit.requestedAt,
       requestedDay,
       requestedTime: siteVisit.requestedTime,
+      scheduleIdempotencyKey: idempotencyKey,
       siteVisitGuidance: configuration.siteVisitGuidance,
       status: "requested",
       submilestoneKeys: configuration.submilestoneKeys,
@@ -9774,7 +9813,12 @@ export const cancelActiveBuildSiteVisit = authenticatedMutation
     if (!visit || visit.buildId !== args.buildId) {
       throw new Error("Site visit not found.");
     }
+    const statusChanged = visit.status !== "cancelled";
+    const collaborationEventRevision = statusChanged
+      ? (visit.collaborationEventRevision ?? 1) + 1
+      : visit.collaborationEventRevision;
     await ctx.db.patch(visit._id, {
+      collaborationEventRevision,
       status: "cancelled",
       updatedAt: Date.now(),
     });
@@ -9787,6 +9831,16 @@ export const cancelActiveBuildSiteVisit = authenticatedMutation
       priorState: JSON.stringify(visit),
       reason: args.reason,
     });
+    if (statusChanged) {
+      const persistedVisit = await ctx.db.get(visit._id);
+      if (!persistedVisit) {
+        throw new Error("Cancelled Site Visit became unavailable.");
+      }
+      await publishSiteVisitCompletionCollaborationEvents(ctx, {
+        revision: collaborationEventRevision ?? 1,
+        visit: persistedVisit,
+      });
+    }
     return null;
   })
   .public();
@@ -17257,7 +17311,7 @@ export const generateActiveBuildSiteVisitUploadUrl = publicMutation
 export const registerActiveBuildSiteVisitFile = publicMutation
   .input({
     buildId: v.string(),
-    clientEvidenceId: v.optional(v.string()),
+    clientEvidenceId: v.string(),
     contractorIds: v.optional(v.array(v.id("contractorProfiles"))),
     fileName: v.string(),
     mimeType: v.string(),
@@ -17290,18 +17344,16 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     if (!(build && visit) || visit.buildId !== buildId) {
       throw new Error("Site visit token is invalid.");
     }
-    if (args.clientEvidenceId) {
-      const existing = await ctx.db
-        .query("buildEvidenceAssets")
-        .withIndex("by_site_visit_client", (q) =>
-          q
-            .eq("siteVisitId", visit._id)
-            .eq("clientEvidenceId", args.clientEvidenceId)
-        )
-        .unique();
-      if (existing) {
-        return null;
-      }
+    const existing = await ctx.db
+      .query("buildEvidenceAssets")
+      .withIndex("by_site_visit_client", (q) =>
+        q
+          .eq("siteVisitId", visit._id)
+          .eq("clientEvidenceId", args.clientEvidenceId)
+      )
+      .unique();
+    if (existing) {
+      return null;
     }
     const resolvedLocationAttempt = args.locationAttempt
       ? resolveSiteVisitGeofenceAttempt({
@@ -17311,10 +17363,11 @@ export const registerActiveBuildSiteVisitFile = publicMutation
         })
       : undefined;
     const now = Date.now();
-    await ctx.db.insert("buildEvidenceAssets", {
+    const assetId = await ctx.db.insert("buildEvidenceAssets", {
       brokerageId: build.brokerageId,
       buildId,
       clientEvidenceId: args.clientEvidenceId,
+      collaborationEventRevision: 1,
       contractorIds: args.contractorIds,
       createdAt: now,
       evidenceKey: `site-visit-${args.token}-${now}`,
@@ -17354,6 +17407,14 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     await ctx.db.patch(visit.buildMilestoneId, {
       evidenceState: "Site visit evidence submitted",
       updatedAt: now,
+    });
+    const persistedAsset = await ctx.db.get(assetId);
+    if (!persistedAsset) {
+      throw new Error("Submitted Site Visit Evidence became unavailable.");
+    }
+    await publishEvidenceSubmittedCollaborationEvents(ctx, {
+      asset: persistedAsset,
+      revision: 1,
     });
     return null;
   })

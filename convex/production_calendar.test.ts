@@ -361,6 +361,7 @@ describe("production calendar workspace", () => {
     );
     await t.mutation((api as any).production_proposals.scheduleActiveBuildSiteVisit, {
       buildId: closing.buildId,
+      idempotencyKey: "calendar-foundation-site-visit",
       milestoneKey: "foundation",
       note: "Inspect revised foundation window.",
       requestedDay: 24,

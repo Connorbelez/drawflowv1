@@ -59,6 +59,7 @@ export async function publishEvidenceLocationUnverifiedCollaborationEvent(
     remediation: {
       description:
         "Review the preserved Evidence, verify its location context, and record the lender decision without deleting the uploaded file.",
+      obligationKey: `evidence-asset:${input.asset._id}`,
       policyKey: "evidence-location-unverified",
       title: `Review unverified location for ${input.asset.label}`,
       workKind: "evidence",
@@ -118,6 +119,7 @@ export async function publishEvidenceReviewCollaborationEvent(
           description:
             note ||
             `Resolve the requested Evidence changes for ${input.milestone.name} and resubmit the package.`,
+          obligationKey: `milestone:${input.milestone._id}`,
           policyKey: "evidence-review-rejected",
           title: `Resolve Evidence changes for ${input.milestone.name}`,
           workKind: "evidence",
@@ -211,6 +213,7 @@ export async function publishSiteVisitCompletionCollaborationEvents(
     primaryReferenceKind: "siteVisit",
     remediation: {
       description: `Resolve the Site Visit exceptions: ${flaggedReasons.join("; ")}. Preserve all submitted Evidence while recording the review outcome.`,
+      obligationKey: `site-visit:${input.visit._id}`,
       policyKey: "site-visit-flagged",
       title: `Resolve Site Visit ${input.visit.visitId} exceptions`,
       workKind: "site_visit_remediation",

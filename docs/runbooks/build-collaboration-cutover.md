@@ -205,9 +205,12 @@ these Build-local canaries:
    the revised package. Confirm the retry creates no additional post,
    reference, notification, or Action Item and that acceptance creates a
    distinct completed event.
-3. Schedule and reschedule a Site Visit, then repeat the same schedule. Confirm
-   only the material schedule changes emit posts. Complete one Visit and flag
-   another; both must deep-link to the existing focused Site Visit detail.
+3. Schedule a Site Visit twice with the same caller idempotency key and confirm
+   the original Visit and post are reused. Reschedule it, then repeat the same
+   schedule. Confirm only the material schedule changes emit posts. Complete
+   one Visit and flag another; both must deep-link to the existing focused Site
+   Visit detail and only contractors assigned to that Visit's milestone scope
+   may read or receive the event.
 4. Submit a tokenized Site Visit report outside the configured geofence.
    Confirm the original Evidence Asset and bytes remain present, its canonical
    location attempt and failure fields are preserved, and lender/admin review
@@ -219,6 +222,11 @@ these Build-local canaries:
    Homeowner. Authorized lender/builder readers receive the complete post;
    excluded readers receive only a stable restricted placeholder with no
    metadata. Site Visit visibility must match its canonical entity ACL.
+7. Confirm organization-wide Admin and Principal Broker members receive blocker
+   notifications without redundant Build participant grants. Reassert a policy
+   exception while its Action Item remains open and confirm the existing
+   obligation is reused with a policy due date, active deadline schedule, and
+   governed completion acceptance.
 
 Monitor `build.collaboration.system_event.published` and
 `build.collaboration.action_item.policy_created` audit/outbox events by tenant

@@ -3634,6 +3634,7 @@ export default defineSchema({
     dueDateOverrideReason: v.optional(v.string()),
     dueDateOverriddenAt: v.optional(v.number()),
     dueDateOverriddenByWorkosUserId: v.optional(v.string()),
+    policyObligationKey: v.optional(v.string()),
     deadlineNextAt: v.optional(v.number()),
     deadlineScheduleGeneration: v.optional(v.number()),
     deadlineNextStage: v.optional(
@@ -3709,6 +3710,10 @@ export default defineSchema({
       "buildId",
       "deadlineProcessingState",
       "deadlineNextAt",
+    ])
+    .index("by_buildId_and_policyObligationKey", [
+      "buildId",
+      "policyObligationKey",
     ])
     .index("by_dueAt", ["dueAt"])
     .index("by_buildId_and_dueAt", ["buildId", "dueAt"]),
@@ -4563,6 +4568,7 @@ export default defineSchema({
     submilestoneKeys: v.optional(v.array(v.string())),
     completedAt: v.optional(v.string()),
     collaborationEventRevision: v.optional(v.number()),
+    scheduleIdempotencyKey: v.optional(v.string()),
     locationAttempt: v.optional(siteVisitLocationAttemptValidator),
     missingPrerequisites: v.optional(v.array(v.string())),
     prerequisiteException: v.optional(siteVisitPrerequisiteExceptionValidator),
@@ -4581,6 +4587,10 @@ export default defineSchema({
     .index("by_brokerage", ["brokerageId"])
     .index("by_build", ["buildId"])
     .index("by_build_milestone", ["buildId", "milestoneKey"])
+    .index("by_build_schedule_idempotency", [
+      "buildId",
+      "scheduleIdempotencyKey",
+    ])
     .index("by_visit", ["visitId"]),
   siteVisitLinkRecoveryRequests: defineTable({
     brokerageId: v.optional(v.id("brokerages")),

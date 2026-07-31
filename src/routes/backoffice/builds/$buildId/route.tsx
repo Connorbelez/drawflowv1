@@ -638,6 +638,7 @@ function RouteComponent() {
             scheduleActiveBuildSiteVisit({
               ...input,
               buildId: activeBuildId,
+              idempotencyKey: crypto.randomUUID(),
               workosOrganizationId,
             }).then(() => toast.success("Site visit scheduled."))
         : undefined,

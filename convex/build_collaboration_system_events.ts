@@ -5,7 +5,9 @@ import {
   type ActiveBuildParticipantProjection,
   projectActiveBuildParticipants,
 } from "./activeBuildAccess";
+import { normalizeRoleSlugs } from "./authz";
 import {
+  BUILD_ACTION_ITEM_DEADLINE_DAY_MS,
   buildActionItemQueueSortAt,
   resetBuildActionItemDeadlineSchedule,
 } from "./build_action_item_deadline_model";
@@ -38,6 +40,7 @@ const systemReferenceValidator = v.object({
 
 const remediationValidator = v.object({
   description: v.string(),
+  obligationKey: v.optional(v.string()),
   policyKey: v.string(),
   title: v.string(),
   workKind: v.union(v.literal("evidence"), v.literal("site_visit_remediation")),
@@ -70,6 +73,7 @@ export interface BuildCollaborationSystemEventInput {
   }>;
   remediation?: {
     description: string;
+    obligationKey?: string;
     policyKey: string;
     title: string;
     workKind: "evidence" | "site_visit_remediation";
@@ -126,10 +130,15 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   const primaryReferenceKind = submittedReferences.find(
     (reference) => reference.primary
   )?.entityKind;
-  const readerParticipants = systemEventReaders(
+  const primaryReferenceId = submittedReferences.find(
+    (reference) => reference.primary
+  )?.entityId;
+  const readerParticipants = await systemEventReaders(ctx, {
+    buildId: build._id,
     participants,
-    primaryReferenceKind
-  );
+    primaryReferenceId,
+    primaryReferenceKind,
+  });
   if (readerParticipants.length === 0) {
     throw new Error("A system event requires at least one authorized reader.");
   }
@@ -171,8 +180,10 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     openActionItemCount: 0,
     organizationId: input.organizationId,
     postType: input.postType,
-    primaryReferenceId: references[0]?.entityId,
-    primaryReferenceKind: references[0]?.entityKind,
+    primaryReferenceId: references.find((reference) => reference.primary)
+      ?.entityId,
+    primaryReferenceKind: references.find((reference) => reference.primary)
+      ?.entityKind,
     readRevision: 1,
     revision: 1,
     source: "system",
@@ -233,8 +244,12 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   const notificationKind =
     input.notificationKind ??
     (input.remediation ? "blocker" : "ordinary_activity");
-  const primaryReference = references[0];
-  const primaryReferenceId = referenceRows[0];
+  const primaryReferenceIndex = Math.max(
+    0,
+    references.findIndex((reference) => reference.primary)
+  );
+  const primaryReference = references[primaryReferenceIndex];
+  const primaryReferenceRowId = referenceRows[primaryReferenceIndex];
   for (const recipient of readerParticipants) {
     await emitCanonicalBuildCollaborationNotification(ctx, {
       actionItemId: actionItemId ?? undefined,
@@ -257,7 +272,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
       postId,
       readerIds,
       recipientWorkosUserId: recipient.workosUserId,
-      referenceId: primaryReferenceId,
+      referenceId: primaryReferenceRowId,
       sourceLabel: systemLabel,
       title: input.notificationTitle?.trim() || plainText.slice(0, 120),
     });
@@ -323,6 +338,9 @@ async function resolveSystemEventScope(
     )
     .first();
   if (existing) {
+    if (existing.organizationId !== input.organizationId) {
+      throw new Error("Forbidden: collaboration tenant scope");
+    }
     return { postId: existing._id, status: "existing" };
   }
   const build = await ctx.db.get(input.buildId);
@@ -357,6 +375,27 @@ async function resolveSystemEventScope(
     grantedParticipants: participantRows,
     proposal,
   });
+  const authorityParticipants = await projectOrganizationAuthorityParticipants(
+    ctx,
+    build.organizationId
+  );
+  for (const authority of authorityParticipants) {
+    const existingParticipant = participants.find(
+      (participant) => participant.workosUserId === authority.workosUserId
+    );
+    if (!existingParticipant) {
+      participants.push(authority);
+      continue;
+    }
+    if (
+      collaborationRoleTier(authority.role) >
+      collaborationRoleTier(existingParticipant.role)
+    ) {
+      existingParticipant.role = authority.role;
+      existingParticipant.displayName = authority.displayName;
+      existingParticipant.source = "derived";
+    }
+  }
   return {
     authorization: systemAuthorization({
       brokerage,
@@ -410,20 +449,119 @@ function normalizeSystemReferences(input: BuildCollaborationSystemEventInput) {
   }));
 }
 
-function systemEventReaders(
-  participants: ActiveBuildParticipantProjection[],
-  primaryReferenceKind?: BuildCollaborationSystemEventInput["primaryReferenceKind"]
+async function systemEventReaders(
+  ctx: MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    participants: ActiveBuildParticipantProjection[];
+    primaryReferenceId?: string;
+    primaryReferenceKind?: BuildCollaborationSystemEventInput["primaryReferenceKind"];
+  }
 ) {
   if (
-    primaryReferenceKind === "evidenceAsset" ||
-    primaryReferenceKind === "evidencePackage"
+    input.primaryReferenceKind === "evidenceAsset" ||
+    input.primaryReferenceKind === "evidencePackage"
   ) {
-    return participants.filter(
+    return input.participants.filter(
       (participant) =>
         participant.role !== "contractor" && participant.role !== "homeowner"
     );
   }
-  return participants;
+  if (input.primaryReferenceKind !== "siteVisit") {
+    return input.participants;
+  }
+  const visitId = input.primaryReferenceId
+    ? ctx.db.normalizeId("buildSiteVisits", input.primaryReferenceId)
+    : null;
+  const visit = visitId ? await ctx.db.get(visitId) : null;
+  if (!visit || visit.buildId !== input.buildId) {
+    throw new Error("The referenced Site Visit is unavailable.");
+  }
+  const assignments = await ctx.db
+    .query("milestoneContractorAssignments")
+    .withIndex("by_build_milestone", (query) =>
+      query.eq("buildId", input.buildId).eq("milestoneKey", visit.milestoneKey)
+    )
+    .take(500);
+  const scopedAssignments = assignments.filter(
+    (assignment) =>
+      assignment.status !== "removed" &&
+      (!(visit.submilestoneKeys?.length && assignment.submilestoneKey) ||
+        visit.submilestoneKeys.includes(assignment.submilestoneKey))
+  );
+  const contractorWorkosUserIds = new Set<string>();
+  for (const contractorId of new Set(
+    scopedAssignments.map((assignment) => assignment.contractorId)
+  )) {
+    const contractor = await ctx.db.get(contractorId);
+    if (contractor?.accountWorkosUserId) {
+      contractorWorkosUserIds.add(contractor.accountWorkosUserId);
+    }
+  }
+  return input.participants.filter(
+    (participant) =>
+      participant.role !== "homeowner" &&
+      (participant.role !== "contractor" ||
+        contractorWorkosUserIds.has(participant.workosUserId))
+  );
+}
+
+async function projectOrganizationAuthorityParticipants(
+  ctx: MutationCtx,
+  organizationId: string
+) {
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_organization", (query) =>
+      query.eq("workosOrganizationId", organizationId)
+    )
+    .take(500);
+  const authorities = new Map<
+    string,
+    ActiveBuildParticipantProjection["role"]
+  >();
+  for (const membership of memberships) {
+    if (membership.status !== "active") {
+      continue;
+    }
+    const roles = normalizeRoleSlugs([
+      ...membership.roleSlugs,
+      membership.roleSlug,
+    ]);
+    const authorityRole = roles.includes("admin")
+      ? "admin"
+      : roles.includes("principle-broker")
+        ? "principle-broker"
+        : null;
+    if (!authorityRole) {
+      continue;
+    }
+    const existing = authorities.get(membership.workosUserId);
+    if (
+      !existing ||
+      collaborationRoleTier(authorityRole) > collaborationRoleTier(existing)
+    ) {
+      authorities.set(membership.workosUserId, authorityRole);
+    }
+  }
+  return await Promise.all(
+    [...authorities].map(async ([workosUserId, role]) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (query) =>
+          query.eq("workosUserId", workosUserId)
+        )
+        .order("desc")
+        .first();
+      return {
+        displayName: user?.name ?? user?.email ?? workosUserId,
+        participationPeriod: 1,
+        role,
+        source: "derived" as const,
+        workosUserId,
+      };
+    })
+  );
 }
 
 function systemEventAudience(
@@ -520,6 +658,30 @@ async function createDeterministicRemediationActionItem(
     "Remediation policy key",
     240
   );
+  const primaryReference =
+    input.references.find((reference) => reference.primary) ??
+    input.references[0];
+  const obligationTarget = requiredBoundedText(
+    input.remediation.obligationKey ??
+      `${primaryReference?.entityKind ?? "build"}:${primaryReference?.entityId ?? input.authorization.build._id}`,
+    "Remediation obligation key",
+    500
+  );
+  const policyObligationKey = `${policyKey}:${obligationTarget}`;
+  const priorObligations = await ctx.db
+    .query("buildActionItems")
+    .withIndex("by_buildId_and_policyObligationKey", (query) =>
+      query
+        .eq("buildId", input.authorization.build._id)
+        .eq("policyObligationKey", policyObligationKey)
+    )
+    .take(100);
+  const existingOpenObligation = priorObligations.find(
+    (item) => item.status !== "done" && item.status !== "cancelled"
+  );
+  if (existingOpenObligation) {
+    return existingOpenObligation._id;
+  }
   const requestId = `system-policy:${policyKey}:${input.idempotencyKey}`;
   const existing = await ctx.db
     .query("buildActionItemCreationRequests")
@@ -543,13 +705,8 @@ async function createDeterministicRemediationActionItem(
     "Remediation description",
     2000
   );
-  const primaryReference =
-    input.references.find((reference) => reference.primary) ??
-    input.references[0];
-  const deadlineSchedule = resetBuildActionItemDeadlineSchedule(
-    undefined,
-    "todo"
-  );
+  const dueAt = input.now + 3 * BUILD_ACTION_ITEM_DEADLINE_DAY_MS;
+  const deadlineSchedule = resetBuildActionItemDeadlineSchedule(dueAt, "todo");
   const actionItemId = await ctx.db.insert("buildActionItems", {
     assignmentState: "unassigned",
     brokerageId: input.authorization.brokerage._id,
@@ -560,14 +717,19 @@ async function createDeterministicRemediationActionItem(
     currentRevision: 1,
     descriptionPlainText: description,
     descriptionTiptapJson: plainTextDocument(description),
+    dueAt,
+    dueDatePolicyKey: policyKey,
+    dueDateSource: "policy",
     ...deadlineSchedule,
     originatingPostId: input.postId,
     organizationId: input.authorization.organizationId,
+    policyDueAt: dueAt,
+    policyObligationKey,
     primaryReferenceId: primaryReference?.entityId,
     primaryReferenceKind: primaryReference?.entityKind,
     priority: "high",
-    queueSortAt: buildActionItemQueueSortAt(undefined, "todo"),
-    requiresAcceptance: false,
+    queueSortAt: buildActionItemQueueSortAt(dueAt, "todo"),
+    requiresAcceptance: true,
     status: "todo",
     title,
     updatedAt: input.now,
@@ -584,7 +746,9 @@ async function createDeterministicRemediationActionItem(
     exercisedAuthority: policyKey,
     newState: JSON.stringify({
       policyKey,
+      policyObligationKey,
       priority: "high",
+      requiresAcceptance: true,
       status: "todo",
       workKind: input.remediation.workKind,
     }),

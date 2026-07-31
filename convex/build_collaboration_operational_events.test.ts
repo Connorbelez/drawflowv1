@@ -162,6 +162,11 @@ async function seedOperationalBuild(options?: { collaborationActive?: boolean })
         subject: "user_contractor",
       },
       {
+        displayName: "Assigned contractor",
+        role: "contractor",
+        subject: "user_assigned_contractor",
+      },
+      {
         displayName: "Homeowner",
         role: "homeowner",
         subject: "user_homeowner",
@@ -183,6 +188,78 @@ async function seedOperationalBuild(options?: { collaborationActive?: boolean })
         workosUserId: participant.subject,
       });
     }
+    const assignedContractorId = await ctx.db.insert("contractorProfiles", {
+      accountWorkosUserId: "user_assigned_contractor",
+      brokerageId: foundation.brokerageId,
+      createdAt: now,
+      name: "Assigned contractor",
+      organizationId: ORGANIZATION_ID,
+      status: "active",
+      trades: ["concrete"],
+      updatedAt: now,
+    });
+    const buildContractorAssignmentId = await ctx.db.insert(
+      "buildContractorAssignments",
+      {
+        brokerageId: foundation.brokerageId,
+        buildId,
+        contractorId: assignedContractorId,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        role: "Concrete contractor",
+        status: "active",
+        updatedAt: now,
+      }
+    );
+    await ctx.db.insert("milestoneContractorAssignments", {
+      assignedAt: now,
+      assignedByWorkosUserId: "user_admin",
+      brokerageId: foundation.brokerageId,
+      buildContractorAssignmentId,
+      buildId,
+      buildMilestoneId: milestoneId,
+      contractorId: assignedContractorId,
+      createdAt: now,
+      milestoneKey: "foundation",
+      organizationId: ORGANIZATION_ID,
+      postHoc: false,
+      role: "Concrete contractor",
+      status: "active",
+      updatedAt: now,
+    });
+    for (const authority of [
+      {
+        role: "admin",
+        subject: "user_global_admin",
+      },
+      {
+        role: "principle-broker",
+        subject: "user_global_principal",
+      },
+    ] as const) {
+      await ctx.db.insert("users", {
+        authId: `auth_${authority.subject}`,
+        createdAt: now,
+        email: `${authority.subject}@example.com`,
+        name: authority.subject,
+        status: "active",
+        updatedAt: now,
+        workosUserId: authority.subject,
+      });
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: authority.role,
+        roleSlugs: [authority.role],
+        sourceEventId: `fixture_${authority.subject}`,
+        sourceEventType: "fixture.operational-events",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: `membership_${authority.subject}`,
+        workosOrganizationId: ORGANIZATION_ID,
+        workosUserId: authority.subject,
+      });
+    }
     return { buildId, milestoneId, proposalId };
   });
   return {
@@ -191,7 +268,18 @@ async function seedOperationalBuild(options?: { collaborationActive?: boolean })
     ...fixture,
     broker: withIdentity(base, "broker", "user_broker"),
     builderStaff: withIdentity(base, "builder-staff", "user_builder_staff"),
+    assignedContractor: withIdentity(
+      base,
+      "contractor",
+      "user_assigned_contractor"
+    ),
     contractor: withIdentity(base, "contractor", "user_contractor"),
+    globalAdmin: withIdentity(base, "admin", "user_global_admin"),
+    globalPrincipal: withIdentity(
+      base,
+      "principle-broker",
+      "user_global_principal"
+    ),
     homeowner: withIdentity(base, "homeowner", "user_homeowner"),
   };
 }
@@ -225,7 +313,7 @@ async function collaborationSnapshot(
 async function feedKinds(
   actor: ReturnType<typeof withIdentity>,
   buildId: any
-) {
+): Promise<string[]> {
   const feed = await actor.query(
     (api as any).build_collaboration.listBuildCollaborationFeed,
     {
@@ -293,15 +381,26 @@ describe("Build Collaboration operational events", () => {
     expect(snapshot.actionItems).toHaveLength(1);
     expect(snapshot.actionItems[0]).toMatchObject({
       creatorWorkosUserId: "system",
+      deadlineProcessingState: "pending",
+      dueDatePolicyKey: "evidence-location-unverified",
+      dueDateSource: "policy",
       primaryReferenceKind: "evidenceAsset",
+      requiresAcceptance: true,
       status: "todo",
       workKind: "evidence",
     });
+    expect(snapshot.actionItems[0]?.dueAt).toBeGreaterThan(Date.now());
     expect(snapshot.deliveries.length).toBeGreaterThan(0);
     expect(snapshot.deliveries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           href: expect.stringMatching(/focus=evidenceAsset%3A/),
+        }),
+        expect.objectContaining({
+          recipientWorkosUserId: "user_global_admin",
+        }),
+        expect.objectContaining({
+          recipientWorkosUserId: "user_global_principal",
         }),
       ])
     );
@@ -314,6 +413,14 @@ describe("Build Collaboration operational events", () => {
       "post",
     ]);
     expect(await feedKinds(fixture.builderStaff, fixture.buildId)).toEqual([
+      "post",
+      "post",
+    ]);
+    expect(await feedKinds(fixture.globalAdmin, fixture.buildId)).toEqual([
+      "post",
+      "post",
+    ]);
+    expect(await feedKinds(fixture.globalPrincipal, fixture.buildId)).toEqual([
       "post",
       "post",
     ]);
@@ -400,6 +507,25 @@ describe("Build Collaboration operational events", () => {
     await fixture.admin.mutation(
       (api as any).production_proposals.reviewActiveBuildEvidence,
       {
+        accepted: false,
+        buildId: fixture.buildId,
+        milestoneKey: "foundation",
+        note: "Add the engineer seal and revision date.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const afterSecondMaterialReject = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(afterSecondMaterialReject.posts).toHaveLength(
+      afterReject.posts.length + 1
+    );
+    expect(afterSecondMaterialReject.actionItems).toHaveLength(1);
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.reviewActiveBuildEvidence,
+      {
         accepted: true,
         buildId: fixture.buildId,
         milestoneKey: "foundation",
@@ -411,7 +537,9 @@ describe("Build Collaboration operational events", () => {
       fixture.base,
       String(fixture.buildId)
     );
-    expect(afterAcceptance.posts).toHaveLength(afterReject.posts.length + 1);
+    expect(afterAcceptance.posts).toHaveLength(
+      afterSecondMaterialReject.posts.length + 1
+    );
     expect(afterAcceptance.actionItems).toHaveLength(1);
     expect(afterAcceptance.posts).toEqual(
       expect.arrayContaining([
@@ -427,6 +555,7 @@ describe("Build Collaboration operational events", () => {
       (api as any).production_proposals.scheduleActiveBuildSiteVisit,
       {
         buildId: fixture.buildId,
+        idempotencyKey: "operational-foundation-site-visit",
         milestoneKey: "foundation",
         note: "Inspect footing forms.",
         requestedDay: 12,
@@ -434,6 +563,36 @@ describe("Build Collaboration operational events", () => {
         workosOrganizationId: ORGANIZATION_ID,
       }
     );
+    const scheduleReplay = await fixture.admin.mutation(
+      (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+      {
+        buildId: fixture.buildId,
+        idempotencyKey: "operational-foundation-site-visit",
+        milestoneKey: "foundation",
+        note: "Inspect footing forms.",
+        requestedDay: 12,
+        requestedTime: "09:00",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(scheduleReplay.visitId).toBe(scheduled.visitId);
+    const afterScheduleReplay = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(afterScheduleReplay.posts).toHaveLength(1);
+    expect(
+      await fixture.base.run(async (ctx) =>
+        (
+          await ctx.db
+            .query("buildSiteVisits")
+            .withIndex("by_build", (query) =>
+              query.eq("buildId", fixture.buildId)
+            )
+            .collect()
+        ).length
+      )
+    ).toBe(1);
     await fixture.admin.mutation(
       (api as any).production_proposals.rescheduleActiveBuildSiteVisit,
       {
@@ -469,38 +628,60 @@ describe("Build Collaboration operational events", () => {
     expect(afterNoOp.posts).toHaveLength(afterReschedule.posts.length);
     expect(afterNoOp.deliveries).toHaveLength(afterReschedule.deliveries.length);
 
-    await fixture.base.run(async (ctx) => {
-      const visit = await ctx.db
-        .query("buildSiteVisits")
-        .withIndex("by_visit", (query) =>
-          query.eq("visitId", scheduled.visitId)
-        )
-        .unique();
-      const build = await ctx.db.get(fixture.buildId);
-      if (!(visit && build)) {
-        throw new Error("Site Visit fixture is unavailable.");
-      }
-      const now = Date.now();
-      await ctx.db.insert("buildEvidenceAssets", {
-        brokerageId: build.brokerageId,
-        buildId: build._id,
-        collaborationEventRevision: 1,
-        createdAt: now,
-        evidenceKey: "site-visit-geofence-photo",
-        fileName: "site-visit-geofence-photo.webp",
-        label: "Site Visit footing photo",
-        locationVerified: true,
-        milestoneKey: "foundation",
-        mimeType: "image/webp",
-        organizationId: ORGANIZATION_ID,
-        proposalId: build.proposalId,
-        siteVisitId: visit._id,
-        sizeBytes: 128_000,
-        source: `active_build_site_visit:${scheduled.visitId}:camera`,
-        tag: "Foundation",
-        updatedAt: now,
-      });
-    });
+    const storageId = await fixture.base.run(async (ctx) =>
+      ctx.storage.store(
+        new Blob(["site visit evidence"], { type: "image/webp" })
+      )
+    );
+    const registration = {
+      buildId: String(fixture.buildId),
+      clientEvidenceId: "site-visit-geofence-photo",
+      fileName: "site-visit-geofence-photo.webp",
+      locationAttempt: {
+        accuracyMeters: 10,
+        attempted: true,
+        attemptedAt: 1_722_222_222_222,
+        latitude: 43.2557,
+        longitude: -79.8711,
+        permissionOutcome: "granted" as const,
+        verified: true,
+      },
+      mimeType: "image/webp",
+      sizeBytes: 128_000,
+      storageId,
+      targetMilestoneKey: "foundation",
+      token: scheduled.visitId,
+    };
+    await fixture.base.mutation(
+      (api as any).production_proposals.registerActiveBuildSiteVisitFile,
+      registration
+    );
+    const afterRegistration = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(afterRegistration.posts).toHaveLength(afterReschedule.posts.length + 1);
+    expect(afterRegistration.posts.map((post) => post.systemEventKey)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/:submitted$/)])
+    );
+    expect(afterRegistration.actionItems).toHaveLength(0);
+    await fixture.base.mutation(
+      (api as any).production_proposals.registerActiveBuildSiteVisitFile,
+      registration
+    );
+    const afterRegistrationReplay = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(afterRegistrationReplay.posts).toHaveLength(
+      afterRegistration.posts.length
+    );
+    expect(afterRegistrationReplay.deliveries).toHaveLength(
+      afterRegistration.deliveries.length
+    );
+    expect(afterRegistrationReplay.actionItems).toHaveLength(
+      afterRegistration.actionItems.length
+    );
 
     await fixture.base.mutation(
       (api as any).production_proposals.submitActiveBuildTokenizedSiteVisitReport,
@@ -532,7 +713,7 @@ describe("Build Collaboration operational events", () => {
       fixture.base,
       String(fixture.buildId)
     );
-    expect(afterSubmission.posts).toHaveLength(afterReschedule.posts.length + 3);
+    expect(afterSubmission.posts).toHaveLength(afterRegistration.posts.length + 3);
     expect(afterSubmission.actionItems).toHaveLength(2);
     expect(afterSubmission.posts.map((post) => post.systemEventKey)).toEqual(
       expect.arrayContaining([
@@ -548,15 +729,45 @@ describe("Build Collaboration operational events", () => {
         }),
       ])
     );
+    const assignedContractorKinds = await feedKinds(
+      fixture.assignedContractor,
+      fixture.buildId
+    );
+    expect(
+      assignedContractorKinds.filter((kind) => kind === "post")
+    ).toHaveLength(4);
+    expect(
+      assignedContractorKinds.filter((kind) => kind === "restricted")
+    ).toHaveLength(2);
+    expect(await feedKinds(fixture.contractor, fixture.buildId)).toEqual(
+      Array.from({ length: 6 }, () => "restricted")
+    );
+    expect(await feedKinds(fixture.homeowner, fixture.buildId)).toEqual(
+      Array.from({ length: 6 }, () => "restricted")
+    );
+    expect(
+      afterSubmission.deliveries.some(
+        (delivery) =>
+          delivery.recipientWorkosUserId === "user_assigned_contractor" &&
+          delivery.href.includes("focus=siteVisit%3A")
+      )
+    ).toBe(true);
+    expect(
+      afterSubmission.deliveries.some(
+        (delivery) => delivery.recipientWorkosUserId === "user_contractor"
+      )
+    ).toBe(false);
     const evidence = await fixture.base.run(async (ctx) =>
-      ctx.db
-        .query("buildEvidenceAssets")
-        .withIndex("by_build_key", (query) =>
-          query
-            .eq("buildId", fixture.buildId)
-            .eq("evidenceKey", "site-visit-geofence-photo")
-        )
-        .unique()
+      (
+        await ctx.db
+          .query("buildEvidenceAssets")
+          .withIndex("by_build", (query) =>
+            query.eq("buildId", fixture.buildId)
+          )
+          .collect()
+      ).find(
+        (asset) => asset.clientEvidenceId === "site-visit-geofence-photo"
+      )
     );
     expect(evidence).toMatchObject({
       locationAttemptedAt: 1_722_222_222_222,
@@ -566,6 +777,40 @@ describe("Build Collaboration operational events", () => {
       /outside the 250 m geofence/
     );
     expect(evidence?.locationDistanceMeters).toBeGreaterThan(250);
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.cancelActiveBuildSiteVisit,
+      {
+        buildId: fixture.buildId,
+        reason: "Visit requires a replacement inspection.",
+        visitId: scheduled.visitId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const afterCancellation = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(afterCancellation.posts).toHaveLength(afterSubmission.posts.length + 1);
+    expect(afterCancellation.actionItems).toHaveLength(
+      afterSubmission.actionItems.length
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.cancelActiveBuildSiteVisit,
+      {
+        buildId: fixture.buildId,
+        reason: "Identical cancellation retry.",
+        visitId: scheduled.visitId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const afterCancellationRetry = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(afterCancellationRetry.posts).toHaveLength(
+      afterCancellation.posts.length
+    );
 
     await expect(
       fixture.base.mutation(
@@ -599,10 +844,16 @@ describe("Build Collaboration operational events", () => {
       fixture.base,
       String(fixture.buildId)
     );
-    expect(afterRetry.posts).toHaveLength(afterSubmission.posts.length);
-    expect(afterRetry.references).toHaveLength(afterSubmission.references.length);
-    expect(afterRetry.deliveries).toHaveLength(afterSubmission.deliveries.length);
-    expect(afterRetry.actionItems).toHaveLength(afterSubmission.actionItems.length);
+    expect(afterRetry.posts).toHaveLength(afterCancellationRetry.posts.length);
+    expect(afterRetry.references).toHaveLength(
+      afterCancellationRetry.references.length
+    );
+    expect(afterRetry.deliveries).toHaveLength(
+      afterCancellationRetry.deliveries.length
+    );
+    expect(afterRetry.actionItems).toHaveLength(
+      afterCancellationRetry.actionItems.length
+    );
   });
 
   test("replays deterministic system events, rolls invalid references back, and skips inactive tenants", async () => {
