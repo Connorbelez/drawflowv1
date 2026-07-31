@@ -167,6 +167,38 @@ async function provisionBrokerParticipant(
   });
 }
 
+async function seedQueuedExternalDeliveries(
+  base: ReturnType<typeof convexTest>,
+  buildId: Id<"activeBuilds">,
+  count: number
+) {
+  await base.run(async (ctx) => {
+    const build = await ctx.db.get(buildId);
+    if (!build) {
+      throw new Error("Delivery Build fixture is unavailable.");
+    }
+    const now = Date.now();
+    for (let index = 0; index < count; index += 1) {
+      await ctx.db.insert("buildCollaborationExternalDeliveries", {
+        attemptCount: 0,
+        brokerageId: build.brokerageId,
+        buildId,
+        cadence: "daily",
+        channel: "email",
+        createdAt: now + index,
+        dedupeKey: `overflow-delivery-${index}`,
+        deliveryMode: "digest",
+        eventKind: "ordinary_activity",
+        organizationId: ORGANIZATION_ID,
+        recipientWorkosUserId: "user_broker",
+        scheduledFor: now + 86_400_000,
+        status: "queued",
+        updatedAt: now + index,
+      });
+    }
+  });
+}
+
 function publicationArgs(
   buildId: Id<"activeBuilds">,
   input: { assigned?: boolean; mentioned?: boolean; text: string }
@@ -511,6 +543,88 @@ describe("Build collaboration external delivery", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  test("does not backfill historical notifications when a channel is enabled", async () => {
+    const fixture = await seedDeliveryBuild();
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, {
+        mentioned: true,
+        text: "Historical email-only mention.",
+      })
+    );
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_notifications
+        .updateMyBuildCollaborationNotificationPreferences,
+      {
+        buildId: fixture.buildId,
+        channels: ["in_app", "email", "push"],
+        digestCadence: "daily",
+        digestEnabled: true,
+        ordinaryMuted: false,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    let deliveries = await fixture.base.run((ctx) =>
+      ctx.db.query("buildCollaborationExternalDeliveries").collect()
+    );
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].channel).toBe("email");
+
+    await fixture.admin.mutation(
+      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      publicationArgs(fixture.buildId, {
+        mentioned: true,
+        text: "Future email and push mention.",
+      })
+    );
+    deliveries = await fixture.base.run((ctx) =>
+      ctx.db.query("buildCollaborationExternalDeliveries").collect()
+    );
+    expect(deliveries).toHaveLength(3);
+    expect(deliveries.filter((row) => row.channel === "push")).toHaveLength(1);
+  });
+
+  test("reconciles preference changes beyond five hundred queued rows", async () => {
+    const fixture = await seedDeliveryBuild();
+    await fixture.broker.mutation(
+      (api as any).build_collaboration_notifications
+        .updateMyBuildCollaborationNotificationPreferences,
+      {
+        buildId: fixture.buildId,
+        channels: ["in_app", "email"],
+        digestCadence: "daily",
+        digestEnabled: true,
+        ordinaryMuted: false,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await seedQueuedExternalDeliveries(fixture.base, fixture.buildId, 501);
+
+    vi.useFakeTimers();
+    try {
+      await fixture.broker.mutation(
+        (api as any).build_collaboration_notifications
+          .updateMyBuildCollaborationNotificationPreferences,
+        {
+          buildId: fixture.buildId,
+          channels: ["in_app", "email"],
+          digestCadence: "weekly",
+          digestEnabled: true,
+          ordinaryMuted: false,
+          organizationId: ORGANIZATION_ID,
+        }
+      );
+      await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
+    const rows = await fixture.base.run((ctx) =>
+      ctx.db.query("buildCollaborationExternalDeliveries").collect()
+    );
+    expect(rows).toHaveLength(501);
+    expect(rows.every((row) => row.cadence === "weekly")).toBe(true);
+  });
+
   test("cancels queued delivery immediately when participation is revoked", async () => {
     const fixture = await seedDeliveryBuild();
     await fixture.admin.mutation(
@@ -555,6 +669,32 @@ describe("Build collaboration external delivery", () => {
         )
         .join(" ")
     ).not.toContain("This preview must not escape after revocation.");
+  });
+
+  test("cancels revocation overflow beyond five hundred queued rows", async () => {
+    const fixture = await seedDeliveryBuild();
+    await seedQueuedExternalDeliveries(fixture.base, fixture.buildId, 501);
+
+    vi.useFakeTimers();
+    try {
+      await fixture.admin.mutation(
+        (api as any).build_participants.removeBuildParticipant,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          participantId: fixture.participantId,
+          reason: "Overflow revocation coverage.",
+        }
+      );
+      await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+    }
+    const rows = await fixture.base.run((ctx) =>
+      ctx.db.query("buildCollaborationExternalDeliveries").collect()
+    );
+    expect(rows).toHaveLength(501);
+    expect(rows.every((row) => row.status === "cancelled")).toBe(true);
   });
 
   test("scrubs an already-rendered outbox when access is revoked before send", async () => {

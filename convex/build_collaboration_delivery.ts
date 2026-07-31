@@ -21,6 +21,9 @@ import type { Doc, Id, MutationCtx } from "./types";
 const MAX_DELIVERY_ATTEMPTS = 5;
 const MAX_DIGEST_ITEMS = 100;
 const DISPATCH_LEASE_MS = 10 * 60 * 1000;
+const DELIVERY_MAINTENANCE_BATCH_SIZE = 200;
+const unsentDeliveryStatuses = ["queued", "failed", "dispatched"] as const;
+type UnsentDeliveryStatus = (typeof unsentDeliveryStatuses)[number];
 
 interface PreparedDeliveryItem {
   delivery: Doc<"buildCollaborationExternalDeliveries">;
@@ -180,57 +183,8 @@ export async function reconcileBuildCollaborationExternalDeliveries(
     recipientWorkosUserId: string;
   }
 ) {
-  const canonicalRows = await ctx.db
-    .query("recipientDeliveries")
-    .withIndex("by_recipient", (query) =>
-      query
-        .eq("organizationId", input.organizationId)
-        .eq("recipientWorkosUserId", input.recipientWorkosUserId)
-    )
-    .order("desc")
-    .take(500);
-  for (const canonical of canonicalRows) {
-    if (
-      canonical.collaborationBuildId !== input.buildId ||
-      !canonical.collaborationEventKind
-    ) {
-      continue;
-    }
-    const plan = externalDeliveryPlan({
-      channels: input.channels,
-      digestCadence: input.digestCadence,
-      digestEnabled: input.digestEnabled,
-      kind: canonical.collaborationEventKind,
-      ordinaryMuted: input.ordinaryMuted,
-    });
-    const plannedChannels = new Set(plan.map((target) => target.channel));
-    for (const channel of ["email", "push"] as const) {
-      const external = await ctx.db
-        .query("buildCollaborationExternalDeliveries")
-        .withIndex("by_recipientDeliveryId_and_channel", (query) =>
-          query.eq("recipientDeliveryId", canonical._id).eq("channel", channel)
-        )
-        .unique();
-      if (
-        external &&
-        !plannedChannels.has(channel) &&
-        (external.status === "queued" ||
-          external.status === "failed" ||
-          external.status === "dispatched")
-      ) {
-        await cancelDelivery(
-          ctx,
-          external,
-          input.now,
-          "notification_preference_changed"
-        );
-      }
-    }
-    await enqueueBuildCollaborationExternalDeliveries(ctx, {
-      ...input,
-      kind: canonical.collaborationEventKind,
-      recipientDeliveryId: canonical._id,
-    });
+  for (const status of unsentDeliveryStatuses) {
+    await reconcileExternalDeliveryPage(ctx, input, status, null);
   }
 }
 
@@ -243,21 +197,190 @@ export async function cancelQueuedBuildCollaborationExternalDeliveries(
     recipientWorkosUserId: string;
   }
 ) {
-  for (const status of ["queued", "failed", "dispatched"] as const) {
-    const rows = await ctx.db
-      .query("buildCollaborationExternalDeliveries")
-      .withIndex("by_buildId_and_recipientWorkosUserId_and_status", (query) =>
-        query
-          .eq("buildId", input.buildId)
-          .eq("recipientWorkosUserId", input.recipientWorkosUserId)
-          .eq("status", status)
-      )
-      .take(500);
-    for (const row of rows) {
-      await cancelDelivery(ctx, row, input.now, input.cancellationReason);
-    }
+  for (const status of unsentDeliveryStatuses) {
+    await cancelExternalDeliveryPage(ctx, input, status, null);
   }
 }
+
+async function reconcileExternalDeliveryPage(
+  ctx: MutationCtx,
+  input: {
+    brokerageId: Id<"brokerages">;
+    buildId: Id<"activeBuilds">;
+    channels: Array<"in_app" | "email" | "push">;
+    digestCadence: "daily" | "weekly" | "never";
+    digestEnabled: boolean;
+    now: number;
+    ordinaryMuted: boolean;
+    organizationId: string;
+    recipientWorkosUserId: string;
+  },
+  status: UnsentDeliveryStatus,
+  cursor: string | null
+): Promise<void> {
+  const page = await ctx.db
+    .query("buildCollaborationExternalDeliveries")
+    .withIndex("by_buildId_and_recipientWorkosUserId_and_status", (query) =>
+      query
+        .eq("buildId", input.buildId)
+        .eq("recipientWorkosUserId", input.recipientWorkosUserId)
+        .eq("status", status)
+    )
+    .paginate({ cursor, numItems: DELIVERY_MAINTENANCE_BATCH_SIZE });
+  for (const external of page.page) {
+    if (
+      external.organizationId !== input.organizationId ||
+      external.brokerageId !== input.brokerageId
+    ) {
+      continue;
+    }
+    const target = externalDeliveryPlan({
+      channels: input.channels,
+      digestCadence: input.digestCadence,
+      digestEnabled: input.digestEnabled,
+      kind: external.eventKind,
+      ordinaryMuted: input.ordinaryMuted,
+    }).find((candidate) => candidate.channel === external.channel);
+    if (!target) {
+      await cancelDelivery(
+        ctx,
+        external,
+        input.now,
+        "notification_preference_changed"
+      );
+      continue;
+    }
+    await rescheduleExistingExternalDelivery(ctx, external, target, input.now);
+  }
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.build_collaboration_delivery
+        .continueBuildCollaborationExternalDeliveryReconciliation,
+      {
+        buildId: input.buildId,
+        cursor: page.continueCursor,
+        organizationId: input.organizationId,
+        recipientWorkosUserId: input.recipientWorkosUserId,
+        status,
+      }
+    );
+  }
+}
+
+async function cancelExternalDeliveryPage(
+  ctx: MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    cancellationReason: string;
+    now: number;
+    recipientWorkosUserId: string;
+  },
+  status: UnsentDeliveryStatus,
+  cursor: string | null
+): Promise<void> {
+  const page = await ctx.db
+    .query("buildCollaborationExternalDeliveries")
+    .withIndex("by_buildId_and_recipientWorkosUserId_and_status", (query) =>
+      query
+        .eq("buildId", input.buildId)
+        .eq("recipientWorkosUserId", input.recipientWorkosUserId)
+        .eq("status", status)
+    )
+    .paginate({ cursor, numItems: DELIVERY_MAINTENANCE_BATCH_SIZE });
+  for (const external of page.page) {
+    await cancelDelivery(ctx, external, input.now, input.cancellationReason);
+  }
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.build_collaboration_delivery
+        .continueBuildCollaborationExternalDeliveryCancellation,
+      {
+        buildId: input.buildId,
+        cancellationReason: input.cancellationReason,
+        cursor: page.continueCursor,
+        recipientWorkosUserId: input.recipientWorkosUserId,
+        status,
+      }
+    );
+  }
+}
+
+const unsentDeliveryStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("failed"),
+  v.literal("dispatched")
+);
+
+export const continueBuildCollaborationExternalDeliveryReconciliation =
+  internalMutation
+    .input({
+      buildId: v.id("activeBuilds"),
+      cursor: v.union(v.string(), v.null()),
+      organizationId: v.string(),
+      recipientWorkosUserId: v.string(),
+      status: unsentDeliveryStatusValidator,
+    })
+    .returns(v.null())
+    .handler(async (ctx, args) => {
+      const build = await ctx.db.get(args.buildId);
+      if (!build || build.organizationId !== args.organizationId) {
+        return null;
+      }
+      const preference = await ctx.db
+        .query("buildCollaborationNotificationPreferences")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", build._id)
+            .eq("workosUserId", args.recipientWorkosUserId)
+        )
+        .first();
+      await reconcileExternalDeliveryPage(
+        ctx,
+        {
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          channels: preference?.channels ?? ["in_app", "email"],
+          digestCadence: preference?.digestCadence ?? "never",
+          digestEnabled: preference?.digestEnabled ?? false,
+          now: Date.now(),
+          ordinaryMuted: preference?.ordinaryMuted ?? false,
+          organizationId: build.organizationId,
+          recipientWorkosUserId: args.recipientWorkosUserId,
+        },
+        args.status,
+        args.cursor
+      );
+      return null;
+    })
+    .internal();
+
+export const continueBuildCollaborationExternalDeliveryCancellation =
+  internalMutation
+    .input({
+      buildId: v.id("activeBuilds"),
+      cancellationReason: v.string(),
+      cursor: v.union(v.string(), v.null()),
+      recipientWorkosUserId: v.string(),
+      status: unsentDeliveryStatusValidator,
+    })
+    .returns(v.null())
+    .handler(async (ctx, args) => {
+      await cancelExternalDeliveryPage(
+        ctx,
+        {
+          buildId: args.buildId,
+          cancellationReason: args.cancellationReason,
+          now: Date.now(),
+          recipientWorkosUserId: args.recipientWorkosUserId,
+        },
+        args.status,
+        args.cursor
+      );
+      return null;
+    })
+    .internal();
 
 export const prepareDueBuildCollaborationExternalDeliveries = internalMutation
   .input({
