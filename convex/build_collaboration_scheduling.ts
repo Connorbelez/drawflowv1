@@ -8,6 +8,7 @@ import {
   publishBuildCollaborationBundle,
 } from "./build_collaboration";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
+import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
 import {
   type BuildCollaborationPublicationBundle,
   canonicalPublicationBundleJson,
@@ -15,6 +16,11 @@ import {
 } from "./build_collaboration_publication_bundle";
 import { authorizeBuildCollaborationRecipient } from "./build_collaboration_recipient_access";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import {
+  classifyScheduledPublicationFailure,
+  scheduledPublicationMaterialConflict,
+  scheduledPublicationOperationalFailure,
+} from "./build_collaboration_scheduling_errors";
 import { internalAction, internalMutation } from "./fluent";
 import type { Doc, Id, MutationCtx } from "./types";
 
@@ -22,7 +28,6 @@ const MAX_CONFLICT_REASON_LENGTH = 500;
 const MAX_SCHEDULE_HORIZON_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 const MIN_SCHEDULE_DELAY_MS = 60_000;
 const SCHEDULE_BATCH_SIZE = 25;
-const SCHEDULE_CONFLICT_PREFIX = "BUILD_COLLABORATION_SCHEDULE_CONFLICT:";
 
 export const getBuildCollaborationSchedulingCapabilities = authenticatedQuery
   .input({
@@ -184,7 +189,7 @@ export const executeScheduledBuildCollaborationPublication = internalAction
         args
       );
     } catch (error) {
-      const failure = scheduledExecutionFailure(error);
+      const failure = classifyScheduledPublicationFailure(error);
       if (failure.kind === "conflict") {
         await ctx.runMutation(
           internal.build_collaboration_scheduling
@@ -322,7 +327,9 @@ export const publishScheduledBuildCollaborationDraft = internalMutation
     }
     const now = Date.now();
     if (!approval.scheduledFor || approval.scheduledFor > now) {
-      throw new Error("The approved publication is not due yet.");
+      throw scheduledPublicationOperationalFailure(
+        "The approved publication is not due yet."
+      );
     }
     const { audience, authorization, bundle, draft } =
       await revalidateScheduledPublication(ctx, approval);
@@ -507,6 +514,7 @@ async function revalidateScheduledPublication(
       organizationId: approval.organizationId,
       workosUserId: approval.approvingWorkosUserId,
     });
+    await requireBuildCollaborationWritable(ctx, authorization);
     assertCoordinatingRole(authorization.effectiveRole.tier);
     assertApprovalHierarchyUnchanged(approval, authorization);
     const { audience, bundle } = await revalidateExactDraftBundle(ctx, {
@@ -516,12 +524,7 @@ async function revalidateScheduledPublication(
     assertSchedulablePostType(bundle.postType);
     return { audience, authorization, bundle, draft };
   } catch (error) {
-    if (!isMaterialScheduleConflict(error)) {
-      throw error;
-    }
-    throw new Error(
-      `${SCHEDULE_CONFLICT_PREFIX}${executionErrorMessage(error)}`
-    );
+    throw scheduledPublicationMaterialConflict(error);
   }
 }
 
@@ -660,68 +663,6 @@ function assertScheduledFor(scheduledFor: number, now: number) {
       "Scheduled publication time must be at least one minute in the future and within two years."
     );
   }
-}
-
-function executionErrorMessage(error: unknown) {
-  return normalizedConflictReason(
-    error instanceof Error
-      ? error.message
-      : "Scheduled publication revalidation failed."
-  );
-}
-
-function scheduledExecutionFailure(error: unknown): {
-  kind: "conflict" | "retryable";
-  message: string;
-} {
-  const message = executionErrorMessage(error);
-  const marker = message.indexOf(SCHEDULE_CONFLICT_PREFIX);
-  if (marker >= 0) {
-    return {
-      kind: "conflict",
-      message: normalizedConflictReason(
-        message.slice(marker + SCHEDULE_CONFLICT_PREFIX.length)
-      ),
-    };
-  }
-  return { kind: "retryable", message };
-}
-
-function isMaterialScheduleConflict(error: unknown) {
-  const message = executionErrorMessage(error);
-  return [
-    "The scheduled draft changed after approval.",
-    "The scheduled human approval",
-    "Recipient identity is unavailable.",
-    "Forbidden:",
-    "Build collaboration is unavailable until this tenant is active.",
-    "Only the Builder or lender coordination team",
-    "The approving human's Build collaboration hierarchy changed.",
-    "The private draft bundle failed its integrity check.",
-    "The approved publication audience, references, assets, assignments, notifications, or revisions changed.",
-    "Only Updates and Announcements can be scheduled.",
-    "Every approved shared mutation",
-    "Shared mutation ",
-    "Revision-controlled shared effect",
-    "Revision conflict:",
-    "A publication may contain at most",
-    "Post text may not exceed",
-    "Post rich text may not exceed",
-    "Every Action Item requires",
-    "Action Item assignees must participate",
-    "The approved Action Item assignment state is no longer effective.",
-    "Action Item rich text is too long.",
-    "Action Item description must be valid TipTap JSON.",
-    "TipTap document root must have type doc.",
-    "A proposed collaboration asset",
-    "Every collaboration reference",
-    "The referenced entity",
-    "Custom audiences are unavailable",
-    "Custom audience readers must be active",
-    "The selected audience conflicts",
-    "Excluded readers must be active",
-    "Higher-tier and same-tier participants cannot be excluded",
-  ].some((knownConflict) => message.includes(knownConflict));
 }
 
 function normalizedConflictReason(value: string) {

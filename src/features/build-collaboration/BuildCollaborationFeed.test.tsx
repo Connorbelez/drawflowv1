@@ -40,6 +40,16 @@ const mocks = vi.hoisted(() => ({
   buildActionItems: [] as Array<Record<string, unknown>>,
   comments: [] as Array<Record<string, unknown>>,
   commentsLoading: false,
+  convexConnectionState: {
+    connectionCount: 1,
+    connectionRetries: 0,
+    hasEverConnected: true,
+    hasInflightRequests: false,
+    inflightActions: 0,
+    inflightMutations: 0,
+    isWebSocketConnected: true,
+    timeOfOldestInflightRequest: null,
+  },
   drafts: [] as Array<Record<string, unknown>>,
   editorReferences: [] as Array<{
     eyebrow: string;
@@ -273,6 +283,7 @@ vi.mock("convex/react", () => ({
       : mocks.mutate;
   },
   useMutation: () => mocks.mutate,
+  useConvexConnectionState: () => mocks.convexConnectionState,
   usePaginatedQuery: (reference: unknown, args?: Record<string, unknown> | "skip") => {
     const functionName = getFunctionName(
       reference as Parameters<typeof getFunctionName>[0]
@@ -817,6 +828,16 @@ afterEach(() => {
   mocks.personalActionItems = [];
   mocks.comments = [];
   mocks.commentsLoading = false;
+  mocks.convexConnectionState = {
+    connectionCount: 1,
+    connectionRetries: 0,
+    hasEverConnected: true,
+    hasInflightRequests: false,
+    inflightActions: 0,
+    inflightMutations: 0,
+    isWebSocketConnected: true,
+    timeOfOldestInflightRequest: null,
+  };
   mocks.acceptedCommentId = undefined;
   mocks.actionItemAssignmentState = "unassigned";
   mocks.actionItemDetailState = "visible";
@@ -2551,6 +2572,45 @@ describe("BuildCollaborationFeed", () => {
     );
 
     await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
+  });
+
+  test("keeps work private when Convex disconnects while the browser remains online", async () => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: true,
+    });
+    mocks.convexConnectionState = {
+      connectionCount: 1,
+      connectionRetries: 2,
+      hasEverConnected: true,
+      hasInflightRequests: false,
+      inflightActions: 0,
+      inflightMutations: 0,
+      isWebSocketConnected: false,
+      timeOfOldestInflightRequest: null,
+    };
+    offlineDraftMocks.saveDraft.mockImplementation(async (input) => ({
+      ...input,
+      updatedAt: Date.now(),
+      version: 1,
+    }));
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    expect(screen.getByText("Private offline mode")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "What should people involved in this Build know?",
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save privately on device" })
+    );
+
+    await waitFor(() => expect(offlineDraftMocks.saveDraft).toHaveBeenCalled());
+    expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
   test("reconnects an offline edit against the exact server draft revision", async () => {

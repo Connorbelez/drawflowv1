@@ -1,7 +1,11 @@
 "use client";
 
 import type { JSONContent } from "@tiptap/react";
-import { usePaginatedQuery, useQuery } from "convex/react";
+import {
+  useConvexConnectionState,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import {
   CalendarClock,
   Flag,
@@ -504,12 +508,13 @@ interface BuildCollaborationFeedProps {
 }
 
 export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
-  const [isOnline, setIsOnline] = useState(
+  const connectionState = useConvexConnectionState();
+  const [browserOnline, setBrowserOnline] = useState(
     () => typeof navigator === "undefined" || navigator.onLine
   );
   useEffect(() => {
-    const markOnline = () => setIsOnline(true);
-    const markOffline = () => setIsOnline(false);
+    const markOnline = () => setBrowserOnline(true);
+    const markOffline = () => setBrowserOnline(false);
     window.addEventListener("online", markOnline);
     window.addEventListener("offline", markOffline);
     return () => {
@@ -517,6 +522,14 @@ export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
       window.removeEventListener("offline", markOffline);
     };
   }, []);
+  // Do not flash offline during the client's first clean connection attempt.
+  // Once it has connected or retried, require a live socket before any shared
+  // mutation/action can leave the private-draft boundary.
+  const convexWriteReady =
+    connectionState.isWebSocketConnected ||
+    (!connectionState.hasEverConnected &&
+      connectionState.connectionRetries === 0);
+  const isOnline = browserOnline && convexWriteReady;
   return (
     <BuildCollaborationMutationGate sharedMutationsAllowed={isOnline}>
       <BuildCollaborationFeedContent {...props} isOnline={isOnline} />

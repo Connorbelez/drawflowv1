@@ -325,8 +325,10 @@ one enabled Build:
 3. For separate approvals, revoke the approving human's membership, change a
    custom-audience participant, revoke a referenced entity or attachment, and
    advance a record protected by an `assert_revision` guard before execution.
-   Each approval must move to `paused`; its draft must return to active with a
-   disclosure-safe conflict reason and require a fresh exact human approval.
+   Also close the Build after approval but before execution. Each approval must
+   move to `paused`; its draft must return to active with a disclosure-safe
+   conflict reason and require a fresh exact human approval. Lifecycle and
+   deterministic validation failures must never enter the recovery loop.
 4. Force the direct scheduler invocation to fail, then run the five-minute
    recovery sweep. Confirm a due approval is retried without duplicate effects
    and that `executionAttemptCount` and `lastExecutionAt` remain observable.
@@ -339,13 +341,19 @@ one enabled Build:
    load the private device draft, and save it to the server; confirm the original
    file `lastModified` value is stored as `sourceCapturedAt`. Publishing remains
    a separate human action and revalidates the complete bundle.
+7. Keep browser networking online while disconnecting the Convex WebSocket.
+   Confirm the feed enters private offline mode and rejects every nested
+   collaboration mutation and action without invoking the underlying Convex
+   client. Restore the socket and confirm normal mutation authority resumes.
 
 Monitor `build.collaboration.publication.scheduled`,
 `build.collaboration.publication.schedule_executed`, and
 `build.collaboration.publication.schedule_paused` audit/outbox events. Also
 monitor `build.collaboration.publication.schedule_retryable_failure`; these
 approvals intentionally remain `approved` for the five-minute recovery sweep,
-while only material approval/revalidation conflicts move to `paused`. Alert on
+but only explicitly typed operational failures are retryable. Material approval,
+authorization, lifecycle, tenancy, and revalidation conflicts move to `paused`;
+unknown failures fail closed as conflicts. Alert on
 overdue approved schedules, repeated execution attempts, approval-hash failures,
 paused-volume spikes, or any scheduled post whose author differs from the
 approving human. Private offline drafts are browser-local and must never be

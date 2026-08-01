@@ -171,6 +171,51 @@ describe("Build collaboration scheduled publication", () => {
     expect(recovered.approval).not.toHaveProperty("lastExecutionError");
   });
 
+  test("pauses when the Build closes after exact approval", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const scheduledFor = BASE_TIME + 60_000;
+    const { approvalId, draftId } = await saveAndSchedule(fixture, {
+      plainText: "Scheduled update approved before Build closure.",
+      scheduledFor,
+    });
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.insert("buildCollaborationBuildStates", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        closedAt: BASE_TIME + 30_000,
+        closedByRole: "admin",
+        closedByWorkosUserId: "user_admin",
+        closeReason: "Construction collaboration archive finalized.",
+        createdAt: BASE_TIME + 30_000,
+        organizationId: ORGANIZATION_ID,
+        revision: 1,
+        state: "closed",
+        updatedAt: BASE_TIME + 30_000,
+      });
+    });
+
+    vi.setSystemTime(scheduledFor + 1);
+    await fixture.base.action(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledBuildCollaborationPublication,
+      { approvalId }
+    );
+
+    const state = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      draft: await ctx.db.get(draftId),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(state.posts).toEqual([]);
+    expect(state.approval).toMatchObject({
+      conflictReason: expect.stringContaining("closed and read-only"),
+      state: "paused",
+    });
+    expect(state.draft).toMatchObject({ state: "active" });
+  });
+
   test("pauses when the approving human loses current membership", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
@@ -794,6 +839,7 @@ async function seedSchedulingBuild() {
   return {
     admin,
     base,
+    brokerageId: foundation.brokerageId,
     buildId,
     builderStaff: withIdentity(base, {
       roles: ["builder-staff"],
