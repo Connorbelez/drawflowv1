@@ -40,6 +40,7 @@ import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_r
 import { queueBuildCollaborationSearchPostTreeRebuild } from "./build_collaboration_search_maintenance";
 import { persistApprovedBuildCollaborationSharedEffects } from "./build_collaboration_shared_effects";
 import { buildCollaborationValidationError } from "./build_collaboration_validation";
+import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
 import type { Doc, Id, MutationCtx } from "./types";
 
 const MAX_PLAIN_TEXT_LENGTH = 50_000;
@@ -404,6 +405,23 @@ export async function publishBuildCollaborationBundle(
     postId,
     referenceCount: bundle.references.length,
     now,
+  });
+  await emitBuildCollaborationWebhookEvent(ctx, {
+    actorRole: authorization.effectiveRole.role,
+    actorWorkosUserId: authorization.viewer.subject,
+    brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    entityId: postId,
+    entityType: "post",
+    eventType: "build.collaboration.post.published",
+    idempotencyKey: `post:${postId}:published:1`,
+    metadata: {
+      audienceMode: bundle.audienceMode,
+      postType: bundle.postType,
+      revision: 1,
+    },
+    occurredAt: now,
+    organizationId: authorization.organizationId,
   });
   await queueBuildCollaborationSearchPostTreeRebuild(ctx, {
     authorization,

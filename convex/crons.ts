@@ -21,6 +21,14 @@ crons.interval(
 );
 
 crons.interval(
+  "recover expired Build collaboration webhook leases",
+  { minutes: 1 },
+  internal.build_collaboration_webhooks
+    .recoverExpiredBuildCollaborationWebhookDeliveryLeases,
+  {}
+);
+
+crons.interval(
   "clean expired Build collaboration archives",
   { minutes: 15 },
   internal.build_collaboration_export_archive

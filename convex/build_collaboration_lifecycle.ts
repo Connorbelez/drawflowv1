@@ -10,6 +10,7 @@ import {
 } from "./build_collaboration_lifecycle_state";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { buildCollaborationRoleValidator } from "./build_collaboration_validators";
+import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
 import type { Doc, MutationCtx, QueryCtx } from "./types";
 
 const lifecycleStateValidator = v.object({
@@ -395,6 +396,25 @@ async function recordLifecycleTransition(
     relatedEntityId: authorization.build._id,
     relatedEntityType: "activeBuild",
     status: "pending",
+  });
+  await emitBuildCollaborationWebhookEvent(ctx, {
+    actorRole: authorization.effectiveRole.role,
+    actorWorkosUserId: authorization.viewer.subject,
+    brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    entityId: authorization.build._id,
+    entityType: "build",
+    eventType:
+      input.eventType === "closed"
+        ? "build.collaboration.build.closed"
+        : "build.collaboration.build.reopened",
+    idempotencyKey: `build:${authorization.build._id}:${input.eventType}:${input.revision}`,
+    metadata: {
+      lifecycleRevision: input.revision,
+      lifecycleState: input.eventType === "closed" ? "closed" : "open",
+    },
+    occurredAt: input.now,
+    organizationId: authorization.organizationId,
   });
 }
 

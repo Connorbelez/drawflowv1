@@ -23,6 +23,7 @@ import {
   buildCollaborationRoleValidator,
   buildCollaborationThreadStateValidator,
 } from "./build_collaboration_validators";
+import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
 import { internalMutation } from "./fluent";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
@@ -703,6 +704,31 @@ async function recordThreadEvent(
       status: "pending",
     }),
   ]);
+  if (input.eventType !== "announcement_expiration_changed") {
+    const webhookEventType =
+      input.eventType === "resolved"
+        ? "build.collaboration.thread.resolved"
+        : "build.collaboration.thread.reopened";
+    const threadRevision = (input.post.threadRevision ?? 0) + 1;
+    await emitBuildCollaborationWebhookEvent(ctx, {
+      actorRole: input.authorization.effectiveRole.role,
+      actorWorkosUserId: input.authorization.viewer.subject,
+      brokerageId: input.authorization.brokerage._id,
+      buildId: input.authorization.build._id,
+      entityId: input.post._id,
+      entityType: "thread",
+      eventType: webhookEventType,
+      idempotencyKey: `thread:${input.post._id}:${input.eventType}:${threadRevision}`,
+      metadata: {
+        postId: input.post._id,
+        sourceEventType: input.eventType,
+        threadRevision,
+        threadState: input.eventType === "resolved" ? "resolved" : "open",
+      },
+      occurredAt: input.now,
+      organizationId: input.authorization.organizationId,
+    });
+  }
 }
 
 function threadEventCommand(

@@ -35,6 +35,7 @@ import {
   buildCollaborationReactionValidator,
   buildCollaborationReferenceKindValidator,
 } from "./build_collaboration_validators";
+import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_COMMENT_TEXT_LENGTH = 25_000;
@@ -222,6 +223,19 @@ export const addBuildCollaborationComment = authenticatedMutation
       newState: JSON.stringify({ postId: post._id, revision: 1 }),
       organizationId: authorization.organizationId,
       warnings: [],
+    });
+    await emitBuildCollaborationWebhookEvent(ctx, {
+      actorRole: authorization.effectiveRole.role,
+      actorWorkosUserId: authorization.viewer.subject,
+      brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
+      entityId: commentId,
+      entityType: "comment",
+      eventType: "build.collaboration.comment.published",
+      idempotencyKey: `comment:${commentId}:published:1`,
+      metadata: { postId: post._id, revision: 1 },
+      occurredAt: now,
+      organizationId: authorization.organizationId,
     });
     await queueBuildCollaborationSearchOwnerRebuild(ctx, {
       authorization,

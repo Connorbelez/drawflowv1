@@ -30,6 +30,12 @@ import {
   buildCollaborationThreadStateValidator,
   buildParticipantStatusValidator,
 } from "./build_collaboration_validators";
+import {
+  buildCollaborationWebhookAttemptStatusValidator,
+  buildCollaborationWebhookDeliveryStatusValidator,
+  buildCollaborationWebhookEndpointStatusValidator,
+  buildCollaborationWebhookEventTypeValidator,
+} from "./build_collaboration_webhook_contracts";
 
 const siteVisitLocationAttemptValidator = v.object({
   accuracyMeters: v.optional(v.number()),
@@ -2859,6 +2865,131 @@ export default defineSchema({
     .index("by_organization_attempted", ["organizationId", "attemptedAt"])
     .index("by_endpoint_attempted", ["endpointId", "attemptedAt"])
     .index("by_event", ["organizationId", "eventId"]),
+  buildCollaborationWebhookEndpoints: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    name: v.string(),
+    endpointUrl: v.string(),
+    payloadVersion: v.string(),
+    signingKeyMaterial: v.string(),
+    secretFingerprint: v.string(),
+    secretVersion: v.number(),
+    authorizedByWorkosUserId: v.string(),
+    authorizedByRole: buildCollaborationRoleValidator,
+    status: buildCollaborationWebhookEndpointStatusValidator,
+    revision: v.number(),
+    nextSequence: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    disabledAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  buildCollaborationWebhookEndpointEventTypes: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    endpointId: v.id("buildCollaborationWebhookEndpoints"),
+    eventType: buildCollaborationWebhookEventTypeValidator,
+    createdAt: v.number(),
+  })
+    .index("by_endpointId_and_eventType", ["endpointId", "eventType"])
+    .index("by_endpointId", ["endpointId"]),
+  buildCollaborationWebhookBuildSequences: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    nextSequence: v.number(),
+    updatedAt: v.number(),
+  }).index("by_buildId", ["buildId"]),
+  buildCollaborationWebhookEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    sequence: v.number(),
+    eventType: buildCollaborationWebhookEventTypeValidator,
+    idempotencyKey: v.string(),
+    entityType: v.string(),
+    entityId: v.string(),
+    actorWorkosUserId: v.optional(v.string()),
+    actorRole: v.optional(buildCollaborationRoleValidator),
+    metadataJson: v.string(),
+    payloadVersion: v.string(),
+    occurredAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_idempotencyKey", ["idempotencyKey"])
+    .index("by_buildId_and_sequence", ["buildId", "sequence"])
+    .index("by_organizationId_and_occurredAt", [
+      "organizationId",
+      "occurredAt",
+    ]),
+  buildCollaborationWebhookDeliveries: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    endpointId: v.id("buildCollaborationWebhookEndpoints"),
+    eventId: v.id("buildCollaborationWebhookEvents"),
+    deliveryId: v.string(),
+    sequence: v.number(),
+    status: buildCollaborationWebhookDeliveryStatusValidator,
+    attemptCount: v.number(),
+    attemptLimit: v.number(),
+    nextAttemptAt: v.optional(v.number()),
+    leaseToken: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    leaseSecretVersion: v.optional(v.number()),
+    replayKey: v.optional(v.string()),
+    replayOfDeliveryId: v.optional(v.id("buildCollaborationWebhookDeliveries")),
+    lastAttemptAt: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    failureReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_endpointId_and_sequence", ["endpointId", "sequence"])
+    .index("by_eventId_and_endpointId", ["eventId", "endpointId"])
+    .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"])
+    .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
+    .index("by_endpointId_and_replayKey", ["endpointId", "replayKey"]),
+  buildCollaborationWebhookReplayRequests: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    endpointId: v.id("buildCollaborationWebhookEndpoints"),
+    originalDeliveryId: v.id("buildCollaborationWebhookDeliveries"),
+    resultDeliveryId: v.id("buildCollaborationWebhookDeliveries"),
+    replayKey: v.string(),
+    reason: v.string(),
+    requestedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_endpointId_and_replayKey", ["endpointId", "replayKey"])
+    .index("by_originalDeliveryId_and_createdAt", [
+      "originalDeliveryId",
+      "createdAt",
+    ]),
+  buildCollaborationWebhookAttempts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    endpointId: v.id("buildCollaborationWebhookEndpoints"),
+    eventId: v.id("buildCollaborationWebhookEvents"),
+    deliveryId: v.id("buildCollaborationWebhookDeliveries"),
+    attemptNumber: v.number(),
+    secretVersion: v.number(),
+    status: buildCollaborationWebhookAttemptStatusValidator,
+    responseCode: v.optional(v.number()),
+    safeError: v.optional(v.string()),
+    startedAt: v.number(),
+    completedAt: v.number(),
+  })
+    .index("by_deliveryId_and_attemptNumber", ["deliveryId", "attemptNumber"])
+    .index("by_organizationId_and_completedAt", [
+      "organizationId",
+      "completedAt",
+    ]),
   calendarSavedViews: defineTable({
     brokerageId: v.id("brokerages"),
     createdAt: v.number(),

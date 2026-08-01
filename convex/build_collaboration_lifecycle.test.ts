@@ -938,7 +938,12 @@ describe("Build collaboration export and lifecycle governance", () => {
     );
     expect(
       await archiveFirst.base.run(
-        async (ctx) => (await ctx.db.get(archive.exportId))?.state,
+        async (ctx) =>
+          (
+            await ctx.db.get(
+              archive.exportId as Id<"buildCollaborationExports">,
+            )
+          )?.state,
       ),
     ).toBe("active");
     await expect(

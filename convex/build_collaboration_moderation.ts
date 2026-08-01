@@ -29,6 +29,7 @@ import {
   buildCollaborationReferenceKindValidator,
   buildCollaborationRoleValidator,
 } from "./build_collaboration_validators";
+import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_REASON_LENGTH = 2000;
@@ -1124,19 +1125,22 @@ async function recordModerationTransition(
     input.entity.entityKind === "post"
       ? input.entity.post._id
       : input.entity.comment._id;
-  await ctx.db.insert("buildCollaborationModerationEvents", {
-    actorRole: input.authorization.effectiveRole.role,
-    actorWorkosUserId: input.authorization.viewer.subject,
-    brokerageId: input.authorization.brokerage._id,
-    buildId: input.authorization.build._id,
-    caseId: input.caseId,
-    createdAt: input.timestamp,
-    eventType: input.eventType,
-    newState: input.newState,
-    organizationId: input.authorization.organizationId,
-    priorState: input.priorState,
-    reason: input.reason,
-  });
+  const moderationEventId = await ctx.db.insert(
+    "buildCollaborationModerationEvents",
+    {
+      actorRole: input.authorization.effectiveRole.role,
+      actorWorkosUserId: input.authorization.viewer.subject,
+      brokerageId: input.authorization.brokerage._id,
+      buildId: input.authorization.build._id,
+      caseId: input.caseId,
+      createdAt: input.timestamp,
+      eventType: input.eventType,
+      newState: input.newState,
+      organizationId: input.authorization.organizationId,
+      priorState: input.priorState,
+      reason: input.reason,
+    }
+  );
   await ctx.db.insert("auditEvents", {
     actorRoles: input.authorization.roles,
     actorWorkosUserId: input.authorization.viewer.subject,
@@ -1154,6 +1158,27 @@ async function recordModerationTransition(
     priorState: input.priorState,
     reason: input.reason,
     warnings: [],
+  });
+  await emitBuildCollaborationWebhookEvent(ctx, {
+    actorRole: input.authorization.effectiveRole.role,
+    actorWorkosUserId: input.authorization.viewer.subject,
+    brokerageId: input.authorization.brokerage._id,
+    buildId: input.authorization.build._id,
+    entityId: input.caseId,
+    entityType: "moderation_case",
+    eventType: "build.collaboration.moderation.changed",
+    idempotencyKey: `moderation:${moderationEventId}`,
+    metadata: {
+      caseId: input.caseId,
+      moderationEventId,
+      moderationState: input.newState,
+      postId: input.entity.post._id,
+      subjectEntityId: entityId,
+      subjectEntityType: input.entity.entityKind,
+      transitionType: input.eventType,
+    },
+    occurredAt: input.timestamp,
+    organizationId: input.authorization.organizationId,
   });
 }
 

@@ -27,6 +27,7 @@ import {
   buildActionItemStatusValidator,
   buildCollaborationRoleValidator,
 } from "./build_collaboration_validators";
+import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_WORKFLOW_PARTICIPANTS = 2000;
@@ -861,6 +862,24 @@ async function recordWorkflowChange(
       now: input.now,
     }),
   ]);
+  await emitBuildCollaborationWebhookEvent(ctx, {
+    actorRole: input.authorization.effectiveRole.role,
+    actorWorkosUserId: input.authorization.viewer.subject,
+    brokerageId: input.authorization.brokerage._id,
+    buildId: input.authorization.build._id,
+    entityId: input.item._id,
+    entityType: "action_item",
+    eventType: "build.collaboration.action_item.transitioned",
+    idempotencyKey: `action-item:${input.item._id}:${input.eventType}:${input.updated.currentRevision}`,
+    metadata: {
+      currentRevision: input.updated.currentRevision,
+      priorStatus: input.item.status,
+      status: input.updated.status,
+      transitionType: input.eventType,
+    },
+    occurredAt: input.now,
+    organizationId: input.authorization.organizationId,
+  });
 }
 
 async function insertWorkflowDelivery(

@@ -4,6 +4,7 @@ import {
   isCleanCollaborationAsset,
 } from "./build_collaboration_asset_access";
 import { buildCollaborationValidationError } from "./build_collaboration_validation";
+import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
 import type { Doc, Id, MutationCtx } from "./types";
 
 type AssetOwnerKind = "postRevision" | "commentRevision" | "actionItem";
@@ -199,5 +200,24 @@ async function activateAssetPublication(
     }),
     organizationId: input.authorization.organizationId,
     warnings: [],
+  });
+  await emitBuildCollaborationWebhookEvent(ctx, {
+    actorRole: input.authorization.effectiveRole.role,
+    actorWorkosUserId: input.authorization.viewer.subject,
+    brokerageId: input.authorization.brokerage._id,
+    buildId: input.authorization.build._id,
+    entityId: asset._id,
+    entityType: "asset",
+    eventType: "build.collaboration.asset.version_published",
+    idempotencyKey: `asset:${asset._id}:version:${asset.version}`,
+    metadata: {
+      ownerKind: input.ownerKind,
+      ownerRecordId: input.ownerRecordId,
+      postId: input.post._id,
+      supersededAssetId,
+      version: asset.version,
+    },
+    occurredAt: input.now,
+    organizationId: input.authorization.organizationId,
   });
 }

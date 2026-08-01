@@ -413,6 +413,48 @@ a restricted placeholder, purge under legal hold, write after closure, or
 closure without terminal/waived Action Items is a disclosure or integrity
 incident and blocks cutover.
 
+## Collaboration webhook activation and recovery
+
+1. An Admin creates each organization endpoint against an authorized active
+   Build, selects the required event families, and records the one-time
+   `dfwhsec_` signing secret in the consumer's secret manager. DrawFlow retains
+   only server-side signing material plus the displayed fingerprint; the secret
+   is never returned again. Use secret rotation, not endpoint recreation, for a
+   planned credential change.
+2. Consumers verify `X-DrawFlow-Signature` as an HMAC-SHA256 over
+   `<X-DrawFlow-Timestamp>.<raw request body>`, reject stale timestamps, and
+   deduplicate on `eventId`. `X-DrawFlow-Delivery` identifies an individual
+   attemptable delivery and `X-DrawFlow-Sequence` is the endpoint-local ordered
+   sequence. The payload version is present in both the body and
+   `X-DrawFlow-Version`.
+3. Confirm payloads contain only organization/Build scope, event/entity IDs,
+   sequence, occurrence time, and permission-safe scalar metadata. Bodies,
+   TipTap JSON, asset/download URLs, reference snapshots, restricted
+   placeholders, and seen receipts must never appear. Consumers fetch governed
+   content separately through the application API under their own current
+   authorization.
+4. Exercise one event in every supported family: post/comment publication,
+   thread resolution/reopening, Action Item transition, asset version
+   publication, moderation change, and Build closure/reopening. Inspect the
+   delivery detail to prove attempt status, response code, signing-secret
+   version, and safe failure text are observable without persisting response
+   bodies.
+5. Failed deliveries retry with the same immutable event and stop later events
+   on that endpoint until the earlier sequence is acknowledged. After terminal
+   exhaustion, replay the failed delivery with a stable operator idempotency key;
+   DrawFlow reopens that same sequence before releasing later events. Replaying
+   an already delivered event creates a new ordered delivery while retaining the
+   original event ID and history.
+6. The one-minute lease-recovery job returns interrupted dispatches to the retry
+   queue. Alert on terminal `failed` deliveries, repeated lease expiry, signature
+   rejection, or a growing pending sequence. Never bypass ordering by editing
+   delivery rows.
+7. Disabling an endpoint, removing an event subscription, revoking the endpoint,
+   or disabling the tenant cancels pending work at its next authorization check
+   and prevents future fan-out. Revocation also invalidates stored signing
+   material. Historical events, deliveries, attempts, replay requests, and audit
+   records remain intact.
+
 ## Verification
 
 ```sh
