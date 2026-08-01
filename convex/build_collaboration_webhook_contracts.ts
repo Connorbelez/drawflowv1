@@ -17,6 +17,17 @@ export const BUILD_COLLABORATION_WEBHOOK_EVENT_TYPES = [
 export type BuildCollaborationWebhookEventType =
   (typeof BUILD_COLLABORATION_WEBHOOK_EVENT_TYPES)[number];
 
+export interface BuildCollaborationWebhookDispatchContext {
+  body: string;
+  deliveryId: string;
+  endpointUrl: string;
+  eventType: BuildCollaborationWebhookEventType;
+  leaseToken: string;
+  secretVersion: number;
+  sequence: number;
+  signingSecret: string;
+}
+
 export const buildCollaborationWebhookEventTypeValidator = v.union(
   ...BUILD_COLLABORATION_WEBHOOK_EVENT_TYPES.map((eventType) =>
     v.literal(eventType)

@@ -7,8 +7,8 @@ import { api, internal } from "./_generated/api";
 import { BUILD_COLLABORATION_WEBHOOK_EVENT_TYPES } from "./build_collaboration_webhook_contracts";
 import {
   emitBuildCollaborationWebhookEvent,
-  signBuildCollaborationWebhookPayload,
 } from "./build_collaboration_webhooks";
+import { signBuildCollaborationWebhookPayload } from "./build_collaboration_webhook_signing";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -39,7 +39,7 @@ describe("Build collaboration webhooks", () => {
         .createBuildCollaborationWebhookEndpoint,
       {
         buildId: fixture.buildId,
-        endpointUrl: "https://hooks.example.test/collaboration",
+        endpointUrl: "https://8.8.8.8/collaboration",
         eventTypes: ["build.collaboration.post.published"],
         name: "Construction operations",
         organizationId: ORGANIZATION_ID,
@@ -146,7 +146,7 @@ describe("Build collaboration webhooks", () => {
         .createBuildCollaborationWebhookEndpoint,
       {
         buildId: fixture.buildId,
-        endpointUrl: "https://hooks.example.test/ordered",
+        endpointUrl: "https://8.8.8.8/ordered",
         eventTypes: [...BUILD_COLLABORATION_WEBHOOK_EVENT_TYPES],
         name: "Ordered lifecycle",
         organizationId: ORGANIZATION_ID,
@@ -233,7 +233,7 @@ describe("Build collaboration webhooks", () => {
         .createBuildCollaborationWebhookEndpoint,
       {
         buildId: fixture.buildId,
-        endpointUrl: "https://hooks.example.test/thread-lifecycle",
+        endpointUrl: "https://8.8.8.8/thread-lifecycle",
         eventTypes: [
           "build.collaboration.comment.published",
           "build.collaboration.thread.resolved",
@@ -312,7 +312,7 @@ describe("Build collaboration webhooks", () => {
         .createBuildCollaborationWebhookEndpoint,
       {
         buildId: fixture.buildId,
-        endpointUrl: "https://hooks.example.test/replay",
+        endpointUrl: "https://8.8.8.8/replay",
         eventTypes: ["build.collaboration.build.closed"],
         name: "Compliance archive",
         organizationId: ORGANIZATION_ID,
@@ -367,6 +367,13 @@ describe("Build collaboration webhooks", () => {
     ).toBe(replayId);
     await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_webhooks
+          .replayBuildCollaborationWebhookDelivery,
+        { ...replayInput, deliveryId: replayId },
+      ),
+    ).rejects.toThrow("idempotency key");
 
     await fixture.admin.mutation(
       (api as any).build_collaboration_webhooks
@@ -425,7 +432,7 @@ describe("Build collaboration webhooks", () => {
         .createBuildCollaborationWebhookEndpoint,
       {
         buildId: fixture.buildId,
-        endpointUrl: "https://hooks.example.test/governed-lifecycle",
+        endpointUrl: "https://8.8.8.8/governed-lifecycle",
         eventTypes: [
           "build.collaboration.action_item.transitioned",
           "build.collaboration.moderation.changed",
@@ -554,7 +561,7 @@ describe("Build collaboration webhooks", () => {
         .createBuildCollaborationWebhookEndpoint,
       {
         buildId: fixture.buildId,
-        endpointUrl: "https://hooks.example.test/exhausted-replay",
+        endpointUrl: "https://8.8.8.8/exhausted-replay",
         eventTypes: ["build.collaboration.thread.resolved"],
         name: "Strictly ordered recovery",
         organizationId: ORGANIZATION_ID,
@@ -625,6 +632,200 @@ describe("Build collaboration webhooks", () => {
     expect(acceptedEventIds).toEqual([String(firstEventId), String(secondEventId)]);
   });
 
+  test("does not revive blocked deliveries after endpoint configuration is removed and restored", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedWebhookFixture();
+    const acceptedEventIds: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        acceptedEventIds.push(JSON.parse(await request.clone().text()).eventId);
+        return new Response(null, { status: 204 });
+      }),
+    );
+    const created = await fixture.admin.mutation(
+      (api as any).build_collaboration_webhooks
+        .createBuildCollaborationWebhookEndpoint,
+      {
+        buildId: fixture.buildId,
+        endpointUrl: "https://8.8.8.8/config-generation",
+        eventTypes: ["build.collaboration.thread.resolved"],
+        name: "Configuration generation",
+        organizationId: ORGANIZATION_ID,
+        reason: "Verify stale pending delivery cancellation.",
+      },
+    );
+    const firstEventId = await fixture.base.run((ctx) =>
+      emitBuildCollaborationWebhookEvent(ctx, {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        entityId: "thread_generation_1",
+        entityType: "thread",
+        eventType: "build.collaboration.thread.resolved",
+        idempotencyKey: "thread:generation:resolved:1",
+        metadata: { threadRevision: 1 },
+        occurredAt: BASE_TIME,
+        organizationId: ORGANIZATION_ID,
+      }),
+    );
+    await fixture.base.run((ctx) =>
+      emitBuildCollaborationWebhookEvent(ctx, {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        entityId: "thread_generation_2",
+        entityType: "thread",
+        eventType: "build.collaboration.thread.resolved",
+        idempotencyKey: "thread:generation:resolved:2",
+        metadata: { threadRevision: 1 },
+        occurredAt: BASE_TIME + 1,
+        organizationId: ORGANIZATION_ID,
+      }),
+    );
+    const [firstDelivery] = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildCollaborationWebhookDeliveries")
+        .withIndex("by_endpointId_and_sequence", (query) =>
+          query.eq("endpointId", created.endpoint._id),
+        )
+        .collect(),
+    );
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(firstDelivery._id, {
+        attemptCount: 5,
+        failureReason: "Fixture terminal failure.",
+        nextAttemptAt: undefined,
+        status: "failed",
+      }),
+    );
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_webhooks
+        .updateBuildCollaborationWebhookEndpoint,
+      {
+        buildId: fixture.buildId,
+        enabled: false,
+        endpointId: created.endpoint._id,
+        endpointUrl: "https://8.8.8.8/config-generation",
+        eventTypes: ["build.collaboration.thread.resolved"],
+        expectedRevision: 1,
+        name: "Configuration generation",
+        organizationId: ORGANIZATION_ID,
+        reason: "Disable the endpoint before restoring it.",
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_webhooks
+        .updateBuildCollaborationWebhookEndpoint,
+      {
+        buildId: fixture.buildId,
+        enabled: true,
+        endpointId: created.endpoint._id,
+        endpointUrl: "https://8.8.8.8/config-generation",
+        eventTypes: ["build.collaboration.thread.resolved"],
+        expectedRevision: 2,
+        name: "Configuration generation",
+        organizationId: ORGANIZATION_ID,
+        reason: "Restore only future endpoint delivery.",
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_webhooks
+        .replayBuildCollaborationWebhookDelivery,
+      {
+        buildId: fixture.buildId,
+        deliveryId: firstDelivery._id,
+        idempotencyKey: "generation-replay-1",
+        organizationId: ORGANIZATION_ID,
+        reason: "Explicitly replay only the failed first event.",
+      },
+    );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    expect(acceptedEventIds).toEqual([String(firstEventId)]);
+    const deliveries = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildCollaborationWebhookDeliveries")
+        .withIndex("by_endpointId_and_sequence", (query) =>
+          query.eq("endpointId", created.endpoint._id),
+        )
+        .collect(),
+    );
+    expect(deliveries.map((delivery) => delivery.status)).toEqual([
+      "delivered",
+      "cancelled",
+    ]);
+  });
+
+  test("does not revive queued delivery after tenant rollback and reactivation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedWebhookFixture();
+    const created = await fixture.admin.mutation(
+      (api as any).build_collaboration_webhooks
+        .createBuildCollaborationWebhookEndpoint,
+      {
+        buildId: fixture.buildId,
+        endpointUrl: "https://8.8.8.8/tenant-generation",
+        eventTypes: ["build.collaboration.build.closed"],
+        name: "Tenant generation",
+        organizationId: ORGANIZATION_ID,
+        reason: "Verify rollback invalidates queued delivery.",
+      },
+    );
+    await fixture.base.run((ctx) =>
+      emitBuildCollaborationWebhookEvent(ctx, {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        entityId: fixture.buildId,
+        entityType: "build",
+        eventType: "build.collaboration.build.closed",
+        idempotencyKey: `tenant-generation:${fixture.buildId}:closed:1`,
+        metadata: { lifecycleRevision: 1 },
+        occurredAt: BASE_TIME,
+        organizationId: ORGANIZATION_ID,
+      }),
+    );
+    const delivery = await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID),
+        )
+        .unique();
+      if (!setting) {
+        throw new Error("Expected tenant setting.");
+      }
+      await ctx.db.patch(setting._id, {
+        accessRevision: 1,
+        status: "disabled",
+        updatedAt: BASE_TIME + 1,
+      });
+      await ctx.db.patch(setting._id, {
+        accessRevision: 2,
+        status: "active",
+        updatedAt: BASE_TIME + 2,
+      });
+      return await ctx.db
+        .query("buildCollaborationWebhookDeliveries")
+        .withIndex("by_endpointId_and_sequence", (query) =>
+          query.eq("endpointId", created.endpoint._id),
+        )
+        .unique();
+    });
+    if (!delivery) {
+      throw new Error("Expected queued delivery.");
+    }
+    expect(
+      await fixture.base.mutation(
+        (internal as any).build_collaboration_webhooks
+          .reserveBuildCollaborationWebhookDelivery,
+        { deliveryId: delivery._id },
+      ),
+    ).toBeNull();
+    expect(
+      await fixture.base.run((ctx) => ctx.db.get(delivery._id)),
+    ).toMatchObject({ status: "cancelled" });
+  });
+
   test("recovers a delivery whose dispatch action loses its lease", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
@@ -634,7 +835,7 @@ describe("Build collaboration webhooks", () => {
         .createBuildCollaborationWebhookEndpoint,
       {
         buildId: fixture.buildId,
-        endpointUrl: "https://hooks.example.test/lease-recovery",
+        endpointUrl: "https://8.8.8.8/lease-recovery",
         eventTypes: ["build.collaboration.build.closed"],
         name: "Lease recovery",
         organizationId: ORGANIZATION_ID,
@@ -714,7 +915,7 @@ describe("Build collaboration webhooks", () => {
           .createBuildCollaborationWebhookEndpoint,
         {
           buildId: fixture.buildId,
-          endpointUrl: "https://hooks.example.test/forbidden",
+          endpointUrl: "https://8.8.8.8/forbidden",
           eventTypes: [...BUILD_COLLABORATION_WEBHOOK_EVENT_TYPES],
           name: "Forbidden builder endpoint",
           organizationId: ORGANIZATION_ID,
@@ -728,7 +929,7 @@ describe("Build collaboration webhooks", () => {
         .createBuildCollaborationWebhookEndpoint,
       {
         buildId: fixture.buildId,
-        endpointUrl: "https://hooks.example.test/all-events",
+        endpointUrl: "https://8.8.8.8/all-events",
         eventTypes: [...BUILD_COLLABORATION_WEBHOOK_EVENT_TYPES],
         name: "Complete event contract",
         organizationId: ORGANIZATION_ID,

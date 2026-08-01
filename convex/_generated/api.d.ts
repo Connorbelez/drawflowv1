@@ -97,6 +97,9 @@ import type * as build_collaboration_threads from "../build_collaboration_thread
 import type * as build_collaboration_validation from "../build_collaboration_validation.js";
 import type * as build_collaboration_validators from "../build_collaboration_validators.js";
 import type * as build_collaboration_webhook_contracts from "../build_collaboration_webhook_contracts.js";
+import type * as build_collaboration_webhook_network from "../build_collaboration_webhook_network.js";
+import type * as build_collaboration_webhook_signing from "../build_collaboration_webhook_signing.js";
+import type * as build_collaboration_webhook_transport from "../build_collaboration_webhook_transport.js";
 import type * as build_collaboration_webhooks from "../build_collaboration_webhooks.js";
 import type * as build_collaboration_workflow_events from "../build_collaboration_workflow_events.js";
 import type * as build_operational_idempotency from "../build_operational_idempotency.js";
@@ -234,6 +237,9 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_validation: typeof build_collaboration_validation;
   build_collaboration_validators: typeof build_collaboration_validators;
   build_collaboration_webhook_contracts: typeof build_collaboration_webhook_contracts;
+  build_collaboration_webhook_network: typeof build_collaboration_webhook_network;
+  build_collaboration_webhook_signing: typeof build_collaboration_webhook_signing;
+  build_collaboration_webhook_transport: typeof build_collaboration_webhook_transport;
   build_collaboration_webhooks: typeof build_collaboration_webhooks;
   build_collaboration_workflow_events: typeof build_collaboration_workflow_events;
   build_operational_idempotency: typeof build_operational_idempotency;

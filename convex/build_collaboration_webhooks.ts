@@ -8,12 +8,15 @@ import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_r
 import {
   BUILD_COLLABORATION_WEBHOOK_EVENT_TYPES,
   BUILD_COLLABORATION_WEBHOOK_PAYLOAD_VERSION,
+  type BuildCollaborationWebhookDispatchContext,
   type BuildCollaborationWebhookEventType,
   buildCollaborationWebhookAttemptStatusValidator,
   buildCollaborationWebhookDeliveryStatusValidator,
   buildCollaborationWebhookEndpointStatusValidator,
   buildCollaborationWebhookEventTypeValidator,
 } from "./build_collaboration_webhook_contracts";
+import { isPublicWebhookIpAddress } from "./build_collaboration_webhook_network";
+import { signBuildCollaborationWebhookPayload } from "./build_collaboration_webhook_signing";
 import { internalAction, internalMutation } from "./fluent";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
@@ -28,10 +31,11 @@ const DELIVERY_TIMEOUT_MS = 10_000;
 const ORDER_RECHECK_MS = 1000;
 const FORBIDDEN_METADATA_KEY =
   /body|content|plaintext|tiptap|receipt|asseturl|downloadurl|label|summary/i;
-const IPV6_LINK_LOCAL_PREFIX = /^fe[89ab]/;
+const IPV4_LITERAL_HOST = /^\d+(?:\.\d+){3}$/;
 
 const endpointProjectionValidator = v.object({
   _id: v.id("buildCollaborationWebhookEndpoints"),
+  deliveryGeneration: v.number(),
   endpointUrl: v.string(),
   eventTypes: v.array(buildCollaborationWebhookEventTypeValidator),
   name: v.string(),
@@ -148,6 +152,7 @@ export const createBuildCollaborationWebhookEndpoint = authenticatedMutation
         authorizedByWorkosUserId: authorization.viewer.subject,
         brokerageId: authorization.brokerage._id,
         createdAt: now,
+        deliveryGeneration: 1,
         endpointUrl: normalizeEndpointUrl(args.endpointUrl),
         name: boundedText(
           args.name,
@@ -237,6 +242,7 @@ export const updateBuildCollaborationWebhookEndpoint = authenticatedMutation
     const eventTypes = normalizeEventTypes(args.eventTypes);
     const now = Date.now();
     await ctx.db.patch(endpoint._id, {
+      deliveryGeneration: endpoint.deliveryGeneration + 1,
       disabledAt: args.enabled ? undefined : now,
       endpointUrl: normalizeEndpointUrl(args.endpointUrl),
       name: boundedText(
@@ -335,6 +341,7 @@ export const revokeBuildCollaborationWebhookEndpoint = authenticatedMutation
     if (endpoint.status !== "revoked") {
       const now = Date.now();
       await ctx.db.patch(endpoint._id, {
+        deliveryGeneration: endpoint.deliveryGeneration + 1,
         revision: endpoint.revision + 1,
         revokedAt: now,
         secretFingerprint: "revoked",
@@ -486,19 +493,30 @@ export const replayBuildCollaborationWebhookDelivery = authenticatedMutation
       )
       .unique();
     if (existing) {
+      if (existing.originalDeliveryId !== original._id) {
+        throw new Error(
+          "Replay idempotency key was reused for a different delivery."
+        );
+      }
       return existing.resultDeliveryId;
     }
     if (original.status === "pending" || original.status === "delivering") {
       throw new Error("Only terminal webhook deliveries can be replayed.");
     }
     const now = Date.now();
+    const tenant = await requireActiveWebhookTenant(ctx, {
+      brokerageId: authorization.brokerage._id,
+      organizationId: authorization.organizationId,
+    });
     let replayId = original._id;
     if (original.status === "failed") {
       await ctx.db.patch(original._id, {
         attemptLimit: original.attemptLimit + MAX_DELIVERY_ATTEMPTS,
+        endpointGeneration: endpoint.deliveryGeneration,
         failureReason: undefined,
         nextAttemptAt: now,
         status: "pending",
+        tenantAccessRevision: tenant.accessRevision ?? 0,
         updatedAt: now,
       });
     } else {
@@ -511,6 +529,7 @@ export const replayBuildCollaborationWebhookDelivery = authenticatedMutation
         createdAt: now,
         deliveryId: `dfwh_${crypto.randomUUID()}`,
         endpointId: endpoint._id,
+        endpointGeneration: endpoint.deliveryGeneration,
         eventId: original.eventId,
         nextAttemptAt: now,
         organizationId: original.organizationId,
@@ -518,6 +537,7 @@ export const replayBuildCollaborationWebhookDelivery = authenticatedMutation
         replayOfDeliveryId: original._id,
         sequence,
         status: "pending",
+        tenantAccessRevision: tenant.accessRevision ?? 0,
         updatedAt: now,
       });
     }
@@ -587,6 +607,10 @@ export async function emitBuildCollaborationWebhookEvent(
     }
     return existing._id;
   }
+  const tenant = await requireActiveWebhookTenant(ctx, {
+    brokerageId: input.brokerageId,
+    organizationId: input.organizationId,
+  });
   const sequence = await nextBuildSequence(ctx, input);
   const eventId = await ctx.db.insert("buildCollaborationWebhookEvents", {
     actorRole: input.actorRole,
@@ -637,11 +661,13 @@ export async function emitBuildCollaborationWebhookEvent(
         createdAt: now,
         deliveryId: `dfwh_${crypto.randomUUID()}`,
         endpointId: endpoint._id,
+        endpointGeneration: endpoint.deliveryGeneration,
         eventId,
         nextAttemptAt: now,
         organizationId: input.organizationId,
         sequence: deliverySequence,
         status: "pending",
+        tenantAccessRevision: tenant.accessRevision ?? 0,
         updatedAt: now,
       }
     );
@@ -663,51 +689,79 @@ export const dispatchBuildCollaborationWebhookDelivery = internalAction
       internal.build_collaboration_webhooks
         .reserveBuildCollaborationWebhookDelivery,
       args
-    )) as WebhookDispatchContext | null;
+    )) as BuildCollaborationWebhookDispatchContext | null;
     if (!dispatch) {
       return null;
     }
     const timestamp = String(Date.now());
-    const signature = await signBuildCollaborationWebhookPayload(
+    const signature = `v1=${await signBuildCollaborationWebhookPayload(
       dispatch.signingSecret,
       `${timestamp}.${dispatch.body}`
-    );
-    let responseCode: number | undefined;
-    let safeError: string | undefined;
-    let status: "delivered" | "failed" = "failed";
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
-    try {
-      const response = await fetch(
-        new Request(dispatch.endpointUrl, {
-          body: dispatch.body,
-          headers: {
-            "Content-Type": "application/json",
-            "X-DrawFlow-Delivery": dispatch.deliveryId,
-            "X-DrawFlow-Event": dispatch.eventType,
-            "X-DrawFlow-Sequence": String(dispatch.sequence),
-            "X-DrawFlow-Signature": `v1=${signature}`,
-            "X-DrawFlow-Timestamp": timestamp,
-            "X-DrawFlow-Version": BUILD_COLLABORATION_WEBHOOK_PAYLOAD_VERSION,
-          },
-          method: "POST",
-          redirect: "error",
-          signal: controller.signal,
-        })
-      );
-      responseCode = response.status;
-      if (response.ok) {
-        status = "delivered";
-      } else {
-        safeError = `Endpoint returned HTTP ${response.status}. Response content was not stored.`;
+    )}`;
+    let result: {
+      responseCode?: number;
+      safeError?: string;
+      status: "delivered" | "failed";
+    };
+    const endpoint = new URL(dispatch.endpointUrl);
+    const hostname = endpoint.hostname.replace(/^\[|\]$/g, "");
+    const isLiteral =
+      hostname.includes(":") || IPV4_LITERAL_HOST.test(hostname);
+    if (isLiteral) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
+      try {
+        const response = await fetch(
+          new Request(endpoint, {
+            body: dispatch.body,
+            headers: {
+              "Content-Type": "application/json",
+              "X-DrawFlow-Delivery": dispatch.deliveryId,
+              "X-DrawFlow-Event": dispatch.eventType,
+              "X-DrawFlow-Sequence": String(dispatch.sequence),
+              "X-DrawFlow-Signature": signature,
+              "X-DrawFlow-Timestamp": timestamp,
+              "X-DrawFlow-Version": BUILD_COLLABORATION_WEBHOOK_PAYLOAD_VERSION,
+            },
+            method: "POST",
+            redirect: "error",
+            signal: controller.signal,
+          })
+        );
+        result =
+          response.status >= 200 && response.status < 300
+            ? { responseCode: response.status, status: "delivered" }
+            : {
+                responseCode: response.status,
+                safeError: `Endpoint returned HTTP ${response.status}. Response content was not stored.`,
+                status: "failed",
+              };
+      } catch (error) {
+        result = {
+          safeError:
+            error instanceof DOMException && error.name === "AbortError"
+              ? "Endpoint timed out before acknowledging delivery."
+              : "Endpoint could not be reached. No response content was stored.",
+          status: "failed",
+        };
+      } finally {
+        clearTimeout(timeout);
       }
-    } catch (error) {
-      safeError =
-        error instanceof DOMException && error.name === "AbortError"
-          ? "Endpoint timed out before acknowledging delivery."
-          : "Endpoint could not be reached. No response content was stored.";
-    } finally {
-      clearTimeout(timeout);
+    } else {
+      result = (await ctx.runAction(
+        internal.build_collaboration_webhook_transport
+          .sendBuildCollaborationWebhookRequest,
+        {
+          body: dispatch.body,
+          deliveryId: dispatch.deliveryId,
+          endpointUrl: dispatch.endpointUrl,
+          eventType: dispatch.eventType,
+          sequence: dispatch.sequence,
+          signature,
+          timestamp,
+          version: BUILD_COLLABORATION_WEBHOOK_PAYLOAD_VERSION,
+        }
+      )) as typeof result;
     }
     await ctx.runMutation(
       internal.build_collaboration_webhooks
@@ -715,10 +769,10 @@ export const dispatchBuildCollaborationWebhookDelivery = internalAction
       {
         deliveryId: args.deliveryId,
         leaseToken: dispatch.leaseToken,
-        responseCode,
-        safeError,
+        responseCode: result.responseCode,
+        safeError: result.safeError,
         secretVersion: dispatch.secretVersion,
-        status,
+        status: result.status,
       }
     );
     return null;
@@ -794,7 +848,7 @@ export const reserveBuildCollaborationWebhookDelivery = internalMutation
       secretVersion: endpoint.secretVersion,
       sequence: delivery.sequence,
       signingSecret: endpoint.signingKeyMaterial,
-    } satisfies WebhookDispatchContext;
+    } satisfies BuildCollaborationWebhookDispatchContext;
   })
   .internal();
 
@@ -981,38 +1035,6 @@ async function recoverExpiredDeliveryLease(
   }
 }
 
-export async function signBuildCollaborationWebhookPayload(
-  signingSecret: string,
-  message: string
-) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(signingSecret),
-    { hash: "SHA-256", name: "HMAC" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(message)
-  );
-  return [...new Uint8Array(signature)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-interface WebhookDispatchContext {
-  body: string;
-  deliveryId: string;
-  endpointUrl: string;
-  eventType: BuildCollaborationWebhookEventType;
-  leaseToken: string;
-  secretVersion: number;
-  sequence: number;
-  signingSecret: string;
-}
-
 async function authorizeWebhookAdmin(
   ctx: Parameters<typeof authorizeActiveBuildCollaborationAccess>[0],
   input: { buildId: Id<"activeBuilds">; organizationId: string }
@@ -1054,6 +1076,7 @@ async function endpointProjection(
     .take(BUILD_COLLABORATION_WEBHOOK_EVENT_TYPES.length + 1);
   return {
     _id: endpoint._id,
+    deliveryGeneration: endpoint.deliveryGeneration,
     endpointUrl: endpoint.endpointUrl,
     eventTypes: subscriptions
       .map((subscription) => subscription.eventType)
@@ -1212,6 +1235,7 @@ async function deliveryStillAuthorized(
 ) {
   if (
     endpoint.status !== "active" ||
+    endpoint.deliveryGeneration !== delivery.endpointGeneration ||
     endpoint.organizationId !== delivery.organizationId ||
     endpoint.brokerageId !== delivery.brokerageId ||
     event.organizationId !== delivery.organizationId ||
@@ -1228,8 +1252,29 @@ async function deliveryStillAuthorized(
     .unique();
   return Boolean(
     tenant?.status === "active" &&
+      (tenant.accessRevision ?? 0) === delivery.tenantAccessRevision &&
       (await findEndpointSubscription(ctx, endpoint._id, event.eventType))
   );
+}
+
+async function requireActiveWebhookTenant(
+  ctx: QueryCtx,
+  input: { brokerageId: Id<"brokerages">; organizationId: string }
+) {
+  const tenant = await ctx.db
+    .query("buildCollaborationTenantSettings")
+    .withIndex("by_organizationId", (query) =>
+      query.eq("organizationId", input.organizationId)
+    )
+    .unique();
+  if (
+    !tenant ||
+    tenant.brokerageId !== input.brokerageId ||
+    tenant.status !== "active"
+  ) {
+    throw new Error("Build collaboration webhook tenant is not active.");
+  }
+  return tenant;
 }
 
 function webhookPayload(event: Doc<"buildCollaborationWebhookEvents">) {
@@ -1414,27 +1459,8 @@ function normalizeEndpointUrl(value: string) {
 }
 
 function isPrivateIp(hostname: string) {
-  if (hostname.includes(":")) {
-    const first = hostname.split(":")[0];
-    return (
-      hostname === "::" ||
-      hostname === "::1" ||
-      first.startsWith("fc") ||
-      first.startsWith("fd") ||
-      IPV6_LINK_LOCAL_PREFIX.test(first)
-    );
-  }
-  const octets = hostname.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet))) {
-    return false;
-  }
-  return (
-    octets[0] === 10 ||
-    octets[0] === 127 ||
-    (octets[0] === 169 && octets[1] === 254) ||
-    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-    (octets[0] === 192 && octets[1] === 168)
-  );
+  const isLiteral = hostname.includes(":") || IPV4_LITERAL_HOST.test(hostname);
+  return isLiteral && !isPublicWebhookIpAddress(hostname);
 }
 
 function generateSigningSecret() {

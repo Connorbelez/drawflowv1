@@ -39,3 +39,10 @@
   replay idempotency, lease recovery, revocation, Admin-only management, and
   cross-organization denial. The cutover runbook now documents consumer
   verification, activation, monitoring, replay, and revocation procedures.
+- Closed fresh-context review findings by binding replay idempotency keys to the
+  original delivery, snapshotting endpoint and tenant access generations on
+  every queued delivery, and moving hostname delivery through a Node transport
+  that rejects every non-public DNS answer and pins the validated address into
+  the HTTPS request. Literal mapped IPv6, reserved ranges, DNS-private answers,
+  remove/re-add, rollback/reactivation, and conflicting replay keys now have
+  dedicated regressions.

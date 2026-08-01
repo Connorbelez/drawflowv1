@@ -451,9 +451,13 @@ incident and blocks cutover.
    delivery rows.
 7. Disabling an endpoint, removing an event subscription, revoking the endpoint,
    or disabling the tenant cancels pending work at its next authorization check
-   and prevents future fan-out. Revocation also invalidates stored signing
-   material. Historical events, deliveries, attempts, replay requests, and audit
-   records remain intact.
+   and prevents future fan-out. Endpoint and tenant access generations are
+   snapshotted on each delivery, so remove/re-add or rollback/reactivation cannot
+   revive stale queued work. Revocation also invalidates stored signing material.
+   Historical events, deliveries, attempts, replay requests, and audit records
+   remain intact. Hostname delivery must resolve exclusively to public addresses
+   and pins one validated address into the no-redirect HTTPS request; any private,
+   mapped-private, reserved, multicast, or mixed DNS result is a delivery failure.
 
 ## Verification
 

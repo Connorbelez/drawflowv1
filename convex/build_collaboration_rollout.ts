@@ -140,6 +140,7 @@ export const transitionBuildCollaborationTenantStatus = authenticatedMutation
     }
     const now = Date.now();
     const patch = {
+      accessRevision: (currentSetting?.accessRevision ?? 0) + 1,
       ...(args.nextStatus === "active"
         ? {
             activatedAt: now,
