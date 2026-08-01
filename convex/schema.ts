@@ -335,6 +335,13 @@ const productionDocumentStatusValidator = v.union(
   v.literal("waived")
 );
 
+const buildDocumentStatusValidator = v.union(
+  v.literal("uploaded"),
+  v.literal("linked"),
+  v.literal("waived"),
+  v.literal("superseded")
+);
+
 const siteVisitGuidanceFieldValidator = v.union(
   v.string(),
   v.array(v.string())
@@ -4097,7 +4104,7 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     proposalId: v.id("buildProposals"),
     documentType: productionDocumentTypeValidator,
-    status: productionDocumentStatusValidator,
+    status: buildDocumentStatusValidator,
     fileName: v.string(),
     mimeType: v.string(),
     sizeBytes: v.number(),
@@ -4105,12 +4112,19 @@ export default defineSchema({
     // Permits are contractor-visible by default (PRD §3.17, §15). Non-permit
     // documents require an explicit contractor-visible ACL flag (PRD §3.34).
     contractorVisible: v.optional(v.boolean()),
+    clientOperationId: v.optional(v.string()),
+    clientOperationFingerprint: v.optional(v.string()),
+    version: v.optional(v.number()),
+    supersedesDocumentId: v.optional(v.id("buildDocuments")),
+    supersededByDocumentId: v.optional(v.id("buildDocuments")),
+    supersededAt: v.optional(v.number()),
     uploadedByWorkosUserId: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
     .index("by_build_type", ["buildId", "documentType"])
+    .index("by_build_operation", ["buildId", "clientOperationId"])
     .index("by_build_contractor_visible", ["buildId", "contractorVisible"]),
   buildEvidenceAssets: defineTable({
     brokerageId: v.id("brokerages"),
@@ -4352,6 +4366,7 @@ export default defineSchema({
     dependencyKeys: v.array(v.string()),
     completionClaim: v.optional(v.any()),
     completionReview: v.optional(v.any()),
+    collaborationEventRevision: v.optional(v.number()),
     collaborationEvidenceEventRevision: v.optional(v.number()),
     evidenceState: v.optional(v.string()),
     isDragLocked: v.optional(v.boolean()),
@@ -4538,6 +4553,7 @@ export default defineSchema({
     withdrawnAt: v.optional(v.string()),
     releaseDate: v.optional(v.string()),
     releasedAt: v.optional(v.string()),
+    collaborationEventRevision: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

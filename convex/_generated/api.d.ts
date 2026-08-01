@@ -72,6 +72,7 @@ import type * as build_collaboration_rollout from "../build_collaboration_rollou
 import type * as build_collaboration_system_events from "../build_collaboration_system_events.js";
 import type * as build_collaboration_threads from "../build_collaboration_threads.js";
 import type * as build_collaboration_validators from "../build_collaboration_validators.js";
+import type * as build_collaboration_workflow_events from "../build_collaboration_workflow_events.js";
 import type * as build_operational_idempotency from "../build_operational_idempotency.js";
 import type * as build_participant_activation from "../build_participant_activation.js";
 import type * as build_participant_revocation from "../build_participant_revocation.js";
@@ -182,6 +183,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_system_events: typeof build_collaboration_system_events;
   build_collaboration_threads: typeof build_collaboration_threads;
   build_collaboration_validators: typeof build_collaboration_validators;
+  build_collaboration_workflow_events: typeof build_collaboration_workflow_events;
   build_operational_idempotency: typeof build_operational_idempotency;
   build_participant_activation: typeof build_participant_activation;
   build_participant_revocation: typeof build_participant_revocation;

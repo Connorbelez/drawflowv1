@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { DocumentOperationIntentRegistry } from "#/features/backoffice-build-detail/documentOperationIntent.ts";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
 import {
   type ProductionBuildDetail,
@@ -102,6 +103,9 @@ function RouteComponent() {
   const search = Route.useSearch();
   const navigate = useNavigate();
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+  const documentOperationIntents = useRef(
+    new DocumentOperationIntentRegistry()
+  );
   const siteVisitScheduleIntents = useRef(
     new SiteVisitScheduleIntentRegistry()
   );
@@ -346,15 +350,21 @@ function RouteComponent() {
     );
     const actions: ProductionBuildDetailActions = {
       addDocument: canUseAppPermission(appPermissions, "evidence", "create")
-        ? ({ documentType, fileName }) =>
-            addDocument({
+        ? async (input) => {
+            const clientOperationId =
+              documentOperationIntents.current.keyFor(input);
+            const result = await addDocument({
               buildId: activeBuildId,
-              documentType,
-              fileName,
+              clientOperationId,
+              ...input,
               mimeType: "application/octet-stream",
               sizeBytes: 0,
               workosOrganizationId,
-            })
+            });
+            documentOperationIntents.current.confirm(input);
+            toast.success("Document added.");
+            return result;
+          }
         : undefined,
       approveDraw:
         canMakeFinalDecision &&

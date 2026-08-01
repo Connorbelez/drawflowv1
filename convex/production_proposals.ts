@@ -37,6 +37,11 @@ import {
   publishSiteVisitScheduledCollaborationEvent,
 } from "./build_collaboration_operational_events";
 import {
+  publishDocumentCollaborationEvent,
+  publishDrawCollaborationEvent,
+  publishMilestoneCollaborationEvent,
+} from "./build_collaboration_workflow_events";
+import {
   evidenceLocationMateriallyChanged,
   normalizeOperationalIdempotencyKey,
   operationalRequestFingerprint,
@@ -17087,7 +17092,10 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       ...(args.qualityNote ? { qualityNote: args.qualityNote } : {}),
       submittedAt: new Date().toISOString(),
     };
+    const collaborationEventRevision =
+      (milestone.collaborationEventRevision ?? 0) + 1;
     await ctx.db.patch(milestone._id, {
+      collaborationEventRevision,
       completionClaim,
       completionReview: activeBuildPendingCompletionReview(
         milestone.completionReview
@@ -17104,6 +17112,12 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       eventType: "active_build.milestone_completion.submitted",
       newState: JSON.stringify(completionClaim),
       priorState: JSON.stringify(milestone.completionClaim),
+    });
+    await publishMilestoneCollaborationEvent(ctx, {
+      milestone,
+      note: args.note,
+      revision: collaborationEventRevision,
+      transition: "submitted",
     });
     if (
       activeBuildCompletionReviewRecord(milestone.completionReview).status ===
@@ -17918,6 +17932,7 @@ export const addActiveBuildNote = authenticatedMutation
 export const addActiveBuildDocument = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
+    clientOperationId: v.string(),
     documentType: v.union(
       v.literal("permit"),
       v.literal("budget"),
@@ -17928,6 +17943,7 @@ export const addActiveBuildDocument = authenticatedMutation
     mimeType: v.string(),
     sizeBytes: v.number(),
     storageId: v.optional(v.id("_storage")),
+    supersedesDocumentId: v.optional(v.id("buildDocuments")),
     workosOrganizationId: v.string(),
   })
   .returns(v.null())
@@ -17939,32 +17955,161 @@ export const addActiveBuildDocument = authenticatedMutation
     );
     requireBackofficeActiveBuildWrite(auth);
     const now = Date.now();
+    const fileName = args.fileName.trim();
+    if (!fileName) {
+      throw new Error("Document file name is required.");
+    }
+    const clientOperationId = normalizeOperationalIdempotencyKey(
+      args.clientOperationId,
+      "Document operation ID",
+      128
+    );
+    const clientOperationFingerprint = await operationalRequestFingerprint({
+      documentType: args.documentType,
+      fileName,
+      mimeType: args.mimeType,
+      sizeBytes: Math.max(0, Math.round(args.sizeBytes)),
+      storageId: args.storageId ? String(args.storageId) : null,
+      supersedesDocumentId: args.supersedesDocumentId
+        ? String(args.supersedesDocumentId)
+        : null,
+    });
+    const existingOperation = await ctx.db
+      .query("buildDocuments")
+      .withIndex("by_build_operation", (query) =>
+        query
+          .eq("buildId", args.buildId)
+          .eq("clientOperationId", clientOperationId)
+      )
+      .first();
+    if (existingOperation) {
+      if (
+        existingOperation.clientOperationFingerprint !==
+        clientOperationFingerprint
+      ) {
+        throw new Error(
+          "This Document operation ID was already used for different content."
+        );
+      }
+      return null;
+    }
+    const typeDocuments = await ctx.db
+      .query("buildDocuments")
+      .withIndex("by_build_type", (query) =>
+        query
+          .eq("buildId", args.buildId)
+          .eq("documentType", args.documentType)
+      )
+      .collect();
+    const activeTypeDocuments = typeDocuments.filter(
+      (document) =>
+        document.status !== "superseded" && !document.supersededByDocumentId
+    );
+    const supersededDocument =
+      (args.supersedesDocumentId
+        ? await ctx.db.get(args.supersedesDocumentId)
+        : undefined) ?? undefined;
+    if (
+      supersededDocument &&
+      (supersededDocument.buildId !== args.buildId ||
+        supersededDocument.organizationId !== args.workosOrganizationId ||
+        supersededDocument.documentType !== args.documentType)
+    ) {
+      throw new Error(
+        "The superseded Document must be an active Document of the same type on this Build."
+      );
+    }
+    if (
+      supersededDocument &&
+      (supersededDocument.status === "superseded" ||
+        supersededDocument.supersededByDocumentId)
+    ) {
+      throw new Error("The selected Document was already superseded.");
+    }
+    const currentTypeDocument = activeTypeDocuments.reduce<
+      Doc<"buildDocuments"> | undefined
+    >((current, candidate) => {
+      if (!current) {
+        return candidate;
+      }
+      const versionDelta =
+        (candidate.version ?? 1) - (current.version ?? 1);
+      if (versionDelta !== 0) {
+        return versionDelta > 0 ? candidate : current;
+      }
+      return candidate.createdAt > current.createdAt ? candidate : current;
+    }, undefined);
+    if (
+      args.documentType !== "supporting" &&
+      supersededDocument &&
+      currentTypeDocument?._id !== supersededDocument._id
+    ) {
+      throw new Error(
+        "Only the current governing Document version can be superseded."
+      );
+    }
+    if (
+      args.documentType !== "supporting" &&
+      activeTypeDocuments.length > 0 &&
+      !supersededDocument
+    ) {
+      throw new Error(
+        "Select the current governing Document to supersede before adding another version."
+      );
+    }
+    const version =
+      typeDocuments.reduce(
+        (latest, document) => Math.max(latest, document.version ?? 1),
+        0
+      ) + 1;
     const document = {
       brokerageId: auth.brokerage._id,
       buildId: args.buildId,
+      clientOperationFingerprint,
+      clientOperationId,
       createdAt: now,
       documentType: args.documentType,
-      fileName: args.fileName.trim(),
+      fileName,
       mimeType: args.mimeType,
       organizationId: args.workosOrganizationId,
       proposalId: auth.proposal._id,
       sizeBytes: Math.max(0, Math.round(args.sizeBytes)),
       status: "uploaded" as const,
       storageId: args.storageId,
+      supersedesDocumentId: supersededDocument?._id,
       updatedAt: now,
       uploadedByWorkosUserId: auth.subject,
+      version,
     };
-    if (!document.fileName) {
-      throw new Error("Document file name is required.");
+    const documentId = await ctx.db.insert("buildDocuments", document);
+    if (supersededDocument) {
+      await ctx.db.patch(supersededDocument._id, {
+        status: "superseded",
+        supersededAt: now,
+        supersededByDocumentId: documentId,
+        updatedAt: now,
+      });
     }
-    await ctx.db.insert("buildDocuments", document);
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
       command: "addActiveBuildDocument",
       eventType: "active_build.document.created",
       newState: JSON.stringify(document),
+      priorState: supersededDocument
+        ? JSON.stringify(supersededDocument)
+        : undefined,
     });
+    if (args.documentType !== "supporting") {
+      const persistedDocument = await ctx.db.get(documentId);
+      if (!persistedDocument) {
+        throw new Error("The governing Document could not be reloaded.");
+      }
+      await publishDocumentCollaborationEvent(ctx, {
+        document: persistedDocument,
+        supersededDocument,
+      });
+    }
     return null;
   })
   .public();
@@ -18798,6 +18943,7 @@ export const requestActiveBuildDraw = authenticatedMutation
       brokerageId: auth.brokerage._id,
       buildId: args.buildId,
       clientOperationId,
+      collaborationEventRevision: 1,
       createdAt: now,
       displayId,
       label: plannedDraw?.label ?? "Builder reimbursement request",
@@ -18841,6 +18987,16 @@ export const requestActiveBuildDraw = authenticatedMutation
         ),
       }),
       reason: note,
+    });
+    const persistedDrawRequest = await ctx.db.get(drawRequestId);
+    if (!persistedDrawRequest) {
+      throw new Error("The submitted Draw request could not be reloaded.");
+    }
+    await publishDrawCollaborationEvent(ctx, {
+      draw: persistedDrawRequest,
+      note,
+      revision: 1,
+      transition: "submitted",
     });
     return {
       amountCents,
@@ -19055,6 +19211,7 @@ export const approveActiveBuildDraw = authenticatedMutation
       );
     }
     const patch = {
+      collaborationEventRevision: (draw.collaborationEventRevision ?? 0) + 1,
       reviewNote: note,
       reviewedByWorkosUserId: auth.subject,
       reviewedAt: new Date().toISOString(),
@@ -19070,6 +19227,12 @@ export const approveActiveBuildDraw = authenticatedMutation
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(draw),
       reason: note,
+    });
+    await publishDrawCollaborationEvent(ctx, {
+      draw: { ...draw, ...patch },
+      note,
+      revision: patch.collaborationEventRevision,
+      transition: "approved",
     });
     await upsertBuilderDrawDecisionDeliveries(ctx, {
       auth,
@@ -19111,6 +19274,7 @@ export const rejectActiveBuildDraw = authenticatedMutation
       );
     }
     const patch = {
+      collaborationEventRevision: (draw.collaborationEventRevision ?? 0) + 1,
       reviewNote: note,
       reviewedAt: new Date().toISOString(),
       reviewedByWorkosUserId: auth.subject,
@@ -19126,6 +19290,12 @@ export const rejectActiveBuildDraw = authenticatedMutation
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(draw),
       reason: note,
+    });
+    await publishDrawCollaborationEvent(ctx, {
+      draw: { ...draw, ...patch },
+      note,
+      revision: patch.collaborationEventRevision,
+      transition: "returned",
     });
     await upsertBuilderDrawDecisionDeliveries(ctx, {
       auth,
@@ -19168,6 +19338,7 @@ export const releaseActiveBuildDraw = authenticatedMutation
       );
     }
     const patch = {
+      collaborationEventRevision: (draw.collaborationEventRevision ?? 0) + 1,
       releaseDate: args.releaseDate,
       releaseNote: note,
       releasedAt: new Date().toISOString(),
@@ -19193,6 +19364,12 @@ export const releaseActiveBuildDraw = authenticatedMutation
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(draw),
       reason: note,
+    });
+    await publishDrawCollaborationEvent(ctx, {
+      draw: { ...draw, ...patch },
+      note,
+      revision: patch.collaborationEventRevision,
+      transition: "released",
     });
     await upsertBuilderDrawDecisionDeliveries(ctx, {
       auth,
@@ -20018,6 +20195,13 @@ export const requestActiveBuildMilestoneInfo = authenticatedMutation
     if (!note) {
       throw new Error("A requested change note is required.");
     }
+    const priorReview = activeBuildCompletionReviewRecord(
+      milestone.completionReview
+    );
+    const materialTransition = priorReview.status !== "revisionRequested";
+    const collaborationEventRevision = materialTransition
+      ? (milestone.collaborationEventRevision ?? 0) + 1
+      : milestone.collaborationEventRevision;
     const completionReview = {
       ...(milestone.completionReview ?? {}),
       note,
@@ -20025,6 +20209,7 @@ export const requestActiveBuildMilestoneInfo = authenticatedMutation
       status: "revisionRequested",
     };
     await ctx.db.patch(milestone._id, {
+      collaborationEventRevision,
       completionReview,
       evidenceState: "Info requested",
       updatedAt: Date.now(),
@@ -20038,6 +20223,14 @@ export const requestActiveBuildMilestoneInfo = authenticatedMutation
       priorState: JSON.stringify(milestone.completionReview),
       reason: note,
     });
+    if (materialTransition && collaborationEventRevision !== undefined) {
+      await publishMilestoneCollaborationEvent(ctx, {
+        milestone,
+        note,
+        revision: collaborationEventRevision,
+        transition: "blocked",
+      });
+    }
     return null;
   })
   .public();
@@ -20241,7 +20434,15 @@ export const approveActiveBuildMilestone = authenticatedMutation
       reviewedAt: new Date().toISOString(),
       status: "approved",
     };
+    const priorReview = activeBuildCompletionReviewRecord(
+      milestone.completionReview
+    );
+    const materialTransition = priorReview.status !== "approved";
+    const collaborationEventRevision = materialTransition
+      ? (milestone.collaborationEventRevision ?? 0) + 1
+      : milestone.collaborationEventRevision;
     await ctx.db.patch(milestone._id, {
+      collaborationEventRevision,
       completionReview,
       evidenceState: "Approved",
       status: "complete",
@@ -20256,6 +20457,14 @@ export const approveActiveBuildMilestone = authenticatedMutation
       priorState: JSON.stringify(milestone.completionReview),
       reason: args.note,
     });
+    if (materialTransition && collaborationEventRevision !== undefined) {
+      await publishMilestoneCollaborationEvent(ctx, {
+        milestone,
+        note: args.note,
+        revision: collaborationEventRevision,
+        transition: "approved",
+      });
+    }
     await upsertBuilderMilestoneDecisionDeliveries(ctx, {
       auth,
       milestone,
@@ -20292,7 +20501,15 @@ export const rejectActiveBuildMilestone = authenticatedMutation
       reviewedAt: new Date().toISOString(),
       status: "rejected",
     };
+    const priorReview = activeBuildCompletionReviewRecord(
+      milestone.completionReview
+    );
+    const materialTransition = priorReview.status !== "rejected";
+    const collaborationEventRevision = materialTransition
+      ? (milestone.collaborationEventRevision ?? 0) + 1
+      : milestone.collaborationEventRevision;
     await ctx.db.patch(milestone._id, {
+      collaborationEventRevision,
       completionReview,
       evidenceState: "Rejected",
       status:
@@ -20308,6 +20525,14 @@ export const rejectActiveBuildMilestone = authenticatedMutation
       priorState: JSON.stringify(milestone.completionReview),
       reason: args.note,
     });
+    if (materialTransition && collaborationEventRevision !== undefined) {
+      await publishMilestoneCollaborationEvent(ctx, {
+        milestone,
+        note: args.note,
+        revision: collaborationEventRevision,
+        transition: "rejected",
+      });
+    }
     await upsertBuilderMilestoneDecisionDeliveries(ctx, {
       auth,
       milestone,
@@ -27702,6 +27927,7 @@ async function copyProposalOperationalRowsToActiveBuild(
     await ctx.db.insert("buildDocuments", {
       brokerageId: input.auth.brokerage._id,
       buildId: input.buildId,
+      contractorVisible: document.contractorVisible,
       createdAt: input.now,
       documentType: document.documentType,
       fileName: document.fileName,
@@ -27713,6 +27939,7 @@ async function copyProposalOperationalRowsToActiveBuild(
       storageId: document.storageId,
       updatedAt: input.now,
       uploadedByWorkosUserId: document.uploadedByWorkosUserId,
+      version: 1,
     });
   }
   for (const asset of evidenceAssets) {

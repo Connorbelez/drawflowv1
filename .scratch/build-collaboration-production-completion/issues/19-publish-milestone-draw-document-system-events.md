@@ -8,10 +8,10 @@
 
 **Source contracts:** Build Collaboration Product Contract §11; Build Collaboration Production Implementation Plan — Internal event interface and Task 9; Build Collaboration Cutover Runbook — Verification and monitoring; Build Collaboration Implementation Gap Analysis — Operational integration is not connected.
 
-- [ ] Milestone submitted, approved, rejected, or blocked transitions emit canonical system posts from the authoritative mutation.
-- [ ] Draw submitted, approved, released, or returned transitions emit canonical system posts without changing reimbursement or lender-approval rules.
-- [ ] Governing Documents added or superseded emit canonical system posts and preserve document version history.
-- [ ] Each event is idempotent, uses canonical references, inherits the correct audience, and deep-links to the focused operational detail.
-- [ ] Deterministic policy Action Items are duplicate-safe and AI/ad hoc recommendations require human approval.
-- [ ] Non-material operational updates remain audit-only and do not create feed noise.
-- [ ] Tests cover every transition, retries, transaction rollback, lender/admin authority, restricted roles, and no duplicate records.
+- [x] Milestone submitted, approved, rejected, or blocked transitions emit canonical system posts from the authoritative mutation.
+- [x] Draw submitted, approved, released, or returned transitions emit canonical system posts without changing reimbursement or lender-approval rules.
+- [x] Governing Documents added or superseded emit canonical system posts and preserve document version history.
+- [x] Each event is idempotent, uses canonical references, inherits the correct audience, and deep-links to the focused operational detail.
+- [x] Deterministic policy Action Items are duplicate-safe and AI/ad hoc recommendations require human approval.
+- [x] Non-material operational updates remain audit-only and do not create feed noise.
+- [x] Tests cover every transition, retries, transaction rollback, lender/admin authority, restricted roles, and no duplicate records.

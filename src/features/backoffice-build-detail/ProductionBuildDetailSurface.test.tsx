@@ -2289,6 +2289,37 @@ describe("ProductionBuildDetailSurface", () => {
     ).toBe("https://example.com/build-permit.pdf");
   });
 
+  test("adds a governing Document as a versioned supersession", async () => {
+    const addDocument = vi.fn().mockResolvedValue(null);
+    render(
+      <ProductionBuildDetailSurface
+        actions={{ addDocument }}
+        activeTab="documents"
+        detail={detail}
+        onChangeRail={vi.fn()}
+        onChangeTab={vi.fn()}
+        rail="closed"
+      />
+    );
+
+    fireEvent.change(screen.getByTestId("documents-supersedes"), {
+      target: { value: "document-01" },
+    });
+    fireEvent.change(screen.getByTestId("documents-name"), {
+      target: { value: "permit-v2.pdf" },
+    });
+    fireEvent.click(screen.getByTestId("documents-add"));
+
+    await waitFor(() =>
+      expect(addDocument).toHaveBeenCalledWith({
+        documentType: "permit",
+        fileName: "permit-v2.pdf",
+        supersedesDocumentId: "document-01",
+      })
+    );
+    expect(screen.getByText(/permit · v1/i)).toBeTruthy();
+  });
+
   test("focuses and highlights a collaboration-linked document", async () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(Element.prototype, "scrollIntoView", {

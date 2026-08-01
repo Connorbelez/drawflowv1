@@ -5728,6 +5728,7 @@ describe("production proposal foundation", () => {
     });
     await t.mutation((api as any).production_proposals.addActiveBuildDocument, {
       buildId: closing.buildId,
+      clientOperationId: "active-build-document-inspection-scope",
       documentType: "supporting",
       fileName: "inspection-scope.pdf",
       mimeType: "application/pdf",

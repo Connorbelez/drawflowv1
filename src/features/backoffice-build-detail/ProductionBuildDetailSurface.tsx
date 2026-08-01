@@ -163,6 +163,7 @@ export interface ProductionBuildDetailActions {
   addDocument?: (input: {
     documentType: "permit" | "budget" | "plan" | "supporting";
     fileName: string;
+    supersedesDocumentId?: string;
   }) => Promise<unknown> | unknown;
   addNote?: (input: {
     body: string;
@@ -674,9 +675,11 @@ interface ProductionDocument {
   mimeType?: string;
   name?: string;
   sizeBytes?: number;
+  status?: string;
   storageId?: string;
   storageUrl?: string | null;
   url?: string | null;
+  version?: number;
 }
 
 interface ProductionNote {
@@ -5214,6 +5217,7 @@ function ProductionDocumentsCard({
   const [kind, setKind] = useState<"permit" | "budget" | "plan" | "supporting">(
     "supporting"
   );
+  const [supersedesDocumentId, setSupersedesDocumentId] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -5224,9 +5228,14 @@ function ProductionDocumentsCard({
     setPending(true);
     setError("");
     try {
-      await actions.addDocument({ documentType: kind, fileName: name.trim() });
+      await actions.addDocument({
+        documentType: kind,
+        fileName: name.trim(),
+        supersedesDocumentId: supersedesDocumentId || undefined,
+      });
       setName("");
       setKind("supporting");
+      setSupersedesDocumentId("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -5244,7 +5253,7 @@ function ProductionDocumentsCard({
       </CardHeader>
       <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0">
         <div
-          className="mb-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_120px_auto]"
+          className="mb-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_120px_minmax(180px,auto)_auto]"
           data-testid="documents-add-form"
         >
           <input
@@ -5267,6 +5276,38 @@ function ProductionDocumentsCard({
                 {value}
               </option>
             ))}
+          </select>
+          <select
+            aria-label="Document version relationship"
+            className="rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+            data-testid="documents-supersedes"
+            onChange={(event) => {
+              const documentId = event.target.value;
+              setSupersedesDocumentId(documentId);
+              const selected = documents.find(
+                (document) => document._id === documentId
+              );
+              const selectedType = selected?.documentType ?? selected?.kind;
+              if (
+                selectedType === "permit" ||
+                selectedType === "budget" ||
+                selectedType === "plan" ||
+                selectedType === "supporting"
+              ) {
+                setKind(selectedType);
+              }
+            }}
+            value={supersedesDocumentId}
+          >
+            <option value="">New Document</option>
+            {documents
+              .filter((document) => document.status !== "superseded")
+              .map((document) => (
+                <option key={document._id} value={document._id}>
+                  Supersede {document.name ?? document.fileName} v
+                  {document.version ?? 1}
+                </option>
+              ))}
           </select>
           <button
             className="rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground text-sm disabled:opacity-50 md:py-1.5"
@@ -5298,6 +5339,8 @@ function ProductionDocumentsCard({
                 <div className="flex shrink-0 items-center gap-2 sm:ml-2">
                   <span className="text-muted-foreground text-xs">
                     {document.kind ?? document.documentType}
+                    {` · v${document.version ?? 1}`}
+                    {document.status ? ` · ${document.status}` : ""}
                     {document.sizeBytes
                       ? ` - ${Math.round(document.sizeBytes / 1024)}KB`
                       : ""}

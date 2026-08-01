@@ -35,6 +35,7 @@ export interface BuildPermitViewerDocument {
 export function firstPermitDocument<
   T extends {
     documentType?: string;
+    createdAt?: number;
     file?: File;
     fileName?: string;
     kind?: string;
@@ -43,15 +44,27 @@ export function firstPermitDocument<
     objectUrl?: string;
     storageId?: string;
     storageUrl?: string | null;
+    status?: string;
     url?: string | null;
+    version?: number;
   },
 >(documents: T[] | null | undefined): BuildPermitViewerDocument | null {
-  const permit = documents?.find(
+  const permits = (documents ?? []).filter(
     (document) =>
       document.documentType === "permit" ||
       document.kind === "permit" ||
-      document.file?.type === "application/pdf"
+      document.file?.type === "application/pdf",
   );
+  const activePermits = permits.filter(
+    (document) => document.status !== "superseded",
+  );
+  const permit = (activePermits.length > 0 ? activePermits : permits)
+    .slice()
+    .sort(
+      (left, right) =>
+        (right.version ?? 1) - (left.version ?? 1) ||
+        (right.createdAt ?? 0) - (left.createdAt ?? 0),
+    )[0];
 
   if (!permit) {
     return null;
@@ -82,7 +95,7 @@ export function BuildPermitViewerDrawer({
   triggerTestId?: string;
 }) {
   const [generatedObjectUrl, setGeneratedObjectUrl] = useState<string | null>(
-    null
+    null,
   );
 
   useEffect(() => {

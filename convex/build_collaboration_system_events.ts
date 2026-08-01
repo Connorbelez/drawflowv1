@@ -47,7 +47,11 @@ const remediationValidator = v.object({
   obligationKey: v.optional(v.string()),
   policyKey: v.string(),
   title: v.string(),
-  workKind: v.union(v.literal("evidence"), v.literal("site_visit_remediation")),
+  workKind: v.union(
+    v.literal("evidence"),
+    v.literal("site_visit_remediation"),
+    v.literal("draw_blocker")
+  ),
 });
 
 export interface BuildCollaborationSystemEventInput {
@@ -80,7 +84,7 @@ export interface BuildCollaborationSystemEventInput {
     obligationKey?: string;
     policyKey: string;
     title: string;
-    workKind: "evidence" | "site_visit_remediation";
+    workKind: "evidence" | "site_visit_remediation" | "draw_blocker";
   };
   systemLabel: string;
 }
@@ -462,6 +466,12 @@ async function systemEventReaders(
     primaryReferenceKind?: BuildCollaborationSystemEventInput["primaryReferenceKind"];
   }
 ) {
+  if (input.primaryReferenceKind === "draw") {
+    return input.participants.filter(
+      (participant) =>
+        participant.role !== "contractor" && participant.role !== "homeowner"
+    );
+  }
   if (
     input.primaryReferenceKind === "evidenceAsset" ||
     input.primaryReferenceKind === "evidencePackage"
@@ -469,6 +479,22 @@ async function systemEventReaders(
     return input.participants.filter(
       (participant) =>
         participant.role !== "contractor" && participant.role !== "homeowner"
+    );
+  }
+  if (input.primaryReferenceKind === "document") {
+    const documentId = input.primaryReferenceId
+      ? ctx.db.normalizeId("buildDocuments", input.primaryReferenceId)
+      : null;
+    const document = documentId ? await ctx.db.get(documentId) : null;
+    if (!document || document.buildId !== input.buildId) {
+      throw new Error("The referenced Document is unavailable.");
+    }
+    return input.participants.filter(
+      (participant) =>
+        participant.role !== "homeowner" &&
+        (participant.role !== "contractor" ||
+          document.documentType === "permit" ||
+          document.contractorVisible === true)
     );
   }
   if (input.primaryReferenceKind !== "siteVisit") {

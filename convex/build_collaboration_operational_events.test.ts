@@ -940,6 +940,477 @@ describe("Build Collaboration operational events", () => {
     );
   });
 
+  test("publishes material Milestone transitions and keeps blocked work duplicate-safe", async () => {
+    const fixture = await seedOperationalBuild();
+    const submission = {
+      actualStartedAt: Date.now() - 86_400_000,
+      buildId: fixture.buildId,
+      completedDay: 20,
+      idempotencyKey: "foundation-completion-v1",
+      milestoneKey: "foundation",
+      note: "Foundation work is ready for lender review.",
+      workosOrganizationId: ORGANIZATION_ID,
+    };
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+      submission
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
+      submission
+    );
+    let snapshot = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(snapshot.posts).toHaveLength(1);
+    expect(snapshot.posts[0]).toMatchObject({ postType: "update" });
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.requestActiveBuildMilestoneInfo,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "foundation",
+        note: "Upload the engineer-sealed footing report.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.requestActiveBuildMilestoneInfo,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "foundation",
+        note: "Internal wording correction only.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    snapshot = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(snapshot.posts).toHaveLength(2);
+    expect(snapshot.actionItems).toHaveLength(1);
+    expect(snapshot.actionItems[0]).toMatchObject({
+      dueDatePolicyKey: "milestone-review-blocked",
+      primaryReferenceKind: "milestone",
+      workKind: "evidence",
+    });
+
+    await fixture.admin.mutation(
+      (api as any).production_proposals.rejectActiveBuildMilestone,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "foundation",
+        note: "The sealed report is still missing.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.rejectActiveBuildMilestone,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "foundation",
+        note: "Internal rejection note correction.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.approveActiveBuildMilestone,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "foundation",
+        note: "Engineer seal verified.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.approveActiveBuildMilestone,
+      {
+        buildId: fixture.buildId,
+        milestoneKey: "foundation",
+        note: "Internal approval note correction.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    snapshot = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(snapshot.posts).toHaveLength(4);
+    expect(snapshot.actionItems).toHaveLength(1);
+    expect(snapshot.references).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entityId: String(fixture.milestoneId),
+          entityKind: "milestone",
+          primary: true,
+        }),
+      ])
+    );
+    expect(await feedKinds(fixture.contractor, fixture.buildId)).toEqual([
+      "post",
+      "post",
+      "post",
+      "post",
+    ]);
+    expect(await feedKinds(fixture.homeowner, fixture.buildId)).toEqual([
+      "post",
+      "post",
+      "post",
+      "post",
+    ]);
+    const persistedMilestone = await fixture.base.run((ctx) =>
+      ctx.db.get(fixture.milestoneId)
+    );
+    expect(persistedMilestone).toMatchObject({
+      collaborationEventRevision: 4,
+      status: "complete",
+    });
+  });
+
+  test("publishes governing Document versions, suppresses support noise, and enforces operation binding", async () => {
+    const fixture = await seedOperationalBuild();
+    const addDocument = (input: {
+      clientOperationId: string;
+      documentType: "permit" | "budget" | "plan" | "supporting";
+      fileName: string;
+      supersedesDocumentId?: any;
+    }) =>
+      fixture.admin.mutation(
+        (api as any).production_proposals.addActiveBuildDocument,
+        {
+          buildId: fixture.buildId,
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          workosOrganizationId: ORGANIZATION_ID,
+          ...input,
+        }
+      );
+
+    await addDocument({
+      clientOperationId: "supporting-document-v1",
+      documentType: "supporting",
+      fileName: "Daily site notes.pdf",
+    });
+    expect(
+      (await collaborationSnapshot(fixture.base, String(fixture.buildId))).posts
+    ).toHaveLength(0);
+
+    const permitOperation = {
+      clientOperationId: "permit-document-v1",
+      documentType: "permit" as const,
+      fileName: "Building permit v1.pdf",
+    };
+    await addDocument(permitOperation);
+    await addDocument(permitOperation);
+    await expect(
+      addDocument({
+        ...permitOperation,
+        fileName: "Different permit.pdf",
+      })
+    ).rejects.toThrow(/operation ID was already used for different content/i);
+
+    const documentsAfterV1 = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildDocuments")
+        .withIndex("by_build", (query) =>
+          query.eq("buildId", fixture.buildId)
+        )
+        .collect()
+    );
+    const permitV1 = documentsAfterV1.find(
+      (document) => document.documentType === "permit"
+    );
+    expect(permitV1).toMatchObject({ status: "uploaded", version: 1 });
+    await expect(
+      addDocument({
+        clientOperationId: "permit-document-v2-without-lineage",
+        documentType: "permit",
+        fileName: "Building permit v2.pdf",
+      })
+    ).rejects.toThrow(/select the current governing Document/i);
+
+    await addDocument({
+      clientOperationId: "permit-document-v2",
+      documentType: "permit",
+      fileName: "Building permit v2.pdf",
+      supersedesDocumentId: permitV1!._id,
+    });
+    await addDocument({
+      clientOperationId: "plan-document-v1",
+      documentType: "plan",
+      fileName: "Issued construction plan.pdf",
+    });
+    await expect(
+      fixture.builderStaff.mutation(
+        (api as any).production_proposals.addActiveBuildDocument,
+        {
+          buildId: fixture.buildId,
+          clientOperationId: "builder-staff-plan",
+          documentType: "plan",
+          fileName: "Unauthorized plan.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/Forbidden|role|permission/i);
+
+    const documents = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildDocuments")
+        .withIndex("by_build", (query) =>
+          query.eq("buildId", fixture.buildId)
+        )
+        .collect()
+    );
+    const permitV2 = documents.find(
+      (document) => document.clientOperationId === "permit-document-v2"
+    );
+    expect(permitV1 && documents.find((row) => row._id === permitV1._id)).toMatchObject({
+      status: "superseded",
+      supersededByDocumentId: permitV2?._id,
+      version: 1,
+    });
+    expect(permitV2).toMatchObject({
+      status: "uploaded",
+      supersedesDocumentId: permitV1?._id,
+      version: 2,
+    });
+    const snapshot = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(snapshot.posts).toHaveLength(3);
+    expect(snapshot.references).toHaveLength(4);
+    expect(await feedKinds(fixture.contractor, fixture.buildId)).toEqual([
+      "restricted",
+      "post",
+      "post",
+    ]);
+    expect(await feedKinds(fixture.homeowner, fixture.buildId)).toEqual([
+      "restricted",
+      "restricted",
+      "restricted",
+    ]);
+  });
+
+  test("publishes Draw submission, return, approval, and release only to financial readers", async () => {
+    const fixture = await seedOperationalBuild();
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.milestoneId, {
+        completionReview: { status: "approved" },
+        evidenceState: "Approved",
+        status: "complete",
+      });
+    });
+    const requestDraw = (clientOperationId: string, amountCents: number) =>
+      fixture.admin.mutation(
+        (api as any).production_proposals.requestActiveBuildDraw,
+        {
+          amountCents,
+          buildId: fixture.buildId,
+          clientOperationId,
+          drawKey: "foundation-draw",
+          note: "Completed Foundation reimbursement.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      );
+    const prepareForAdmin = async (drawKey: string) => {
+      await fixture.admin.mutation(
+        (api as any).production_proposals.startActiveBuildDrawReview,
+        {
+          buildId: fixture.buildId,
+          drawKey,
+          note: "Operations review started.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      );
+      await fixture.admin.mutation(
+        (api as any).production_proposals.submitActiveBuildDrawForAdmin,
+        {
+          buildId: fixture.buildId,
+          drawKey,
+          note: "Ready for final lender decision.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      );
+    };
+
+    const returnedDraw = await requestDraw("draw-returned-v1", 5_000_000);
+    await requestDraw("draw-returned-v1", 5_000_000);
+    await prepareForAdmin(returnedDraw.requestKey);
+    expect(
+      (await collaborationSnapshot(fixture.base, String(fixture.buildId))).posts
+    ).toHaveLength(1);
+    await expect(
+      fixture.builderStaff.mutation(
+        (api as any).production_proposals.rejectActiveBuildDraw,
+        {
+          buildId: fixture.buildId,
+          drawKey: returnedDraw.requestKey,
+          note: "Unauthorized return attempt.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/Forbidden|role|permission/i);
+    await fixture.admin.mutation(
+      (api as any).production_proposals.rejectActiveBuildDraw,
+      {
+        buildId: fixture.buildId,
+        drawKey: returnedDraw.requestKey,
+        note: "Provide the final statutory declaration.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.rejectActiveBuildDraw,
+        {
+          buildId: fixture.buildId,
+          drawKey: returnedDraw.requestKey,
+          note: "Duplicate return attempt.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/prepared for admin/i);
+
+    const releasedDraw = await requestDraw("draw-released-v1", 6_000_000);
+    await prepareForAdmin(releasedDraw.requestKey);
+    await fixture.admin.mutation(
+      (api as any).production_proposals.approveActiveBuildDraw,
+      {
+        buildId: fixture.buildId,
+        drawKey: releasedDraw.requestKey,
+        note: "Approved within lender authority.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.releaseActiveBuildDraw,
+      {
+        buildId: fixture.buildId,
+        drawKey: releasedDraw.requestKey,
+        note: "Funds released by lender operations.",
+        releaseDate: "2026-08-01",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.releaseActiveBuildDraw,
+        {
+          buildId: fixture.buildId,
+          drawKey: releasedDraw.requestKey,
+          note: "Duplicate release attempt.",
+          releaseDate: "2026-08-01",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/approved for release/i);
+    const snapshot = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(snapshot.posts).toHaveLength(5);
+    expect(snapshot.actionItems).toHaveLength(1);
+    expect(snapshot.actionItems[0]).toMatchObject({
+      dueDatePolicyKey: "draw-returned",
+      primaryReferenceKind: "draw",
+      workKind: "draw_blocker",
+    });
+    expect(snapshot.references.length).toBeGreaterThanOrEqual(10);
+    expect(snapshot.deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          href: expect.stringMatching(/focus=draw%3A/),
+          recipientWorkosUserId: "user_global_principal",
+        }),
+      ])
+    );
+    expect(await feedKinds(fixture.builderStaff, fixture.buildId)).toEqual([
+      "post",
+      "post",
+      "post",
+      "post",
+      "post",
+    ]);
+    expect(await feedKinds(fixture.contractor, fixture.buildId)).toEqual([
+      "restricted",
+      "restricted",
+      "restricted",
+      "restricted",
+      "restricted",
+    ]);
+    expect(await feedKinds(fixture.homeowner, fixture.buildId)).toEqual([
+      "restricted",
+      "restricted",
+      "restricted",
+      "restricted",
+      "restricted",
+    ]);
+  });
+
+  test("rolls the authoritative operation back when collaboration publication violates tenant scope", async () => {
+    const fixture = await seedOperationalBuild();
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      const wrongBrokerageId = await ctx.db.insert("brokerages", {
+        createdAt: now,
+        displayName: "Wrong brokerage",
+        legalName: "Wrong brokerage Inc.",
+        status: "active",
+        updatedAt: now,
+        workosOrganizationId: "org_wrong_brokerage",
+      });
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      await ctx.db.patch(setting!._id, { brokerageId: wrongBrokerageId });
+    });
+
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.addActiveBuildDocument,
+        {
+          buildId: fixture.buildId,
+          clientOperationId: "tenant-rollback-permit",
+          documentType: "permit",
+          fileName: "Must roll back.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/tenant scope/i);
+
+    const state = await fixture.base.run(async (ctx) => ({
+      auditCount: (
+        await ctx.db.query("auditEvents").collect()
+      ).filter(
+        (event) =>
+          event.organizationId === ORGANIZATION_ID &&
+          event.command === "addActiveBuildDocument"
+      ).length,
+      documentCount: (
+        await ctx.db
+          .query("buildDocuments")
+          .withIndex("by_build", (query) =>
+            query.eq("buildId", fixture.buildId)
+          )
+          .collect()
+      ).length,
+    }));
+    expect(state).toEqual({ auditCount: 0, documentCount: 0 });
+    expect(
+      (await collaborationSnapshot(fixture.base, String(fixture.buildId))).posts
+    ).toHaveLength(0);
+  });
+
   test("replays deterministic system events, rolls invalid references back, and skips inactive tenants", async () => {
     const fixture = await seedOperationalBuild();
     const event = {
