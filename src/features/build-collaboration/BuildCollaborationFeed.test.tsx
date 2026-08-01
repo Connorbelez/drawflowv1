@@ -2687,7 +2687,8 @@ describe("BuildCollaborationFeed", () => {
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
-  test("revalidates the hydrated auth identity before reconnecting a draft", async () => {
+  test("revalidates the hydrated auth identity before every server reconciliation path", async () => {
+    mocks.canSchedule = true;
     mocks.serverDraftIdentityWorkosUserId = "user_other";
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
@@ -2700,6 +2701,19 @@ describe("BuildCollaborationFeed", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
+    expect(offlineDraftMocks.deleteDraft).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
+    expect(offlineDraftMocks.deleteDraft).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Scheduled publication time"), {
+      target: { value: "2099-01-01T12:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review & schedule" }));
 
     await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
     expect(offlineDraftMocks.deleteDraft).not.toHaveBeenCalled();

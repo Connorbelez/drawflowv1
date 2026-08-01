@@ -1000,6 +1000,19 @@ function BuildCollaborationFeedContent({
     toast.error(message);
   };
 
+  const hasVerifiedServerDraftIdentity = () => {
+    if (
+      !(sessionWorkosUserId && draftIdentity) ||
+      draftIdentity.workosUserId !== sessionWorkosUserId
+    ) {
+      toast.error(
+        "Your authenticated collaboration identity is still being verified."
+      );
+      return false;
+    }
+    return true;
+  };
+
   const preserveConflictedComposer = async (
     error: unknown,
     bundle: CollaborationDraftBundle | null
@@ -1043,6 +1056,9 @@ function BuildCollaborationFeedContent({
     }
     if (!(buildComposerBundle() && organizationId) || publishing) {
       toast.error("Write an update before publishing.");
+      return;
+    }
+    if (!hasVerifiedServerDraftIdentity()) {
       return;
     }
     setPublishing(true);
@@ -1253,13 +1269,7 @@ function BuildCollaborationFeedContent({
       }
       return;
     }
-    if (
-      !(sessionWorkosUserId && draftIdentity) ||
-      draftIdentity.workosUserId !== sessionWorkosUserId
-    ) {
-      toast.error(
-        "Your authenticated collaboration identity is still being verified."
-      );
+    if (!hasVerifiedServerDraftIdentity()) {
       return;
     }
     setPublishing(true);
@@ -1286,6 +1296,9 @@ function BuildCollaborationFeedContent({
     }
     if (!(postType === "update" || postType === "announcement")) {
       toast.error("Only Updates and Announcements can be scheduled.");
+      return;
+    }
+    if (!hasVerifiedServerDraftIdentity()) {
       return;
     }
     const scheduledFor = new Date(scheduledForInput).getTime();

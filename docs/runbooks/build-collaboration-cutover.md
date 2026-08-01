@@ -322,8 +322,9 @@ one enabled Build:
 2. Execute the approval twice after its due time. Confirm one human-authored post
    and one notification fan-out exist, the second execution returns the original
    post, and no receipt is fabricated by execution.
-3. For separate approvals, revoke the approving human's membership, change a
-   custom-audience participant, revoke a referenced entity or attachment, and
+3. For separate approvals, revoke the approving human's membership, remove a
+   custom-audience reader, revoke a referenced participant or attachment,
+   orphan a clean governed asset by invalidating its staging ownership, and
    advance a record protected by an `assert_revision` guard before execution.
    Also close the Build after approval but before execution. Each approval must
    move to `paused`; its draft must return to active with a disclosure-safe
@@ -352,8 +353,9 @@ one enabled Build:
    client. On a cold never-connected session, confirm an existing private draft
    loads and saves under the hydrated WorkOS user/organization/Build key even
    while all Convex queries remain unresolved. Restore the socket and confirm
-   the server draft identity matches that WorkOS session before any local draft
-   is reconciled or deleted and normal mutation authority resumes.
+   the server draft identity matches that WorkOS session before save,
+   upload/publication, scheduling, or deletion reconciles any local draft and
+   normal mutation authority resumes.
 
 Monitor `build.collaboration.publication.scheduled`,
 `build.collaboration.publication.schedule_executed`, and
@@ -361,8 +363,9 @@ Monitor `build.collaboration.publication.scheduled`,
 monitor `build.collaboration.publication.schedule_retryable_failure`; these
 approvals intentionally remain `approved` for the five-minute recovery sweep,
 for explicitly typed operational conditions and untyped action/runtime failures.
-Material-tagged approval, authorization, lifecycle, tenancy, and revalidation
-conflicts move to `paused`. Alert on
+Typed collaboration validation failures at the publication source—including
+approval, authorization, lifecycle, tenancy, audience, reference, and governed
+asset revalidation conflicts—move to `paused`. Alert on
 overdue approved schedules, repeated execution attempts, approval-hash failures,
 paused-volume spikes, or any scheduled post whose author differs from the
 approving human. Private offline drafts are browser-local and must never be
