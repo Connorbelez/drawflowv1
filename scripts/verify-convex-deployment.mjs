@@ -5,14 +5,14 @@ const skipOutsideVercel =
   process.argv.includes("--if-vercel") && process.env.VERCEL !== "1";
 
 if (skipOutsideVercel) {
-  console.log("Convex deployment parity check skipped outside Vercel.");
+  console.log("Convex function-registration check skipped outside Vercel.");
   process.exit(0);
 }
 
 const deploymentUrl = process.env.VITE_CONVEX_URL;
 if (!deploymentUrl) {
   console.error(
-    "Convex deployment parity check failed: VITE_CONVEX_URL is not configured."
+    "Convex function-registration check failed: VITE_CONVEX_URL is not configured."
   );
   process.exit(1);
 }
@@ -134,7 +134,7 @@ await Promise.all(
 );
 
 if (missingFunctions.length > 0 || verificationFailures.length > 0) {
-  console.error(`Convex deployment parity check failed for ${deploymentUrl}.`);
+  console.error(`Convex function-registration check failed for ${deploymentUrl}.`);
   for (const functionName of missingFunctions) {
     console.error(`- Missing public function: ${functionName}`);
   }
@@ -145,5 +145,5 @@ if (missingFunctions.length > 0 || verificationFailures.length > 0) {
 }
 
 console.log(
-  `Convex deployment parity check passed (${probes.length} collaboration queries).`
+  `Convex function-registration check passed (${probes.length} collaboration queries).`
 );

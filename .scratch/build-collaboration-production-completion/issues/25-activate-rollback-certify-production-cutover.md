@@ -18,15 +18,20 @@
 
 ## Implementation record
 
-- Added a fail-closed deployment-record certifier and versioned JSON template.
-  Certification verifies every retained artifact SHA-256 and refuses partial,
-  placeholder, non-human, stale-parity, failed-gate, missing-role, or destructive
-  rollback evidence.
-- Expanded Convex deployment parity from four feed-foundation queries to twelve
-  critical query surfaces spanning rollout, search, lifecycle, retention,
-  moderation, webhooks, and the split v2 legacy-note plan/parity domains.
+- Added a fail-closed v2 deployment-record certifier, authenticated production
+  certification-state query, and versioned JSON template. Certification parses
+  typed artifacts and cross-checks their tenant, Build, release, linked migration
+  and parity runs, epoch, verification time, latest-Build boundary, activation,
+  and stable-record hashes against server-derived production state.
+- Separated the twelve-query function-registration check from authenticated
+  positive handler/response-contract and cross-tenant negative probes against a
+  designated production organization and Build.
+- Rollback evidence now proves active → disabled → active state, exactly one
+  cutover-epoch increment, continued legacy-write denial, stable IDs/content for
+  posts, revisions, assets, and receipts, and preservation of prior audit events.
 - Removed the dormant duplicate `BuildDetailRoute` Notes UI and the assistant's
-  legacy Note mutation command. The compatibility mutation remains fail-closed
+  legacy Note mutation command from both frontend and backend closed catalogs,
+  with exact catalog-parity regression coverage. The compatibility mutation remains fail-closed
   so stale clients receive an explicit retirement error without writing.
 - Hardened deadline processing so corrupt Action Item tenant scope is
   quarantined and attributed from the canonical Build rather than silently left

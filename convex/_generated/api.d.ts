@@ -43,6 +43,7 @@ import type * as build_collaboration_asset_publication from "../build_collaborat
 import type * as build_collaboration_assets from "../build_collaboration_assets.js";
 import type * as build_collaboration_content from "../build_collaboration_content.js";
 import type * as build_collaboration_contracts from "../build_collaboration_contracts.js";
+import type * as build_collaboration_cutover_certification from "../build_collaboration_cutover_certification.js";
 import type * as build_collaboration_delivery from "../build_collaboration_delivery.js";
 import type * as build_collaboration_delivery_api from "../build_collaboration_delivery_api.js";
 import type * as build_collaboration_delivery_maintenance from "../build_collaboration_delivery_maintenance.js";
@@ -187,6 +188,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_assets: typeof build_collaboration_assets;
   build_collaboration_content: typeof build_collaboration_content;
   build_collaboration_contracts: typeof build_collaboration_contracts;
+  build_collaboration_cutover_certification: typeof build_collaboration_cutover_certification;
   build_collaboration_delivery: typeof build_collaboration_delivery;
   build_collaboration_delivery_api: typeof build_collaboration_delivery_api;
   build_collaboration_delivery_maintenance: typeof build_collaboration_delivery_maintenance;

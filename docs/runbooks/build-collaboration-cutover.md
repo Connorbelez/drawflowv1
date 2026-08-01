@@ -256,27 +256,51 @@ Rollback is UI/configuration-only:
 Copy
 `docs/runbooks/build-collaboration-deployment-record.template.json` into the
 release evidence directory and replace every placeholder with the retained
-production artifact, result, version, actor, and monitoring link. Artifact paths
-may be absolute or relative to the manifest. Record their SHA-256 digests after
-the artifacts are finalized.
+production artifact and monitoring link. Artifact paths may be absolute or
+relative to the manifest. Every referenced file is typed JSON and must carry
+the same organization, representative Build, Git SHA, application version, and
+`prod:` Convex deployment as the manifest; record its SHA-256 after finalizing
+the file. The manifest no longer duplicates command, parity, role-journey,
+activation, interface, or rollback results.
 
 The record is intentionally fail-closed. It requires all eight approved role
 journeys, every automated and manual release gate, v2 migration parity, an
-audited human activation, monitoring coverage, and a rollback rehearsal whose
-post, revision, asset, receipt, and audit counts are unchanged. Certify it with:
+audited human activation, monitoring coverage, and a rollback rehearsal with
+stable-ID/content hashes. Existing post, revision, asset, and receipt records
+must be byte-stable; prior audit events must remain an unchanged subset because
+rollback and reactivation correctly append new audit events.
+
+First run the authenticated handler probes. Unlike the deployment-registration
+check, these use valid production IDs, execute the deployed handlers, assert
+their response contracts, and prove a cross-tenant denial:
 
 ```sh
-bun run certify:build-collaboration-cutover -- \
+BUILD_COLLABORATION_OPERATOR_IDENTITY_JSON='<human-admin-or-principal-identity>' \
+  bun run verify:build-collaboration-production -- \
+  --organization-id '<workos-organization-id>' \
+  --build-id '<active-build-id>' \
+  --forbidden-organization-id '<different-workos-organization-id>'
+```
+
+Then certify the evidence:
+
+```sh
+BUILD_COLLABORATION_OPERATOR_IDENTITY_JSON='<human-admin-or-principal-identity>' \
+  bun run certify:build-collaboration-cutover -- \
   --manifest '<release-evidence-dir>/cutover-evidence.json' \
   --output '<release-evidence-dir>/deployment-record.certified.json'
 ```
 
-The command verifies every referenced artifact hash before atomically writing
-the certified deployment record with its certification timestamp and source
-manifest digest. A template, partial record, failed command, missing role,
-placeholder, mismatched hash, stale parity result, non-human activation, or
-data-changing rollback rehearsal fails certification. Do not treat a local or
-development preflight as production activation evidence.
+The command queries the production certification-state handler with the human
+operator identity; operator-authored live-state files are never accepted. It
+cross-checks typed artifacts against the current tenant status/epoch, activation
+actor/time, linked migration/parity run IDs, verified timestamp, frozen latest-
+Build boundary, and current stable-record hashes before atomically writing the
+certified record. A template, partial or fabricated artifact, failed command,
+missing role, placeholder, mismatched hash/scope/release, stale parity result,
+non-human activation, non-incrementing rollback epoch, restored legacy write,
+or deleted/rewritten retained record fails certification. Do not treat a local
+or development preflight as production activation evidence.
 
 ## Governed Asset Activation
 

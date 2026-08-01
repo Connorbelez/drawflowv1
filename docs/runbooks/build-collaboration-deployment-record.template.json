@@ -1,84 +1,57 @@
 {
-  "schemaVersion": "build-collaboration-cutover-evidence/v1",
+  "schemaVersion": "build-collaboration-cutover-evidence/v2",
   "organizationId": "<workos-organization-id>",
   "representativeBuildId": "<active-build-id>",
   "release": {
     "gitCommit": "<40-character-git-commit>",
     "applicationVersion": "<application-deployment-version>",
-    "convexDeployment": "<production-convex-deployment>",
+    "convexDeployment": "prod:<production-convex-deployment>",
     "applicationDeploymentUrl": "https://<production-host>"
   },
   "migration": {
-    "planToken": "<sha256-plan-token>",
-    "runId": "<migration-run-id>",
-    "parityRunId": "<parity-run-id>",
-    "evidenceId": "<parity-evidence-id>",
-    "reportVersion": "build-collaboration-legacy-note-parity/v2",
-    "sourceRecordCount": 0,
-    "importedPostCount": 0,
-    "mismatchCount": 0,
-    "buildCount": 0,
-    "parityPassed": false,
-    "previewArtifact": { "path": "<path>", "sha256": "<sha256>" },
-    "applicationArtifact": { "path": "<path>", "sha256": "<sha256>" },
-    "replayArtifact": { "path": "<path>", "sha256": "<sha256>" },
-    "parityArtifact": { "path": "<path>", "sha256": "<sha256>" }
+    "previewArtifact": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "applicationArtifact": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "replayArtifact": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "parityArtifact": { "path": "<typed-artifact-path>", "sha256": "<sha256>" }
   },
   "commands": {
-    "convexCodegen": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "convexTypecheck": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "targetedTests": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "fullTestSuite": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "applicationTypecheck": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "productionBuild": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "uiHtmlAudit": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "deploymentParity": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "warningCheck": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "playwrightRoleJourneys": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "visualReview": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "keyboardReview": { "exitCode": 1, "artifact": { "path": "<path>", "sha256": "<sha256>" } }
+    "convexCodegen": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "convexTypecheck": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "targetedTests": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "fullTestSuite": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "applicationTypecheck": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "productionBuild": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "uiHtmlAudit": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "deploymentRegistration": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "authenticatedProductionProbes": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "warningCheck": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "playwrightRoleJourneys": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "visualReview": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "keyboardReview": { "path": "<typed-artifact-path>", "sha256": "<sha256>" }
   },
   "smokeJourneys": {
-    "admin": { "status": "pending", "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "principle-broker": { "status": "pending", "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "broker": { "status": "pending", "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "builder": { "status": "pending", "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "broker-staff": { "status": "pending", "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "builder-staff": { "status": "pending", "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "homeowner": { "status": "pending", "artifact": { "path": "<path>", "sha256": "<sha256>" } },
-    "contractor": { "status": "pending", "artifact": { "path": "<path>", "sha256": "<sha256>" } }
+    "admin": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "principle-broker": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "broker": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "builder": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "broker-staff": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "builder-staff": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "homeowner": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "contractor": { "path": "<typed-artifact-path>", "sha256": "<sha256>" }
   },
-  "interface": {
-    "status": "pending",
-    "detailsIsDefault": false,
-    "buildOverviewUnchanged": false,
-    "canonicalTabsOwnContent": false,
-    "legacyNotesRetired": false,
-    "artifact": { "path": "<path>", "sha256": "<sha256>" }
-  },
+  "interface": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
   "monitoring": {
-    "authorizationDenials": "<monitor-link>",
-    "disclosureAlarms": "<monitor-link>",
-    "deliveryFanout": "<monitor-link>",
-    "idempotency": "<monitor-link>",
-    "staleApprovals": "<monitor-link>",
-    "revisionConflicts": "<monitor-link>",
-    "migrationParity": "<monitor-link>",
-    "searchLatency": "<monitor-link>",
-    "feedPagination": "<monitor-link>",
-    "overdueScheduling": "<monitor-link>"
+    "authorizationDenials": "https://<monitor-link>",
+    "disclosureAlarms": "https://<monitor-link>",
+    "deliveryFanout": "https://<monitor-link>",
+    "idempotency": "https://<monitor-link>",
+    "staleApprovals": "https://<monitor-link>",
+    "revisionConflicts": "https://<monitor-link>",
+    "migrationParity": "https://<monitor-link>",
+    "searchLatency": "https://<monitor-link>",
+    "feedPagination": "https://<monitor-link>",
+    "overdueScheduling": "https://<monitor-link>"
   },
-  "activation": {
-    "status": "pending",
-    "actorWorkosUserId": "<human-activation-actor>",
-    "activatedAt": "<iso-8601-timestamp>",
-    "artifact": { "path": "<path>", "sha256": "<sha256>" }
-  },
-  "rollback": {
-    "status": "pending",
-    "legacyWritesRemainDisabled": false,
-    "retainedCountsBefore": { "posts": 0, "revisions": 0, "assets": 0, "receipts": 0, "auditEvents": 0 },
-    "retainedCountsAfter": { "posts": 0, "revisions": 0, "assets": 0, "receipts": 0, "auditEvents": 0 },
-    "artifact": { "path": "<path>", "sha256": "<sha256>" }
-  }
+  "activation": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+  "rollback": { "path": "<typed-artifact-path>", "sha256": "<sha256>" }
 }

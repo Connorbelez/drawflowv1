@@ -209,10 +209,14 @@ export const getBuildCollaborationLegacyNoteMigrationParityReport =
         .paginate(args.paginationOpts);
       return {
         evidence: {
+          buildReportCount: evidence.buildReportCount,
+          cutoverEpoch: evidence.cutoverEpoch,
           evidenceId: evidence._id,
           importedPostCount: evidence.importedPostCount,
+          migrationRunId: evidence.migrationRunId,
           mismatchCount: evidence.mismatchCount,
           parityPassed: evidence.parityPassed,
+          parityRunId: evidence.parityRunId,
           planToken: evidence.planToken,
           reportHash: evidence.reportHash,
           reportVersion: evidence.reportVersion,
