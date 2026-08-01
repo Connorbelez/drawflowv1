@@ -164,6 +164,42 @@ describe("BuildCollaborationSearch", () => {
     expect(screen.getByText("2 shown")).toBeTruthy();
   });
 
+  test("continues an authorized index cursor when a filtered page is empty", async () => {
+    mocks.response = {
+      continueCursor: "cursor-after-filtered-page",
+      isDone: false,
+      page: [],
+    };
+    mocks.nextResponse = {
+      continueCursor: null,
+      isDone: true,
+      page: [result],
+    };
+    render(
+      <BuildCollaborationSearch
+        buildId={"build-1" as never}
+        onOpen={vi.fn()}
+        organizationId="org-1"
+        participants={participants}
+      />,
+    );
+
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "Search all authorized Build collaboration",
+      }),
+      { target: { value: "foundation" } },
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search more results" }),
+    );
+
+    await screen.findByRole("button", { name: `Open ${result.title}` });
+    expect(mocks.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: "cursor-after-filtered-page" }),
+    );
+  });
+
   test("exposes and serializes every supported server filter", () => {
     render(
       <BuildCollaborationSearch

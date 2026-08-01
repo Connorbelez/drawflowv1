@@ -21,6 +21,10 @@ import {
 import { reopenQuestionForUnavailableAcceptedAnswer } from "./build_collaboration_resolution";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
+  rebuildBuildCollaborationSearchRecordsForOwner,
+  rebuildBuildCollaborationSearchRecordsForPost,
+} from "./build_collaboration_search_index";
+import {
   buildCollaborationReferenceKindValidator,
   buildCollaborationRoleValidator,
 } from "./build_collaboration_validators";
@@ -129,6 +133,11 @@ export const editBuildCollaborationPost = authenticatedMutation
       reason: normalizeReason(args.editReason),
       timestamp: now,
     });
+    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+      authorization,
+      owner: { id: post._id, kind: "post" },
+      postId: post._id,
+    });
     return revisionId;
   })
   .public();
@@ -221,6 +230,11 @@ export const editBuildCollaborationComment = authenticatedMutation
       priorRevision: comment.revision,
       reason: normalizeReason(args.editReason),
       timestamp: now,
+    });
+    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+      authorization,
+      owner: { id: comment._id, kind: "comment" },
+      postId: post._id,
     });
     return revisionId;
   })
@@ -334,6 +348,10 @@ export const tombstoneBuildCollaborationPost = authenticatedMutation
       priorRevision: post.revision,
       timestamp: now,
     });
+    await rebuildBuildCollaborationSearchRecordsForPost(ctx, {
+      authorization,
+      postId: post._id,
+    });
     return post._id;
   })
   .public();
@@ -385,6 +403,11 @@ export const tombstoneBuildCollaborationComment = authenticatedMutation
       newRevision: comment.revision + 1,
       priorRevision: comment.revision,
       timestamp: now,
+    });
+    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+      authorization,
+      owner: { id: comment._id, kind: "comment" },
+      postId: post._id,
     });
     return comment._id;
   })

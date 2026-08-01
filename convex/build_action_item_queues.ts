@@ -56,6 +56,7 @@ import {
   authorizeActiveBuildCollaborationAccess,
   BUILD_COLLABORATION_UNAVAILABLE_ERROR,
 } from "./build_collaboration_rollout";
+import { rebuildBuildCollaborationSearchRecordsForOwner } from "./build_collaboration_search_index";
 import {
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
@@ -469,6 +470,11 @@ export const replaceBuildActionItemReferences = authenticatedMutation
       now,
       reason,
       references,
+    });
+    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+      authorization,
+      owner: { id: item._id, kind: "actionItem" },
+      postId: post._id,
     });
     return item._id;
   })

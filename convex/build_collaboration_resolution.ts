@@ -13,6 +13,7 @@ import {
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { rebuildBuildCollaborationSearchRecordsForOwner } from "./build_collaboration_search_index";
 import {
   buildCollaborationPostTypeValidator,
   buildCollaborationRoleValidator,
@@ -226,6 +227,11 @@ export const resolveBuildCollaborationThread = authenticatedMutation
       priorState,
       reason: resolution.resolutionSummary,
     });
+    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+      authorization,
+      owner: { id: post._id, kind: "post" },
+      postId: post._id,
+    });
     return post._id;
   })
   .public();
@@ -260,6 +266,11 @@ export const reopenBuildCollaborationThread = authenticatedMutation
       now: Date.now(),
       post,
       reason,
+    });
+    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+      authorization,
+      owner: { id: post._id, kind: "post" },
+      postId: post._id,
     });
     return post._id;
   })
@@ -326,6 +337,11 @@ export const setBuildCollaborationAnnouncementExpiration = authenticatedMutation
         args.expiresAt === undefined
           ? "Announcement prominence restored."
           : "Announcement prominence expiration changed.",
+    });
+    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+      authorization,
+      owner: { id: post._id, kind: "post" },
+      postId: post._id,
     });
     return post._id;
   })

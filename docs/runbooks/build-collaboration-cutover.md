@@ -39,6 +39,24 @@ The migration is idempotent. Each legacy note uses
 
 Re-running the migration must produce zero duplicate posts.
 
+Materialize the Build-local, authorization-compatible search partitions after
+every legacy post has been imported:
+
+```sh
+bun x convex run --prod build_collaboration_search_migrations:runBuildCollaborationSearchRecordBackfill
+```
+
+This backfill is idempotent and processes one post per transaction. It replaces
+only that post's derived search records, resolves the current audience and
+entity/asset ACLs before writing, and keeps reader-specific references and
+assets out of shared role-tier partitions. Re-run it after an interrupted
+deployment; the migration component resumes from its recorded cursor. Before
+activation, verify that every active collaboration post is searchable by each
+current authorized reader, tombstoned or moderated content produces no search
+result, and a lower-tier canary cannot search or infer a restricted post,
+reference, Action Item, or asset. Search must page the authorized index; it
+must not fall back to scanning the Build's post, comment, or Action Item corpus.
+
 Before enabling external delivery, cancel any pre-remediation unsent delivery
 that cannot prove the exact post/comment revision that created it. Run each
 status in bounded pages and pass the returned `continueCursor` back until

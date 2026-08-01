@@ -293,8 +293,18 @@ function SearchResultsBody({
   }
   if (response.page.length === 0) {
     return (
-      <div className="py-8 text-center text-muted-foreground text-sm">
-        No authorized collaboration records match this search.
+      <div className="grid justify-items-center gap-3 py-8 text-center text-muted-foreground text-sm">
+        <p>No authorized collaboration records match this search.</p>
+        {!response.isDone && response.continueCursor ? (
+          <Button
+            disabled={loadingMore}
+            onClick={onLoadMore}
+            type="button"
+            variant="outline"
+          >
+            {loadingMore ? "Searching more…" : "Search more results"}
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -409,7 +419,12 @@ function mergeSearchResults(
     current.map((result) => [searchResultKey(result), result])
   );
   for (const result of next) {
-    merged.set(searchResultKey(result), result);
+    const key = searchResultKey(result);
+    const existing = merged.get(key);
+    merged.set(
+      key,
+      existing?.hasAttachments && !result.hasAttachments ? existing : result
+    );
   }
   return [...merged.values()];
 }

@@ -33,6 +33,7 @@ import {
   resolveCanonicalBuildCollaborationReferences,
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { rebuildBuildCollaborationSearchRecordsForOwner } from "./build_collaboration_search_index";
 import {
   buildActionItemPriorityValidator,
   buildActionItemWorkKindValidator,
@@ -294,6 +295,11 @@ export const createBuildActionItem = authenticatedMutation
       latestActivityActorWorkosUserId: authorization.viewer.subject,
       openActionItemCount: post.openActionItemCount + 1,
       updatedAt: now,
+    });
+    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+      authorization,
+      owner: { id: actionItemId, kind: "actionItem" },
+      postId: post._id,
     });
     return actionItemId;
   })
@@ -624,6 +630,11 @@ export const updateBuildActionItem = authenticatedMutation
       item: updatedItem,
       now,
       reason: args.reason?.trim(),
+    });
+    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+      authorization,
+      owner: { id: item._id, kind: "actionItem" },
+      postId: item.originatingPostId,
     });
     return item._id;
   })

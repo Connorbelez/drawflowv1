@@ -16,10 +16,9 @@ import {
   linkBuildActionItemToPost,
   syncLinkedActionItemPostCounts,
 } from "./build_action_item_post_links";
-import { stableContentHash } from "./build_collaboration";
+import { stableContentHash } from "./build_collaboration_hash";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import { collaborationRoleTier } from "./build_collaboration_model";
-import { canReadDrawSystemEvent } from "./build_collaboration_system_event_access";
 import {
   type BuildCollaborationNotificationKind,
   emitCanonicalBuildCollaborationNotification,
@@ -29,6 +28,8 @@ import {
   resolveCanonicalBuildCollaborationReferences,
 } from "./build_collaboration_references";
 import { BUILD_COLLABORATION_UNAVAILABLE_ERROR } from "./build_collaboration_rollout";
+import { rebuildBuildCollaborationSearchRecordsForPost } from "./build_collaboration_search_index";
+import { canReadDrawSystemEvent } from "./build_collaboration_system_event_access";
 import {
   buildCollaborationNotificationKindValidator,
   buildCollaborationPostTypeValidator,
@@ -322,6 +323,10 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
       status: "pending",
     }),
   ]);
+  await rebuildBuildCollaborationSearchRecordsForPost(ctx, {
+    authorization,
+    postId,
+  });
   return postId;
 }
 

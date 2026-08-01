@@ -5376,6 +5376,24 @@ describe("Build collaboration authorized search", () => {
         await ctx.db.patch(postId, { currentRevisionId: revisionId });
       }
     });
+    const contractorPartition = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildCollaborationSearchRecords")
+        .withIndex("by_buildId_and_reader", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("readerPartitionKey", "tier:1")
+        )
+        .take(50)
+    );
+    expect(contractorPartition).not.toHaveLength(0);
+    expect(
+      contractorPartition.every(
+        (record) =>
+          record.postId === authorizedPostId &&
+          !record.candidateJson.includes("Restricted archive noise")
+      )
+    ).toBe(true);
 
     const response = await contractor.action(
       (api as any).build_collaboration_search.searchBuildCollaboration,
@@ -5612,6 +5630,119 @@ describe("Build collaboration authorized search", () => {
         ]),
       );
     }
+  });
+
+  test("reindexes only the edited owner instead of rewriting the whole thread corpus", async () => {
+    const fixture = await seedActiveBuild();
+    const postId = await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      collaborationPublicationFixture({
+        buildId: fixture.buildId,
+        plainText: "Incremental search maintenance root.",
+      }),
+    );
+    const firstCommentId = await fixture.admin.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        attachmentAssetIds: [],
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "First stable reply.",
+        postId,
+        references: [],
+        tiptapJson: collaborationDocument("First stable reply."),
+      },
+    );
+    const editedCommentId = await fixture.admin.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        attachmentAssetIds: [],
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Second reply prequartz.",
+        postId,
+        references: [],
+        tiptapJson: collaborationDocument("Second reply prequartz."),
+      },
+    );
+    const recordIdsByOwner = async (ownerKind: string, ownerId: string) =>
+      await fixture.base.run(async (ctx) =>
+        (
+          await ctx.db
+            .query("buildCollaborationSearchRecords")
+            .withIndex(
+              "by_postId_and_ownerKind_and_ownerId",
+              (query) =>
+                query
+                  .eq("postId", postId)
+                  .eq("ownerKind", ownerKind as "comment" | "post")
+                  .eq("ownerId", ownerId),
+            )
+            .collect()
+        ).map((record) => record._id),
+      );
+    const postRecordsBefore = await recordIdsByOwner("post", postId);
+    const firstCommentRecordsBefore = await recordIdsByOwner(
+      "comment",
+      firstCommentId,
+    );
+    const editedCommentRecordsBefore = await recordIdsByOwner(
+      "comment",
+      editedCommentId,
+    );
+
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_editing
+        .editBuildCollaborationComment,
+      {
+        buildId: fixture.buildId,
+        commentId: editedCommentId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        references: [],
+        tiptapJson: collaborationDocument("Second reply aftertopaz."),
+      },
+    );
+
+    expect(await recordIdsByOwner("post", postId)).toEqual(postRecordsBefore);
+    expect(await recordIdsByOwner("comment", firstCommentId)).toEqual(
+      firstCommentRecordsBefore,
+    );
+    expect(await recordIdsByOwner("comment", editedCommentId)).not.toEqual(
+      editedCommentRecordsBefore,
+    );
+    expect(
+      (
+        await fixture.admin.action(
+          (api as any).build_collaboration_search.searchBuildCollaboration,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            query: "aftertopaz",
+          },
+        )
+      ).page,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          commentId: editedCommentId,
+          resultType: "comment",
+        }),
+      ]),
+    );
+    expect(
+      (
+        await fixture.admin.action(
+          (api as any).build_collaboration_search.searchBuildCollaboration,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            query: "prequartz",
+          },
+        )
+      ).page.some((result: any) => result.commentId === editedCommentId),
+    ).toBe(false);
   });
 });
 

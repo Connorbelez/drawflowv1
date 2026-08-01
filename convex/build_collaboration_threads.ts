@@ -29,6 +29,7 @@ import {
 } from "./build_collaboration_references";
 import { reopenResolvedThreadForReply } from "./build_collaboration_resolution";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { rebuildBuildCollaborationSearchRecordsForOwner } from "./build_collaboration_search_index";
 import {
   buildCollaborationPinKindValidator,
   buildCollaborationReactionValidator,
@@ -221,6 +222,11 @@ export const addBuildCollaborationComment = authenticatedMutation
       newState: JSON.stringify({ postId: post._id, revision: 1 }),
       organizationId: authorization.organizationId,
       warnings: [],
+    });
+    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+      authorization,
+      owner: { id: commentId, kind: "comment" },
+      postId: post._id,
     });
     return commentId;
   })

@@ -1,5 +1,5 @@
 import { internal } from "./_generated/api.js";
-import { stableContentHash } from "./build_collaboration";
+import { stableContentHash } from "./build_collaboration_hash";
 import { resolveEffectiveCollaborationRole } from "./build_collaboration_model";
 import { migrations } from "./migrations";
 

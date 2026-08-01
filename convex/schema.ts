@@ -3423,6 +3423,46 @@ export default defineSchema({
       searchField: "plainText",
       filterFields: ["buildId", "organizationId"],
     }),
+  buildCollaborationSearchRecords: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    ownerKind: v.optional(
+      v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem"))
+    ),
+    ownerId: v.optional(v.string()),
+    readerPartitionKey: v.string(),
+    candidateKey: v.string(),
+    candidateJson: v.string(),
+    searchText: v.string(),
+    contentState: v.union(v.literal("active"), v.literal("retired")),
+    sourceUpdatedAt: v.number(),
+    indexedAt: v.number(),
+  })
+    .index("by_postId", ["postId"])
+    .index("by_postId_and_ownerKind_and_ownerId", [
+      "postId",
+      "ownerKind",
+      "ownerId",
+    ])
+    .index("by_postId_and_reader", ["postId", "readerPartitionKey"])
+    .index("by_build_reader_state_updatedAt", [
+      "buildId",
+      "readerPartitionKey",
+      "contentState",
+      "sourceUpdatedAt",
+    ])
+    .index("by_buildId_and_reader", ["buildId", "readerPartitionKey"])
+    .searchIndex("search_searchText", {
+      searchField: "searchText",
+      filterFields: [
+        "buildId",
+        "organizationId",
+        "readerPartitionKey",
+        "contentState",
+      ],
+    }),
   buildCollaborationModerationCases: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

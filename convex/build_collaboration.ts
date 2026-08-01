@@ -11,6 +11,7 @@ import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaborat
 import { isCleanCollaborationAsset } from "./build_collaboration_asset_access";
 import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import { collaborationFeedResultValidator } from "./build_collaboration_contracts";
+import { stableContentHash } from "./build_collaboration_hash";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
   canCreateCustomCollaborationAudience,
@@ -34,6 +35,7 @@ import {
 } from "./build_collaboration_publication_bundle";
 import { resolveCanonicalBuildCollaborationReferences } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { rebuildBuildCollaborationSearchRecordsForPost } from "./build_collaboration_search_index";
 import type { Doc, Id, MutationCtx } from "./types";
 
 const MAX_PLAIN_TEXT_LENGTH = 50_000;
@@ -392,6 +394,10 @@ export async function publishBuildCollaborationBundle(
     postId,
     referenceCount: bundle.references.length,
     now,
+  });
+  await rebuildBuildCollaborationSearchRecordsForPost(ctx, {
+    authorization,
+    postId,
   });
 
   return postId;
@@ -1019,14 +1025,6 @@ async function recordPublicationAudit(
     relatedEntityType: "buildCollaborationPost",
     status: "pending",
   });
-}
-
-export function stableContentHash(value: string) {
-  let hash = 5381;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 33 + value.charCodeAt(index)) % 4_294_967_296;
-  }
-  return `djb2-${hash.toString(16).padStart(8, "0")}`;
 }
 
 function validateOptionalTiptapJson(value: string) {
