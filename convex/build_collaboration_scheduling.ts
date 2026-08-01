@@ -495,8 +495,10 @@ async function requireApprovedScheduledDraft(
     draft.bundleHash !== approval.bundleHash ||
     draft.bundleJson !== approval.bundleJsonSnapshot
   ) {
-    throw new Error(
-      "The scheduled draft changed after approval. Renew human approval before publishing."
+    throw scheduledPublicationMaterialConflict(
+      new Error(
+        "The scheduled draft changed after approval. Renew human approval before publishing."
+      )
     );
   }
   return draft;
@@ -506,23 +508,31 @@ async function revalidateScheduledPublication(
   ctx: MutationCtx,
   approval: Doc<"buildCollaborationPublicationApprovals">
 ) {
-  try {
-    const draft = await requireApprovedScheduledDraft(ctx, approval);
-    await assertApprovalIntegrity(approval, draft);
-    const { authorization } = await authorizeBuildCollaborationRecipient(ctx, {
+  const draft = await requireApprovedScheduledDraft(ctx, approval);
+  await assertApprovalIntegrity(approval, draft);
+  const { authorization } = await revalidateMaterialBoundary(() =>
+    authorizeBuildCollaborationRecipient(ctx, {
       buildId: approval.buildId,
       organizationId: approval.organizationId,
       workosUserId: approval.approvingWorkosUserId,
-    });
-    await requireBuildCollaborationWritable(ctx, authorization);
-    assertCoordinatingRole(authorization.effectiveRole.tier);
-    assertApprovalHierarchyUnchanged(approval, authorization);
-    const { audience, bundle } = await revalidateExactDraftBundle(ctx, {
-      authorization,
-      draft,
-    });
-    assertSchedulablePostType(bundle.postType);
-    return { audience, authorization, bundle, draft };
+    })
+  );
+  await revalidateMaterialBoundary(() =>
+    requireBuildCollaborationWritable(ctx, authorization)
+  );
+  assertCoordinatingRole(authorization.effectiveRole.tier);
+  assertApprovalHierarchyUnchanged(approval, authorization);
+  const { audience, bundle } = await revalidateExactDraftBundle(ctx, {
+    authorization,
+    draft,
+  });
+  assertSchedulablePostType(bundle.postType);
+  return { audience, authorization, bundle, draft };
+}
+
+async function revalidateMaterialBoundary<T>(operation: () => Promise<T>) {
+  try {
+    return await operation();
   } catch (error) {
     throw scheduledPublicationMaterialConflict(error);
   }
@@ -535,7 +545,9 @@ async function assertApprovalIntegrity(
   if (
     !(approval.approvalHash && approval.draftRevision && approval.scheduledFor)
   ) {
-    throw new Error("The scheduled human approval is incomplete.");
+    throw scheduledPublicationMaterialConflict(
+      new Error("The scheduled human approval is incomplete.")
+    );
   }
   const expected = await scheduledApprovalHash({
     approvingWorkosUserId: approval.approvingWorkosUserId,
@@ -545,8 +557,10 @@ async function assertApprovalIntegrity(
     scheduledFor: approval.scheduledFor,
   });
   if (expected !== approval.approvalHash) {
-    throw new Error(
-      "The scheduled human approval no longer matches its exact publication bundle."
+    throw scheduledPublicationMaterialConflict(
+      new Error(
+        "The scheduled human approval no longer matches its exact publication bundle."
+      )
     );
   }
 }
@@ -564,22 +578,28 @@ async function revalidateExactDraftBundle(
     (await publicationBundleHash(input.draft.bundleJson)) !==
     input.draft.bundleHash
   ) {
-    throw new Error("The private draft bundle failed its integrity check.");
+    throw scheduledPublicationMaterialConflict(
+      new Error("The private draft bundle failed its integrity check.")
+    );
   }
-  const storedBundle = JSON.parse(
-    input.draft.bundleJson
-  ) as BuildCollaborationPublicationBundle;
-  const { audience, bundle } = await prepareBuildCollaborationPublication(ctx, {
-    authorization: input.authorization,
-    bundle: storedBundle,
-  });
+  const storedBundle = (await revalidateMaterialBoundary(async () =>
+    JSON.parse(input.draft.bundleJson)
+  )) as BuildCollaborationPublicationBundle;
+  const { audience, bundle } = await revalidateMaterialBoundary(() =>
+    prepareBuildCollaborationPublication(ctx, {
+      authorization: input.authorization,
+      bundle: storedBundle,
+    })
+  );
   const bundleJson = canonicalPublicationBundleJson(bundle);
   if (
     bundleJson !== input.draft.bundleJson ||
     (await publicationBundleHash(bundleJson)) !== input.draft.bundleHash
   ) {
-    throw new Error(
-      "The approved publication audience, references, assets, assignments, notifications, or revisions changed. Renew human approval."
+    throw scheduledPublicationMaterialConflict(
+      new Error(
+        "The approved publication audience, references, assets, assignments, notifications, or revisions changed. Renew human approval."
+      )
     );
   }
   return { audience, bundle, bundleJson };
@@ -624,15 +644,19 @@ async function scheduledApprovalHash(input: {
 
 function assertCoordinatingRole(tier: number) {
   if (tier < 3) {
-    throw new Error(
-      "Only the Builder or lender coordination team may schedule Build collaboration publications."
+    throw scheduledPublicationMaterialConflict(
+      new Error(
+        "Only the Builder or lender coordination team may schedule Build collaboration publications."
+      )
     );
   }
 }
 
 function assertSchedulablePostType(postType: string) {
   if (postType !== "update" && postType !== "announcement") {
-    throw new Error("Only Updates and Announcements can be scheduled.");
+    throw scheduledPublicationMaterialConflict(
+      new Error("Only Updates and Announcements can be scheduled.")
+    );
   }
 }
 
@@ -647,8 +671,10 @@ function assertApprovalHierarchyUnchanged(
     approval.approvingRole !== authorization.effectiveRole.role ||
     JSON.stringify(approvedRoles) !== JSON.stringify(currentRoles)
   ) {
-    throw new Error(
-      "The approving human's Build collaboration hierarchy changed. Renew human approval."
+    throw scheduledPublicationMaterialConflict(
+      new Error(
+        "The approving human's Build collaboration hierarchy changed. Renew human approval."
+      )
     );
   }
 }

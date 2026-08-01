@@ -10,14 +10,14 @@ interface ScheduledPublicationErrorData {
 }
 
 export function scheduledPublicationMaterialConflict(error: unknown) {
-  return new ConvexError<ScheduledPublicationErrorData>({
+  return new ConvexError({
     code: MATERIAL_CONFLICT_CODE,
     message: scheduledPublicationErrorMessage(error),
   });
 }
 
 export function scheduledPublicationOperationalFailure(message: string) {
-  return new ConvexError<ScheduledPublicationErrorData>({
+  return new ConvexError({
     code: OPERATIONAL_FAILURE_CODE,
     message: normalizeMessage(message),
   });
@@ -34,10 +34,12 @@ export function classifyScheduledPublicationFailure(error: unknown): {
   if (data?.code === MATERIAL_CONFLICT_CODE) {
     return { kind: "conflict", message: normalizeMessage(data.message) };
   }
-  // Unknown failures fail closed. Only an explicitly typed operational error
-  // is eligible for automatic retry; deterministic validation must never loop.
+  // Untyped failures are runtime/transport failures at the action boundary.
+  // The publication mutation did not commit, so retrying remains fail-closed.
+  // Every deterministic validation branch must be explicitly material-tagged
+  // before it crosses that boundary.
   return {
-    kind: "conflict",
+    kind: "retryable",
     message: scheduledPublicationErrorMessage(error),
   };
 }
@@ -62,7 +64,10 @@ function scheduledPublicationErrorData(
   ) {
     return null;
   }
-  return candidate as ScheduledPublicationErrorData;
+  return {
+    code: candidate.code,
+    message: candidate.message,
+  } as ScheduledPublicationErrorData;
 }
 
 function scheduledPublicationErrorMessage(error: unknown) {

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import * as schedulingModule from "./build_collaboration_scheduling";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -169,6 +170,60 @@ describe("Build collaboration scheduled publication", () => {
       state: "published",
     });
     expect(recovered.approval).not.toHaveProperty("lastExecutionError");
+  });
+
+  test("recovers an untyped transient publication failure without pausing approval", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const scheduledFor = BASE_TIME + 60_000;
+    const { approvalId } = await saveAndSchedule(fixture, {
+      plainText: "Scheduled update survives a transient Convex failure.",
+      scheduledFor,
+    });
+    vi.setSystemTime(scheduledFor + 1);
+    vi.spyOn(
+      schedulingModule.publishScheduledBuildCollaborationDraft as never,
+      "_handler"
+    ).mockImplementationOnce(async () => {
+      throw new Error("Transient Convex backend failure.");
+    });
+
+    await fixture.base.action(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledBuildCollaborationPublication,
+      { approvalId }
+    );
+    const failedAttempt = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(failedAttempt.posts).toEqual([]);
+    expect(failedAttempt.approval).toMatchObject({
+      executionAttemptCount: 1,
+      lastExecutionError: expect.stringContaining(
+        "Transient Convex backend failure"
+      ),
+      state: "approved",
+    });
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .processDueBuildCollaborationScheduledPublications,
+      { asOf: scheduledFor + 1 }
+    );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+    const recovered = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(recovered.posts).toHaveLength(1);
+    expect(recovered.approval).toMatchObject({
+      executionAttemptCount: 2,
+      postId: recovered.posts[0]?._id,
+      state: "published",
+    });
   });
 
   test("pauses when the Build closes after exact approval", async () => {
