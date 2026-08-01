@@ -12,6 +12,14 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  "publish approved Build collaboration schedules",
+  { minutes: 5 },
+  internal.build_collaboration_scheduling
+    .processDueBuildCollaborationScheduledPublications,
+  {}
+);
+
 crons.hourly(
   "process Build Action Item deadlines",
   { minuteUTC: 5 },

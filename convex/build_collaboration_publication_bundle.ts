@@ -37,6 +37,7 @@ export const notificationEffectInputValidator = v.object({
 export const sharedMutationInputValidator = v.object({
   entityId: v.optional(v.string()),
   entityKind: v.string(),
+  expectedRevision: v.optional(v.number()),
   operation: v.string(),
   summary: v.string(),
 });
@@ -99,6 +100,7 @@ export interface ResolvedNotificationEffect extends NotificationEffectInput {
 export interface SharedMutationInput {
   entityId?: string;
   entityKind: string;
+  expectedRevision?: number;
   operation: string;
   summary: string;
 }
@@ -419,9 +421,16 @@ function normalizeReference(input: ReferenceInput): ReferenceInput {
 function normalizeSharedMutation(
   input: SharedMutationInput
 ): SharedMutationInput {
+  if (
+    input.expectedRevision !== undefined &&
+    (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 0)
+  ) {
+    throw new Error("Shared mutation expected revisions must be non-negative integers.");
+  }
   return {
     entityId: input.entityId?.trim() || undefined,
     entityKind: input.entityKind.trim(),
+    expectedRevision: input.expectedRevision,
     operation: input.operation.trim(),
     summary: input.summary.trim(),
   };

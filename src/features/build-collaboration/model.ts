@@ -85,6 +85,7 @@ export interface CollaborationDraftBundle {
   sharedMutations?: Array<{
     entityId?: string;
     entityKind: string;
+    expectedRevision?: number;
     operation: string;
     summary: string;
   }>;

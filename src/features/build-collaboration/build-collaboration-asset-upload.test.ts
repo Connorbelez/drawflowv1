@@ -11,7 +11,13 @@ afterEach(() => {
 describe("uploadGovernedCollaborationAssets", () => {
   test("uploads bytes, hashes the exact file, and returns only a clean asset", async () => {
     const bytes = new TextEncoder().encode("hello");
-    const file = fileWithBytes("inspection.txt", "text/plain", bytes);
+    const capturedAt = Date.parse("2026-07-31T12:00:00.000Z");
+    const file = fileWithBytes(
+      "inspection.txt",
+      "text/plain",
+      bytes,
+      capturedAt
+    );
     const beginUpload = vi.fn(async () => ({
       stagingSessionId: "staging-1",
       uploadUrl: "https://uploads.example.test/asset",
@@ -51,6 +57,7 @@ describe("uploadGovernedCollaborationAssets", () => {
       mimeType: "text/plain",
       organizationId: "org-1",
       sizeBytes: 5,
+      sourceCapturedAt: capturedAt,
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://uploads.example.test/asset",
@@ -122,8 +129,13 @@ describe("uploadGovernedCollaborationAssets", () => {
   });
 });
 
-function fileWithBytes(name: string, type: string, bytes: Uint8Array) {
-  const file = new File([bytes], name, { type });
+function fileWithBytes(
+  name: string,
+  type: string,
+  bytes: Uint8Array,
+  lastModified?: number
+) {
+  const file = new File([bytes], name, { lastModified, type });
   Object.defineProperty(file, "arrayBuffer", {
     value: async () => bytes.buffer.slice(0),
   });

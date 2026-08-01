@@ -37,6 +37,7 @@ export async function uploadGovernedCollaborationAssets(
       mimeType?: string;
       organizationId: string;
       sizeBytes: number;
+      sourceCapturedAt?: number;
     }) => Promise<{
       stagingSessionId: Id<"buildCollaborationAssetStagingSessions">;
       uploadUrl: string;
@@ -84,6 +85,7 @@ export async function uploadGovernedCollaborationAssets(
         mimeType: file.type || undefined,
         organizationId: context.organizationId,
         sizeBytes: file.size,
+        sourceCapturedAt: file.lastModified > 0 ? file.lastModified : undefined,
       });
       const response = await fetch(staging.uploadUrl, {
         body: file,

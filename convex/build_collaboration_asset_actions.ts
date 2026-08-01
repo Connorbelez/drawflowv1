@@ -24,6 +24,7 @@ interface AssetStatus {
   scanMessage?: string;
   scanState?: "pending" | "clean" | "rejected" | "error";
   sizeBytes: number;
+  sourceCapturedAt?: number;
   state: "staged" | "quarantined" | "available" | "rejected" | "superseded";
   version: number;
 }
@@ -59,6 +60,7 @@ const assetStatusValidator = v.object({
     )
   ),
   sizeBytes: v.number(),
+  sourceCapturedAt: v.optional(v.number()),
   state: v.union(
     v.literal("staged"),
     v.literal("quarantined"),

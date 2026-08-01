@@ -64,6 +64,7 @@ import type * as build_collaboration_operational_events from "../build_collabora
 import type * as build_collaboration_pin_migration from "../build_collaboration_pin_migration.js";
 import type * as build_collaboration_projection from "../build_collaboration_projection.js";
 import type * as build_collaboration_publication_bundle from "../build_collaboration_publication_bundle.js";
+import type * as build_collaboration_publication_preconditions from "../build_collaboration_publication_preconditions.js";
 import type * as build_collaboration_push from "../build_collaboration_push.js";
 import type * as build_collaboration_push_maintenance from "../build_collaboration_push_maintenance.js";
 import type * as build_collaboration_recipient_access from "../build_collaboration_recipient_access.js";
@@ -71,6 +72,7 @@ import type * as build_collaboration_references from "../build_collaboration_ref
 import type * as build_collaboration_resolution from "../build_collaboration_resolution.js";
 import type * as build_collaboration_resolution_migration from "../build_collaboration_resolution_migration.js";
 import type * as build_collaboration_rollout from "../build_collaboration_rollout.js";
+import type * as build_collaboration_scheduling from "../build_collaboration_scheduling.js";
 import type * as build_collaboration_search from "../build_collaboration_search.js";
 import type * as build_collaboration_search_authority_model from "../build_collaboration_search_authority_model.js";
 import type * as build_collaboration_search_authority_projection from "../build_collaboration_search_authority_projection.js";
@@ -186,6 +188,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_pin_migration: typeof build_collaboration_pin_migration;
   build_collaboration_projection: typeof build_collaboration_projection;
   build_collaboration_publication_bundle: typeof build_collaboration_publication_bundle;
+  build_collaboration_publication_preconditions: typeof build_collaboration_publication_preconditions;
   build_collaboration_push: typeof build_collaboration_push;
   build_collaboration_push_maintenance: typeof build_collaboration_push_maintenance;
   build_collaboration_recipient_access: typeof build_collaboration_recipient_access;
@@ -193,6 +196,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_resolution: typeof build_collaboration_resolution;
   build_collaboration_resolution_migration: typeof build_collaboration_resolution_migration;
   build_collaboration_rollout: typeof build_collaboration_rollout;
+  build_collaboration_scheduling: typeof build_collaboration_scheduling;
   build_collaboration_search: typeof build_collaboration_search;
   build_collaboration_search_authority_model: typeof build_collaboration_search_authority_model;
   build_collaboration_search_authority_projection: typeof build_collaboration_search_authority_projection;

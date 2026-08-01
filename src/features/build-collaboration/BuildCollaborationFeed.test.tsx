@@ -13,6 +13,11 @@ import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const searchAction = vi.hoisted(() => vi.fn());
+const offlineDraftMocks = vi.hoisted(() => ({
+  deleteDraft: vi.fn().mockResolvedValue(undefined),
+  loadDraft: vi.fn().mockResolvedValue(null),
+  saveDraft: vi.fn(),
+}));
 
 const mocks = vi.hoisted(() => ({
   acceptedCommentId: undefined as string | undefined,
@@ -86,6 +91,7 @@ const mocks = vi.hoisted(() => ({
     isDone: true,
     page: [] as Array<Record<string, unknown>>,
   },
+  canSchedule: false,
   workflowAssignmentMode: "direct" as "direct" | "request",
   workflowCanAccept: false,
   workflowTransitions: [
@@ -95,6 +101,22 @@ const mocks = vi.hoisted(() => ({
   ] as Array<
     "todo" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled"
   >,
+}));
+
+vi.mock("./build-collaboration-offline-drafts.ts", () => ({
+  buildCollaborationOfflineDraftKey: ({
+    buildId,
+    organizationId,
+    workosUserId,
+  }: {
+    buildId: string;
+    organizationId: string;
+    workosUserId: string;
+  }) => `${organizationId}:${buildId}:${workosUserId}`,
+  deleteBuildCollaborationOfflineDraft: offlineDraftMocks.deleteDraft,
+  filesFromBuildCollaborationOfflineDraft: () => [],
+  loadBuildCollaborationOfflineDraft: offlineDraftMocks.loadDraft,
+  saveBuildCollaborationOfflineDraft: offlineDraftMocks.saveDraft,
 }));
 
 function commentRowFixture(id: string, text: string) {
@@ -180,6 +202,34 @@ function focusedPostEntryFixture(id: string, text: string) {
         type: "doc",
       }),
     },
+  };
+}
+
+function collaborationDraftBundleFixture(
+  text: string,
+  overrides: Record<string, unknown> = {}
+) {
+  return {
+    actionItems: [],
+    attachmentAssetIds: [],
+    audienceMode: "build_wide",
+    effectiveNotificationEffects: [],
+    effectiveReaderIds: ["user_admin"],
+    excludedReaderIds: [],
+    mandatoryReaderIds: ["user_admin"],
+    notificationEffects: [],
+    plainText: text,
+    postType: "update",
+    references: [],
+    requestedReaderIds: [],
+    sharedMutations: [],
+    tiptapJson: JSON.stringify({
+      content: [
+        { content: [{ text, type: "text" }], type: "paragraph" },
+      ],
+      type: "doc",
+    }),
+    ...overrides,
   };
 }
 
@@ -582,6 +632,20 @@ vi.mock("convex/react", () => ({
     }
     if (
       functionName ===
+      "build_collaboration_drafts:getMyBuildCollaborationDraftIdentity"
+    ) {
+      return args === "skip" ? undefined : { workosUserId: "user_admin" };
+    }
+    if (
+      functionName ===
+      "build_collaboration_scheduling:getBuildCollaborationSchedulingCapabilities"
+    ) {
+      return args === "skip"
+        ? undefined
+        : { canSchedule: mocks.canSchedule, role: "admin" };
+    }
+    if (
+      functionName ===
       "build_collaboration_assets:listBuildCollaborationAssetStatuses"
     ) {
       if (args === "skip") {
@@ -739,7 +803,11 @@ afterEach(() => {
     value: undefined,
   });
   cleanup();
-  mocks.mutate.mockClear();
+  Object.defineProperty(navigator, "onLine", {
+    configurable: true,
+    value: true,
+  });
+  mocks.mutate.mockReset().mockResolvedValue(null);
   mocks.loadMore.mockClear();
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
@@ -775,10 +843,14 @@ afterEach(() => {
   mocks.pushSubscription = null;
   mocks.queueStatus = "Exhausted";
   mocks.searchResponse = { continueCursor: null, isDone: true, page: [] };
+  mocks.canSchedule = false;
   mocks.workflowAssignmentMode = "direct";
   mocks.workflowCanAccept = false;
   mocks.workflowTransitions = ["in_progress", "blocked", "cancelled"];
   searchAction.mockReset();
+  offlineDraftMocks.deleteDraft.mockClear();
+  offlineDraftMocks.loadDraft.mockReset().mockResolvedValue(null);
+  offlineDraftMocks.saveDraft.mockReset();
 });
 
 describe("BuildCollaborationFeed", () => {
@@ -2375,6 +2447,11 @@ describe("BuildCollaborationFeed", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByText("mistaken-photo.jpg")).toBeTruthy();
     mocks.mutate.mockClear();
+    mocks.mutate.mockResolvedValueOnce({
+      bundleJson: mocks.drafts[0]?.bundleJson,
+      draftId: "human-draft-remove",
+      revision: 2,
+    });
 
     fireEvent.click(
       screen.getByRole("button", { name: "Remove mistaken-photo.jpg" })
@@ -2394,6 +2471,206 @@ describe("BuildCollaborationFeed", () => {
       expect(
         screen.queryByRole("button", { name: "Remove mistaken-photo.jpg" })
       ).toBeNull()
+    );
+  });
+
+  test("keeps offline composer work private without invoking Convex", async () => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
+    offlineDraftMocks.saveDraft.mockImplementation(async (input) => ({
+      ...input,
+      updatedAt: Date.now(),
+      version: 1,
+    }));
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    expect(screen.getByText("Private offline mode")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "What should people involved in this Build know?",
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
+    mocks.mutate.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save privately on device" })
+    );
+
+    await waitFor(() =>
+      expect(offlineDraftMocks.saveDraft).toHaveBeenCalledWith(
+        expect.objectContaining({
+          draftId: undefined,
+          expectedRevision: undefined,
+          files: [],
+          key: "org-1:build-1:user_admin",
+        })
+      )
+    );
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  test("reconnects an offline edit against the exact server draft revision", async () => {
+    const bundle = collaborationDraftBundleFixture(
+      "Offline edit awaiting reconciliation."
+    );
+    offlineDraftMocks.loadDraft.mockResolvedValue({
+      bundle,
+      capturedAt: Date.parse("2026-08-01T11:00:00.000Z"),
+      draftId: "server-draft-1",
+      expectedRevision: 4,
+      files: [],
+      key: "org-1:build-1:user_admin",
+      scheduledFor: Date.parse("2099-01-01T12:00:00.000Z"),
+      updatedAt: Date.now(),
+      version: 1,
+    });
+    mocks.mutate.mockResolvedValue({
+      bundleJson: JSON.stringify(bundle),
+      draftId: "server-draft-1",
+      revision: 5,
+    });
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Load and reconcile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          draftId: "server-draft-1",
+          expectedRevision: 4,
+          offlineCapturedAt: Date.parse("2026-08-01T11:00:00.000Z"),
+        })
+      )
+    );
+  });
+
+  test("requires exact human review before scheduling a private draft", async () => {
+    mocks.canSchedule = true;
+    const scheduledForInput = "2099-01-01T12:00";
+    const scheduledFor = new Date(scheduledForInput).getTime();
+    mocks.mutate.mockImplementation(async (args: Record<string, unknown>) => {
+      if (args.preparedByAgent === false && !args.draftId) {
+        const bundle = collaborationDraftBundleFixture(
+          String(args.plainText ?? "Useful accountable work.")
+        );
+        mocks.drafts = [
+          {
+            _creationTime: Date.now(),
+            _id: "scheduled-draft-1",
+            approvalOwnerWorkosUserId: "user_admin",
+            bundleJson: JSON.stringify(bundle),
+            preparedByActorKind: "human",
+            preparedByAgent: false,
+            preparedByWorkosUserId: "user_admin",
+            revision: 1,
+            scheduledFor: args.scheduledFor,
+            state: "active",
+            updatedAt: Date.now(),
+          },
+        ];
+        return {
+          bundleJson: JSON.stringify(bundle),
+          draftId: "scheduled-draft-1",
+          revision: 1,
+        };
+      }
+      return "approval-1";
+    });
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "What should people involved in this Build know?",
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
+    fireEvent.change(
+      screen.getByLabelText("Scheduled publication time"),
+      { target: { value: scheduledForInput } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Review & schedule" }));
+
+    await screen.findByText("Human approval checkpoint");
+    expect(screen.getByText(/Scheduled for/)).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Approve exact bundle & schedule",
+      })
+    );
+
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        draftId: "scheduled-draft-1",
+        expectedRevision: 1,
+        organizationId: "org-1",
+        scheduledFor,
+      })
+    );
+  });
+
+  test("preserves a stale participant draft beside the latest server revision", async () => {
+    const initialBundle = collaborationDraftBundleFixture("Initial draft.");
+    mocks.drafts = [
+      {
+        _creationTime: Date.now(),
+        _id: "conflicted-draft-1",
+        approvalOwnerWorkosUserId: "user_admin",
+        bundleJson: JSON.stringify(initialBundle),
+        preparedByActorKind: "human",
+        preparedByAgent: false,
+        preparedByWorkosUserId: "user_admin",
+        revision: 1,
+        state: "active",
+        updatedAt: Date.now(),
+      },
+    ];
+    mocks.mutate.mockImplementation(async (args: Record<string, unknown>) => {
+      if (args.draftId === "conflicted-draft-1") {
+        mocks.drafts = [
+          {
+            ...mocks.drafts[0],
+            bundleJson: JSON.stringify(
+              collaborationDraftBundleFixture("Server-side revision.")
+            ),
+            revision: 2,
+          },
+        ];
+        throw new Error(
+          "Draft revision conflict: expected revision 1 but found 2."
+        );
+      }
+      return null;
+    });
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await screen.findByText("Draft changed elsewhere");
+    expect(screen.getByText("Useful accountable work.")).toBeTruthy();
+    expect(screen.getByText("Latest server revision 2")).toBeTruthy();
+    expect(screen.getAllByText("Server-side revision.").length).toBeGreaterThan(
+      0
+    );
+    expect(offlineDraftMocks.saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftId: "conflicted-draft-1",
+        expectedRevision: 1,
+        key: "org-1:build-1:user_admin",
+      })
     );
   });
 

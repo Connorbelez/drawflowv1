@@ -177,6 +177,7 @@ export const buildCollaborationTenantStatusValidator = v.union(
 export const buildCollaborationApprovalStateValidator = v.union(
   v.literal("approved"),
   v.literal("invalidated"),
+  v.literal("paused"),
   v.literal("published"),
   v.literal("expired")
 );

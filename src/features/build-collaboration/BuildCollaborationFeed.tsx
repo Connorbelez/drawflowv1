@@ -8,6 +8,7 @@ import {
   useQuery,
 } from "convex/react";
 import {
+  CalendarClock,
   Flag,
   List,
   LockKeyhole,
@@ -20,6 +21,7 @@ import {
   ShieldAlert,
   SquareKanban,
   Users,
+  WifiOff,
 } from "lucide-react";
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -91,6 +93,14 @@ import {
   abandonGovernedCollaborationAssets,
   uploadGovernedCollaborationAssets,
 } from "./build-collaboration-asset-upload.ts";
+import {
+  type BuildCollaborationOfflineDraft,
+  buildCollaborationOfflineDraftKey,
+  deleteBuildCollaborationOfflineDraft,
+  filesFromBuildCollaborationOfflineDraft,
+  loadBuildCollaborationOfflineDraft,
+  saveBuildCollaborationOfflineDraft,
+} from "./build-collaboration-offline-drafts.ts";
 import {
   CollaborationRichTextEditor,
   CollaborationRichTextPreview,
@@ -598,6 +608,15 @@ export function BuildCollaborationFeed({
     api.build_collaboration_drafts.listMyBuildCollaborationDrafts,
     buildCollaborationScopeArgs(activeBuildId, organizationId)
   );
+  const draftIdentity = useQuery(
+    api.build_collaboration_drafts.getMyBuildCollaborationDraftIdentity,
+    buildCollaborationScopeArgs(activeBuildId, organizationId)
+  );
+  const schedulingCapabilities = useQuery(
+    api.build_collaboration_scheduling
+      .getBuildCollaborationSchedulingCapabilities,
+    buildCollaborationScopeArgs(activeBuildId, organizationId)
+  );
   const personalActionItems = usePaginatedQuery(
     api.build_action_item_queues.listMyBuildActionItemQueue,
     organizationId ? { organizationId } : "skip",
@@ -619,6 +638,9 @@ export function BuildCollaborationFeed({
   );
   const discardDraft = useMutation(
     api.build_collaboration_drafts.discardMyBuildCollaborationDraft
+  );
+  const scheduleDraft = useMutation(
+    api.build_collaboration_scheduling.approveAndScheduleBuildCollaborationDraft
   );
   const beginAssetUpload = useMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
@@ -688,8 +710,68 @@ export function BuildCollaborationFeed({
   const [publishing, setPublishing] = useState(false);
   const [editingHumanDraftId, setEditingHumanDraftId] =
     useState<Id<"buildCollaborationDrafts"> | null>(null);
+  const [editingHumanDraftRevision, setEditingHumanDraftRevision] = useState<
+    number | null
+  >(null);
+  const [scheduledForInput, setScheduledForInput] = useState("");
+  const [offlineCapturedAt, setOfflineCapturedAt] = useState<number | null>(
+    null
+  );
+  const [offlineDraft, setOfflineDraft] =
+    useState<BuildCollaborationOfflineDraft | null>(null);
+  const [draftConflictMessage, setDraftConflictMessage] = useState<
+    string | null
+  >(null);
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine
+  );
   const [reviewingDraftId, setReviewingDraftId] =
     useState<Id<"buildCollaborationDrafts"> | null>(null);
+  const offlineDraftKey =
+    organizationId && draftIdentity?.workosUserId
+      ? buildCollaborationOfflineDraftKey({
+          buildId: activeBuildId,
+          organizationId,
+          workosUserId: draftIdentity.workosUserId,
+        })
+      : null;
+  useEffect(() => {
+    const markOnline = () => setIsOnline(true);
+    const markOffline = () => setIsOnline(false);
+    window.addEventListener("online", markOnline);
+    window.addEventListener("offline", markOffline);
+    return () => {
+      window.removeEventListener("online", markOnline);
+      window.removeEventListener("offline", markOffline);
+    };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    if (!offlineDraftKey) {
+      setOfflineDraft(null);
+      return;
+    }
+    loadBuildCollaborationOfflineDraft(offlineDraftKey)
+      .then((draft) => {
+        if (active) {
+          setOfflineDraft(draft);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          toast.error("Unable to open the private offline draft store.");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [offlineDraftKey]);
+  const latestEditingDraft = editingHumanDraftId
+    ? drafts?.find((draft) => draft._id === editingHumanDraftId)
+    : undefined;
+  const latestEditingDraftBundle = latestEditingDraft
+    ? parseDraftBundle(latestEditingDraft.bundleJson)
+    : null;
   const [focusedReference, setFocusedReference] =
     useState<FocusedReference | null>(null);
   const [actionItemSheetTarget, setActionItemSheetTarget] =
@@ -842,6 +924,10 @@ export function BuildCollaborationFeed({
     setPostType("update");
     setAudienceMode("build_wide");
     setEditingHumanDraftId(null);
+    setEditingHumanDraftRevision(null);
+    setScheduledForInput("");
+    setOfflineCapturedAt(null);
+    setDraftConflictMessage(null);
     setComposerOpen(false);
   };
 
@@ -876,7 +962,49 @@ export function BuildCollaborationFeed({
     };
   };
 
+  const reportComposerFailure = (error: unknown, fallback: string) => {
+    const message = error instanceof Error ? error.message : fallback;
+    if (message.includes("Draft revision conflict")) {
+      setDraftConflictMessage(message);
+    }
+    toast.error(message);
+  };
+
+  const preserveConflictedComposer = async (
+    error: unknown,
+    bundle: CollaborationDraftBundle | null
+  ) => {
+    const message = error instanceof Error ? error.message : "";
+    if (!(message.includes("Draft revision conflict") && bundle && offlineDraftKey)) {
+      return;
+    }
+    const capturedAt = offlineCapturedAt ?? Date.now();
+    try {
+      const preserved = await saveBuildCollaborationOfflineDraft({
+        bundle,
+        capturedAt,
+        draftId: editingHumanDraftId ?? undefined,
+        expectedRevision: editingHumanDraftRevision ?? undefined,
+        files: composerFiles,
+        key: offlineDraftKey,
+        scheduledFor: scheduledForInput
+          ? new Date(scheduledForInput).getTime()
+          : undefined,
+      });
+      setOfflineCapturedAt(capturedAt);
+      setOfflineDraft(preserved);
+    } catch {
+      toast.error(
+        "The server rejected the stale revision and the private device copy could not be refreshed. Keep this composer open while resolving the conflict."
+      );
+    }
+  };
+
   const publishComposerPost = async () => {
+    if (!isOnline) {
+      toast.error("Reconnect before publishing. Offline work stays private.");
+      return;
+    }
     if (!(buildComposerBundle() && organizationId) || publishing) {
       toast.error("Write an update before publishing.");
       return;
@@ -904,13 +1032,16 @@ export function BuildCollaborationFeed({
         throw new Error("Write an update before publishing.");
       }
       if (editingHumanDraftId) {
-        await saveDraft({
+        const saved = await saveDraft({
           ...bundle,
           buildId: activeBuildId,
           draftId: editingHumanDraftId,
+          expectedRevision: editingHumanDraftRevision ?? undefined,
+          offlineCapturedAt: offlineCapturedAt ?? undefined,
           organizationId,
           preparedByAgent: false,
         });
+        setEditingHumanDraftRevision(saved.revision);
         await publishDraft({
           buildId: activeBuildId,
           draftId: editingHumanDraftId,
@@ -933,9 +1064,8 @@ export function BuildCollaborationFeed({
         organizationId,
         reason: "Post publication failed after asset upload.",
       });
-      toast.error(
-        error instanceof Error ? error.message : "Unable to publish update."
-      );
+      await preserveConflictedComposer(error, buildComposerBundle());
+      reportComposerFailure(error, "Unable to publish update.");
     } finally {
       setPublishing(false);
     }
@@ -959,13 +1089,15 @@ export function BuildCollaborationFeed({
             "The draft content must remain valid while removing an attachment."
           );
         }
-        await saveDraft({
+        const saved = await saveDraft({
           ...bundle,
           buildId: activeBuildId,
           draftId: editingHumanDraftId,
+          expectedRevision: editingHumanDraftRevision ?? undefined,
           organizationId,
           preparedByAgent: false,
         });
+        setEditingHumanDraftRevision(saved.revision);
       } else {
         await abandonGovernedCollaborationAssets({
           abandonAssets,
@@ -978,13 +1110,75 @@ export function BuildCollaborationFeed({
       setAttachmentAssetIds(retainedAssetIds);
       toast.success(`${asset.fileName} removed.`);
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to remove the attachment."
-      );
+      reportComposerFailure(error, "Unable to remove the attachment.");
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const persistComposerDraft = async (
+    input: { scheduledFor?: number } = {}
+  ) => {
+    if (!organizationId) {
+      throw new Error("The Build organization is unavailable.");
+    }
+    const bundle = buildComposerBundle();
+    if (!bundle) {
+      throw new Error("Write an update before saving the draft.");
+    }
+    let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
+    try {
+      let saved = await ensureComposerDraftId({
+        activeBuildId,
+        bundle,
+        editingHumanDraftId,
+        editingHumanDraftRevision,
+        offlineCapturedAt,
+        organizationId,
+        saveDraft,
+        scheduledFor: input.scheduledFor,
+      });
+      uploadedAssetIds = await uploadGovernedCollaborationAssets(
+        composerFiles,
+        {
+          abandonAssets,
+          beginUpload: beginAssetUpload,
+          buildId: activeBuildId,
+          contextKind: "draft",
+          contextRecordId: saved.draftId,
+          finalizeAndScan: finalizeAndScanAsset,
+          organizationId,
+          registerUpload: registerAssetUpload,
+        }
+      );
+      if (uploadedAssetIds.length > 0) {
+        const finalBundle = buildComposerBundle([
+          ...new Set([...attachmentAssetIds, ...uploadedAssetIds]),
+        ]);
+        if (!finalBundle) {
+          throw new Error("The collaboration draft became invalid.");
+        }
+        saved = await saveDraft({
+          ...finalBundle,
+          buildId: activeBuildId,
+          draftId: saved.draftId,
+          expectedRevision: saved.revision,
+          offlineCapturedAt: offlineCapturedAt ?? undefined,
+          organizationId,
+          preparedByAgent: false,
+          scheduledFor: input.scheduledFor,
+        });
+      }
+      return saved;
+    } catch (error) {
+      await abandonGovernedCollaborationAssets({
+        abandonAssets,
+        assetIds: uploadedAssetIds,
+        buildId: activeBuildId,
+        organizationId,
+        reason: "Draft persistence failed after asset upload.",
+      });
+      throw error;
     }
   };
 
@@ -997,69 +1191,82 @@ export function BuildCollaborationFeed({
       toast.error("Write an update before saving the draft.");
       return;
     }
-    setPublishing(true);
-    let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
-    try {
-      const draftId = await ensureComposerDraftId({
-        activeBuildId,
-        bundle,
-        editingHumanDraftId,
-        organizationId,
-        saveDraft,
-      });
-      uploadedAssetIds = await uploadGovernedCollaborationAssets(
-        composerFiles,
-        {
-          abandonAssets,
-          beginUpload: beginAssetUpload,
-          buildId: activeBuildId,
-          contextKind: "draft",
-          contextRecordId: draftId,
-          finalizeAndScan: finalizeAndScanAsset,
-          organizationId,
-          registerUpload: registerAssetUpload,
-        }
-      );
-      const assetIds = [
-        ...new Set([...attachmentAssetIds, ...uploadedAssetIds]),
-      ];
-      if (editingHumanDraftId || uploadedAssetIds.length > 0) {
-        const finalBundle = buildComposerBundle(assetIds);
-        if (!finalBundle) {
-          throw new Error("The collaboration draft became invalid.");
-        }
-        await saveDraft({
-          ...finalBundle,
-          buildId: activeBuildId,
-          draftId,
-          organizationId,
-          preparedByAgent: false,
-        });
+    if (!isOnline) {
+      if (!offlineDraftKey) {
+        toast.error("Your private offline draft identity is still loading.");
+        return;
       }
+      const capturedAt = offlineCapturedAt ?? Date.now();
+      try {
+        const savedOfflineDraft = await saveBuildCollaborationOfflineDraft({
+          bundle,
+          capturedAt,
+          draftId: editingHumanDraftId ?? undefined,
+          expectedRevision: editingHumanDraftRevision ?? undefined,
+          files: composerFiles,
+          key: offlineDraftKey,
+          scheduledFor: scheduledForInput
+            ? new Date(scheduledForInput).getTime()
+            : undefined,
+        });
+        setOfflineCapturedAt(capturedAt);
+        setOfflineDraft(savedOfflineDraft);
+        toast.success("Private offline draft saved on this device.");
+      } catch (error) {
+        reportComposerFailure(error, "Unable to save the offline draft.");
+      }
+      return;
+    }
+    setPublishing(true);
+    try {
+      await persistComposerDraft();
+      if (offlineDraftKey) {
+        await deleteBuildCollaborationOfflineDraft(offlineDraftKey);
+      }
+      setOfflineDraft(null);
       toast.success("Draft saved.");
       resetComposer();
     } catch (error) {
-      await abandonGovernedCollaborationAssets({
-        abandonAssets,
-        assetIds: uploadedAssetIds,
-        buildId: activeBuildId,
-        organizationId,
-        reason: "Draft persistence failed after asset upload.",
-      });
-      toast.error(
-        error instanceof Error ? error.message : "Unable to save draft."
-      );
+      await preserveConflictedComposer(error, bundle);
+      reportComposerFailure(error, "Unable to save draft.");
     } finally {
       setPublishing(false);
     }
   };
 
-  const loadDraftIntoComposer = (draft: CollaborationDraftSummary) => {
-    const bundle = parseDraftBundle(draft.bundleJson);
-    if (!bundle) {
-      toast.error("This draft is invalid and cannot be opened.");
+  const prepareScheduledPublication = async () => {
+    if (!(isOnline && schedulingCapabilities?.canSchedule)) {
+      toast.error("Reconnect with a coordinating role before scheduling.");
       return;
     }
+    if (!(postType === "update" || postType === "announcement")) {
+      toast.error("Only Updates and Announcements can be scheduled.");
+      return;
+    }
+    const scheduledFor = new Date(scheduledForInput).getTime();
+    if (!Number.isFinite(scheduledFor) || scheduledFor <= Date.now()) {
+      toast.error("Choose a future publication time.");
+      return;
+    }
+    setPublishing(true);
+    try {
+      const saved = await persistComposerDraft({ scheduledFor });
+      if (offlineDraftKey) {
+        await deleteBuildCollaborationOfflineDraft(offlineDraftKey);
+      }
+      setOfflineDraft(null);
+      setReviewingDraftId(saved.draftId);
+      resetComposer();
+      toast.success("Private draft ready for exact human approval.");
+    } catch (error) {
+      await preserveConflictedComposer(error, buildComposerBundle());
+      reportComposerFailure(error, "Unable to prepare the scheduled draft.");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const loadBundleIntoComposer = (bundle: CollaborationDraftBundle) => {
     setAcknowledgementRequired(bundle.acknowledgementRequired ?? false);
     setActionTitle(bundle.actionItems[0]?.title ?? "");
     setAttachmentAssetIds(bundle.attachmentAssetIds ?? []);
@@ -1083,8 +1290,42 @@ export function BuildCollaborationFeed({
       })
     );
     setRequestedReaderIds(bundle.requestedReaderIds);
-    setEditingHumanDraftId(draft._id);
+    setDraftConflictMessage(null);
     setComposerOpen(true);
+  };
+
+  const loadDraftIntoComposer = (draft: CollaborationDraftSummary) => {
+    const bundle = parseDraftBundle(draft.bundleJson);
+    if (!bundle) {
+      toast.error("This draft is invalid and cannot be opened.");
+      return;
+    }
+    loadBundleIntoComposer(bundle);
+    setEditingHumanDraftId(draft._id);
+    setEditingHumanDraftRevision(draft.revision);
+    setOfflineCapturedAt(draft.offlineCapturedAt ?? null);
+    setScheduledForInput(
+      draft.scheduledFor ? toLocalDateTimeInput(draft.scheduledFor) : ""
+    );
+  };
+
+  const loadOfflineDraftIntoComposer = () => {
+    if (!offlineDraft) {
+      return;
+    }
+    loadBundleIntoComposer(offlineDraft.bundle);
+    setComposerFiles(filesFromBuildCollaborationOfflineDraft(offlineDraft));
+    setOfflineCapturedAt(offlineDraft.capturedAt);
+    setEditingHumanDraftId(
+      (offlineDraft.draftId as Id<"buildCollaborationDrafts"> | undefined) ??
+        null
+    );
+    setEditingHumanDraftRevision(offlineDraft.expectedRevision ?? null);
+    setScheduledForInput(
+      offlineDraft.scheduledFor
+        ? toLocalDateTimeInput(offlineDraft.scheduledFor)
+        : ""
+    );
   };
 
   if (!organizationId) {
@@ -1107,6 +1348,45 @@ export function BuildCollaborationFeed({
       data-testid="build-collaboration-feed"
     >
       <div className="min-w-0 space-y-4">
+        {isOnline ? null : (
+          <Frame data-testid="build-collaboration-offline-banner">
+            <FramePanel className="flex items-start gap-3">
+              <WifiOff aria-hidden="true" className="mt-0.5 size-4" />
+              <div>
+                <p className="font-medium text-sm">Private offline mode</p>
+                <p className="text-muted-foreground text-xs">
+                  Draft text, camera captures, and staged files stay on this
+                  device. Publishing and every shared mutation remain blocked
+                  until reconnect.
+                </p>
+              </div>
+            </FramePanel>
+          </Frame>
+        )}
+        {offlineDraft ? (
+          <Frame data-testid="build-collaboration-offline-draft">
+            <FramePanel className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-sm">
+                  Private device draft from{" "}
+                  {formatTimestamp(offlineDraft.capturedAt)}
+                </p>
+                <p className="truncate text-muted-foreground text-xs">
+                  {offlineDraft.bundle.plainText} · {offlineDraft.files.length}{" "}
+                  staged file{offlineDraft.files.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <Button
+                onClick={loadOfflineDraftIntoComposer}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {isOnline ? "Load and reconcile" : "Continue offline"}
+              </Button>
+            </FramePanel>
+          </Frame>
+        ) : null}
         {drafts && drafts.length > 0 ? (
           <Frame data-testid="build-collaboration-drafts">
             <FramePanel className="space-y-3">
@@ -1120,6 +1400,9 @@ export function BuildCollaborationFeed({
               <div className="space-y-2">
                 {drafts.map((draft) => {
                   const bundle = parseDraftBundle(draft.bundleJson);
+                  const requiresExactReview =
+                    draft.preparedByAgent || Boolean(draft.scheduledFor);
+                  const scheduled = draft.state === "scheduled";
                   return (
                     <Card key={draft._id}>
                       <CardPanel className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
@@ -1131,14 +1414,36 @@ export function BuildCollaborationFeed({
                             {draft.preparedByAgent ? (
                               <Badge variant="outline">Agent prepared</Badge>
                             ) : null}
+                            {scheduled ? (
+                              <Badge variant="secondary">
+                                <CalendarClock
+                                  aria-hidden="true"
+                                  className="size-3"
+                                />
+                                Scheduled
+                              </Badge>
+                            ) : null}
+                            {draft.scheduleConflictReason ? (
+                              <Badge variant="destructive">
+                                Renew approval
+                              </Badge>
+                            ) : null}
                           </div>
                           <p className="text-muted-foreground text-xs">
                             Revision {draft.revision} · saved{" "}
                             {formatTimestamp(draft.updatedAt)}
+                            {draft.scheduledFor
+                              ? ` · target ${formatTimestamp(draft.scheduledFor)}`
+                              : ""}
                           </p>
+                          {draft.scheduleConflictReason ? (
+                            <p className="mt-1 text-destructive text-xs">
+                              {draft.scheduleConflictReason}
+                            </p>
+                          ) : null}
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {draft.preparedByAgent ? null : (
+                          {draft.preparedByAgent || scheduled ? null : (
                             <Button
                               onClick={() => loadDraftIntoComposer(draft)}
                               size="sm"
@@ -1148,17 +1453,21 @@ export function BuildCollaborationFeed({
                               Edit
                             </Button>
                           )}
-                          {draft.preparedByAgent ? (
+                          {!scheduled && requiresExactReview ? (
                             <Button
+                              disabled={
+                                Boolean(draft.scheduledFor) &&
+                                !schedulingCapabilities?.canSchedule
+                              }
                               onClick={() => setReviewingDraftId(draft._id)}
                               size="sm"
                               type="button"
                             >
                               Review exact bundle
                             </Button>
-                          ) : (
+                          ) : scheduled ? null : (
                             <Button
-                              disabled={publishing}
+                              disabled={publishing || !isOnline}
                               onClick={async () => {
                                 setPublishing(true);
                                 try {
@@ -1208,11 +1517,14 @@ export function BuildCollaborationFeed({
                           </Button>
                         </div>
                       </CardPanel>
-                      {draft.preparedByAgent &&
-                      reviewingDraftId === draft._id &&
-                      bundle ? (
+                      {reviewingDraftId === draft._id && bundle ? (
                         <CardPanel className="border-t p-3">
                           <BuildCollaborationApprovalReview
+                            approveLabel={
+                              draft.scheduledFor
+                                ? "Approve exact bundle & schedule"
+                                : undefined
+                            }
                             buildId={activeBuildId}
                             bundle={bundle}
                             onApprove={async () => {
@@ -1221,14 +1533,27 @@ export function BuildCollaborationFeed({
                               }
                               setPublishing(true);
                               try {
-                                await publishDraft({
-                                  buildId: activeBuildId,
-                                  draftId: draft._id,
-                                  organizationId,
-                                });
-                                toast.success(
-                                  "Draft approved and published under your name."
-                                );
+                                if (draft.scheduledFor) {
+                                  await scheduleDraft({
+                                    buildId: activeBuildId,
+                                    draftId: draft._id,
+                                    expectedRevision: draft.revision,
+                                    organizationId,
+                                    scheduledFor: draft.scheduledFor,
+                                  });
+                                  toast.success(
+                                    "Exact bundle approved and scheduled under your name."
+                                  );
+                                } else {
+                                  await publishDraft({
+                                    buildId: activeBuildId,
+                                    draftId: draft._id,
+                                    organizationId,
+                                  });
+                                  toast.success(
+                                    "Draft approved and published under your name."
+                                  );
+                                }
                                 setReviewingDraftId(null);
                               } catch (error) {
                                 toast.error(
@@ -1243,6 +1568,7 @@ export function BuildCollaborationFeed({
                             onCancel={() => setReviewingDraftId(null)}
                             organizationId={organizationId}
                             publishing={publishing}
+                            scheduledFor={draft.scheduledFor}
                           />
                         </CardPanel>
                       ) : null}
@@ -1270,6 +1596,55 @@ export function BuildCollaborationFeed({
             </button>
             {composerOpen ? (
               <div className="space-y-3 border-t p-4">
+                {draftConflictMessage ? (
+                  <Card data-testid="build-collaboration-draft-conflict">
+                    <CardHeader>
+                      <div>
+                        <CardTitle>Draft changed elsewhere</CardTitle>
+                        <CardDescription>
+                          Your unsaved composer is preserved. Compare it with
+                          the latest private server revision before retrying.
+                        </CardDescription>
+                      </div>
+                      <Badge variant="destructive">Conflict</Badge>
+                    </CardHeader>
+                    <CardPanel className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="font-medium text-xs uppercase tracking-wide">
+                          Your draft
+                        </p>
+                        <p className="mt-1 text-sm">
+                          {plainTextFromDocument(document) || "No content"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="font-medium text-xs uppercase tracking-wide">
+                          Latest server revision {latestEditingDraft?.revision}
+                        </p>
+                        <p className="mt-1 text-sm">
+                          {latestEditingDraftBundle?.plainText ??
+                            "Latest content unavailable"}
+                        </p>
+                        {latestEditingDraft ? (
+                          <Button
+                            className="mt-2"
+                            onClick={() =>
+                              loadDraftIntoComposer(latestEditingDraft)
+                            }
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            Use latest revision
+                          </Button>
+                        ) : null}
+                      </div>
+                    </CardPanel>
+                    <CardPanel className="border-t text-muted-foreground text-xs">
+                      {draftConflictMessage}
+                    </CardPanel>
+                  </Card>
+                ) : null}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <Select
                     onValueChange={(value) => setPostType(value as PostType)}
@@ -1334,6 +1709,28 @@ export function BuildCollaborationFeed({
                     </p>
                   </div>
                 ) : null}
+                {schedulingCapabilities?.canSchedule &&
+                (postType === "update" || postType === "announcement") ? (
+                  <label
+                    className="grid gap-1 text-sm sm:max-w-sm"
+                    htmlFor="build-collaboration-scheduled-for"
+                  >
+                    <span className="font-medium">Optional publish time</span>
+                    <Input
+                      aria-label="Scheduled publication time"
+                      id="build-collaboration-scheduled-for"
+                      min={toLocalDateTimeInput(Date.now() + 60_000)}
+                      onChange={(event) =>
+                        setScheduledForInput(event.target.value)
+                      }
+                      type="datetime-local"
+                      value={scheduledForInput}
+                    />
+                    <span className="text-muted-foreground text-xs">
+                      The exact final bundle still requires your approval.
+                    </span>
+                  </label>
+                ) : null}
                 <CollaborationRichTextEditor
                   ariaLabel="Build update"
                   editorMinHeightClass="[&_.ProseMirror]:min-h-36"
@@ -1376,10 +1773,23 @@ export function BuildCollaborationFeed({
                       type="button"
                       variant="outline"
                     >
-                      Save draft
+                      {isOnline ? "Save draft" : "Save privately on device"}
                     </Button>
+                    {scheduledForInput &&
+                    schedulingCapabilities?.canSchedule &&
+                    (postType === "update" || postType === "announcement") ? (
+                      <Button
+                        disabled={publishing || !isOnline}
+                        onClick={prepareScheduledPublication}
+                        type="button"
+                        variant="outline"
+                      >
+                        <CalendarClock aria-hidden="true" className="size-4" />
+                        Review & schedule
+                      </Button>
+                    ) : null}
                     <Button
-                      disabled={publishing}
+                      disabled={publishing || !isOnline}
                       onClick={publishComposerPost}
                       type="button"
                     >
@@ -1628,29 +2038,48 @@ async function ensureComposerDraftId(input: {
   activeBuildId: Id<"activeBuilds">;
   bundle: CollaborationDraftBundle;
   editingHumanDraftId: Id<"buildCollaborationDrafts"> | null;
+  editingHumanDraftRevision: number | null;
+  offlineCapturedAt: number | null;
   organizationId: string;
   saveDraft: (
     args: CollaborationDraftBundle & {
       buildId: Id<"activeBuilds">;
       draftId?: Id<"buildCollaborationDrafts">;
+      expectedRevision?: number;
+      offlineCapturedAt?: number;
       organizationId: string;
       preparedByAgent: boolean;
+      scheduledFor?: number;
     }
-  ) => Promise<{ draftId: Id<"buildCollaborationDrafts"> }>;
+  ) => Promise<{
+    bundleJson: string;
+    draftId: Id<"buildCollaborationDrafts">;
+    revision: number;
+  }>;
+  scheduledFor?: number;
 }) {
-  if (input.editingHumanDraftId) {
-    return input.editingHumanDraftId;
-  }
-  const created = await input.saveDraft({
+  const saved = await input.saveDraft({
     ...input.bundle,
     buildId: input.activeBuildId,
+    draftId: input.editingHumanDraftId ?? undefined,
+    expectedRevision: input.editingHumanDraftId
+      ? (input.editingHumanDraftRevision ?? undefined)
+      : undefined,
+    offlineCapturedAt: input.offlineCapturedAt ?? undefined,
     organizationId: input.organizationId,
     preparedByAgent: false,
+    scheduledFor: input.scheduledFor,
   });
-  if (!created.draftId) {
+  if (!saved.draftId) {
     throw new Error("The collaboration draft could not be created.");
   }
-  return created.draftId;
+  return saved;
+}
+
+function toLocalDateTimeInput(timestamp: number) {
+  const date = new Date(timestamp);
+  const local = new Date(timestamp - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 function ComposerAttachmentInput({
@@ -1690,6 +2119,8 @@ function ComposerAttachmentInput({
         Governed attachments
       </label>
       <Input
+        accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+        capture="environment"
         id="build-collaboration-attachments"
         multiple
         nativeInput

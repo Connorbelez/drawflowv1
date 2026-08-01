@@ -31,6 +31,8 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
     approvalOwnerWorkosUserId: v.optional(v.string()),
     buildId: v.id("activeBuilds"),
     draftId: v.optional(v.id("buildCollaborationDrafts")),
+    expectedRevision: v.optional(v.number()),
+    offlineCapturedAt: v.optional(v.number()),
     organizationId: v.string(),
     preparedByAgent: v.optional(v.boolean()),
     scheduledFor: v.optional(v.number()),
@@ -48,6 +50,7 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
       args
     );
     const now = Date.now();
+    validateOfflineCaptureTimestamp(args.offlineCapturedAt, now);
     const preparedByAgent = authorization.viewer.actorKind !== "human";
     const approvalOwnerWorkosUserId =
       args.approvalOwnerWorkosUserId?.trim() ||
@@ -82,6 +85,16 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
       if (draft.state === "published" || draft.state === "discarded") {
         throw new Error("Published or discarded drafts cannot be edited.");
       }
+      if (args.expectedRevision === undefined) {
+        throw new Error(
+          "Updating a collaboration draft requires its expected revision."
+        );
+      }
+      if (draft.revision !== args.expectedRevision) {
+        throw new Error(
+          `Draft revision conflict: expected revision ${args.expectedRevision} but found ${draft.revision}. Your draft was preserved; compare it with the latest saved draft before retrying.`
+        );
+      }
       await invalidateDraftApprovals(ctx, draft._id, now);
       await reconcileDraftAssetStagingSessions(ctx, {
         authorization,
@@ -97,7 +110,10 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
         preparedByAgent,
         preparedByWorkosUserId: authorization.viewer.subject,
         revision: draft.revision + 1,
+        offlineCapturedAt: args.offlineCapturedAt ?? draft.offlineCapturedAt,
         scheduledFor: args.scheduledFor,
+        scheduleConflictReason: undefined,
+        schedulePausedAt: undefined,
         state: "active",
         updatedAt: now,
       });
@@ -121,6 +137,7 @@ export const saveMyBuildCollaborationDraft = authenticatedMutation
       preparedByAgent,
       preparedByWorkosUserId: authorization.viewer.subject,
       revision: 1,
+      offlineCapturedAt: args.offlineCapturedAt,
       scheduledFor: args.scheduledFor,
       state: "active",
       updatedAt: now,
@@ -177,10 +194,28 @@ export const listMyBuildCollaborationDrafts = authenticatedQuery
         preparedByAgent: draft.preparedByAgent ?? false,
         preparedByWorkosUserId: draft.preparedByWorkosUserId,
         revision: draft.revision,
+        offlineCapturedAt: draft.offlineCapturedAt,
+        scheduleConflictReason: draft.scheduleConflictReason,
+        schedulePausedAt: draft.schedulePausedAt,
         scheduledFor: draft.scheduledFor,
         state: draft.state,
         updatedAt: draft.updatedAt,
       }));
+  })
+  .public();
+
+export const getMyBuildCollaborationDraftIdentity = authenticatedQuery
+  .input({
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+  })
+  .returns(v.object({ workosUserId: v.string() }))
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
+    return { workosUserId: authorization.viewer.subject };
   })
   .public();
 
@@ -246,6 +281,11 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
     if (draft.state === "published" || draft.state === "discarded") {
       throw new Error("This draft is no longer publishable.");
     }
+    if (draft.state === "scheduled" || draft.scheduledFor !== undefined) {
+      throw new Error(
+        "Scheduled drafts must execute through their approved schedule or be edited to invalidate that approval."
+      );
+    }
     if ((await publicationBundleHash(draft.bundleJson)) !== draft.bundleHash) {
       throw new Error(
         "The draft changed after review. Review the latest revision before publishing."
@@ -276,6 +316,8 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
       ? await ctx.db.insert("buildCollaborationPublicationApprovals", {
           approvedAt: now,
           approvingActorKind: authorization.viewer.actorKind,
+          approvingRole: authorization.effectiveRole.role,
+          approvingRoles: authorization.roles,
           approvingWorkosUserId: authorization.viewer.subject,
           brokerageId: authorization.brokerage._id,
           buildId: authorization.build._id,
@@ -310,6 +352,7 @@ export const approveAndPublishBuildCollaborationDraft = authenticatedMutation
     });
     if (approvalId) {
       await ctx.db.patch(approvalId, {
+        postId,
         publishedAt: now,
         state: "published",
       });
@@ -332,12 +375,24 @@ async function invalidateDraftApprovals(
     .withIndex("by_draftId_and_state", (query) => query.eq("draftId", draftId))
     .take(100);
   for (const approval of approvals) {
-    if (approval.state === "approved") {
+    if (approval.state === "approved" || approval.state === "paused") {
       await ctx.db.patch(approval._id, {
         invalidatedAt: now,
         state: "invalidated",
       });
     }
+  }
+}
+
+function validateOfflineCaptureTimestamp(
+  value: number | undefined,
+  now: number
+) {
+  if (value === undefined) {
+    return;
+  }
+  if (!Number.isFinite(value) || value <= 0 || value > now + 5 * 60 * 1000) {
+    throw new Error("The offline draft capture timestamp is invalid.");
   }
 }
 

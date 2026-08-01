@@ -1959,6 +1959,7 @@ describe("Build collaboration governed assets", () => {
         ...draftBundle,
         attachmentAssetIds: [draftAssetId],
         draftId: initialDraft.draftId,
+        expectedRevision: initialDraft.revision,
       },
     );
     const openSession = await admin.mutation(
@@ -2424,6 +2425,7 @@ describe("Build collaboration governed assets", () => {
         ...draftBundle,
         attachmentAssetIds: [assetId],
         draftId: draft.draftId,
+        expectedRevision: draft.revision,
       }
     );
     await expect(

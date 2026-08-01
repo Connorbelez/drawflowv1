@@ -309,6 +309,45 @@ and event key. Alert on duplicate system-event keys, transaction failures,
 missing canonical references, notification fan-out drift, or a remediation post
 whose open Action Item count is zero.
 
+## Scheduled Publication and Offline Reconciliation
+
+Before activating scheduled collaboration publication, verify these canaries on
+one enabled Build:
+
+1. As an authorized coordinating human, save an Update with a future publish
+   time, inspect the exact reader/reference/asset/Action Item/notification/shared
+   mutation bundle, and approve it. Confirm the private draft becomes
+   `scheduled`, the approval records the human, role set, exact draft revision,
+   bundle hash, and target time, and exactly one scheduled executor exists.
+2. Execute the approval twice after its due time. Confirm one human-authored post
+   and one notification fan-out exist, the second execution returns the original
+   post, and no receipt is fabricated by execution.
+3. For separate approvals, revoke the approving human's membership, change a
+   custom-audience participant, revoke a referenced entity or attachment, and
+   advance an expected shared-record revision before execution. Each approval
+   must move to `paused`; its draft must return to active with a disclosure-safe
+   conflict reason and require a fresh exact human approval.
+4. Force the direct scheduler invocation to fail, then run the five-minute
+   recovery sweep. Confirm a due approval is retried without duplicate effects
+   and that `executionAttemptCount` and `lastExecutionAt` remain observable.
+5. Edit one private draft from two sessions. The stale writer must retain its
+   local editor state, receive a revision conflict, and see the latest server
+   revision beside it. It must not overwrite the newer draft.
+6. Put a field browser offline, save text and a camera/file capture, and confirm
+   no Convex mutation, notification, receipt, or shared record is created. The
+   IndexedDB key must include WorkOS user, organization, and Build. Reconnect,
+   load the private device draft, and save it to the server; confirm the original
+   file `lastModified` value is stored as `sourceCapturedAt`. Publishing remains
+   a separate human action and revalidates the complete bundle.
+
+Monitor `build.collaboration.publication.scheduled`,
+`build.collaboration.publication.schedule_executed`, and
+`build.collaboration.publication.schedule_paused` audit/outbox events. Alert on
+overdue approved schedules, repeated execution attempts, approval-hash failures,
+paused-volume spikes, or any scheduled post whose author differs from the
+approving human. Private offline drafts are browser-local and must never be
+counted as shared collaboration state.
+
 ## Verification
 
 ```sh

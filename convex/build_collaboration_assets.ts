@@ -17,6 +17,7 @@ const MAX_ASSET_BYTES = 100 * 1024 * 1024;
 const MAX_ASSETS_PER_REQUEST = 100;
 const MAX_ACTIVE_STAGING_SESSIONS = 25;
 const STAGING_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_CAPTURE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const BLOCKED_MIME_TYPES = new Set([
   "application/javascript",
@@ -64,6 +65,7 @@ const assetStatusValidator = v.object({
     )
   ),
   sizeBytes: v.number(),
+  sourceCapturedAt: v.optional(v.number()),
   state: v.union(
     v.literal("staged"),
     v.literal("quarantined"),
@@ -83,6 +85,7 @@ export const beginBuildCollaborationAssetUpload = authenticatedMutation
     mimeType: v.optional(v.string()),
     organizationId: v.string(),
     sizeBytes: v.number(),
+    sourceCapturedAt: v.optional(v.number()),
   })
   .returns(
     v.object({
@@ -111,6 +114,7 @@ export const beginBuildCollaborationAssetUpload = authenticatedMutation
       contextRecordId: args.contextRecordId,
     });
     const now = Date.now();
+    assertSourceCapturedAt(args.sourceCapturedAt, now);
     await assertStagingCapacity(ctx, authorization, now);
     const expiresAt = now + STAGING_SESSION_TTL_MS;
     const stagingSessionId = await ctx.db.insert(
@@ -124,6 +128,7 @@ export const beginBuildCollaborationAssetUpload = authenticatedMutation
         expectedFileName,
         expectedMimeType,
         expectedSizeBytes: args.sizeBytes,
+        sourceCapturedAt: args.sourceCapturedAt,
         expiresAt,
         organizationId: authorization.organizationId,
         ownerWorkosUserId: authorization.viewer.subject,
@@ -142,6 +147,7 @@ export const beginBuildCollaborationAssetUpload = authenticatedMutation
         expectedMimeType,
         expectedSizeBytes: args.sizeBytes,
         expiresAt,
+        sourceCapturedAt: args.sourceCapturedAt,
       }),
       now,
     });
@@ -320,6 +326,7 @@ async function finalizeAssetUpload(
     readerWorkosUserIds,
     scanState: "pending",
     sizeBytes: metadata.size,
+    sourceCapturedAt: session.sourceCapturedAt,
     stagingSessionId: session._id,
     state: "quarantined",
     storageId: args.storageId,
@@ -770,6 +777,7 @@ function projectAssetStatus(asset: Doc<"buildCollaborationAssets">) {
     scanMessage: asset.scanMessage,
     scanState: asset.scanState,
     sizeBytes: asset.sizeBytes,
+    sourceCapturedAt: asset.sourceCapturedAt,
     state: asset.state,
     version: asset.version,
   };
@@ -786,6 +794,19 @@ function canonicalMimeType(metadataType?: string, submittedType?: string) {
     throw new Error("This file type cannot be used in Build collaboration.");
   }
   return mimeType;
+}
+
+function assertSourceCapturedAt(value: number | undefined, now: number) {
+  if (value === undefined) {
+    return;
+  }
+  if (
+    !Number.isFinite(value) ||
+    value <= 0 ||
+    value > now + MAX_CAPTURE_CLOCK_SKEW_MS
+  ) {
+    throw new Error("The source capture timestamp is invalid.");
+  }
 }
 
 function assertAssetSize(sizeBytes: number) {

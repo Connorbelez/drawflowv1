@@ -33,6 +33,7 @@ import {
   publicationBundleFields,
   type ReferenceInput,
 } from "./build_collaboration_publication_bundle";
+import { validateBuildCollaborationPublicationPreconditions } from "./build_collaboration_publication_preconditions";
 import { resolveCanonicalBuildCollaborationReferences } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchPostTreeRebuild } from "./build_collaboration_search_maintenance";
@@ -155,6 +156,10 @@ export async function prepareBuildCollaborationPublication(
     references,
     tiptapJson: canonicalContent.tiptapJson,
   };
+  await validateBuildCollaborationPublicationPreconditions(ctx, {
+    authorization: input.authorization,
+    bundle,
+  });
   const acknowledgementTargetIds = bundle.acknowledgementRequired
     ? audience.readerIds.filter((workosUserId) => {
         const participant = input.authorization.participants.find(

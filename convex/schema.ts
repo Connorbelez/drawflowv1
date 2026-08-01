@@ -4057,6 +4057,7 @@ export default defineSchema({
     publishedAt: v.optional(v.number()),
     publishedOwnerKind: v.optional(buildCollaborationOwnerKindValidator),
     publishedOwnerRecordId: v.optional(v.string()),
+    sourceCapturedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -4081,6 +4082,7 @@ export default defineSchema({
     expectedFileName: v.optional(v.string()),
     expectedMimeType: v.optional(v.string()),
     expectedSizeBytes: v.optional(v.number()),
+    sourceCapturedAt: v.optional(v.number()),
     state: buildCollaborationAssetStagingStateValidator,
     assetId: v.optional(v.id("buildCollaborationAssets")),
     pendingStorageId: v.optional(v.id("_storage")),
@@ -4131,7 +4133,10 @@ export default defineSchema({
     bundleJson: v.string(),
     bundleHash: v.string(),
     revision: v.number(),
+    offlineCapturedAt: v.optional(v.number()),
     scheduledFor: v.optional(v.number()),
+    scheduleConflictReason: v.optional(v.string()),
+    schedulePausedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -4152,6 +4157,9 @@ export default defineSchema({
     draftId: v.id("buildCollaborationDrafts"),
     approvingWorkosUserId: v.string(),
     approvingActorKind: v.optional(buildCollaborationActorKindValidator),
+    approvingRole: v.optional(buildCollaborationRoleValidator),
+    approvingRoles: v.optional(v.array(buildCollaborationRoleValidator)),
+    approvalHash: v.optional(v.string()),
     bundleHash: v.string(),
     bundleJsonSnapshot: v.optional(v.string()),
     draftRevision: v.optional(v.number()),
@@ -4161,6 +4169,11 @@ export default defineSchema({
     scheduledFor: v.optional(v.number()),
     approvedAt: v.number(),
     invalidatedAt: v.optional(v.number()),
+    pausedAt: v.optional(v.number()),
+    conflictReason: v.optional(v.string()),
+    executionAttemptCount: v.optional(v.number()),
+    lastExecutionAt: v.optional(v.number()),
+    postId: v.optional(v.id("buildCollaborationPosts")),
     publishedAt: v.optional(v.number()),
   })
     .index("by_draftId_and_state", ["draftId", "state"])
@@ -4168,7 +4181,8 @@ export default defineSchema({
       "buildId",
       "scheduledFor",
       "state",
-    ]),
+    ])
+    .index("by_state_and_scheduledFor", ["state", "scheduledFor"]),
   buildCollaborationNotificationPreferences: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

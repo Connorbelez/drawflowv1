@@ -21,19 +21,23 @@ import { CollaborationRichTextPreview } from "./CollaborationRichTextEditor.tsx"
 import type { CollaborationDraftBundle } from "./model.ts";
 
 export function BuildCollaborationApprovalReview({
+  approveLabel,
   bundle,
   buildId,
   onApprove,
   onCancel,
   organizationId,
   publishing,
+  scheduledFor,
 }: {
+  approveLabel?: string;
   bundle: CollaborationDraftBundle;
   buildId: Id<"activeBuilds">;
   onApprove: () => void;
   onCancel: () => void;
   organizationId: string;
   publishing: boolean;
+  scheduledFor?: number;
 }) {
   const references = bundle.references ?? [];
   const actionItems = bundle.actionItems ?? [];
@@ -72,6 +76,11 @@ export function BuildCollaborationApprovalReview({
               ? " · acknowledgement required"
               : ""}
           </p>
+          {scheduledFor ? (
+            <p className="font-medium text-sm">
+              Scheduled for {new Date(scheduledFor).toLocaleString()}
+            </p>
+          ) : null}
         </ReviewSection>
         <ReviewSection label="Readers and exclusions">
           <p className="text-sm">
@@ -197,7 +206,11 @@ export function BuildCollaborationApprovalReview({
             onClick={onApprove}
             type="button"
           >
-            {publishing ? "Publishing…" : "Approve exact bundle & publish"}
+            {publishing
+              ? scheduledFor
+                ? "Scheduling…"
+                : "Publishing…"
+              : (approveLabel ?? "Approve exact bundle & publish")}
           </Button>
         </div>
       </CardPanel>
