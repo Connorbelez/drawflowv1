@@ -1209,7 +1209,36 @@ describe("Build Collaboration operational events", () => {
       "builder-staff",
       "user_builder_staff_draw_view",
     );
-    await fixture.base.run(async (ctx) => {
+    await fixture.base.mutation(
+      (internal as any).workosProjection.ingestWorkosEvent,
+      {
+        data: {
+          email: "user_builder_staff_draw_view@example.com",
+          email_verified: true,
+          first_name: "Draw-view",
+          id: "user_builder_staff_draw_view",
+          last_name: "Builder Staff",
+        },
+        event: "user.created",
+        id: "operational_draw_view_user_created",
+      },
+    );
+    await fixture.base.mutation(
+      (internal as any).workosProjection.ingestWorkosEvent,
+      {
+        data: {
+          id: "membership_operational_draw_view_builder_staff",
+          organization_id: ORGANIZATION_ID,
+          role: { slug: "builder-staff" },
+          roles: [{ slug: "builder-staff" }],
+          status: "active",
+          user_id: "user_builder_staff_draw_view",
+        },
+        event: "organization_membership.created",
+        id: "operational_draw_view_membership_created",
+      },
+    );
+    const drawGrantId = await fixture.base.run(async (ctx) => {
       const now = Date.now();
       await ctx.db.insert("buildParticipants", {
         brokerageId: fixture.brokerageId,
@@ -1234,7 +1263,7 @@ describe("Build Collaboration operational events", () => {
         updatedAt: now,
         workosUserId: "user_builder_staff_draw_view",
       });
-      await ctx.db.insert("builderStaffPermissionGrants", {
+      const grantId = await ctx.db.insert("builderStaffPermissionGrants", {
         brokerageId: fixture.brokerageId,
         buildId: fixture.buildId,
         builderAccountLinkId,
@@ -1265,6 +1294,7 @@ describe("Build Collaboration operational events", () => {
           amountCents,
           buildId: fixture.buildId,
           clientOperationId,
+      return grantId;
           drawKey: "foundation-draw",
           note: "Completed Foundation reimbursement.",
           workosOrganizationId: ORGANIZATION_ID,
@@ -1430,6 +1460,89 @@ describe("Build Collaboration operational events", () => {
       const wrongBrokerageId = await ctx.db.insert("brokerages", {
         createdAt: now,
         displayName: "Wrong brokerage",
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_delivery_maintenance
+        .prepareDueBuildCollaborationExternalDeliveries,
+      { asOf: Number.MAX_SAFE_INTEGER, batchSize: 100 },
+    );
+    const permittedOutboxIds = await fixture.base.run(async (ctx) => [
+      ...new Set(
+        (await ctx.db.query("buildCollaborationExternalDeliveries").collect())
+          .filter(
+            (delivery) =>
+              delivery.recipientWorkosUserId ===
+                "user_builder_staff_draw_view" &&
+              delivery.providerOutboxId !== undefined,
+          )
+          .map((delivery) => delivery.providerOutboxId!),
+      ),
+    ]);
+    expect(permittedOutboxIds.length).toBeGreaterThan(0);
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(drawGrantId, {
+        canView: false,
+        updatedAt: Date.now(),
+        updatedByWorkosUserId: "user_admin",
+      });
+    });
+    expect(await feedKinds(permittedBuilderStaff, fixture.buildId)).toEqual([
+      "restricted",
+      "restricted",
+      "restricted",
+      "restricted",
+      "restricted",
+    ]);
+    for (const eventOutboxId of permittedOutboxIds) {
+      expect(
+        await fixture.base.mutation(
+          (internal as any).build_collaboration_delivery_maintenance
+            .prepareBuildCollaborationExternalOutbox,
+          { eventOutboxId },
+        ),
+      ).toBeNull();
+    }
+    const revokedDeliveryState = await fixture.base.run(async (ctx) => ({
+      deliveries: (
+        await ctx.db.query("buildCollaborationExternalDeliveries").collect()
+      ).filter(
+        (delivery) =>
+          delivery.recipientWorkosUserId ===
+          "user_builder_staff_draw_view",
+      ),
+      outboxes: await Promise.all(
+        permittedOutboxIds.map((outboxId) => ctx.db.get(outboxId)),
+      ),
+    }));
+    expect(revokedDeliveryState.deliveries.length).toBeGreaterThan(0);
+    expect(revokedDeliveryState.deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cancellationReason: "access_revoked",
+          status: "cancelled",
+        }),
+      ]),
+    );
+    expect(
+      revokedDeliveryState.deliveries
+        .every(
+          (delivery) =>
+            delivery.status === "cancelled" &&
+            delivery.cancellationReason === "access_revoked",
+        ),
+    ).toBe(true);
+    for (const outbox of revokedDeliveryState.outboxes) {
+      expect(outbox).toEqual(
+        expect.objectContaining({
+          payloadPreview: JSON.stringify({
+            reason: "access_revoked",
+            redacted: true,
+          }),
+          status: "failed",
+        }),
+      );
+    }
         legalName: "Wrong brokerage Inc.",
         status: "active",
         updatedAt: now,

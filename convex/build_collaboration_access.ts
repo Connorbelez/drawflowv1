@@ -1,6 +1,10 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { normalizeRoleSlugs } from "./authz";
 import { collaborationRoleTier } from "./build_collaboration_model";
+import {
+  canReadDrawSystemEvent,
+  isDrawSystemPost,
+} from "./build_collaboration_system_event_access";
 import type { Doc, QueryCtx } from "./types";
 
 export async function canReadCollaborationPost(
@@ -11,6 +15,16 @@ export async function canReadCollaborationPost(
   if (
     post.organizationId !== authorization.organizationId ||
     post.buildId !== authorization.build._id
+  ) {
+    return false;
+  }
+  if (
+    isDrawSystemPost(post) &&
+    !(await canReadDrawSystemEvent(ctx, {
+      buildId: authorization.build._id,
+      role: authorization.effectiveRole.role,
+      workosUserId: authorization.viewer.subject,
+    }))
   ) {
     return false;
   }
@@ -48,14 +62,28 @@ export async function resolveCurrentCollaborationPostReaderIds(
   const fixedMemberIds = new Set(
     fixedMembers.map((member) => member.workosUserId)
   );
-  return authorization.participants
-    .filter(
-      (participant) =>
-        post.audienceMode === "build_wide" ||
-        collaborationRoleTier(participant.role) >= post.audienceFloorTier ||
-        fixedMemberIds.has(participant.workosUserId)
-    )
-    .map((participant) => participant.workosUserId);
+  const audienceReaders = authorization.participants.filter(
+    (participant) =>
+      post.audienceMode === "build_wide" ||
+      collaborationRoleTier(participant.role) >= post.audienceFloorTier ||
+      fixedMemberIds.has(participant.workosUserId),
+  );
+  if (!isDrawSystemPost(post)) {
+    return audienceReaders.map((participant) => participant.workosUserId);
+  }
+  const readerDecisions = await Promise.all(
+    audienceReaders.map(async (participant) => ({
+      allowed: await canReadDrawSystemEvent(ctx, {
+        buildId: authorization.build._id,
+        role: participant.role,
+        workosUserId: participant.workosUserId,
+      }),
+      participant,
+    })),
+  );
+  return readerDecisions
+    .filter((decision) => decision.allowed)
+    .map((decision) => decision.participant.workosUserId);
 }
 
 export async function resolveCurrentCollaborationNotificationReaderIds(

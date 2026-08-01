@@ -1,20 +1,24 @@
-import type { ActiveBuildParticipantProjection } from "./activeBuildAccess";
-import type { Id, MutationCtx } from "./types";
+import type { BuildCollaborationRole } from "./build_collaboration_model";
+import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
+
+export function isDrawSystemPost(
+  post: Pick<Doc<"buildCollaborationPosts">, "primaryReferenceKind" | "source">,
+) {
+  return post.source === "system" && post.primaryReferenceKind === "draw";
+}
 
 export async function canReadDrawSystemEvent(
-  ctx: MutationCtx,
+  ctx: QueryCtx | MutationCtx,
   input: {
     buildId: Id<"activeBuilds">;
-    participant: ActiveBuildParticipantProjection;
+    role: BuildCollaborationRole;
+    workosUserId: string;
   },
 ) {
-  if (
-    input.participant.role === "contractor" ||
-    input.participant.role === "homeowner"
-  ) {
+  if (input.role === "contractor" || input.role === "homeowner") {
     return false;
   }
-  if (input.participant.role !== "builder-staff") {
+  if (input.role !== "builder-staff") {
     return true;
   }
 
@@ -28,7 +32,7 @@ export async function canReadDrawSystemEvent(
       .withIndex("by_builder_user", (query) =>
         query
           .eq("builderProfileId", build.builderProfileId!)
-          .eq("workosUserId", input.participant.workosUserId),
+          .eq("workosUserId", input.workosUserId),
       )
       .collect()
   ).filter(
@@ -56,7 +60,7 @@ export async function canReadDrawSystemEvent(
           grant.organizationId === build.organizationId &&
           grant.brokerageId === build.brokerageId &&
           grant.builderProfileId === build.builderProfileId &&
-          grant.workosUserId === input.participant.workosUserId &&
+          grant.workosUserId === input.workosUserId &&
           grant.canView,
       )
     ) {

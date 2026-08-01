@@ -472,7 +472,8 @@ async function systemEventReaders(
       input.participants.map(async (participant) => ({
         allowed: await canReadDrawSystemEvent(ctx, {
           buildId: input.buildId,
-          participant,
+          role: participant.role,
+          workosUserId: participant.workosUserId,
         }),
         participant,
       })),
