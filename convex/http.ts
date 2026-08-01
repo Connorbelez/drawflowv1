@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { api, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { authKit } from "./auth";
+import { resendClient } from "./email_transport";
 
 const ALLOWED_CONVEX_STORAGE_HOST_SUFFIXES = [
   ".convex.cloud",
@@ -20,6 +21,18 @@ const DEFAULT_BUILD_COLLABORATION_APP_ORIGINS = [
 
 const http = httpRouter();
 authKit.registerRoutes(http);
+http.route({
+  handler: httpAction(async (ctx, request) => {
+    try {
+      return await resendClient().handleResendEventWebhook(ctx, request);
+    } catch {
+      console.warn("Rejected an invalid Resend webhook request.");
+      return new Response("Invalid Resend webhook.", { status: 400 });
+    }
+  }),
+  method: "POST",
+  path: "/resend-webhook",
+});
 http.route({
   handler: httpAction(async (_ctx, request) => {
     const requestUrl = new URL(request.url);

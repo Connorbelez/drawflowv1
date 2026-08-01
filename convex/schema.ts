@@ -603,6 +603,28 @@ const productionOutboxStatusValidator = v.union(
   v.literal("failed")
 );
 
+const emailMessageStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("sent"),
+  v.literal("delivered"),
+  v.literal("delivery_delayed"),
+  v.literal("bounced"),
+  v.literal("failed"),
+  v.literal("complained"),
+  v.literal("cancelled")
+);
+
+const resendEmailEventTypeValidator = v.union(
+  v.literal("email.sent"),
+  v.literal("email.delivered"),
+  v.literal("email.delivery_delayed"),
+  v.literal("email.complained"),
+  v.literal("email.bounced"),
+  v.literal("email.opened"),
+  v.literal("email.clicked"),
+  v.literal("email.failed")
+);
+
 const recipientDeliveryStatusValidator = v.union(
   v.literal("unread"),
   v.literal("read"),
@@ -2712,6 +2734,55 @@ export default defineSchema({
   })
     .index("by_brokerage_status", ["brokerageId", "status"])
     .index("by_entity", ["relatedEntityType", "relatedEntityId"]),
+  emailMessages: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    idempotencyKey: v.string(),
+    relatedEntityType: v.string(),
+    relatedEntityId: v.string(),
+    recipientEmail: v.string(),
+    sender: v.string(),
+    subject: v.string(),
+    resendEmailId: v.string(),
+    status: emailMessageStatusValidator,
+    lastError: v.optional(v.string()),
+    providerCreatedAt: v.optional(v.number()),
+    finalizedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organization_and_idempotencyKey", [
+      "organizationId",
+      "idempotencyKey",
+    ])
+    .index("by_resendEmailId", ["resendEmailId"])
+    .index("by_entity_and_createdAt", [
+      "relatedEntityType",
+      "relatedEntityId",
+      "createdAt",
+    ])
+    .index("by_organization_status_updatedAt", [
+      "organizationId",
+      "status",
+      "updatedAt",
+    ]),
+  emailDeliveryEvents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    emailMessageId: v.id("emailMessages"),
+    resendEmailId: v.string(),
+    eventFingerprint: v.string(),
+    eventType: resendEmailEventTypeValidator,
+    providerCreatedAt: v.number(),
+    receivedAt: v.number(),
+    safeDetail: v.optional(v.string()),
+  })
+    .index("by_eventFingerprint", ["eventFingerprint"])
+    .index("by_emailMessageId_and_providerCreatedAt", [
+      "emailMessageId",
+      "providerCreatedAt",
+    ])
+    .index("by_organization_and_receivedAt", ["organizationId", "receivedAt"]),
   recipientDeliveries: defineTable({
     actionLabel: v.string(),
     actionRequired: v.boolean(),
