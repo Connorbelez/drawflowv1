@@ -1,6 +1,10 @@
 import { authorizeActiveBuildAccessForViewer } from "./activeBuildAccess";
 import { normalizeRoleSlugs } from "./authz";
-import { requireActiveBuildCollaborationTenant } from "./build_collaboration_rollout";
+import {
+  BUILD_COLLABORATION_UNAVAILABLE_ERROR,
+  requireActiveBuildCollaborationTenant,
+} from "./build_collaboration_rollout";
+import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import type { Id, MutationCtx, QueryCtx } from "./types";
 
 export async function authorizeBuildCollaborationRecipient(
@@ -18,7 +22,9 @@ export async function authorizeBuildCollaborationRecipient(
     )
     .unique();
   if (!user || user.status === "deleted") {
-    throw new Error("Recipient identity is unavailable.");
+    throw buildCollaborationValidationError(
+      "Recipient identity is unavailable."
+    );
   }
   const membership = await ctx.db
     .query("workosOrganizationMemberships")
@@ -43,10 +49,36 @@ export async function authorizeBuildCollaborationRecipient(
     subject: input.workosUserId,
     tokenIdentifier: `delivery:${input.workosUserId}`,
   };
-  const authorization = await authorizeActiveBuildAccessForViewer(ctx, viewer, {
-    buildId: input.buildId,
-    organizationId: input.organizationId,
-  });
-  await requireActiveBuildCollaborationTenant(ctx, authorization);
+  let authorization: Awaited<
+    ReturnType<typeof authorizeActiveBuildAccessForViewer>
+  >;
+  try {
+    authorization = await authorizeActiveBuildAccessForViewer(ctx, viewer, {
+      buildId: input.buildId,
+      organizationId: input.organizationId,
+    });
+    await requireActiveBuildCollaborationTenant(ctx, authorization);
+  } catch (error) {
+    const message = recipientAuthorizationErrorMessage(error);
+    if (
+      message === "Organization is required." ||
+      message === BUILD_COLLABORATION_UNAVAILABLE_ERROR ||
+      message.startsWith("Forbidden:")
+    ) {
+      throw buildCollaborationValidationError(message);
+    }
+    throw error;
+  }
   return { authorization, user };
+}
+
+function recipientAuthorizationErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    return typeof message === "string" ? message : "";
+  }
+  return "";
 }

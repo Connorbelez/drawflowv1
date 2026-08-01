@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 
+import { buildCollaborationValidationError } from "./build_collaboration_validation";
+
 import {
   buildActionItemPriorityValidator,
   buildCollaborationAudienceModeValidator,
@@ -173,7 +175,9 @@ export function canonicalizeTiptapContent(tiptapJson: string) {
   try {
     document = JSON.parse(tiptapJson);
   } catch {
-    throw new Error("Post rich text must be valid TipTap JSON.");
+    throw buildCollaborationValidationError(
+      "Post rich text must be valid TipTap JSON."
+    );
   }
   if (
     !document ||
@@ -181,11 +185,13 @@ export function canonicalizeTiptapContent(tiptapJson: string) {
     !("type" in document) ||
     document.type !== "doc"
   ) {
-    throw new Error("Post rich text must contain a TipTap document.");
+    throw buildCollaborationValidationError(
+      "Post rich text must contain a TipTap document."
+    );
   }
   const plainText = tiptapNodeText(document).trim();
   if (!plainText) {
-    throw new Error("Post content is required.");
+    throw buildCollaborationValidationError("Post content is required.");
   }
   return {
     plainText,
@@ -208,7 +214,9 @@ export function canonicalizeTiptapReferences(
   try {
     document = JSON.parse(tiptapJson);
   } catch {
-    throw new Error("Rich text must be valid TipTap JSON.");
+    throw buildCollaborationValidationError(
+      "Rich text must be valid TipTap JSON."
+    );
   }
   if (
     !document ||
@@ -216,7 +224,9 @@ export function canonicalizeTiptapReferences(
     !("type" in document) ||
     document.type !== "doc"
   ) {
-    throw new Error("Rich text must contain a TipTap document.");
+    throw buildCollaborationValidationError(
+      "Rich text must contain a TipTap document."
+    );
   }
   const referenceByKey = new Map(
     references.map((reference) => [
@@ -331,7 +341,7 @@ function rewriteTiptapReferenceNodes(
     typeof attributes.kind === "string" ? attributes.kind.trim() : "";
   const canonical = referenceByKey.get(`${kind}:${id}`);
   if (!canonical) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       "Every rich-text Build reference must match an authorized canonical reference."
     );
   }
@@ -425,7 +435,9 @@ function normalizeSharedMutation(
     input.expectedRevision !== undefined &&
     (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 0)
   ) {
-    throw new Error("Shared mutation expected revisions must be non-negative integers.");
+    throw buildCollaborationValidationError(
+      "Shared mutation expected revisions must be non-negative integers."
+    );
   }
   return {
     entityId: input.entityId?.trim() || undefined,
@@ -447,7 +459,9 @@ function canonicalizeOptionalTiptapContent(tiptapJson: string) {
   try {
     document = JSON.parse(tiptapJson);
   } catch {
-    throw new Error("Action Item rich text must be valid TipTap JSON.");
+    throw buildCollaborationValidationError(
+      "Action Item rich text must be valid TipTap JSON."
+    );
   }
   if (
     !document ||
@@ -455,7 +469,9 @@ function canonicalizeOptionalTiptapContent(tiptapJson: string) {
     !("type" in document) ||
     document.type !== "doc"
   ) {
-    throw new Error("Action Item rich text must contain a TipTap document.");
+    throw buildCollaborationValidationError(
+      "Action Item rich text must contain a TipTap document."
+    );
   }
   return {
     plainText: tiptapNodeText(document).trim(),

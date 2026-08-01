@@ -13,7 +13,7 @@ import { persistGovernedCollaborationAssetAttachments } from "./build_collaborat
 import { collaborationFeedResultValidator } from "./build_collaboration_contracts";
 import { stableContentHash } from "./build_collaboration_hash";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
-import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle";
+import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
 import {
   canCreateCustomCollaborationAudience,
   collaborationRoleTier,
@@ -39,6 +39,7 @@ import { resolveCanonicalBuildCollaborationReferences } from "./build_collaborat
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchPostTreeRebuild } from "./build_collaboration_search_maintenance";
 import { persistApprovedBuildCollaborationSharedEffects } from "./build_collaboration_shared_effects";
+import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import type { Doc, Id, MutationCtx } from "./types";
 
 const MAX_PLAIN_TEXT_LENGTH = 50_000;
@@ -93,20 +94,20 @@ export async function prepareBuildCollaborationPublication(
   validateRichTextContent(normalizedEffectiveBundle);
   for (const mutation of normalizedEffectiveBundle.sharedMutations) {
     if (!(mutation.entityKind && mutation.operation && mutation.summary)) {
-      throw new Error(
+      throw buildCollaborationValidationError(
         "Every approved shared mutation requires an entity kind, operation, and summary."
       );
     }
   }
   if (normalizedEffectiveBundle.references.length > MAX_REFERENCES_PER_BUNDLE) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `A publication may contain at most ${MAX_REFERENCES_PER_BUNDLE} references.`
     );
   }
   if (
     normalizedEffectiveBundle.actionItems.length > MAX_ACTION_ITEMS_PER_BUNDLE
   ) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `A publication may contain at most ${MAX_ACTION_ITEMS_PER_BUNDLE} Action Items.`
     );
   }
@@ -222,7 +223,7 @@ export async function publishBuildCollaborationBundle(
     bundle.postType === "announcement" &&
     authorization.effectiveRole.tier < 3
   ) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       "Announcements may only be published by the Builder or lender coordination team."
     );
   }
@@ -231,12 +232,12 @@ export async function publishBuildCollaborationBundle(
     tiptapJson: bundle.tiptapJson,
   });
   if (bundle.references.length > MAX_REFERENCES_PER_BUNDLE) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `A publication may contain at most ${MAX_REFERENCES_PER_BUNDLE} references.`
     );
   }
   if (bundle.actionItems.length > MAX_ACTION_ITEMS_PER_BUNDLE) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `A publication may contain at most ${MAX_ACTION_ITEMS_PER_BUNDLE} Action Items.`
     );
   }
@@ -466,12 +467,12 @@ function validateRichTextContent(input: {
   const content = canonicalizeTiptapContent(input.tiptapJson);
   const plainText = content.plainText;
   if (plainText.length > MAX_PLAIN_TEXT_LENGTH) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `Post text may not exceed ${MAX_PLAIN_TEXT_LENGTH} characters.`
     );
   }
   if (input.tiptapJson.length > MAX_RICH_TEXT_LENGTH) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `Post rich text may not exceed ${MAX_RICH_TEXT_LENGTH} characters.`
     );
   }
@@ -484,7 +485,9 @@ function resolveEffectiveActionItems(input: {
 }) {
   return input.actionItems.map((actionItem) => {
     if (!actionItem.title) {
-      throw new Error("Every Action Item requires a title.");
+      throw buildCollaborationValidationError(
+        "Every Action Item requires a title."
+      );
     }
     const assigneeParticipant = actionItem.assigneeWorkosUserId
       ? input.authorization.participants.find(
@@ -493,7 +496,9 @@ function resolveEffectiveActionItems(input: {
         )
       : undefined;
     if (actionItem.assigneeWorkosUserId && !assigneeParticipant) {
-      throw new Error("Action Item assignees must participate in this Build.");
+      throw buildCollaborationValidationError(
+        "Action Item assignees must participate in this Build."
+      );
     }
     const upwardAssignment =
       assigneeParticipant !== undefined &&
@@ -522,7 +527,9 @@ async function validatePublicationAssets(
   }
 ) {
   if (new Set(input.assetIds).size > 25) {
-    throw new Error("A publication may contain at most 25 attachments.");
+    throw buildCollaborationValidationError(
+      "A publication may contain at most 25 attachments."
+    );
   }
   for (const assetId of new Set(input.assetIds)) {
     const asset = await ctx.db.get(assetId);
@@ -534,12 +541,14 @@ async function validatePublicationAssets(
       asset.state !== "available" ||
       !isCleanCollaborationAsset(asset)
     ) {
-      throw new Error("A proposed collaboration asset is unavailable.");
+      throw buildCollaborationValidationError(
+        "A proposed collaboration asset is unavailable."
+      );
     }
     if (asset.readerWorkosUserIds) {
       const allowedReaders = new Set(asset.readerWorkosUserIds);
       if (!input.readerIds.every((readerId) => allowedReaders.has(readerId))) {
-        throw new Error(
+        throw buildCollaborationValidationError(
           "A proposed collaboration asset cannot be shared with this audience."
         );
       }
@@ -555,7 +564,9 @@ async function validatePublicationAssets(
         session.buildId !== input.authorization.build._id ||
         !(await canPublishStagedAssetSession(ctx, input.authorization, session))
       ) {
-        throw new Error("A proposed collaboration asset is orphaned.");
+        throw buildCollaborationValidationError(
+          "A proposed collaboration asset is orphaned."
+        );
       }
     }
   }
@@ -601,7 +612,9 @@ async function persistAttachments(
 ) {
   const post = await ctx.db.get(input.postId);
   if (!post) {
-    throw new Error("The collaboration post is unavailable.");
+    throw buildCollaborationValidationError(
+      "The collaboration post is unavailable."
+    );
   }
   await persistGovernedCollaborationAssetAttachments(ctx, {
     assetIds: input.assetIds,
@@ -679,7 +692,7 @@ function resolvePublicationAudience(input: {
     };
   } else {
     if (!canCreateCustomCollaborationAudience(input.authorization.roles)) {
-      throw new Error(
+      throw buildCollaborationValidationError(
         "Custom audiences are unavailable for this Build role. Higher-tier participants must remain able to read the post."
       );
     }
@@ -691,7 +704,7 @@ function resolvePublicationAudience(input: {
         (requestedReaderId) => !participantIds.has(requestedReaderId)
       )
     ) {
-      throw new Error(
+      throw buildCollaborationValidationError(
         "Custom audience readers must be active Build participants."
       );
     }
@@ -703,7 +716,7 @@ function resolvePublicationAudience(input: {
     });
   }
   if (resolved.status === "blocked") {
-    throw new Error(
+    throw buildCollaborationValidationError(
       "The selected audience conflicts with the referenced entity permissions."
     );
   }
@@ -714,14 +727,16 @@ function resolvePublicationAudience(input: {
     ...new Set(input.excludedReaderIds.map((readerId) => readerId.trim())),
   ].filter(Boolean);
   if (excludedReaderIds.some((readerId) => !participantIds.has(readerId))) {
-    throw new Error("Excluded readers must be active Build participants.");
+    throw buildCollaborationValidationError(
+      "Excluded readers must be active Build participants."
+    );
   }
   if (
     excludedReaderIds.some((readerId) =>
       resolved.mandatoryReaderIds.includes(readerId)
     )
   ) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       "Higher-tier and same-tier participants cannot be excluded from a publication."
     );
   }
@@ -925,7 +940,7 @@ function resolveApprovedActionItemAssignment(
     actionItem.effectiveAssignmentState !== expectedAssignmentState ||
     requiresAcceptance !== (actionItem.requiresAcceptance ?? upwardAssignment)
   ) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       "The approved Action Item assignment state is no longer effective."
     );
   }
@@ -1008,14 +1023,20 @@ async function recordPublicationAudit(
 
 function validateOptionalTiptapJson(value: string) {
   if (value.length > MAX_RICH_TEXT_LENGTH) {
-    throw new Error("Action Item rich text is too long.");
+    throw buildCollaborationValidationError(
+      "Action Item rich text is too long."
+    );
   }
   try {
     const parsed = JSON.parse(value) as { type?: unknown };
     if (parsed.type !== "doc") {
-      throw new Error("TipTap document root must have type doc.");
+      throw buildCollaborationValidationError(
+        "TipTap document root must have type doc."
+      );
     }
   } catch {
-    throw new Error("Action Item description must be valid TipTap JSON.");
+    throw buildCollaborationValidationError(
+      "Action Item description must be valid TipTap JSON."
+    );
   }
 }

@@ -21,6 +21,10 @@ import {
   scheduledPublicationMaterialConflict,
   scheduledPublicationOperationalFailure,
 } from "./build_collaboration_scheduling_errors";
+import {
+  buildCollaborationValidationError,
+  isBuildCollaborationValidationError,
+} from "./build_collaboration_validation";
 import { internalAction, internalMutation } from "./fluent";
 import type { Doc, Id, MutationCtx } from "./types";
 
@@ -341,15 +345,13 @@ export const publishScheduledBuildCollaborationDraft = internalMutation
     }
     const { audience, authorization, bundle, draft } =
       await revalidateScheduledPublication(ctx, approval);
-    const postId = await revalidateMaterialBoundary(
-      () =>
-        publishBuildCollaborationBundle(ctx, {
-          agentDrafted: draft.preparedByAgent ?? false,
-          audience,
-          authorization,
-          bundle,
-        }),
-      isExpectedPublicationValidationFailure
+    const postId = await revalidateMaterialBoundary(() =>
+      publishBuildCollaborationBundle(ctx, {
+        agentDrafted: draft.preparedByAgent ?? false,
+        audience,
+        authorization,
+        bundle,
+      })
     );
     await ctx.db.patch(approval._id, {
       executionAttemptCount: (approval.executionAttemptCount ?? 0) + 1,
@@ -522,18 +524,15 @@ async function revalidateScheduledPublication(
 ) {
   const draft = await requireApprovedScheduledDraft(ctx, approval);
   await assertApprovalIntegrity(approval, draft);
-  const { authorization } = await revalidateMaterialBoundary(
-    () =>
-      authorizeBuildCollaborationRecipient(ctx, {
-        buildId: approval.buildId,
-        organizationId: approval.organizationId,
-        workosUserId: approval.approvingWorkosUserId,
-      }),
-    isExpectedRecipientAuthorizationFailure
+  const { authorization } = await revalidateMaterialBoundary(() =>
+    authorizeBuildCollaborationRecipient(ctx, {
+      buildId: approval.buildId,
+      organizationId: approval.organizationId,
+      workosUserId: approval.approvingWorkosUserId,
+    })
   );
-  await revalidateMaterialBoundary(
-    () => requireBuildCollaborationWritable(ctx, authorization),
-    isExpectedLifecycleFailure
+  await revalidateMaterialBoundary(() =>
+    requireBuildCollaborationWritable(ctx, authorization)
   );
   assertCoordinatingRole(authorization.effectiveRole.tier);
   assertApprovalHierarchyUnchanged(approval, authorization);
@@ -546,13 +545,12 @@ async function revalidateScheduledPublication(
 }
 
 export async function revalidateMaterialBoundary<T>(
-  operation: () => Promise<T>,
-  isExpectedMaterialFailure: (error: unknown) => boolean
+  operation: () => Promise<T> | T
 ) {
   try {
     return await operation();
   } catch (error) {
-    if (isExpectedMaterialFailure(error)) {
+    if (isBuildCollaborationValidationError(error)) {
       throw scheduledPublicationMaterialConflict(error);
     }
     throw error;
@@ -603,17 +601,20 @@ async function revalidateExactDraftBundle(
       new Error("The private draft bundle failed its integrity check.")
     );
   }
-  const storedBundle = (await revalidateMaterialBoundary(
-    async () => JSON.parse(input.draft.bundleJson),
-    (error) => error instanceof SyntaxError
-  )) as BuildCollaborationPublicationBundle;
-  const { audience, bundle } = await revalidateMaterialBoundary(
-    () =>
-      prepareBuildCollaborationPublication(ctx, {
-        authorization: input.authorization,
-        bundle: storedBundle,
-      }),
-    isExpectedPublicationValidationFailure
+  const storedBundle = (await revalidateMaterialBoundary(() => {
+    try {
+      return JSON.parse(input.draft.bundleJson);
+    } catch {
+      throw buildCollaborationValidationError(
+        "The approved private draft bundle is not valid JSON."
+      );
+    }
+  })) as BuildCollaborationPublicationBundle;
+  const { audience, bundle } = await revalidateMaterialBoundary(() =>
+    prepareBuildCollaborationPublication(ctx, {
+      authorization: input.authorization,
+      bundle: storedBundle,
+    })
   );
   const bundleJson = canonicalPublicationBundleJson(bundle);
   if (
@@ -627,62 +628,6 @@ async function revalidateExactDraftBundle(
     );
   }
   return { audience, bundle, bundleJson };
-}
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (error && typeof error === "object") {
-    const candidate = error as {
-      data?: { message?: unknown };
-      message?: unknown;
-    };
-    if (typeof candidate.message === "string") {
-      return candidate.message;
-    }
-    if (typeof candidate.data?.message === "string") {
-      return candidate.data.message;
-    }
-  }
-  return "";
-}
-
-function isExpectedRecipientAuthorizationFailure(error: unknown) {
-  const message = errorMessage(error);
-  return (
-    message === "Recipient identity is unavailable." ||
-    message === "Organization is required." ||
-    message.startsWith("Forbidden:") ||
-    message.includes("Build collaboration is not available")
-  );
-}
-
-function isExpectedLifecycleFailure(error: unknown) {
-  const message = errorMessage(error);
-  return (
-    message === "This Build's collaboration archive is closed and read-only." ||
-    message ===
-      "This Build's collaboration content has been purged under its retention policy." ||
-    message === "Build collaboration lifecycle tenancy is invalid."
-  );
-}
-
-function isExpectedPublicationValidationFailure(error: unknown) {
-  const message = errorMessage(error);
-  return (
-    isExpectedLifecycleFailure(error) ||
-    message.startsWith("Forbidden:") ||
-    message.startsWith("Revision conflict:") ||
-    /^(A publication|Action Item|Announcements|Every approved shared mutation|Excluded readers|Post |Rich text|Shared mutation|The (approved|collaboration|referenced)|TipTap)/.test(
-      message
-    ) ||
-    message.includes("must participate in this Build") ||
-    message.includes("is unavailable") ||
-    message.includes("is no longer available") ||
-    message.includes("changed since this publication was approved") ||
-    message.includes("requires renewed approval")
-  );
 }
 
 async function invalidateCurrentApprovals(

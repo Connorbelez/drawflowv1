@@ -11,6 +11,7 @@ import type {
   ResolvedNotificationEffect,
 } from "./build_collaboration_publication_bundle";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import { buildCollaborationNotificationChannelValidator } from "./build_collaboration_validators";
 import type { Id, MutationCtx } from "./types";
 
@@ -148,7 +149,7 @@ export async function emitCanonicalBuildCollaborationNotification(
   });
   if (!(inAppVisible || externalPlan.length)) {
     if (input.approvedChannel) {
-      throw new Error(
+      throw buildCollaborationValidationError(
         "The approved notification channel conflicts with the recipient's digest preference."
       );
     }
@@ -230,7 +231,7 @@ function selectedNotificationChannels(input: {
 }): Array<"in_app" | "email" | "push"> | null {
   if (!input.mandatory && input.ordinaryMuted) {
     if (input.approvedChannel) {
-      throw new Error(
+      throw buildCollaborationValidationError(
         "The approved notification channel conflicts with the recipient's mute preference."
       );
     }
@@ -240,7 +241,7 @@ function selectedNotificationChannels(input: {
     input.approvedChannel &&
     !input.preferredChannels.includes(input.approvedChannel)
   ) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `The approved ${input.approvedChannel} notification channel is not enabled for this recipient.`
     );
   }
@@ -438,7 +439,7 @@ export function resolveBuildCollaborationPublicationNotifications(input: {
       ),
     ].filter(Boolean);
     if (!(summary && recipientWorkosUserIds.length)) {
-      throw new Error(
+      throw buildCollaborationValidationError(
         "Every notification effect requires a summary and recipient."
       );
     }
@@ -447,7 +448,7 @@ export function resolveBuildCollaborationPublicationNotifications(input: {
         (recipientWorkosUserId) => !readerIds.has(recipientWorkosUserId)
       )
     ) {
-      throw new Error(
+      throw buildCollaborationValidationError(
         "Notification recipients must be able to read the approved publication."
       );
     }

@@ -10,6 +10,7 @@ import type { BuildCollaborationRole } from "./build_collaboration_model";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import type { ReferenceInput } from "./build_collaboration_publication_bundle";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import type { Doc, QueryCtx } from "./types";
 
 const MAX_OPTIONS_PER_KIND = 500;
@@ -57,7 +58,7 @@ export async function resolveCanonicalBuildCollaborationReferences(
   const readers = readerIds.map((readerId) => {
     const participant = participantById.get(readerId);
     if (!participant) {
-      throw new Error(
+      throw buildCollaborationValidationError(
         "Every collaboration reference reader must actively participate in this Build."
       );
     }
@@ -69,7 +70,9 @@ export async function resolveCanonicalBuildCollaborationReferences(
   for (const submitted of input.references) {
     const entityId = submitted.entityId.trim();
     if (!entityId) {
-      throw new Error("Every collaboration reference requires an entity ID.");
+      throw buildCollaborationValidationError(
+        "Every collaboration reference requires an entity ID."
+      );
     }
     const key = `${submitted.entityKind}:${entityId}`;
     if (submitted.primary && selectedPrimaryKey === undefined) {

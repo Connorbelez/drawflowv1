@@ -1,6 +1,7 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import type { BuildCollaborationPublicationBundle } from "./build_collaboration_publication_bundle";
+import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import type { MutationCtx } from "./types";
 
 type SharedMutation =
@@ -33,12 +34,12 @@ export async function resolveSharedMutationRevisionPrecondition(
     return null;
   }
   if (mutation.operation.trim().toLowerCase() !== "assert_revision") {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `Revision-controlled shared effect ${mutation.entityKind}:${entityId} must use the assert_revision operation so publication cannot claim an unexecuted target mutation.`
     );
   }
   if (mutation.expectedRevision === undefined) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `Shared mutation ${mutation.entityKind}:${entityId} requires an expected revision.`
     );
   }
@@ -50,12 +51,12 @@ export async function resolveSharedMutationRevisionPrecondition(
     entityId
   );
   if (currentRevision === null) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `Shared mutation ${mutation.entityKind}:${entityId} is unavailable.`
     );
   }
   if (currentRevision !== mutation.expectedRevision) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `Revision conflict: ${mutation.entityKind}:${entityId} expected revision ${mutation.expectedRevision} but found ${currentRevision}. Review the latest state before publishing.`
     );
   }

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import * as schedulingModule from "./build_collaboration_scheduling";
+import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -17,23 +18,19 @@ afterEach(() => {
 });
 
 describe("Build collaboration scheduled publication", () => {
-  test("only promotes explicitly recognized revalidation failures to material conflicts", async () => {
+  test("only promotes typed domain validation failures to material conflicts", async () => {
     await expect(
-      schedulingModule.revalidateMaterialBoundary(
-        async () => {
-          throw new Error("Transient Convex database failure.");
-        },
-        () => false
-      )
+      schedulingModule.revalidateMaterialBoundary(async () => {
+        throw new Error("Transient Convex database failure.");
+      })
     ).rejects.toThrow("Transient Convex database failure.");
 
     await expect(
-      schedulingModule.revalidateMaterialBoundary(
-        async () => {
-          throw new Error("Deterministic publication conflict.");
-        },
-        () => true
-      )
+      schedulingModule.revalidateMaterialBoundary(async () => {
+        throw buildCollaborationValidationError(
+          "Deterministic publication conflict."
+        );
+      })
     ).rejects.toMatchObject({
       data: expect.objectContaining({
         code: "BUILD_COLLABORATION_SCHEDULE_MATERIAL_CONFLICT",
@@ -436,6 +433,74 @@ describe("Build collaboration scheduled publication", () => {
     expect(state.posts).toEqual([]);
     expect(state.approval).toMatchObject({
       conflictReason: expect.stringContaining("Renew human approval"),
+      state: "paused",
+    });
+    expect(state.draft).toMatchObject({ state: "active" });
+  });
+
+  test("pauses a custom audience when an approved reader leaves the Build", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const scheduledFor = BASE_TIME + 60_000;
+    const draft = await fixture.admin.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      {
+        ...publicationBundle("Custom audience reader must remain active."),
+        audienceMode: "custom",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        requestedReaderIds: ["user_admin", "user_builder_staff"],
+      }
+    );
+    const approvalId = (await fixture.admin.mutation(
+      (api as any).build_collaboration_scheduling
+        .approveAndScheduleBuildCollaborationDraft,
+      {
+        buildId: fixture.buildId,
+        draftId: draft.draftId,
+        expectedRevision: draft.revision,
+        organizationId: ORGANIZATION_ID,
+        scheduledFor,
+      }
+    )) as Id<"buildCollaborationPublicationApprovals">;
+    await fixture.base.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "user_builder_staff")
+        )
+        .unique();
+      if (!participant) {
+        throw new Error("Scheduling participant fixture is unavailable.");
+      }
+      await ctx.db.patch(participant._id, {
+        removedAt: BASE_TIME + 30_000,
+        status: "removed",
+        updatedAt: BASE_TIME + 30_000,
+        validUntil: BASE_TIME + 30_000,
+      });
+    });
+
+    vi.setSystemTime(scheduledFor + 1);
+    await fixture.base.action(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledBuildCollaborationPublication,
+      { approvalId }
+    );
+
+    const state = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      draft: await ctx.db.get(draft.draftId),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(state.posts).toEqual([]);
+    expect(state.approval).toMatchObject({
+      conflictReason: expect.stringContaining(
+        "Custom audience readers must be active Build participants"
+      ),
       state: "paused",
     });
     expect(state.draft).toMatchObject({ state: "active" });

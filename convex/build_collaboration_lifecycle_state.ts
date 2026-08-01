@@ -1,4 +1,5 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
+import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import type { QueryCtx } from "./types";
 
 export const BUILD_COLLABORATION_CLOSED_ERROR =
@@ -23,7 +24,9 @@ export async function getStoredBuildCollaborationState(
     (state.organizationId !== authorization.organizationId ||
       state.brokerageId !== authorization.brokerage._id)
   ) {
-    throw new Error(BUILD_COLLABORATION_LIFECYCLE_TENANCY_ERROR);
+    throw buildCollaborationValidationError(
+      BUILD_COLLABORATION_LIFECYCLE_TENANCY_ERROR
+    );
   }
   return state;
 }
@@ -34,9 +37,9 @@ export async function requireBuildCollaborationWritable(
 ) {
   const state = await getStoredBuildCollaborationState(ctx, authorization);
   if (state?.state === "closed") {
-    throw new Error(BUILD_COLLABORATION_CLOSED_ERROR);
+    throw buildCollaborationValidationError(BUILD_COLLABORATION_CLOSED_ERROR);
   }
   if (state?.state === "purged") {
-    throw new Error(BUILD_COLLABORATION_PURGED_ERROR);
+    throw buildCollaborationValidationError(BUILD_COLLABORATION_PURGED_ERROR);
   }
 }
