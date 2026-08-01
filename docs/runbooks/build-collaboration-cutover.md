@@ -19,6 +19,13 @@ duplicating operational records.
 - Configure `VITE_BUILD_COLLABORATION_PUSH_PUBLIC_KEY` with the matching
   URL-safe VAPID public key in the web deployment. Push opt-in must remain
   unavailable when this key is absent.
+- Bind the exact release on the production Convex deployment with
+  `BUILD_COLLABORATION_RELEASE_APPLICATION_URL`,
+  `BUILD_COLLABORATION_RELEASE_APPLICATION_VERSION`,
+  `BUILD_COLLABORATION_RELEASE_CONVEX_DEPLOYMENT`, and
+  `BUILD_COLLABORATION_RELEASE_GIT_SHA`. `CONVEX_CLOUD_URL` must identify the
+  same deployment. The web deployment must expose the same Git SHA and version
+  at `GET /api/release`; certification fails closed when either side differs.
 
 ## Migration
 
@@ -251,6 +258,39 @@ Rollback is UI/configuration-only:
   and re-run the idempotent import and parity checks. Prior passing evidence is
   deliberately invalid after rollback.
 
+Rehearse this against the complete tenant, not only the representative Build.
+Freeze collaboration publishing for the maintenance window, then create and
+advance a durable server-side `before` snapshot. Each call processes at most
+100 indexed tenant rows and persists the cursor plus chained SHA-256 digest;
+repeat until `isComplete=true`:
+
+```sh
+REHEARSAL=$(bun x convex run --deployment '<production-convex-deployment>' --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_cutover_rehearsals:beginBuildCollaborationRollbackRehearsal '{"organizationId":"<workos-organization-id>","buildId":"<active-build-id>","gitCommit":"<40-character-git-sha>","applicationVersion":"<application-version>","applicationUrl":"https://<production-host>","convexDeployment":"<production-convex-deployment>","convexUrl":"https://<production-convex-url>"}')
+REHEARSAL_ID=$(printf '%s' "$REHEARSAL" | jq -r '.value.rehearsalId // .rehearsalId')
+SNAPSHOT_ID=$(printf '%s' "$REHEARSAL" | jq -r '.value.snapshotId // .snapshotId')
+bun x convex run --deployment '<production-convex-deployment>' --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_cutover_rehearsals:advanceBuildCollaborationRollbackSnapshot "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<active-build-id>' --arg snapshotId "$SNAPSHOT_ID" '{organizationId:$organizationId,buildId:$buildId,snapshotId:$snapshotId,limit:100}')"
+# Repeat until isComplete=true.
+```
+
+Transition the tenant from `active` to `disabled`; this must increment the
+cutover epoch exactly once. Execute the real legacy mutation canary and require
+the retired-write contract, then capture the server-side `after` snapshot with
+the original audit cutoff:
+
+```sh
+bun x convex run --deployment '<production-convex-deployment>' --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_cutover_rehearsals:executeBuildCollaborationLegacyWriteDenialCanary "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<active-build-id>' --arg rehearsalId "$REHEARSAL_ID" '{organizationId:$organizationId,buildId:$buildId,rehearsalId:$rehearsalId}')"
+AFTER_ID=$(bun x convex run --deployment '<production-convex-deployment>' --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_cutover_rehearsals:beginBuildCollaborationRollbackAfterSnapshot "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<active-build-id>' --arg rehearsalId "$REHEARSAL_ID" '{organizationId:$organizationId,buildId:$buildId,rehearsalId:$rehearsalId}')" | jq -r '.value // .')
+bun x convex run --deployment '<production-convex-deployment>' --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_cutover_rehearsals:advanceBuildCollaborationRollbackSnapshot "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<active-build-id>' --arg snapshotId "$AFTER_ID" '{organizationId:$organizationId,buildId:$buildId,snapshotId:$snapshotId,limit:100}')"
+# Repeat until isComplete=true and retentionMatched=true.
+```
+
+The rehearsal compares tenant-wide post, revision, asset, receipt, and
+pre-disable audit-event counts and stable-ID/content digests. A missing or
+rewritten row marks the durable rehearsal failed. Re-run the epoch-bound
+migration preview/parity gates, reactivate, and only then certify. The live
+certification query reads this retained rehearsal; an operator-authored
+before/after snapshot is never accepted.
+
 ## Deployment Record Certification
 
 Copy
@@ -258,8 +298,9 @@ Copy
 release evidence directory and replace every placeholder with the retained
 production artifact and monitoring link. Artifact paths may be absolute or
 relative to the manifest. Every referenced file is typed JSON and must carry
-the same organization, representative Build, Git SHA, application version, and
-`prod:` Convex deployment as the manifest; record its SHA-256 after finalizing
+the same organization, representative Build, forbidden-tenant probe scope, Git
+SHA, application URL/version, Convex URL, and exact Convex deployment as the
+manifest; record its SHA-256 after finalizing
 the file. The manifest no longer duplicates command, parity, role-journey,
 activation, interface, or rollback results.
 
@@ -270,16 +311,42 @@ stable-ID/content hashes. Existing post, revision, asset, and receipt records
 must be byte-stable; prior audit events must remain an unchanged subset because
 rollback and reactivation correctly append new audit events.
 
-First run the authenticated handler probes. Unlike the deployment-registration
-check, these use valid production IDs, execute the deployed handlers, assert
-their response contracts, and prove a cross-tenant denial:
+Generate every command artifact through the governed runner. It refuses a Git
+HEAD mismatch, owns the exact argv for each automated gate, captures real exit
+status, retains stdout/stderr sidecars with verified hashes, and writes a pass
+artifact only after exit code zero.
+For `visualReview` and `keyboardReview`, pass a human WorkOS user ID plus at
+least one screenshot, video, or report path; the runner hashes that evidence.
+Do not hand-author command evidence JSON.
 
 ```sh
 BUILD_COLLABORATION_OPERATOR_IDENTITY_JSON='<human-admin-or-principal-identity>' \
-  bun run verify:build-collaboration-production -- \
-  --organization-id '<workos-organization-id>' \
-  --build-id '<active-build-id>' \
-  --forbidden-organization-id '<different-workos-organization-id>'
+  bun run run:build-collaboration-cutover-gate -- \
+  --gate authenticatedProductionProbes \
+  --manifest '<release-evidence-dir>/cutover-evidence.json' \
+  --output '<release-evidence-dir>/authenticated-production-probes.json'
+
+bun run run:build-collaboration-cutover-gate -- \
+  --gate visualReview \
+  --manifest '<release-evidence-dir>/cutover-evidence.json' \
+  --output '<release-evidence-dir>/visual-review.json' \
+  --reviewer-workos-user-id '<human-workos-user-id>' \
+  --evidence '<release-evidence-dir>/visual-review.png'
+
+BUILD_COLLABORATION_E2E_FIXTURE='<authenticated-fixture-path>' \
+  bun run run:build-collaboration-cutover-evidence -- \
+  --kind smoke \
+  --role contractor \
+  --manifest '<release-evidence-dir>/cutover-evidence.json' \
+  --output '<release-evidence-dir>/smoke-contractor.json'
+# Repeat the governed smoke runner for every approved role.
+
+bun run run:build-collaboration-cutover-evidence -- \
+  --kind interface \
+  --manifest '<release-evidence-dir>/cutover-evidence.json' \
+  --output '<release-evidence-dir>/interface.json' \
+  --visual-evidence '<release-evidence-dir>/visual-review.json' \
+  --keyboard-evidence '<release-evidence-dir>/keyboard-review.json'
 ```
 
 Then certify the evidence:
@@ -291,9 +358,11 @@ BUILD_COLLABORATION_OPERATOR_IDENTITY_JSON='<human-admin-or-principal-identity>'
   --output '<release-evidence-dir>/deployment-record.certified.json'
 ```
 
-The command queries the production certification-state handler with the human
+The command queries the exact `release.convexDeployment` certification-state
+handler with the human
 operator identity; operator-authored live-state files are never accepted. It
-cross-checks typed artifacts against the current tenant status/epoch, activation
+cross-checks typed artifacts against the Convex-side release environment and
+the web deployment's `/api/release` contract, current tenant status/epoch, activation
 actor/time, linked migration/parity run IDs, verified timestamp, frozen latest-
 Build boundary, and current stable-record hashes before atomically writing the
 certified record. A template, partial or fabricated artifact, failed command,

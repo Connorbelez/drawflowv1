@@ -1,21 +1,8 @@
 import { v } from "convex/values";
 
 import { authenticatedQuery } from "./authz";
-import {
-  authorizeLegacyNoteOperator,
-  sha256Hex,
-} from "./build_collaboration_legacy_note_shared";
-import type { Doc, QueryCtx } from "./types";
-
-const MAX_BUILD_RECORDS_PER_COLLECTION = 5000;
-const MAX_TENANT_AUDIT_EVENTS = 10_000;
-
-type RetainedCollection =
-  | "assets"
-  | "auditEvents"
-  | "posts"
-  | "receipts"
-  | "revisions";
+import { authorizeLegacyNoteOperator } from "./build_collaboration_legacy_note_shared";
+import type { Doc, Id } from "./types";
 
 export const getBuildCollaborationCutoverCertificationState = authenticatedQuery
   .input({
@@ -55,82 +42,33 @@ export const getBuildCollaborationCutoverCertificationState = authenticatedQuery
       )
       .order("desc")
       .first();
-
-    const [posts, revisions, assets, receipts, auditEvents] = await Promise.all(
-      [
-        takeBuildRows(
-          ctx,
-          "buildCollaborationPosts",
-          args.buildId,
-          MAX_BUILD_RECORDS_PER_COLLECTION
-        ),
-        takeBuildRows(
-          ctx,
-          "buildCollaborationPostRevisions",
-          args.buildId,
-          MAX_BUILD_RECORDS_PER_COLLECTION
-        ),
-        takeBuildRows(
-          ctx,
-          "buildCollaborationAssets",
-          args.buildId,
-          MAX_BUILD_RECORDS_PER_COLLECTION
-        ),
-        takeBuildRows(
-          ctx,
-          "buildCollaborationReceipts",
-          args.buildId,
-          MAX_BUILD_RECORDS_PER_COLLECTION
-        ),
-        ctx.db
-          .query("auditEvents")
-          .withIndex("by_brokerage", (query) =>
-            query.eq("brokerageId", authorization.brokerage._id)
-          )
-          .filter((query) =>
-            query.eq(
-              query.field("organizationId"),
-              authorization.organizationId
-            )
-          )
-          .take(MAX_TENANT_AUDIT_EVENTS + 1),
-      ]
-    );
-    assertWithinLimit("auditEvents", auditEvents, MAX_TENANT_AUDIT_EVENTS);
+    const rehearsal = await ctx.db
+      .query("buildCollaborationCutoverRehearsals")
+      .withIndex("by_organizationId_and_createdAt", (query) =>
+        query.eq("organizationId", authorization.organizationId)
+      )
+      .order("desc")
+      .first();
+    const beforeSnapshot = rehearsal?.beforeSnapshotId
+      ? await ctx.db.get(rehearsal.beforeSnapshotId)
+      : null;
+    const afterSnapshot = rehearsal?.afterSnapshotId
+      ? await ctx.db.get(rehearsal.afterSnapshotId)
+      : null;
+    const rolloutEvents = await ctx.db
+      .query("auditEvents")
+      .withIndex("by_entity", (query) =>
+        query
+          .eq("entityType", "buildCollaborationTenantSettings")
+          .eq("entityId", setting._id)
+      )
+      .order("desc")
+      .take(20);
 
     return {
-      evidence:
-        evidence &&
-        evidence.brokerageId === authorization.brokerage._id &&
-        evidence.verificationSource === "legacy_note_migration_v1" &&
-        evidence.migrationRunId &&
-        evidence.parityRunId &&
-        evidence.planToken &&
-        evidence.reportVersion &&
-        evidence.buildReportCount !== undefined &&
-        evidence.cutoverEpoch !== undefined
-          ? {
-              buildReportCount: evidence.buildReportCount,
-              cutoverEpoch: evidence.cutoverEpoch,
-              evidenceId: evidence._id,
-              importedPostCount: evidence.importedPostCount,
-              migrationRunId: evidence.migrationRunId,
-              mismatchCount: evidence.mismatchCount,
-              parityPassed: evidence.parityPassed,
-              parityRunId: evidence.parityRunId,
-              planToken: evidence.planToken,
-              reportHash: evidence.reportHash,
-              reportVersion: evidence.reportVersion,
-              sourceRecordCount: evidence.sourceRecordCount,
-              verifiedAt: evidence.verifiedAt,
-              verifiedByWorkosUserId: evidence.verifiedByWorkosUserId,
-            }
-          : null,
+      evidence: projectEvidence(evidence, authorization.brokerage._id),
       latestBuild: latestBuild
-        ? {
-            buildId: latestBuild._id,
-            creationTime: latestBuild._creationTime,
-          }
+        ? { buildId: latestBuild._id, creationTime: latestBuild._creationTime }
         : null,
       migration:
         migration &&
@@ -163,35 +101,39 @@ export const getBuildCollaborationCutoverCertificationState = authenticatedQuery
               status: parityRun.status,
             }
           : null,
+      release: rehearsal
+        ? {
+            applicationUrl: rehearsal.releaseApplicationUrl,
+            applicationVersion: rehearsal.releaseApplicationVersion,
+            convexDeployment: rehearsal.releaseConvexDeployment,
+            convexUrl: rehearsal.releaseConvexUrl,
+            gitCommit: rehearsal.releaseGitCommit,
+          }
+        : null,
       representativeBuildId: authorization.build._id,
-      legacyWritePolicy: {
-        allowed: setting.status === "disabled" && !migration,
-        reasonCode:
-          setting.status !== "disabled" || migration
-            ? "LEGACY_NOTES_RETIRED"
-            : "LEGACY_NOTES_WRITE_ALLOWED",
-      },
-      retainedSnapshot: {
-        assets: await stableRecords(assets),
-        auditEvents: await stableRecords(auditEvents),
-        posts: await stableRecords(posts),
-        receipts: await stableRecords(receipts),
-        revisions: await stableRecords(revisions),
-      },
-      schemaVersion: "build-collaboration-cutover-live-state/v1",
-      rolloutTransitions: auditEvents
-        .filter(
-          (event) =>
-            event.entityId === setting._id &&
-            event.command === "transitionBuildCollaborationTenantStatus" &&
-            event.eventType === "build.collaboration.tenant_status.changed"
-        )
-        .map((event) => ({
-          actorWorkosUserId: event.actorWorkosUserId,
-          createdAt: event.createdAt,
-          newState: parseAuditState(event.newState),
-          priorState: parseAuditState(event.priorState),
-        })),
+      rollbackRehearsal:
+        rehearsal && beforeSnapshot && afterSnapshot
+          ? {
+              afterSnapshot: projectSnapshot(afterSnapshot),
+              beforeCutoverEpoch: rehearsal.beforeCutoverEpoch,
+              beforeSnapshot: projectSnapshot(beforeSnapshot),
+              completedAt: rehearsal.completedAt,
+              disabledCutoverEpoch: rehearsal.disabledCutoverEpoch,
+              disabledVerifiedAt: rehearsal.disabledVerifiedAt,
+              legacyWriteDenialError: rehearsal.legacyWriteDenialError,
+              legacyWriteDeniedAt: rehearsal.legacyWriteDeniedAt,
+              rehearsalId: rehearsal._id,
+              requestedByWorkosUserId: rehearsal.requestedByWorkosUserId,
+              status: rehearsal.status,
+            }
+          : null,
+      rolloutTransitions: rolloutEvents.map((event) => ({
+        actorWorkosUserId: event.actorWorkosUserId,
+        createdAt: event.createdAt,
+        newState: parseAuditState(event.newState),
+        priorState: parseAuditState(event.priorState),
+      })),
+      schemaVersion: "build-collaboration-cutover-live-state/v2",
       tenant: {
         activatedAt: setting.activatedAt,
         activatedByWorkosUserId: setting.activatedByWorkosUserId,
@@ -202,55 +144,75 @@ export const getBuildCollaborationCutoverCertificationState = authenticatedQuery
   })
   .public();
 
-async function takeBuildRows(
-  ctx: QueryCtx,
-  table:
-    | "buildCollaborationAssets"
-    | "buildCollaborationPosts"
-    | "buildCollaborationPostRevisions"
-    | "buildCollaborationReceipts",
-  buildId: Doc<"activeBuilds">["_id"],
-  limit: number
+function projectEvidence(
+  evidence: Doc<"buildCollaborationMigrationParityEvidence"> | null,
+  brokerageId: Id<"brokerages">
 ) {
-  const rows = await ctx.db
-    .query(table)
-    .filter((query) => query.eq(query.field("buildId"), buildId))
-    .take(limit + 1);
-  assertWithinLimit(table, rows, limit);
-  return rows;
-}
-
-function assertWithinLimit(collection: string, rows: unknown[], limit: number) {
-  if (rows.length > limit) {
-    throw new Error(
-      `${collection} exceeds the generous ${limit}-record certification limit; certify with the paged operator export instead.`
-    );
+  if (
+    !evidence ||
+    evidence.brokerageId !== brokerageId ||
+    evidence.verificationSource !== "legacy_note_migration_v1" ||
+    !evidence.migrationRunId ||
+    !evidence.parityRunId ||
+    !evidence.planToken ||
+    !evidence.reportVersion ||
+    evidence.buildReportCount === undefined ||
+    evidence.cutoverEpoch === undefined
+  ) {
+    return null;
   }
+  return {
+    buildReportCount: evidence.buildReportCount,
+    cutoverEpoch: evidence.cutoverEpoch,
+    evidenceId: evidence._id,
+    importedPostCount: evidence.importedPostCount,
+    migrationRunId: evidence.migrationRunId,
+    mismatchCount: evidence.mismatchCount,
+    parityPassed: evidence.parityPassed,
+    parityRunId: evidence.parityRunId,
+    planToken: evidence.planToken,
+    reportHash: evidence.reportHash,
+    reportVersion: evidence.reportVersion,
+    sourceRecordCount: evidence.sourceRecordCount,
+    verifiedAt: evidence.verifiedAt,
+    verifiedByWorkosUserId: evidence.verifiedByWorkosUserId,
+  };
 }
 
-async function stableRecords(
-  rows: Array<{ _creationTime: number; _id: string }>
-) {
-  return await Promise.all(
-    [...rows]
-      .sort((left, right) => left._id.localeCompare(right._id))
-      .map(async (row) => ({
-        id: row._id,
-        sha256: await sha256Hex(JSON.stringify(row)),
-      }))
-  );
+function projectSnapshot(snapshot: {
+  _id: string;
+  assetsCount?: number;
+  assetsHash?: string;
+  auditCutoffAt: number;
+  auditEventsCount?: number;
+  auditEventsHash?: string;
+  completedAt?: number;
+  postsCount?: number;
+  postsHash?: string;
+  receiptsCount?: number;
+  receiptsHash?: string;
+  revisionsCount?: number;
+  revisionsHash?: string;
+  status: string;
+}) {
+  return {
+    assets: { count: snapshot.assetsCount, sha256: snapshot.assetsHash },
+    auditCutoffAt: snapshot.auditCutoffAt,
+    auditEvents: {
+      count: snapshot.auditEventsCount,
+      sha256: snapshot.auditEventsHash,
+    },
+    completedAt: snapshot.completedAt,
+    posts: { count: snapshot.postsCount, sha256: snapshot.postsHash },
+    receipts: { count: snapshot.receiptsCount, sha256: snapshot.receiptsHash },
+    revisions: {
+      count: snapshot.revisionsCount,
+      sha256: snapshot.revisionsHash,
+    },
+    snapshotId: snapshot._id,
+    status: snapshot.status,
+  };
 }
-
-export const buildCollaborationCutoverCertificationLimits: Record<
-  RetainedCollection,
-  number
-> = {
-  assets: MAX_BUILD_RECORDS_PER_COLLECTION,
-  auditEvents: MAX_TENANT_AUDIT_EVENTS,
-  posts: MAX_BUILD_RECORDS_PER_COLLECTION,
-  receipts: MAX_BUILD_RECORDS_PER_COLLECTION,
-  revisions: MAX_BUILD_RECORDS_PER_COLLECTION,
-};
 
 function parseAuditState(value?: string) {
   if (!value) {

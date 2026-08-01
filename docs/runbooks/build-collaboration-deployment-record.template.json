@@ -2,36 +2,65 @@
   "schemaVersion": "build-collaboration-cutover-evidence/v2",
   "organizationId": "<workos-organization-id>",
   "representativeBuildId": "<active-build-id>",
+  "forbiddenOrganizationId": "<different-workos-organization-id>",
   "release": {
     "gitCommit": "<40-character-git-commit>",
     "applicationVersion": "<application-deployment-version>",
-    "convexDeployment": "prod:<production-convex-deployment>",
-    "applicationDeploymentUrl": "https://<production-host>"
+    "convexDeployment": "<production-convex-deployment>",
+    "convexUrl": "https://<production-convex-url>",
+    "applicationUrl": "https://<production-host>"
   },
   "migration": {
-    "previewArtifact": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
-    "applicationArtifact": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "previewArtifact": {
+      "path": "<typed-artifact-path>",
+      "sha256": "<sha256>"
+    },
+    "applicationArtifact": {
+      "path": "<typed-artifact-path>",
+      "sha256": "<sha256>"
+    },
     "replayArtifact": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
     "parityArtifact": { "path": "<typed-artifact-path>", "sha256": "<sha256>" }
   },
   "commands": {
     "convexCodegen": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
-    "convexTypecheck": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "convexTypecheck": {
+      "path": "<typed-artifact-path>",
+      "sha256": "<sha256>"
+    },
     "targetedTests": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
     "fullTestSuite": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
-    "applicationTypecheck": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
-    "productionBuild": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "applicationTypecheck": {
+      "path": "<typed-artifact-path>",
+      "sha256": "<sha256>"
+    },
+    "productionBuild": {
+      "path": "<typed-artifact-path>",
+      "sha256": "<sha256>"
+    },
     "uiHtmlAudit": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
-    "deploymentRegistration": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
-    "authenticatedProductionProbes": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "deploymentRegistration": {
+      "path": "<typed-artifact-path>",
+      "sha256": "<sha256>"
+    },
+    "authenticatedProductionProbes": {
+      "path": "<typed-artifact-path>",
+      "sha256": "<sha256>"
+    },
     "warningCheck": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
-    "playwrightRoleJourneys": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "playwrightRoleJourneys": {
+      "path": "<typed-artifact-path>",
+      "sha256": "<sha256>"
+    },
     "visualReview": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
     "keyboardReview": { "path": "<typed-artifact-path>", "sha256": "<sha256>" }
   },
   "smokeJourneys": {
     "admin": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
-    "principle-broker": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
+    "principle-broker": {
+      "path": "<typed-artifact-path>",
+      "sha256": "<sha256>"
+    },
     "broker": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
     "builder": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },
     "broker-staff": { "path": "<typed-artifact-path>", "sha256": "<sha256>" },

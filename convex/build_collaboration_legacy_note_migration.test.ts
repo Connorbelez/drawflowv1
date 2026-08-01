@@ -369,6 +369,124 @@ describe("Build collaboration legacy-note migration", () => {
     );
   });
 
+  test("retains a durable tenant-wide rollback rehearsal and executes the real legacy-write denial", async () => {
+    const fixture = await seedMigrationFixture();
+    process.env.BUILD_COLLABORATION_RELEASE_APPLICATION_URL =
+      "https://drawflow.example.com";
+    process.env.BUILD_COLLABORATION_RELEASE_APPLICATION_VERSION =
+      "release-2026-08-01";
+    process.env.BUILD_COLLABORATION_RELEASE_CONVEX_DEPLOYMENT =
+      "example-production";
+    process.env.BUILD_COLLABORATION_RELEASE_GIT_SHA =
+      "0123456789abcdef0123456789abcdef01234567";
+    process.env.CONVEX_CLOUD_URL = "https://example.convex.cloud";
+    await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (setting) {
+        await ctx.db.patch(setting._id, { cutoverEpoch: 3, status: "active" });
+      } else {
+        await ctx.db.insert("buildCollaborationTenantSettings", {
+          brokerageId: fixture.brokerageId,
+          createdAt: fixture.now,
+          cutoverEpoch: 3,
+          generousRateLimitMultiplier: 1,
+          organizationId: ORGANIZATION_ID,
+          status: "active",
+          updatedAt: fixture.now,
+        });
+      }
+    });
+    const started = await fixture.admin.mutation(
+      (api as any).build_collaboration_cutover_rehearsals
+        .beginBuildCollaborationRollbackRehearsal,
+      {
+        applicationUrl: "https://drawflow.example.com",
+        applicationVersion: "release-2026-08-01",
+        buildId: fixture.buildId,
+        convexDeployment: "example-production",
+        convexUrl: "https://example.convex.cloud",
+        gitCommit: "0123456789abcdef0123456789abcdef01234567",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    let beforeComplete = false;
+    for (let guard = 0; !beforeComplete; guard += 1) {
+      expect(guard).toBeLessThan(20);
+      const page = await fixture.admin.mutation(
+        (api as any).build_collaboration_cutover_rehearsals
+          .advanceBuildCollaborationRollbackSnapshot,
+        {
+          buildId: fixture.buildId,
+          limit: 1,
+          organizationId: ORGANIZATION_ID,
+          snapshotId: started.snapshotId,
+        }
+      );
+      beforeComplete = page.isComplete;
+    }
+    await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (!setting) throw new Error("Expected tenant setting.");
+      await ctx.db.patch(setting._id, { cutoverEpoch: 4, status: "disabled" });
+    });
+    await expect(
+      fixture.admin.action(
+        (api as any).build_collaboration_cutover_rehearsals
+          .executeBuildCollaborationLegacyWriteDenialCanary,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          rehearsalId: started.rehearsalId,
+        }
+      )
+    ).resolves.toBe("denied");
+    const afterSnapshotId = await fixture.admin.mutation(
+      (api as any).build_collaboration_cutover_rehearsals
+        .beginBuildCollaborationRollbackAfterSnapshot,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        rehearsalId: started.rehearsalId,
+      }
+    );
+    let afterComplete = false;
+    for (let guard = 0; !afterComplete; guard += 1) {
+      expect(guard).toBeLessThan(20);
+      const page = await fixture.admin.mutation(
+        (api as any).build_collaboration_cutover_rehearsals
+          .advanceBuildCollaborationRollbackSnapshot,
+        {
+          buildId: fixture.buildId,
+          limit: 1,
+          organizationId: ORGANIZATION_ID,
+          snapshotId: afterSnapshotId,
+        }
+      );
+      afterComplete = page.isComplete;
+      if (afterComplete) expect(page.retentionMatched).toBe(true);
+    }
+    const rehearsal = await fixture.base.run(async (ctx) =>
+      ctx.db.get(started.rehearsalId)
+    );
+    expect(rehearsal).toMatchObject({
+      beforeCutoverEpoch: 3,
+      disabledCutoverEpoch: 4,
+      legacyWriteDenialError:
+        "Public/Internal Notes are retired. Publish a governed collaboration post instead.",
+      status: "complete",
+    });
+  });
+
   test("detects orphaned imports even when a new plan has zero source notes", async () => {
     const fixture = await seedMigrationFixture();
     const firstPlan = await previewAll(fixture, 2);

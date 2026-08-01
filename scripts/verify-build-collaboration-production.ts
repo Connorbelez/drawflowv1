@@ -7,11 +7,18 @@ interface ProbeResult {
   value?: unknown;
 }
 
-const AUTHORIZATION_DENIAL_PATTERN = /(forbidden|organization|scope|build)/i;
+const AUTHORIZATION_DENIAL_PATTERN = /Forbidden:/;
+const TRAILING_SLASH_PATTERN = /\/$/;
 
 export function validateBuildCollaborationProductionProbeResults(
   results: ProbeResult[],
-  expected: { buildId: string; organizationId: string }
+  expected: {
+    applicationUrl: string;
+    applicationVersion: string;
+    buildId: string;
+    gitCommit: string;
+    organizationId: string;
+  }
 ) {
   const errors: string[] = [];
   const byName = new Map(results.map((result) => [result.name, result]));
@@ -33,6 +40,17 @@ export function validateBuildCollaborationProductionProbeResults(
   ) {
     errors.push(
       "Authenticated certification-state probe returned the wrong production scope."
+    );
+  }
+  const release = successfulValue(byName, "applicationRelease", errors);
+  if (
+    !isObject(release) ||
+    release.applicationUrl !== expected.applicationUrl ||
+    release.applicationVersion !== expected.applicationVersion ||
+    release.gitCommit !== expected.gitCommit
+  ) {
+    errors.push(
+      "Production application release metadata does not match the declared release."
     );
   }
   const feed = successfulValue(byName, "feed", errors);
@@ -99,6 +117,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function runConvexQuery(input: {
   args: Record<string, unknown>;
+  deployment: string;
   identity: string;
   name: string;
 }) {
@@ -108,7 +127,8 @@ function runConvexQuery(input: {
       "x",
       "convex",
       "run",
-      "--prod",
+      "--deployment",
+      input.deployment,
       "--identity",
       input.identity,
       input.name,
@@ -122,14 +142,29 @@ function runConvexQuery(input: {
   return JSON.parse(result.stdout);
 }
 
-function main() {
+async function main() {
   const organizationId = argumentValue("--organization-id");
   const buildId = argumentValue("--build-id");
   const forbiddenOrganizationId = argumentValue("--forbidden-organization-id");
+  const applicationUrl = argumentValue("--application-url");
+  const applicationVersion = argumentValue("--application-version");
+  const convexDeployment = argumentValue("--convex-deployment");
+  const gitCommit = argumentValue("--git-commit");
   const identity = process.env.BUILD_COLLABORATION_OPERATOR_IDENTITY_JSON;
-  if (!(organizationId && buildId && forbiddenOrganizationId && identity)) {
+  if (
+    !(
+      organizationId &&
+      buildId &&
+      forbiddenOrganizationId &&
+      applicationUrl &&
+      applicationVersion &&
+      convexDeployment &&
+      gitCommit &&
+      identity
+    )
+  ) {
     console.error(
-      "Usage: BUILD_COLLABORATION_OPERATOR_IDENTITY_JSON='<identity>' bun scripts/verify-build-collaboration-production.ts --organization-id <org> --build-id <build> --forbidden-organization-id <other-org>"
+      "Usage: BUILD_COLLABORATION_OPERATOR_IDENTITY_JSON='<identity>' bun scripts/verify-build-collaboration-production.ts --organization-id <org> --build-id <build> --forbidden-organization-id <other-org> --application-url <https-url> --application-version <deployment-id> --git-commit <sha> --convex-deployment <deployment>"
     );
     process.exitCode = 2;
     return;
@@ -184,6 +219,7 @@ function main() {
         ok: true,
         value: runConvexQuery({
           args: definition.args,
+          deployment: convexDeployment,
           identity,
           name: definition.query,
         }),
@@ -197,8 +233,28 @@ function main() {
     }
   });
   try {
+    const response = await fetch(
+      `${applicationUrl.replace(TRAILING_SLASH_PATTERN, "")}/api/release`
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    results.push({
+      name: "applicationRelease",
+      ok: true,
+      value: await response.json(),
+    });
+  } catch (error) {
+    results.push({
+      name: "applicationRelease",
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  try {
     runConvexQuery({
       args: { buildId, organizationId: forbiddenOrganizationId },
+      deployment: convexDeployment,
       identity,
       name: "build_collaboration_rollout:getBuildCollaborationRolloutState",
     });
@@ -211,7 +267,10 @@ function main() {
     });
   }
   const errors = validateBuildCollaborationProductionProbeResults(results, {
+    applicationUrl,
+    applicationVersion,
     buildId,
+    gitCommit,
     organizationId,
   });
   if (errors.length) {
@@ -246,5 +305,5 @@ function argumentValue(name: string) {
 }
 
 if (import.meta.main) {
-  main();
+  await main();
 }

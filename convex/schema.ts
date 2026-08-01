@@ -2622,7 +2622,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_entity", ["entityType", "entityId"])
-    .index("by_brokerage", ["brokerageId"]),
+    .index("by_brokerage", ["brokerageId"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   eventOutbox: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -3344,6 +3345,76 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_organizationId", ["organizationId"]),
+  buildCollaborationCutoverRehearsals: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    representativeBuildId: v.id("activeBuilds"),
+    releaseGitCommit: v.string(),
+    releaseApplicationVersion: v.string(),
+    releaseApplicationUrl: v.string(),
+    releaseConvexDeployment: v.string(),
+    releaseConvexUrl: v.string(),
+    beforeCutoverEpoch: v.number(),
+    disabledCutoverEpoch: v.optional(v.number()),
+    beforeSnapshotId: v.optional(v.id("buildCollaborationCutoverSnapshots")),
+    afterSnapshotId: v.optional(v.id("buildCollaborationCutoverSnapshots")),
+    legacyWriteDeniedAt: v.optional(v.number()),
+    legacyWriteDenialError: v.optional(v.string()),
+    disabledVerifiedAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("capturing_before"),
+      v.literal("before_ready"),
+      v.literal("disabled_verified"),
+      v.literal("capturing_after"),
+      v.literal("complete"),
+      v.literal("failed")
+    ),
+    failureReason: v.optional(v.string()),
+    requestedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
+  buildCollaborationCutoverSnapshots: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    rehearsalId: v.id("buildCollaborationCutoverRehearsals"),
+    kind: v.union(v.literal("before"), v.literal("after")),
+    auditCutoffAt: v.number(),
+    phase: v.union(
+      v.literal("posts"),
+      v.literal("revisions"),
+      v.literal("assets"),
+      v.literal("receipts"),
+      v.literal("auditEvents"),
+      v.literal("complete")
+    ),
+    cursor: v.optional(v.string()),
+    currentHash: v.string(),
+    currentCount: v.number(),
+    postsHash: v.optional(v.string()),
+    postsCount: v.optional(v.number()),
+    revisionsHash: v.optional(v.string()),
+    revisionsCount: v.optional(v.number()),
+    assetsHash: v.optional(v.string()),
+    assetsCount: v.optional(v.number()),
+    receiptsHash: v.optional(v.string()),
+    receiptsCount: v.optional(v.number()),
+    auditEventsHash: v.optional(v.string()),
+    auditEventsCount: v.optional(v.number()),
+    status: v.union(
+      v.literal("capturing"),
+      v.literal("complete"),
+      v.literal("failed")
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_rehearsalId_and_kind", ["rehearsalId", "kind"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   buildCollaborationMigrationParityEvidence: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -3788,7 +3859,8 @@ export default defineSchema({
       "postType",
     ])
     .index("by_buildId_and_systemEventKey", ["buildId", "systemEventKey"])
-    .index("by_buildId_and_importedSourceId", ["buildId", "importedSourceId"]),
+    .index("by_buildId_and_importedSourceId", ["buildId", "importedSourceId"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   buildCollaborationPostRevisions: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -3805,6 +3877,7 @@ export default defineSchema({
   })
     .index("by_postId_and_revision", ["postId", "revision"])
     .index("by_buildId_and_createdAt", ["buildId", "createdAt"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
     .searchIndex("search_plainText", {
       searchField: "plainText",
       filterFields: ["buildId", "organizationId"],
@@ -4227,7 +4300,11 @@ export default defineSchema({
   })
     .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
     .index("by_postId_and_firstViewedAt", ["postId", "firstViewedAt"])
-    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"])
+    .index("by_organizationId_and_firstViewedAt", [
+      "organizationId",
+      "firstViewedAt",
+    ]),
   buildCollaborationPins: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -4592,7 +4669,8 @@ export default defineSchema({
     .index("by_lineageRootAssetId_and_version", [
       "lineageRootAssetId",
       "version",
-    ]),
+    ])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   buildCollaborationAssetStagingSessions: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

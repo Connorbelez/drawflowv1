@@ -38,6 +38,7 @@ import { Route as BackofficeUserManagementRouteImport } from './routes/backoffic
 import { Route as BackofficeOnboardContractorRouteImport } from './routes/backoffice/onboard-contractor'
 import { Route as BackofficeOnboardBuilderRouteImport } from './routes/backoffice/onboard-builder'
 import { Route as BackofficeIntegrationsRouteImport } from './routes/backoffice/integrations'
+import { Route as ApiReleaseRouteImport } from './routes/api/release'
 import { Route as BuilderProposalsRouteRouteImport } from './routes/builder/proposals/route'
 import { Route as BuilderDemoRouteRouteImport } from './routes/builder/demo/route'
 import { Route as BuilderStaffProposalsRouteRouteImport } from './routes/builder-staff/proposals/route'
@@ -247,6 +248,11 @@ const BackofficeIntegrationsRoute = BackofficeIntegrationsRouteImport.update({
   id: '/integrations',
   path: '/integrations',
   getParentRoute: () => BackofficeRouteRoute,
+} as any)
+const ApiReleaseRoute = ApiReleaseRouteImport.update({
+  id: '/api/release',
+  path: '/api/release',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const BuilderProposalsRouteRoute = BuilderProposalsRouteRouteImport.update({
   id: '/proposals',
@@ -605,6 +611,7 @@ export interface FileRoutesByFullPath {
   '/builder-staff/proposals': typeof BuilderStaffProposalsRouteRouteWithChildren
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/builder/proposals': typeof BuilderProposalsRouteRouteWithChildren
+  '/api/release': typeof ApiReleaseRoute
   '/backoffice/integrations': typeof BackofficeIntegrationsRoute
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
@@ -683,6 +690,7 @@ export interface FileRoutesByTo {
   '/backoffice/draws': typeof BackofficeDrawsRouteRoute
   '/backoffice/site-visits': typeof BackofficeSiteVisitsRouteRoute
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
+  '/api/release': typeof ApiReleaseRoute
   '/backoffice/integrations': typeof BackofficeIntegrationsRoute
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
@@ -769,6 +777,7 @@ export interface FileRoutesById {
   '/builder-staff/proposals': typeof BuilderStaffProposalsRouteRouteWithChildren
   '/builder/demo': typeof BuilderDemoRouteRouteWithChildren
   '/builder/proposals': typeof BuilderProposalsRouteRouteWithChildren
+  '/api/release': typeof ApiReleaseRoute
   '/backoffice/integrations': typeof BackofficeIntegrationsRoute
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
@@ -862,6 +871,7 @@ export interface FileRouteTypes {
     | '/builder-staff/proposals'
     | '/builder/demo'
     | '/builder/proposals'
+    | '/api/release'
     | '/backoffice/integrations'
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
@@ -940,6 +950,7 @@ export interface FileRouteTypes {
     | '/backoffice/draws'
     | '/backoffice/site-visits'
     | '/builder/demo'
+    | '/api/release'
     | '/backoffice/integrations'
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
@@ -1025,6 +1036,7 @@ export interface FileRouteTypes {
     | '/builder-staff/proposals'
     | '/builder/demo'
     | '/builder/proposals'
+    | '/api/release'
     | '/backoffice/integrations'
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
@@ -1106,6 +1118,7 @@ export interface RootRouteChildren {
   CallbackRoute: typeof CallbackRoute
   ProposalPreviewRoute: typeof ProposalPreviewRoute
   ProtectedAccessRoute: typeof ProtectedAccessRoute
+  ApiReleaseRoute: typeof ApiReleaseRoute
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
@@ -1317,6 +1330,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/backoffice/integrations'
       preLoaderRoute: typeof BackofficeIntegrationsRouteImport
       parentRoute: typeof BackofficeRouteRoute
+    }
+    '/api/release': {
+      id: '/api/release'
+      path: '/api/release'
+      fullPath: '/api/release'
+      preLoaderRoute: typeof ApiReleaseRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/builder/proposals': {
       id: '/builder/proposals'
@@ -2144,6 +2164,7 @@ const rootRouteChildren: RootRouteChildren = {
   CallbackRoute: CallbackRoute,
   ProposalPreviewRoute: ProposalPreviewRoute,
   ProtectedAccessRoute: ProtectedAccessRoute,
+  ApiReleaseRoute: ApiReleaseRoute,
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,

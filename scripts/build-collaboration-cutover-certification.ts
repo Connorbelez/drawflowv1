@@ -9,6 +9,18 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 
+import {
+  BUILD_COLLABORATION_CUTOVER_GATE_RUNNER,
+  BUILD_COLLABORATION_CUTOVER_GATES,
+  BUILD_COLLABORATION_INTERFACE_RUNNER,
+  BUILD_COLLABORATION_MANUAL_REVIEW_RUNNER,
+  BUILD_COLLABORATION_SMOKE_RUNNER,
+  buildCollaborationCutoverGateArgv,
+  buildCollaborationRoleSmokeArgv,
+  isManualBuildCollaborationCutoverGate,
+  serializeCommand,
+} from "./build-collaboration-cutover-gates";
+
 export const REQUIRED_BUILD_COLLABORATION_ROLES = [
   "admin",
   "principle-broker",
@@ -20,21 +32,8 @@ export const REQUIRED_BUILD_COLLABORATION_ROLES = [
   "contractor",
 ] as const;
 
-export const REQUIRED_BUILD_COLLABORATION_CUTOVER_COMMANDS = [
-  "convexCodegen",
-  "convexTypecheck",
-  "targetedTests",
-  "fullTestSuite",
-  "applicationTypecheck",
-  "productionBuild",
-  "uiHtmlAudit",
-  "deploymentRegistration",
-  "authenticatedProductionProbes",
-  "warningCheck",
-  "playwrightRoleJourneys",
-  "visualReview",
-  "keyboardReview",
-] as const;
+export const REQUIRED_BUILD_COLLABORATION_CUTOVER_COMMANDS =
+  BUILD_COLLABORATION_CUTOVER_GATES;
 
 export const REQUIRED_BUILD_COLLABORATION_MONITORS = [
   "authorizationDenials",
@@ -49,35 +48,17 @@ export const REQUIRED_BUILD_COLLABORATION_MONITORS = [
   "overdueScheduling",
 ] as const;
 
-const IMMUTABLE_ROLLBACK_COLLECTIONS = [
-  "posts",
-  "revisions",
-  "assets",
-  "receipts",
-] as const;
-const ALL_ROLLBACK_COLLECTIONS = [
-  ...IMMUTABLE_ROLLBACK_COLLECTIONS,
-  "auditEvents",
-] as const;
 const PLACEHOLDER_PATTERN =
   /ACTIVE_BUILD_ID|ACTION_ITEM_ID|<[^>]+>|(?:^|[_\W])(?:TODO|TBD|UNKNOWN|PLACEHOLDER|REPLACE(?:D|_ME)?|YOUR)(?:$|[_\W])/i;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
 const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:/;
 const GIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
-const PROD_DEPLOYMENT_PATTERN = /^prod:/;
 const HTTPS_PATTERN = /^https:\/\//;
 const NON_HUMAN_ACTOR_PATTERN = /^(?:agent|system):/i;
+const NON_PRODUCTION_DEPLOYMENT_PATTERN = /^(?:dev|local|staging)$/i;
+const WORKOS_USER_PATTERN = /^user_[A-Za-z0-9]+$/;
 
 type JsonObject = Record<string, unknown>;
-interface StableRecord {
-  id: string;
-  sha256: string;
-}
-type StableSnapshot = Record<
-  (typeof ALL_ROLLBACK_COLLECTIONS)[number],
-  StableRecord[]
->;
-
 export interface BuildCollaborationCutoverLiveState {
   evidence: {
     buildReportCount: number;
@@ -96,10 +77,6 @@ export interface BuildCollaborationCutoverLiveState {
     verifiedByWorkosUserId: string;
   } | null;
   latestBuild: { buildId: string; creationTime: number } | null;
-  legacyWritePolicy: {
-    allowed: boolean;
-    reasonCode: string;
-  };
   migration: {
     latestBuildCreationTime: number;
     latestBuildId: string;
@@ -120,15 +97,34 @@ export interface BuildCollaborationCutoverLiveState {
     sourceRecordCount: number;
     status: string;
   } | null;
+  release: {
+    applicationUrl: string;
+    applicationVersion: string;
+    convexDeployment: string;
+    convexUrl: string;
+    gitCommit: string;
+  } | null;
   representativeBuildId: string;
-  retainedSnapshot: StableSnapshot;
+  rollbackRehearsal: {
+    afterSnapshot: RetainedDigestSnapshot;
+    beforeCutoverEpoch: number;
+    beforeSnapshot: RetainedDigestSnapshot;
+    completedAt: number;
+    disabledCutoverEpoch: number;
+    disabledVerifiedAt: number;
+    legacyWriteDenialError: string;
+    legacyWriteDeniedAt: number;
+    rehearsalId: string;
+    requestedByWorkosUserId: string;
+    status: string;
+  } | null;
   rolloutTransitions: Array<{
     actorWorkosUserId: string;
     createdAt: number;
     newState: { cutoverEpoch?: number; status?: string } | null;
     priorState: { status?: string } | null;
   }>;
-  schemaVersion: "build-collaboration-cutover-live-state/v1";
+  schemaVersion: "build-collaboration-cutover-live-state/v2";
   tenant: {
     activatedAt?: number;
     activatedByWorkosUserId?: string;
@@ -137,9 +133,24 @@ export interface BuildCollaborationCutoverLiveState {
   };
 }
 
+interface RetainedDigestSnapshot {
+  assets: { count: number; sha256: string };
+  auditCutoffAt: number;
+  auditEvents: { count: number; sha256: string };
+  completedAt: number;
+  posts: { count: number; sha256: string };
+  receipts: { count: number; sha256: string };
+  revisions: { count: number; sha256: string };
+  snapshotId: string;
+  status: string;
+}
+
 interface CommonArtifactContext {
+  applicationUrl: string;
   applicationVersion: string;
   convexDeployment: string;
+  convexUrl: string;
+  forbiddenOrganizationId: string;
   gitCommit: string;
   organizationId: string;
   representativeBuildId: string;
@@ -168,6 +179,11 @@ export function validateBuildCollaborationCutoverEvidence(
     manifest,
     "representativeBuildId"
   );
+  const forbiddenOrganizationId = requireText(
+    errors,
+    manifest,
+    "forbiddenOrganizationId"
+  );
   const release = requireObject(errors, manifest, "release");
   const gitCommit = release
     ? requireText(errors, release, "gitCommit", {
@@ -183,24 +199,41 @@ export function validateBuildCollaborationCutoverEvidence(
   const convexDeployment = release
     ? requireText(errors, release, "convexDeployment", {
         label: "release.convexDeployment",
-        pattern: PROD_DEPLOYMENT_PATTERN,
       })
     : undefined;
-  if (release) {
-    requireText(errors, release, "applicationDeploymentUrl", {
-      label: "release.applicationDeploymentUrl",
-      pattern: HTTPS_PATTERN,
-    });
+  const applicationUrl = release
+    ? requireText(errors, release, "applicationUrl", {
+        label: "release.applicationUrl",
+        pattern: HTTPS_PATTERN,
+      })
+    : undefined;
+  const convexUrl = release
+    ? requireText(errors, release, "convexUrl", {
+        label: "release.convexUrl",
+        pattern: HTTPS_PATTERN,
+      })
+    : undefined;
+  if (
+    convexDeployment &&
+    NON_PRODUCTION_DEPLOYMENT_PATTERN.test(convexDeployment)
+  ) {
+    errors.push("release.convexDeployment must designate production.");
   }
   const context =
     organizationId &&
     representativeBuildId &&
+    forbiddenOrganizationId &&
     gitCommit &&
     applicationVersion &&
-    convexDeployment
+    convexDeployment &&
+    applicationUrl &&
+    convexUrl
       ? {
+          applicationUrl,
           applicationVersion,
           convexDeployment,
+          convexUrl,
+          forbiddenOrganizationId,
           gitCommit,
           organizationId,
           representativeBuildId,
@@ -212,6 +245,9 @@ export function validateBuildCollaborationCutoverEvidence(
     organizationId,
     representativeBuildId
   );
+  if (context && liveState) {
+    validateLiveRelease(errors, liveState, context);
+  }
 
   const migration = requireObject(errors, manifest, "migration");
   if (migration && context && liveState) {
@@ -286,7 +322,7 @@ export function validateBuildCollaborationCutoverEvidence(
         errors,
         artifact,
         "schemaVersion",
-        "build-collaboration-command-evidence/v1",
+        "build-collaboration-command-evidence/v2",
         `${commandName} schemaVersion`
       );
       requireExactString(
@@ -296,9 +332,7 @@ export function validateBuildCollaborationCutoverEvidence(
         commandName,
         `${commandName} commandName`
       );
-      requireText(errors, artifact, "command", {
-        label: `${commandName} command`,
-      });
+      validateGovernedGateArtifact(errors, artifact, commandName, context);
       if (artifact.exitCode !== 0) {
         errors.push(`${commandName} command did not pass with exit code 0.`);
       }
@@ -328,10 +362,31 @@ export function validateBuildCollaborationCutoverEvidence(
         errors,
         artifact,
         "schemaVersion",
-        "build-collaboration-smoke-evidence/v1",
+        "build-collaboration-smoke-evidence/v2",
         `${role} smoke schemaVersion`
       );
       requireExactString(errors, artifact, "role", role, `${role} smoke role`);
+      requireExactString(
+        errors,
+        artifact,
+        "producer",
+        BUILD_COLLABORATION_SMOKE_RUNNER,
+        `${role} smoke producer`
+      );
+      requireExactString(
+        errors,
+        artifact,
+        "gitHead",
+        context.gitCommit,
+        `${role} smoke gitHead`
+      );
+      requireExactString(
+        errors,
+        artifact,
+        "command",
+        serializeCommand(buildCollaborationRoleSmokeArgv(role)),
+        `${role} smoke command`
+      );
       requireExactString(
         errors,
         artifact,
@@ -339,6 +394,20 @@ export function validateBuildCollaborationCutoverEvidence(
         "passed",
         `${role} smoke status`
       );
+      if (artifact.exitCode !== 0) {
+        errors.push(`${role} smoke journey did not pass with exit code 0.`);
+      }
+      requireText(errors, artifact, "stdoutSha256", {
+        label: `${role} smoke stdoutSha256`,
+        pattern: SHA256_PATTERN,
+      });
+      requireText(errors, artifact, "stderrSha256", {
+        label: `${role} smoke stderrSha256`,
+        pattern: SHA256_PATTERN,
+      });
+      validateHashedCommandOutput(errors, artifact, "stdout", `${role} smoke`);
+      validateHashedCommandOutput(errors, artifact, "stderr", `${role} smoke`);
+      validateIsoTimestamp(errors, artifact, "startedAt", `${role} smoke`);
       validateIsoTimestamp(errors, artifact, "completedAt", `${role} smoke`);
     }
   }
@@ -357,7 +426,7 @@ export function validateBuildCollaborationCutoverEvidence(
       errors,
       interfaceArtifact,
       "schemaVersion",
-      "build-collaboration-interface-evidence/v1",
+      "build-collaboration-interface-evidence/v2",
       "interface schemaVersion"
     );
     requireExactString(
@@ -367,6 +436,40 @@ export function validateBuildCollaborationCutoverEvidence(
       "passed",
       "interface status"
     );
+    requireExactString(
+      errors,
+      interfaceArtifact,
+      "producer",
+      BUILD_COLLABORATION_INTERFACE_RUNNER,
+      "interface producer"
+    );
+    requireExactString(
+      errors,
+      interfaceArtifact,
+      "gitHead",
+      context.gitCommit,
+      "interface gitHead"
+    );
+    const visualReview = commands ? asObject(commands.visualReview) : undefined;
+    const keyboardReview = commands
+      ? asObject(commands.keyboardReview)
+      : undefined;
+    requireExactString(
+      errors,
+      interfaceArtifact,
+      "visualReviewSha256",
+      typeof visualReview?.sha256 === "string" ? visualReview.sha256 : "",
+      "interface visualReviewSha256"
+    );
+    requireExactString(
+      errors,
+      interfaceArtifact,
+      "keyboardReviewSha256",
+      typeof keyboardReview?.sha256 === "string" ? keyboardReview.sha256 : "",
+      "interface keyboardReviewSha256"
+    );
+    validateIsoTimestamp(errors, interfaceArtifact, "startedAt", "interface");
+    validateIsoTimestamp(errors, interfaceArtifact, "completedAt", "interface");
     for (const invariant of [
       "detailsIsDefault",
       "buildOverviewUnchanged",
@@ -434,7 +537,7 @@ function validateLiveState(
     errors,
     live,
     "schemaVersion",
-    "build-collaboration-cutover-live-state/v1",
+    "build-collaboration-cutover-live-state/v2",
     "live state schemaVersion"
   );
   if (organizationId && live.organizationId !== organizationId) {
@@ -495,6 +598,31 @@ function validateLiveState(
     );
   }
   return live as BuildCollaborationCutoverLiveState;
+}
+
+function validateLiveRelease(
+  errors: string[],
+  live: BuildCollaborationCutoverLiveState,
+  expected: CommonArtifactContext
+) {
+  const release = asObject(live.release);
+  if (!release) {
+    errors.push("Server-derived release metadata is unavailable.");
+    return;
+  }
+  for (const key of [
+    "applicationUrl",
+    "applicationVersion",
+    "convexDeployment",
+    "convexUrl",
+    "gitCommit",
+  ] as const) {
+    if (release[key] !== expected[key]) {
+      errors.push(
+        `Server-derived release ${key} does not match the declared deployment.`
+      );
+    }
+  }
 }
 
 function validateParityArtifact(
@@ -563,7 +691,6 @@ function validateActivation(
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: rollback proof is one fail-closed cross-state invariant
 function validateRollback(
   errors: string[],
   artifact: JsonObject,
@@ -573,69 +700,42 @@ function validateRollback(
     errors,
     artifact,
     "schemaVersion",
-    "build-collaboration-rollback-evidence/v1",
+    "build-collaboration-rollback-evidence/v2",
     "rollback schemaVersion"
   );
   requireExactString(errors, artifact, "status", "passed", "rollback status");
-  const before = asObject(artifact.before);
-  const disabled = asObject(artifact.disabled);
-  const after = asObject(artifact.after);
-  const denial = asObject(artifact.legacyWriteProbe);
-  if (!(before && disabled && after && denial)) {
-    errors.push(
-      "Rollback evidence must include before, disabled, after, and legacy-write probe state."
-    );
+  const rehearsal = live.rollbackRehearsal;
+  if (!rehearsal || rehearsal.status !== "complete") {
+    errors.push("A completed server-retained rollback rehearsal is required.");
     return;
   }
-  const beforeEpoch = requireNonNegativeNumber(
-    errors,
-    before,
-    "cutoverEpoch",
-    "rollback.before.cutoverEpoch"
-  );
-  const disabledEpoch = requireNonNegativeNumber(
-    errors,
-    disabled,
-    "cutoverEpoch",
-    "rollback.disabled.cutoverEpoch"
-  );
-  const afterEpoch = requireNonNegativeNumber(
-    errors,
-    after,
-    "cutoverEpoch",
-    "rollback.after.cutoverEpoch"
-  );
-  if (
-    before.status !== "active" ||
-    disabled.status !== "disabled" ||
-    after.status !== "active"
-  ) {
+  if (artifact.rehearsalId !== rehearsal.rehearsalId) {
     errors.push(
-      "Rollback evidence does not prove active → disabled → active server states."
+      "Rollback artifact does not reference the certified server rehearsal."
     );
   }
   if (
-    beforeEpoch === undefined ||
-    disabledEpoch !== beforeEpoch + 1 ||
-    afterEpoch !== disabledEpoch ||
-    live.tenant.cutoverEpoch !== afterEpoch
+    rehearsal.disabledCutoverEpoch !== rehearsal.beforeCutoverEpoch + 1 ||
+    live.tenant.cutoverEpoch !== rehearsal.disabledCutoverEpoch
   ) {
     errors.push(
       "Rollback did not increment and preserve the server-derived cutover epoch."
     );
   }
-  if (denial.denied !== true || denial.errorCode !== "LEGACY_NOTES_RETIRED") {
-    errors.push(
-      "Rollback did not prove that legacy Note writes remained denied."
-    );
-  }
-  const liveLegacyPolicy = asObject(live.legacyWritePolicy);
   if (
-    liveLegacyPolicy?.allowed !== false ||
-    liveLegacyPolicy.reasonCode !== "LEGACY_NOTES_RETIRED"
+    rehearsal.legacyWriteDenialError !==
+      "Public/Internal Notes are retired. Publish a governed collaboration post instead." ||
+    !Number.isSafeInteger(rehearsal.legacyWriteDeniedAt)
   ) {
     errors.push(
-      "Authenticated production state does not keep the legacy Note write path retired."
+      "The production addActiveBuildNote denial canary did not pass."
+    );
+  }
+  if (
+    !digestSnapshotsMatch(rehearsal.beforeSnapshot, rehearsal.afterSnapshot)
+  ) {
+    errors.push(
+      "Tenant-wide stable-ID/content digests changed during rollback."
     );
   }
   const rolloutTransitions = Array.isArray(live.rolloutTransitions)
@@ -649,14 +749,14 @@ function validateRollback(
   const disabledTransition = rolloutTransitions.find(
     (transition) =>
       transition.newState?.status === "disabled" &&
-      transition.newState.cutoverEpoch === disabledEpoch
+      transition.newState.cutoverEpoch === rehearsal.disabledCutoverEpoch
   );
   const reactivationTransition = rolloutTransitions.find(
     (transition) =>
       transition.createdAt >
         (disabledTransition?.createdAt ?? Number.MAX_SAFE_INTEGER) &&
       transition.newState?.status === "active" &&
-      transition.newState.cutoverEpoch === afterEpoch
+      transition.newState.cutoverEpoch === rehearsal.disabledCutoverEpoch
   );
   if (!(disabledTransition && reactivationTransition)) {
     errors.push(
@@ -673,97 +773,31 @@ function validateRollback(
       );
     }
   }
-  const beforeSnapshot = parseSnapshot(
-    errors,
-    before.snapshot,
-    "rollback.before.snapshot"
-  );
-  const afterSnapshot = parseSnapshot(
-    errors,
-    after.snapshot,
-    "rollback.after.snapshot"
-  );
-  const liveSnapshot = parseSnapshot(
-    errors,
-    live.retainedSnapshot,
-    "live retainedSnapshot"
-  );
-  if (!(beforeSnapshot && afterSnapshot && liveSnapshot)) {
-    return;
-  }
-  for (const collection of IMMUTABLE_ROLLBACK_COLLECTIONS) {
-    if (!sameRecords(beforeSnapshot[collection], afterSnapshot[collection])) {
-      errors.push(
-        `${collection} stable IDs or immutable content changed during rollback rehearsal.`
-      );
-    }
-    if (!sameRecords(afterSnapshot[collection], liveSnapshot[collection])) {
-      errors.push(
-        `${collection} changed after the rollback rehearsal evidence was captured.`
-      );
-    }
-  }
+}
+
+function digestSnapshotsMatch(
+  before: RetainedDigestSnapshot,
+  after: RetainedDigestSnapshot
+) {
   if (
-    !(
-      recordsAreSubset(beforeSnapshot.auditEvents, afterSnapshot.auditEvents) &&
-      recordsAreSubset(afterSnapshot.auditEvents, liveSnapshot.auditEvents)
-    )
+    before.status !== "complete" ||
+    after.status !== "complete" ||
+    before.auditCutoffAt !== after.auditCutoffAt
   ) {
-    errors.push(
-      "Previously recorded audit events were removed or rewritten during/after rollback rehearsal."
-    );
+    return false;
   }
-}
-
-function parseSnapshot(
-  errors: string[],
-  input: unknown,
-  label: string
-): StableSnapshot | undefined {
-  const value = asObject(input);
-  if (!value) {
-    errors.push(`${label} is missing.`);
-    return;
-  }
-  const result = {} as StableSnapshot;
-  for (const collection of ALL_ROLLBACK_COLLECTIONS) {
-    const rows = value[collection];
-    if (!Array.isArray(rows)) {
-      errors.push(`${label}.${collection} must be an array.`);
-      result[collection] = [];
-      continue;
+  return ["posts", "revisions", "assets", "receipts", "auditEvents"].every(
+    (collection) => {
+      const beforeDigest = before[collection as keyof RetainedDigestSnapshot];
+      const afterDigest = after[collection as keyof RetainedDigestSnapshot];
+      return (
+        asObject(beforeDigest)?.count === asObject(afterDigest)?.count &&
+        asObject(beforeDigest)?.sha256 === asObject(afterDigest)?.sha256 &&
+        typeof asObject(beforeDigest)?.sha256 === "string" &&
+        SHA256_PATTERN.test(String(asObject(beforeDigest)?.sha256))
+      );
     }
-    const seen = new Set<string>();
-    result[collection] = rows
-      .flatMap((row, index) => {
-        const record = asObject(row);
-        if (
-          !record ||
-          typeof record.id !== "string" ||
-          !record.id ||
-          typeof record.sha256 !== "string" ||
-          !SHA256_PATTERN.test(record.sha256) ||
-          seen.has(record.id)
-        ) {
-          errors.push(
-            `${label}.${collection}[${index}] is not a unique stable-ID/content-hash record.`
-          );
-          return [];
-        }
-        seen.add(record.id);
-        return [{ id: record.id, sha256: record.sha256.toLowerCase() }];
-      })
-      .sort((a, b) => a.id.localeCompare(b.id));
-  }
-  return result;
-}
-
-function sameRecords(left: StableRecord[], right: StableRecord[]) {
-  return left.length === right.length && recordsAreSubset(left, right);
-}
-function recordsAreSubset(left: StableRecord[], right: StableRecord[]) {
-  const rightMap = new Map(right.map((row) => [row.id, row.sha256]));
-  return left.every((row) => rightMap.get(row.id) === row.sha256);
+  );
 }
 
 function readTypedArtifact(
@@ -827,6 +861,130 @@ function validateCommonArtifact(
   }
 }
 
+function validateGovernedGateArtifact(
+  errors: string[],
+  artifact: JsonObject,
+  commandName: (typeof REQUIRED_BUILD_COLLABORATION_CUTOVER_COMMANDS)[number],
+  context: CommonArtifactContext
+) {
+  requireExactString(
+    errors,
+    artifact,
+    "gitHead",
+    context.gitCommit,
+    `${commandName} gitHead`
+  );
+  validateIsoTimestamp(errors, artifact, "startedAt", commandName);
+  if (isManualBuildCollaborationCutoverGate(commandName)) {
+    requireExactString(
+      errors,
+      artifact,
+      "mode",
+      "human_review",
+      `${commandName} mode`
+    );
+    requireExactString(
+      errors,
+      artifact,
+      "producer",
+      BUILD_COLLABORATION_MANUAL_REVIEW_RUNNER,
+      `${commandName} producer`
+    );
+    requireText(errors, artifact, "reviewerWorkosUserId", {
+      label: `${commandName} reviewerWorkosUserId`,
+      pattern: WORKOS_USER_PATTERN,
+    });
+    const evidence = artifact.evidence;
+    if (Array.isArray(evidence) && evidence.length > 0) {
+      for (const [index, item] of evidence.entries()) {
+        const typed = asObject(item);
+        if (!typed) {
+          errors.push(`${commandName} evidence ${index} must be an object.`);
+          continue;
+        }
+        requireText(errors, typed, "path", {
+          label: `${commandName} evidence ${index} path`,
+        });
+        requireText(errors, typed, "sha256", {
+          label: `${commandName} evidence ${index} sha256`,
+          pattern: SHA256_PATTERN,
+        });
+      }
+    } else {
+      errors.push(`${commandName} requires hashed human-review evidence.`);
+    }
+    return;
+  }
+  requireExactString(
+    errors,
+    artifact,
+    "mode",
+    "automated",
+    `${commandName} mode`
+  );
+  requireExactString(
+    errors,
+    artifact,
+    "producer",
+    BUILD_COLLABORATION_CUTOVER_GATE_RUNNER,
+    `${commandName} producer`
+  );
+  let expectedCommand: string | undefined;
+  try {
+    const argv = buildCollaborationCutoverGateArgv(commandName, {
+      ...context,
+    });
+    expectedCommand = argv ? serializeCommand(argv) : undefined;
+  } catch (error) {
+    errors.push(
+      `${commandName} command contract is incomplete: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (expectedCommand) {
+    requireExactString(
+      errors,
+      artifact,
+      "command",
+      expectedCommand,
+      `${commandName} command`
+    );
+  }
+  requireText(errors, artifact, "stdoutSha256", {
+    label: `${commandName} stdoutSha256`,
+    pattern: SHA256_PATTERN,
+  });
+  requireText(errors, artifact, "stderrSha256", {
+    label: `${commandName} stderrSha256`,
+    pattern: SHA256_PATTERN,
+  });
+  validateHashedCommandOutput(errors, artifact, "stdout", commandName);
+  validateHashedCommandOutput(errors, artifact, "stderr", commandName);
+}
+
+function validateHashedCommandOutput(
+  errors: string[],
+  artifact: JsonObject,
+  stream: "stderr" | "stdout",
+  label: string
+) {
+  const path = artifact[`${stream}Path`];
+  const expectedHash = artifact[`${stream}Sha256`];
+  if (
+    typeof path !== "string" ||
+    !isAbsolute(path) ||
+    !(existsSync(path) && statSync(path).isFile())
+  ) {
+    errors.push(`${label} ${stream} evidence file is unavailable.`);
+    return;
+  }
+  const actualHash = createHash("sha256")
+    .update(readFileSync(path))
+    .digest("hex");
+  if (actualHash !== expectedHash) {
+    errors.push(`${label} ${stream} evidence hash does not match.`);
+  }
+}
+
 function validateIsoTimestamp(
   errors: string[],
   parent: JsonObject,
@@ -883,19 +1041,6 @@ function requireExactString(
     errors.push(`${label} must equal ${expected}.`);
   }
 }
-function requireNonNegativeNumber(
-  errors: string[],
-  parent: JsonObject,
-  key: string,
-  label: string
-) {
-  const value = parent[key];
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    errors.push(`${label} must be a non-negative integer.`);
-    return;
-  }
-  return value;
-}
 function asObject(value: unknown): JsonObject | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonObject)
@@ -910,13 +1055,25 @@ function fetchAuthenticatedProductionLiveState(manifest: JsonObject) {
     );
   }
   JSON.parse(identity);
+  const release = asObject(manifest.release);
+  const convexDeployment =
+    typeof release?.convexDeployment === "string"
+      ? release.convexDeployment
+      : "";
+  if (
+    !convexDeployment ||
+    NON_PRODUCTION_DEPLOYMENT_PATTERN.test(convexDeployment)
+  ) {
+    throw new Error("A specific production Convex deployment is required.");
+  }
   const result = spawnSync(
     "bun",
     [
       "x",
       "convex",
       "run",
-      "--prod",
+      "--deployment",
+      convexDeployment,
       "--identity",
       identity,
       "build_collaboration_cutover_certification:getBuildCollaborationCutoverCertificationState",

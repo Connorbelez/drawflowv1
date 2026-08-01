@@ -27,8 +27,15 @@
   positive handler/response-contract and cross-tenant negative probes against a
   designated production organization and Build.
 - Rollback evidence now proves active → disabled → active state, exactly one
-  cutover-epoch increment, continued legacy-write denial, stable IDs/content for
-  posts, revisions, assets, and receipts, and preservation of prior audit events.
+  cutover-epoch increment, an actually executed legacy-write denial, and
+  tenant-wide stable IDs/content for posts, revisions, assets, receipts, and
+  pre-disable audit events. The before/after snapshots are durable, indexed,
+  cursor-paged server records rather than operator-authored arrays.
+- Added a governed gate runner that binds its artifact to the checked-out Git
+  commit and fixed argv, writes automated evidence only after a real zero exit,
+  and requires a human WorkOS identity plus hashed files for visual/keyboard
+  review. Certification binds the exact declared Convex deployment to
+  Convex-side release metadata and the web deployment's `/api/release` response.
 - Removed the dormant duplicate `BuildDetailRoute` Notes UI and the assistant's
   legacy Note mutation command from both frontend and backend closed catalogs,
   with exact catalog-parity regression coverage. The compatibility mutation remains fail-closed
@@ -37,12 +44,13 @@
   quarantined and attributed from the canonical Build rather than silently left
   pending. Raised the bounded scheduler-drain ceiling for the intentionally
   paged participant-activation/search-rebuild regression.
-- Local release gates on 2026-08-01: Convex codegen/typecheck passed; 202 test
-  files and 1,714 tests passed; application typecheck and production build
+- Local release gates on 2026-08-01: Convex codegen/typecheck passed; 206 test
+  files and 1,725 tests passed; application typecheck and production build
   passed; 78 HTML interaction snippets passed; the warning regression check
   passed; all 12 development-deployment parity probes passed. The full 55-test
   Familiar Feed suite, 124-test production proposal suite, 25-test Action Item
-  suite, 12-test Action Item queue suite, and 3 certifier tests passed.
+  suite, 12-test Action Item queue suite, 10-test migration/rehearsal suite,
+  3 certifier tests, and 3 governed-runner tests passed.
 
 ## Required production checkpoint
 
