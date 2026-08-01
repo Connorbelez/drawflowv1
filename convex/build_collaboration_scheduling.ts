@@ -525,9 +525,9 @@ async function revalidateScheduledPublication(
   const { authorization } = await revalidateMaterialBoundary(
     () =>
       authorizeBuildCollaborationRecipient(ctx, {
-      buildId: approval.buildId,
-      organizationId: approval.organizationId,
-      workosUserId: approval.approvingWorkosUserId,
+        buildId: approval.buildId,
+        organizationId: approval.organizationId,
+        workosUserId: approval.approvingWorkosUserId,
       }),
     isExpectedRecipientAuthorizationFailure
   );

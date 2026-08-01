@@ -1,6 +1,7 @@
 "use client";
 
 import type { JSONContent } from "@tiptap/react";
+import { useAuth } from "@workos/authkit-tanstack-react-start/client";
 import {
   useConvexConnectionState,
   usePaginatedQuery,
@@ -508,6 +509,7 @@ interface BuildCollaborationFeedProps {
 }
 
 export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
+  const { user } = useAuth();
   const connectionState = useConvexConnectionState();
   const [browserOnline, setBrowserOnline] = useState(
     () => typeof navigator === "undefined" || navigator.onLine
@@ -528,7 +530,11 @@ export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
   const isOnline = browserOnline && connectionState.isWebSocketConnected;
   return (
     <BuildCollaborationMutationGate sharedMutationsAllowed={isOnline}>
-      <BuildCollaborationFeedContent {...props} isOnline={isOnline} />
+      <BuildCollaborationFeedContent
+        {...props}
+        isOnline={isOnline}
+        sessionWorkosUserId={user?.id}
+      />
     </BuildCollaborationMutationGate>
   );
 }
@@ -539,7 +545,11 @@ function BuildCollaborationFeedContent({
   isOnline,
   organizationId,
   onOpenReference,
-}: BuildCollaborationFeedProps & { isOnline: boolean }) {
+  sessionWorkosUserId,
+}: BuildCollaborationFeedProps & {
+  isOnline: boolean;
+  sessionWorkosUserId?: string;
+}) {
   const activeBuildId = buildId as Id<"activeBuilds">;
   const feed = usePaginatedQuery(
     api.build_collaboration.listBuildCollaborationFeed,
@@ -758,11 +768,11 @@ function BuildCollaborationFeedContent({
   const [reviewingDraftId, setReviewingDraftId] =
     useState<Id<"buildCollaborationDrafts"> | null>(null);
   const offlineDraftKey =
-    organizationId && draftIdentity?.workosUserId
+    organizationId && sessionWorkosUserId
       ? buildCollaborationOfflineDraftKey({
           buildId: activeBuildId,
           organizationId,
-          workosUserId: draftIdentity.workosUserId,
+          workosUserId: sessionWorkosUserId,
         })
       : null;
   useEffect(() => {
@@ -1241,6 +1251,15 @@ function BuildCollaborationFeedContent({
       } catch (error) {
         reportComposerFailure(error, "Unable to save the offline draft.");
       }
+      return;
+    }
+    if (
+      !(sessionWorkosUserId && draftIdentity) ||
+      draftIdentity.workosUserId !== sessionWorkosUserId
+    ) {
+      toast.error(
+        "Your authenticated collaboration identity is still being verified."
+      );
       return;
     }
     setPublishing(true);

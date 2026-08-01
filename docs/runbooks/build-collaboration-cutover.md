@@ -349,7 +349,11 @@ one enabled Build:
 7. Keep browser networking online while disconnecting the Convex WebSocket.
    Confirm the feed enters private offline mode and rejects every nested
    collaboration mutation and action without invoking the underlying Convex
-   client. Restore the socket and confirm normal mutation authority resumes.
+   client. On a cold never-connected session, confirm an existing private draft
+   loads and saves under the hydrated WorkOS user/organization/Build key even
+   while all Convex queries remain unresolved. Restore the socket and confirm
+   the server draft identity matches that WorkOS session before any local draft
+   is reconciled or deleted and normal mutation authority resumes.
 
 Monitor `build.collaboration.publication.scheduled`,
 `build.collaboration.publication.schedule_executed`, and

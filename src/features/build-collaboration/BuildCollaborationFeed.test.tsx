@@ -21,6 +21,7 @@ const offlineDraftMocks = vi.hoisted(() => ({
 
 const mocks = vi.hoisted(() => ({
   acceptedCommentId: undefined as string | undefined,
+  allQueriesUnavailable: false,
   actionItemAssignmentState: "unassigned" as
     | "unassigned"
     | "requested"
@@ -36,6 +37,7 @@ const mocks = vi.hoisted(() => ({
     | "draw_blocker",
   announcementExpiresAt: undefined as number | undefined,
   announcementProminent: false,
+  authUserId: "user_admin" as string | undefined,
   assetStatuses: [] as Array<Record<string, unknown>>,
   buildActionItems: [] as Array<Record<string, unknown>>,
   comments: [] as Array<Record<string, unknown>>,
@@ -96,6 +98,7 @@ const mocks = vi.hoisted(() => ({
     | "Exhausted"
     | "LoadingFirstPage"
     | "LoadingMore",
+  serverDraftIdentityWorkosUserId: "user_admin",
   searchResponse: {
     continueCursor: null,
     isDone: true,
@@ -111,6 +114,13 @@ const mocks = vi.hoisted(() => ({
   ] as Array<
     "todo" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled"
   >,
+}));
+
+vi.mock("@workos/authkit-tanstack-react-start/client", () => ({
+  useAuth: () => ({
+    loading: false,
+    user: mocks.authUserId ? { id: mocks.authUserId } : null,
+  }),
 }));
 
 vi.mock("./build-collaboration-offline-drafts.ts", () => ({
@@ -395,6 +405,9 @@ vi.mock("convex/react", () => ({
     };
   },
   useQuery: (reference: unknown, args?: Record<string, unknown> | "skip") => {
+    if (mocks.allQueriesUnavailable) {
+      return undefined;
+    }
     const functionName = getFunctionName(
       reference as Parameters<typeof getFunctionName>[0]
     );
@@ -645,7 +658,9 @@ vi.mock("convex/react", () => ({
       functionName ===
       "build_collaboration_drafts:getMyBuildCollaborationDraftIdentity"
     ) {
-      return args === "skip" ? undefined : { workosUserId: "user_admin" };
+      return args === "skip"
+        ? undefined
+        : { workosUserId: mocks.serverDraftIdentityWorkosUserId };
     }
     if (
       functionName ===
@@ -839,6 +854,7 @@ afterEach(() => {
     timeOfOldestInflightRequest: null,
   };
   mocks.acceptedCommentId = undefined;
+  mocks.allQueriesUnavailable = false;
   mocks.actionItemAssignmentState = "unassigned";
   mocks.actionItemDetailState = "visible";
   mocks.actionItemAttachments = [];
@@ -846,6 +862,7 @@ afterEach(() => {
   mocks.actionItemWorkKind = "ordinary";
   mocks.announcementExpiresAt = undefined;
   mocks.announcementProminent = false;
+  mocks.authUserId = "user_admin";
   mocks.assetStatuses = [];
   mocks.buildActionItems = [];
   mocks.feedStatus = "Exhausted";
@@ -864,6 +881,7 @@ afterEach(() => {
   mocks.preferenceChannels = ["in_app", "email"];
   mocks.pushSubscription = null;
   mocks.queueStatus = "Exhausted";
+  mocks.serverDraftIdentityWorkosUserId = "user_admin";
   mocks.searchResponse = { continueCursor: null, isDone: true, page: [] };
   mocks.canSchedule = false;
   mocks.workflowAssignmentMode = "direct";
@@ -2614,10 +2632,14 @@ describe("BuildCollaborationFeed", () => {
   });
 
   test("keeps a cold never-connected Convex session private", async () => {
+    const bundle = collaborationDraftBundleFixture(
+      "Cold offline draft remains available."
+    );
     Object.defineProperty(navigator, "onLine", {
       configurable: true,
       value: true,
     });
+    mocks.allQueriesUnavailable = true;
     mocks.convexConnectionState = {
       connectionCount: 0,
       connectionRetries: 0,
@@ -2628,6 +2650,14 @@ describe("BuildCollaborationFeed", () => {
       isWebSocketConnected: false,
       timeOfOldestInflightRequest: null,
     };
+    offlineDraftMocks.loadDraft.mockResolvedValue({
+      bundle,
+      capturedAt: Date.parse("2026-08-01T11:00:00.000Z"),
+      files: [],
+      key: "org-1:build-1:user_admin",
+      updatedAt: Date.now(),
+      version: 1,
+    });
     offlineDraftMocks.saveDraft.mockImplementation(async (input) => ({
       ...input,
       updatedAt: Date.now(),
@@ -2638,18 +2668,41 @@ describe("BuildCollaborationFeed", () => {
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
     );
     expect(screen.getByText("Private offline mode")).toBeTruthy();
+    await waitFor(() =>
+      expect(offlineDraftMocks.loadDraft).toHaveBeenCalledWith(
+        "org-1:build-1:user_admin"
+      )
+    );
+    expect(await screen.findByText(/Private device draft from/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue offline" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save privately on device" })
+    );
+
+    await waitFor(() =>
+      expect(offlineDraftMocks.saveDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ key: "org-1:build-1:user_admin" })
+      )
+    );
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  test("revalidates the hydrated auth identity before reconnecting a draft", async () => {
+    mocks.serverDraftIdentityWorkosUserId = "user_other";
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    mocks.mutate.mockClear();
     fireEvent.click(
       screen.getByRole("button", {
         name: "What should people involved in this Build know?",
       })
     );
     fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Save privately on device" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
-    await waitFor(() => expect(offlineDraftMocks.saveDraft).toHaveBeenCalled());
-    expect(mocks.mutate).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
+    expect(offlineDraftMocks.deleteDraft).not.toHaveBeenCalled();
   });
 
   test("reconnects an offline edit against the exact server draft revision", async () => {
