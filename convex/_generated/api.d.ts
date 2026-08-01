@@ -60,6 +60,7 @@ import type * as build_collaboration_focus from "../build_collaboration_focus.js
 import type * as build_collaboration_hash from "../build_collaboration_hash.js";
 import type * as build_collaboration_human from "../build_collaboration_human.js";
 import type * as build_collaboration_inbox from "../build_collaboration_inbox.js";
+import type * as build_collaboration_legacy_note_migration from "../build_collaboration_legacy_note_migration.js";
 import type * as build_collaboration_lifecycle from "../build_collaboration_lifecycle.js";
 import type * as build_collaboration_lifecycle_state from "../build_collaboration_lifecycle_state.js";
 import type * as build_collaboration_links from "../build_collaboration_links.js";
@@ -200,6 +201,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_hash: typeof build_collaboration_hash;
   build_collaboration_human: typeof build_collaboration_human;
   build_collaboration_inbox: typeof build_collaboration_inbox;
+  build_collaboration_legacy_note_migration: typeof build_collaboration_legacy_note_migration;
   build_collaboration_lifecycle: typeof build_collaboration_lifecycle;
   build_collaboration_lifecycle_state: typeof build_collaboration_lifecycle_state;
   build_collaboration_links: typeof build_collaboration_links;

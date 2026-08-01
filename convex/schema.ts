@@ -3347,6 +3347,15 @@ export default defineSchema({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
     reportHash: v.string(),
+    reportVersion: v.optional(v.string()),
+    planToken: v.optional(v.string()),
+    buildReportCount: v.optional(v.number()),
+    verificationSource: v.optional(
+      v.union(
+        v.literal("operator_attested"),
+        v.literal("legacy_note_migration_v1")
+      )
+    ),
     sourceRecordCount: v.number(),
     importedPostCount: v.number(),
     mismatchCount: v.number(),
@@ -3358,6 +3367,35 @@ export default defineSchema({
     "organizationId",
     "verifiedAt",
   ]),
+  buildCollaborationLegacyNoteMigrationRuns: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    planToken: v.string(),
+    sourceRecordCount: v.number(),
+    nextOffset: v.number(),
+    status: v.union(v.literal("running"), v.literal("complete")),
+    startedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_planToken", ["organizationId", "planToken"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  buildCollaborationLegacyNoteParityBuildReports: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    evidenceId: v.id("buildCollaborationMigrationParityEvidence"),
+    buildId: v.id("activeBuilds"),
+    sourceRecordCount: v.number(),
+    importedPostCount: v.number(),
+    mismatchCount: v.number(),
+    parityPassed: v.boolean(),
+    roleMatrixJson: v.string(),
+    mismatchDetailsJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_evidenceId_and_buildId", ["evidenceId", "buildId"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   buildCollaborationRetentionPolicies: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -4734,7 +4772,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_build_visibility", ["buildId", "visibility"]),
+    .index("by_build_visibility", ["buildId", "visibility"])
+    .index("by_organizationId_and_buildId", ["organizationId", "buildId"]),
   buildContractorAssignments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

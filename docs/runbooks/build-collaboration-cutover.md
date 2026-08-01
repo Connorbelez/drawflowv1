@@ -22,14 +22,37 @@ duplicating operational records.
 
 ## Migration
 
-Run the legacy Note migration first:
+Run the no-write legacy Note preview first with an authenticated human Admin or
+Principal Broker identity. The representative Build must belong to the tenant;
+the preview itself covers every Build and source note owned by that tenant:
 
 ```sh
-bun x convex run --prod build_collaboration_migrations:runBuildCollaborationNoteBackfill
+PREVIEW=$(bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_migration:previewBuildCollaborationLegacyNoteMigration '{"organizationId":"<workos-organization-id>","buildId":"<any-active-build-id>"}')
+PLAN_TOKEN=$(printf '%s' "$PREVIEW" | jq -r '.value.planToken // .planToken')
 ```
 
-The migration is idempotent. Each legacy note uses
-`buildNote:<legacy note id>` as `importedSourceId`:
+Archive the full preview output with the release evidence. Confirm its tenant,
+exact Build and note lists, audience mappings, expected revision `1`, and that
+`warnings` is empty. Any source ownership or author-role warning is blocking.
+The SHA-256 plan token covers every source field and Build ownership fact; never
+copy a token from a different preview or tenant.
+
+Apply the exact token in bounded batches. Repeat the command until `complete`
+is `true`; `nextOffset` advances durably and a failed transaction does not
+advance it:
+
+```sh
+bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_migration:applyBuildCollaborationLegacyNoteMigrationBatch "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg planToken "$PLAN_TOKEN" '{organizationId:$organizationId,buildId:$buildId,planToken:$planToken,maxNotes:50}')"
+```
+
+If a source note or Build ownership fact changes after preview, application
+fails before writing and requires a new preview/token. A new plan safely
+revalidates already-imported rows and resumes without duplicates. The former
+`build_collaboration_migrations:runBuildCollaborationNoteBackfill` entry point
+is deliberately disabled and must not be used.
+
+Each imported legacy note uses `buildNote:<legacy note id>` as
+`importedSourceId`:
 
 - Public Notes become Build-wide imported Updates.
 - Internal Notes become author-tier-and-higher imported Updates.
@@ -37,7 +60,8 @@ The migration is idempotent. Each legacy note uses
 - Migration creates no notifications, Seen receipts, Action Items, or artificial
   meaningful-activity bump.
 
-Re-running the migration must produce zero duplicate posts.
+Re-running a completed plan produces zero writes and zero duplicate posts or
+revisions.
 
 Materialize the Build-local, authorization-compatible search partitions after
 every legacy post has been imported:
@@ -149,7 +173,19 @@ component resumes safely from its recorded cursor.
 
 ## Parity Checks
 
-For each Build:
+Generate the durable server-derived parity report using the same plan token:
+
+```sh
+PARITY=$(bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_migration:verifyBuildCollaborationLegacyNoteMigrationParity "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg planToken "$PLAN_TOKEN" '{organizationId:$organizationId,buildId:$buildId,planToken:$planToken,reason:"Production legacy-note cutover parity"}')")
+EVIDENCE_ID=$(printf '%s' "$PARITY" | jq -r '.value.evidenceId // .evidenceId')
+bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_migration:getBuildCollaborationLegacyNoteMigrationParityReport "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg evidenceId "$EVIDENCE_ID" '{organizationId:$organizationId,buildId:$buildId,evidenceId:$evidenceId}')"
+```
+
+Do not use operator-attested counts from
+`recordBuildCollaborationMigrationParityEvidence` as cutover evidence. Tenant
+status transitions accept only the current `legacy_note_migration_v1` report
+produced by the verifier. Its top-level evidence and one durable row per Build
+must prove:
 
 1. Legacy note count equals imported collaboration post count.
 2. Every imported post has exactly one current revision.
@@ -158,6 +194,10 @@ For each Build:
    timestamp, references, or Action Items.
 5. Admin, Principal Broker, Broker/Builder/Broker Staff, Builder Staff,
    Homeowner, and Contractor feed results match the approved role matrix.
+
+The report must have `parityPassed: true`, `mismatchCount: 0`, the expected
+Build count, and the exact current plan token. Source drift after verification
+invalidates activation even when an older report passed.
 
 ## Activation
 
