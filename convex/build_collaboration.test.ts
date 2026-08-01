@@ -2914,19 +2914,7 @@ describe("Build collaboration tenant rollout", () => {
     const { admin, base, buildId } = await seedActiveBuild();
     await deleteCollaborationTenantSetting(base);
 
-    const evidenceId = await admin.mutation(
-      (api as any).build_collaboration_rollout
-        .recordBuildCollaborationMigrationParityEvidence,
-      {
-        buildId,
-        importedPostCount: 4,
-        mismatchCount: 0,
-        organizationId: ORGANIZATION_ID,
-        reason: "Legacy notes matched imported collaboration posts.",
-        reportHash: "sha256:parity-report",
-        sourceRecordCount: 4,
-      },
-    );
+    const evidenceId = await prepareLegacyNoteParity(admin, buildId);
     const settingId = await admin.mutation(
       (api as any).build_collaboration_rollout
         .transitionBuildCollaborationTenantStatus,
@@ -2985,7 +2973,7 @@ describe("Build collaboration tenant rollout", () => {
     });
     expect(evidenceAndAudits.evidence).toMatchObject({
       parityPassed: true,
-      reportHash: "sha256:parity-report",
+      reportVersion: "build-collaboration-legacy-note-parity/v2",
       verifiedByWorkosUserId: "user_admin",
     });
     expect(evidenceAndAudits.audits).toEqual(
@@ -2993,10 +2981,10 @@ describe("Build collaboration tenant rollout", () => {
         expect.objectContaining({
           actorRoles: expect.arrayContaining(["admin"]),
           actorWorkosUserId: "user_admin",
-          command: "recordBuildCollaborationMigrationParityEvidence",
+          command: "completeBuildCollaborationLegacyNoteParity",
           createdAt: expect.any(Number),
           entityId: evidenceId,
-          entityType: "buildCollaborationMigrationParityEvidence",
+          entityType: "buildCollaborationLegacyNoteCutover",
         }),
         expect.objectContaining({
           actorWorkosUserId: "user_admin",
@@ -3057,19 +3045,7 @@ describe("Build collaboration tenant rollout", () => {
   test("rejects activation when an implicit Build reader changes after verification", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     await deleteCollaborationTenantSetting(base);
-    await admin.mutation(
-      (api as any).build_collaboration_rollout
-        .recordBuildCollaborationMigrationParityEvidence,
-      {
-        buildId,
-        importedPostCount: 0,
-        mismatchCount: 0,
-        organizationId: ORGANIZATION_ID,
-        reason: "Empty Build parity fixture.",
-        reportHash: "sha256:implicit-reader-drift",
-        sourceRecordCount: 0,
-      },
-    );
+    await prepareLegacyNoteParity(admin, buildId);
     await admin.mutation(
       (api as any).build_collaboration_rollout
         .transitionBuildCollaborationTenantStatus,
@@ -3145,19 +3121,7 @@ describe("Build collaboration tenant rollout", () => {
       });
       return profileId;
     });
-    await admin.mutation(
-      (api as any).build_collaboration_rollout
-        .recordBuildCollaborationMigrationParityEvidence,
-      {
-        buildId,
-        importedPostCount: 0,
-        mismatchCount: 0,
-        organizationId: ORGANIZATION_ID,
-        reason: "Empty Build parity fixture.",
-        reportHash: "sha256:contractor-reader-drift",
-        sourceRecordCount: 0,
-      },
-    );
+    await prepareLegacyNoteParity(admin, buildId);
     await admin.mutation(
       (api as any).build_collaboration_rollout
         .transitionBuildCollaborationTenantStatus,
@@ -6226,6 +6190,110 @@ describe("Build collaboration authorized search", () => {
     ).toBe(false);
   });
 });
+
+async function prepareLegacyNoteParity(
+  admin: ReturnType<typeof withIdentity>,
+  buildId: Id<"activeBuilds">,
+) {
+  let accumulator: string | undefined;
+  let planToken: string | undefined;
+  for (const phase of ["builds", "notes"] as const) {
+    let cursor: string | null = null;
+    for (let pageCount = 0; pageCount < 100; pageCount += 1) {
+      const page: {
+        accumulator: string;
+        continueCursor: string;
+        isDone: boolean;
+        planToken?: string;
+      } = await admin.query(
+        (api as any).build_collaboration_legacy_note_plan
+          .previewBuildCollaborationLegacyNoteMigrationPage,
+        {
+          accumulator,
+          buildId,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor, numItems: 25 },
+          phase,
+        },
+      );
+      accumulator = page.accumulator;
+      planToken = page.planToken ?? planToken;
+      if (page.isDone) {
+        break;
+      }
+      cursor = page.continueCursor;
+    }
+  }
+  if (!planToken) {
+    throw new Error("Legacy-note preview did not produce a plan token.");
+  }
+  let migration = await admin.mutation(
+    (api as any).build_collaboration_legacy_note_plan
+      .startBuildCollaborationLegacyNoteMigration,
+    { buildId, organizationId: ORGANIZATION_ID, planToken },
+  );
+  for (let iteration = 0; migration.status === "validating"; iteration += 1) {
+    if (iteration >= 100) {
+      throw new Error("Legacy-note manifest validation did not finish.");
+    }
+    migration = await admin.mutation(
+      (api as any).build_collaboration_legacy_note_plan
+        .advanceBuildCollaborationLegacyNotePlan,
+      {
+        buildId,
+        maxItems: 25,
+        organizationId: ORGANIZATION_ID,
+        runId: migration.runId,
+      },
+    );
+  }
+  while (migration.status === "importing") {
+    const imported = await admin.mutation(
+      (api as any).build_collaboration_legacy_note_import
+        .applyBuildCollaborationLegacyNoteMigrationBatch,
+      {
+        buildId,
+        maxNotes: 25,
+        organizationId: ORGANIZATION_ID,
+        planToken,
+        runId: migration.runId,
+      },
+    );
+    if (imported.complete) {
+      migration = { ...migration, status: "complete" };
+    }
+  }
+  let parity = await admin.mutation(
+    (api as any).build_collaboration_legacy_note_parity
+      .startBuildCollaborationLegacyNoteParity,
+    {
+      buildId,
+      migrationRunId: migration.runId,
+      organizationId: ORGANIZATION_ID,
+      planToken,
+    },
+  );
+  for (let iteration = 0; parity.status !== "complete"; iteration += 1) {
+    if (iteration >= 100 || parity.status === "blocked") {
+      throw new Error(parity.blockedReason ?? "Legacy-note parity did not finish.");
+    }
+    parity = await admin.mutation(
+      (api as any).build_collaboration_legacy_note_parity
+        .advanceBuildCollaborationLegacyNoteParity,
+      {
+        buildId,
+        maxItems: 10,
+        organizationId: ORGANIZATION_ID,
+        parityRunId: parity.parityRunId,
+        reason: "Rollout test parity.",
+      },
+    );
+  }
+  if (!parity.evidenceId) {
+    throw new Error("Legacy-note parity did not produce evidence.");
+  }
+  return parity.evidenceId;
+}
 
 async function finishSearchMaintenance(t: ReturnType<typeof convexTest>) {
   for (let iteration = 0; iteration < 5000; iteration += 1) {

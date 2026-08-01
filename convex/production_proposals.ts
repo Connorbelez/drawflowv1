@@ -14238,7 +14238,6 @@ export const getActiveBuildDetailByString = authenticatedQuery
     const [
       documents,
       evidenceAssets,
-      notes,
       assignments,
       milestoneAssignments,
       siteVisits,
@@ -14247,7 +14246,6 @@ export const getActiveBuildDetailByString = authenticatedQuery
     ] = await Promise.all([
       collectByIndex(ctx, "buildDocuments", "by_build", buildId),
       collectByIndex(ctx, "buildEvidenceAssets", "by_build", buildId),
-      collectByIndex(ctx, "buildNotes", "by_build", buildId),
       collectByIndex(ctx, "buildContractorAssignments", "by_build", buildId),
       collectByIndex(
         ctx,
@@ -14271,7 +14269,6 @@ export const getActiveBuildDetailByString = authenticatedQuery
     ]);
     const buildDocuments = documents as Doc<"buildDocuments">[];
     const buildEvidenceAssets = evidenceAssets as Doc<"buildEvidenceAssets">[];
-    const buildNotes = notes as Doc<"buildNotes">[];
     const buildContractorAssignments =
       assignments as Doc<"buildContractorAssignments">[];
     const buildMilestoneContractorAssignments = (
@@ -14709,16 +14706,6 @@ export const getActiveBuildDetailByString = authenticatedQuery
             }),
           }))
         : [],
-      notes: {
-        internal: buildNotes
-          .filter((note) => note.visibility === "internal")
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .map(formatActiveBuildNote),
-        public: buildNotes
-          .filter((note) => note.visibility === "public")
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .map(formatActiveBuildNote),
-      },
       sitePhotos: canUseAppPermission(appPermissions, "evidence", "view")
         ? await productionSitePhotosForBuild(ctx, build, buildEvidenceAssets)
         : [],
@@ -17895,38 +17882,14 @@ export const addActiveBuildNote = authenticatedMutation
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
-    const auth = await authorizeActiveBuildOrThrow(
+    await authorizeActiveBuildOrThrow(
       ctx,
       args.buildId,
-      args.workosOrganizationId
+      args.workosOrganizationId,
     );
-    if (args.visibility === "internal") {
-      requireAnyRole(auth.roles, BACKOFFICE_ROLES);
-    }
-    const body = args.body.trim();
-    if (!body) {
-      throw new Error("Note body is required.");
-    }
-    const now = Date.now();
-    await ctx.db.insert("buildNotes", {
-      authorRoles: auth.roles,
-      authorWorkosUserId: auth.subject,
-      body,
-      brokerageId: auth.brokerage._id,
-      buildId: args.buildId,
-      createdAt: now,
-      organizationId: args.workosOrganizationId,
-      updatedAt: now,
-      visibility: args.visibility,
-    });
-    await writeActiveBuildEvent(ctx, {
-      auth,
-      build: auth.build,
-      command: "addActiveBuildNote",
-      eventType: "active_build.note.created",
-      newState: JSON.stringify({ body, visibility: args.visibility }),
-    });
-    return null;
+    throw new Error(
+      "Public/Internal Notes are retired. Publish a governed collaboration post instead.",
+    );
   })
   .public();
 
@@ -29576,17 +29539,9 @@ async function productionSitePhotosForBuild(
   );
 }
 
-function formatActiveBuildNote(note: Doc<"buildNotes">) {
-  return {
-    ...note,
-    _id: String(note._id),
-    authorPersona: note.authorWorkosUserId,
-  };
-}
-
 async function getActiveWorkflowRule(
   ctx: QueryCtx | MutationCtx,
-  brokerageId: Id<"brokerages">
+  brokerageId: Id<"brokerages">,
 ) {
   const rule = await ctx.db
     .query("workflowRules")

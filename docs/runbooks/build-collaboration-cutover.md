@@ -23,12 +23,17 @@ duplicating operational records.
 ## Migration
 
 Run the no-write legacy Note preview first with an authenticated human Admin or
-Principal Broker identity. The representative Build must belong to the tenant;
-the preview itself covers every Build and source note owned by that tenant:
+Principal Broker identity. The representative Build must belong to the tenant.
+The preview is a cursor-paged state machine: page all Builds, carrying the
+returned accumulator between pages, then page all Notes from the final Build
+accumulator. Archive every page. The last Note page returns the confirmed token:
 
 ```sh
-PREVIEW=$(bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_migration:previewBuildCollaborationLegacyNoteMigration '{"organizationId":"<workos-organization-id>","buildId":"<any-active-build-id>"}')
-PLAN_TOKEN=$(printf '%s' "$PREVIEW" | jq -r '.value.planToken // .planToken')
+bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_plan:previewBuildCollaborationLegacyNoteMigrationPage '{"organizationId":"<workos-organization-id>","buildId":"<any-active-build-id>","phase":"builds","paginationOpts":{"cursor":null,"numItems":50}}'
+# Repeat with continueCursor and the prior accumulator until isDone=true.
+# Then repeat with phase=notes, cursor=null, and the final Build accumulator.
+# Carry the returned accumulator and continueCursor on every subsequent page.
+PLAN_TOKEN='<planToken from the final Note page>'
 ```
 
 Archive the full preview output with the release evidence. Confirm its tenant,
@@ -37,12 +42,23 @@ exact Build and note lists, audience mappings, expected revision `1`, and that
 The SHA-256 plan token covers every source field and Build ownership fact; never
 copy a token from a different preview or tenant.
 
-Apply the exact token in bounded batches. Repeat the command until `complete`
-is `true`; `nextOffset` advances durably and a failed transaction does not
-advance it:
+Start a durable manifest for the exact token, then advance it until `status` is
+`importing` (or `complete` when there are zero source Notes). `maxItems` cannot
+exceed 25 and each transaction writes at most that many manifest rows:
 
 ```sh
-bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_migration:applyBuildCollaborationLegacyNoteMigrationBatch "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg planToken "$PLAN_TOKEN" '{organizationId:$organizationId,buildId:$buildId,planToken:$planToken,maxNotes:50}')"
+RUN=$(bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_plan:startBuildCollaborationLegacyNoteMigration "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg planToken "$PLAN_TOKEN" '{organizationId:$organizationId,buildId:$buildId,planToken:$planToken}')")
+RUN_ID=$(printf '%s' "$RUN" | jq -r '.value.runId // .runId')
+bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_plan:advanceBuildCollaborationLegacyNotePlan "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg runId "$RUN_ID" '{organizationId:$organizationId,buildId:$buildId,runId:$runId,maxItems:25}')"
+# Repeat advance until validationPhase=complete.
+```
+
+Apply the frozen manifest in bounded batches. Repeat until `complete=true`;
+`nextImportOrdinal` advances durably and a failed transaction does not advance
+it:
+
+```sh
+bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_import:applyBuildCollaborationLegacyNoteMigrationBatch "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg planToken "$PLAN_TOKEN" --arg runId "$RUN_ID" '{organizationId:$organizationId,buildId:$buildId,planToken:$planToken,runId:$runId,maxNotes:25}')"
 ```
 
 If a source note or Build ownership fact changes after preview, application
@@ -173,12 +189,16 @@ component resumes safely from its recorded cursor.
 
 ## Parity Checks
 
-Generate the durable server-derived parity report using the same plan token:
+Start durable server-derived parity from the completed migration run, then
+advance it in bounded pages until `status=complete`:
 
 ```sh
-PARITY=$(bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_migration:verifyBuildCollaborationLegacyNoteMigrationParity "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg planToken "$PLAN_TOKEN" '{organizationId:$organizationId,buildId:$buildId,planToken:$planToken,reason:"Production legacy-note cutover parity"}')")
-EVIDENCE_ID=$(printf '%s' "$PARITY" | jq -r '.value.evidenceId // .evidenceId')
-bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_migration:getBuildCollaborationLegacyNoteMigrationParityReport "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg evidenceId "$EVIDENCE_ID" '{organizationId:$organizationId,buildId:$buildId,evidenceId:$evidenceId}')"
+PARITY=$(bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_parity:startBuildCollaborationLegacyNoteParity "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg planToken "$PLAN_TOKEN" --arg migrationRunId "$RUN_ID" '{organizationId:$organizationId,buildId:$buildId,planToken:$planToken,migrationRunId:$migrationRunId}')")
+PARITY_RUN_ID=$(printf '%s' "$PARITY" | jq -r '.value.parityRunId // .parityRunId')
+bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_parity:advanceBuildCollaborationLegacyNoteParity "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg parityRunId "$PARITY_RUN_ID" '{organizationId:$organizationId,buildId:$buildId,parityRunId:$parityRunId,maxItems:10,reason:"Production legacy-note cutover parity"}')"
+# Repeat advance until status=complete, then capture evidenceId.
+bun x convex run --prod --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_legacy_note_parity:getBuildCollaborationLegacyNoteMigrationParityReport "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<any-active-build-id>' --arg evidenceId '<evidence-id>' '{organizationId:$organizationId,buildId:$buildId,evidenceId:$evidenceId,paginationOpts:{cursor:null,numItems:50}}')"
+# Repeat report pages until reports.isDone=true.
 ```
 
 Do not use operator-attested counts from
@@ -195,9 +215,12 @@ must prove:
 5. Admin, Principal Broker, Broker/Builder/Broker Staff, Builder Staff,
    Homeowner, and Contractor feed results match the approved role matrix.
 
-The report must have `parityPassed: true`, `mismatchCount: 0`, the expected
-Build count, and the exact current plan token. Source drift after verification
-invalidates activation even when an older report passed.
+The report must have `reportVersion` `build-collaboration-legacy-note-parity/v2`,
+`parityPassed: true`, `mismatchCount: 0`, the expected Build count, and the
+exact current plan token. The activation gate also requires the evidence to be
+linked to the completed migration and parity runs. Source drift, a missing or
+duplicate import, or an imported `buildNote:*` row absent from the frozen
+manifest fails parity—including the zero-source-note case.
 
 ## Activation
 

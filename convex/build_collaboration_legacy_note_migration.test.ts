@@ -5,40 +5,43 @@ import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
 import schema from "./schema";
+import type { Id } from "./types";
 
 const modules = import.meta.glob("./**/*.ts");
 const ORGANIZATION_ID = "org_legacy_note_migration";
+const PLAN_VERSION = "build-collaboration-legacy-notes/v2";
+const PARITY_VERSION = "build-collaboration-legacy-note-parity/v2";
+
+interface PreviewPage {
+  accumulator: string;
+  continueCursor: string;
+  isDone: boolean;
+  items: Record<string, unknown>[];
+  planToken?: string;
+  warnings: string[];
+}
 
 describe("Build collaboration legacy-note migration", () => {
-  test("previews deterministically without writing and reports exact mappings", async () => {
+  test("previews deterministically in bounded pages without writing", async () => {
     const fixture = await seedMigrationFixture();
     const before = await collaborationWriteCounts(fixture.base);
 
-    const first = await preview(fixture);
-    const second = await preview(fixture);
+    const first = await previewAll(fixture, 1);
+    const second = await previewAll(fixture, 1);
 
     expect(second).toEqual(first);
-    expect(first).toMatchObject({
-      builds: [
-        {
-          buildId: fixture.buildId,
-          buildName: "Legacy notes fixture",
-          sourceNoteCount: 2,
-        },
-      ],
-      planVersion: "build-collaboration-legacy-notes/v1",
-      sourceNoteCount: 2,
-      tenant: {
-        brokerageId: fixture.brokerageId,
-        organizationId: ORGANIZATION_ID,
-        rolloutStatus: "disabled",
-      },
-      warnings: [],
-    });
     expect(first.planToken).toMatch(
-      /^build-collaboration-legacy-notes\/v1:[a-f0-9]{64}$/
+      /^build-collaboration-legacy-notes\/v2:[a-f0-9]{64}$/
     );
-    expect(first.sourceNotes).toEqual(
+    expect(first.warnings).toEqual([]);
+    expect(first.builds).toEqual([
+      expect.objectContaining({
+        buildId: fixture.buildId,
+        buildName: "Legacy notes fixture",
+        kind: "build",
+      }),
+    ]);
+    expect(first.notes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           audienceFloorTier: 0,
@@ -58,198 +61,269 @@ describe("Build collaboration legacy-note migration", () => {
     expect(await collaborationWriteCounts(fixture.base)).toEqual(before);
   });
 
-  test("requires the exact token and recovers safely from preview drift after a partial batch", async () => {
+  test("freezes the confirmed manifest and recovers safely after partial-import drift", async () => {
     const fixture = await seedMigrationFixture();
-    const initial = await preview(fixture);
-    const partial = await apply(fixture, initial.planToken, 1);
+    const initialPreview = await previewAll(fixture, 1);
+    const initialRun = await preparePlan(fixture, initialPreview.planToken, 1);
+    const partial = await applyBatch(fixture, initialRun.runId, 1);
     expect(partial).toMatchObject({
       complete: false,
-      nextOffset: 1,
+      nextImportOrdinal: 1,
       processedInBatch: 1,
     });
 
-    const changedNoteId = initial.sourceNotes[1].sourceNoteId;
     await fixture.base.run(async (ctx) => {
-      await ctx.db.patch(changedNoteId, {
-        body: "Internal note changed after preview.",
+      await ctx.db.patch(fixture.notes[1].noteId, {
+        body: "Internal note changed after validation.",
         updatedAt: fixture.now + 500,
       });
     });
-    await expect(apply(fixture, initial.planToken, 50)).rejects.toThrow(
-      "Migration plan changed after preview"
-    );
-    const afterRejectedBatch = await migrationState(fixture.base);
-    expect(afterRejectedBatch.runs).toEqual([
-      expect.objectContaining({ nextOffset: 1, status: "running" }),
-    ]);
-    expect(afterRejectedBatch.posts).toHaveLength(1);
+    await expect(
+      applyBatch(fixture, initialRun.runId, 25)
+    ).rejects.toThrow("changed after validation");
+    const rejectedState = await migrationState(fixture.base);
+    expect(rejectedState.posts).toHaveLength(1);
+    expect(
+      rejectedState.runs.find((run) => run._id === initialRun.runId)
+    ).toMatchObject({ nextImportOrdinal: 1, status: "importing" });
 
-    const refreshed = await preview(fixture);
-    expect(refreshed.planToken).not.toBe(initial.planToken);
-    const recovered = await apply(fixture, refreshed.planToken, 50);
+    const refreshedPreview = await previewAll(fixture, 1);
+    expect(refreshedPreview.planToken).not.toBe(initialPreview.planToken);
+    const recoveredRun = await preparePlan(
+      fixture,
+      refreshedPreview.planToken,
+      1
+    );
+    const recovered = await applyAll(fixture, recoveredRun.runId, 1);
     expect(recovered).toMatchObject({
       complete: true,
-      nextOffset: 2,
-      processedInBatch: 2,
+      nextImportOrdinal: 2,
     });
-    const state = await migrationState(fixture.base);
-    expect(state.posts).toHaveLength(2);
-    expect(state.revisions).toHaveLength(2);
-    expect(new Set(state.posts.map((post) => post.importedSourceId)).size).toBe(2);
+    const recoveredState = await migrationState(fixture.base);
+    expect(recoveredState.posts).toHaveLength(2);
+    expect(recoveredState.revisions).toHaveLength(2);
+    expect(
+      new Set(recoveredState.posts.map((post) => post.importedSourceId)).size
+    ).toBe(2);
   });
 
-  test("is replay-idempotent and persists Build-by-Build role parity evidence", async () => {
+  test("bounds every plan, import, and parity transaction", async () => {
     const fixture = await seedMigrationFixture();
-    const plan = await preview(fixture);
-    const completed = await apply(fixture, plan.planToken, 50);
-    expect(completed.complete).toBe(true);
-    const replay = await apply(fixture, plan.planToken, 50);
+    await fixture.base.run(async (ctx) => {
+      for (let index = 0; index < 37; index += 1) {
+        await ctx.db.insert("buildNotes", {
+          authorRoles: [index % 2 === 0 ? "builder" : "broker"],
+          authorWorkosUserId: `user_bulk_${index}`,
+          body: `Bounded note ${index}`,
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: fixture.now + index,
+          organizationId: ORGANIZATION_ID,
+          updatedAt: fixture.now + index,
+          visibility: index % 2 === 0 ? "public" : "internal",
+        });
+      }
+    });
+    const plan = await previewAll(fixture, 7);
+    const started = await startPlan(fixture, plan.planToken);
+    let current = started;
+    let previousTotal = 0;
+    for (let guard = 0; current.status === "validating"; guard += 1) {
+      expect(guard).toBeLessThan(30);
+      current = await advancePlan(fixture, current.runId, 4);
+      const processedTotal =
+        current.processedBuildCount + current.processedNoteCount;
+      expect(processedTotal - previousTotal).toBeLessThanOrEqual(4);
+      previousTotal = processedTotal;
+      const manifestCounts = await fixture.base.run(async (ctx) => ({
+        builds: (
+          await ctx.db
+            .query("buildCollaborationLegacyNotePlanBuilds")
+            .withIndex("by_runId_and_ordinal", (query) =>
+              query.eq("runId", current.runId)
+            )
+            .collect()
+        ).length,
+        notes: (
+          await ctx.db
+            .query("buildCollaborationLegacyNotePlanNotes")
+            .withIndex("by_runId_and_ordinal", (query) =>
+              query.eq("runId", current.runId)
+            )
+            .collect()
+        ).length,
+      }));
+      expect(manifestCounts).toEqual({
+        builds: current.processedBuildCount,
+        notes: current.processedNoteCount,
+      });
+    }
+    expect(current).toMatchObject({
+      processedBuildCount: 1,
+      processedNoteCount: 39,
+      status: "importing",
+    });
+
+    let imported = await applyBatch(fixture, current.runId, 3);
+    while (!imported.complete) {
+      expect(imported.processedInBatch).toBeLessThanOrEqual(3);
+      imported = await applyBatch(fixture, current.runId, 3);
+    }
+    expect(imported.processedInBatch).toBeLessThanOrEqual(3);
+
+    let parity = await startParity(fixture, current.runId, plan.planToken);
+    for (let guard = 0; parity.status !== "complete"; guard += 1) {
+      expect(guard).toBeLessThan(100);
+      const before = await parityProgress(fixture.base, parity.parityRunId);
+      parity = await advanceParity(fixture, parity.parityRunId, 2);
+      const after = await parityProgress(fixture.base, parity.parityRunId);
+      expect(after.reportCount - before.reportCount).toBeLessThanOrEqual(2);
+      expect(after.nextBuildOrdinal - before.nextBuildOrdinal).toBeLessThanOrEqual(
+        2
+      );
+      expect(after.nextNoteOrdinal - before.nextNoteOrdinal).toBeLessThanOrEqual(
+        2
+      );
+      expect(
+        after.orphanBuildOrdinal - before.orphanBuildOrdinal
+      ).toBeLessThanOrEqual(2);
+      expect(
+        after.finalizeBuildOrdinal - before.finalizeBuildOrdinal
+      ).toBeLessThanOrEqual(2);
+    }
+    expect(parity).toMatchObject({
+      importedPostCount: 39,
+      mismatchCount: 0,
+      sourceRecordCount: 39,
+    });
+  });
+
+  test("is replay-idempotent and observes canonical ACL parity for every role", async () => {
+    const fixture = await seedMigrationFixture();
+    const plan = await previewAll(fixture, 1);
+    const run = await preparePlan(fixture, plan.planToken, 1);
+    const completed = await applyAll(fixture, run.runId, 1);
+    const replay = await applyBatch(fixture, run.runId, 25);
     expect(replay).toMatchObject({
       complete: true,
-      nextOffset: 2,
+      nextImportOrdinal: 2,
       processedInBatch: 0,
       runId: completed.runId,
     });
 
-    const parity = await fixture.admin.mutation(
-      (api as any).build_collaboration_legacy_note_migration
-        .verifyBuildCollaborationLegacyNoteMigrationParity,
-      {
-        buildId: fixture.buildId,
-        organizationId: ORGANIZATION_ID,
-        planToken: plan.planToken,
-        reason: "Automated Build-by-Build migration parity verification.",
-      }
-    );
+    const parity = await runParity(fixture, run.runId, plan.planToken, 1);
     expect(parity).toMatchObject({
-      buildReportCount: 1,
       importedPostCount: 2,
       mismatchCount: 0,
-      parityPassed: true,
       sourceRecordCount: 2,
+      status: "complete",
     });
     const durableReport = await fixture.admin.query(
-      (api as any).build_collaboration_legacy_note_migration
+      (api as any).build_collaboration_legacy_note_parity
         .getBuildCollaborationLegacyNoteMigrationParityReport,
       {
         buildId: fixture.buildId,
         evidenceId: parity.evidenceId,
         organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 1 },
       }
     );
-    expect(durableReport).toMatchObject({
-      buildReports: [
-        {
-          buildId: fixture.buildId,
-          importedPostCount: 2,
-          mismatchCount: 0,
-          parityPassed: true,
-          sourceRecordCount: 2,
-        },
-      ],
-      evidence: {
-        evidenceId: parity.evidenceId,
-        parityPassed: true,
-        planToken: plan.planToken,
-      },
-    });
-
-    const state = await fixture.base.run(async (ctx) => {
-      const evidence = await ctx.db.get(parity.evidenceId);
-      const reports = await ctx.db
-        .query("buildCollaborationLegacyNoteParityBuildReports")
-        .withIndex("by_evidenceId_and_buildId", (query) =>
-          query.eq("evidenceId", parity.evidenceId)
-        )
-        .collect();
-      const posts = await ctx.db.query("buildCollaborationPosts").collect();
-      const revisions = await ctx.db
-        .query("buildCollaborationPostRevisions")
-        .collect();
-      const receipts = await ctx.db
-        .query("buildCollaborationReceipts")
-        .collect();
-      const actionItems = await ctx.db
-        .query("buildActionItems")
-        .collect();
-      const notificationEvents = await ctx.db
-        .query("buildCollaborationExternalDeliveries")
-        .collect();
-      return {
-        actionItems,
-        evidence,
-        notificationEvents,
-        posts,
-        receipts,
-        reports,
-        revisions,
-      };
-    });
-    expect(state.evidence).toMatchObject({
+    expect(durableReport.evidence).toMatchObject({
+      evidenceId: parity.evidenceId,
+      importedPostCount: 2,
+      mismatchCount: 0,
       parityPassed: true,
       planToken: plan.planToken,
-      reportVersion: "build-collaboration-legacy-note-parity/v1",
+      reportVersion: PARITY_VERSION,
+      sourceRecordCount: 2,
+    });
+    expect(durableReport.reports.page).toHaveLength(1);
+
+    const state = await fixture.base.run(async (ctx) => ({
+      actionItems: await ctx.db.query("buildActionItems").collect(),
+      evidence: await ctx.db.get(parity.evidenceId),
+      notificationEvents: await ctx.db
+        .query("buildCollaborationExternalDeliveries")
+        .collect(),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+      receipts: await ctx.db.query("buildCollaborationReceipts").collect(),
+      reports: await ctx.db
+        .query("buildCollaborationLegacyNoteParityBuildReports")
+        .withIndex("by_parityRunId_and_buildOrdinal", (query) =>
+          query.eq("parityRunId", parity.parityRunId)
+        )
+        .collect(),
+      revisions: await ctx.db
+        .query("buildCollaborationPostRevisions")
+        .collect(),
+    }));
+    expect(state.evidence).toMatchObject({
+      migrationRunId: run.runId,
+      parityPassed: true,
+      parityRunId: parity.parityRunId,
+      planToken: plan.planToken,
+      reportVersion: PARITY_VERSION,
       verificationSource: "legacy_note_migration_v1",
     });
-    expect(state.reports).toHaveLength(1);
-    const roleMatrix = JSON.parse(state.reports[0].roleMatrixJson);
-    const publicMatrix = roleMatrix.find(
-      (entry: { visibility: string }) => entry.visibility === "public"
+    const roleMatrix = JSON.parse(state.reports[0].roleMatrixJson) as Record<
+      string,
+      {
+        expectedReadable: number;
+        expectedRestricted: number;
+        mismatchCount: number;
+        observedReadable: number;
+        observedRestricted: number;
+      }
+    >;
+    expect(Object.keys(roleMatrix).sort()).toEqual(
+      [
+        "admin",
+        "broker",
+        "broker-staff",
+        "builder",
+        "builder-staff",
+        "contractor",
+        "homeowner",
+        "principle-broker",
+      ].sort()
     );
-    const internalMatrix = roleMatrix.find(
-      (entry: { visibility: string }) => entry.visibility === "internal"
-    );
-    expect(publicMatrix.readableBy).toMatchObject({
-      admin: true,
-      contractor: true,
-      homeowner: true,
-    });
-    expect(internalMatrix.readableBy).toMatchObject({
-      admin: true,
-      broker: true,
-      "broker-staff": true,
-      builder: true,
-      "builder-staff": false,
-      contractor: false,
-      homeowner: false,
-      "principle-broker": true,
+    for (const cell of Object.values(roleMatrix)) {
+      expect(cell.mismatchCount).toBe(0);
+      expect(cell.observedReadable).toBe(cell.expectedReadable);
+      expect(cell.observedRestricted).toBe(cell.expectedRestricted);
+      expect(cell.observedReadable + cell.observedRestricted).toBe(2);
+    }
+    expect(roleMatrix.contractor).toMatchObject({
+      observedReadable: 1,
+      observedRestricted: 1,
     });
     expect(state.posts).toHaveLength(2);
     expect(state.revisions).toHaveLength(2);
     expect(state.receipts).toEqual([]);
     expect(state.actionItems).toEqual([]);
     expect(state.notificationEvents).toEqual([]);
-    for (const post of state.posts) {
-      const source = fixture.notes.find(
-        (note) => `buildNote:${note.noteId}` === post.importedSourceId
-      );
-      expect(post).toMatchObject({
-        authorWorkosUserId: source?.authorWorkosUserId,
-        createdAt: source?.createdAt,
-        lastMeaningfulActivityAt: source?.createdAt,
-        revision: 1,
-        source: "imported",
-        updatedAt: source?.updatedAt,
-      });
-    }
 
-    const contractor = withRoleIdentity(
-      fixture.base,
-      "contractor",
-      "user_migration_contractor"
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_rollout
+        .transitionBuildCollaborationTenantStatus,
+      {
+        buildId: fixture.buildId,
+        expectedStatus: "disabled",
+        nextStatus: "migration_ready",
+        organizationId: ORGANIZATION_ID,
+      }
     );
     await fixture.base.run(async (ctx) => {
-      await ctx.db.insert("buildCollaborationTenantSettings", {
-        activatedAt: fixture.now,
-        activatedByWorkosUserId: "user_migration_admin",
-        brokerageId: fixture.brokerageId,
-        createdAt: fixture.now,
-        generousRateLimitMultiplier: 1,
-        migrationCompletedAt: fixture.now,
-        organizationId: ORGANIZATION_ID,
-        status: "active",
-        updatedAt: fixture.now,
-      });
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (!setting) {
+        throw new Error("Expected rollout setting.");
+      }
+      await ctx.db.patch(setting._id, { status: "active" });
       await ctx.db.insert("buildParticipants", {
         brokerageId: fixture.brokerageId,
         buildId: fixture.buildId,
@@ -265,6 +339,11 @@ describe("Build collaboration legacy-note migration", () => {
         workosUserId: "user_migration_contractor",
       });
     });
+    const contractor = withRoleIdentity(
+      fixture.base,
+      "contractor",
+      "user_migration_contractor"
+    );
     const contractorFeed = await contractor.query(
       (api as any).build_collaboration.listBuildCollaborationFeed,
       {
@@ -273,7 +352,6 @@ describe("Build collaboration legacy-note migration", () => {
         paginationOpts: { cursor: null, numItems: 20 },
       }
     );
-    expect(contractorFeed.page).toHaveLength(2);
     expect(contractorFeed.page).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "restricted" }),
@@ -291,18 +369,140 @@ describe("Build collaboration legacy-note migration", () => {
     );
   });
 
-  test("rejects cross-tenant scope and blocks activation from operator-attested counts", async () => {
+  test("detects orphaned imports even when a new plan has zero source notes", async () => {
+    const fixture = await seedMigrationFixture();
+    const firstPlan = await previewAll(fixture, 2);
+    const firstRun = await preparePlan(fixture, firstPlan.planToken, 2);
+    await applyAll(fixture, firstRun.runId, 2);
+    await fixture.base.run(async (ctx) => {
+      for (const note of fixture.notes) {
+        await ctx.db.delete(note.noteId);
+      }
+    });
+
+    const emptyPlan = await previewAll(fixture, 1);
+    expect(emptyPlan.notes).toEqual([]);
+    const emptyRun = await preparePlan(fixture, emptyPlan.planToken, 1);
+    expect(emptyRun).toMatchObject({
+      processedNoteCount: 0,
+      status: "complete",
+    });
+    const parity = await runParity(
+      fixture,
+      emptyRun.runId,
+      emptyPlan.planToken,
+      1
+    );
+    expect(parity.mismatchCount).toBeGreaterThanOrEqual(2);
+    expect(parity.importedPostCount).toBe(2);
+    const evidence = await fixture.base.run((ctx) =>
+      ctx.db.get(parity.evidenceId)
+    );
+    expect(evidence).toMatchObject({ parityPassed: false });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId: fixture.buildId,
+          expectedStatus: "disabled",
+          nextStatus: "migration_ready",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("durable passing migration parity evidence");
+  });
+
+  test("creates a fresh parity attempt after a failed report is repaired", async () => {
+    const fixture = await seedMigrationFixture();
+    const plan = await previewAll(fixture, 2);
+    const migration = await preparePlan(fixture, plan.planToken, 2);
+    await applyAll(fixture, migration.runId, 2);
+    const publicPostId = await fixture.base.run(async (ctx) => {
+      const post = await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_importedSourceId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("importedSourceId", `buildNote:${fixture.notes[0].noteId}`)
+        )
+        .unique();
+      if (!post) {
+        throw new Error("Expected imported public note.");
+      }
+      await ctx.db.patch(post._id, { audienceFloorTier: 9 });
+      return post._id;
+    });
+    const failed = await runParity(
+      fixture,
+      migration.runId,
+      plan.planToken,
+      2
+    );
+    expect(failed.mismatchCount).toBeGreaterThan(0);
+
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(publicPostId, { audienceFloorTier: 0 })
+    );
+    const repaired = await runParity(
+      fixture,
+      migration.runId,
+      plan.planToken,
+      2
+    );
+    expect(repaired.parityRunId).not.toBe(failed.parityRunId);
+    expect(repaired).toMatchObject({ mismatchCount: 0, status: "complete" });
+    const evidence = await fixture.base.run((ctx) =>
+      ctx.db.get(repaired.evidenceId)
+    );
+    expect(evidence).toMatchObject({ parityPassed: true });
+  });
+
+  test("rejects cross-tenant scope, attested evidence, oversized batches, and legacy note writes", async () => {
     const fixture = await seedMigrationFixture();
     await expect(
       fixture.admin.query(
-        (api as any).build_collaboration_legacy_note_migration
-          .previewBuildCollaborationLegacyNoteMigration,
+        (api as any).build_collaboration_legacy_note_plan
+          .previewBuildCollaborationLegacyNoteMigrationPage,
         {
           buildId: fixture.buildId,
           organizationId: "org_foreign",
+          paginationOpts: { cursor: null, numItems: 1 },
+          phase: "builds",
         }
       )
     ).rejects.toThrow("Forbidden: brokerage");
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration_legacy_note_plan
+          .previewBuildCollaborationLegacyNoteMigrationPage,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor: null, numItems: 51 },
+          phase: "builds",
+        }
+      )
+    ).rejects.toThrow("between 1 and 50");
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.addActiveBuildNote,
+        {
+          body: "This legacy write must never land.",
+          buildId: fixture.buildId,
+          visibility: "public",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("Public/Internal Notes are retired");
+    const detail = await fixture.admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      {
+        buildId: String(fixture.buildId),
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(detail).not.toHaveProperty("notes");
 
     await fixture.admin.mutation(
       (api as any).build_collaboration_rollout
@@ -410,7 +610,10 @@ async function seedMigrationFixture() {
       updatedAt: now,
       workflowRuleSnapshotId,
     });
-    await ctx.db.patch(proposalId, { activeBuildId: buildId, workflowRuleSnapshotId });
+    await ctx.db.patch(proposalId, {
+      activeBuildId: buildId,
+      workflowRuleSnapshotId,
+    });
     const publicNoteId = await ctx.db.insert("buildNotes", {
       authorRoles: ["builder"],
       authorWorkosUserId: "user_builder",
@@ -441,46 +644,194 @@ async function seedMigrationFixture() {
     brokerageId: foundation.brokerageId,
     buildId: seeded.buildId,
     notes: [
-      {
-        authorWorkosUserId: "user_builder",
-        createdAt: now - 20_000,
-        noteId: seeded.publicNoteId,
-        updatedAt: now - 19_000,
-      },
-      {
-        authorWorkosUserId: "user_broker",
-        createdAt: now - 10_000,
-        noteId: seeded.internalNoteId,
-        updatedAt: now - 9_000,
-      },
+      { noteId: seeded.publicNoteId },
+      { noteId: seeded.internalNoteId },
     ],
     now,
   };
 }
 
-async function preview(fixture: Awaited<ReturnType<typeof seedMigrationFixture>>) {
-  return await fixture.admin.query(
-    (api as any).build_collaboration_legacy_note_migration
-      .previewBuildCollaborationLegacyNoteMigration,
-    { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+async function previewAll(
+  fixture: Awaited<ReturnType<typeof seedMigrationFixture>>,
+  pageSize: number
+) {
+  const builds: Record<string, unknown>[] = [];
+  const notes: Record<string, unknown>[] = [];
+  const warnings: string[] = [];
+  let accumulator: string | undefined;
+  let cursor: string | null = null;
+  for (const phase of ["builds", "notes"] as const) {
+    cursor = null;
+    for (let guard = 0; guard < 100; guard += 1) {
+      const page: PreviewPage = await fixture.admin.query(
+        (api as any).build_collaboration_legacy_note_plan
+          .previewBuildCollaborationLegacyNoteMigrationPage,
+        {
+          accumulator,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor, numItems: pageSize },
+          phase,
+        }
+      );
+      accumulator = page.accumulator;
+      warnings.push(...page.warnings);
+      (phase === "builds" ? builds : notes).push(...page.items);
+      if (page.isDone) {
+        if (phase === "notes") {
+          return {
+            accumulator,
+            builds,
+            notes,
+            planToken: page.planToken as string,
+            planVersion: PLAN_VERSION,
+            warnings,
+          };
+        }
+        break;
+      }
+      cursor = page.continueCursor;
+    }
+  }
+  throw new Error("Preview pagination did not complete.");
+}
+
+async function startPlan(
+  fixture: Awaited<ReturnType<typeof seedMigrationFixture>>,
+  planToken: string
+) {
+  return await fixture.admin.mutation(
+    (api as any).build_collaboration_legacy_note_plan
+      .startBuildCollaborationLegacyNoteMigration,
+    {
+      buildId: fixture.buildId,
+      organizationId: ORGANIZATION_ID,
+      planToken,
+    }
   );
 }
 
-async function apply(
+async function advancePlan(
   fixture: Awaited<ReturnType<typeof seedMigrationFixture>>,
-  planToken: string,
-  maxNotes: number
+  runId: Id<"buildCollaborationLegacyNoteMigrationRuns">,
+  maxItems: number
 ) {
   return await fixture.admin.mutation(
-    (api as any).build_collaboration_legacy_note_migration
+    (api as any).build_collaboration_legacy_note_plan
+      .advanceBuildCollaborationLegacyNotePlan,
+    {
+      buildId: fixture.buildId,
+      maxItems,
+      organizationId: ORGANIZATION_ID,
+      runId,
+    }
+  );
+}
+
+async function preparePlan(
+  fixture: Awaited<ReturnType<typeof seedMigrationFixture>>,
+  planToken: string,
+  maxItems: number
+) {
+  let run = await startPlan(fixture, planToken);
+  for (let guard = 0; run.status === "validating"; guard += 1) {
+    if (guard >= 100) {
+      throw new Error("Plan validation did not complete.");
+    }
+    run = await advancePlan(fixture, run.runId, maxItems);
+  }
+  if (run.status === "blocked") {
+    throw new Error(run.blockedReason);
+  }
+  return run;
+}
+
+async function applyBatch(
+  fixture: Awaited<ReturnType<typeof seedMigrationFixture>>,
+  runId: Id<"buildCollaborationLegacyNoteMigrationRuns">,
+  maxNotes: number
+) {
+  const run = await fixture.base.run((ctx) => ctx.db.get(runId));
+  if (!run) {
+    throw new Error("Expected migration run.");
+  }
+  return await fixture.admin.mutation(
+    (api as any).build_collaboration_legacy_note_import
       .applyBuildCollaborationLegacyNoteMigrationBatch,
     {
       buildId: fixture.buildId,
       maxNotes,
       organizationId: ORGANIZATION_ID,
+      planToken: run.planToken,
+      runId,
+    }
+  );
+}
+
+async function applyAll(
+  fixture: Awaited<ReturnType<typeof seedMigrationFixture>>,
+  runId: Id<"buildCollaborationLegacyNoteMigrationRuns">,
+  maxNotes: number
+) {
+  let result = await applyBatch(fixture, runId, maxNotes);
+  for (let guard = 0; !result.complete; guard += 1) {
+    if (guard >= 100) {
+      throw new Error("Import did not complete.");
+    }
+    result = await applyBatch(fixture, runId, maxNotes);
+  }
+  return result;
+}
+
+async function startParity(
+  fixture: Awaited<ReturnType<typeof seedMigrationFixture>>,
+  migrationRunId: Id<"buildCollaborationLegacyNoteMigrationRuns">,
+  planToken: string
+) {
+  return await fixture.admin.mutation(
+    (api as any).build_collaboration_legacy_note_parity
+      .startBuildCollaborationLegacyNoteParity,
+    {
+      buildId: fixture.buildId,
+      migrationRunId,
+      organizationId: ORGANIZATION_ID,
       planToken,
     }
   );
+}
+
+async function advanceParity(
+  fixture: Awaited<ReturnType<typeof seedMigrationFixture>>,
+  parityRunId: Id<"buildCollaborationLegacyNoteParityRuns">,
+  maxItems: number
+) {
+  return await fixture.admin.mutation(
+    (api as any).build_collaboration_legacy_note_parity
+      .advanceBuildCollaborationLegacyNoteParity,
+    {
+      buildId: fixture.buildId,
+      maxItems,
+      organizationId: ORGANIZATION_ID,
+      parityRunId,
+      reason: "Automated Build-by-Build migration parity verification.",
+    }
+  );
+}
+
+async function runParity(
+  fixture: Awaited<ReturnType<typeof seedMigrationFixture>>,
+  migrationRunId: Id<"buildCollaborationLegacyNoteMigrationRuns">,
+  planToken: string,
+  maxItems: number
+) {
+  let run = await startParity(fixture, migrationRunId, planToken);
+  for (let guard = 0; run.status !== "complete"; guard += 1) {
+    if (guard >= 100 || run.status === "blocked") {
+      throw new Error(run.blockedReason ?? "Parity did not complete.");
+    }
+    run = await advanceParity(fixture, run.parityRunId, maxItems);
+  }
+  return run;
 }
 
 async function collaborationWriteCounts(base: ReturnType<typeof convexTest>) {
@@ -488,6 +839,15 @@ async function collaborationWriteCounts(base: ReturnType<typeof convexTest>) {
     audits: (await ctx.db.query("auditEvents").collect()).length,
     parityEvidence: (
       await ctx.db.query("buildCollaborationMigrationParityEvidence").collect()
+    ).length,
+    parityRuns: (
+      await ctx.db.query("buildCollaborationLegacyNoteParityRuns").collect()
+    ).length,
+    planBuilds: (
+      await ctx.db.query("buildCollaborationLegacyNotePlanBuilds").collect()
+    ).length,
+    planNotes: (
+      await ctx.db.query("buildCollaborationLegacyNotePlanNotes").collect()
     ).length,
     posts: (await ctx.db.query("buildCollaborationPosts").collect()).length,
     revisions: (
@@ -507,4 +867,28 @@ async function migrationState(base: ReturnType<typeof convexTest>) {
       .query("buildCollaborationLegacyNoteMigrationRuns")
       .collect(),
   }));
+}
+
+async function parityProgress(
+  base: ReturnType<typeof convexTest>,
+  parityRunId: Id<"buildCollaborationLegacyNoteParityRuns">
+) {
+  return await base.run(async (ctx) => {
+    const run = await ctx.db.get(parityRunId);
+    if (!run) {
+      throw new Error("Expected parity run.");
+    }
+    const reportCount = (
+      await ctx.db
+        .query("buildCollaborationLegacyNoteParityBuildReports")
+        .collect()
+    ).filter((report) => report.parityRunId === parityRunId).length;
+    return {
+      finalizeBuildOrdinal: run.finalizeBuildOrdinal,
+      nextBuildOrdinal: run.nextBuildOrdinal,
+      nextNoteOrdinal: run.nextNoteOrdinal,
+      orphanBuildOrdinal: run.orphanBuildOrdinal,
+      reportCount,
+    };
+  });
 }

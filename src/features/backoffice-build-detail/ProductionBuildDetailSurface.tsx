@@ -165,10 +165,6 @@ export interface ProductionBuildDetailActions {
     fileName: string;
     supersedesDocumentId?: string;
   }) => Promise<unknown> | unknown;
-  addNote?: (input: {
-    body: string;
-    visibility: "internal" | "public";
-  }) => Promise<unknown> | unknown;
   approveDraw?: (draw: ProductionDraw) => Promise<unknown> | unknown;
   approveMilestone?: (input: {
     milestoneKey: string;
@@ -490,10 +486,6 @@ export interface ProductionBuildDetail {
   } | null;
   milestoneContractorAssignments?: ProductionMilestoneContractorAssignment[];
   milestones: ProductionMilestone[];
-  notes?: {
-    internal: ProductionNote[];
-    public: ProductionNote[];
-  };
   plannedDraws?: ProductionPlannedDraw[];
   quickActionEvents?: ProductionRailEvent[];
   sitePhotos?: ProductionSitePhoto[];
@@ -680,14 +672,6 @@ interface ProductionDocument {
   storageUrl?: string | null;
   url?: string | null;
   version?: number;
-}
-
-interface ProductionNote {
-  _id: string;
-  authorPersona?: string;
-  body: string;
-  createdAt: number | string;
-  visibility: "internal" | "public";
 }
 
 interface ProductionRailEvent {
@@ -5369,88 +5353,6 @@ function ProductionDocumentsCard({
             ))}
           </ul>
         )}
-      </CardContent>
-    </Card>
-  );
-}
-
-export function ProductionNotesCard({
-  actions,
-  notes,
-  testIdPrefix,
-  title,
-  variant,
-}: {
-  actions?: ProductionBuildDetailActions;
-  notes: ProductionNote[];
-  testIdPrefix: string;
-  title: string;
-  variant: "internal" | "public";
-}) {
-  const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState(false);
-  const accent =
-    variant === "internal" ? "border-amber-500/40" : "border-emerald-500/40";
-
-  const onSave = async () => {
-    if (!(draft.trim() && actions?.addNote) || pending) {
-      return;
-    }
-    setPending(true);
-    try {
-      await actions.addNote({ body: draft.trim(), visibility: variant });
-      setDraft("");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  return (
-    <Card className={`border-2 ${accent}`} data-testid={testIdPrefix}>
-      <CardHeader className="flex flex-row items-center justify-between gap-3 p-3 sm:p-4">
-        <CardTitle className="text-sm">{title}</CardTitle>
-        <span className="shrink-0 text-right text-muted-foreground text-xs">
-          {variant === "internal" ? "Lender-only" : "Borrower-visible"}
-        </span>
-      </CardHeader>
-      <CardContent className="p-3 pt-0 sm:p-4 sm:pt-0">
-        <div className="min-h-[120px] rounded-md border border-border bg-background/40 p-3">
-          {notes.length === 0 ? (
-            <p className="text-muted-foreground text-xs">No notes yet.</p>
-          ) : (
-            <ul className="space-y-2 text-xs">
-              {notes.map((note) => (
-                <li
-                  data-testid={`${testIdPrefix}-item-${note._id}`}
-                  key={note._id}
-                >
-                  <p className="text-muted-foreground text-xs">
-                    {formatDate(note.createdAt)} - {note.authorPersona}
-                  </p>
-                  <p>{note.body}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <textarea
-            className="min-h-[56px] flex-1 rounded-md border border-border bg-background/40 p-2 text-xs"
-            data-testid={`${testIdPrefix}-input`}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Add a note..."
-            value={draft}
-          />
-          <button
-            className="rounded-md border border-border bg-card px-3 py-2 text-xs hover:bg-accent disabled:opacity-50 sm:self-start sm:py-1.5"
-            data-testid={`${testIdPrefix}-save`}
-            disabled={!(draft.trim() && actions?.addNote) || pending}
-            onClick={onSave}
-            type="button"
-          >
-            {pending ? "Saving..." : "Save"}
-          </button>
-        </div>
       </CardContent>
     </Card>
   );

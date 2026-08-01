@@ -5,7 +5,7 @@ export const backfillBuildNotesIntoCollaboration = migrations.define({
   table: "buildNotes",
   migrateOne: () => {
     throw new Error(
-      "The unguarded legacy-note backfill is disabled. Use previewBuildCollaborationLegacyNoteMigration and applyBuildCollaborationLegacyNoteMigrationBatch."
+      "The unguarded legacy-note backfill is disabled. Use the paged build_collaboration_legacy_note_plan preview/manifest workflow, then the bounded import and parity workflows."
     );
   },
 });

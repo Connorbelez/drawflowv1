@@ -3350,6 +3350,10 @@ export default defineSchema({
     reportVersion: v.optional(v.string()),
     planToken: v.optional(v.string()),
     buildReportCount: v.optional(v.number()),
+    migrationRunId: v.optional(
+      v.id("buildCollaborationLegacyNoteMigrationRuns")
+    ),
+    parityRunId: v.optional(v.id("buildCollaborationLegacyNoteParityRuns")),
     verificationSource: v.optional(
       v.union(
         v.literal("operator_attested"),
@@ -3371,9 +3375,92 @@ export default defineSchema({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
     planToken: v.string(),
+    planVersion: v.string(),
     sourceRecordCount: v.number(),
-    nextOffset: v.number(),
-    status: v.union(v.literal("running"), v.literal("complete")),
+    processedBuildCount: v.number(),
+    processedNoteCount: v.number(),
+    nextImportOrdinal: v.number(),
+    blockingWarningCount: v.number(),
+    tokenAccumulator: v.string(),
+    validationPhase: v.union(
+      v.literal("builds"),
+      v.literal("notes"),
+      v.literal("complete")
+    ),
+    validationBuildCursor: v.optional(v.string()),
+    validationNoteCursor: v.optional(v.string()),
+    status: v.union(
+      v.literal("validating"),
+      v.literal("importing"),
+      v.literal("complete"),
+      v.literal("blocked")
+    ),
+    blockedReason: v.optional(v.string()),
+    startedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_planToken", ["organizationId", "planToken"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
+  buildCollaborationLegacyNotePlanBuilds: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    runId: v.id("buildCollaborationLegacyNoteMigrationRuns"),
+    buildId: v.id("activeBuilds"),
+    buildName: v.string(),
+    ordinal: v.number(),
+    snapshotHash: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_runId_and_ordinal", ["runId", "ordinal"])
+    .index("by_runId_and_buildId", ["runId", "buildId"]),
+  buildCollaborationLegacyNotePlanNotes: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    runId: v.id("buildCollaborationLegacyNoteMigrationRuns"),
+    sourceNoteId: v.id("buildNotes"),
+    importedSourceId: v.string(),
+    buildId: v.id("activeBuilds"),
+    ordinal: v.number(),
+    snapshotHash: v.string(),
+    visibility: v.union(v.literal("internal"), v.literal("public")),
+    body: v.string(),
+    authorWorkosUserId: v.string(),
+    authorRolesSnapshot: v.array(v.string()),
+    authorRole: buildCollaborationRoleValidator,
+    audienceMode: buildCollaborationAudienceModeValidator,
+    audienceFloorTier: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_runId_and_ordinal", ["runId", "ordinal"])
+    .index("by_runId_and_sourceNoteId", ["runId", "sourceNoteId"])
+    .index("by_runId_and_importedSourceId", ["runId", "importedSourceId"]),
+  buildCollaborationLegacyNoteParityRuns: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    migrationRunId: v.id("buildCollaborationLegacyNoteMigrationRuns"),
+    planToken: v.string(),
+    status: v.union(
+      v.literal("initializing_builds"),
+      v.literal("checking_notes"),
+      v.literal("checking_orphans"),
+      v.literal("finalizing_builds"),
+      v.literal("complete"),
+      v.literal("blocked")
+    ),
+    nextBuildOrdinal: v.number(),
+    nextNoteOrdinal: v.number(),
+    orphanBuildOrdinal: v.number(),
+    orphanPostCursor: v.optional(v.string()),
+    finalizeBuildOrdinal: v.number(),
+    sourceRecordCount: v.number(),
+    importedPostCount: v.number(),
+    mismatchCount: v.number(),
+    reportHashAccumulator: v.string(),
+    evidenceId: v.optional(v.id("buildCollaborationMigrationParityEvidence")),
+    blockedReason: v.optional(v.string()),
     startedByWorkosUserId: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -3384,8 +3471,10 @@ export default defineSchema({
   buildCollaborationLegacyNoteParityBuildReports: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
-    evidenceId: v.id("buildCollaborationMigrationParityEvidence"),
+    parityRunId: v.id("buildCollaborationLegacyNoteParityRuns"),
+    evidenceId: v.optional(v.id("buildCollaborationMigrationParityEvidence")),
     buildId: v.id("activeBuilds"),
+    buildOrdinal: v.number(),
     sourceRecordCount: v.number(),
     importedPostCount: v.number(),
     mismatchCount: v.number(),
@@ -3394,7 +3483,8 @@ export default defineSchema({
     mismatchDetailsJson: v.string(),
     createdAt: v.number(),
   })
-    .index("by_evidenceId_and_buildId", ["evidenceId", "buildId"])
+    .index("by_parityRunId_and_buildId", ["parityRunId", "buildId"])
+    .index("by_parityRunId_and_buildOrdinal", ["parityRunId", "buildOrdinal"])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   buildCollaborationRetentionPolicies: defineTable({
     organizationId: v.string(),

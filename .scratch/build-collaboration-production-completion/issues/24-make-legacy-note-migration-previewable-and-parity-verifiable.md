@@ -18,31 +18,35 @@
 
 ## Implementation record
 
-- Added a dedicated fluent-convex legacy-note migration domain with an
-  organization-scoped, no-write preview. Its SHA-256 plan token covers every
-  source note field plus Build and tenant ownership, while the response exposes
-  the exact Build/note inventory, audience mapping, expected revision, rollout
-  state, and blocking warnings.
-- Application requires the exact preview token, a human Admin or Principal
-  Broker, a non-active tenant, and a clean ownership/role snapshot. It processes
-  at most 50 notes per transaction through a durable offset run, revalidates
-  source and Build ownership, and resumes safely after drift or partial work.
+- Split the fluent-convex cutover into dedicated shared, paged-plan,
+  bounded-import, and paged-parity domains. The no-write preview pages the exact
+  tenant Build/note inventory and advances a SHA-256 accumulator; the final v2
+  token covers every source note field plus Build and tenant ownership without
+  a whole-tenant `collect()`.
+- Starting a migration freezes a durable v2 manifest. A human Admin or
+  Principal Broker must advance Build and note validation in at most 25-row
+  transactions, and the computed manifest token must equal the exact confirmed
+  preview token before import. Import advances at most 25 manifest notes per
+  transaction, revalidates each frozen source/Build snapshot, and leaves its
+  cursor unchanged on drift or failure.
 - Imports preserve author identity and role snapshots, original content and
   timestamps, and deterministic `buildNote:<id>` identities. Existing rows are
   accepted only when their post and sole current revision match exactly; no
   feed activity bump, notifications, receipts, Action Items, or dual write is
-  created. The former unguarded migration runner is disabled.
-- The server-derived parity verifier persists top-level evidence and one report
-  per Build, including exact counts, mismatch details, audience and revision
-  checks, orphan/duplicate detection, and all-role readability matrices. A
-  report query exposes that evidence to operators without trusting submitted
-  counts.
-- Tenant activation now accepts only current server-derived
-  `legacy_note_migration_v1` evidence. Source drift invalidates the activation
-  gate; the former operator-attested evidence path cannot activate a tenant
-  containing legacy notes. Tenants with no legacy notes receive a server-derived
-  empty-plan report for backwards-compatible cutover automation.
-- Focused tests cover deterministic no-write preview, exact-token drift,
-  bounded partial recovery, completed-run replay, durable parity, preserved
-  records, absence of side effects, live opaque Contractor denial, role-matrix
-  expectations, cross-tenant rejection, and rejection of attested counts.
+  created. The legacy production note mutation now fails closed and the active
+  Build detail projection no longer returns Public/Internal Notes. The former
+  unguarded migration runner remains disabled.
+- Parity is itself a durable, resumable state machine: it creates Build reports,
+  validates manifest notes, scans every Build for orphaned imports, and
+  finalizes reports in at most 10-row transactions. Every role is observed
+  through `canReadCollaborationPost`; expected and observed readable/restricted
+  counts are persisted per Build together with bounded mismatch detail.
+- Activation accepts only linked, completed v2 migration/parity runs and their
+  server-derived `legacy_note_migration_v1` evidence. It rejects operator-
+  attested counts, source drift, duplicate/missing imports, and the empty-source
+  orphan case that could otherwise mint false passing evidence.
+- Six focused tests cover deterministic paged preview, frozen-manifest drift,
+  a 39-note bounded-transaction stress trace, replay, all-role canonical ACL
+  observations, opaque Contractor denial, orphaned imports after source
+  deletion, cross-tenant protection, batch limits, legacy API retirement, and
+  rejection of operator-attested activation evidence.

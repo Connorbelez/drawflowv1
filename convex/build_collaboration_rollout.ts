@@ -6,7 +6,6 @@ import {
 } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
-import { computeLegacyNoteMigrationPlan } from "./build_collaboration_legacy_note_migration";
 import { buildCollaborationImplicitReaderSourceFingerprint } from "./build_collaboration_search_reader_sources";
 import { buildCollaborationOrganizationAuthorityFingerprint } from "./build_collaboration_search_readers";
 import { buildCollaborationTenantStatusValidator } from "./build_collaboration_validators";
@@ -67,29 +66,15 @@ export const recordBuildCollaborationMigrationParityEvidence =
       const reportHash = args.reportHash.trim();
       const reason = normalizeReason(args.reason);
       const now = Date.now();
-      const currentPlan = await computeLegacyNoteMigrationPlan(
-        ctx,
-        authorization
-      );
-      const verifiedEmptyPlan =
-        currentPlan.notes.length === 0 && currentPlan.warnings.length === 0;
-      const sourceRecordCount = verifiedEmptyPlan ? 0 : args.sourceRecordCount;
-      const importedPostCount = verifiedEmptyPlan ? 0 : args.importedPostCount;
-      const mismatchCount = verifiedEmptyPlan ? 0 : args.mismatchCount;
-      const parityPassed = verifiedEmptyPlan
-        ? true
-        : sourceRecordCount === importedPostCount && mismatchCount === 0;
+      const sourceRecordCount = args.sourceRecordCount;
+      const importedPostCount = args.importedPostCount;
+      const mismatchCount = args.mismatchCount;
+      const parityPassed =
+        sourceRecordCount === importedPostCount && mismatchCount === 0;
       const evidenceId = await ctx.db.insert(
         "buildCollaborationMigrationParityEvidence",
         {
           brokerageId: authorization.brokerage._id,
-          ...(verifiedEmptyPlan
-            ? {
-                buildReportCount: currentPlan.builds.length,
-                planToken: currentPlan.planToken,
-                reportVersion: "build-collaboration-legacy-note-parity/v1",
-              }
-            : {}),
           importedPostCount,
           mismatchCount,
           organizationId: authorization.organizationId,
@@ -97,33 +82,11 @@ export const recordBuildCollaborationMigrationParityEvidence =
           reason,
           reportHash,
           sourceRecordCount,
-          verificationSource: verifiedEmptyPlan
-            ? "legacy_note_migration_v1"
-            : "operator_attested",
+          verificationSource: "operator_attested",
           verifiedAt: now,
           verifiedByWorkosUserId: authorization.viewer.subject,
         }
       );
-      if (verifiedEmptyPlan) {
-        for (const build of currentPlan.builds) {
-          await ctx.db.insert(
-            "buildCollaborationLegacyNoteParityBuildReports",
-            {
-              brokerageId: authorization.brokerage._id,
-              buildId: build.buildId,
-              createdAt: now,
-              evidenceId,
-              importedPostCount: 0,
-              mismatchCount: 0,
-              mismatchDetailsJson: "[]",
-              organizationId: authorization.organizationId,
-              parityPassed: true,
-              roleMatrixJson: "[]",
-              sourceRecordCount: 0,
-            }
-          );
-        }
-      }
       await recordRolloutAudit(ctx, {
         authorization,
         command: "recordBuildCollaborationMigrationParityEvidence",
@@ -435,17 +398,33 @@ async function requirePassingParityEvidence(
     evidence.brokerageId !== authorization.brokerage._id ||
     !evidence.parityPassed ||
     evidence.verificationSource !== "legacy_note_migration_v1" ||
-    evidence.reportVersion !== "build-collaboration-legacy-note-parity/v1" ||
-    !evidence.planToken
+    evidence.reportVersion !== "build-collaboration-legacy-note-parity/v2" ||
+    !evidence.planToken ||
+    !evidence.migrationRunId ||
+    !evidence.parityRunId
   ) {
     throw new Error(
       "Collaboration activation requires durable passing migration parity evidence."
     );
   }
-  const currentPlan = await computeLegacyNoteMigrationPlan(ctx, authorization);
-  if (currentPlan.planToken !== evidence.planToken) {
+  const migration = await ctx.db.get(evidence.migrationRunId);
+  const parity = await ctx.db.get(evidence.parityRunId);
+  if (
+    !(migration && parity) ||
+    migration.organizationId !== authorization.organizationId ||
+    migration.brokerageId !== authorization.brokerage._id ||
+    migration.status !== "complete" ||
+    migration.planToken !== evidence.planToken ||
+    parity.organizationId !== authorization.organizationId ||
+    parity.brokerageId !== authorization.brokerage._id ||
+    parity.migrationRunId !== migration._id ||
+    parity.status !== "complete" ||
+    parity.evidenceId !== evidence._id ||
+    parity.mismatchCount !== 0 ||
+    parity.sourceRecordCount !== parity.importedPostCount
+  ) {
     throw new Error(
-      "Collaboration activation requires parity evidence for the current legacy-note migration plan."
+      "Collaboration activation requires the completed bounded migration and parity runs referenced by the evidence."
     );
   }
   return evidence;
