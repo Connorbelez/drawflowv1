@@ -188,6 +188,7 @@ type DrawerKey = "location" | "scope" | "uploaded";
 type StagedItem = {
   evidence: SiteVisitStagedEvidence;
   file: File;
+  uploadedStorageId?: string;
 };
 
 type SubmittedSummary = {
@@ -379,6 +380,7 @@ function SiteVisitTokenRouteContent({
                 lastModified: item.fileLastModified,
                 type: item.fileType,
               }),
+              uploadedStorageId: item.uploadedStorageId,
             }))
           );
         }
@@ -420,6 +422,7 @@ function SiteVisitTokenRouteContent({
             fileLastModified: item.file.lastModified,
             fileName: item.file.name,
             fileType: item.file.type,
+            uploadedStorageId: item.uploadedStorageId,
           };
         }),
         updatedAt: Date.now(),
@@ -846,6 +849,15 @@ function SiteVisitTokenRouteContent({
           setStagedItems((current) =>
             current.filter(
               (item) => item.evidence.id !== uploadedItem.evidence.id
+            )
+          );
+        },
+        onStorageUploaded: (uploadedItem, storageId) => {
+          setStagedItems((current) =>
+            current.map((item) =>
+              item.evidence.id === uploadedItem.evidence.id
+                ? { ...item, uploadedStorageId: storageId }
+                : item
             )
           );
         },

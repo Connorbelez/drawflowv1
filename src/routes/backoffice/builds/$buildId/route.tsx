@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useAction, useMutation, useQuery } from "convex/react";
+import { useRef } from "react";
 import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
@@ -15,6 +16,7 @@ import {
 } from "#/features/builder-staff/app-permissions.ts";
 import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import { SiteVisitScheduleIntentRegistry } from "#/features/backoffice-build-detail/siteVisitScheduleIntent.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   getVisualParityActiveBuildDetail,
@@ -100,6 +102,9 @@ function RouteComponent() {
   const search = Route.useSearch();
   const navigate = useNavigate();
   const visualFixtureEnabled = isProductionVisualParityFixtureEnabled();
+  const siteVisitScheduleIntents = useRef(
+    new SiteVisitScheduleIntentRegistry()
+  );
   const addDocument = useMutation(
     api.production_proposals.addActiveBuildDocument
   );
@@ -634,13 +639,19 @@ function RouteComponent() {
         "evidence",
         "update"
       )
-        ? (input) =>
-            scheduleActiveBuildSiteVisit({
+        ? async (input) => {
+            const idempotencyKey =
+              siteVisitScheduleIntents.current.keyFor(input);
+            const result = await scheduleActiveBuildSiteVisit({
               ...input,
               buildId: activeBuildId,
-              idempotencyKey: crypto.randomUUID(),
+              idempotencyKey,
               workosOrganizationId,
-            }).then(() => toast.success("Site visit scheduled."))
+            });
+            siteVisitScheduleIntents.current.confirm(input);
+            toast.success("Site visit scheduled.");
+            return result;
+          }
         : undefined,
       rescheduleSiteVisit: canUseAppPermission(
         appPermissions,

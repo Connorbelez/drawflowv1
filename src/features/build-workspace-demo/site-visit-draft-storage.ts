@@ -11,6 +11,7 @@ export interface PersistedSiteVisitStagedItem {
   fileLastModified: number;
   fileName: string;
   fileType: string;
+  uploadedStorageId?: string;
 }
 
 export interface SiteVisitDraft {

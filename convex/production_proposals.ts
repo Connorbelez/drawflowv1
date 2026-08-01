@@ -17354,14 +17354,15 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       }),
       v.object({
         assetId: v.id("buildEvidenceAssets"),
+        storageDisposition: v.union(
+          v.literal("reused_existing_upload"),
+          v.literal("preserved_unowned_upload")
+        ),
         status: v.literal("replayed"),
       }),
       v.object({
         reason: v.literal("idempotency_conflict"),
-        storageDisposition: v.union(
-          v.literal("deleted_unowned_upload"),
-          v.literal("preserved_existing_upload")
-        ),
+        storageDisposition: v.literal("preserved_unowned_upload"),
         status: v.literal("rejected"),
       })
     )
@@ -17417,7 +17418,6 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       locationAttempt: resolvedLocationAttempt ?? null,
       mimeType,
       sizeBytes,
-      storageId: String(args.storageId),
       targetMilestoneKey: targetMilestoneKey ?? null,
       targetSubmilestoneKey: targetSubmilestoneKey ?? null,
     });
@@ -17429,18 +17429,19 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       .unique();
     if (existing) {
       if (existing.clientEvidenceFingerprint === clientEvidenceFingerprint) {
-        return { assetId: existing._id, status: "replayed" as const };
-      }
-      const isExistingStorage = existing.storageId === args.storageId;
-      if (!isExistingStorage) {
-        await ctx.storage.delete(args.storageId);
+        return {
+          assetId: existing._id,
+          status: "replayed" as const,
+          storageDisposition:
+            existing.storageId === args.storageId
+              ? ("reused_existing_upload" as const)
+              : ("preserved_unowned_upload" as const),
+        };
       }
       return {
         reason: "idempotency_conflict" as const,
         status: "rejected" as const,
-        storageDisposition: isExistingStorage
-          ? ("preserved_existing_upload" as const)
-          : ("deleted_unowned_upload" as const),
+        storageDisposition: "preserved_unowned_upload" as const,
       };
     }
     const now = Date.now();

@@ -728,6 +728,7 @@ describe("Build Collaboration operational events", () => {
     expect(replayed).toEqual({
       assetId: registered.assetId,
       status: "replayed",
+      storageDisposition: "reused_existing_upload",
     });
     const afterRegistrationReplay = await collaborationSnapshot(
       fixture.base,
@@ -758,11 +759,13 @@ describe("Build Collaboration operational events", () => {
     expect(conflict).toMatchObject({
       reason: "idempotency_conflict",
       status: "rejected",
-      storageDisposition: "deleted_unowned_upload",
+      storageDisposition: "preserved_unowned_upload",
     });
     expect(
-      await fixture.base.run((ctx) => ctx.storage.get(conflictingStorageId))
-    ).toBeNull();
+      await fixture.base.run(async (ctx) =>
+        Boolean(await ctx.storage.get(conflictingStorageId))
+      )
+    ).toBe(true);
 
     await fixture.base.mutation(
       (api as any).production_proposals.submitActiveBuildTokenizedSiteVisitReport,
