@@ -72,7 +72,10 @@ export async function requireLegacyNoteCutoverState(
   if (setting?.status === "active") {
     throw new Error("Legacy notes cannot be migrated after tenant activation.");
   }
-  return setting?.status ?? "disabled";
+  return {
+    cutoverEpoch: setting?.cutoverEpoch ?? 0,
+    status: setting?.status ?? ("disabled" as const),
+  };
 }
 
 export async function assertLegacyNoteWriteAllowed(
@@ -114,6 +117,7 @@ export function buildSnapshot(build: Doc<"activeBuilds">) {
   return {
     brokerageId: build.brokerageId,
     buildId: build._id,
+    creationTime: build._creationTime,
     organizationId: build.organizationId,
   };
 }
@@ -162,11 +166,13 @@ export function legacyNoteTiptapJson(body: string) {
 }
 
 export async function initialPlanAccumulator(
-  authorization: ActiveBuildAuthorization
+  authorization: ActiveBuildAuthorization,
+  cutoverEpoch: number
 ) {
   return await sha256Hex(
     JSON.stringify({
       brokerageId: authorization.brokerage._id,
+      cutoverEpoch,
       organizationId: authorization.organizationId,
       planVersion: LEGACY_NOTE_PLAN_VERSION,
     })

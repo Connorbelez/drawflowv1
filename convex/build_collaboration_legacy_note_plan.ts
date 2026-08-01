@@ -27,6 +27,7 @@ import type { Doc, Id, MutationCtx } from "./types";
 interface BuildPreviewItem {
   buildId: Id<"activeBuilds">;
   buildName: string;
+  creationTime: number;
   kind: "build";
   snapshotHash: string;
 }
@@ -94,10 +95,11 @@ export const previewBuildCollaborationLegacyNoteMigrationPage =
     .returns(previewResultValidator)
     .handler(async (ctx, args) => {
       const authorization = await authorizeLegacyNoteOperator(ctx, args);
-      await requireLegacyNoteCutoverState(ctx, authorization);
+      const cutover = await requireLegacyNoteCutoverState(ctx, authorization);
       normalizePageSize(args.paginationOpts.numItems, MAX_PLAN_PAGE_SIZE);
       let accumulator =
-        args.accumulator ?? (await initialPlanAccumulator(authorization));
+        args.accumulator ??
+        (await initialPlanAccumulator(authorization, cutover.cutoverEpoch));
       if (args.phase === "notes" && !args.accumulator) {
         throw new Error(
           "The notes preview requires the completed Build accumulator."
@@ -133,6 +135,7 @@ export const previewBuildCollaborationLegacyNoteMigrationPage =
           items.push({
             buildId: build._id,
             buildName: build.buildName,
+            creationTime: build._creationTime,
             kind: "build",
             snapshotHash: await sha256Hex(JSON.stringify(snapshot)),
           });
@@ -222,7 +225,7 @@ export const startBuildCollaborationLegacyNoteMigration = authenticatedMutation
   .returns(runResultValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeLegacyNoteOperator(ctx, args, true);
-    await requireLegacyNoteCutoverState(ctx, authorization);
+    const cutover = await requireLegacyNoteCutoverState(ctx, authorization);
     requirePlanToken(args.planToken);
     const existing = await ctx.db
       .query("buildCollaborationLegacyNoteMigrationRuns")
@@ -233,7 +236,11 @@ export const startBuildCollaborationLegacyNoteMigration = authenticatedMutation
       )
       .order("desc")
       .first();
-    if (existing && existing.status !== "blocked") {
+    if (
+      existing &&
+      existing.cutoverEpoch === cutover.cutoverEpoch &&
+      existing.status !== "blocked"
+    ) {
       requireRunOwnership(existing, authorization);
       return presentRun(existing);
     }
@@ -244,6 +251,7 @@ export const startBuildCollaborationLegacyNoteMigration = authenticatedMutation
         blockingWarningCount: 0,
         brokerageId: authorization.brokerage._id,
         createdAt: now,
+        cutoverEpoch: cutover.cutoverEpoch,
         nextImportOrdinal: 0,
         organizationId: authorization.organizationId,
         planToken: args.planToken,
@@ -253,7 +261,10 @@ export const startBuildCollaborationLegacyNoteMigration = authenticatedMutation
         sourceRecordCount: 0,
         startedByWorkosUserId: authorization.viewer.subject,
         status: "validating",
-        tokenAccumulator: await initialPlanAccumulator(authorization),
+        tokenAccumulator: await initialPlanAccumulator(
+          authorization,
+          cutover.cutoverEpoch
+        ),
         updatedAt: now,
         validationPhase: "builds",
       }
@@ -315,6 +326,8 @@ async function advanceBuildManifest(
     )
     .paginate({ cursor: run.validationBuildCursor ?? null, numItems: limit });
   let accumulator = run.tokenAccumulator;
+  let latestBuildCreationTime = run.latestBuildCreationTime;
+  let latestBuildId = run.latestBuildId;
   let ordinal = run.processedBuildCount;
   for (const build of page.page) {
     if (build.brokerageId !== authorization.brokerage._id) {
@@ -336,9 +349,13 @@ async function advanceBuildManifest(
       runId: run._id,
       snapshotHash: await sha256Hex(JSON.stringify(snapshot)),
     });
+    latestBuildCreationTime = build._creationTime;
+    latestBuildId = build._id;
     ordinal += 1;
   }
   await ctx.db.patch(run._id, {
+    latestBuildCreationTime,
+    latestBuildId,
     processedBuildCount: ordinal,
     tokenAccumulator: accumulator,
     updatedAt: Date.now(),
@@ -468,6 +485,12 @@ export async function requireMigrationRun(
   const run = await ctx.db.get(runId);
   if (!run) {
     throw new Error("Legacy-note migration run is unavailable.");
+  }
+  const cutover = await requireLegacyNoteCutoverState(ctx, authorization);
+  if (run.cutoverEpoch !== cutover.cutoverEpoch) {
+    throw new Error(
+      "Legacy-note migration belongs to a superseded cutover epoch."
+    );
   }
   requireRunOwnership(run, authorization);
   return run;

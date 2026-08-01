@@ -136,7 +136,11 @@ export const transitionBuildCollaborationTenantStatus = authenticatedMutation
 
     const parityEvidence =
       args.nextStatus === "migration_ready" || args.nextStatus === "active"
-        ? await requirePassingParityEvidence(ctx, authorization)
+        ? await requirePassingParityEvidence(
+            ctx,
+            authorization,
+            currentSetting?.cutoverEpoch ?? 0
+          )
         : null;
     if (args.nextStatus === "active") {
       await requireReadyCollaborationSearchCutover(ctx, authorization);
@@ -144,6 +148,10 @@ export const transitionBuildCollaborationTenantStatus = authenticatedMutation
     const now = Date.now();
     const patch = {
       accessRevision: (currentSetting?.accessRevision ?? 0) + 1,
+      cutoverEpoch:
+        args.nextStatus === "disabled"
+          ? (currentSetting?.cutoverEpoch ?? 0) + 1
+          : (currentSetting?.cutoverEpoch ?? 0),
       ...(args.nextStatus === "active"
         ? {
             activatedAt: now,
@@ -171,6 +179,7 @@ export const transitionBuildCollaborationTenantStatus = authenticatedMutation
 
     const priorState = JSON.stringify({ status: currentStatus });
     const newState = JSON.stringify({
+      cutoverEpoch: patch.cutoverEpoch,
       migrationCompletedAt: parityEvidence?.verifiedAt,
       status: args.nextStatus,
     });
@@ -384,7 +393,8 @@ function requireLegalTransition(
 
 async function requirePassingParityEvidence(
   ctx: MutationCtx,
-  authorization: ActiveBuildAuthorization
+  authorization: ActiveBuildAuthorization,
+  cutoverEpoch: number
 ) {
   const evidence = await ctx.db
     .query("buildCollaborationMigrationParityEvidence")
@@ -399,6 +409,7 @@ async function requirePassingParityEvidence(
     !evidence.parityPassed ||
     evidence.verificationSource !== "legacy_note_migration_v1" ||
     evidence.reportVersion !== "build-collaboration-legacy-note-parity/v2" ||
+    evidence.cutoverEpoch !== cutoverEpoch ||
     !evidence.planToken ||
     !evidence.migrationRunId ||
     !evidence.parityRunId
@@ -413,10 +424,12 @@ async function requirePassingParityEvidence(
     !(migration && parity) ||
     migration.organizationId !== authorization.organizationId ||
     migration.brokerageId !== authorization.brokerage._id ||
+    migration.cutoverEpoch !== cutoverEpoch ||
     migration.status !== "complete" ||
     migration.planToken !== evidence.planToken ||
     parity.organizationId !== authorization.organizationId ||
     parity.brokerageId !== authorization.brokerage._id ||
+    parity.cutoverEpoch !== cutoverEpoch ||
     parity.migrationRunId !== migration._id ||
     parity.status !== "complete" ||
     parity.evidenceId !== evidence._id ||
@@ -425,6 +438,23 @@ async function requirePassingParityEvidence(
   ) {
     throw new Error(
       "Collaboration activation requires the completed bounded migration and parity runs referenced by the evidence."
+    );
+  }
+  const latestBuild = await ctx.db
+    .query("activeBuilds")
+    .withIndex("by_organizationId", (query) =>
+      query.eq("organizationId", authorization.organizationId)
+    )
+    .order("desc")
+    .first();
+  if (
+    !latestBuild ||
+    migration.latestBuildId !== latestBuild._id ||
+    migration.latestBuildCreationTime !== latestBuild._creationTime ||
+    migration.processedBuildCount !== evidence.buildReportCount
+  ) {
+    throw new Error(
+      "Collaboration activation requires fresh migration parity for the current Build set."
     );
   }
   return evidence;

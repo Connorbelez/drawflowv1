@@ -56,7 +56,7 @@ export const startBuildCollaborationLegacyNoteParity = authenticatedMutation
   .returns(parityRunResultValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeLegacyNoteOperator(ctx, args, true);
-    await requireLegacyNoteCutoverState(ctx, authorization);
+    const cutover = await requireLegacyNoteCutoverState(ctx, authorization);
     const migration = await requireMigrationRun(
       ctx,
       args.migrationRunId,
@@ -64,7 +64,8 @@ export const startBuildCollaborationLegacyNoteParity = authenticatedMutation
     );
     if (
       migration.status !== "complete" ||
-      migration.planToken !== args.planToken
+      migration.planToken !== args.planToken ||
+      migration.cutoverEpoch !== cutover.cutoverEpoch
     ) {
       throw new Error("Parity requires the completed confirmed migration run.");
     }
@@ -95,6 +96,7 @@ export const startBuildCollaborationLegacyNoteParity = authenticatedMutation
       {
         brokerageId: authorization.brokerage._id,
         createdAt: now,
+        cutoverEpoch: cutover.cutoverEpoch,
         finalizeBuildOrdinal: 0,
         importedPostCount: 0,
         migrationRunId: migration._id,
@@ -450,6 +452,7 @@ async function finalizeBuildReports(
       brokerageId: authorization.brokerage._id,
       buildReportCount: migration.processedBuildCount,
       importedPostCount: run.importedPostCount,
+      cutoverEpoch: run.cutoverEpoch ?? 0,
       migrationRunId: migration._id,
       mismatchCount,
       organizationId: authorization.organizationId,
@@ -634,6 +637,12 @@ async function requireParityRun(
   const run = await ctx.db.get(parityRunId);
   if (!run) {
     throw new Error("Legacy-note parity run is unavailable.");
+  }
+  const cutover = await requireLegacyNoteCutoverState(ctx, authorization);
+  if (run.cutoverEpoch !== cutover.cutoverEpoch) {
+    throw new Error(
+      "Legacy-note parity belongs to a superseded cutover epoch."
+    );
   }
   requireParityOwnership(run, authorization);
   return run;

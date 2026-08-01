@@ -3337,6 +3337,7 @@ export default defineSchema({
     retentionPolicyKey: v.optional(v.string()),
     generousRateLimitMultiplier: v.number(),
     accessRevision: v.optional(v.number()),
+    cutoverEpoch: v.optional(v.number()),
     migrationCompletedAt: v.optional(v.number()),
     activatedAt: v.optional(v.number()),
     activatedByWorkosUserId: v.optional(v.string()),
@@ -3350,6 +3351,7 @@ export default defineSchema({
     reportVersion: v.optional(v.string()),
     planToken: v.optional(v.string()),
     buildReportCount: v.optional(v.number()),
+    cutoverEpoch: v.optional(v.number()),
     migrationRunId: v.optional(
       v.id("buildCollaborationLegacyNoteMigrationRuns")
     ),
@@ -3381,6 +3383,9 @@ export default defineSchema({
     processedNoteCount: v.number(),
     nextImportOrdinal: v.number(),
     blockingWarningCount: v.number(),
+    cutoverEpoch: v.optional(v.number()),
+    latestBuildCreationTime: v.optional(v.number()),
+    latestBuildId: v.optional(v.id("activeBuilds")),
     tokenAccumulator: v.string(),
     validationPhase: v.union(
       v.literal("builds"),
@@ -3440,6 +3445,7 @@ export default defineSchema({
   buildCollaborationLegacyNoteParityRuns: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
+    cutoverEpoch: v.optional(v.number()),
     migrationRunId: v.id("buildCollaborationLegacyNoteMigrationRuns"),
     planToken: v.string(),
     status: v.union(

@@ -458,6 +458,110 @@ describe("Build collaboration legacy-note migration", () => {
     expect(evidence).toMatchObject({ parityPassed: true });
   });
 
+  test("invalidates prior parity after rollback and requires a fresh destination check", async () => {
+    const fixture = await seedMigrationFixture();
+    const initialPlan = await previewAll(fixture, 2);
+    const migration = await preparePlan(fixture, initialPlan.planToken, 2);
+    await applyAll(fixture, migration.runId, 2);
+    await runParity(fixture, migration.runId, initialPlan.planToken, 2);
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_rollout
+        .transitionBuildCollaborationTenantStatus,
+      {
+        buildId: fixture.buildId,
+        expectedStatus: "disabled",
+        nextStatus: "migration_ready",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      const post = await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_importedSourceId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("importedSourceId", `buildNote:${fixture.notes[0].noteId}`)
+        )
+        .unique();
+      if (!(setting && post)) {
+        throw new Error("Expected cutover setting and imported post.");
+      }
+      await ctx.db.patch(setting._id, { status: "active" });
+      await ctx.db.patch(post._id, { audienceFloorTier: 9 });
+    });
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_rollout
+        .transitionBuildCollaborationTenantStatus,
+      {
+        buildId: fixture.buildId,
+        expectedStatus: "active",
+        nextStatus: "disabled",
+        organizationId: ORGANIZATION_ID,
+        reason: "Rollback after destination drift regression.",
+      }
+    );
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId: fixture.buildId,
+          expectedStatus: "disabled",
+          nextStatus: "migration_ready",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("durable passing migration parity evidence");
+
+    const nextPlan = await previewAll(fixture, 2);
+    expect(nextPlan.planToken).not.toBe(initialPlan.planToken);
+    const nextMigration = await preparePlan(fixture, nextPlan.planToken, 2);
+    await expect(
+      applyAll(fixture, nextMigration.runId, 2)
+    ).rejects.toThrow("Existing import does not match");
+  });
+
+  test("rejects parity evidence created before the latest tenant Build", async () => {
+    const fixture = await seedMigrationFixture();
+    const plan = await previewAll(fixture, 2);
+    const migration = await preparePlan(fixture, plan.planToken, 2);
+    await applyAll(fixture, migration.runId, 2);
+    await runParity(fixture, migration.runId, plan.planToken, 2);
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Expected migration fixture Build.");
+      }
+      const { _creationTime, _id, ...buildFields } = build;
+      await ctx.db.insert("activeBuilds", {
+        ...buildFields,
+        buildName: "Build created after legacy-note parity",
+        createdAt: fixture.now + 10_000,
+        updatedAt: fixture.now + 10_000,
+      });
+      expect(_creationTime).toEqual(expect.any(Number));
+      expect(_id).toBe(fixture.buildId);
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId: fixture.buildId,
+          expectedStatus: "disabled",
+          nextStatus: "migration_ready",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("fresh migration parity for the current Build set");
+  });
+
   test("rejects cross-tenant scope, attested evidence, oversized batches, and legacy note writes", async () => {
     const fixture = await seedMigrationFixture();
     await expect(

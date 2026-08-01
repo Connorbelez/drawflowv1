@@ -40,7 +40,10 @@ Archive the full preview output with the release evidence. Confirm its tenant,
 exact Build and note lists, audience mappings, expected revision `1`, and that
 `warnings` is empty. Any source ownership or author-role warning is blocking.
 The SHA-256 plan token covers every source field and Build ownership fact; never
-copy a token from a different preview or tenant.
+copy a token from a different preview or tenant. It also covers the tenant's
+current cutover epoch. Any transition back to `disabled` increments that epoch,
+so a post-rollback preview and parity run are mandatory even when the source
+Notes have not changed.
 
 Start a durable manifest for the exact token, then advance it until `status` is
 `importing` (or `complete` when there are zero source Notes). `maxItems` cannot
@@ -220,7 +223,11 @@ The report must have `reportVersion` `build-collaboration-legacy-note-parity/v2`
 exact current plan token. The activation gate also requires the evidence to be
 linked to the completed migration and parity runs. Source drift, a missing or
 duplicate import, or an imported `buildNote:*` row absent from the frozen
-manifest fails parity—including the zero-source-note case.
+manifest fails parity—including the zero-source-note case. The evidence epoch
+must equal the tenant's current cutover epoch, and the frozen manifest's latest
+Build creation boundary must still equal the tenant's latest Build. A rollback,
+destination edit followed by rollback, or Build created after parity therefore
+requires a new preview, manifest, import validation, and parity report.
 
 ## Activation
 
@@ -240,7 +247,9 @@ Rollback is UI/configuration-only:
 - disable the collaboration surface for the tenant;
 - retain imported posts and audit data;
 - do not delete migrated posts or restore dual writes;
-- diagnose and correct the migration, then re-run the idempotent parity checks.
+- diagnose and correct the migration, then generate a new epoch-bound preview
+  and re-run the idempotent import and parity checks. Prior passing evidence is
+  deliberately invalid after rollback.
 
 ## Governed Asset Activation
 

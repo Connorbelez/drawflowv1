@@ -44,9 +44,14 @@
 - Activation accepts only linked, completed v2 migration/parity runs and their
   server-derived `legacy_note_migration_v1` evidence. It rejects operator-
   attested counts, source drift, duplicate/missing imports, and the empty-source
-  orphan case that could otherwise mint false passing evidence.
-- Six focused tests cover deterministic paged preview, frozen-manifest drift,
+  orphan case that could otherwise mint false passing evidence. The plan token,
+  runs, and evidence are bound to a tenant cutover epoch; every rollback to
+  disabled increments that epoch. Activation also compares the latest tenant
+  Build creation boundary with the frozen manifest, so old evidence cannot be
+  reused after destination edits or after another Build is created.
+- Nine focused tests cover deterministic paged preview, frozen-manifest drift,
   a 39-note bounded-transaction stress trace, replay, all-role canonical ACL
   observations, opaque Contractor denial, orphaned imports after source
-  deletion, cross-tenant protection, batch limits, legacy API retirement, and
-  rejection of operator-attested activation evidence.
+  deletion, repaired parity replay, rollback epoch invalidation, post-parity
+  Build creation, cross-tenant protection, batch limits, legacy API retirement,
+  and rejection of operator-attested activation evidence.
