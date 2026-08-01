@@ -56,11 +56,15 @@ http.route({
   handler: httpAction((_ctx, request) => {
     const corsHeaders = buildCollaborationExportCorsHeaders(request);
     if (!corsHeaders) {
-      return new Response("Build Collaboration export origin denied.", {
-        status: 403,
-      });
+      return Promise.resolve(
+        new Response("Build Collaboration export origin denied.", {
+          status: 403,
+        })
+      );
     }
-    return new Response(null, { headers: corsHeaders, status: 204 });
+    return Promise.resolve(
+      new Response(null, { headers: corsHeaders, status: 204 })
+    );
   }),
   method: "OPTIONS",
   path: BUILD_COLLABORATION_EXPORT_ASSET_PATH,
@@ -216,7 +220,9 @@ function parseAllowedEvidenceStorageUrl(sourceUrl: string | null) {
   }
 }
 
-function buildCollaborationExportCorsHeaders(request: Request) {
+function buildCollaborationExportCorsHeaders(
+  request: Request
+): Record<string, string> | null {
   const origin = request.headers.get("Origin");
   if (!origin) {
     return {};
