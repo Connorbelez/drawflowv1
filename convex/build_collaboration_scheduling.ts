@@ -702,6 +702,7 @@ function isMaterialScheduleConflict(error: unknown) {
     "Only Updates and Announcements can be scheduled.",
     "Every approved shared mutation",
     "Shared mutation ",
+    "Revision-controlled shared effect",
     "Revision conflict:",
     "A publication may contain at most",
     "Post text may not exceed",

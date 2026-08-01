@@ -3460,7 +3460,13 @@ function CollaborationDiscussion({
                   organizationId,
                   postId,
                   reaction,
-                })
+                }).catch((error) =>
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Unable to react to this post."
+                  )
+                )
               }
               size="xs"
               type="button"

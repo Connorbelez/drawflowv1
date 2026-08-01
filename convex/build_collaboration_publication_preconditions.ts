@@ -14,7 +14,7 @@ export async function validateBuildCollaborationPublicationPreconditions(
   }
 ) {
   for (const mutation of input.bundle.sharedMutations) {
-    await validateSharedMutationExpectedRevision(
+    await resolveSharedMutationRevisionPrecondition(
       ctx,
       input.authorization,
       mutation
@@ -22,7 +22,7 @@ export async function validateBuildCollaborationPublicationPreconditions(
   }
 }
 
-async function validateSharedMutationExpectedRevision(
+export async function resolveSharedMutationRevisionPrecondition(
   ctx: MutationCtx,
   authorization: ActiveBuildAuthorization,
   mutation: SharedMutation
@@ -30,7 +30,12 @@ async function validateSharedMutationExpectedRevision(
   const kind = mutation.entityKind.trim().toLowerCase();
   const entityId = mutation.entityId?.trim();
   if (!(entityId && isRevisionControlledKind(kind))) {
-    return;
+    return null;
+  }
+  if (mutation.operation.trim().toLowerCase() !== "assert_revision") {
+    throw new Error(
+      `Revision-controlled shared effect ${mutation.entityKind}:${entityId} must use the assert_revision operation so publication cannot claim an unexecuted target mutation.`
+    );
   }
   if (mutation.expectedRevision === undefined) {
     throw new Error(
@@ -54,6 +59,13 @@ async function validateSharedMutationExpectedRevision(
       `Revision conflict: ${mutation.entityKind}:${entityId} expected revision ${mutation.expectedRevision} but found ${currentRevision}. Review the latest state before publishing.`
     );
   }
+  return {
+    entityId,
+    entityKind: mutation.entityKind,
+    expectedRevision: mutation.expectedRevision,
+    observedRevision: currentRevision,
+    operation: "assert_revision" as const,
+  };
 }
 
 function isRevisionControlledKind(kind: string) {

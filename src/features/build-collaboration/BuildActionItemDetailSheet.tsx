@@ -1,7 +1,7 @@
 "use client";
 
 import type { JSONContent } from "@tiptap/react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { History, MessageCircle, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -32,6 +32,10 @@ import {
 } from "#/components/ui/sheet.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import {
+  useBuildCollaborationAction,
+  useBuildCollaborationMutation,
+} from "./BuildCollaborationMutationGate.tsx";
 import {
   BuildCollaborationAssetList,
   type BuildCollaborationAssetSummary,
@@ -158,21 +162,21 @@ function ActionItemCreatePanel({
   postId: Id<"buildCollaborationPosts">;
   tagOptions: CollaborationTagOption[];
 }) {
-  const createActionItem = useMutation(
+  const createActionItem = useBuildCollaborationMutation(
     api.build_action_items.createBuildActionItem
   );
-  const beginAssetUpload = useMutation(
+  const beginAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
-  const registerAssetUpload = useMutation(
+  const registerAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
       .registerBuildCollaborationAssetUploadedStorage
   );
-  const finalizeAndScanAsset = useAction(
+  const finalizeAndScanAsset = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
       .finalizeAndScanBuildCollaborationAssetUpload
   );
-  const abandonAssets = useMutation(
+  const abandonAssets = useBuildCollaborationMutation(
     api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const [title, setTitle] = useState("");
@@ -456,36 +460,36 @@ function VisibleActionItemDetail({
   organizationId: string;
   tagOptions: CollaborationTagOption[];
 }) {
-  const updateActionItem = useMutation(
+  const updateActionItem = useBuildCollaborationMutation(
     api.build_action_items.updateBuildActionItem
   );
-  const addComment = useMutation(
+  const addComment = useBuildCollaborationMutation(
     api.build_action_item_details.addBuildActionItemComment
   );
-  const addReplacementComment = useMutation(
+  const addReplacementComment = useBuildCollaborationMutation(
     api.build_collaboration_threads.addBuildCollaborationComment
   );
-  const beginReplacementUpload = useMutation(
+  const beginReplacementUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
-  const registerReplacementUpload = useMutation(
+  const registerReplacementUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
       .registerBuildCollaborationAssetUploadedStorage
   );
-  const finalizeAndScanReplacement = useAction(
+  const finalizeAndScanReplacement = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
       .finalizeAndScanBuildCollaborationAssetUpload
   );
-  const abandonReplacementAssets = useMutation(
+  const abandonReplacementAssets = useBuildCollaborationMutation(
     api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
-  const assignActionItem = useMutation(
+  const assignActionItem = useBuildCollaborationMutation(
     api.build_action_item_workflow.assignBuildActionItem
   );
-  const acceptAssignment = useMutation(
+  const acceptAssignment = useBuildCollaborationMutation(
     api.build_action_item_workflow.acceptBuildActionItemAssignment
   );
-  const transitionActionItem = useMutation(
+  const transitionActionItem = useBuildCollaborationMutation(
     api.build_action_item_workflow.transitionBuildActionItem
   );
   const workflow = useQuery(
@@ -1017,16 +1021,16 @@ function ActionItemStructurePanel({
       organizationId,
     }
   ) as StructureContext | undefined;
-  const addChecklistItem = useMutation(
+  const addChecklistItem = useBuildCollaborationMutation(
     api.build_action_item_structure.addBuildActionItemChecklistItem
   );
-  const toggleChecklistItem = useMutation(
+  const toggleChecklistItem = useBuildCollaborationMutation(
     api.build_action_item_structure.toggleBuildActionItemChecklistItem
   );
-  const linkActionItems = useMutation(
+  const linkActionItems = useBuildCollaborationMutation(
     api.build_action_item_structure.linkBuildActionItems
   );
-  const repairRelation = useMutation(
+  const repairRelation = useBuildCollaborationMutation(
     api.build_action_item_structure.repairBuildActionItemRelation
   );
   const [checklistLabel, setChecklistLabel] = useState("");

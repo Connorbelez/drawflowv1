@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { Gavel, RotateCcw, ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import {
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { useBuildCollaborationMutation } from "./BuildCollaborationMutationGate.tsx";
 import { CollaborationRichTextPreview } from "./CollaborationRichTextEditor.tsx";
 import { formatTimestamp, roleLabel } from "./model.ts";
 
@@ -139,13 +140,13 @@ export function BuildCollaborationModerationSheet({
         }
       : "skip"
   );
-  const moderate = useMutation(
+  const moderate = useBuildCollaborationMutation(
     api.build_collaboration_moderation.moderateBuildCollaborationContent
   );
-  const appeal = useMutation(
+  const appeal = useBuildCollaborationMutation(
     api.build_collaboration_moderation.appealBuildCollaborationModeration
   );
-  const resolveAppeal = useMutation(
+  const resolveAppeal = useBuildCollaborationMutation(
     api.build_collaboration_moderation.resolveBuildCollaborationModerationAppeal
   );
   const [reason, setReason] = useState("");

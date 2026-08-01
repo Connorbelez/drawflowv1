@@ -1,7 +1,7 @@
 "use client";
 
 import type { JSONContent } from "@tiptap/react";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { History, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ import {
 } from "#/components/ui/sheet.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { useBuildCollaborationMutation } from "./BuildCollaborationMutationGate.tsx";
 import {
   CollaborationRichTextEditor,
   CollaborationRichTextPreview,
@@ -176,16 +177,16 @@ export function BuildCollaborationEditSheet({
   organizationId: string;
   tagOptions: CollaborationTagOption[];
 }) {
-  const editPost = useMutation(
+  const editPost = useBuildCollaborationMutation(
     api.build_collaboration_editing.editBuildCollaborationPost
   );
-  const editComment = useMutation(
+  const editComment = useBuildCollaborationMutation(
     api.build_collaboration_editing.editBuildCollaborationComment
   );
-  const tombstonePost = useMutation(
+  const tombstonePost = useBuildCollaborationMutation(
     api.build_collaboration_editing.tombstoneBuildCollaborationPost
   );
-  const tombstoneComment = useMutation(
+  const tombstoneComment = useBuildCollaborationMutation(
     api.build_collaboration_editing.tombstoneBuildCollaborationComment
   );
   const postHistory = useQuery(

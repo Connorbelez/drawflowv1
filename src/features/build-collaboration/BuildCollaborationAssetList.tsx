@@ -1,6 +1,5 @@
 "use client";
 
-import { useMutation } from "convex/react";
 import { Paperclip, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -9,6 +8,7 @@ import { Button } from "#/components/ui/button.tsx";
 import { Card, CardPanel } from "#/components/ui/card.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { useBuildCollaborationMutation } from "./BuildCollaborationMutationGate.tsx";
 
 export interface BuildCollaborationAssetSummary {
   assetId: Id<"buildCollaborationAssets">;
@@ -40,7 +40,7 @@ export function BuildCollaborationAssetList({
   ) => Promise<void>;
   organizationId: string;
 }) {
-  const authorizeDownload = useMutation(
+  const authorizeDownload = useBuildCollaborationMutation(
     api.build_collaboration_assets.authorizeBuildCollaborationAssetDownload
   );
   if (assets.length === 0) {

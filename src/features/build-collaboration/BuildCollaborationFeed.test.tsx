@@ -2523,6 +2523,36 @@ describe("BuildCollaborationFeed", () => {
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
+  test("blocks receipts, reactions, replies, and Action Item transitions while offline", async () => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Mock Reply to this Build update",
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open details" })
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "in progress" })
+    );
+
+    await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
+  });
+
   test("reconnects an offline edit against the exact server draft revision", async () => {
     const bundle = collaborationDraftBundleFixture(
       "Offline edit awaiting reconciliation."

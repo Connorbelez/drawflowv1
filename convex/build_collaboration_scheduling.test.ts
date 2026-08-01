@@ -392,7 +392,7 @@ describe("Build collaboration scheduled publication", () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
     const fixture = await seedSchedulingBuild();
-    const sourcePostId = await fixture.admin.mutation(
+    const sourcePostId = (await fixture.admin.mutation(
       (api as any).build_collaboration
         .approveAndPublishBuildCollaborationBundle,
       {
@@ -400,7 +400,7 @@ describe("Build collaboration scheduled publication", () => {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
       },
-    );
+    )) as Id<"buildCollaborationPosts">;
     const scheduledFor = BASE_TIME + 60_000;
     const { approvalId } = await saveAndSchedule(fixture, {
       plainText: "Scheduled update depending on original state.",
@@ -410,7 +410,7 @@ describe("Build collaboration scheduled publication", () => {
           entityId: sourcePostId,
           entityKind: "post",
           expectedRevision: 1,
-          operation: "coordinate",
+          operation: "assert_revision",
           summary: "Publish only while the source post remains at revision 1.",
         },
       ],
@@ -448,6 +448,143 @@ describe("Build collaboration scheduled publication", () => {
       conflictReason: expect.stringContaining("Revision conflict"),
       state: "paused",
     });
+  });
+
+  test("records the exact revision observed by an atomic publication guard", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const sourcePostId = (await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        ...publicationBundle("Stable source coordination state."),
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    )) as Id<"buildCollaborationPosts">;
+    const scheduledFor = BASE_TIME + 60_000;
+    const { approvalId } = await saveAndSchedule(fixture, {
+      plainText: "Scheduled publication with an exact revision guard.",
+      scheduledFor,
+      sharedMutations: [
+        {
+          entityId: sourcePostId,
+          entityKind: "post",
+          expectedRevision: 1,
+          operation: "assert_revision",
+          summary: "Require the stable source coordination state.",
+        },
+      ],
+    });
+
+    vi.setSystemTime(scheduledFor + 1);
+    await fixture.base.action(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledBuildCollaborationPublication,
+      { approvalId }
+    );
+
+    const state = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      outbox: await ctx.db.query("eventOutbox").collect(),
+    }));
+    const guardEvent = state.outbox.find(
+      (event) =>
+        event.eventType ===
+        "build_collaboration.shared_revision_precondition.applied"
+    );
+    expect(state.approval?.state).toBe("published");
+    expect(guardEvent).toBeDefined();
+    expect(JSON.parse(guardEvent?.payloadPreview ?? "{}")).toMatchObject({
+      entityId: sourcePostId,
+      expectedRevision: 1,
+      observedRevision: 1,
+      operation: "assert_revision",
+    });
+  });
+
+  test("atomically applies a revision guard or pauses when a concurrent edit wins", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const sourcePostId = (await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        ...publicationBundle("Original concurrent coordination state."),
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    )) as Id<"buildCollaborationPosts">;
+    const scheduledFor = BASE_TIME + 60_000;
+    const { approvalId } = await saveAndSchedule(fixture, {
+      plainText: "Scheduled publication guarded by the source revision.",
+      scheduledFor,
+      sharedMutations: [
+        {
+          entityId: sourcePostId,
+          entityKind: "post",
+          expectedRevision: 1,
+          operation: "assert_revision",
+          summary: "Publish only while the source post remains at revision 1.",
+        },
+      ],
+    });
+
+    vi.setSystemTime(scheduledFor + 1);
+    const [editResult, executionResult] = await Promise.allSettled([
+      fixture.admin.mutation(
+        (api as any).build_collaboration_editing.editBuildCollaborationPost,
+        {
+          buildId: fixture.buildId,
+          editReason: "Concurrent source edit.",
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          postId: sourcePostId,
+          references: [],
+          tiptapJson: publicationBundle(
+            "Concurrent revised coordination state."
+          ).tiptapJson,
+        }
+      ),
+      fixture.base.action(
+        (internal as any).build_collaboration_scheduling
+          .executeScheduledBuildCollaborationPublication,
+        { approvalId }
+      ),
+    ]);
+    expect(editResult.status).toBe("fulfilled");
+    expect(executionResult.status).toBe("fulfilled");
+
+    const state = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      outbox: await ctx.db.query("eventOutbox").collect(),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+      sourcePost: await ctx.db.get(sourcePostId),
+    }));
+    expect(state.sourcePost?.revision).toBe(2);
+    if (state.approval?.state === "published") {
+      const guardEvent = state.outbox.find(
+        (event) =>
+          event.eventType ===
+          "build_collaboration.shared_revision_precondition.applied"
+      );
+      expect(guardEvent).toBeDefined();
+      expect(JSON.parse(guardEvent?.payloadPreview ?? "{}")).toMatchObject({
+        entityId: sourcePostId,
+        expectedRevision: 1,
+        observedRevision: 1,
+        operation: "assert_revision",
+      });
+      expect(state.posts).toHaveLength(2);
+    } else {
+      expect(state.approval).toMatchObject({
+        conflictReason: expect.stringContaining("Revision conflict"),
+        state: "paused",
+      });
+      expect(state.posts).toHaveLength(1);
+    }
   });
 
   test("rejects stale private draft saves while preserving offline capture time and shared silence", async () => {
@@ -538,7 +675,10 @@ async function saveAndSchedule(
       scheduledFor: input.scheduledFor,
     },
   );
-  return { approvalId, draftId: draft.draftId };
+  return {
+    approvalId: approvalId as Id<"buildCollaborationPublicationApprovals">,
+    draftId: draft.draftId as Id<"buildCollaborationDrafts">,
+  };
 }
 
 function publicationBundle(

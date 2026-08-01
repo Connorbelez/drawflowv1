@@ -13,6 +13,7 @@ import { persistGovernedCollaborationAssetAttachments } from "./build_collaborat
 import { collaborationFeedResultValidator } from "./build_collaboration_contracts";
 import { stableContentHash } from "./build_collaboration_hash";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
+import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle";
 import {
   canCreateCustomCollaborationAudience,
   collaborationRoleTier,
@@ -37,6 +38,7 @@ import { validateBuildCollaborationPublicationPreconditions } from "./build_coll
 import { resolveCanonicalBuildCollaborationReferences } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchPostTreeRebuild } from "./build_collaboration_search_maintenance";
+import { persistApprovedBuildCollaborationSharedEffects } from "./build_collaboration_shared_effects";
 import type { Doc, Id, MutationCtx } from "./types";
 
 const MAX_PLAIN_TEXT_LENGTH = 50_000;
@@ -79,6 +81,7 @@ export async function prepareBuildCollaborationPublication(
     bundle: BuildCollaborationPublicationBundleInput;
   }
 ) {
+  await requireBuildCollaborationWritable(ctx, input.authorization);
   const normalizedBundle = normalizePublicationBundle(input.bundle);
   const normalizedEffectiveBundle = {
     ...normalizedBundle,
@@ -213,6 +216,7 @@ export async function publishBuildCollaborationBundle(
   }
 ) {
   const { audience, authorization, bundle } = input;
+  await requireBuildCollaborationWritable(ctx, authorization);
   await requireHumanCollaborationActor(ctx, authorization);
   if (
     bundle.postType === "announcement" &&
@@ -376,7 +380,7 @@ export async function publishBuildCollaborationBundle(
       reference.entityKind === "participant" ? [reference.entityId] : []
     ),
   });
-  await persistApprovedSharedMutations(ctx, {
+  await persistApprovedBuildCollaborationSharedEffects(ctx, {
     authorization,
     mutations: bundle.sharedMutations,
     now,
@@ -611,36 +615,6 @@ async function persistAttachments(
     readerWorkosUserIds: input.readerWorkosUserIds,
     unavailableMessage: "A proposed collaboration asset is unavailable.",
   });
-}
-
-async function persistApprovedSharedMutations(
-  ctx: MutationCtx,
-  input: {
-    authorization: ActiveBuildAuthorization;
-    mutations: BuildCollaborationPublicationBundle["sharedMutations"];
-    now: number;
-    postId: Id<"buildCollaborationPosts">;
-  }
-) {
-  for (const mutation of input.mutations) {
-    await ctx.db.insert("eventOutbox", {
-      brokerageId: input.authorization.brokerage._id,
-      createdAt: input.now,
-      eventType: "build_collaboration.shared_mutation.requested",
-      organizationId: input.authorization.organizationId,
-      payloadPreview: JSON.stringify({
-        approvedByWorkosUserId: input.authorization.viewer.subject,
-        entityId: mutation.entityId,
-        entityKind: mutation.entityKind,
-        operation: mutation.operation,
-        postId: input.postId,
-        summary: mutation.summary,
-      }),
-      relatedEntityId: input.postId,
-      relatedEntityType: "buildCollaborationPost",
-      status: "pending",
-    });
-  }
 }
 
 function resolvePublicationAudience(input: {

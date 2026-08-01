@@ -316,7 +316,7 @@ one enabled Build:
 
 1. As an authorized coordinating human, save an Update with a future publish
    time, inspect the exact reader/reference/asset/Action Item/notification/shared
-   mutation bundle, and approve it. Confirm the private draft becomes
+   effect bundle, and approve it. Confirm the private draft becomes
    `scheduled`, the approval records the human, role set, exact draft revision,
    bundle hash, and target time, and exactly one scheduled executor exists.
 2. Execute the approval twice after its due time. Confirm one human-authored post
@@ -324,9 +324,9 @@ one enabled Build:
    post, and no receipt is fabricated by execution.
 3. For separate approvals, revoke the approving human's membership, change a
    custom-audience participant, revoke a referenced entity or attachment, and
-   advance an expected shared-record revision before execution. Each approval
-   must move to `paused`; its draft must return to active with a disclosure-safe
-   conflict reason and require a fresh exact human approval.
+   advance a record protected by an `assert_revision` guard before execution.
+   Each approval must move to `paused`; its draft must return to active with a
+   disclosure-safe conflict reason and require a fresh exact human approval.
 4. Force the direct scheduler invocation to fail, then run the five-minute
    recovery sweep. Confirm a due approval is retried without duplicate effects
    and that `executionAttemptCount` and `lastExecutionAt` remain observable.
@@ -349,7 +349,9 @@ while only material approval/revalidation conflicts move to `paused`. Alert on
 overdue approved schedules, repeated execution attempts, approval-hash failures,
 paused-volume spikes, or any scheduled post whose author differs from the
 approving human. Private offline drafts are browser-local and must never be
-counted as shared collaboration state.
+counted as shared collaboration state. For revision-controlled shared effects,
+verify `build_collaboration.shared_revision_precondition.applied` records both
+the approved `expectedRevision` and transactionally observed revision.
 
 ## Verification
 

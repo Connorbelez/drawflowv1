@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { Bell } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import {
 } from "#/components/ui/select.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { useBuildCollaborationMutation } from "./BuildCollaborationMutationGate.tsx";
 
 function pushApplicationServerKey(value?: string) {
   if (!value?.trim()) {
@@ -153,15 +154,15 @@ function useBuildCollaborationNotificationControls(input: {
       : browserEndpoint === null
         ? null
         : storedPushSubscription;
-  const updatePreferences = useMutation(
+  const updatePreferences = useBuildCollaborationMutation(
     api.build_collaboration_notifications
       .updateMyBuildCollaborationNotificationPreferences
   );
-  const registerPush = useMutation(
+  const registerPush = useBuildCollaborationMutation(
     api.build_collaboration_delivery_api
       .registerMyBuildCollaborationPushSubscription
   );
-  const revokePush = useMutation(
+  const revokePush = useBuildCollaborationMutation(
     api.build_collaboration_delivery_api
       .revokeMyBuildCollaborationPushSubscription
   );

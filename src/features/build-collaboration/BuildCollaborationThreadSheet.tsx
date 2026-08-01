@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { CheckCircle2, Megaphone, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -29,6 +29,7 @@ import {
 import { Textarea } from "#/components/ui/textarea.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { useBuildCollaborationMutation } from "./BuildCollaborationMutationGate.tsx";
 import { formatTimestamp, postTypeLabel, roleLabel } from "./model.ts";
 
 type CollaborationRole =
@@ -96,13 +97,13 @@ export function BuildCollaborationThreadSheet({
     api.build_collaboration_resolution.getBuildCollaborationThreadContext,
     open && postId ? { buildId, organizationId, postId } : "skip"
   ) as ThreadContext | undefined;
-  const resolveThread = useMutation(
+  const resolveThread = useBuildCollaborationMutation(
     api.build_collaboration_resolution.resolveBuildCollaborationThread
   );
-  const reopenThread = useMutation(
+  const reopenThread = useBuildCollaborationMutation(
     api.build_collaboration_resolution.reopenBuildCollaborationThread
   );
-  const setAnnouncementExpiration = useMutation(
+  const setAnnouncementExpiration = useBuildCollaborationMutation(
     api.build_collaboration_resolution
       .setBuildCollaborationAnnouncementExpiration
   );
