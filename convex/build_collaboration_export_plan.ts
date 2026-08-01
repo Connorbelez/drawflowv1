@@ -19,6 +19,10 @@ import {
   buildCollaborationExportAssetAclDecision,
   buildCollaborationExportPostAclDecision,
 } from "./build_collaboration_export_acl";
+import {
+  releaseBuildCollaborationArchiveSnapshot,
+  renewBuildCollaborationArchiveSnapshot,
+} from "./build_collaboration_lifecycle_state";
 import { internalMutation } from "./fluent";
 import type { Doc, Id, MutationCtx } from "./types";
 
@@ -45,6 +49,19 @@ export const planBuildCollaborationFullArchive = internalMutation
       exportRow.state !== "building" ||
       exportRow.archivePlanPhase === "complete"
     ) {
+      return null;
+    }
+    const contentRevision = await renewBuildCollaborationArchiveSnapshot(ctx, {
+      buildId: exportRow.buildId,
+      exportId: exportRow._id,
+      organizationId: exportRow.organizationId,
+    });
+    if (contentRevision !== (exportRow.archiveContentRevision ?? 0)) {
+      await failPlanning(
+        ctx,
+        exportRow,
+        "Build collaboration changed while the archive snapshot was captured."
+      );
       return null;
     }
     const authorization = await archivePlanAuthorization(ctx, exportRow);
@@ -385,5 +402,9 @@ async function failPlanning(
     archiveFailure: safeError,
     archiveHeartbeatAt: Date.now(),
     state: "failed",
+  });
+  await releaseBuildCollaborationArchiveSnapshot(ctx, {
+    buildId: exportRow.buildId,
+    exportId: exportRow._id,
   });
 }

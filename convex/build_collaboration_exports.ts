@@ -14,6 +14,7 @@ import {
   buildCollaborationExportPostAclDecision,
 } from "./build_collaboration_export_acl";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
+import { beginBuildCollaborationArchiveSnapshot } from "./build_collaboration_lifecycle_state";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Doc, Id, MutationCtx } from "./types";
 
@@ -117,6 +118,7 @@ export const requestBuildCollaborationExport = authenticatedMutation
       aclSnapshotJson: JSON.stringify(snapshot.aclSnapshot),
       archiveNextRecordIndex: scope === "full_archive" ? 0 : undefined,
       archiveNextSequence: scope === "full_archive" ? 0 : undefined,
+      archiveHeartbeatAt: scope === "full_archive" ? generatedAt : undefined,
       archivePlanNextOrdinal: scope === "full_archive" ? 0 : undefined,
       archivePlannedAssetCount: scope === "full_archive" ? 0 : undefined,
       archivePlannedPostCount: scope === "full_archive" ? 0 : undefined,
@@ -137,6 +139,15 @@ export const requestBuildCollaborationExport = authenticatedMutation
       state,
       tokenHash,
     });
+    if (scope === "full_archive") {
+      const archiveContentRevision =
+        await beginBuildCollaborationArchiveSnapshot(
+          ctx,
+          authorization,
+          exportId
+        );
+      await ctx.db.patch(exportId, { archiveContentRevision });
+    }
     const auditState = JSON.stringify({
       expiresAt,
       recordCount: snapshot.recordCount,
@@ -433,6 +444,21 @@ async function requireAuthorizedExport(
     throw new Error(
       "Collaboration export access changed; request a new authorized export."
     );
+  }
+  if (row.scope === "full_archive") {
+    const buildState = await ctx.db
+      .query("buildCollaborationBuildStates")
+      .withIndex("by_buildId", (query) =>
+        query.eq("buildId", authorization.build._id)
+      )
+      .unique();
+    if (
+      (buildState?.contentRevision ?? 0) !== (row.archiveContentRevision ?? 0)
+    ) {
+      throw new Error(
+        "Collaboration export access changed; request a new authorized export."
+      );
+    }
   }
   const manifest = JSON.parse(row.manifestJson) as {
     archive?: {

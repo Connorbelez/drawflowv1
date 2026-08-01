@@ -9,7 +9,7 @@ import {
 } from "./build_collaboration_access";
 import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
 import {
-  isBuildCollaborationWritableByBuildId,
+  claimBuildCollaborationWriteByBuildId,
   requireBuildCollaborationWritable,
 } from "./build_collaboration_lifecycle_state";
 import {
@@ -369,7 +369,7 @@ export const expireBuildCollaborationAnnouncementProminence = internalMutation
       return null;
     }
     if (
-      !(await isBuildCollaborationWritableByBuildId(ctx, {
+      !(await claimBuildCollaborationWriteByBuildId(ctx, {
         buildId: post.buildId,
         organizationId: post.organizationId,
       }))

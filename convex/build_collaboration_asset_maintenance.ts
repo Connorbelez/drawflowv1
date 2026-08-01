@@ -1,7 +1,10 @@
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import { isBuildCollaborationWritableByBuildId } from "./build_collaboration_lifecycle_state";
+import {
+  claimBuildCollaborationWriteByBuildId,
+  isBuildCollaborationWritableByBuildId as isBuildCollaborationWritableForScan,
+} from "./build_collaboration_lifecycle_state";
 import { internalAction, internalMutation, internalQuery } from "./fluent";
 import type { ActionCtx, Doc, Id, MutationCtx } from "./types";
 
@@ -36,7 +39,7 @@ export const getBuildCollaborationAssetScanInput = internalQuery
       return null;
     }
     if (
-      !(await isBuildCollaborationWritableByBuildId(ctx, {
+      !(await isBuildCollaborationWritableForScan(ctx, {
         buildId: asset.buildId,
         organizationId: asset.organizationId,
       }))
@@ -77,7 +80,7 @@ export const recordBuildCollaborationAssetScanResult = internalMutation
       return null;
     }
     if (
-      !(await isBuildCollaborationWritableByBuildId(ctx, {
+      !(await claimBuildCollaborationWriteByBuildId(ctx, {
         buildId: asset.buildId,
         organizationId: asset.organizationId,
       }))
@@ -250,7 +253,7 @@ export const abandonBuildCollaborationAssetUploadAfterFailure = internalMutation
       return null;
     }
     if (
-      !(await isBuildCollaborationWritableByBuildId(ctx, {
+      !(await claimBuildCollaborationWriteByBuildId(ctx, {
         buildId: session.buildId,
         organizationId: session.organizationId,
       }))
@@ -313,7 +316,7 @@ export const expireBuildCollaborationAssetStagingSession = internalMutation
       return null;
     }
     if (
-      !(await isBuildCollaborationWritableByBuildId(ctx, {
+      !(await claimBuildCollaborationWriteByBuildId(ctx, {
         buildId: session.buildId,
         organizationId: session.organizationId,
       }))
@@ -341,7 +344,7 @@ export const expireBuildCollaborationAssetStagingSessions = internalMutation
     let expiredCount = 0;
     for (const session of sessions) {
       if (
-        !(await isBuildCollaborationWritableByBuildId(ctx, {
+        !(await claimBuildCollaborationWriteByBuildId(ctx, {
           buildId: session.buildId,
           organizationId: session.organizationId,
         }))

@@ -332,24 +332,22 @@ export async function buildCollaborationPostArchivePage(
     return {
       ...result,
       page: undefined,
-      data: result.page
-        .filter((moderationCase) => moderationCase.entityKind === "post")
-        .map((moderationCase) => ({
-          caseId: moderationCase._id,
-          contentAuthorRole: moderationCase.contentAuthorRole,
-          contentAuthorWorkosUserId: moderationCase.contentAuthorWorkosUserId,
-          createdAt: moderationCase.createdAt,
-          entityId: moderationCase.entityId,
-          entityKind: moderationCase.entityKind,
-          evidenceSnapshotJson: sanitizeModerationEvidenceSnapshot(
-            authorization,
-            moderationCase.evidenceSnapshotJson
-          ),
-          moderatorRole: moderationCase.moderatorRole,
-          moderatorTier: moderationCase.moderatorTier,
-          moderatorWorkosUserId: moderationCase.moderatorWorkosUserId,
-          postId: moderationCase.postId,
-        })),
+      data: result.page.map((moderationCase) => ({
+        caseId: moderationCase._id,
+        contentAuthorRole: moderationCase.contentAuthorRole,
+        contentAuthorWorkosUserId: moderationCase.contentAuthorWorkosUserId,
+        createdAt: moderationCase.createdAt,
+        entityId: moderationCase.entityId,
+        entityKind: moderationCase.entityKind,
+        evidenceSnapshotJson: sanitizeModerationEvidenceSnapshot(
+          authorization,
+          moderationCase.evidenceSnapshotJson
+        ),
+        moderatorRole: moderationCase.moderatorRole,
+        moderatorTier: moderationCase.moderatorTier,
+        moderatorWorkosUserId: moderationCase.moderatorWorkosUserId,
+        postId: moderationCase.postId,
+      })),
     };
   }
   if (section === "moderation_events") {
@@ -397,7 +395,13 @@ export async function buildCollaborationPostArchivePage(
       data: result.page
         .filter((receipt) => canSeeCollaborationReceipt(authorization, receipt))
         .map((receipt) =>
-          omitMutableFields(receipt, ["lastViewedAt", "updatedAt", "viewCount"])
+          omitMutableFields(receipt, [
+            "lastViewedAt",
+            "latestRevisionViewed",
+            "updatedAt",
+            "viewerRole",
+            "viewCount",
+          ])
         ),
     };
   }
@@ -634,7 +638,6 @@ async function buildModerationEventArchivePage(
     if (
       !moderationCase ||
       moderationCase.postId !== input.postId ||
-      moderationCase.entityKind !== "post" ||
       moderationCase.createdAt > input.snapshotAt
     ) {
       throw new Error("Archive moderation cursor is invalid.");
@@ -645,7 +648,6 @@ async function buildModerationEventArchivePage(
       .withIndex("by_postId_and_createdAt", (query) =>
         query.eq("postId", input.postId).lte("createdAt", input.snapshotAt)
       )
-      .filter((query) => query.eq(query.field("entityKind"), "post"))
       .paginate({ cursor: state.nextParentCursor, numItems: 1 });
     moderationCase = page.page[0] ?? null;
     nextParentCursor = page.continueCursor;
@@ -954,7 +956,7 @@ function stableActionItemChildRow(
     return omitMutableFields(row, [
       "completedAt",
       "completedByWorkosUserId",
-      "isCompleted",
+      "completed",
       "updatedAt",
     ]);
   }

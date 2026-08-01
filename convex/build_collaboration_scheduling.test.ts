@@ -290,16 +290,21 @@ describe("Build collaboration scheduled publication", () => {
       scheduledFor,
     });
     await fixture.base.run(async (ctx) => {
-      await ctx.db.insert("buildCollaborationBuildStates", {
-        brokerageId: fixture.brokerageId,
-        buildId: fixture.buildId,
+      const buildState = await ctx.db
+        .query("buildCollaborationBuildStates")
+        .withIndex("by_buildId", (query) =>
+          query.eq("buildId", fixture.buildId)
+        )
+        .unique();
+      if (!buildState) {
+        throw new Error("Expected scheduled publication lifecycle state.");
+      }
+      await ctx.db.patch(buildState._id, {
         closedAt: BASE_TIME + 30_000,
         closedByRole: "admin",
         closedByWorkosUserId: "user_admin",
         closeReason: "Construction collaboration archive finalized.",
-        createdAt: BASE_TIME + 30_000,
-        organizationId: ORGANIZATION_ID,
-        revision: 1,
+        revision: buildState.revision + 1,
         state: "closed",
         updatedAt: BASE_TIME + 30_000,
       });

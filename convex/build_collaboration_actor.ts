@@ -1,10 +1,15 @@
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import type { Id } from "./types";
+import type { AuthorizedViewer } from "./authz";
+import type { Id, MutationCtx } from "./types";
+
+type ActiveBuildCollaborationMutationCtx = MutationCtx & {
+  viewer: AuthorizedViewer;
+};
 
 export async function authorizeActiveBuildHumanCollaborationAccess(
-  ctx: Parameters<typeof authorizeActiveBuildCollaborationAccess>[0],
+  ctx: ActiveBuildCollaborationMutationCtx,
   input: {
     buildId: Id<"activeBuilds">;
     organizationId: string;
@@ -20,7 +25,7 @@ export async function authorizeActiveBuildHumanCollaborationAccess(
 }
 
 export async function authorizeActiveBuildCollaborationPreparerAccess(
-  ctx: Parameters<typeof authorizeActiveBuildCollaborationAccess>[0],
+  ctx: ActiveBuildCollaborationMutationCtx,
   input: {
     buildId: Id<"activeBuilds">;
     organizationId: string;

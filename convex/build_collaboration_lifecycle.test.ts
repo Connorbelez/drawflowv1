@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS } from "./build_collaboration_lifecycle_state";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import schema from "./schema";
 
@@ -302,6 +303,52 @@ describe("Build collaboration export and lifecycle governance", () => {
     );
     await expect(
       demotedAdmin.mutation(
+        (api as any).build_collaboration_exports
+          .authorizeBuildCollaborationExportArchiveChunkDownload,
+        {
+          buildId: fixture.buildId,
+          chunkIndex: 0,
+          exportId: created.exportId,
+          organizationId: ORGANIZATION_ID,
+          token: created.token,
+        },
+      ),
+    ).rejects.toThrow("access changed");
+  });
+
+  test("holds a renewable request-time snapshot fence and revokes the archive after later writes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    const created = await fixture.principal.mutation(
+      (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        scope: "build",
+      },
+    );
+    await expect(
+      publishAsBuilder(fixture, "This write must wait for the snapshot fence."),
+    ).rejects.toThrow("archive snapshot");
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    await expect(
+      fixture.principal.mutation(
+        (api as any).build_collaboration_exports
+          .authorizeBuildCollaborationExportArchiveChunkDownload,
+        {
+          buildId: fixture.buildId,
+          chunkIndex: 0,
+          exportId: created.exportId,
+          organizationId: ORGANIZATION_ID,
+          token: created.token,
+        },
+      ),
+    ).resolves.toMatchObject({ content: expect.any(ArrayBuffer) });
+
+    await publishAsBuilder(fixture, "This write invalidates the prior snapshot.");
+    await expect(
+      fixture.principal.mutation(
         (api as any).build_collaboration_exports
           .authorizeBuildCollaborationExportArchiveChunkDownload,
         {
@@ -1151,7 +1198,23 @@ describe("Build collaboration export and lifecycle governance", () => {
           workosUserId,
         });
       }
-      await ctx.db.insert("buildCollaborationModerationCases", {
+      await ctx.db.insert("buildActionItemChecklistItems", {
+        actionItemId: fixture.actionItemId,
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        completed: true,
+        completedAt: BASE_TIME,
+        completedByWorkosUserId: "user_builder",
+        createdAt: BASE_TIME,
+        label: "Mutable completion state is not archive history.",
+        order: 0,
+        organizationId: post.organizationId,
+        required: true,
+        updatedAt: BASE_TIME,
+      });
+      const postModerationCaseId = await ctx.db.insert(
+        "buildCollaborationModerationCases",
+        {
         appealReviewerMinimumTier: 4,
         brokerageId: post.brokerageId,
         buildId: post.buildId,
@@ -1193,8 +1256,53 @@ describe("Build collaboration export and lifecycle governance", () => {
         organizationId: post.organizationId,
         postId: post._id,
         status: "moderated",
-        updatedAt: BASE_TIME,
-      });
+          updatedAt: BASE_TIME,
+        },
+      );
+      const commentModerationCaseId = await ctx.db.insert(
+        "buildCollaborationModerationCases",
+        {
+          appealReviewerMinimumTier: 4,
+          brokerageId: post.brokerageId,
+          buildId: post.buildId,
+          contentAuthorRole: "broker",
+          contentAuthorWorkosUserId: "user_broker",
+          createdAt: BASE_TIME + 1,
+          currentReason: "Preserve comment moderation history.",
+          entityId: replyId,
+          entityKind: "comment",
+          evidenceSnapshotJson: JSON.stringify({
+            attachmentIds: [],
+            receiptSnapshots: [],
+            referenceIds: [],
+          }),
+          moderatorRole: "principle-broker",
+          moderatorTier: 4,
+          moderatorWorkosUserId: "user_principle_broker",
+          organizationId: post.organizationId,
+          postId: post._id,
+          status: "moderated",
+          updatedAt: BASE_TIME + 1,
+        },
+      );
+      for (const [caseId, entityKind] of [
+        [postModerationCaseId, "post"],
+        [commentModerationCaseId, "comment"],
+      ] as const) {
+        await ctx.db.insert("buildCollaborationModerationEvents", {
+          actorRole: "principle-broker",
+          actorWorkosUserId: "user_principle_broker",
+          brokerageId: post.brokerageId,
+          buildId: post.buildId,
+          caseId,
+          createdAt: BASE_TIME + 2,
+          eventType: "moderated",
+          newState: JSON.stringify({ entityKind, status: "moderated" }),
+          organizationId: post.organizationId,
+          priorState: JSON.stringify({ entityKind, status: "active" }),
+          reason: `Moderate ${entityKind} fixture.`,
+        });
+      }
     });
     vi.setSystemTime(BASE_TIME + 10);
     const created = await fixture.principal.mutation(
@@ -1316,7 +1424,9 @@ describe("Build collaboration export and lifecycle governance", () => {
     const follows = sectionRows("follows");
     const pins = sectionRows("pins");
     const receipts = sectionRows("receipts");
+    const checklistItems = sectionRows("action_item_checklist");
     const moderation = sectionRows("moderation");
+    const moderationEvents = sectionRows("moderation_events");
     const actionItems = sectionRows("action_items");
     expect(revisions.map((entry: any) => entry.revision)).toEqual([1, 2]);
     expect(follows.map((entry: any) => entry.workosUserId)).toEqual([
@@ -1330,6 +1440,32 @@ describe("Build collaboration export and lifecycle governance", () => {
     expect(receipts.map((entry: any) => entry.workosUserId)).toEqual([
       "user_broker",
     ]);
+    for (const field of [
+      "lastViewedAt",
+      "latestRevisionViewed",
+      "updatedAt",
+      "viewerRole",
+      "viewCount",
+    ]) {
+      expect(receipts[0]).not.toHaveProperty(field);
+    }
+    expect(checklistItems).toHaveLength(1);
+    expect(checklistItems[0]).toMatchObject({
+      actionItemId: fixture.actionItemId,
+      row: {
+        label: "Mutable completion state is not archive history.",
+        order: 0,
+        required: true,
+      },
+    });
+    for (const field of [
+      "completed",
+      "completedAt",
+      "completedByWorkosUserId",
+      "updatedAt",
+    ]) {
+      expect(checklistItems[0].row).not.toHaveProperty(field);
+    }
     const moderationSnapshot = JSON.parse(
       moderation[0].evidenceSnapshotJson,
     );
@@ -1338,6 +1474,13 @@ describe("Build collaboration export and lifecycle governance", () => {
         (entry: any) => entry.displayNameSnapshot,
       ),
     ).toEqual(["broker-visible-receipt"]);
+    expect(moderation.map((entry: any) => entry.entityKind)).toEqual([
+      "post",
+      "comment",
+    ]);
+    expect(
+      moderationEvents.map((entry: any) => entry.row.eventType),
+    ).toEqual(["moderated", "moderated"]);
     expect(actionItems[0]).toEqual(
       expect.objectContaining({
         actionItemId: expect.any(String),
@@ -1569,6 +1712,102 @@ describe("Build collaboration export and lifecycle governance", () => {
     expect(cleaned.planPosts).toEqual([]);
     expect(cleaned.planRecords).toEqual([]);
     expect(cleaned.row?.state).toBe("expired");
+  });
+
+  test("keeps healthy archive builders past their original expiry and cleans only an abandoned lease", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    const exportId = await fixture.base.run(async (ctx) => {
+      const exportId = await ctx.db.insert("buildCollaborationExports", {
+        accessCount: 0,
+        aclSnapshotJson: "{}",
+        archiveContentRevision: 0,
+        archiveHeartbeatAt: BASE_TIME,
+        archivePlanNextOrdinal: 0,
+        archivePlanPhase: "posts",
+        archivePlannedAssetCount: 0,
+        archivePlannedPostCount: 0,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: BASE_TIME - BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS,
+        expiresAt: BASE_TIME - 1,
+        manifestJson: "{}",
+        organizationId: ORGANIZATION_ID,
+        recordCount: 0,
+        requestedByRole: "principle-broker",
+        requestedByWorkosUserId: "user_principle_broker",
+        scope: "full_archive",
+        state: "building",
+        tokenHash: "healthy-building-archive",
+      });
+      const existingState = await ctx.db
+        .query("buildCollaborationBuildStates")
+        .withIndex("by_buildId", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .unique();
+      if (existingState) {
+        await ctx.db.patch(existingState._id, {
+          archiveSnapshotExportId: exportId,
+          archiveSnapshotLeaseExpiresAt:
+            BASE_TIME + BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS,
+          archiveSnapshotStartedAt: BASE_TIME,
+        });
+      } else {
+        await ctx.db.insert("buildCollaborationBuildStates", {
+          archiveSnapshotExportId: exportId,
+          archiveSnapshotLeaseExpiresAt:
+            BASE_TIME + BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS,
+          archiveSnapshotStartedAt: BASE_TIME,
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          contentRevision: 0,
+          createdAt: BASE_TIME,
+          organizationId: ORGANIZATION_ID,
+          revision: 0,
+          state: "open",
+          updatedAt: BASE_TIME,
+        });
+      }
+      return exportId;
+    });
+
+    const cleanupsWhileHealthy = await fixture.base.mutation(
+      (internal as any).build_collaboration_export_archive
+        .cleanupExpiredBuildCollaborationExportArchives,
+      {},
+    );
+    expect(cleanupsWhileHealthy).toBe(0);
+    expect(
+      await fixture.base.run(async (ctx) => (await ctx.db.get(exportId))?.state),
+    ).toBe("building");
+
+    vi.setSystemTime(
+      BASE_TIME + BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS + 1,
+    );
+    const abandonedCleanups = await fixture.base.mutation(
+      (internal as any).build_collaboration_export_archive
+        .cleanupExpiredBuildCollaborationExportArchives,
+      {},
+    );
+    expect(abandonedCleanups).toBe(1);
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const cleaned = await fixture.base.run(async (ctx) => ({
+      exportRow: await ctx.db.get(exportId),
+      lifecycle: await ctx.db
+        .query("buildCollaborationBuildStates")
+        .withIndex("by_buildId", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .unique(),
+    }));
+    expect(cleaned.exportRow).toMatchObject({
+      archiveFailure: "Archive generation lease expired before completion.",
+      state: "cleanup_complete",
+    });
+    expect(cleaned.lifecycle?.archiveSnapshotExportId).toBeUndefined();
+    expect(cleaned.lifecycle?.archiveSnapshotLeaseExpiresAt).toBeUndefined();
   });
 
   test("marks failed archive cleanup terminal so later failures cannot starve", async () => {

@@ -35,7 +35,7 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
-import { isBuildCollaborationWritableByBuildId } from "./build_collaboration_lifecycle_state";
+import { claimBuildCollaborationWriteByBuildId } from "./build_collaboration_lifecycle_state";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import {
   type BuildCollaborationRole,
@@ -223,7 +223,7 @@ export const applyBuildActionItemPolicyDueDate = internalMutation
   .handler(async (ctx, args) => {
     const item = await requireScopedActionItem(ctx, args);
     if (
-      !(await isBuildCollaborationWritableByBuildId(ctx, {
+      !(await claimBuildCollaborationWriteByBuildId(ctx, {
         buildId: item.buildId,
         organizationId: item.organizationId,
       }))
@@ -524,7 +524,7 @@ export const processBuildActionItemDeadlines = internalMutation
     });
     for (const item of page.page) {
       if (
-        !(await isBuildCollaborationWritableByBuildId(ctx, {
+        !(await claimBuildCollaborationWriteByBuildId(ctx, {
           buildId: item.buildId,
           organizationId: item.organizationId,
         }))
@@ -569,7 +569,7 @@ export const processOneBuildActionItemDeadline = internalMutation
       return null;
     }
     if (
-      !(await isBuildCollaborationWritableByBuildId(ctx, {
+      !(await claimBuildCollaborationWriteByBuildId(ctx, {
         buildId: item.buildId,
         organizationId: item.organizationId,
       }))

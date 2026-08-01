@@ -4,6 +4,7 @@ import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
+  BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_ERROR,
   BUILD_COLLABORATION_PURGED_ERROR,
   getStoredBuildCollaborationState,
 } from "./build_collaboration_lifecycle_state";
@@ -60,6 +61,7 @@ export const closeBuildCollaboration = authenticatedMutation
     const authorization = await authorizeLifecycleAuthority(ctx, args);
     const reason = requiredReason(args.reason, "A Build closure reason");
     const current = await getStoredBuildCollaborationState(ctx, authorization);
+    assertNoArchiveSnapshot(current);
     assertLifecycleRevision(current, args.expectedRevision);
     if (current?.state === "closed") {
       throw new Error("Build collaboration is already closed.");
@@ -111,6 +113,7 @@ export const closeBuildCollaboration = authenticatedMutation
       closedByRole: authorization.effectiveRole.role,
       closedByWorkosUserId: authorization.viewer.subject,
       closeReason: reason,
+      contentRevision: (current?.contentRevision ?? 0) + 1,
       purgedAt: undefined,
       reopenReason: undefined,
       reopenedAt: undefined,
@@ -171,6 +174,7 @@ export const reopenBuildCollaboration = authenticatedMutation
     const authorization = await authorizeLifecycleAuthority(ctx, args);
     const reason = requiredReason(args.reason, "A reopening reason");
     const current = await getStoredBuildCollaborationState(ctx, authorization);
+    assertNoArchiveSnapshot(current);
     assertLifecycleRevision(current, args.expectedRevision);
     if (!current || current.state === "open") {
       throw new Error("Build collaboration is already open.");
@@ -192,6 +196,7 @@ export const reopenBuildCollaboration = authenticatedMutation
     const now = Date.now();
     const revision = current.revision + 1;
     await ctx.db.patch(current._id, {
+      contentRevision: (current.contentRevision ?? 0) + 1,
       reopenReason: reason,
       reopenedAt: now,
       reopenedByRole: authorization.effectiveRole.role,
@@ -216,6 +221,17 @@ export const reopenBuildCollaboration = authenticatedMutation
     return current._id;
   })
   .public();
+
+function assertNoArchiveSnapshot(
+  state: Doc<"buildCollaborationBuildStates"> | null
+) {
+  if (
+    state?.archiveSnapshotExportId &&
+    (state.archiveSnapshotLeaseExpiresAt ?? 0) > Date.now()
+  ) {
+    throw new Error(BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_ERROR);
+  }
+}
 
 function projectLifecycleState(
   state: Doc<"buildCollaborationBuildStates"> | null

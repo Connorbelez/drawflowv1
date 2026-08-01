@@ -3261,6 +3261,10 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     state: v.union(v.literal("open"), v.literal("closed"), v.literal("purged")),
     revision: v.number(),
+    contentRevision: v.optional(v.number()),
+    archiveSnapshotExportId: v.optional(v.id("buildCollaborationExports")),
+    archiveSnapshotStartedAt: v.optional(v.number()),
+    archiveSnapshotLeaseExpiresAt: v.optional(v.number()),
     closedAt: v.optional(v.number()),
     closedByWorkosUserId: v.optional(v.string()),
     closedByRole: v.optional(buildCollaborationRoleValidator),
@@ -3346,6 +3350,7 @@ export default defineSchema({
     archivePlannedAssetCount: v.optional(v.number()),
     archivePlannedPostCount: v.optional(v.number()),
     archiveHeartbeatAt: v.optional(v.number()),
+    archiveContentRevision: v.optional(v.number()),
     archiveCleanupCompletedAt: v.optional(v.number()),
     archiveCursor: v.optional(v.string()),
     archiveNextRecordIndex: v.optional(v.number()),
@@ -3361,6 +3366,7 @@ export default defineSchema({
     .index("by_tokenHash", ["tokenHash"])
     .index("by_buildId_and_createdAt", ["buildId", "createdAt"])
     .index("by_state_and_expiresAt", ["state", "expiresAt"])
+    .index("by_state_and_archiveHeartbeatAt", ["state", "archiveHeartbeatAt"])
     .index("by_requestedByWorkosUserId_and_createdAt", [
       "requestedByWorkosUserId",
       "createdAt",

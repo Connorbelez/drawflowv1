@@ -9,8 +9,14 @@ import {
   type CollaborationPostArchiveSection,
   type CollaborationPostArchiveSnapshot,
 } from "./build_collaboration_archive";
+import {
+  BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS,
+  releaseBuildCollaborationArchiveSnapshot,
+  renewBuildCollaborationArchiveSnapshot,
+  requireBuildCollaborationArchiveSnapshot,
+} from "./build_collaboration_lifecycle_state";
 import { internalAction, internalMutation, internalQuery } from "./fluent";
-import type { Id, QueryCtx } from "./types";
+import type { Id, MutationCtx, QueryCtx } from "./types";
 
 const ARCHIVE_CHUNK_BYTES = 256 * 1024;
 const ARCHIVE_CHUNK_CLAIM_TTL_MS = 60_000;
@@ -256,6 +262,11 @@ export const completeBuildCollaborationArchive = internalMutation
     if (exportRow.state !== "building") {
       return null;
     }
+    await renewBuildCollaborationArchiveSnapshot(ctx, {
+      buildId: exportRow.buildId,
+      exportId: exportRow._id,
+      organizationId: exportRow.organizationId,
+    });
     const expectedRecordIndex = exportRow.archiveNextRecordIndex ?? 0;
     const expectedSequence = exportRow.archiveNextSequence ?? 0;
     if (
@@ -330,6 +341,10 @@ export const completeBuildCollaborationArchive = internalMutation
       }),
       state: "active",
     });
+    await releaseBuildCollaborationArchiveSnapshot(ctx, {
+      buildId: exportRow.buildId,
+      exportId: exportRow._id,
+    });
     return null;
   })
   .internal();
@@ -347,6 +362,10 @@ export const failBuildCollaborationArchive = internalMutation
         archiveFailure: args.safeError,
         state: "failed",
       });
+      await releaseBuildCollaborationArchiveSnapshot(ctx, {
+        buildId: exportRow.buildId,
+        exportId: exportRow._id,
+      });
     }
     return null;
   })
@@ -361,7 +380,25 @@ export const cleanupBuildCollaborationExportArchive = internalMutation
       return null;
     }
     const now = Date.now();
-    if (exportRow.state !== "failed" && exportRow.expiresAt > now) {
+    let cleanupState = exportRow.state;
+    if (cleanupState === "building") {
+      if (
+        (exportRow.archiveHeartbeatAt ?? exportRow.createdAt) >=
+        now - BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS
+      ) {
+        return null;
+      }
+      cleanupState = "failed";
+      await ctx.db.patch(exportRow._id, {
+        archiveFailure: "Archive generation lease expired before completion.",
+        state: cleanupState,
+      });
+      await releaseBuildCollaborationArchiveSnapshot(ctx, {
+        buildId: exportRow.buildId,
+        exportId: exportRow._id,
+      });
+    }
+    if (cleanupState !== "failed" && exportRow.expiresAt > now) {
       await ctx.scheduler.runAfter(
         exportRow.expiresAt - now,
         internal.build_collaboration_export_archive
@@ -415,7 +452,11 @@ export const cleanupBuildCollaborationExportArchive = internalMutation
     await ctx.db.patch(exportRow._id, {
       archiveCleanupCompletedAt: now,
       archiveChunkCount: 0,
-      state: exportRow.state === "failed" ? "cleanup_complete" : "expired",
+      state: cleanupState === "failed" ? "cleanup_complete" : "expired",
+    });
+    await releaseBuildCollaborationArchiveSnapshot(ctx, {
+      buildId: exportRow.buildId,
+      exportId: exportRow._id,
     });
     return null;
   })
@@ -441,8 +482,13 @@ export const cleanupExpiredBuildCollaborationExportArchives = internalMutation
         .take(20),
       ctx.db
         .query("buildCollaborationExports")
-        .withIndex("by_state_and_expiresAt", (query) =>
-          query.eq("state", "building").lt("expiresAt", now)
+        .withIndex("by_state_and_archiveHeartbeatAt", (query) =>
+          query
+            .eq("state", "building")
+            .lt(
+              "archiveHeartbeatAt",
+              now - BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS
+            )
         )
         .take(20),
     ]);
@@ -588,6 +634,11 @@ async function archiveContext(
   if (exportRow.state !== "building") {
     throw new Error("Full archive export is not generating.");
   }
+  await requireBuildCollaborationArchiveSnapshot(ctx, {
+    buildId: exportRow.buildId,
+    exportId: exportRow._id,
+    organizationId: exportRow.organizationId,
+  });
   const roles = normalizeRoleSlugs([exportRow.requestedByRole]);
   const authorization = await authorizeActiveBuildAccessForViewer(
     ctx,
@@ -618,7 +669,7 @@ async function archiveContext(
 }
 
 async function requireBuildingArchiveExport(
-  ctx: { db: QueryCtx["db"] },
+  ctx: MutationCtx,
   exportId: Id<"buildCollaborationExports">
 ) {
   const exportRow = await ctx.db.get(exportId);
@@ -629,6 +680,12 @@ async function requireBuildingArchiveExport(
   ) {
     throw new Error("Full archive export is not accepting chunks.");
   }
+  await renewBuildCollaborationArchiveSnapshot(ctx, {
+    buildId: exportRow.buildId,
+    exportId: exportRow._id,
+    organizationId: exportRow.organizationId,
+  });
+  await ctx.db.patch(exportRow._id, { archiveHeartbeatAt: Date.now() });
   return exportRow;
 }
 
