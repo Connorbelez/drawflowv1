@@ -68,6 +68,14 @@ export async function canReadCollaborationAsset(
   ) {
     return false;
   }
+  if (
+    input.asset.readerWorkosUserIds &&
+    !input.asset.readerWorkosUserIds.includes(
+      input.authorization.viewer.subject
+    )
+  ) {
+    return false;
+  }
   const attachments = await ctx.db
     .query("buildCollaborationAttachments")
     .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>

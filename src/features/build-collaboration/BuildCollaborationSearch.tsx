@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useAction } from "convex/react";
 import {
   Filter,
   ListChecks,
@@ -14,7 +14,9 @@ import {
   type Dispatch,
   type SetStateAction,
   useEffect,
+  useId,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -90,6 +92,8 @@ export interface BuildCollaborationSearchResult {
   entityId?: string;
   entityKind?: ReferenceKind;
   excerpt: string;
+  focusEntityId?: string;
+  focusEntityKind?: "post" | "comment" | "actionItem";
   hasAttachments: boolean;
   href: string;
   id: string;
@@ -108,6 +112,16 @@ interface SearchResponse {
   continueCursor: string | null;
   isDone: boolean;
   page: BuildCollaborationSearchResult[];
+}
+
+interface SearchRequest {
+  buildId: Id<"activeBuilds">;
+  cursor?: string;
+  filters: ReturnType<typeof searchRequestFilters>;
+  limit: number;
+  organizationId: string;
+  query: string;
+  searchMode: "hybrid";
 }
 
 export interface SearchFilterState {
@@ -153,22 +167,28 @@ export function BuildCollaborationSearch({
   const activeFilterCount = countActiveFilters(filters);
   const requestFilters = useMemo(
     () => searchRequestFilters(filters),
-    [filters],
+    [filters]
   );
   const active = deferredQuery.length > 0 || activeFilterCount > 0;
-  const response = useQuery(
-    api.build_collaboration_search.searchBuildCollaboration,
-    organizationId && active
-      ? {
-          buildId,
-          filters: requestFilters,
-          limit: 50,
-          organizationId,
-          query: deferredQuery,
-          searchMode: "hybrid" as const,
-        }
-      : "skip",
-  ) as SearchResponse | undefined;
+  const runSearch = useAction(
+    api.build_collaboration_search.searchBuildCollaboration
+  );
+  const request = useMemo(
+    () =>
+      organizationId && active
+        ? {
+            buildId,
+            filters: requestFilters,
+            limit: 50,
+            organizationId,
+            query: deferredQuery,
+            searchMode: "hybrid" as const,
+          }
+        : null,
+    [active, buildId, deferredQuery, organizationId, requestFilters]
+  );
+  const { loadMore, loadingMore, response, searchError } =
+    useAuthorizedBuildSearch({ request, runSearch });
 
   return (
     <div className="space-y-3">
@@ -194,44 +214,208 @@ export function BuildCollaborationSearch({
         />
       </div>
 
-      {active ? (
-        <Frame>
-          <FramePanel className="space-y-3 p-3">
-            <div className="flex items-center justify-between gap-3 px-1">
-              <div>
-                <p className="font-medium text-sm">Authorized Build results</p>
-                <p className="text-muted-foreground text-xs">
-                  Permission checks run before retrieval and ranking.
-                </p>
-              </div>
-              {response ? (
-                <Badge variant="secondary">{response.page.length} shown</Badge>
-              ) : null}
-            </div>
-            {response === undefined ? (
-              <div className="py-8 text-center text-muted-foreground text-sm">
-                Searching this Build…
-              </div>
-            ) : response.page.length === 0 ? (
-              <div className="py-8 text-center text-muted-foreground text-sm">
-                No authorized collaboration records match this search.
-              </div>
-            ) : (
-              <div className="grid gap-2">
-                {response.page.map((result) => (
-                  <SearchResultCard
-                    key={`${result.resultType}:${result.id}:${result.postId}`}
-                    onOpen={onOpen}
-                    result={result}
-                  />
-                ))}
-              </div>
-            )}
-          </FramePanel>
-        </Frame>
-      ) : null}
+      <SearchResultsPanel
+        active={active}
+        loadingMore={loadingMore}
+        onLoadMore={loadMore}
+        onOpen={onOpen}
+        response={response}
+        searchError={searchError}
+      />
     </div>
   );
+}
+
+function SearchResultsPanel({
+  active,
+  loadingMore,
+  onLoadMore,
+  onOpen,
+  response,
+  searchError,
+}: {
+  active: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => Promise<void>;
+  onOpen: (result: BuildCollaborationSearchResult) => void;
+  response?: SearchResponse;
+  searchError?: string;
+}) {
+  if (!active) {
+    return null;
+  }
+  return (
+    <Frame>
+      <FramePanel className="space-y-3 p-3">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <div>
+            <p className="font-medium text-sm">Authorized Build results</p>
+            <p className="text-muted-foreground text-xs">
+              Permission checks run before retrieval and ranking.
+            </p>
+          </div>
+          {response ? (
+            <Badge variant="secondary">{response.page.length} shown</Badge>
+          ) : null}
+        </div>
+        <SearchResultsBody
+          loadingMore={loadingMore}
+          onLoadMore={onLoadMore}
+          onOpen={onOpen}
+          response={response}
+          searchError={searchError}
+        />
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function SearchResultsBody({
+  loadingMore,
+  onLoadMore,
+  onOpen,
+  response,
+  searchError,
+}: Omit<Parameters<typeof SearchResultsPanel>[0], "active">) {
+  if (searchError && response?.page.length === 0) {
+    return (
+      <div className="py-8 text-center text-destructive text-sm">
+        {searchError}
+      </div>
+    );
+  }
+  if (!response) {
+    return (
+      <div className="py-8 text-center text-muted-foreground text-sm">
+        Searching this Build…
+      </div>
+    );
+  }
+  if (response.page.length === 0) {
+    return (
+      <div className="py-8 text-center text-muted-foreground text-sm">
+        No authorized collaboration records match this search.
+      </div>
+    );
+  }
+  return (
+    <>
+      <div className="grid gap-2">
+        {response.page.map((result) => (
+          <SearchResultCard
+            key={searchResultKey(result)}
+            onOpen={onOpen}
+            result={result}
+          />
+        ))}
+      </div>
+      {searchError ? (
+        <p className="text-center text-destructive text-xs">{searchError}</p>
+      ) : null}
+      {!response.isDone && response.continueCursor ? (
+        <div className="flex justify-center pt-1">
+          <Button
+            disabled={loadingMore}
+            onClick={onLoadMore}
+            type="button"
+            variant="outline"
+          >
+            {loadingMore ? "Loading more…" : "Load more results"}
+          </Button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function useAuthorizedBuildSearch({
+  request,
+  runSearch,
+}: {
+  request: SearchRequest | null;
+  runSearch: (request: SearchRequest) => Promise<SearchResponse>;
+}) {
+  const requestGeneration = useRef(0);
+  const [response, setResponse] = useState<SearchResponse>();
+  const [searchError, setSearchError] = useState<string>();
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  useEffect(() => {
+    const generation = ++requestGeneration.current;
+    setLoadingMore(false);
+    setSearchError(undefined);
+    if (!request) {
+      setResponse(undefined);
+      return;
+    }
+    setResponse(undefined);
+    runSearch(request)
+      .then((next) => {
+        if (requestGeneration.current === generation) {
+          setResponse(next);
+        }
+      })
+      .catch(() => {
+        if (requestGeneration.current === generation) {
+          setSearchError("Search could not load. Try again.");
+          setResponse({ continueCursor: null, isDone: true, page: [] });
+        }
+      });
+  }, [request, runSearch]);
+
+  const loadMore = async () => {
+    if (!(request && response?.continueCursor) || loadingMore) {
+      return;
+    }
+    const generation = requestGeneration.current;
+    setLoadingMore(true);
+    setSearchError(undefined);
+    try {
+      const next = await runSearch({
+        ...request,
+        cursor: response.continueCursor,
+      });
+      if (requestGeneration.current !== generation) {
+        return;
+      }
+      setResponse((current) =>
+        current
+          ? {
+              continueCursor: next.continueCursor,
+              isDone: next.isDone,
+              page: mergeSearchResults(current.page, next.page),
+            }
+          : next
+      );
+    } catch {
+      if (requestGeneration.current === generation) {
+        setSearchError("More results could not load. Try again.");
+      }
+    } finally {
+      if (requestGeneration.current === generation) {
+        setLoadingMore(false);
+      }
+    }
+  };
+
+  return { loadMore, loadingMore, response, searchError };
+}
+
+function mergeSearchResults(
+  current: BuildCollaborationSearchResult[],
+  next: BuildCollaborationSearchResult[]
+) {
+  const merged = new Map(
+    current.map((result) => [searchResultKey(result), result])
+  );
+  for (const result of next) {
+    merged.set(searchResultKey(result), result);
+  }
+  return [...merged.values()];
+}
+
+function searchResultKey(result: BuildCollaborationSearchResult) {
+  return `${result.resultType}:${result.id}:${result.postId}`;
 }
 
 function SearchResultCard({
@@ -297,11 +481,11 @@ function SearchFilters({
   participants: ReferenceOption[];
 }) {
   const participantOptions = participants.filter(
-    (participant) => participant.entityKind === "participant",
+    (participant) => participant.entityKind === "participant"
   );
   const update = <Key extends keyof SearchFilterState>(
     key: Key,
-    value: SearchFilterState[Key],
+    value: SearchFilterState[Key]
   ) => onChange((current) => ({ ...current, [key]: value }));
   return (
     <Popover>
@@ -394,17 +578,21 @@ function SearchFilters({
               onChange={(value) =>
                 update(
                   "attachmentPresence",
-                  value as SearchFilterState["attachmentPresence"],
+                  value as SearchFilterState["attachmentPresence"]
                 )
               }
               options={ATTACHMENT_OPTIONS}
               value={filters.attachmentPresence}
             />
             <div className="grid grid-cols-2 gap-2 sm:col-span-2 lg:col-span-1">
-              <label className="space-y-1 text-xs">
+              <label
+                className="space-y-1 text-xs"
+                htmlFor="build-collaboration-search-created-from"
+              >
                 <span className="font-medium">From</span>
                 <Input
                   aria-label="Search created from"
+                  id="build-collaboration-search-created-from"
                   onChange={(event) =>
                     update("createdFrom", event.target.value)
                   }
@@ -412,10 +600,14 @@ function SearchFilters({
                   value={filters.createdFrom}
                 />
               </label>
-              <label className="space-y-1 text-xs">
+              <label
+                className="space-y-1 text-xs"
+                htmlFor="build-collaboration-search-created-to"
+              >
                 <span className="font-medium">To</span>
                 <Input
                   aria-label="Search created to"
+                  id="build-collaboration-search-created-to"
                   onChange={(event) => update("createdTo", event.target.value)}
                   type="date"
                   value={filters.createdTo}
@@ -450,11 +642,12 @@ function FilterSelect({
   options: Array<{ label: string; value: string }>;
   value: string;
 }) {
+  const controlId = useId();
   return (
-    <label className="space-y-1 text-xs">
+    <label className="space-y-1 text-xs" htmlFor={controlId}>
       <span className="font-medium">{label}</span>
       <Select onValueChange={onChange} value={value}>
-        <SelectTrigger aria-label={label}>
+        <SelectTrigger aria-label={label} id={controlId}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -491,16 +684,16 @@ function countActiveFilters(filters: SearchFilterState) {
   return Object.entries(filters).filter(([key, value]) =>
     key === "createdFrom" || key === "createdTo"
       ? Boolean(value)
-      : value !== "any",
+      : value !== "any"
   ).length;
 }
 
 function dateBoundary(value: string, endOfDay: boolean) {
   if (!value) {
-    return undefined;
+    return;
   }
   const timestamp = new Date(
-    `${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}`,
+    `${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}`
   ).getTime();
   return Number.isFinite(timestamp) ? timestamp : undefined;
 }

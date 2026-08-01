@@ -5016,7 +5016,7 @@ describe("Build collaboration authorized search", () => {
     const assetId = await createPublishedAssetFixture(fixture);
 
     const search = (query: string, filters?: Record<string, unknown>) =>
-      contractor.query(
+      contractor.action(
         (api as any).build_collaboration_search.searchBuildCollaboration,
         {
           buildId: fixture.buildId,
@@ -5025,7 +5025,7 @@ describe("Build collaboration authorized search", () => {
           query,
         },
       );
-    const semantic = await contractor.query(
+    const semantic = await contractor.action(
       (api as any).build_collaboration_search.searchBuildCollaboration,
       {
         buildId: fixture.buildId,
@@ -5093,9 +5093,39 @@ describe("Build collaboration authorized search", () => {
     ).toEqual([
       expect.objectContaining({
         entityId: assetId,
-        entityKind: "evidenceAsset",
+        focusEntityKind: "post",
         resultType: "asset",
       }),
+    ]);
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(assetId, {
+        maximumAudienceMode: "custom",
+        readerWorkosUserIds: ["user_admin"],
+        updatedAt: Date.now(),
+      });
+    });
+    expect(
+      (
+        await search("reader txt", {
+          attachmentPresence: "with",
+          types: ["asset"],
+        })
+      ).page,
+    ).toEqual([]);
+    expect(
+      (
+        await fixture.admin.action(
+          (api as any).build_collaboration_search.searchBuildCollaboration,
+          {
+            buildId: fixture.buildId,
+            filters: { types: ["asset"] },
+            organizationId: ORGANIZATION_ID,
+            query: "reader txt",
+          },
+        )
+      ).page,
+    ).toEqual([
+      expect.objectContaining({ entityId: assetId, resultType: "asset" }),
     ]);
   });
 
@@ -5133,7 +5163,7 @@ describe("Build collaboration authorized search", () => {
       );
     }
 
-    const contractorSecret = await contractor.query(
+    const contractorSecret = await contractor.action(
       (api as any).build_collaboration_search.searchBuildCollaboration,
       {
         buildId: fixture.buildId,
@@ -5148,7 +5178,7 @@ describe("Build collaboration authorized search", () => {
     });
     expect(
       (
-        await fixture.admin.query(
+        await fixture.admin.action(
           (api as any).build_collaboration_search.searchBuildCollaboration,
           {
             buildId: fixture.buildId,
@@ -5171,7 +5201,7 @@ describe("Build collaboration authorized search", () => {
     );
     expect(
       (
-        await fixture.admin.query(
+        await fixture.admin.action(
           (api as any).build_collaboration_search.searchBuildCollaboration,
           {
             buildId: fixture.buildId,
@@ -5182,7 +5212,7 @@ describe("Build collaboration authorized search", () => {
       ).page,
     ).toEqual([]);
 
-    const firstPage = await contractor.query(
+    const firstPage = await contractor.action(
       (api as any).build_collaboration_search.searchBuildCollaboration,
       {
         buildId: fixture.buildId,
@@ -5193,7 +5223,16 @@ describe("Build collaboration authorized search", () => {
     );
     expect(firstPage.page).toHaveLength(2);
     expect(firstPage.continueCursor).toEqual(expect.any(String));
-    const secondPage = await contractor.query(
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_editing.tombstoneBuildCollaborationPost,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        postId: firstPage.page[0].postId,
+      },
+    );
+    const secondPage = await contractor.action(
       (api as any).build_collaboration_search.searchBuildCollaboration,
       {
         buildId: fixture.buildId,
@@ -5209,7 +5248,7 @@ describe("Build collaboration authorized search", () => {
         .size,
     ).toBe(3);
     await expect(
-      contractor.query(
+      contractor.action(
         (api as any).build_collaboration_search.searchBuildCollaboration,
         {
           buildId: fixture.buildId,
@@ -5220,7 +5259,7 @@ describe("Build collaboration authorized search", () => {
       ),
     ).rejects.toThrow(/cursor/i);
     await expect(
-      fixture.admin.query(
+      fixture.admin.action(
         (api as any).build_collaboration_search.searchBuildCollaboration,
         {
           buildId: fixture.buildId,
@@ -5245,7 +5284,7 @@ describe("Build collaboration authorized search", () => {
       });
     });
     await expect(
-      contractor.query(
+      contractor.action(
         (api as any).build_collaboration_search.searchBuildCollaboration,
         {
           buildId: secondBuildId,
@@ -5256,7 +5295,7 @@ describe("Build collaboration authorized search", () => {
     ).rejects.toThrow(/forbidden|participant|access/i);
     expect(
       (
-        await fixture.admin.query(
+        await fixture.admin.action(
           (api as any).build_collaboration_search.searchBuildCollaboration,
           {
             buildId: secondBuildId,
@@ -5266,6 +5305,167 @@ describe("Build collaboration authorized search", () => {
         )
       ).page,
     ).toEqual([]);
+  });
+
+  test("searches older authorized posts after more than 200 newer restricted posts", async () => {
+    const fixture = await seedActiveBuild();
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Archive Contractor",
+      role: "contractor",
+      subject: "archive_contractor",
+    });
+    const contractor = withIdentity(fixture.base, {
+      roles: ["contractor"],
+      subject: "archive_contractor",
+    });
+    const authorizedPostId: Id<"buildCollaborationPosts"> =
+      await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      collaborationPublicationFixture({
+        buildId: fixture.buildId,
+        plainText: "Deep archive authorized beacon.",
+      })
+    );
+    await fixture.base.run(async (ctx) => {
+      const sourcePost = await ctx.db.get(authorizedPostId);
+      const sourceRevision = sourcePost?.currentRevisionId
+        ? await ctx.db.get(sourcePost.currentRevisionId)
+        : null;
+      if (!(sourcePost && sourceRevision)) {
+        throw new Error("Search source fixture is unavailable.");
+      }
+      const baseTime = Date.now() - 10_000;
+      await ctx.db.patch(sourcePost._id, {
+        createdAt: baseTime,
+        updatedAt: baseTime,
+      });
+      const {
+        _creationTime: _postCreationTime,
+        _id: _sourcePostId,
+        currentRevisionId: _sourceRevisionId,
+        ...postTemplate
+      } = sourcePost;
+      const {
+        _creationTime: _revisionCreationTime,
+        _id: _sourceRevisionRecordId,
+        postId: _sourceRevisionPostId,
+        ...revisionTemplate
+      } = sourceRevision;
+      for (let index = 0; index < 205; index += 1) {
+        const createdAt = baseTime + index + 1;
+        const postId = await ctx.db.insert("buildCollaborationPosts", {
+          ...postTemplate,
+          audienceMode: "author_tier_and_higher",
+          createdAt,
+          updatedAt: createdAt,
+        });
+        const plainText = `Restricted archive noise ${index}.`;
+        const revisionId = await ctx.db.insert(
+          "buildCollaborationPostRevisions",
+          {
+            ...revisionTemplate,
+            contentHash: `restricted-${index}`,
+            createdAt,
+            plainText,
+            postId,
+            tiptapJson: collaborationDocument(plainText),
+          },
+        );
+        await ctx.db.patch(postId, { currentRevisionId: revisionId });
+      }
+    });
+
+    const response = await contractor.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        query: "deep archive authorized beacon",
+      },
+    );
+
+    expect(response.page).toEqual([
+      expect.objectContaining({
+        id: authorizedPostId,
+        resultType: "post",
+      }),
+    ]);
+  });
+
+  test("continues a keyset cursor without skips when a prior result is revoked", async () => {
+    const fixture = await seedActiveBuild();
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Cursor Contractor",
+      role: "contractor",
+      subject: "cursor_contractor",
+    });
+    const contractor = withIdentity(fixture.base, {
+      roles: ["contractor"],
+      subject: "cursor_contractor",
+    });
+    for (const label of ["alpha", "beta", "gamma", "delta"]) {
+      await fixture.admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        {
+          ...collaborationPublicationFixture({
+            buildId: fixture.buildId,
+            plainText: `Revocation cursor ${label}.`,
+          }),
+          audienceMode: "custom",
+          requestedReaderIds: ["cursor_contractor"],
+        },
+      );
+    }
+    const firstPage = await contractor.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        limit: 1,
+        organizationId: ORGANIZATION_ID,
+        query: "revocation cursor",
+      },
+    );
+    expect(firstPage.page).toHaveLength(1);
+    await fixture.base.run(async (ctx) => {
+      const member = await ctx.db
+        .query("buildCollaborationAudienceMembers")
+        .withIndex("by_postId_and_workosUserId", (query) =>
+          query
+            .eq("postId", firstPage.page[0].postId)
+            .eq("workosUserId", "cursor_contractor"),
+        )
+        .unique();
+      if (!member) {
+        throw new Error("Custom audience member fixture is unavailable.");
+      }
+      await ctx.db.delete(member._id);
+    });
+
+    const secondPage = await contractor.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        cursor: firstPage.continueCursor,
+        limit: 10,
+        organizationId: ORGANIZATION_ID,
+        query: "revocation cursor",
+      },
+    );
+
+    expect(secondPage.page).toHaveLength(3);
+    expect(secondPage.isDone).toBe(true);
+    expect(
+      secondPage.page.some(
+        (result: any) => result.id === firstPage.page[0].id,
+      ),
+    ).toBe(false);
+    expect(new Set(secondPage.page.map((result: any) => result.id)).size).toBe(
+      3,
+    );
   });
 
   test("returns role-safe results for every collaboration role", async () => {
@@ -5310,7 +5510,7 @@ describe("Build collaboration authorized search", () => {
       ),
     ] as const;
     for (const [viewer, prefix] of viewers) {
-      const response = await viewer.query(
+      const response = await viewer.action(
         (api as any).build_collaboration_search.searchBuildCollaboration,
         {
           buildId: fixture.buildId,
@@ -5386,7 +5586,7 @@ describe("Build collaboration authorized search", () => {
       },
     );
 
-    const response = await fixture.admin.query(
+    const response = await fixture.admin.action(
       (api as any).build_collaboration_search.searchBuildCollaboration,
       {
         buildId: fixture.buildId,

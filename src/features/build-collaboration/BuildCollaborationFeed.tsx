@@ -561,25 +561,27 @@ export function BuildCollaborationFeed({
     }
     feed.loadMore(20);
   }, [feed, feedEntries, focusedActionItemContext, focusedCommentContext]);
-  const visibleResults = useMemo(() => {
-    return feedEntries.filter((entry) => {
-      if (entry.kind !== "post") {
-        return filter === "all";
-      }
-      if (filter === "pinned") {
-        return entry.pins.length > 0;
-      }
-      if (filter === "following") {
-        return entry.following;
-      }
-      if (filter === "actionable") {
-        return entry.actionItems.some(
-          (item) => item.status !== "done" && item.status !== "cancelled"
-        );
-      }
-      return true;
-    });
-  }, [feedEntries, filter]);
+  const visibleResults = useMemo(
+    () =>
+      feedEntries.filter((entry) => {
+        if (entry.kind !== "post") {
+          return filter === "all";
+        }
+        if (filter === "pinned") {
+          return entry.pins.length > 0;
+        }
+        if (filter === "following") {
+          return entry.following;
+        }
+        if (filter === "actionable") {
+          return entry.actionItems.some(
+            (item) => item.status !== "done" && item.status !== "cancelled"
+          );
+        }
+        return true;
+      }),
+    [feedEntries, filter]
+  );
   const {
     displayedResults: commentFocusedResults,
     focusedPostEntry: commentFocusedPostEntry,
@@ -2977,6 +2979,12 @@ function focusedCommentCollaborationResults({
 }
 
 function searchResultReference(result: BuildCollaborationSearchResult) {
+  if (result.focusEntityKind && result.focusEntityId) {
+    return {
+      entityId: result.focusEntityId,
+      entityKind: result.focusEntityKind,
+    };
+  }
   switch (result.resultType) {
     case "comment":
       return { entityId: result.commentId ?? result.id, entityKind: "comment" };
@@ -2987,8 +2995,8 @@ function searchResultReference(result: BuildCollaborationSearchResult) {
       };
     case "asset":
       return {
-        entityId: result.entityId ?? result.id,
-        entityKind: result.entityKind ?? "evidenceAsset",
+        entityId: result.postId,
+        entityKind: "post",
       };
     case "reference":
       return {

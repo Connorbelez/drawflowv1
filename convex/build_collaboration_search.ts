@@ -1,10 +1,14 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 
-import { authenticatedQuery } from "./authz";
+import { internal } from "./_generated/api";
+import type { ActiveBuildAuthorization } from "./activeBuildAccess";
+import { authenticatedAction, requireAuthenticated } from "./authz";
+import { stableContentHash } from "./build_collaboration";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
 import { projectCollaborationAssetAttachments } from "./build_collaboration_asset_projection";
 import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
-import { stableContentHash } from "./build_collaboration";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import {
@@ -17,22 +21,23 @@ import {
   buildCollaborationAudienceModeValidator,
   buildCollaborationReferenceKindValidator,
 } from "./build_collaboration_validators";
-import type { ActiveBuildAuthorization } from "./activeBuildAccess";
+import { internalQuery } from "./fluent";
 import type { Doc, Id, QueryCtx } from "./types";
 
-const MAX_POSTS_PER_SEARCH = 200;
-const MAX_COMMENTS_PER_POST = 250;
-const MAX_ACTION_ITEMS_PER_POST = 100;
 const MAX_REFERENCES_PER_OWNER = 100;
 const MAX_RESULTS = 50;
 const MAX_QUERY_LENGTH = 240;
+const SOURCE_POST_PAGE_SIZE = 10;
+const SEARCH_TOKEN_SUFFIX_PATTERN =
+  /(ments|ment|ings|ing|ers|ies|ied|ed|es|s)$/u;
+const FIRST_LINE_PATTERN = /\r?\n/u;
 
 const searchResultTypeValidator = v.union(
   v.literal("post"),
   v.literal("comment"),
   v.literal("actionItem"),
   v.literal("asset"),
-  v.literal("reference"),
+  v.literal("reference")
 );
 
 const searchStatusValidator = v.union(
@@ -46,13 +51,13 @@ const searchStatusValidator = v.union(
   v.literal("done"),
   v.literal("cancelled"),
   v.literal("available"),
-  v.literal("superseded"),
+  v.literal("superseded")
 );
 
 const searchFiltersValidator = v.object({
   assigneeWorkosUserIds: v.optional(v.array(v.string())),
   attachmentPresence: v.optional(
-    v.union(v.literal("any"), v.literal("with"), v.literal("without")),
+    v.union(v.literal("any"), v.literal("with"), v.literal("without"))
   ),
   audienceModes: v.optional(v.array(buildCollaborationAudienceModeValidator)),
   authorWorkosUserIds: v.optional(v.array(v.string())),
@@ -60,7 +65,7 @@ const searchFiltersValidator = v.object({
   createdTo: v.optional(v.number()),
   entityKinds: v.optional(v.array(buildCollaborationReferenceKindValidator)),
   resolutionStates: v.optional(
-    v.array(v.union(v.literal("open"), v.literal("resolved"))),
+    v.array(v.union(v.literal("open"), v.literal("resolved")))
   ),
   statuses: v.optional(v.array(searchStatusValidator)),
   types: v.optional(v.array(searchResultTypeValidator)),
@@ -77,13 +82,17 @@ const searchResultValidator = v.object({
   entityId: v.optional(v.string()),
   entityKind: v.optional(buildCollaborationReferenceKindValidator),
   excerpt: v.string(),
+  focusEntityId: v.optional(v.string()),
+  focusEntityKind: v.optional(
+    v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem"))
+  ),
   hasAttachments: v.boolean(),
   href: v.string(),
   id: v.string(),
   matchKind: v.union(
     v.literal("filter"),
     v.literal("keyword"),
-    v.literal("semantic"),
+    v.literal("semantic")
   ),
   postId: v.id("buildCollaborationPosts"),
   referenceId: v.optional(v.id("buildCollaborationReferences")),
@@ -95,7 +104,92 @@ const searchResultValidator = v.object({
   updatedAt: v.number(),
 });
 
-export const searchBuildCollaboration = authenticatedQuery
+const searchCandidateValidator = v.object({
+  actionItemId: v.optional(v.id("buildActionItems")),
+  assigneeWorkosUserId: v.optional(v.string()),
+  audienceMode: buildCollaborationAudienceModeValidator,
+  authorDisplayName: v.optional(v.string()),
+  authorWorkosUserId: v.optional(v.string()),
+  commentId: v.optional(v.id("buildCollaborationComments")),
+  createdAt: v.number(),
+  entityId: v.optional(v.string()),
+  entityKind: v.optional(buildCollaborationReferenceKindValidator),
+  entityKinds: v.array(buildCollaborationReferenceKindValidator),
+  focusEntityId: v.optional(v.string()),
+  focusEntityKind: v.optional(
+    v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem"))
+  ),
+  hasAttachments: v.boolean(),
+  href: v.string(),
+  id: v.string(),
+  postId: v.id("buildCollaborationPosts"),
+  referenceId: v.optional(v.id("buildCollaborationReferences")),
+  resolutionState: v.union(v.literal("open"), v.literal("resolved")),
+  resultType: searchResultTypeValidator,
+  searchText: v.string(),
+  status: searchStatusValidator,
+  title: v.string(),
+  updatedAt: v.number(),
+});
+
+const authorizedSearchSourcePageValidator = v.object({
+  continueCursor: v.string(),
+  isDone: v.boolean(),
+  page: v.array(searchCandidateValidator),
+});
+
+const authenticatedInternalQuery = internalQuery.use(requireAuthenticated);
+
+export const searchAuthorizedBuildCollaborationSourcePage =
+  authenticatedInternalQuery
+    .input({
+      buildId: v.id("activeBuilds"),
+      organizationId: v.string(),
+      paginationOpts: paginationOptsValidator,
+      snapshotAt: v.number(),
+    })
+    .returns(authorizedSearchSourcePageValidator)
+    .handler(async (ctx, args) => {
+      const authorization = await authorizeActiveBuildCollaborationAccess(
+        ctx,
+        args
+      );
+      const sourcePage = await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_createdAt", (query) =>
+          query.eq("buildId", authorization.build._id)
+        )
+        .order("desc")
+        .paginate(args.paginationOpts);
+      const page: SearchCandidate[] = [];
+      for (const post of sourcePage.page) {
+        if (
+          post.createdAt > args.snapshotAt ||
+          post.updatedAt > args.snapshotAt ||
+          post.organizationId !== authorization.organizationId ||
+          post.brokerageId !== authorization.brokerage._id ||
+          post.contentState !== "active" ||
+          !(await canReadCollaborationPost(ctx, authorization, post))
+        ) {
+          continue;
+        }
+        page.push(
+          ...(await loadAuthorizedPostCandidates(ctx, {
+            authorization,
+            post,
+            snapshotAt: args.snapshotAt,
+          }))
+        );
+      }
+      return {
+        continueCursor: sourcePage.continueCursor,
+        isDone: sourcePage.isDone,
+        page,
+      };
+    })
+    .internal();
+
+export const searchBuildCollaboration = authenticatedAction
   .input({
     buildId: v.id("activeBuilds"),
     cursor: v.optional(v.string()),
@@ -104,7 +198,7 @@ export const searchBuildCollaboration = authenticatedQuery
     organizationId: v.string(),
     query: v.optional(v.string()),
     searchMode: v.optional(
-      v.union(v.literal("hybrid"), v.literal("keyword"), v.literal("semantic")),
+      v.union(v.literal("hybrid"), v.literal("keyword"), v.literal("semantic"))
     ),
   })
   .returns(
@@ -112,13 +206,9 @@ export const searchBuildCollaboration = authenticatedQuery
       continueCursor: v.union(v.string(), v.null()),
       isDone: v.boolean(),
       page: v.array(searchResultValidator),
-    }),
+    })
   )
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
-      ctx,
-      args,
-    );
     const query = (args.query ?? "").trim().slice(0, MAX_QUERY_LENGTH);
     const filters = normalizeFilters(args.filters);
     if (!(query || hasActiveSearchFilter(filters))) {
@@ -131,40 +221,63 @@ export const searchBuildCollaboration = authenticatedQuery
         filters,
         organizationId: args.organizationId,
         query: normalizeText(query),
-        role: authorization.effectiveRole.role,
+        roles: [...ctx.viewer.roles].sort(),
         searchMode,
-        viewer: authorization.viewer.subject,
-      }),
+        viewer: ctx.viewer.subject,
+      })
     );
     const cursor = parseSearchCursor(args.cursor, fingerprint);
-    const candidates = await loadAuthorizedSearchCandidates(ctx, {
-      authorization,
-      snapshotAt: cursor.snapshotAt,
-    });
+    const candidates: SearchCandidate[] = [];
+    let sourceCursor: string | null = null;
+    let sourceIsDone = false;
+    while (!sourceIsDone) {
+      const sourcePage: AuthorizedSearchSourcePage = await ctx.runQuery(
+        internal.build_collaboration_search
+          .searchAuthorizedBuildCollaborationSourcePage,
+        {
+          buildId: args.buildId,
+          organizationId: args.organizationId,
+          paginationOpts: {
+            cursor: sourceCursor,
+            numItems: SOURCE_POST_PAGE_SIZE,
+          },
+          snapshotAt: cursor.snapshotAt,
+        }
+      );
+      candidates.push(...sourcePage.page);
+      sourceCursor = sourcePage.continueCursor;
+      sourceIsDone = sourcePage.isDone;
+    }
     const ranked = deduplicateCandidates(candidates)
       .filter((candidate) => candidateMatchesFilters(candidate, filters))
       .map((candidate) => rankCandidate(candidate, query, searchMode))
       .filter(
-        (candidate): candidate is RankedSearchCandidate => candidate !== null,
+        (candidate): candidate is RankedSearchCandidate => candidate !== null
       )
       .sort(compareRankedCandidates);
     const limit = Math.min(
       MAX_RESULTS,
-      Math.max(1, Math.floor(args.limit ?? 20)),
+      Math.max(1, Math.floor(args.limit ?? 20))
     );
-    const page = ranked.slice(cursor.offset, cursor.offset + limit);
-    const nextOffset = cursor.offset + page.length;
+    const after = cursor.after;
+    const remaining = after
+      ? ranked.filter(
+          (candidate) => compareRankedCandidateToAnchor(candidate, after) > 0
+        )
+      : ranked;
+    const page = remaining.slice(0, limit);
+    const last = page.at(-1);
     return {
       continueCursor:
-        nextOffset < ranked.length
+        last && page.length < remaining.length
           ? JSON.stringify({
+              after: rankedSearchAnchor(last),
               fingerprint,
-              offset: nextOffset,
               snapshotAt: cursor.snapshotAt,
-              version: 1,
+              version: 2,
             })
           : null,
-      isDone: nextOffset >= ranked.length,
+      isDone: page.length >= remaining.length,
       page: page.map(({ candidate, matchKind, score }) => ({
         actionItemId: candidate.actionItemId,
         assigneeWorkosUserId: candidate.assigneeWorkosUserId,
@@ -176,6 +289,8 @@ export const searchBuildCollaboration = authenticatedQuery
         entityId: candidate.entityId,
         entityKind: candidate.entityKind,
         excerpt: searchExcerpt(candidate.searchText, query),
+        focusEntityId: candidate.focusEntityId,
+        focusEntityKind: candidate.focusEntityKind,
         hasAttachments: candidate.hasAttachments,
         href: candidate.href,
         id: candidate.id,
@@ -215,6 +330,7 @@ type SearchStatus =
 
 type ReferenceKind = Doc<"buildCollaborationReferences">["entityKind"];
 type AudienceMode = Doc<"buildCollaborationPosts">["audienceMode"];
+type SearchFocusEntityKind = "post" | "comment" | "actionItem";
 
 interface NormalizedSearchFilters {
   assigneeWorkosUserIds: string[];
@@ -240,6 +356,8 @@ interface SearchCandidate {
   entityId?: string;
   entityKind?: ReferenceKind;
   entityKinds: ReferenceKind[];
+  focusEntityId?: string;
+  focusEntityKind?: SearchFocusEntityKind;
   hasAttachments: boolean;
   href: string;
   id: string;
@@ -259,6 +377,20 @@ interface RankedSearchCandidate {
   score: number;
 }
 
+interface RankedSearchAnchor {
+  id: string;
+  postId: Id<"buildCollaborationPosts">;
+  resultType: SearchResultType;
+  score: number;
+  updatedAt: number;
+}
+
+interface AuthorizedSearchSourcePage {
+  continueCursor: string;
+  isDone: boolean;
+  page: SearchCandidate[];
+}
+
 function normalizeFilters(
   filters: {
     assigneeWorkosUserIds?: string[];
@@ -271,7 +403,7 @@ function normalizeFilters(
     resolutionStates?: Array<"open" | "resolved">;
     statuses?: SearchStatus[];
     types?: SearchResultType[];
-  } = {},
+  } = {}
 ): NormalizedSearchFilters {
   const unique = <T extends string>(values: T[] | undefined) =>
     [...new Set(values ?? [])].sort();
@@ -306,66 +438,46 @@ function hasActiveSearchFilter(filters: NormalizedSearchFilters) {
 
 function parseSearchCursor(cursor: string | undefined, fingerprint: string) {
   if (!cursor) {
-    return { offset: 0, snapshotAt: Date.now() };
+    return { after: null, snapshotAt: Date.now() };
   }
   try {
     const parsed = JSON.parse(cursor) as {
+      after?: unknown;
       fingerprint?: unknown;
-      offset?: unknown;
       snapshotAt?: unknown;
       version?: unknown;
     };
+    const after = parsed.after as Partial<RankedSearchAnchor> | undefined;
     if (
-      parsed.version !== 1 ||
+      parsed.version !== 2 ||
       parsed.fingerprint !== fingerprint ||
-      typeof parsed.offset !== "number" ||
-      !Number.isSafeInteger(parsed.offset) ||
-      parsed.offset < 0 ||
       typeof parsed.snapshotAt !== "number" ||
-      !Number.isFinite(parsed.snapshotAt)
+      !Number.isFinite(parsed.snapshotAt) ||
+      !after ||
+      typeof after.id !== "string" ||
+      typeof after.postId !== "string" ||
+      typeof after.resultType !== "string" ||
+      !isSearchResultType(after.resultType) ||
+      typeof after.score !== "number" ||
+      !Number.isFinite(after.score) ||
+      typeof after.updatedAt !== "number" ||
+      !Number.isFinite(after.updatedAt)
     ) {
       throw new Error("invalid");
     }
-    return { offset: parsed.offset, snapshotAt: parsed.snapshotAt };
+    return {
+      after: after as RankedSearchAnchor,
+      snapshotAt: parsed.snapshotAt,
+    };
   } catch {
     throw new Error("Search cursor does not match this Build search.");
   }
 }
 
-async function loadAuthorizedSearchCandidates(
-  ctx: QueryCtx,
-  input: {
-    authorization: ActiveBuildAuthorization;
-    snapshotAt: number;
-  },
-) {
-  const posts = await ctx.db
-    .query("buildCollaborationPosts")
-    .withIndex("by_buildId_and_createdAt", (query) =>
-      query.eq("buildId", input.authorization.build._id),
-    )
-    .order("desc")
-    .take(MAX_POSTS_PER_SEARCH);
-  const candidates: SearchCandidate[] = [];
-  for (const post of posts) {
-    if (
-      post.createdAt > input.snapshotAt ||
-      post.organizationId !== input.authorization.organizationId ||
-      post.brokerageId !== input.authorization.brokerage._id ||
-      post.contentState !== "active" ||
-      !(await canReadCollaborationPost(ctx, input.authorization, post))
-    ) {
-      continue;
-    }
-    candidates.push(
-      ...(await loadAuthorizedPostCandidates(ctx, {
-        authorization: input.authorization,
-        post,
-        snapshotAt: input.snapshotAt,
-      })),
-    );
-  }
-  return candidates;
+function isSearchResultType(value: string): value is SearchResultType {
+  return ["post", "comment", "actionItem", "asset", "reference"].includes(
+    value
+  );
 }
 
 async function loadAuthorizedPostCandidates(
@@ -374,24 +486,32 @@ async function loadAuthorizedPostCandidates(
     authorization: ActiveBuildAuthorization;
     post: Doc<"buildCollaborationPosts">;
     snapshotAt: number;
-  },
+  }
 ) {
   const { authorization, post } = input;
   const revision = post.currentRevisionId
     ? await ctx.db.get(post.currentRevisionId)
     : null;
-  if (!(revision && revision.postId === post._id)) {
+  if (
+    !(
+      revision &&
+      revision.postId === post._id &&
+      revision.createdAt <= input.snapshotAt
+    )
+  ) {
     return [];
   }
   const references = await ctx.db
     .query("buildCollaborationReferences")
     .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-      query.eq("ownerKind", "postRevision").eq("ownerRecordId", revision._id),
+      query.eq("ownerKind", "postRevision").eq("ownerRecordId", revision._id)
     )
     .take(MAX_REFERENCES_PER_OWNER);
   const projectedReferences = await projectSearchReferences(ctx, {
     authorization,
-    references,
+    references: references.filter(
+      (reference) => reference.createdAt <= input.snapshotAt
+    ),
   });
   const projectedPost = projectCollaborationRevisionForViewer({
     references: projectedReferences.canonical,
@@ -405,11 +525,13 @@ async function loadAuthorizedPostCandidates(
   });
   const searchableAttachments = await enrichSearchAssetAttachments(
     ctx,
+    authorization,
     attachments,
+    input.snapshotAt
   );
   const role = authorization.effectiveRole.role;
   const entityKinds = projectedReferences.readable.map(
-    (reference) => reference.entityKind,
+    (reference) => reference.entityKind
   );
   const base = {
     audienceMode: post.audienceMode,
@@ -425,7 +547,7 @@ async function loadAuthorizedPostCandidates(
       entityId: post.primaryReferenceId,
       entityKind: post.primaryReferenceKind,
       entityKinds,
-      hasAttachments: attachments.length > 0,
+      hasAttachments: searchableAttachments.length > 0,
       href: buildCollaborationDeepLink({
         buildId: post.buildId,
         postId: post._id,
@@ -453,7 +575,7 @@ async function loadAuthorizedPostCandidates(
       authorWorkosUserId: post.authorWorkosUserId,
       buildId: post.buildId,
       createdAt: post.createdAt,
-      hasAttachments: attachments.length > 0,
+      hasAttachments: searchableAttachments.length > 0,
       references: projectedReferences.readable,
       role,
       updatedAt: post.updatedAt,
@@ -463,34 +585,41 @@ async function loadAuthorizedPostCandidates(
       assets: searchableAttachments,
       buildId: post.buildId,
       createdAt: post.createdAt,
+      focusEntityId: post._id,
+      focusEntityKind: "post",
       role,
       updatedAt: post.updatedAt,
-    }),
+    })
   );
 
-  const actionItems = await ctx.db
+  const actionItems: Doc<"buildActionItems">[] = [];
+  for await (const item of ctx.db
     .query("buildActionItems")
     .withIndex("by_originatingPostId_and_status", (query) =>
-      query.eq("originatingPostId", post._id),
-    )
-    .take(MAX_ACTION_ITEMS_PER_POST);
+      query.eq("originatingPostId", post._id)
+    )) {
+    actionItems.push(item);
+  }
   for (const item of actionItems) {
     if (
       item.organizationId !== authorization.organizationId ||
       item.buildId !== authorization.build._id ||
-      item.createdAt > input.snapshotAt
+      item.createdAt > input.snapshotAt ||
+      item.updatedAt > input.snapshotAt
     ) {
       continue;
     }
     const itemReferences = await ctx.db
       .query("buildCollaborationReferences")
       .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-        query.eq("ownerKind", "actionItem").eq("ownerRecordId", item._id),
+        query.eq("ownerKind", "actionItem").eq("ownerRecordId", item._id)
       )
       .take(MAX_REFERENCES_PER_OWNER);
     const projectedItemReferences = await projectSearchReferences(ctx, {
       authorization,
-      references: itemReferences,
+      references: itemReferences.filter(
+        (reference) => reference.createdAt <= input.snapshotAt
+      ),
     });
     const projectedDescription = projectCollaborationRevisionForViewer({
       references: projectedItemReferences.canonical,
@@ -504,10 +633,12 @@ async function loadAuthorizedPostCandidates(
     });
     const searchableItemAttachments = await enrichSearchAssetAttachments(
       ctx,
+      authorization,
       itemAttachments,
+      input.snapshotAt
     );
     const itemEntityKinds = projectedItemReferences.readable.map(
-      (reference) => reference.entityKind,
+      (reference) => reference.entityKind
     );
     candidates.push({
       ...base,
@@ -515,14 +646,14 @@ async function loadAuthorizedPostCandidates(
       assigneeWorkosUserId: item.assigneeWorkosUserId,
       authorDisplayName: participantDisplayName(
         authorization,
-        item.creatorWorkosUserId,
+        item.creatorWorkosUserId
       ),
       authorWorkosUserId: item.creatorWorkosUserId,
       createdAt: item.createdAt,
       entityId: item.primaryReferenceId,
       entityKind: item.primaryReferenceKind,
       entityKinds: itemEntityKinds,
-      hasAttachments: itemAttachments.length > 0,
+      hasAttachments: searchableItemAttachments.length > 0,
       href: buildCollaborationDeepLink({
         buildId: post.buildId,
         focus: `actionItem:${item._id}`,
@@ -540,12 +671,12 @@ async function loadAuthorizedPostCandidates(
         ...base,
         authorDisplayName: participantDisplayName(
           authorization,
-          item.creatorWorkosUserId,
+          item.creatorWorkosUserId
         ),
         authorWorkosUserId: item.creatorWorkosUserId,
         buildId: post.buildId,
         createdAt: item.createdAt,
-        hasAttachments: itemAttachments.length > 0,
+        hasAttachments: searchableItemAttachments.length > 0,
         references: projectedItemReferences.readable,
         role,
         updatedAt: item.updatedAt,
@@ -555,22 +686,31 @@ async function loadAuthorizedPostCandidates(
         assets: searchableItemAttachments,
         buildId: post.buildId,
         createdAt: item.createdAt,
+        focusEntityId: item._id,
+        focusEntityKind: "actionItem",
         role,
         updatedAt: item.updatedAt,
-      }),
+      })
     );
   }
 
-  const comments = await ctx.db
+  const comments: Doc<"buildCollaborationComments">[] = [];
+  for await (const comment of ctx.db
     .query("buildCollaborationComments")
     .withIndex("by_postId_and_createdAt", (query) =>
-      query.eq("postId", post._id),
-    )
-    .take(MAX_COMMENTS_PER_POST);
+      query.eq("postId", post._id)
+    )) {
+    if (
+      comment.createdAt <= input.snapshotAt &&
+      comment.updatedAt <= input.snapshotAt
+    ) {
+      comments.push(comment);
+    }
+  }
   const projectedComments = await projectThreadComments(
     ctx,
     authorization,
-    comments.filter((comment) => comment.createdAt <= input.snapshotAt),
+    comments
   );
   for (const row of projectedComments) {
     if (row.comment.contentState !== "active" || !row.revision) {
@@ -578,15 +718,17 @@ async function loadAuthorizedPostCandidates(
     }
     const rowEntityKinds = row.references
       .filter(
-        (reference) => reference.labelSnapshot !== "Unavailable reference",
+        (reference) => reference.labelSnapshot !== "Unavailable reference"
       )
       .map((reference) => reference.entityKind);
     const rawComment = comments.find(
-      (comment) => comment._id === row.comment._id,
+      (comment) => comment._id === row.comment._id
     );
     const searchableCommentAttachments = await enrichSearchAssetAttachments(
       ctx,
+      authorization,
       row.attachments,
+      input.snapshotAt
     );
     candidates.push({
       ...base,
@@ -595,7 +737,7 @@ async function loadAuthorizedPostCandidates(
       createdAt: row.comment.createdAt,
       commentId: row.comment._id,
       entityKinds: rowEntityKinds,
-      hasAttachments: row.attachments.length > 0,
+      hasAttachments: searchableCommentAttachments.length > 0,
       href: buildCollaborationDeepLink({
         buildId: post.buildId,
         focus: `comment:${row.comment._id}`,
@@ -615,9 +757,9 @@ async function loadAuthorizedPostCandidates(
         authorWorkosUserId: rawComment?.authorWorkosUserId,
         buildId: post.buildId,
         createdAt: row.comment.createdAt,
-        hasAttachments: row.attachments.length > 0,
+        hasAttachments: searchableCommentAttachments.length > 0,
         references: row.references.filter(
-          (reference) => reference.labelSnapshot !== "Unavailable reference",
+          (reference) => reference.labelSnapshot !== "Unavailable reference"
         ),
         role,
         updatedAt: row.comment.updatedAt,
@@ -627,9 +769,11 @@ async function loadAuthorizedPostCandidates(
         assets: searchableCommentAttachments,
         buildId: post.buildId,
         createdAt: row.comment.createdAt,
+        focusEntityId: row.comment._id,
+        focusEntityKind: "comment",
         role,
         updatedAt: row.comment.updatedAt,
-      }),
+      })
     );
   }
   return candidates;
@@ -640,7 +784,7 @@ async function projectSearchReferences(
   input: {
     authorization: ActiveBuildAuthorization;
     references: Doc<"buildCollaborationReferences">[];
-  },
+  }
 ) {
   const canonical: CanonicalBuildCollaborationReference[] = [];
   const readable: Array<{
@@ -725,7 +869,7 @@ function referenceCandidates(input: {
       status: input.resolutionState,
       title: reference.labelSnapshot,
       updatedAt: reference.createdAt ?? input.updatedAt,
-    }),
+    })
   );
 }
 
@@ -742,6 +886,8 @@ function assetCandidates(input: {
   audienceMode: AudienceMode;
   buildId: Id<"activeBuilds">;
   createdAt: number;
+  focusEntityId: string;
+  focusEntityKind: SearchFocusEntityKind;
   postId: Id<"buildCollaborationPosts">;
   resolutionState: "open" | "resolved";
   role: BuildCollaborationRole;
@@ -753,12 +899,17 @@ function assetCandidates(input: {
       authorWorkosUserId: asset.uploadedByWorkosUserId,
       createdAt: input.createdAt,
       entityId: asset.assetId,
-      entityKind: "evidenceAsset",
-      entityKinds: ["evidenceAsset"],
+      entityKinds: [],
+      focusEntityId: input.focusEntityId,
+      focusEntityKind: input.focusEntityKind,
       hasAttachments: true,
       href: buildCollaborationDeepLink({
         buildId: input.buildId,
-        focus: `evidenceAsset:${asset.assetId}`,
+        ...(input.focusEntityKind === "post"
+          ? { postId: input.focusEntityId as Id<"buildCollaborationPosts"> }
+          : {
+              focus: `${input.focusEntityKind}:${input.focusEntityId}`,
+            }),
         recipientRole: input.role,
       }),
       id: asset.assetId,
@@ -769,12 +920,13 @@ function assetCandidates(input: {
       status: asset.state,
       title: asset.fileName,
       updatedAt: input.updatedAt,
-    }),
+    })
   );
 }
 
 async function enrichSearchAssetAttachments(
   ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
   attachments: Array<{
     assetId: Id<"buildCollaborationAssets">;
     fileName: string;
@@ -783,11 +935,22 @@ async function enrichSearchAssetAttachments(
     state: "available" | "superseded";
     version: number;
   }>,
+  snapshotAt: number
 ) {
-  const enriched = [];
+  const enriched: Array<
+    (typeof attachments)[number] & { uploadedByWorkosUserId: string }
+  > = [];
   for (const attachment of attachments) {
     const asset = await ctx.db.get(attachment.assetId);
-    if (!asset) {
+    if (
+      !asset ||
+      asset.createdAt > snapshotAt ||
+      asset.updatedAt > snapshotAt ||
+      !(await canReadCollaborationAsset(ctx, {
+        asset,
+        authorization,
+      }))
+    ) {
       continue;
     }
     enriched.push({
@@ -800,16 +963,16 @@ async function enrichSearchAssetAttachments(
 
 function participantDisplayName(
   authorization: ActiveBuildAuthorization,
-  workosUserId: string,
+  workosUserId: string
 ) {
   return authorization.participants.find(
-    (participant) => participant.workosUserId === workosUserId,
+    (participant) => participant.workosUserId === workosUserId
   )?.displayName;
 }
 
 function candidateMatchesFilters(
   candidate: SearchCandidate,
-  filters: NormalizedSearchFilters,
+  filters: NormalizedSearchFilters
 ) {
   return (
     (!filters.types.length || filters.types.includes(candidate.resultType)) &&
@@ -819,11 +982,11 @@ function candidateMatchesFilters(
     (!filters.assigneeWorkosUserIds.length ||
       (candidate.assigneeWorkosUserId !== undefined &&
         filters.assigneeWorkosUserIds.includes(
-          candidate.assigneeWorkosUserId,
+          candidate.assigneeWorkosUserId
         ))) &&
     (!filters.entityKinds.length ||
       candidate.entityKinds.some((kind) =>
-        filters.entityKinds.includes(kind),
+        filters.entityKinds.includes(kind)
       )) &&
     (!filters.statuses.length || filters.statuses.includes(candidate.status)) &&
     (!filters.audienceModes.length ||
@@ -842,7 +1005,7 @@ function candidateMatchesFilters(
 function rankCandidate(
   candidate: SearchCandidate,
   query: string,
-  mode: "hybrid" | "keyword" | "semantic",
+  mode: "hybrid" | "keyword" | "semantic"
 ): RankedSearchCandidate | null {
   if (!query) {
     return { candidate, matchKind: "filter", score: 0 };
@@ -864,13 +1027,37 @@ function rankCandidate(
 
 function compareRankedCandidates(
   left: RankedSearchCandidate,
-  right: RankedSearchCandidate,
+  right: RankedSearchCandidate
 ) {
   return (
     right.score - left.score ||
     right.candidate.updatedAt - left.candidate.updatedAt ||
     left.candidate.resultType.localeCompare(right.candidate.resultType) ||
-    left.candidate.id.localeCompare(right.candidate.id)
+    left.candidate.id.localeCompare(right.candidate.id) ||
+    left.candidate.postId.localeCompare(right.candidate.postId)
+  );
+}
+
+function rankedSearchAnchor(ranked: RankedSearchCandidate): RankedSearchAnchor {
+  return {
+    id: ranked.candidate.id,
+    postId: ranked.candidate.postId,
+    resultType: ranked.candidate.resultType,
+    score: ranked.score,
+    updatedAt: ranked.candidate.updatedAt,
+  };
+}
+
+function compareRankedCandidateToAnchor(
+  ranked: RankedSearchCandidate,
+  anchor: RankedSearchAnchor
+) {
+  return (
+    anchor.score - ranked.score ||
+    anchor.updatedAt - ranked.candidate.updatedAt ||
+    ranked.candidate.resultType.localeCompare(anchor.resultType) ||
+    ranked.candidate.id.localeCompare(anchor.id) ||
+    ranked.candidate.postId.localeCompare(anchor.postId)
   );
 }
 
@@ -901,7 +1088,7 @@ function lexicalScore(query: string, content: string) {
       token.length >= 4 &&
       [...contentTokens].some(
         (candidate) =>
-          candidate.startsWith(token) || token.startsWith(candidate),
+          candidate.startsWith(token) || token.startsWith(candidate)
       )
     ) {
       score += 6;
@@ -941,7 +1128,7 @@ function semanticConcepts(tokens: string[]) {
   const concepts = new Set<string>();
   for (const token of tokens) {
     const concept = DOMAIN_CONCEPTS.find((group) =>
-      group.some((term) => stemSearchToken(term) === token),
+      group.some((term) => stemSearchToken(term) === token)
     );
     concepts.add(concept?.[0] ?? token);
   }
@@ -956,9 +1143,7 @@ function searchTokens(value: string) {
 }
 
 function stemSearchToken(token: string) {
-  return token
-    .replace(/(ments|ment|ings|ing|ers|ies|ied|ed|es|s)$/u, "")
-    .slice(0, 48);
+  return token.replace(SEARCH_TOKEN_SUFFIX_PATTERN, "").slice(0, 48);
 }
 
 function normalizeText(value: string) {
@@ -971,7 +1156,7 @@ function normalizeText(value: string) {
 }
 
 function searchTitle(content: string, fallback: string) {
-  const firstLine = content.split(/\r?\n/u)[0]?.trim();
+  const firstLine = content.split(FIRST_LINE_PATTERN)[0]?.trim();
   return (firstLine || fallback).slice(0, 120);
 }
 

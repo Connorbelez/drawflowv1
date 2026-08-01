@@ -1,5 +1,6 @@
 import { useQuery } from "convex/react";
 import { LockKeyhole } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { api } from "../../../convex/_generated/api";
@@ -21,6 +22,11 @@ export function BuildCollaborationWorkspace({
     href: string;
   }) => void;
 }) {
+  const [localFocusedReference, setLocalFocusedReference] =
+    useState(focusedReference);
+  useEffect(() => {
+    setLocalFocusedReference(focusedReference);
+  }, [focusedReference]);
   const rollout = useQuery(
     api.build_collaboration_rollout.getBuildCollaborationRolloutState,
     organizationId
@@ -53,11 +59,18 @@ export function BuildCollaborationWorkspace({
     );
   }
 
+  const openReference =
+    onOpenReference ??
+    ((reference: { entityId: string; entityKind: string; href: string }) => {
+      setLocalFocusedReference(`${reference.entityKind}:${reference.entityId}`);
+      window.history.replaceState(window.history.state, "", reference.href);
+    });
+
   return (
     <BuildCollaborationFeed
       buildId={buildId}
-      focusedReference={focusedReference}
-      onOpenReference={onOpenReference}
+      focusedReference={localFocusedReference}
+      onOpenReference={openReference}
       organizationId={organizationId}
     />
   );

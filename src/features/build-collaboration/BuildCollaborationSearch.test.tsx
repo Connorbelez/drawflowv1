@@ -1,28 +1,27 @@
 // @vitest-environment jsdom
 
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+const runSearchAction = vi.hoisted(() => vi.fn());
 
 const mocks = vi.hoisted(() => ({
   lastArgs: undefined as Record<string, unknown> | "skip" | undefined,
+  nextResponse: {
+    continueCursor: null,
+    isDone: true,
+    page: [] as Array<Record<string, unknown>>,
+  },
   response: {
     continueCursor: null,
     isDone: true,
     page: [] as Array<Record<string, unknown>>,
   },
+  search: vi.fn(),
 }));
 
 vi.mock("convex/react", () => ({
-  useQuery: (_reference: unknown, args: Record<string, unknown> | "skip") => {
-    mocks.lastArgs = args;
-    return args === "skip" ? undefined : mocks.response;
-  },
+  useAction: () => runSearchAction,
 }));
 
 import {
@@ -63,16 +62,26 @@ const participants = [
   },
 ];
 
+beforeEach(() => {
+  runSearchAction.mockImplementation(async (args: Record<string, unknown>) => {
+    mocks.lastArgs = args;
+    mocks.search(args);
+    return args.cursor ? mocks.nextResponse : mocks.response;
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   mocks.lastArgs = undefined;
+  mocks.nextResponse = { continueCursor: null, isDone: true, page: [] };
   mocks.response = { continueCursor: null, isDone: true, page: [] };
+  mocks.search.mockClear();
+  runSearchAction.mockReset();
 });
 
 describe("BuildCollaborationSearch", () => {
-  test("queries the authorized Build corpus and opens the exact returned deep link", () => {
-    vi.useFakeTimers();
+  test("queries the authorized Build corpus and opens the exact returned deep link", async () => {
     mocks.response = {
       continueCursor: null,
       isDone: true,
@@ -94,8 +103,7 @@ describe("BuildCollaborationSearch", () => {
       }),
       { target: { value: "foundation inspection" } },
     );
-    act(() => vi.advanceTimersByTime(300));
-
+    await screen.findByText("Related");
     expect(mocks.lastArgs).toMatchObject({
       buildId: "build-1",
       limit: 50,
@@ -109,6 +117,51 @@ describe("BuildCollaborationSearch", () => {
       screen.getByRole("button", { name: `Open ${result.title}` }),
     );
     expect(onOpen).toHaveBeenCalledWith(result);
+  });
+
+  test("continues a stable server cursor and appends the next authorized page", async () => {
+    mocks.response = {
+      continueCursor: "cursor-page-2",
+      isDone: false,
+      page: [result],
+    };
+    mocks.nextResponse = {
+      continueCursor: null,
+      isDone: true,
+      page: [
+        {
+          ...result,
+          commentId: "comment-2",
+          id: "comment-2",
+          title: "Reply by Priya Raman",
+        },
+      ],
+    };
+    render(
+      <BuildCollaborationSearch
+        buildId={"build-1" as never}
+        onOpen={vi.fn()}
+        organizationId="org-1"
+        participants={participants}
+      />,
+    );
+
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "Search all authorized Build collaboration",
+      }),
+      { target: { value: "foundation" } },
+    );
+    const loadMore = await screen.findByRole("button", {
+      name: "Load more results",
+    });
+    fireEvent.click(loadMore);
+
+    await screen.findByRole("button", { name: "Open Reply by Priya Raman" });
+    expect(mocks.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: "cursor-page-2" }),
+    );
+    expect(screen.getByText("2 shown")).toBeTruthy();
   });
 
   test("exposes and serializes every supported server filter", () => {

@@ -10,7 +10,9 @@ import {
   within,
 } from "@testing-library/react";
 import { getFunctionName } from "convex/server";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+const searchAction = vi.hoisted(() => vi.fn());
 
 const mocks = vi.hoisted(() => ({
   acceptedCommentId: undefined as string | undefined,
@@ -208,7 +210,15 @@ function queueRowFixture(input: {
 }
 
 vi.mock("convex/react", () => ({
-  useAction: () => mocks.mutate,
+  useAction: (reference: unknown) => {
+    const functionName = getFunctionName(
+      reference as Parameters<typeof getFunctionName>[0]
+    );
+    return functionName ===
+      "build_collaboration_search:searchBuildCollaboration"
+      ? searchAction
+      : mocks.mutate;
+  },
   useMutation: () => mocks.mutate,
   usePaginatedQuery: (reference: unknown, args?: Record<string, unknown> | "skip") => {
     const functionName = getFunctionName(
@@ -347,12 +357,6 @@ vi.mock("convex/react", () => ({
       "build_collaboration_focus:getFocusedBuildCollaborationPostContext"
     ) {
       return args === "skip" ? undefined : mocks.focusedPostContext;
-    }
-    if (
-      functionName ===
-      "build_collaboration_search:searchBuildCollaboration"
-    ) {
-      return args === "skip" ? undefined : mocks.searchResponse;
     }
     if (
       functionName ===
@@ -646,6 +650,10 @@ vi.mock("convex/react", () => ({
   },
 }));
 
+beforeEach(() => {
+  searchAction.mockImplementation(async () => mocks.searchResponse);
+});
+
 vi.mock(
   "./CollaborationRichTextEditor.tsx",
   () => ({
@@ -743,6 +751,7 @@ afterEach(() => {
   mocks.workflowAssignmentMode = "direct";
   mocks.workflowCanAccept = false;
   mocks.workflowTransitions = ["in_progress", "blocked", "cancelled"];
+  searchAction.mockReset();
 });
 
 describe("BuildCollaborationFeed", () => {
@@ -984,6 +993,58 @@ describe("BuildCollaborationFeed", () => {
         href: `/role-safe/${entityKind}`,
       });
     }
+  });
+
+  test("opens a collaboration asset in its owning thread instead of an Evidence record", async () => {
+    mocks.searchResponse = {
+      continueCursor: null,
+      isDone: true,
+      page: [
+        {
+          audienceMode: "build_wide",
+          createdAt: 1,
+          entityId: "collaboration-asset-1",
+          excerpt: "inspection-photo.jpg",
+          focusEntityId: "comment-1",
+          focusEntityKind: "comment",
+          hasAttachments: true,
+          href: "/contractor/builds/build-1?tab=collaboration&focus=comment%3Acomment-1",
+          id: "collaboration-asset-1",
+          matchKind: "keyword",
+          postId: "post-1",
+          resolutionState: "open",
+          resultType: "asset",
+          score: 10,
+          status: "available",
+          title: "inspection-photo.jpg",
+          updatedAt: 1,
+        },
+      ],
+    };
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        onOpenReference={mocks.onOpenReference}
+        organizationId="org-1"
+      />,
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "Search all authorized Build collaboration",
+      }),
+      { target: { value: "inspection photo" } },
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open inspection-photo.jpg",
+      }),
+    );
+    expect(mocks.onOpenReference).toHaveBeenLastCalledWith({
+      entityId: "comment-1",
+      entityKind: "comment",
+      href: "/contractor/builds/build-1?tab=collaboration&focus=comment%3Acomment-1",
+    });
   });
 
   test("shows the viewer's authorized cross-Build assignment queue", () => {
