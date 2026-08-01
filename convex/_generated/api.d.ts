@@ -131,6 +131,7 @@ import type * as demo_site_visit_guidance from "../demo_site_visit_guidance.js";
 import type * as demo_site_visit_tokens from "../demo_site_visit_tokens.js";
 import type * as demo_timeline_plans from "../demo_timeline_plans.js";
 import type * as demo_timeline_snapshots from "../demo_timeline_snapshots.js";
+import type * as email_transport from "../email_transport.js";
 import type * as evidence_preview from "../evidence_preview.js";
 import type * as fairLendConfig from "../fairLendConfig.js";
 import type * as fluent from "../fluent.js";
@@ -277,6 +278,7 @@ declare const fullApi: ApiFromModules<{
   demo_site_visit_tokens: typeof demo_site_visit_tokens;
   demo_timeline_plans: typeof demo_timeline_plans;
   demo_timeline_snapshots: typeof demo_timeline_snapshots;
+  email_transport: typeof email_transport;
   evidence_preview: typeof evidence_preview;
   fairLendConfig: typeof fairLendConfig;
   fluent: typeof fluent;
@@ -325,5 +327,6 @@ export declare const components: {
   migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
   workOSAuthKit: import("@convex-dev/workos-authkit/_generated/component.js").ComponentApi<"workOSAuthKit">;
   presence: import("@convex-dev/presence/_generated/component.js").ComponentApi<"presence">;
+  resend: import("@convex-dev/resend/_generated/component.js").ComponentApi<"resend">;
   timeline: import("convex-timeline/_generated/component.js").ComponentApi<"timeline">;
 };
