@@ -115,6 +115,62 @@ describe("Build collaboration scheduled publication", () => {
     expect(state.draft).toMatchObject({ state: "published" });
   });
 
+  test("keeps transient execution failures approved and eligible for recovery", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const scheduledFor = BASE_TIME + 60_000;
+    const { approvalId } = await saveAndSchedule(fixture, {
+      plainText: "Retryable scheduled concrete update.",
+      scheduledFor,
+    });
+
+    await fixture.base.action(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledBuildCollaborationPublication,
+      { approvalId }
+    );
+    const failedAttempt = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      outbox: await ctx.db.query("eventOutbox").collect(),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(failedAttempt.posts).toEqual([]);
+    expect(failedAttempt.approval).toMatchObject({
+      executionAttemptCount: 1,
+      lastExecutionError: expect.stringContaining("not due yet"),
+      state: "approved",
+    });
+    expect(failedAttempt.outbox).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType:
+            "build.collaboration.publication.schedule_retryable_failure",
+        }),
+      ])
+    );
+
+    vi.setSystemTime(scheduledFor + 1);
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .processDueBuildCollaborationScheduledPublications,
+      { asOf: scheduledFor + 1 }
+    );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+    const recovered = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(recovered.posts).toHaveLength(1);
+    expect(recovered.approval).toMatchObject({
+      executionAttemptCount: 2,
+      postId: recovered.posts[0]?._id,
+      state: "published",
+    });
+    expect(recovered.approval).not.toHaveProperty("lastExecutionError");
+  });
+
   test("pauses when the approving human loses current membership", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);

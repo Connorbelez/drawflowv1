@@ -793,6 +793,7 @@ vi.mock(
 import {
   buildActionItemQueueHref,
   BuildCollaborationFeed,
+  minimumScheduledPublicationTimestamp,
 } from "./BuildCollaborationFeed";
 
 afterEach(() => {
@@ -854,6 +855,15 @@ afterEach(() => {
 });
 
 describe("BuildCollaborationFeed", () => {
+  test("advertises a whole-minute schedule boundary beyond the server minimum", () => {
+    const now = Date.parse("2026-08-01T12:34:30.500Z");
+    const minimum = minimumScheduledPublicationTimestamp(now);
+
+    expect(minimum).toBe(Date.parse("2026-08-01T12:36:00.000Z"));
+    expect(minimum - now).toBeGreaterThan(60_000);
+    expect(minimum % 60_000).toBe(0);
+  });
+
   test("exposes digest cadence and email delivery controls", async () => {
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />

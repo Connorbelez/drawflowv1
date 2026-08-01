@@ -22,6 +22,7 @@ const MAX_CONFLICT_REASON_LENGTH = 500;
 const MAX_SCHEDULE_HORIZON_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 const MIN_SCHEDULE_DELAY_MS = 60_000;
 const SCHEDULE_BATCH_SIZE = 25;
+const SCHEDULE_CONFLICT_PREFIX = "BUILD_COLLABORATION_SCHEDULE_CONFLICT:";
 
 export const getBuildCollaborationSchedulingCapabilities = authenticatedQuery
   .input({
@@ -183,18 +184,87 @@ export const executeScheduledBuildCollaborationPublication = internalAction
         args
       );
     } catch (error) {
-      await ctx.runMutation(
-        internal.build_collaboration_scheduling
-          .pauseScheduledBuildCollaborationDraft,
-        {
-          approvalId: args.approvalId,
-          conflictReason: executionErrorMessage(error),
-        }
-      );
+      const failure = scheduledExecutionFailure(error);
+      if (failure.kind === "conflict") {
+        await ctx.runMutation(
+          internal.build_collaboration_scheduling
+            .pauseScheduledBuildCollaborationDraft,
+          {
+            approvalId: args.approvalId,
+            conflictReason: failure.message,
+          }
+        );
+      } else {
+        await ctx.runMutation(
+          internal.build_collaboration_scheduling
+            .recordRetryableScheduledBuildCollaborationFailure,
+          {
+            approvalId: args.approvalId,
+            failureReason: failure.message,
+          }
+        );
+      }
     }
     return null;
   })
   .internal();
+
+export const recordRetryableScheduledBuildCollaborationFailure =
+  internalMutation
+    .input({
+      approvalId: v.id("buildCollaborationPublicationApprovals"),
+      failureReason: v.string(),
+    })
+    .returns(v.null())
+    .handler(async (ctx, args) => {
+      const approval = await ctx.db.get(args.approvalId);
+      if (!approval || approval.state !== "approved") {
+        return null;
+      }
+      const now = Date.now();
+      const failureReason = normalizedConflictReason(args.failureReason);
+      await ctx.db.patch(approval._id, {
+        executionAttemptCount: (approval.executionAttemptCount ?? 0) + 1,
+        lastExecutionAt: now,
+        lastExecutionError: failureReason,
+      });
+      await ctx.db.insert("auditEvents", {
+        actorRoles: ["system"],
+        actorWorkosUserId: "system:build-collaboration-scheduler",
+        brokerageId: approval.brokerageId,
+        command: "recordRetryableScheduledBuildCollaborationFailure",
+        createdAt: now,
+        entityId: approval._id,
+        entityType: "buildCollaborationPublicationApproval",
+        eventType: "build.collaboration.publication.schedule_retryable_failure",
+        newState: JSON.stringify({
+          executionAttemptCount: (approval.executionAttemptCount ?? 0) + 1,
+          lastExecutionAt: now,
+          state: "approved",
+        }),
+        organizationId: approval.organizationId,
+        priorState: JSON.stringify({ state: approval.state }),
+        reason: failureReason,
+        warnings: [failureReason],
+      });
+      await ctx.db.insert("eventOutbox", {
+        brokerageId: approval.brokerageId,
+        createdAt: now,
+        eventType: "build.collaboration.publication.schedule_retryable_failure",
+        organizationId: approval.organizationId,
+        payloadPreview: JSON.stringify({
+          approvalId: approval._id,
+          executionAttemptCount: (approval.executionAttemptCount ?? 0) + 1,
+          failureReason,
+          lastExecutionAt: now,
+        }),
+        relatedEntityId: approval._id,
+        relatedEntityType: "buildCollaborationPublicationApproval",
+        status: "pending",
+      });
+      return null;
+    })
+    .internal();
 
 export const processDueBuildCollaborationScheduledPublications =
   internalMutation
@@ -254,20 +324,8 @@ export const publishScheduledBuildCollaborationDraft = internalMutation
     if (!approval.scheduledFor || approval.scheduledFor > now) {
       throw new Error("The approved publication is not due yet.");
     }
-    const draft = await requireApprovedScheduledDraft(ctx, approval);
-    await assertApprovalIntegrity(approval, draft);
-    const { authorization } = await authorizeBuildCollaborationRecipient(ctx, {
-      buildId: approval.buildId,
-      organizationId: approval.organizationId,
-      workosUserId: approval.approvingWorkosUserId,
-    });
-    assertCoordinatingRole(authorization.effectiveRole.tier);
-    assertApprovalHierarchyUnchanged(approval, authorization);
-    const { audience, bundle } = await revalidateExactDraftBundle(ctx, {
-      authorization,
-      draft,
-    });
-    assertSchedulablePostType(bundle.postType);
+    const { audience, authorization, bundle, draft } =
+      await revalidateScheduledPublication(ctx, approval);
     const postId = await publishBuildCollaborationBundle(ctx, {
       agentDrafted: draft.preparedByAgent ?? false,
       audience,
@@ -277,6 +335,7 @@ export const publishScheduledBuildCollaborationDraft = internalMutation
     await ctx.db.patch(approval._id, {
       executionAttemptCount: (approval.executionAttemptCount ?? 0) + 1,
       lastExecutionAt: now,
+      lastExecutionError: undefined,
       postId,
       publishedAt: now,
       state: "published",
@@ -436,6 +495,36 @@ async function requireApprovedScheduledDraft(
   return draft;
 }
 
+async function revalidateScheduledPublication(
+  ctx: MutationCtx,
+  approval: Doc<"buildCollaborationPublicationApprovals">
+) {
+  try {
+    const draft = await requireApprovedScheduledDraft(ctx, approval);
+    await assertApprovalIntegrity(approval, draft);
+    const { authorization } = await authorizeBuildCollaborationRecipient(ctx, {
+      buildId: approval.buildId,
+      organizationId: approval.organizationId,
+      workosUserId: approval.approvingWorkosUserId,
+    });
+    assertCoordinatingRole(authorization.effectiveRole.tier);
+    assertApprovalHierarchyUnchanged(approval, authorization);
+    const { audience, bundle } = await revalidateExactDraftBundle(ctx, {
+      authorization,
+      draft,
+    });
+    assertSchedulablePostType(bundle.postType);
+    return { audience, authorization, bundle, draft };
+  } catch (error) {
+    if (!isMaterialScheduleConflict(error)) {
+      throw error;
+    }
+    throw new Error(
+      `${SCHEDULE_CONFLICT_PREFIX}${executionErrorMessage(error)}`
+    );
+  }
+}
+
 async function assertApprovalIntegrity(
   approval: Doc<"buildCollaborationPublicationApprovals">,
   draft: Doc<"buildCollaborationDrafts">
@@ -579,6 +668,59 @@ function executionErrorMessage(error: unknown) {
       ? error.message
       : "Scheduled publication revalidation failed."
   );
+}
+
+function scheduledExecutionFailure(error: unknown): {
+  kind: "conflict" | "retryable";
+  message: string;
+} {
+  const message = executionErrorMessage(error);
+  const marker = message.indexOf(SCHEDULE_CONFLICT_PREFIX);
+  if (marker >= 0) {
+    return {
+      kind: "conflict",
+      message: normalizedConflictReason(
+        message.slice(marker + SCHEDULE_CONFLICT_PREFIX.length)
+      ),
+    };
+  }
+  return { kind: "retryable", message };
+}
+
+function isMaterialScheduleConflict(error: unknown) {
+  const message = executionErrorMessage(error);
+  return [
+    "The scheduled draft changed after approval.",
+    "The scheduled human approval",
+    "Recipient identity is unavailable.",
+    "Forbidden:",
+    "Build collaboration is unavailable until this tenant is active.",
+    "Only the Builder or lender coordination team",
+    "The approving human's Build collaboration hierarchy changed.",
+    "The private draft bundle failed its integrity check.",
+    "The approved publication audience, references, assets, assignments, notifications, or revisions changed.",
+    "Only Updates and Announcements can be scheduled.",
+    "Every approved shared mutation",
+    "Shared mutation ",
+    "Revision conflict:",
+    "A publication may contain at most",
+    "Post text may not exceed",
+    "Post rich text may not exceed",
+    "Every Action Item requires",
+    "Action Item assignees must participate",
+    "The approved Action Item assignment state is no longer effective.",
+    "Action Item rich text is too long.",
+    "Action Item description must be valid TipTap JSON.",
+    "TipTap document root must have type doc.",
+    "A proposed collaboration asset",
+    "Every collaboration reference",
+    "The referenced entity",
+    "Custom audiences are unavailable",
+    "Custom audience readers must be active",
+    "The selected audience conflicts",
+    "Excluded readers must be active",
+    "Higher-tier and same-tier participants cannot be excluded",
+  ].some((knownConflict) => message.includes(knownConflict));
 }
 
 function normalizedConflictReason(value: string) {

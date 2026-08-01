@@ -1,12 +1,7 @@
 "use client";
 
 import type { JSONContent } from "@tiptap/react";
-import {
-  useAction,
-  useMutation,
-  usePaginatedQuery,
-  useQuery,
-} from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import {
   CalendarClock,
   Flag,
@@ -79,6 +74,11 @@ import {
   type BuildCollaborationModerationEntity,
   BuildCollaborationModerationSheet,
 } from "./BuildCollaborationModerationSheet.tsx";
+import {
+  BuildCollaborationMutationGate,
+  useBuildCollaborationAction,
+  useBuildCollaborationMutation,
+} from "./BuildCollaborationMutationGate.tsx";
 import { BuildCollaborationNotificationCard } from "./BuildCollaborationNotificationControls.tsx";
 import {
   BuildCollaborationReferenceChip,
@@ -492,21 +492,45 @@ function focusCollaborationReference(input: {
   input.setFocusedReference(input.reference);
 }
 
-export function BuildCollaborationFeed({
-  buildId,
-  focusedReference: focusedEntityReference,
-  organizationId,
-  onOpenReference,
-}: {
+interface BuildCollaborationFeedProps {
   buildId: string;
   focusedReference?: string;
-  organizationId?: string;
   onOpenReference?: (reference: {
     entityId: string;
     entityKind: string;
     href: string;
   }) => void;
-}) {
+  organizationId?: string;
+}
+
+export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine
+  );
+  useEffect(() => {
+    const markOnline = () => setIsOnline(true);
+    const markOffline = () => setIsOnline(false);
+    window.addEventListener("online", markOnline);
+    window.addEventListener("offline", markOffline);
+    return () => {
+      window.removeEventListener("online", markOnline);
+      window.removeEventListener("offline", markOffline);
+    };
+  }, []);
+  return (
+    <BuildCollaborationMutationGate sharedMutationsAllowed={isOnline}>
+      <BuildCollaborationFeedContent {...props} isOnline={isOnline} />
+    </BuildCollaborationMutationGate>
+  );
+}
+
+function BuildCollaborationFeedContent({
+  buildId,
+  focusedReference: focusedEntityReference,
+  isOnline,
+  organizationId,
+  onOpenReference,
+}: BuildCollaborationFeedProps & { isOnline: boolean }) {
   const activeBuildId = buildId as Id<"activeBuilds">;
   const feed = usePaginatedQuery(
     api.build_collaboration.listBuildCollaborationFeed,
@@ -627,33 +651,33 @@ export function BuildCollaborationFeed({
     buildQueueArgs(activeBuildId, organizationId),
     { initialNumItems: 20 }
   );
-  const saveDraft = useMutation(
+  const saveDraft = useBuildCollaborationMutation(
     api.build_collaboration_drafts.saveMyBuildCollaborationDraft
   );
-  const publishHumanPost = useMutation(
+  const publishHumanPost = useBuildCollaborationMutation(
     api.build_collaboration.approveAndPublishBuildCollaborationBundle
   );
-  const publishDraft = useMutation(
+  const publishDraft = useBuildCollaborationMutation(
     api.build_collaboration_drafts.approveAndPublishBuildCollaborationDraft
   );
-  const discardDraft = useMutation(
+  const discardDraft = useBuildCollaborationMutation(
     api.build_collaboration_drafts.discardMyBuildCollaborationDraft
   );
-  const scheduleDraft = useMutation(
+  const scheduleDraft = useBuildCollaborationMutation(
     api.build_collaboration_scheduling.approveAndScheduleBuildCollaborationDraft
   );
-  const beginAssetUpload = useMutation(
+  const beginAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
-  const registerAssetUpload = useMutation(
+  const registerAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
       .registerBuildCollaborationAssetUploadedStorage
   );
-  const finalizeAndScanAsset = useAction(
+  const finalizeAndScanAsset = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
       .finalizeAndScanBuildCollaborationAssetUpload
   );
-  const abandonAssets = useMutation(
+  const abandonAssets = useBuildCollaborationMutation(
     api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const [filter, setFilter] = useState<FeedFilter>("all");
@@ -722,9 +746,6 @@ export function BuildCollaborationFeed({
   const [draftConflictMessage, setDraftConflictMessage] = useState<
     string | null
   >(null);
-  const [isOnline, setIsOnline] = useState(
-    () => typeof navigator === "undefined" || navigator.onLine
-  );
   const [reviewingDraftId, setReviewingDraftId] =
     useState<Id<"buildCollaborationDrafts"> | null>(null);
   const offlineDraftKey =
@@ -735,16 +756,6 @@ export function BuildCollaborationFeed({
           workosUserId: draftIdentity.workosUserId,
         })
       : null;
-  useEffect(() => {
-    const markOnline = () => setIsOnline(true);
-    const markOffline = () => setIsOnline(false);
-    window.addEventListener("online", markOnline);
-    window.addEventListener("offline", markOffline);
-    return () => {
-      window.removeEventListener("online", markOnline);
-      window.removeEventListener("offline", markOffline);
-    };
-  }, []);
   useEffect(() => {
     let active = true;
     if (!offlineDraftKey) {
@@ -975,7 +986,13 @@ export function BuildCollaborationFeed({
     bundle: CollaborationDraftBundle | null
   ) => {
     const message = error instanceof Error ? error.message : "";
-    if (!(message.includes("Draft revision conflict") && bundle && offlineDraftKey)) {
+    if (
+      !(
+        message.includes("Draft revision conflict") &&
+        bundle &&
+        offlineDraftKey
+      )
+    ) {
       return;
     }
     const capturedAt = offlineCapturedAt ?? Date.now();
@@ -1244,8 +1261,8 @@ export function BuildCollaborationFeed({
       return;
     }
     const scheduledFor = new Date(scheduledForInput).getTime();
-    if (!Number.isFinite(scheduledFor) || scheduledFor <= Date.now()) {
-      toast.error("Choose a future publication time.");
+    if (!Number.isFinite(scheduledFor) || scheduledFor < Date.now() + 60_000) {
+      toast.error("Choose a publication time at least one minute from now.");
       return;
     }
     setPublishing(true);
@@ -1719,7 +1736,9 @@ export function BuildCollaborationFeed({
                     <Input
                       aria-label="Scheduled publication time"
                       id="build-collaboration-scheduled-for"
-                      min={toLocalDateTimeInput(Date.now() + 60_000)}
+                      min={toLocalDateTimeInput(
+                        minimumScheduledPublicationTimestamp(Date.now())
+                      )}
                       onChange={(event) =>
                         setScheduledForInput(event.target.value)
                       }
@@ -2082,6 +2101,11 @@ function toLocalDateTimeInput(timestamp: number) {
   return local.toISOString().slice(0, 16);
 }
 
+export function minimumScheduledPublicationTimestamp(now: number) {
+  const backendThreshold = now + 60_000;
+  return Math.ceil((backendThreshold + 1) / 60_000) * 60_000;
+}
+
 function ComposerAttachmentInput({
   assets,
   buildId,
@@ -2159,10 +2183,10 @@ function CollaborationPostHeader({
   onModerate: () => void;
   organizationId: string;
 }) {
-  const togglePin = useMutation(
+  const togglePin = useBuildCollaborationMutation(
     api.build_collaboration_threads.toggleBuildCollaborationPin
   );
-  const toggleFollow = useMutation(
+  const toggleFollow = useBuildCollaborationMutation(
     api.build_collaboration_threads.toggleBuildCollaborationFollow
   );
   const savePost = (kind: "build" | "personal") =>
@@ -2362,7 +2386,7 @@ function CollaborationPostFooter({
   entry: CollaborationFeedPostEntry;
   organizationId: string;
 }) {
-  const acknowledge = useMutation(
+  const acknowledge = useBuildCollaborationMutation(
     api.build_collaboration_acknowledgements.acknowledgeBuildCollaborationPost
   );
   const acknowledgePost = async () => {
@@ -2501,27 +2525,27 @@ function CollaborationPostCard({
   const [moderationTarget, setModerationTarget] =
     useState<BuildCollaborationModerationEntity | null>(null);
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
-  const markViewed = useMutation(
+  const markViewed = useBuildCollaborationMutation(
     api.build_collaboration_threads.markBuildCollaborationPostViewed
   );
-  const transitionAction = useMutation(
+  const transitionAction = useBuildCollaborationMutation(
     api.build_action_item_workflow.transitionBuildActionItem
   );
-  const addReplacementComment = useMutation(
+  const addReplacementComment = useBuildCollaborationMutation(
     api.build_collaboration_threads.addBuildCollaborationComment
   );
-  const beginReplacementUpload = useMutation(
+  const beginReplacementUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
-  const registerReplacementUpload = useMutation(
+  const registerReplacementUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
       .registerBuildCollaborationAssetUploadedStorage
   );
-  const finalizeAndScanReplacement = useAction(
+  const finalizeAndScanReplacement = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
       .finalizeAndScanBuildCollaborationAssetUpload
   );
-  const abandonReplacementAssets = useMutation(
+  const abandonReplacementAssets = useBuildCollaborationMutation(
     api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
 
@@ -3052,7 +3076,7 @@ function CollaborationCommentReactions({
   organizationId: string;
   row: CollaborationCommentRow;
 }) {
-  const reactToComment = useMutation(
+  const reactToComment = useBuildCollaborationMutation(
     api.build_collaboration_threads.reactToBuildCollaborationComment
   );
   if (row.comment.contentState !== "active") {
@@ -3112,7 +3136,7 @@ function CollaborationCommentPin({
   postId: Id<"buildCollaborationPosts">;
   row: CollaborationCommentRow;
 }) {
-  const togglePin = useMutation(
+  const togglePin = useBuildCollaborationMutation(
     api.build_collaboration_threads.toggleBuildCollaborationPin
   );
   if (!row.comment.viewerCanPin) {
@@ -3183,24 +3207,24 @@ function CollaborationDiscussion({
       ? { buildId, commentId: focusedCommentId, organizationId }
       : "skip"
   );
-  const addComment = useMutation(
+  const addComment = useBuildCollaborationMutation(
     api.build_collaboration_threads.addBuildCollaborationComment
   );
-  const beginAssetUpload = useMutation(
+  const beginAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
-  const registerAssetUpload = useMutation(
+  const registerAssetUpload = useBuildCollaborationMutation(
     api.build_collaboration_assets
       .registerBuildCollaborationAssetUploadedStorage
   );
-  const finalizeAndScanAsset = useAction(
+  const finalizeAndScanAsset = useBuildCollaborationAction(
     api.build_collaboration_asset_actions
       .finalizeAndScanBuildCollaborationAssetUpload
   );
-  const abandonAssets = useMutation(
+  const abandonAssets = useBuildCollaborationMutation(
     api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
-  const react = useMutation(
+  const react = useBuildCollaborationMutation(
     api.build_collaboration_threads.reactToBuildCollaborationPost
   );
   const [replyHtml, setReplyHtml] = useState("");

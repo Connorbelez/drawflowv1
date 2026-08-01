@@ -342,7 +342,10 @@ one enabled Build:
 
 Monitor `build.collaboration.publication.scheduled`,
 `build.collaboration.publication.schedule_executed`, and
-`build.collaboration.publication.schedule_paused` audit/outbox events. Alert on
+`build.collaboration.publication.schedule_paused` audit/outbox events. Also
+monitor `build.collaboration.publication.schedule_retryable_failure`; these
+approvals intentionally remain `approved` for the five-minute recovery sweep,
+while only material approval/revalidation conflicts move to `paused`. Alert on
 overdue approved schedules, repeated execution attempts, approval-hash failures,
 paused-volume spikes, or any scheduled post whose author differs from the
 approving human. Private offline drafts are browser-local and must never be

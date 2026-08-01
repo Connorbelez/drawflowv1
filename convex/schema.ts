@@ -4173,6 +4173,7 @@ export default defineSchema({
     conflictReason: v.optional(v.string()),
     executionAttemptCount: v.optional(v.number()),
     lastExecutionAt: v.optional(v.number()),
+    lastExecutionError: v.optional(v.string()),
     postId: v.optional(v.id("buildCollaborationPosts")),
     publishedAt: v.optional(v.number()),
   })

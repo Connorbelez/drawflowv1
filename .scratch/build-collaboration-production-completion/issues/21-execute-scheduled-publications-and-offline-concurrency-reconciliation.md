@@ -18,7 +18,7 @@
 
 ## Implementation record
 
-- Added the isolated `build_collaboration_scheduling` Convex domain with exact-bundle human approval, durable scheduled execution, periodic recovery, idempotent publication, current-access revalidation, and audited pause-on-conflict.
+- Added the isolated `build_collaboration_scheduling` Convex domain with exact-bundle human approval, durable scheduled execution, periodic recovery, idempotent publication, current-access revalidation, audited pause-on-conflict, and an observable retry path that keeps transient failures eligible for recovery.
 - Added optimistic revision preconditions for private drafts and bundle-declared shared post/comment/Action Item mutations. The feed preserves the participant's editor state and renders the latest server revision alongside it after a conflict.
-- Added a user/tenant/Build-scoped IndexedDB private draft store, preserved camera/file capture timestamps through governed upload, and blocked publication/shared mutations while offline. Reconnect only stages and saves a private server draft; publication still requires the normal human action or exact scheduling checkpoint.
+- Added a user/tenant/Build-scoped IndexedDB private draft store, preserved camera/file capture timestamps through governed upload, and placed every nested collaboration mutation/action behind one online-state gate. Reconnect only stages and saves a private server draft; publication still requires the normal human action or exact scheduling checkpoint.
 - Focused coverage lives in `convex/build_collaboration_scheduling.test.ts`, `src/features/build-collaboration/BuildCollaborationFeed.test.tsx`, `src/features/build-collaboration/build-collaboration-offline-drafts.test.ts`, and `src/features/build-collaboration/build-collaboration-asset-upload.test.ts`.
