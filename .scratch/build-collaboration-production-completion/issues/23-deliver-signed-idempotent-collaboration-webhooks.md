@@ -46,3 +46,7 @@
   the HTTPS request. Literal mapped IPv6, reserved ranges, DNS-private answers,
   remove/re-add, rollback/reactivation, and conflicting replay keys now have
   dedicated regressions.
+- The pinned hostname transport implements both Node resolver callback shapes,
+  including the `all: true` address-array overload used by modern
+  `https.request`, with a real hostname request regression guarding the
+  production path against `ERR_INVALID_IP_ADDRESS` failures.

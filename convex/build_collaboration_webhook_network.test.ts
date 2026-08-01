@@ -1,10 +1,14 @@
+import { request } from "node:https";
 import { describe, expect, test } from "vitest";
 
 import {
   assertPublicWebhookIpAddress,
   isPublicWebhookIpAddress,
 } from "./build_collaboration_webhook_network";
-import { resolvePublicWebhookAddresses } from "./build_collaboration_webhook_transport";
+import {
+  createPinnedWebhookLookup,
+  resolvePublicWebhookAddresses,
+} from "./build_collaboration_webhook_transport";
 
 describe("Build collaboration webhook network policy", () => {
   test("accepts globally routable IPv4 and IPv6 destinations", () => {
@@ -53,5 +57,37 @@ describe("Build collaboration webhook network policy", () => {
       { address: "93.184.216.34", family: 4 },
       { address: "2606:4700:4700::1111", family: 6 },
     ]);
+  });
+
+  test("supports Node's all-address lookup overload during hostname HTTPS delivery", async () => {
+    const pinnedLookup = createPinnedWebhookLookup({
+      address: "93.184.216.34",
+      family: 4,
+    });
+    let lookupOptions: { all?: boolean } | undefined;
+
+    const observedError = await new Promise<Error>((resolve) => {
+      let outbound: ReturnType<typeof request>;
+      outbound = request("https://consumer.example.test/collaboration", {
+        lookup: (hostname, options, callback) => {
+          lookupOptions = options;
+          queueMicrotask(() => {
+            pinnedLookup(hostname, options, (...result) => {
+              callback(...result);
+              queueMicrotask(() => {
+                outbound.destroy(new Error("intentional test cancellation"));
+              });
+            });
+          });
+        },
+        method: "POST",
+      });
+      outbound.on("error", resolve);
+      outbound.end("{}");
+    });
+
+    expect(lookupOptions?.all).toBe(true);
+    expect(observedError.message).toBe("intentional test cancellation");
+    expect(observedError).not.toMatchObject({ code: "ERR_INVALID_IP_ADDRESS" });
   });
 });

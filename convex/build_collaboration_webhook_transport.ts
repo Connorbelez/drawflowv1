@@ -2,6 +2,7 @@
 
 import { lookup } from "node:dns/promises";
 import { request } from "node:https";
+import type { LookupFunction } from "node:net";
 import { v } from "convex/values";
 
 import { buildCollaborationWebhookEventTypeValidator } from "./build_collaboration_webhook_contracts";
@@ -88,6 +89,19 @@ export async function resolvePublicWebhookAddresses(
   });
 }
 
+export function createPinnedWebhookLookup(target: {
+  address: string;
+  family: 4 | 6;
+}): LookupFunction {
+  return (_hostname, options, callback) => {
+    if (options.all) {
+      callback(null, [target]);
+      return;
+    }
+    callback(null, target.address, target.family);
+  };
+}
+
 function sendPinnedHttpsRequest(
   endpoint: URL,
   body: string,
@@ -107,9 +121,7 @@ function sendPinnedHttpsRequest(
         ...headers,
         "Content-Length": Buffer.byteLength(body).toString(),
       },
-      lookup: (_hostname, _options, callback) => {
-        callback(null, target.address, target.family);
-      },
+      lookup: createPinnedWebhookLookup(target),
       method: "POST",
     });
     outbound.setTimeout(DELIVERY_TIMEOUT_MS, () => {
