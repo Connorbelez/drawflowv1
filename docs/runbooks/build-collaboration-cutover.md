@@ -46,16 +46,20 @@ every legacy post has been imported:
 bun x convex run --prod build_collaboration_search_migrations:runBuildCollaborationSearchRecordBackfill
 ```
 
-This backfill is idempotent and enqueues one post, comment, or Action Item owner
-per migration transaction. The originating transaction writes only a bounded
-maintenance job and marks the Build's search generation `building`. Scheduled
-internal mutations retire old rows, materialize role and exact-reader
+This backfill is idempotent and first enqueues every active Build, including
+Builds with no collaboration rows, then enqueues one post, comment, or Action
+Item owner per migration transaction. The originating transaction writes only
+a bounded maintenance job and marks the Build's search generation `building`. Scheduled
+internal actions and mutations retire old rows, materialize role and exact-reader
 partitions, and activate staged rows in bounded pages. Search serves no rows
 from that Build while the generation is building, so a partial or interrupted
 backfill cannot expose stale ACLs or silently incomplete results.
 
-Re-run the command after an interrupted deployment; the migration component
-resumes from its recorded cursor and duplicate owner jobs coalesce. After the
+Each scheduled job has a durable failure counter, retry lease, and watchdog.
+Application failures are recorded and retried with bounded backoff; an expired
+queued/running lease is rescheduled instead of leaving the Build permanently
+`building`. Re-run the command after an interrupted deployment; the migration
+component resumes from its recorded cursor and duplicate owner jobs coalesce. After the
 migration runner reports completion, inspect every Build until the status is
 `ready`, `hasPendingJobs` is false, and `readerFingerprintCurrent` is true:
 
@@ -69,6 +73,20 @@ membership drift, post/comment/Action Item edits, moderation/tombstones, asset
 publication, and authoritative workflow system events invalidate the current
 generation and run the same bounded maintenance path. Open clients subscribe
 to that generation and discard cached results immediately when it changes.
+
+After every Build is ready, create the durable tenant cutover verification and
+wait for it to report `ready` with equal Build counts:
+
+```sh
+bun x convex run --prod build_collaboration_search_maintenance:startBuildCollaborationSearchCutoverVerification '{"organizationId":"<workos-organization-id>","buildId":"<any-active-build-id>"}'
+bun x convex run --prod build_collaboration_search_maintenance:inspectBuildCollaborationSearchCutoverVerification '{"organizationId":"<workos-organization-id>","buildId":"<any-active-build-id>"}'
+```
+
+The activation mutation enforces this verification atomically. It rejects a
+missing, blocked, or stale check; unequal Build counts; a Build created after
+verification; changed organization-wide Admin/Principal Broker membership; any
+Build in `building`; and every queued, running, or failed maintenance job. The
+operator cannot bypass this gate with the status-transition API.
 
 Before activation, verify that every active collaboration post is searchable
 by each current authorized reader, tombstoned or moderated content produces no

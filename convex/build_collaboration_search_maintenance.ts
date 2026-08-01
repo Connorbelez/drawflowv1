@@ -7,14 +7,21 @@ import type { AuthorizedViewer } from "./authz";
 import {
   type BuildCollaborationSearchOwner,
   materializeBuildCollaborationSearchReaderRecords,
-  materializeBuildCollaborationSearchTierRecords,
 } from "./build_collaboration_search_index";
-import { buildCollaborationSearchReaderFingerprint } from "./build_collaboration_search_readers";
-import { internalMutation, internalQuery } from "./fluent";
-import type { Doc, Id, MutationCtx } from "./types";
+import {
+  buildCollaborationOrganizationAuthorityFingerprint,
+  buildCollaborationSearchReaderFingerprint,
+} from "./build_collaboration_search_readers";
+import { internalAction, internalMutation, internalQuery } from "./fluent";
+import type { ActionCtx, Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const RECORD_BATCH_SIZE = 50;
 const ENUMERATION_BATCH_SIZE = 20;
+const SEARCH_JOB_LEASE_MS = 60_000;
+const SEARCH_JOB_RETRY_BASE_MS = 1000;
+const SEARCH_JOB_MAX_RETRY_MS = 60_000;
+const MAX_SEARCH_JOB_ERROR_LENGTH = 500;
+const CUTOVER_BUILD_BATCH_SIZE = 5;
 
 export async function queueBuildCollaborationSearchOwnerRebuild(
   ctx: MutationCtx,
@@ -87,21 +94,15 @@ export const ensureBuildCollaborationSearchMaintenance = internalMutation
   })
   .returns(v.null())
   .handler(async (ctx, args) => {
-    const [queued, running] = await Promise.all([
-      ctx.db
-        .query("buildCollaborationSearchJobs")
-        .withIndex("by_buildId_and_status", (query) =>
-          query.eq("buildId", args.buildId).eq("status", "queued")
-        )
-        .first(),
-      ctx.db
-        .query("buildCollaborationSearchJobs")
-        .withIndex("by_buildId_and_status", (query) =>
-          query.eq("buildId", args.buildId).eq("status", "running")
-        )
-        .first(),
-    ]);
-    if (queued || running) {
+    const pending = await firstPendingSearchJob(ctx, args.buildId);
+    if (pending) {
+      if (
+        pending.status === "failed" ||
+        !pending.leaseExpiresAt ||
+        pending.leaseExpiresAt <= Date.now()
+      ) {
+        await scheduleSearchJob(ctx, pending._id);
+      }
       return null;
     }
     const authorization = await authorizeActiveBuildAccessForViewer(
@@ -141,27 +142,14 @@ export const inspectBuildCollaborationSearchMaintenance = internalQuery
       .query("buildCollaborationSearchStates")
       .withIndex("by_buildId", (query) => query.eq("buildId", args.buildId))
       .unique();
-    const [queued, running] = await Promise.all([
-      ctx.db
-        .query("buildCollaborationSearchJobs")
-        .withIndex("by_buildId_and_status", (query) =>
-          query.eq("buildId", args.buildId).eq("status", "queued")
-        )
-        .first(),
-      ctx.db
-        .query("buildCollaborationSearchJobs")
-        .withIndex("by_buildId_and_status", (query) =>
-          query.eq("buildId", args.buildId).eq("status", "running")
-        )
-        .first(),
-    ]);
+    const pending = await firstPendingSearchJob(ctx, args.buildId);
     const readerFingerprint = await buildCollaborationSearchReaderFingerprint(
       ctx,
       authorization
     );
     return {
       generation: state?.generation ?? 0,
-      hasPendingJobs: Boolean(queued || running),
+      hasPendingJobs: Boolean(pending),
       readerFingerprintCurrent:
         Boolean(state?.readerFingerprint) &&
         state?.readerFingerprint === readerFingerprint,
@@ -169,6 +157,174 @@ export const inspectBuildCollaborationSearchMaintenance = internalQuery
     };
   })
   .internal();
+
+export const startBuildCollaborationSearchCutoverVerification = internalMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+  })
+  .returns(v.id("buildCollaborationSearchCutoverChecks"))
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeActiveBuildAccessForViewer(
+      ctx,
+      searchMaintenanceViewer(args.organizationId),
+      args
+    );
+    const existing = await ctx.db
+      .query("buildCollaborationSearchCutoverChecks")
+      .withIndex("by_organizationId", (query) =>
+        query.eq("organizationId", authorization.organizationId)
+      )
+      .unique();
+    const now = Date.now();
+    const fields = {
+      authorityReaderFingerprint: undefined,
+      brokerageId: authorization.brokerage._id,
+      buildCount: 0,
+      completedAt: undefined,
+      cursor: null,
+      failureReason: undefined,
+      latestBuildCreationTime: undefined,
+      organizationId: authorization.organizationId,
+      readyBuildCount: 0,
+      startedAt: now,
+      status: "building" as const,
+      updatedAt: now,
+    };
+    const checkId =
+      existing?._id ??
+      (await ctx.db.insert("buildCollaborationSearchCutoverChecks", fields));
+    if (existing) {
+      await ctx.db.patch(existing._id, fields);
+    }
+    await ctx.scheduler.runAfter(
+      0,
+      internal.build_collaboration_search_maintenance
+        .processBuildCollaborationSearchCutoverVerification,
+      { checkId }
+    );
+    return checkId;
+  })
+  .internal();
+
+export const inspectBuildCollaborationSearchCutoverVerification = internalQuery
+  .input({
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      buildCount: v.number(),
+      failureReason: v.optional(v.string()),
+      readyBuildCount: v.number(),
+      status: v.union(
+        v.literal("missing"),
+        v.literal("building"),
+        v.literal("blocked"),
+        v.literal("ready")
+      ),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeActiveBuildAccessForViewer(
+      ctx,
+      searchMaintenanceViewer(args.organizationId),
+      args
+    );
+    const check = await ctx.db
+      .query("buildCollaborationSearchCutoverChecks")
+      .withIndex("by_organizationId", (query) =>
+        query.eq("organizationId", authorization.organizationId)
+      )
+      .unique();
+    return {
+      buildCount: check?.buildCount ?? 0,
+      failureReason: check?.failureReason,
+      readyBuildCount: check?.readyBuildCount ?? 0,
+      status: check?.status ?? "missing",
+    };
+  })
+  .internal();
+
+export const processBuildCollaborationSearchCutoverVerification =
+  internalMutation
+    .input({ checkId: v.id("buildCollaborationSearchCutoverChecks") })
+    .returns(v.null())
+    .handler(async (ctx, args) => {
+      const check = await ctx.db.get(args.checkId);
+      if (!check || check.status !== "building") {
+        return null;
+      }
+      const page = await ctx.db
+        .query("activeBuilds")
+        .withIndex("by_brokerage", (query) =>
+          query.eq("brokerageId", check.brokerageId)
+        )
+        .paginate({
+          cursor: check.cursor ?? null,
+          numItems: CUTOVER_BUILD_BATCH_SIZE,
+        });
+      let buildCount = check.buildCount;
+      let latestBuildCreationTime = check.latestBuildCreationTime;
+      let readyBuildCount = check.readyBuildCount;
+      for (const build of page.page) {
+        if (build.organizationId !== check.organizationId) {
+          continue;
+        }
+        buildCount += 1;
+        latestBuildCreationTime = Math.max(
+          latestBuildCreationTime ?? 0,
+          build._creationTime
+        );
+        const failure = await searchReadinessFailure(ctx, build);
+        if (failure) {
+          await ctx.db.patch(check._id, {
+            buildCount,
+            failureReason: failure,
+            latestBuildCreationTime,
+            readyBuildCount,
+            status: "blocked",
+            updatedAt: Date.now(),
+          });
+          return null;
+        }
+        readyBuildCount += 1;
+      }
+      if (!page.isDone) {
+        await ctx.db.patch(check._id, {
+          buildCount,
+          cursor: page.continueCursor,
+          latestBuildCreationTime,
+          readyBuildCount,
+          updatedAt: Date.now(),
+        });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.build_collaboration_search_maintenance
+            .processBuildCollaborationSearchCutoverVerification,
+          { checkId: check._id }
+        );
+        return null;
+      }
+      const now = Date.now();
+      await ctx.db.patch(check._id, {
+        authorityReaderFingerprint:
+          await buildCollaborationOrganizationAuthorityFingerprint(
+            ctx,
+            check.organizationId
+          ),
+        buildCount,
+        completedAt: now,
+        cursor: null,
+        failureReason: undefined,
+        latestBuildCreationTime,
+        readyBuildCount,
+        status: "ready",
+        updatedAt: now,
+      });
+      return null;
+    })
+    .internal();
 
 async function queueSearchJob(
   ctx: MutationCtx,
@@ -214,9 +370,15 @@ async function queueSearchJob(
   const reusableJob = await findReusableSearchJob(ctx, input);
   if (reusableJob) {
     await ctx.db.patch(reusableJob._id, {
+      candidateCursor: undefined,
       cursor: undefined,
       candidateOffset: undefined,
+      candidatePhase: undefined,
+      failureCount: 0,
       generation,
+      lastError: undefined,
+      lastScheduledAt: undefined,
+      leaseExpiresAt: undefined,
       ownerId: input.ownerId,
       ownerKind: input.ownerKind,
       phase: input.phase,
@@ -232,6 +394,7 @@ async function queueSearchJob(
     brokerageId: input.authorization.brokerage._id,
     buildId: input.authorization.build._id,
     createdAt: now,
+    failureCount: 0,
     generation,
     organizationId: input.authorization.organizationId,
     ownerId: input.ownerId,
@@ -246,6 +409,79 @@ async function queueSearchJob(
   return jobId;
 }
 
+export const executeBuildCollaborationSearchJob = internalAction
+  .input({ jobId: v.id("buildCollaborationSearchJobs") })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    try {
+      await ctx.runMutation(
+        internal.build_collaboration_search_maintenance
+          .processBuildCollaborationSearchJob,
+        args
+      );
+    } catch (error) {
+      await recordSearchJobFailure(ctx, args.jobId, error);
+    }
+    return null;
+  })
+  .internal();
+
+export const recordBuildCollaborationSearchJobFailure = internalMutation
+  .input({
+    error: v.string(),
+    jobId: v.id("buildCollaborationSearchJobs"),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job || job.status === "complete") {
+      return null;
+    }
+    const now = Date.now();
+    const failureCount = (job.failureCount ?? 0) + 1;
+    const retryDelay = Math.min(
+      SEARCH_JOB_RETRY_BASE_MS * 2 ** Math.min(failureCount - 1, 10),
+      SEARCH_JOB_MAX_RETRY_MS
+    );
+    const leaseExpiresAt = now + retryDelay;
+    await ctx.db.patch(job._id, {
+      failureCount,
+      lastError: args.error.slice(0, MAX_SEARCH_JOB_ERROR_LENGTH),
+      leaseExpiresAt,
+      status: "failed",
+      updatedAt: now,
+    });
+    await ctx.scheduler.runAfter(
+      retryDelay,
+      internal.build_collaboration_search_maintenance
+        .recoverBuildCollaborationSearchJob,
+      { expectedLeaseExpiresAt: leaseExpiresAt, jobId: job._id }
+    );
+    return null;
+  })
+  .internal();
+
+export const recoverBuildCollaborationSearchJob = internalMutation
+  .input({
+    expectedLeaseExpiresAt: v.number(),
+    jobId: v.id("buildCollaborationSearchJobs"),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (
+      !job ||
+      job.status === "complete" ||
+      job.leaseExpiresAt !== args.expectedLeaseExpiresAt ||
+      job.leaseExpiresAt > Date.now()
+    ) {
+      return null;
+    }
+    await scheduleSearchJob(ctx, job._id);
+    return null;
+  })
+  .internal();
+
 export const processBuildCollaborationSearchJob = internalMutation
   .input({ jobId: v.id("buildCollaborationSearchJobs") })
   .returns(v.null())
@@ -254,9 +490,7 @@ export const processBuildCollaborationSearchJob = internalMutation
     if (!job || job.status === "complete") {
       return null;
     }
-    if (job.status === "queued") {
-      await ctx.db.patch(job._id, { status: "running", updatedAt: Date.now() });
-    }
+    await ctx.db.patch(job._id, { status: "running", updatedAt: Date.now() });
     const authorization = await searchJobAuthorization(ctx, job);
     if (!authorization) {
       await markSearchJobComplete(ctx, job);
@@ -296,15 +530,10 @@ async function processAuthorizedSearchJob(
   }
   const owner = requireOwner(job);
   if (job.phase === "tier") {
-    await materializeBuildCollaborationSearchTierRecords(ctx, {
-      authorization,
-      jobId: job._id,
-      owner,
-      postId: requirePostId(job),
-    });
     await ctx.db.patch(job._id, {
+      candidateCursor: null,
+      candidatePhase: "base",
       phase: "readers",
-      candidateOffset: 0,
       readerOffset: 0,
       updatedAt: Date.now(),
     });
@@ -314,14 +543,16 @@ async function processAuthorizedSearchJob(
   if (job.phase === "readers") {
     const page = await materializeBuildCollaborationSearchReaderRecords(ctx, {
       authorization,
-      candidateOffset: job.candidateOffset ?? 0,
+      candidateCursor: job.candidateCursor ?? null,
+      candidatePhase: job.candidatePhase ?? "base",
       jobId: job._id,
       owner,
       postId: requirePostId(job),
       readerOffset: job.readerOffset ?? 0,
     });
     await ctx.db.patch(job._id, {
-      candidateOffset: page.nextCandidateOffset,
+      candidateCursor: page.nextCandidateCursor,
+      candidatePhase: page.nextCandidatePhase,
       phase: page.done ? "activate" : "readers",
       readerOffset: page.nextReaderOffset,
       updatedAt: Date.now(),
@@ -490,7 +721,7 @@ async function completeSearchJob(
 ) {
   const now = Date.now();
   await markSearchJobComplete(ctx, job);
-  const [queued, running] = await Promise.all([
+  const [queued, running, failed] = await Promise.all([
     ctx.db
       .query("buildCollaborationSearchJobs")
       .withIndex("by_buildId_and_status", (query) =>
@@ -503,8 +734,14 @@ async function completeSearchJob(
         query.eq("buildId", job.buildId).eq("status", "running")
       )
       .first(),
+    ctx.db
+      .query("buildCollaborationSearchJobs")
+      .withIndex("by_buildId_and_status", (query) =>
+        query.eq("buildId", job.buildId).eq("status", "failed")
+      )
+      .first(),
   ]);
-  if (queued || (running && running._id !== job._id)) {
+  if (queued || failed || (running && running._id !== job._id)) {
     return;
   }
   const state = await ctx.db
@@ -535,6 +772,7 @@ async function markSearchJobComplete(
   job: Doc<"buildCollaborationSearchJobs">
 ) {
   await ctx.db.patch(job._id, {
+    leaseExpiresAt: undefined,
     phase: "complete",
     status: "complete",
     updatedAt: Date.now(),
@@ -587,7 +825,7 @@ async function findReusableSearchJob(
     return jobs.find((job) => job.status !== "complete");
   }
   if (input.postId) {
-    for (const status of ["queued", "running"] as const) {
+    for (const status of ["queued", "running", "failed"] as const) {
       const job = await ctx.db
         .query("buildCollaborationSearchJobs")
         .withIndex("by_buildId_and_postId_and_scope_and_status", (query) =>
@@ -604,7 +842,7 @@ async function findReusableSearchJob(
     }
     return null;
   }
-  for (const status of ["queued", "running"] as const) {
+  for (const status of ["queued", "running", "failed"] as const) {
     const job = await ctx.db
       .query("buildCollaborationSearchJobs")
       .withIndex("by_buildId_and_scope_and_status", (query) =>
@@ -634,11 +872,60 @@ async function scheduleSearchJob(
   ctx: MutationCtx,
   jobId: Id<"buildCollaborationSearchJobs">
 ) {
+  const now = Date.now();
+  const leaseExpiresAt = now + SEARCH_JOB_LEASE_MS;
+  await ctx.db.patch(jobId, {
+    lastScheduledAt: now,
+    leaseExpiresAt,
+    status: "queued",
+    updatedAt: now,
+  });
   await ctx.scheduler.runAfter(
     0,
     internal.build_collaboration_search_maintenance
-      .processBuildCollaborationSearchJob,
+      .executeBuildCollaborationSearchJob,
     { jobId }
+  );
+  await ctx.scheduler.runAfter(
+    SEARCH_JOB_LEASE_MS,
+    internal.build_collaboration_search_maintenance
+      .recoverBuildCollaborationSearchJob,
+    { expectedLeaseExpiresAt: leaseExpiresAt, jobId }
+  );
+}
+
+async function firstPendingSearchJob(
+  ctx: QueryCtx | MutationCtx,
+  buildId: Id<"activeBuilds">
+) {
+  const pending = await Promise.all(
+    (["failed", "running", "queued"] as const).map((status) =>
+      ctx.db
+        .query("buildCollaborationSearchJobs")
+        .withIndex("by_buildId_and_status", (query) =>
+          query.eq("buildId", buildId).eq("status", status)
+        )
+        .first()
+    )
+  );
+  return pending.find(Boolean) ?? null;
+}
+
+async function recordSearchJobFailure(
+  ctx: ActionCtx,
+  jobId: Id<"buildCollaborationSearchJobs">,
+  error: unknown
+) {
+  await ctx.runMutation(
+    internal.build_collaboration_search_maintenance
+      .recordBuildCollaborationSearchJobFailure,
+    {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Search maintenance failed unexpectedly.",
+      jobId,
+    }
   );
 }
 
@@ -655,6 +942,41 @@ async function searchJobAuthorization(
   } catch {
     return null;
   }
+}
+
+async function searchReadinessFailure(
+  ctx: MutationCtx,
+  build: Doc<"activeBuilds">
+) {
+  const authorization = await authorizeActiveBuildAccessForViewer(
+    ctx,
+    searchMaintenanceViewer(build.organizationId),
+    { buildId: build._id, organizationId: build.organizationId }
+  );
+  const [pending, state] = await Promise.all([
+    firstPendingSearchJob(ctx, build._id),
+    ctx.db
+      .query("buildCollaborationSearchStates")
+      .withIndex("by_buildId", (query) => query.eq("buildId", build._id))
+      .unique(),
+  ]);
+  if (!state) {
+    return `Build ${build._id} has no collaboration search generation.`;
+  }
+  if (state.status !== "ready") {
+    return `Build ${build._id} collaboration search is ${state.status}.`;
+  }
+  if (pending) {
+    return `Build ${build._id} still has pending collaboration search maintenance.`;
+  }
+  const currentFingerprint = await buildCollaborationSearchReaderFingerprint(
+    ctx,
+    authorization
+  );
+  if (state.readerFingerprint !== currentFingerprint) {
+    return `Build ${build._id} collaboration search readers changed after indexing.`;
+  }
+  return null;
 }
 
 function searchMaintenanceViewer(organizationId?: string): AuthorizedViewer {

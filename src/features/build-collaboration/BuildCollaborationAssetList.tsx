@@ -2,7 +2,7 @@
 
 import { useMutation } from "convex/react";
 import { Paperclip, RefreshCw, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "#/components/ui/button.tsx";
@@ -25,12 +25,14 @@ export interface BuildCollaborationAssetSummary {
 export function BuildCollaborationAssetList({
   assets = [],
   buildId,
+  focusedAssetId,
   onRemove,
   onReplace,
   organizationId,
 }: {
   assets?: BuildCollaborationAssetSummary[];
   buildId: Id<"activeBuilds">;
+  focusedAssetId?: Id<"buildCollaborationAssets">;
   onRemove?: (asset: BuildCollaborationAssetSummary) => Promise<void>;
   onReplace?: (
     asset: BuildCollaborationAssetSummary,
@@ -65,6 +67,7 @@ export function BuildCollaborationAssetList({
       {assets.map((asset) => (
         <AssetCard
           asset={asset}
+          focused={asset.assetId === focusedAssetId}
           key={asset.assetId}
           onOpen={open}
           onRemove={onRemove}
@@ -77,11 +80,13 @@ export function BuildCollaborationAssetList({
 
 function AssetCard({
   asset,
+  focused,
   onOpen,
   onRemove,
   onReplace,
 }: {
   asset: BuildCollaborationAssetSummary;
+  focused: boolean;
   onOpen: (asset: BuildCollaborationAssetSummary) => Promise<void>;
   onRemove?: (asset: BuildCollaborationAssetSummary) => Promise<void>;
   onReplace?: (
@@ -90,8 +95,14 @@ function AssetCard({
   ) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const [removing, setRemoving] = useState(false);
   const [replacing, setReplacing] = useState(false);
+  useEffect(() => {
+    if (focused) {
+      cardRef.current?.focus({ preventScroll: true });
+    }
+  }, [focused]);
   const replace = async (file?: File) => {
     if (!(file && onReplace)) {
       return;
@@ -118,7 +129,13 @@ function AssetCard({
     }
   };
   return (
-    <Card>
+    <Card
+      className={focused ? "ring-2 ring-primary/50" : undefined}
+      data-focused={focused || undefined}
+      data-testid={`collaboration-asset-${asset.assetId}`}
+      ref={cardRef}
+      tabIndex={focused ? -1 : undefined}
+    >
       <CardPanel className="flex items-center gap-3 p-3">
         <Paperclip aria-hidden="true" className="size-4 text-primary" />
         <div className="min-w-0 flex-1">

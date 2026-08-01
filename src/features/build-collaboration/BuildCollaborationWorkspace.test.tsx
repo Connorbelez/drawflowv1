@@ -26,9 +26,9 @@ vi.mock("./BuildCollaborationFeed.tsx", () => ({
       <button
         onClick={() =>
           onOpenReference?.({
-            entityId: "comment-22",
-            entityKind: "comment",
-            href: `${window.location.pathname}?tab=collaboration&focus=comment%3Acomment-22`,
+            entityId: "foundation-footings",
+            entityKind: "milestone",
+            href: `${window.location.pathname}?tab=collaboration&focus=milestone%3Afoundation-footings`,
           })
         }
         type="button"
@@ -66,11 +66,11 @@ describe("BuildCollaborationWorkspace search hydration", () => {
       );
 
       expect(screen.getByTestId("focused-reference").textContent).toBe(
-        "comment:comment-22",
+        "milestone:foundation-footings",
       );
       expect(window.location.pathname).toBe(pathname);
       expect(window.location.search).toContain(
-        "focus=comment%3Acomment-22",
+        "focus=milestone%3Afoundation-footings",
       );
     },
   );

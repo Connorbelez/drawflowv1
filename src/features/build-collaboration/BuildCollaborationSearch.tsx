@@ -93,7 +93,7 @@ export interface BuildCollaborationSearchResult {
   entityKind?: ReferenceKind;
   excerpt: string;
   focusEntityId?: string;
-  focusEntityKind?: "post" | "comment" | "actionItem";
+  focusEntityKind?: "post" | "comment" | "actionItem" | "asset";
   hasAttachments: boolean;
   href: string;
   id: string;

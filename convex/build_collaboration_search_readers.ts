@@ -4,7 +4,7 @@ import { stableContentHash } from "./build_collaboration_hash";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import type { MutationCtx, QueryCtx } from "./types";
 
-const MAX_ORGANIZATION_MEMBERSHIPS = 500;
+const MAX_ORGANIZATION_AUTHORITIES_PER_ROLE = 500;
 const MAX_SEARCH_READERS_PER_BUILD = 1000;
 
 export interface BuildCollaborationSearchReader {
@@ -33,36 +33,11 @@ export async function resolveBuildCollaborationSearchReaders(
         },
       ])
   );
-  const memberships = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_organization", (query) =>
-      query.eq("workosOrganizationId", authorization.organizationId)
-    )
-    .take(MAX_ORGANIZATION_MEMBERSHIPS + 1);
-  if (memberships.length > MAX_ORGANIZATION_MEMBERSHIPS) {
-    throw new Error(
-      "Build collaboration search maintenance exceeded its bounded organization membership limit."
-    );
-  }
-  for (const membership of memberships) {
-    if (membership.status !== "active") {
-      continue;
-    }
-    const roles = normalizeRoleSlugs([
-      membership.roleSlug,
-      ...(membership.roleSlugs ?? []),
-    ]);
-    const role = roles.includes("admin")
-      ? "admin"
-      : roles.includes("principle-broker")
-        ? "principle-broker"
-        : undefined;
-    if (role) {
-      readers.set(membership.workosUserId, {
-        role,
-        workosUserId: membership.workosUserId,
-      });
-    }
+  for (const authority of await resolveOrganizationSearchAuthorities(
+    ctx,
+    authorization.organizationId
+  )) {
+    readers.set(authority.workosUserId, authority);
   }
   if (readers.size > MAX_SEARCH_READERS_PER_BUILD) {
     throw new Error(
@@ -71,6 +46,21 @@ export async function resolveBuildCollaborationSearchReaders(
   }
   return [...readers.values()].sort((left, right) =>
     left.workosUserId.localeCompare(right.workosUserId)
+  );
+}
+
+export async function buildCollaborationOrganizationAuthorityFingerprint(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: string
+) {
+  const authorities = await resolveOrganizationSearchAuthorities(
+    ctx,
+    organizationId
+  );
+  return stableContentHash(
+    authorities
+      .map((authority) => `${authority.workosUserId}:${authority.role}`)
+      .join("|")
   );
 }
 
@@ -85,4 +75,51 @@ export async function buildCollaborationSearchReaderFingerprint(
   return stableContentHash(
     readers.map((reader) => `${reader.workosUserId}:${reader.role}`).join("|")
   );
+}
+
+async function resolveOrganizationSearchAuthorities(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: string
+) {
+  const [admins, principalBrokers] = await Promise.all([
+    authorityMemberships(ctx, organizationId, "admin"),
+    authorityMemberships(ctx, organizationId, "principle-broker"),
+  ]);
+  const authorities = new Map<string, BuildCollaborationSearchReader>();
+  for (const membership of [...principalBrokers, ...admins]) {
+    const roles = normalizeRoleSlugs([
+      membership.roleSlug,
+      ...(membership.roleSlugs ?? []),
+    ]);
+    const role = roles.includes("admin") ? "admin" : "principle-broker";
+    authorities.set(membership.workosUserId, {
+      role,
+      workosUserId: membership.workosUserId,
+    });
+  }
+  return [...authorities.values()].sort((left, right) =>
+    left.workosUserId.localeCompare(right.workosUserId)
+  );
+}
+
+async function authorityMemberships(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: string,
+  roleSlug: "admin" | "principle-broker"
+) {
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_organization_and_status_and_roleSlug", (query) =>
+      query
+        .eq("workosOrganizationId", organizationId)
+        .eq("status", "active")
+        .eq("roleSlug", roleSlug)
+    )
+    .take(MAX_ORGANIZATION_AUTHORITIES_PER_ROLE + 1);
+  if (memberships.length > MAX_ORGANIZATION_AUTHORITIES_PER_ROLE) {
+    throw new Error(
+      `Build collaboration search maintenance exceeded its bounded ${roleSlug} authority limit.`
+    );
+  }
+  return memberships;
 }

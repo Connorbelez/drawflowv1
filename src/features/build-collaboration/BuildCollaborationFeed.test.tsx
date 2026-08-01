@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => ({
   focusedCommentContext: undefined as
     | Record<string, unknown>
     | undefined,
+  focusedAssetContext: undefined as Record<string, unknown> | undefined,
   focusedPostContext: undefined as Record<string, unknown> | undefined,
   focusedPostId: "post-1" as string | null,
   loadMore: vi.fn(),
@@ -360,6 +361,12 @@ vi.mock("convex/react", () => ({
     }
     if (
       functionName ===
+      "build_collaboration_focus:getFocusedBuildCollaborationAssetContext"
+    ) {
+      return args === "skip" ? undefined : mocks.focusedAssetContext;
+    }
+    if (
+      functionName ===
       "build_action_item_details:getBuildActionItemDetail"
     ) {
       if (args !== "skip" && typeof args?.actionItemId !== "string") {
@@ -638,6 +645,15 @@ vi.mock("convex/react", () => ({
         summary: "Location verified · uploaded today",
       },
       {
+        entityId: "foundation-footings",
+        entityKind: "milestone",
+        eyebrow: "Milestone",
+        href: "/backoffice/builds/build-1?tab=milestones&milestone=foundation-footings",
+        label: "Foundation & footings",
+        searchTerms: ["foundation", "footings"],
+        summary: "92% complete",
+      },
+      {
         entityId: "action-4",
         entityKind: "actionItem",
         eyebrow: "Action Item",
@@ -734,6 +750,7 @@ afterEach(() => {
   mocks.assetStatuses = [];
   mocks.buildActionItems = [];
   mocks.feedStatus = "Exhausted";
+  mocks.focusedAssetContext = undefined;
   mocks.focusedCommentContext = undefined;
   mocks.focusedPostContext = undefined;
   mocks.focusedPostId = "post-1";
@@ -995,7 +1012,7 @@ describe("BuildCollaborationFeed", () => {
     }
   });
 
-  test("opens a collaboration asset in its owning thread instead of an Evidence record", async () => {
+  test("opens the exact collaboration asset deep link", async () => {
     mocks.searchResponse = {
       continueCursor: null,
       isDone: true,
@@ -1005,10 +1022,10 @@ describe("BuildCollaborationFeed", () => {
           createdAt: 1,
           entityId: "collaboration-asset-1",
           excerpt: "inspection-photo.jpg",
-          focusEntityId: "comment-1",
-          focusEntityKind: "comment",
+          focusEntityId: "collaboration-asset-1",
+          focusEntityKind: "asset",
           hasAttachments: true,
-          href: "/contractor/builds/build-1?tab=collaboration&focus=comment%3Acomment-1",
+          href: "/contractor/builds/build-1?tab=collaboration&focus=asset%3Acollaboration-asset-1",
           id: "collaboration-asset-1",
           matchKind: "keyword",
           postId: "post-1",
@@ -1041,10 +1058,54 @@ describe("BuildCollaborationFeed", () => {
       }),
     );
     expect(mocks.onOpenReference).toHaveBeenLastCalledWith({
-      entityId: "comment-1",
-      entityKind: "comment",
-      href: "/contractor/builds/build-1?tab=collaboration&focus=comment%3Acomment-1",
+      entityId: "collaboration-asset-1",
+      entityKind: "asset",
+      href: "/contractor/builds/build-1?tab=collaboration&focus=asset%3Acollaboration-asset-1",
     });
+  });
+
+  test("hydrates and focuses the exact collaboration asset", async () => {
+    const focusedEntry = focusedPostEntryFixture(
+      "post-outside-first-page",
+      "Focused attachment thread.",
+    );
+    mocks.focusedAssetContext = {
+      assetId: "collaboration-asset-1",
+      postId: "post-outside-first-page",
+      state: "visible",
+    };
+    mocks.focusedPostContext = {
+      entry: {
+        ...focusedEntry,
+        attachments: [
+          {
+            assetId: "collaboration-asset-1",
+            fileName: "inspection-photo.jpg",
+            mimeType: "image/jpeg",
+            scanState: "clean",
+            sizeBytes: 2048,
+            state: "available",
+            version: 1,
+          },
+        ],
+      },
+      state: "visible",
+    };
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="asset:collaboration-asset-1"
+        organizationId="org-1"
+      />,
+    );
+
+    const asset = await screen.findByTestId(
+      "collaboration-asset-collaboration-asset-1",
+    );
+    expect(asset.getAttribute("data-focused")).toBe("true");
+    expect(document.activeElement).toBe(asset);
+    expect(screen.getByText("Focused attachment thread.")).toBeTruthy();
   });
 
   test("shows the viewer's authorized cross-Build assignment queue", () => {
@@ -1613,6 +1674,28 @@ describe("BuildCollaborationFeed", () => {
     ).toBeNull();
   });
 
+  test("hydrates a non-person search focus into the reusable reference detail sheet", async () => {
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="milestone:foundation-footings"
+        organizationId="org-1"
+      />
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Foundation & footings" })
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("build-collaboration-focused-reference")
+        .getAttribute("data-reference-key")
+    ).toBe("milestone:foundation-footings");
+    expect(
+      screen.getByRole("button", { name: "Open focused workspace" })
+    ).toBeTruthy();
+  });
+
   test("provides a roving keyboard entry point for ordinary discussions", () => {
     mocks.comments = [
       commentRowFixture("comment-first", "First reply"),
@@ -1636,6 +1719,15 @@ describe("BuildCollaborationFeed", () => {
   });
 
   test("hydrates and keyboard-navigates a deeply focused reply with comment controls", async () => {
+    const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
     const commentRow = ({
       author,
       depth,
@@ -1730,6 +1822,16 @@ describe("BuildCollaborationFeed", () => {
     expect(deep.style.marginLeft).toBe("54px");
     expect(within(deep).getByText("Replying to Parent Author")).toBeTruthy();
     expect(document.activeElement).toBe(deep);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    if (originalScrollIntoView) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "scrollIntoView",
+        originalScrollIntoView,
+      );
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
     fireEvent.keyDown(deep, { key: "ArrowUp" });
     expect(document.activeElement).toBe(root);
 

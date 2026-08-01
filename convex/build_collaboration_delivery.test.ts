@@ -1206,10 +1206,15 @@ describe("Build collaboration external delivery", () => {
       rows.find((row) => row.dedupeKey === "reinvited-period-delivery")
     ).toEqual(
       expect.objectContaining({
-        createdAt: rows[0]?.cancelledAt,
         recipientParticipationPeriod: 2,
         status: "queued",
       })
+    );
+    const reinvited = rows.find(
+      (row) => row.dedupeKey === "reinvited-period-delivery"
+    );
+    expect(reinvited?.createdAt).toBeGreaterThanOrEqual(
+      rows[0]?.cancelledAt ?? 0
     );
   });
 

@@ -1,8 +1,23 @@
 import { internal } from "./_generated/api.js";
 import { authorizeActiveBuildAccessForViewer } from "./activeBuildAccess";
-import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
+import {
+  queueBuildCollaborationSearchBuildRebuild,
+  queueBuildCollaborationSearchOwnerRebuild,
+} from "./build_collaboration_search_maintenance";
 import { migrations } from "./migrations";
 import type { Id, MutationCtx } from "./types";
+
+export const backfillBuildCollaborationSearchBuilds = migrations.define({
+  batchSize: 1,
+  table: "activeBuilds",
+  migrateOne: async (ctx, build) => {
+    const authorization = await searchMigrationAuthorization(ctx, {
+      buildId: build._id,
+      organizationId: build.organizationId,
+    });
+    await queueBuildCollaborationSearchBuildRebuild(ctx, { authorization });
+  },
+});
 
 export const backfillBuildCollaborationPostSearchRecords = migrations.define({
   batchSize: 1,
@@ -46,6 +61,8 @@ export const backfillBuildActionItemSearchRecords = migrations.define({
 });
 
 export const runBuildCollaborationSearchRecordBackfill = migrations.runner([
+  internal.build_collaboration_search_migrations
+    .backfillBuildCollaborationSearchBuilds,
   internal.build_collaboration_search_migrations
     .backfillBuildCollaborationPostSearchRecords,
   internal.build_collaboration_search_migrations

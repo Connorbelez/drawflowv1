@@ -212,6 +212,12 @@ function focusedPostIdFromReference(reference?: string) {
     : undefined;
 }
 
+function focusedAssetIdFromReference(reference?: string) {
+  return reference?.startsWith("asset:")
+    ? reference.slice("asset:".length)
+    : undefined;
+}
+
 function focusedActionItemQueryArgs({
   actionItemId,
   buildId,
@@ -225,6 +231,28 @@ function focusedActionItemQueryArgs({
     return "skip" as const;
   }
   return { actionItemId, buildId, organizationId };
+}
+
+function focusedAssetQueryArgs({
+  assetId,
+  buildId,
+  organizationId,
+}: {
+  assetId?: string;
+  buildId: Id<"activeBuilds">;
+  organizationId?: string;
+}) {
+  if (!(assetId && organizationId)) {
+    return "skip" as const;
+  }
+  return { assetId, buildId, organizationId };
+}
+
+function visibleContextValue<T, R>(
+  context: ({ state: "visible" } & T) | { state: "revoked" } | undefined,
+  select: (visible: { state: "visible" } & T) => R
+) {
+  return context?.state === "visible" ? select(context) : undefined;
 }
 
 function focusedCommentQueryArgs({
@@ -311,7 +339,8 @@ export function BuildCollaborationFeed({
   const focusedActionItemId = focusedActionItemIdFromReference(
     focusedEntityReference
   );
-  const focusedCommentId = focusedCommentIdFromReference(
+  const focusedAssetId = focusedAssetIdFromReference(focusedEntityReference);
+  const focusedCommentTokenId = focusedCommentIdFromReference(
     focusedEntityReference
   );
   const focusedPostId = focusedPostIdFromReference(focusedEntityReference);
@@ -329,6 +358,31 @@ export function BuildCollaborationFeed({
       }
     | null
     | undefined;
+  const focusedAssetContext = useQuery(
+    api.build_collaboration_focus.getFocusedBuildCollaborationAssetContext,
+    focusedAssetQueryArgs({
+      assetId: focusedAssetId,
+      buildId: activeBuildId,
+      organizationId,
+    })
+  ) as
+    | {
+        assetId: Id<"buildCollaborationAssets">;
+        commentId?: Id<"buildCollaborationComments">;
+        postId: Id<"buildCollaborationPosts">;
+        state: "visible";
+      }
+    | { state: "revoked" }
+    | undefined;
+  const focusedAssetCommentId = visibleContextValue(
+    focusedAssetContext,
+    (context) => context.commentId
+  );
+  const focusedAssetPostId = visibleContextValue(
+    focusedAssetContext,
+    (context) => context.postId
+  );
+  const focusedCommentId = focusedCommentTokenId ?? focusedAssetCommentId;
   const focusedCommentContext = useQuery(
     api.build_collaboration_threads.getFocusedBuildCollaborationCommentContext,
     focusedCommentQueryArgs({
@@ -337,6 +391,10 @@ export function BuildCollaborationFeed({
       organizationId,
     })
   );
+  const focusedCommentPostId = visibleContextValue(
+    focusedCommentContext,
+    (context) => context.postId
+  );
   const focusedPostContext = useQuery(
     api.build_collaboration_focus.getFocusedBuildCollaborationPostContext,
     focusedPostQueryArgs({
@@ -344,9 +402,9 @@ export function BuildCollaborationFeed({
       organizationId,
       postId:
         focusedPostId ??
-        (focusedCommentContext?.state === "visible"
-          ? focusedCommentContext.postId
-          : focusedActionItemContext?.postId),
+        focusedAssetPostId ??
+        focusedCommentPostId ??
+        focusedActionItemContext?.postId,
     })
   ) as
     | { entry: CollaborationFeedPostEntry; state: "visible" }
@@ -476,18 +534,31 @@ export function BuildCollaborationFeed({
     [tagOptions]
   );
   useEffect(() => {
-    if (!focusedEntityReference?.startsWith("participant:")) {
+    if (!focusedEntityReference) {
       return;
     }
-    const participant = referenceByKey.get(focusedEntityReference);
-    if (participant) {
-      setFocusedReference((current) =>
-        current?.entityKind === participant.entityKind &&
-        current.id === participant.id
-          ? current
-          : participant
-      );
+    const reference = referenceByKey.get(focusedEntityReference);
+    if (!reference) {
+      return;
     }
+    if (reference.entityKind === "actionItem") {
+      setFocusedReference(null);
+      setActionItemSheetTarget((current) =>
+        current?.kind === "detail" && current.actionItemId === reference.id
+          ? current
+          : {
+              actionItemId: reference.id as Id<"buildActionItems">,
+              kind: "detail",
+            }
+      );
+      return;
+    }
+    setFocusedReference((current) =>
+      current?.entityKind === reference.entityKind &&
+      current.id === reference.id
+        ? current
+        : reference
+    );
   }, [focusedEntityReference, referenceByKey]);
   useEffect(() => {
     if (!focusedActionItemContext?.actionItemId) {
@@ -547,9 +618,9 @@ export function BuildCollaborationFeed({
   );
   useEffect(() => {
     const focusedPostId =
-      focusedCommentContext?.state === "visible"
-        ? focusedCommentContext.postId
-        : focusedActionItemContext?.postId;
+      focusedAssetPostId ??
+      focusedCommentPostId ??
+      focusedActionItemContext?.postId;
     if (
       !focusedPostId ||
       feedEntries.some(
@@ -560,7 +631,13 @@ export function BuildCollaborationFeed({
       return;
     }
     feed.loadMore(20);
-  }, [feed, feedEntries, focusedActionItemContext, focusedCommentContext]);
+  }, [
+    feed,
+    feedEntries,
+    focusedActionItemContext,
+    focusedAssetPostId,
+    focusedCommentPostId,
+  ]);
   const visibleResults = useMemo(
     () =>
       feedEntries.filter((entry) => {
@@ -1220,6 +1297,12 @@ export function BuildCollaborationFeed({
             <CollaborationPostCard
               buildId={activeBuildId}
               entry={entry}
+              focusedAssetId={
+                focusedAssetContext?.state === "visible" &&
+                focusedAssetContext.postId === entry.post._id
+                  ? focusedAssetContext.assetId
+                  : undefined
+              }
               focusedCommentId={
                 focusedCommentContext?.state === "visible" &&
                 focusedCommentContext.postId === entry.post._id
@@ -1793,6 +1876,7 @@ function ThreadOutcomeSummary({
 function CollaborationPostCard({
   buildId,
   entry,
+  focusedAssetId,
   focusedCommentId,
   focusedPost,
   focusedReference,
@@ -1805,6 +1889,7 @@ function CollaborationPostCard({
 }: {
   buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
+  focusedAssetId?: Id<"buildCollaborationAssets">;
   focusedCommentId?: Id<"buildCollaborationComments">;
   focusedPost: boolean;
   focusedReference?: string;
@@ -1999,6 +2084,7 @@ function CollaborationPostCard({
         <BuildCollaborationAssetList
           assets={entry.attachments}
           buildId={buildId}
+          focusedAssetId={focusedAssetId}
           onReplace={(asset, file) => replaceAsset(asset, file)}
           organizationId={organizationId}
         />
@@ -2034,6 +2120,7 @@ function CollaborationPostCard({
             <CollaborationDiscussion
               acceptedCommentId={entry.post.acceptedCommentId}
               buildId={buildId}
+              focusedAssetId={focusedAssetId}
               focusedCommentId={focusedCommentId}
               onEditComment={setEditTarget}
               onFocusReference={onFocusReference}
@@ -2157,6 +2244,7 @@ function CollaborationComment({
   accepted,
   buildId,
   focused,
+  focusedAssetId,
   onEdit,
   onFocusReference,
   onModerate,
@@ -2173,6 +2261,7 @@ function CollaborationComment({
   accepted: boolean;
   buildId: Id<"activeBuilds">;
   focused: boolean;
+  focusedAssetId?: Id<"buildCollaborationAssets">;
   onEdit: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
   onModerate: (target: BuildCollaborationModerationEntity) => void;
@@ -2195,10 +2284,6 @@ function CollaborationComment({
     if (!focused) {
       return;
     }
-    containerRef.current?.scrollIntoView?.({
-      behavior: "smooth",
-      block: "center",
-    });
     containerRef.current?.focus({ preventScroll: true });
   }, [focused]);
   const openReference = (reference: CollaborationTagReference) => {
@@ -2279,6 +2364,7 @@ function CollaborationComment({
         <BuildCollaborationAssetList
           assets={row.attachments}
           buildId={buildId}
+          focusedAssetId={focusedAssetId}
           onReplace={(asset, file) =>
             onReplaceAsset(asset, file, row.comment._id)
           }
@@ -2469,6 +2555,7 @@ function CollaborationCommentPin({
 function CollaborationDiscussion({
   acceptedCommentId,
   buildId,
+  focusedAssetId,
   focusedCommentId,
   onEditComment,
   onFocusReference,
@@ -2481,6 +2568,7 @@ function CollaborationDiscussion({
 }: {
   acceptedCommentId?: Id<"buildCollaborationComments">;
   buildId: Id<"activeBuilds">;
+  focusedAssetId?: Id<"buildCollaborationAssets">;
   focusedCommentId?: Id<"buildCollaborationComments">;
   onEditComment: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
@@ -2677,6 +2765,7 @@ function CollaborationDiscussion({
               accepted={row.comment._id === acceptedCommentId}
               buildId={buildId}
               focused={row.comment._id === effectiveFocusCommentId}
+              focusedAssetId={focusedAssetId}
               key={row.comment._id}
               onEdit={onEditComment}
               onFocusReference={onFocusReference}
@@ -2995,8 +3084,8 @@ function searchResultReference(result: BuildCollaborationSearchResult) {
       };
     case "asset":
       return {
-        entityId: result.postId,
-        entityKind: "post",
+        entityId: result.entityId ?? result.id,
+        entityKind: "asset",
       };
     case "reference":
       return {

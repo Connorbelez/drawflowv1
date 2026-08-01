@@ -11,7 +11,10 @@ import {
 } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
-import { projectCollaborationAssetAttachments } from "./build_collaboration_asset_projection";
+import {
+  projectCollaborationAssetAttachmentPage,
+  projectCollaborationAssetAttachments,
+} from "./build_collaboration_asset_projection";
 import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
 import { stableContentHash } from "./build_collaboration_hash";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
@@ -22,7 +25,6 @@ import {
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { buildCollaborationSearchReaderFingerprint } from "./build_collaboration_search_readers";
-import { projectThreadComments } from "./build_collaboration_threads";
 import {
   buildCollaborationAudienceModeValidator,
   buildCollaborationReferenceKindValidator,
@@ -30,9 +32,6 @@ import {
 import { internalQuery } from "./fluent";
 import type { ActionCtx, Doc, Id, QueryCtx } from "./types";
 
-const MAX_REFERENCES_PER_OWNER = 100;
-const MAX_SEARCH_ACTION_ITEMS_PER_POST = 2000;
-const MAX_SEARCH_COMMENTS_PER_POST = 1000;
 const MAX_RESULTS = 50;
 const MAX_QUERY_LENGTH = 240;
 const MAX_INDEX_PAGES_PER_REQUEST = 5;
@@ -93,7 +92,12 @@ const searchResultValidator = v.object({
   excerpt: v.string(),
   focusEntityId: v.optional(v.string()),
   focusEntityKind: v.optional(
-    v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem"))
+    v.union(
+      v.literal("post"),
+      v.literal("comment"),
+      v.literal("actionItem"),
+      v.literal("asset")
+    )
   ),
   hasAttachments: v.boolean(),
   href: v.string(),
@@ -126,7 +130,12 @@ const searchCandidateValidator = v.object({
   entityKinds: v.array(buildCollaborationReferenceKindValidator),
   focusEntityId: v.optional(v.string()),
   focusEntityKind: v.optional(
-    v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem"))
+    v.union(
+      v.literal("post"),
+      v.literal("comment"),
+      v.literal("actionItem"),
+      v.literal("asset")
+    )
   ),
   hasAttachments: v.boolean(),
   href: v.string(),
@@ -196,7 +205,6 @@ export const searchAuthorizedBuildCollaborationIndexPage =
       indexQuery: v.optional(v.string()),
       organizationId: v.string(),
       paginationOpts: paginationOptsValidator,
-      partitionKind: v.union(v.literal("tier"), v.literal("user")),
     })
     .returns(authorizedSearchIndexPageValidator)
     .handler(async (ctx, args) => {
@@ -216,10 +224,7 @@ export const searchAuthorizedBuildCollaborationIndexPage =
           stale: true,
         };
       }
-      const readerPartitionKey = searchPartitionKey(
-        args.partitionKind,
-        authorization
-      );
+      const readerPartitionKey = userSearchPartitionKey(authorization);
       const sourcePage = args.indexQuery
         ? await ctx.db
             .query("buildCollaborationSearchRecords")
@@ -360,7 +365,7 @@ export const searchBuildCollaboration = authenticatedAction
         page: [],
       };
     }
-    const { candidates, nextPartition } = collected;
+    const { candidates } = collected;
     const ranked = deduplicateCandidates(candidates)
       .map((candidate) => rankCandidate(candidate, query, searchMode))
       .filter(
@@ -376,17 +381,16 @@ export const searchBuildCollaboration = authenticatedAction
         "This Build search exceeded its stable pagination limit. Narrow the filters and try again."
       );
     }
-    const isDone = cursor.sourceDone.tier && cursor.sourceDone.user;
+    const isDone = cursor.sourceDone;
     return {
       continueCursor: isDone
         ? null
         : JSON.stringify({
             fingerprint,
-            nextPartition,
             seenHashes: [...seenHashes],
-            sourceCursors: cursor.sourceCursors,
+            sourceCursor: cursor.sourceCursor,
             sourceDone: cursor.sourceDone,
-            version: 5,
+            version: 6,
           }),
       generation: readiness.generation,
       indexing: false,
@@ -443,7 +447,7 @@ type SearchStatus =
 
 type ReferenceKind = Doc<"buildCollaborationReferences">["entityKind"];
 type AudienceMode = Doc<"buildCollaborationPosts">["audienceMode"];
-type SearchFocusEntityKind = "post" | "comment" | "actionItem";
+type SearchFocusEntityKind = "post" | "comment" | "actionItem" | "asset";
 
 interface NormalizedSearchFilters {
   assigneeWorkosUserIds: string[];
@@ -513,49 +517,40 @@ async function collectAuthorizedSearchCandidates(
   }
 ) {
   const candidates: SearchCandidate[] = [];
-  let nextPartition = input.cursor.nextPartition;
-  for (let attempt = 0; attempt < 2 && candidates.length === 0; attempt += 1) {
-    const partitionKind = nextPartition;
-    if (!input.cursor.sourceDone[partitionKind]) {
-      let sourcePagesRead = 0;
-      while (
-        !input.cursor.sourceDone[partitionKind] &&
-        candidates.length < input.limit &&
-        sourcePagesRead < MAX_INDEX_PAGES_PER_REQUEST
-      ) {
-        const sourcePage: AuthorizedSearchIndexPage = await ctx.runQuery(
-          internal.build_collaboration_search
-            .searchAuthorizedBuildCollaborationIndexPage,
-          {
-            buildId: input.buildId,
-            generation: input.generation,
-            indexQuery: input.indexQuery,
-            organizationId: input.organizationId,
-            paginationOpts: {
-              cursor: input.cursor.sourceCursors[partitionKind],
-              numItems: input.limit,
-            },
-            partitionKind,
-          }
-        );
-        if (sourcePage.stale) {
-          return { candidates: [], nextPartition, stale: true };
-        }
-        candidates.push(
-          ...sourcePage.page.filter(
-            (candidate) =>
-              !input.seenHashes.has(searchCandidateHash(candidate)) &&
-              candidateMatchesFilters(candidate, input.filters)
-          )
-        );
-        input.cursor.sourceCursors[partitionKind] = sourcePage.continueCursor;
-        input.cursor.sourceDone[partitionKind] = sourcePage.isDone;
-        sourcePagesRead += 1;
+  let sourcePagesRead = 0;
+  while (
+    !input.cursor.sourceDone &&
+    candidates.length < input.limit &&
+    sourcePagesRead < MAX_INDEX_PAGES_PER_REQUEST
+  ) {
+    const sourcePage: AuthorizedSearchIndexPage = await ctx.runQuery(
+      internal.build_collaboration_search.searchAuthorizedBuildCollaborationIndexPage,
+      {
+        buildId: input.buildId,
+        generation: input.generation,
+        indexQuery: input.indexQuery,
+        organizationId: input.organizationId,
+        paginationOpts: {
+          cursor: input.cursor.sourceCursor,
+          numItems: input.limit,
+        },
       }
+    );
+    if (sourcePage.stale) {
+      return { candidates: [], stale: true };
     }
-    nextPartition = otherSearchPartition(partitionKind);
+    candidates.push(
+      ...sourcePage.page.filter(
+        (candidate) =>
+          !input.seenHashes.has(searchCandidateHash(candidate)) &&
+          candidateMatchesFilters(candidate, input.filters)
+      )
+    );
+    input.cursor.sourceCursor = sourcePage.continueCursor;
+    input.cursor.sourceDone = sourcePage.isDone;
+    sourcePagesRead += 1;
   }
-  return { candidates, nextPartition, stale: false };
+  return { candidates, stale: false };
 }
 
 async function loadSearchReadiness(
@@ -593,22 +588,14 @@ async function loadSearchReadinessForAuthorization(
   };
 }
 
-function searchPartitionKey(
-  kind: SearchPartitionKind,
-  authorization: ActiveBuildAuthorization
-) {
-  return kind === "tier"
-    ? `tier:${authorization.effectiveRole.tier}`
-    : `user:${authorization.viewer.subject}`;
+function userSearchPartitionKey(authorization: ActiveBuildAuthorization) {
+  return `user:${authorization.viewer.subject}`;
 }
 
 function authorizedSearchPartitionKeys(
   authorization: ActiveBuildAuthorization
 ) {
-  return [
-    searchPartitionKey("tier", authorization),
-    searchPartitionKey("user", authorization),
-  ];
+  return [userSearchPartitionKey(authorization)];
 }
 
 function normalizeFilters(
@@ -659,57 +646,36 @@ function hasActiveSearchFilter(filters: NormalizedSearchFilters) {
 function parseSearchCursor(cursor: string | undefined, fingerprint: string) {
   if (!cursor) {
     return {
-      nextPartition: "user" as const,
       seenHashes: [] as string[],
-      sourceCursors: { tier: null, user: null } as Record<
-        SearchPartitionKind,
-        string | null
-      >,
-      sourceDone: { tier: false, user: false },
+      sourceCursor: null as string | null,
+      sourceDone: false,
     };
   }
   try {
     const parsed = JSON.parse(cursor) as {
       fingerprint?: unknown;
-      nextPartition?: unknown;
       seenHashes?: unknown;
-      sourceCursors?: { tier?: unknown; user?: unknown };
-      sourceDone?: { tier?: unknown; user?: unknown };
+      sourceCursor?: unknown;
+      sourceDone?: unknown;
       version?: unknown;
     };
     if (
-      parsed.version !== 5 ||
+      parsed.version !== 6 ||
       parsed.fingerprint !== fingerprint ||
-      !isSearchPartitionKind(parsed.nextPartition) ||
       !isSearchSeenHashes(parsed.seenHashes) ||
-      !isSearchSourceCursor(parsed.sourceCursors?.tier) ||
-      !isSearchSourceCursor(parsed.sourceCursors?.user) ||
-      typeof parsed.sourceDone?.tier !== "boolean" ||
-      typeof parsed.sourceDone.user !== "boolean"
+      !isSearchSourceCursor(parsed.sourceCursor) ||
+      typeof parsed.sourceDone !== "boolean"
     ) {
       throw new Error("invalid");
     }
     return {
-      nextPartition: parsed.nextPartition,
       seenHashes: parsed.seenHashes,
-      sourceCursors: {
-        tier: parsed.sourceCursors.tier,
-        user: parsed.sourceCursors.user,
-      },
-      sourceDone: {
-        tier: parsed.sourceDone.tier,
-        user: parsed.sourceDone.user,
-      },
+      sourceCursor: parsed.sourceCursor,
+      sourceDone: parsed.sourceDone,
     };
   } catch {
     throw new Error("Search cursor does not match this Build search.");
   }
-}
-
-type SearchPartitionKind = "tier" | "user";
-
-function isSearchPartitionKind(value: unknown): value is SearchPartitionKind {
-  return value === "tier" || value === "user";
 }
 
 function isSearchSourceCursor(value: unknown): value is string | null {
@@ -735,94 +701,260 @@ function searchCandidateHash(candidate: SearchCandidate) {
   );
 }
 
-function otherSearchPartition(
-  partition: SearchPartitionKind
-): SearchPartitionKind {
-  return partition === "tier" ? "user" : "tier";
-}
+export type SearchCandidateDiscoveryPhase = "base" | "references" | "assets";
 
-export async function loadAuthorizedPostCandidates(
+export async function loadAuthorizedOwnerCandidatePage(
   ctx: QueryCtx,
   input: {
     authorization: ActiveBuildAuthorization;
-    owner?: {
+    cursor: string | null;
+    owner: {
       id: string;
       kind: SearchCandidate["ownerKind"];
     };
+    phase: SearchCandidateDiscoveryPhase;
     post: Doc<"buildCollaborationPosts">;
     snapshotAt: number;
   }
 ) {
-  const { authorization, post } = input;
-  const role = authorization.effectiveRole.role;
-  const base = {
-    audienceMode: post.audienceMode,
-    postId: post._id,
-    resolutionState: post.threadState,
-  } as const;
-  const candidates: SearchCandidate[] = [];
-  if (!input.owner || input.owner.kind === "post") {
-    candidates.push(...(await loadPostSearchCandidates(ctx, input)));
+  const descriptor = await loadSearchOwnerDescriptor(ctx, input);
+  if (!descriptor) {
+    return {
+      candidates: [] as SearchCandidate[],
+      continueCursor: null,
+      done: true,
+      nextPhase: input.phase,
+    };
   }
-
-  const actionItems =
-    input.owner?.kind === "actionItem"
-      ? await loadSearchActionItem(ctx, post, input.owner.id)
-      : input.owner
-        ? []
-        : await ctx.db
-            .query("buildActionItems")
-            .withIndex("by_originatingPostId_and_status", (query) =>
-              query.eq("originatingPostId", post._id)
-            )
-            .take(MAX_SEARCH_ACTION_ITEMS_PER_POST + 1);
-  if (actionItems.length > MAX_SEARCH_ACTION_ITEMS_PER_POST) {
-    throw new Error(
-      "A collaboration post exceeds the bounded Action Item search limit."
+  if (input.phase === "base") {
+    const attachments = await projectCollaborationAssetAttachments(ctx, {
+      buildId: input.authorization.build._id,
+      organizationId: input.authorization.organizationId,
+      ownerKind: descriptor.assetOwnerKind,
+      ownerRecordId: descriptor.ownerRecordId,
+    });
+    const searchableAttachments = await enrichSearchAssetAttachments(
+      ctx,
+      input.authorization,
+      attachments,
+      input.snapshotAt
     );
+    return {
+      candidates: [
+        {
+          ...descriptor.baseCandidate,
+          hasAttachments: searchableAttachments.length > 0,
+        },
+      ],
+      continueCursor: null,
+      done: false,
+      nextPhase: "references" as const,
+    };
   }
-  for (const item of actionItems) {
-    if (
-      item.organizationId !== authorization.organizationId ||
-      item.buildId !== authorization.build._id ||
-      item.createdAt > input.snapshotAt ||
-      item.updatedAt > input.snapshotAt
-    ) {
-      continue;
-    }
-    const itemReferences = await ctx.db
+  if (input.phase === "references") {
+    const page = await ctx.db
       .query("buildCollaborationReferences")
       .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-        query.eq("ownerKind", "actionItem").eq("ownerRecordId", item._id)
+        query
+          .eq("ownerKind", descriptor.referenceOwnerKind)
+          .eq("ownerRecordId", descriptor.ownerRecordId)
       )
-      .take(MAX_REFERENCES_PER_OWNER);
-    const projectedItemReferences = await projectSearchReferences(ctx, {
-      authorization,
-      references: itemReferences.filter(
+      .paginate({ cursor: input.cursor, numItems: 5 });
+    const projected = await projectSearchReferences(ctx, {
+      authorization: input.authorization,
+      references: page.page.filter(
         (reference) => reference.createdAt <= input.snapshotAt
       ),
     });
-    const projectedDescription = projectCollaborationRevisionForViewer({
-      references: projectedItemReferences.canonical,
-      tiptapJson: item.descriptionTiptapJson,
+    return {
+      candidates: referenceCandidates({
+        audienceMode: descriptor.baseCandidate.audienceMode,
+        authorDisplayName: descriptor.baseCandidate.authorDisplayName,
+        authorWorkosUserId: descriptor.baseCandidate.authorWorkosUserId,
+        buildId: input.post.buildId,
+        createdAt: descriptor.baseCandidate.createdAt,
+        hasAttachments: false,
+        ownerId: descriptor.baseCandidate.ownerId,
+        ownerKind: descriptor.baseCandidate.ownerKind,
+        postId: input.post._id,
+        references: projected.readable,
+        resolutionState: descriptor.baseCandidate.resolutionState,
+        role: input.authorization.effectiveRole.role,
+        updatedAt: descriptor.baseCandidate.updatedAt,
+      }),
+      continueCursor: page.isDone ? null : page.continueCursor,
+      done: false,
+      nextPhase: page.isDone ? ("assets" as const) : ("references" as const),
+    };
+  }
+  const page = await projectCollaborationAssetAttachmentPage(ctx, {
+    buildId: input.authorization.build._id,
+    cursor: input.cursor,
+    organizationId: input.authorization.organizationId,
+    ownerKind: descriptor.assetOwnerKind,
+    ownerRecordId: descriptor.ownerRecordId,
+  });
+  const searchableAttachments = await enrichSearchAssetAttachments(
+    ctx,
+    input.authorization,
+    page.attachments,
+    input.snapshotAt
+  );
+  return {
+    candidates: assetCandidates({
+      assets: searchableAttachments,
+      audienceMode: descriptor.baseCandidate.audienceMode,
+      buildId: input.post.buildId,
+      createdAt: descriptor.baseCandidate.createdAt,
+      ownerId: descriptor.baseCandidate.ownerId,
+      ownerKind: descriptor.baseCandidate.ownerKind,
+      postId: input.post._id,
+      resolutionState: descriptor.baseCandidate.resolutionState,
+      role: input.authorization.effectiveRole.role,
+      updatedAt: descriptor.baseCandidate.updatedAt,
+    }),
+    continueCursor: page.isDone ? null : page.continueCursor,
+    done: page.isDone,
+    nextPhase: "assets" as const,
+  };
+}
+
+async function loadSearchOwnerDescriptor(
+  ctx: QueryCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    owner: { id: string; kind: SearchCandidate["ownerKind"] };
+    post: Doc<"buildCollaborationPosts">;
+    snapshotAt: number;
+  }
+) {
+  const { authorization, owner, post, snapshotAt } = input;
+  const role = authorization.effectiveRole.role;
+  const shared = {
+    audienceMode: post.audienceMode,
+    entityKinds: [] as ReferenceKind[],
+    hasAttachments: false,
+    postId: post._id,
+    resolutionState: post.threadState,
+  } as const;
+  if (owner.kind === "post") {
+    if (owner.id !== post._id || !post.currentRevisionId) {
+      return null;
+    }
+    const revision = await ctx.db.get(post.currentRevisionId);
+    if (!(revision && revision.createdAt <= snapshotAt)) {
+      return null;
+    }
+    const projected = projectCollaborationRevisionForViewer({
+      references: [],
+      tiptapJson: revision.tiptapJson,
     });
-    const itemAttachments = await projectCollaborationAssetAttachments(ctx, {
-      buildId: authorization.build._id,
-      organizationId: authorization.organizationId,
-      ownerKind: "actionItem",
-      ownerRecordId: item._id,
+    return {
+      assetOwnerKind: "postRevision" as const,
+      baseCandidate: {
+        ...shared,
+        authorDisplayName: post.authorDisplayNameSnapshot,
+        authorWorkosUserId: post.authorWorkosUserId,
+        createdAt: post.createdAt,
+        entityId: post.primaryReferenceId,
+        entityKind: post.primaryReferenceKind,
+        href: buildCollaborationDeepLink({
+          buildId: post.buildId,
+          postId: post._id,
+          recipientRole: role,
+        }),
+        id: post._id,
+        ownerId: post._id,
+        ownerKind: "post" as const,
+        resultType: "post" as const,
+        searchText: [
+          projected.plainText,
+          post.authorDisplayNameSnapshot,
+          post.decisionOutcome,
+          post.resolutionSummary,
+        ]
+          .filter(Boolean)
+          .join(" "),
+        status: post.threadState,
+        title: searchTitle(projected.plainText, `${post.postType} post`),
+        updatedAt: post.updatedAt,
+      } satisfies SearchCandidate,
+      ownerRecordId: revision._id,
+      referenceOwnerKind: "postRevision" as const,
+    };
+  }
+  if (owner.kind === "comment") {
+    const commentId = ctx.db.normalizeId(
+      "buildCollaborationComments",
+      owner.id
+    );
+    const comment = commentId ? await ctx.db.get(commentId) : null;
+    if (
+      !comment ||
+      comment.postId !== post._id ||
+      comment.contentState !== "active" ||
+      !comment.currentRevisionId ||
+      comment.createdAt > snapshotAt ||
+      comment.updatedAt > snapshotAt
+    ) {
+      return null;
+    }
+    const revision = await ctx.db.get(comment.currentRevisionId);
+    if (!(revision && revision.createdAt <= snapshotAt)) {
+      return null;
+    }
+    const projected = projectCollaborationRevisionForViewer({
+      references: [],
+      tiptapJson: revision.tiptapJson,
     });
-    const searchableItemAttachments = await enrichSearchAssetAttachments(
-      ctx,
-      authorization,
-      itemAttachments,
-      input.snapshotAt
-    );
-    const itemEntityKinds = projectedItemReferences.readable.map(
-      (reference) => reference.entityKind
-    );
-    candidates.push({
-      ...base,
+    return {
+      assetOwnerKind: "commentRevision" as const,
+      baseCandidate: {
+        ...shared,
+        authorDisplayName: comment.authorDisplayNameSnapshot,
+        authorWorkosUserId: comment.authorWorkosUserId,
+        commentId: comment._id,
+        createdAt: comment.createdAt,
+        focusEntityId: comment._id,
+        focusEntityKind: "comment" as const,
+        href: buildCollaborationDeepLink({
+          buildId: post.buildId,
+          focus: `comment:${comment._id}`,
+          recipientRole: role,
+        }),
+        id: comment._id,
+        ownerId: comment._id,
+        ownerKind: "comment" as const,
+        resultType: "comment" as const,
+        searchText: projected.plainText,
+        status: "active" as const,
+        title: `Reply by ${comment.authorDisplayNameSnapshot}`,
+        updatedAt: comment.updatedAt,
+      } satisfies SearchCandidate,
+      ownerRecordId: revision._id,
+      referenceOwnerKind: "commentRevision" as const,
+    };
+  }
+  const actionItemId = ctx.db.normalizeId("buildActionItems", owner.id);
+  const item = actionItemId ? await ctx.db.get(actionItemId) : null;
+  if (
+    !item ||
+    item.originatingPostId !== post._id ||
+    item.organizationId !== authorization.organizationId ||
+    item.buildId !== authorization.build._id ||
+    item.createdAt > snapshotAt ||
+    item.updatedAt > snapshotAt
+  ) {
+    return null;
+  }
+  const projected = projectCollaborationRevisionForViewer({
+    references: [],
+    tiptapJson: item.descriptionTiptapJson,
+  });
+  return {
+    assetOwnerKind: "actionItem" as const,
+    baseCandidate: {
+      ...shared,
       actionItemId: item._id,
       assigneeWorkosUserId: item.assigneeWorkosUserId,
       authorDisplayName: participantDisplayName(
@@ -833,8 +965,8 @@ export async function loadAuthorizedPostCandidates(
       createdAt: item.createdAt,
       entityId: item.primaryReferenceId,
       entityKind: item.primaryReferenceKind,
-      entityKinds: itemEntityKinds,
-      hasAttachments: searchableItemAttachments.length > 0,
+      focusEntityId: item._id,
+      focusEntityKind: "actionItem" as const,
       href: buildCollaborationDeepLink({
         buildId: post.buildId,
         focus: `actionItem:${item._id}`,
@@ -842,282 +974,16 @@ export async function loadAuthorizedPostCandidates(
       }),
       id: item._id,
       ownerId: item._id,
-      ownerKind: "actionItem",
-      resultType: "actionItem",
-      searchText: `${item.title} ${projectedDescription.plainText}`,
+      ownerKind: "actionItem" as const,
+      resultType: "actionItem" as const,
+      searchText: `${item.title} ${projected.plainText}`,
       status: item.status,
       title: item.title,
       updatedAt: item.updatedAt,
-    });
-    candidates.push(
-      ...referenceCandidates({
-        ...base,
-        authorDisplayName: participantDisplayName(
-          authorization,
-          item.creatorWorkosUserId
-        ),
-        authorWorkosUserId: item.creatorWorkosUserId,
-        buildId: post.buildId,
-        createdAt: item.createdAt,
-        hasAttachments: searchableItemAttachments.length > 0,
-        ownerId: item._id,
-        ownerKind: "actionItem",
-        references: projectedItemReferences.readable,
-        role,
-        updatedAt: item.updatedAt,
-      }),
-      ...assetCandidates({
-        ...base,
-        assets: searchableItemAttachments,
-        buildId: post.buildId,
-        createdAt: item.createdAt,
-        focusEntityId: item._id,
-        focusEntityKind: "actionItem",
-        ownerId: item._id,
-        ownerKind: "actionItem",
-        role,
-        updatedAt: item.updatedAt,
-      })
-    );
-  }
-
-  const comments =
-    input.owner?.kind === "comment"
-      ? await loadSearchComment(ctx, post, input.owner.id)
-      : input.owner
-        ? []
-        : await ctx.db
-            .query("buildCollaborationComments")
-            .withIndex("by_postId_and_createdAt", (query) =>
-              query.eq("postId", post._id)
-            )
-            .take(MAX_SEARCH_COMMENTS_PER_POST + 1);
-  if (comments.length > MAX_SEARCH_COMMENTS_PER_POST) {
-    throw new Error(
-      "A collaboration post exceeds the bounded reply search limit."
-    );
-  }
-  const currentComments = comments.filter(
-    (comment) =>
-      comment.createdAt <= input.snapshotAt &&
-      comment.updatedAt <= input.snapshotAt
-  );
-  const projectedComments = await projectThreadComments(
-    ctx,
-    authorization,
-    currentComments
-  );
-  for (const row of projectedComments) {
-    if (row.comment.contentState !== "active" || !row.revision) {
-      continue;
-    }
-    const rowEntityKinds = row.references
-      .filter(
-        (reference) => reference.labelSnapshot !== "Unavailable reference"
-      )
-      .map((reference) => reference.entityKind);
-    const rawComment = currentComments.find(
-      (comment) => comment._id === row.comment._id
-    );
-    const searchableCommentAttachments = await enrichSearchAssetAttachments(
-      ctx,
-      authorization,
-      row.attachments,
-      input.snapshotAt
-    );
-    candidates.push({
-      ...base,
-      authorDisplayName: row.comment.authorDisplayNameSnapshot,
-      authorWorkosUserId: rawComment?.authorWorkosUserId,
-      createdAt: row.comment.createdAt,
-      commentId: row.comment._id,
-      entityKinds: rowEntityKinds,
-      hasAttachments: searchableCommentAttachments.length > 0,
-      href: buildCollaborationDeepLink({
-        buildId: post.buildId,
-        focus: `comment:${row.comment._id}`,
-        recipientRole: role,
-      }),
-      id: row.comment._id,
-      ownerId: row.comment._id,
-      ownerKind: "comment",
-      resultType: "comment",
-      searchText: row.revision.plainText,
-      status: "active",
-      title: `Reply by ${row.comment.authorDisplayNameSnapshot}`,
-      updatedAt: row.comment.updatedAt,
-    });
-    candidates.push(
-      ...referenceCandidates({
-        ...base,
-        authorDisplayName: row.comment.authorDisplayNameSnapshot,
-        authorWorkosUserId: rawComment?.authorWorkosUserId,
-        buildId: post.buildId,
-        createdAt: row.comment.createdAt,
-        hasAttachments: searchableCommentAttachments.length > 0,
-        ownerId: row.comment._id,
-        ownerKind: "comment",
-        references: row.references.filter(
-          (reference) => reference.labelSnapshot !== "Unavailable reference"
-        ),
-        role,
-        updatedAt: row.comment.updatedAt,
-      }),
-      ...assetCandidates({
-        ...base,
-        assets: searchableCommentAttachments,
-        buildId: post.buildId,
-        createdAt: row.comment.createdAt,
-        focusEntityId: row.comment._id,
-        focusEntityKind: "comment",
-        ownerId: row.comment._id,
-        ownerKind: "comment",
-        role,
-        updatedAt: row.comment.updatedAt,
-      })
-    );
-  }
-  return candidates;
-}
-
-async function loadPostSearchCandidates(
-  ctx: QueryCtx,
-  input: {
-    authorization: ActiveBuildAuthorization;
-    owner?: { id: string; kind: SearchCandidate["ownerKind"] };
-    post: Doc<"buildCollaborationPosts">;
-    snapshotAt: number;
-  }
-) {
-  const { authorization, post } = input;
-  if (input.owner && input.owner.id !== post._id) {
-    return [];
-  }
-  const revision = post.currentRevisionId
-    ? await ctx.db.get(post.currentRevisionId)
-    : null;
-  if (
-    !(
-      revision &&
-      revision.postId === post._id &&
-      revision.createdAt <= input.snapshotAt
-    )
-  ) {
-    return [];
-  }
-  const references = await ctx.db
-    .query("buildCollaborationReferences")
-    .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-      query.eq("ownerKind", "postRevision").eq("ownerRecordId", revision._id)
-    )
-    .take(MAX_REFERENCES_PER_OWNER);
-  const projectedReferences = await projectSearchReferences(ctx, {
-    authorization,
-    references: references.filter(
-      (reference) => reference.createdAt <= input.snapshotAt
-    ),
-  });
-  const projectedPost = projectCollaborationRevisionForViewer({
-    references: projectedReferences.canonical,
-    tiptapJson: revision.tiptapJson,
-  });
-  const attachments = await projectCollaborationAssetAttachments(ctx, {
-    buildId: authorization.build._id,
-    organizationId: authorization.organizationId,
-    ownerKind: "postRevision",
-    ownerRecordId: revision._id,
-  });
-  const searchableAttachments = await enrichSearchAssetAttachments(
-    ctx,
-    authorization,
-    attachments,
-    input.snapshotAt
-  );
-  const role = authorization.effectiveRole.role;
-  const base = {
-    audienceMode: post.audienceMode,
-    postId: post._id,
-    resolutionState: post.threadState,
-  } as const;
-  return [
-    {
-      ...base,
-      authorDisplayName: post.authorDisplayNameSnapshot,
-      authorWorkosUserId: post.authorWorkosUserId,
-      createdAt: post.createdAt,
-      entityId: post.primaryReferenceId,
-      entityKind: post.primaryReferenceKind,
-      entityKinds: projectedReferences.readable.map(
-        (reference) => reference.entityKind
-      ),
-      hasAttachments: searchableAttachments.length > 0,
-      href: buildCollaborationDeepLink({
-        buildId: post.buildId,
-        postId: post._id,
-        recipientRole: role,
-      }),
-      id: post._id,
-      ownerId: post._id,
-      ownerKind: "post" as const,
-      resultType: "post" as const,
-      searchText: [
-        projectedPost.plainText,
-        post.authorDisplayNameSnapshot,
-        post.decisionOutcome,
-        post.resolutionSummary,
-      ]
-        .filter(Boolean)
-        .join(" "),
-      status: post.threadState,
-      title: searchTitle(projectedPost.plainText, `${post.postType} post`),
-      updatedAt: post.updatedAt,
-    },
-    ...referenceCandidates({
-      ...base,
-      authorDisplayName: post.authorDisplayNameSnapshot,
-      authorWorkosUserId: post.authorWorkosUserId,
-      buildId: post.buildId,
-      createdAt: post.createdAt,
-      hasAttachments: searchableAttachments.length > 0,
-      ownerId: post._id,
-      ownerKind: "post",
-      references: projectedReferences.readable,
-      role,
-      updatedAt: post.updatedAt,
-    }),
-    ...assetCandidates({
-      ...base,
-      assets: searchableAttachments,
-      buildId: post.buildId,
-      createdAt: post.createdAt,
-      focusEntityId: post._id,
-      focusEntityKind: "post",
-      ownerId: post._id,
-      ownerKind: "post",
-      role,
-      updatedAt: post.updatedAt,
-    }),
-  ];
-}
-
-async function loadSearchActionItem(
-  ctx: QueryCtx,
-  post: Doc<"buildCollaborationPosts">,
-  ownerId: string
-) {
-  const actionItemId = ctx.db.normalizeId("buildActionItems", ownerId);
-  const actionItem = actionItemId ? await ctx.db.get(actionItemId) : null;
-  return actionItem?.originatingPostId === post._id ? [actionItem] : [];
-}
-
-async function loadSearchComment(
-  ctx: QueryCtx,
-  post: Doc<"buildCollaborationPosts">,
-  ownerId: string
-) {
-  const commentId = ctx.db.normalizeId("buildCollaborationComments", ownerId);
-  const comment = commentId ? await ctx.db.get(commentId) : null;
-  return comment?.postId === post._id ? [comment] : [];
+    } satisfies SearchCandidate,
+    ownerRecordId: item._id,
+    referenceOwnerKind: "actionItem" as const,
+  };
 }
 
 async function projectSearchReferences(
@@ -1550,8 +1416,6 @@ function assetCandidates(input: {
   audienceMode: AudienceMode;
   buildId: Id<"activeBuilds">;
   createdAt: number;
-  focusEntityId: string;
-  focusEntityKind: SearchFocusEntityKind;
   ownerId: string;
   ownerKind: SearchCandidate["ownerKind"];
   postId: Id<"buildCollaborationPosts">;
@@ -1566,16 +1430,12 @@ function assetCandidates(input: {
       createdAt: input.createdAt,
       entityId: asset.assetId,
       entityKinds: [],
-      focusEntityId: input.focusEntityId,
-      focusEntityKind: input.focusEntityKind,
+      focusEntityId: asset.assetId,
+      focusEntityKind: "asset",
       hasAttachments: true,
       href: buildCollaborationDeepLink({
         buildId: input.buildId,
-        ...(input.focusEntityKind === "post"
-          ? { postId: input.focusEntityId as Id<"buildCollaborationPosts"> }
-          : {
-              focus: `${input.focusEntityKind}:${input.focusEntityId}`,
-            }),
+        focus: `asset:${asset.assetId}`,
         recipientRole: input.role,
       }),
       id: asset.assetId,

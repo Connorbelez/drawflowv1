@@ -7,130 +7,64 @@ import {
 } from "./build_collaboration_model";
 import {
   buildSearchIndexText,
-  loadAuthorizedPostCandidates,
+  loadAuthorizedOwnerCandidatePage,
   type SearchCandidate,
+  type SearchCandidateDiscoveryPhase,
 } from "./build_collaboration_search";
 import { resolveBuildCollaborationSearchReaders } from "./build_collaboration_search_readers";
-import { isDrawSystemPost } from "./build_collaboration_system_event_access";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_SEARCH_READERS_PER_POST = 1000;
-const SEARCH_RECORD_BATCH_SIZE = 25;
-const SEARCH_ROLE_TIERS = [1, 2, 3, 4, 5] as const;
-const FIRST_LINE_PATTERN = /\r?\n/u;
 
 export interface BuildCollaborationSearchOwner {
   id: string;
   kind: SearchCandidate["ownerKind"];
 }
 
-export async function materializeBuildCollaborationSearchTierRecords(
-  ctx: MutationCtx,
-  input: {
-    authorization: ActiveBuildAuthorization;
-    jobId: Id<"buildCollaborationSearchJobs">;
-    owner: BuildCollaborationSearchOwner;
-    postId: Id<"buildCollaborationPosts">;
-  }
-) {
-  const post = await ctx.db.get(input.postId);
-  if (
-    !isActiveSearchPost(post, input.authorization) ||
-    isDrawSystemPost(post)
-  ) {
-    return 0;
-  }
-  const readers = await resolveSearchReaders(ctx, input.authorization, post);
-  const representative = [...readers].sort(
-    (left, right) =>
-      collaborationRoleTier(right.role) - collaborationRoleTier(left.role)
-  )[0];
-  if (!representative) {
-    return 0;
-  }
-  const indexedAt = Date.now();
-  const representativeCandidates = await candidatesForReader(
-    ctx,
-    input,
-    post,
-    representative,
-    indexedAt
-  );
-  const tierCandidates = representativeCandidates
-    .filter(
-      (candidate) =>
-        candidate.resultType !== "asset" && candidate.resultType !== "reference"
-    )
-    .map((candidate) =>
-      redactReaderSpecificCandidate(candidate, representativeCandidates)
-    );
-  let count = 0;
-  for (const partitionKey of readableTierPartitions(post)) {
-    for (const candidate of tierCandidates) {
-      await insertSearchRecord(ctx, {
-        authorization: input.authorization,
-        candidate,
-        contentState: "retired",
-        indexedAt,
-        jobId: input.jobId,
-        partitionKey,
-        post,
-      });
-      count += 1;
-    }
-  }
-  return count;
-}
-
 export async function materializeBuildCollaborationSearchReaderRecords(
   ctx: MutationCtx,
   input: {
     authorization: ActiveBuildAuthorization;
+    candidateCursor: string | null;
+    candidatePhase: SearchCandidateDiscoveryPhase;
     jobId: Id<"buildCollaborationSearchJobs">;
     owner: BuildCollaborationSearchOwner;
     postId: Id<"buildCollaborationPosts">;
-    candidateOffset: number;
     readerOffset: number;
   }
 ) {
   const post = await ctx.db.get(input.postId);
   if (!isActiveSearchPost(post, input.authorization)) {
-    return { done: true, nextReaderOffset: input.readerOffset };
+    return {
+      done: true,
+      nextCandidateCursor: null,
+      nextCandidatePhase: "base" as const,
+      nextReaderOffset: input.readerOffset,
+    };
   }
   const readers = await resolveSearchReaders(ctx, input.authorization, post);
   const reader = readers[input.readerOffset];
   if (!reader) {
     return {
       done: true,
-      nextCandidateOffset: 0,
+      nextCandidateCursor: null,
+      nextCandidatePhase: "base" as const,
       nextReaderOffset: input.readerOffset,
     };
   }
   const indexedAt = Date.now();
-  const candidates = await candidatesForReader(
-    ctx,
-    input,
-    post,
-    reader,
-    indexedAt
+  const page = await loadAuthorizedOwnerCandidatePage(
+    ctx as unknown as QueryCtx,
+    {
+      authorization: authorizationForSearchReader(input.authorization, reader),
+      cursor: input.candidateCursor,
+      owner: input.owner,
+      phase: input.candidatePhase,
+      post,
+      snapshotAt: indexedAt,
+    }
   );
-  const needsFullPartition =
-    isDrawSystemPost(post) ||
-    collaborationRoleTier(reader.role) < post.audienceFloorTier;
-  const readerSpecificCandidates = needsFullPartition
-    ? candidates
-    : candidates.filter(
-        (candidate) =>
-          candidate.resultType === "asset" ||
-          candidate.resultType === "reference" ||
-          candidate.hasAttachments ||
-          candidate.entityKinds.length > 0
-      );
-  const candidatePage = readerSpecificCandidates.slice(
-    input.candidateOffset,
-    input.candidateOffset + SEARCH_RECORD_BATCH_SIZE
-  );
-  for (const candidate of candidatePage) {
+  for (const candidate of page.candidates) {
     await insertSearchRecord(ctx, {
       authorization: input.authorization,
       candidate,
@@ -141,17 +75,13 @@ export async function materializeBuildCollaborationSearchReaderRecords(
       post,
     });
   }
-  const readerDone =
-    input.candidateOffset + candidatePage.length >=
-    readerSpecificCandidates.length;
-  const nextReaderOffset = readerDone
+  const nextReaderOffset = page.done
     ? input.readerOffset + 1
     : input.readerOffset;
   return {
-    done: readerDone && nextReaderOffset >= readers.length,
-    nextCandidateOffset: readerDone
-      ? 0
-      : input.candidateOffset + candidatePage.length,
+    done: page.done && nextReaderOffset >= readers.length,
+    nextCandidateCursor: page.done ? null : page.continueCursor,
+    nextCandidatePhase: page.done ? ("base" as const) : page.nextPhase,
     nextReaderOffset,
   };
 }
@@ -210,76 +140,8 @@ export async function resolveSearchReaders(
   );
 }
 
-function readableTierPartitions(post: Doc<"buildCollaborationPosts">) {
-  const minimumTier =
-    post.audienceMode === "build_wide"
-      ? 1
-      : Math.max(1, post.audienceFloorTier);
-  return SEARCH_ROLE_TIERS.filter((tier) => tier >= minimumTier).map(
-    (tier) => `tier:${tier}`
-  );
-}
-
 function userPartition(workosUserId: string) {
   return `user:${workosUserId}`;
-}
-
-async function candidatesForReader(
-  ctx: MutationCtx,
-  input: {
-    authorization: ActiveBuildAuthorization;
-    owner?: BuildCollaborationSearchOwner;
-  },
-  post: Doc<"buildCollaborationPosts">,
-  reader: { role: BuildCollaborationRole; workosUserId: string },
-  indexedAt: number
-) {
-  return await loadAuthorizedPostCandidates(ctx as unknown as QueryCtx, {
-    authorization: authorizationForSearchReader(input.authorization, reader),
-    owner: input.owner,
-    post,
-    snapshotAt: indexedAt,
-  });
-}
-
-function redactReaderSpecificCandidate(
-  candidate: SearchCandidate,
-  candidates: SearchCandidate[]
-): SearchCandidate {
-  let searchText = candidate.searchText;
-  let title = candidate.title;
-  for (const sensitive of candidates) {
-    if (
-      sensitive.ownerKind !== candidate.ownerKind ||
-      sensitive.ownerId !== candidate.ownerId ||
-      (sensitive.resultType !== "reference" && sensitive.resultType !== "asset")
-    ) {
-      continue;
-    }
-    searchText = removeSearchFragment(searchText, sensitive.title);
-    searchText = removeSearchFragment(searchText, sensitive.searchText);
-    title = removeSearchFragment(title, sensitive.title);
-    title = removeSearchFragment(title, sensitive.searchText);
-  }
-  return {
-    ...candidate,
-    entityId: undefined,
-    entityKind: undefined,
-    entityKinds: [],
-    hasAttachments: false,
-    searchText,
-    title:
-      title.trim().split(FIRST_LINE_PATTERN)[0]?.slice(0, 120) ||
-      `${candidate.resultType} update`,
-  };
-}
-
-function removeSearchFragment(value: string, fragment: string) {
-  const normalized = fragment.trim();
-  if (!normalized) {
-    return value;
-  }
-  return value.replaceAll(normalized, " ");
 }
 
 async function insertSearchRecord(

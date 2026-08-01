@@ -6,6 +6,7 @@ import {
 } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
+import { buildCollaborationOrganizationAuthorityFingerprint } from "./build_collaboration_search_readers";
 import { buildCollaborationTenantStatusValidator } from "./build_collaboration_validators";
 import type { Id, MutationCtx, QueryCtx } from "./types";
 
@@ -133,6 +134,9 @@ export const transitionBuildCollaborationTenantStatus = authenticatedMutation
       args.nextStatus === "migration_ready" || args.nextStatus === "active"
         ? await requirePassingParityEvidence(ctx, authorization)
         : null;
+    if (args.nextStatus === "active") {
+      await requireReadyCollaborationSearchCutover(ctx, authorization);
+    }
     const now = Date.now();
     const patch = {
       ...(args.nextStatus === "active"
@@ -200,6 +204,75 @@ export async function authorizeActiveBuildCollaborationAccess(
   const authorization = await authorizeActiveBuildAccess(ctx, input);
   await requireActiveBuildCollaborationTenant(ctx, authorization);
   return authorization;
+}
+
+async function requireReadyCollaborationSearchCutover(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization
+) {
+  const check = await ctx.db
+    .query("buildCollaborationSearchCutoverChecks")
+    .withIndex("by_organizationId", (query) =>
+      query.eq("organizationId", authorization.organizationId)
+    )
+    .unique();
+  if (
+    !check ||
+    check.brokerageId !== authorization.brokerage._id ||
+    check.status !== "ready" ||
+    check.buildCount !== check.readyBuildCount
+  ) {
+    throw new Error(
+      "Collaboration activation requires a completed search readiness verification for every Build."
+    );
+  }
+  const latestBuild = await ctx.db
+    .query("activeBuilds")
+    .withIndex("by_brokerage", (query) =>
+      query.eq("brokerageId", authorization.brokerage._id)
+    )
+    .order("desc")
+    .filter((query) =>
+      query.eq(query.field("organizationId"), authorization.organizationId)
+    )
+    .first();
+  if (
+    latestBuild?._creationTime !== check.latestBuildCreationTime ||
+    check.authorityReaderFingerprint !==
+      (await buildCollaborationOrganizationAuthorityFingerprint(
+        ctx,
+        authorization.organizationId
+      ))
+  ) {
+    throw new Error(
+      "Collaboration search readiness changed after verification; run verification again."
+    );
+  }
+  const [buildingState, queuedJob, runningJob, failedJob] = await Promise.all([
+    ctx.db
+      .query("buildCollaborationSearchStates")
+      .withIndex("by_brokerageId_and_status", (query) =>
+        query
+          .eq("brokerageId", authorization.brokerage._id)
+          .eq("status", "building")
+      )
+      .first(),
+    ...(["queued", "running", "failed"] as const).map((status) =>
+      ctx.db
+        .query("buildCollaborationSearchJobs")
+        .withIndex("by_brokerageId_and_status", (query) =>
+          query
+            .eq("brokerageId", authorization.brokerage._id)
+            .eq("status", status)
+        )
+        .first()
+    ),
+  ]);
+  if (buildingState || queuedJob || runningJob || failedJob) {
+    throw new Error(
+      "Collaboration activation is blocked while search maintenance is pending."
+    );
+  }
 }
 
 export async function requireActiveBuildCollaborationTenant(

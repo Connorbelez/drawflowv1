@@ -358,29 +358,22 @@ async function resolveEvidencePackageReference(
   }
 ) {
   requireAllReadersCanReadEvidence(input.readers);
-  const assets = await ctx.db
+  const asset = await ctx.db
     .query("buildEvidenceAssets")
     .withIndex("by_build_key", (query) =>
       query
         .eq("buildId", input.authorization.build._id)
         .eq("evidenceKey", input.entityId)
     )
-    .take(MAX_OPTIONS_PER_KIND);
-  const asset = assets.find((candidate) =>
-    isScopedDoc(candidate, input.authorization)
-  );
-  if (!asset) {
+    .first();
+  if (!(asset && isScopedDoc(asset, input.authorization))) {
     throw unavailableReference();
   }
   return {
     ...input.common,
     eyebrow: "Evidence Package",
     label: asset.evidenceKey,
-    searchTerms: [
-      ...new Set(
-        assets.flatMap((candidate) => [candidate.milestoneKey, candidate.tag])
-      ),
-    ],
+    searchTerms: [asset.milestoneKey, asset.tag],
     summary: `Evidence for ${asset.milestoneKey}`,
   };
 }

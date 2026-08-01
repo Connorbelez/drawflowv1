@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -1847,7 +1847,7 @@ describe("Build collaboration governed assets", () => {
         provider: "test-scanner",
       },
     );
-    await admin.mutation(
+    const commentId = await admin.mutation(
       (api as any).build_collaboration_threads.addBuildCollaborationComment,
       {
         attachmentAssetIds: [commentAssetId],
@@ -1875,6 +1875,22 @@ describe("Build collaboration governed assets", () => {
         version: 1,
       }),
     ]);
+    await expect(
+      admin.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationAssetContext,
+        {
+          assetId: commentAssetId,
+          buildId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toEqual({
+      assetId: commentAssetId,
+      commentId,
+      postId,
+      state: "visible",
+    });
 
     const draftBundle = collaborationPublicationFixture({
       buildId,
@@ -2908,6 +2924,21 @@ describe("Build collaboration tenant rollout", () => {
         organizationId: ORGANIZATION_ID,
       },
     );
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId,
+          expectedStatus: "migration_ready",
+          nextStatus: "active",
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(
+      "Collaboration activation requires a completed search readiness verification for every Build.",
+    );
+    await prepareSearchCutover(base, buildId);
     await admin.mutation(
       (api as any).build_collaboration_rollout
         .transitionBuildCollaborationTenantStatus,
@@ -4956,9 +4987,6 @@ describe("Build collaboration canonical reference authorization", () => {
 });
 
 describe("Build collaboration authorized search", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
-
   test("searches every readable record kind and applies all server-side filters", async () => {
     const fixture = await seedActiveBuild();
     await addBuildParticipant(fixture.base, {
@@ -5096,7 +5124,7 @@ describe("Build collaboration authorized search", () => {
     ).toEqual([
       expect.objectContaining({
         entityId: assetId,
-        focusEntityKind: "post",
+        focusEntityKind: "asset",
         resultType: "asset",
       }),
     ]);
@@ -5412,7 +5440,7 @@ describe("Build collaboration authorized search", () => {
         .withIndex("by_buildId_and_reader", (query) =>
           query
             .eq("buildId", fixture.buildId)
-            .eq("readerPartitionKey", "tier:1")
+            .eq("readerPartitionKey", "user:archive_contractor")
         )
         .take(50)
     );
@@ -5611,6 +5639,20 @@ describe("Build collaboration authorized search", () => {
       }),
     );
     await finishSearchMaintenance(fixture.base);
+    await fixture.base.run(async (ctx) => {
+      for (let index = 0; index < 501; index += 1) {
+        await ctx.db.insert("workosOrganizationMemberships", {
+          roleSlug: "member",
+          roleSlugs: ["member"],
+          sourceEventId: `event_ordinary_search_${index}`,
+          sourceEventType: "organization_membership.created",
+          status: "active",
+          workosMembershipId: `membership_ordinary_search_${index}`,
+          workosOrganizationId: ORGANIZATION_ID,
+          workosUserId: `user_ordinary_search_${index}`,
+        });
+      }
+    });
     await fixture.base.mutation(
       (internal as any).workosProjection.ingestWorkosEvent,
       {
@@ -5651,6 +5693,48 @@ describe("Build collaboration authorized search", () => {
     expect(ready.page).toEqual([
       expect.objectContaining({ id: postId, resultType: "post" }),
     ]);
+  });
+
+  test("recovers an expired failed maintenance job instead of wedging the Build", async () => {
+    const fixture = await seedActiveBuild();
+    await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      collaborationPublicationFixture({
+        buildId: fixture.buildId,
+        plainText: "Recoverable search maintenance beacon.",
+      }),
+    );
+    await fixture.base.run(async (ctx) => {
+      const job = await ctx.db
+        .query("buildCollaborationSearchJobs")
+        .withIndex("by_buildId_and_status", (query) =>
+          query.eq("buildId", fixture.buildId).eq("status", "queued"),
+        )
+        .first();
+      if (!job) {
+        throw new Error("Queued search maintenance fixture is unavailable.");
+      }
+      await ctx.db.patch(job._id, {
+        failureCount: 1,
+        lastError: "Injected recoverable failure.",
+        leaseExpiresAt: Date.now() - 1,
+        status: "failed",
+      });
+    });
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .ensureBuildCollaborationSearchMaintenance,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    await finishSearchMaintenance(fixture.base);
+
+    const readiness = await fixture.admin.query(
+      (api as any).build_collaboration_search
+        .getBuildCollaborationSearchReadiness,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(readiness.ready).toBe(true);
   });
 
   test("searches every currently readable canonical reference kind with focused deep links", async () => {
@@ -5869,7 +5953,60 @@ describe("Build collaboration authorized search", () => {
 });
 
 async function finishSearchMaintenance(t: ReturnType<typeof convexTest>) {
-  await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+  for (let iteration = 0; iteration < 5000; iteration += 1) {
+    const pendingJobIds = await t.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationSearchJobs").collect())
+        .filter((job) => job.status !== "complete")
+        .map((job) => job._id),
+    );
+    if (pendingJobIds.length === 0) {
+      return;
+    }
+    for (const jobId of pendingJobIds) {
+      await t.mutation(
+        (internal as any).build_collaboration_search_maintenance
+          .processBuildCollaborationSearchJob,
+        { jobId },
+      );
+    }
+  }
+  throw new Error("Search maintenance did not drain within the test bound.");
+}
+
+async function prepareSearchCutover(
+  t: ReturnType<typeof convexTest>,
+  buildId: Id<"activeBuilds">,
+) {
+  await t.mutation(
+    (internal as any).build_collaboration_search_maintenance
+      .ensureBuildCollaborationSearchMaintenance,
+    { buildId, organizationId: ORGANIZATION_ID },
+  );
+  const jobId = await t.run(async (ctx) => {
+    const job = (await ctx.db.query("buildCollaborationSearchJobs").collect()).find(
+      (candidate) =>
+        candidate.buildId === buildId && candidate.status === "queued",
+    );
+    if (!job) {
+      throw new Error("Search cutover maintenance fixture is unavailable.");
+    }
+    return job._id;
+  });
+  await t.mutation(
+    (internal as any).build_collaboration_search_maintenance
+      .processBuildCollaborationSearchJob,
+    { jobId },
+  );
+  const checkId = await t.mutation(
+    (internal as any).build_collaboration_search_maintenance
+      .startBuildCollaborationSearchCutoverVerification,
+    { buildId, organizationId: ORGANIZATION_ID },
+  );
+  await t.mutation(
+    (internal as any).build_collaboration_search_maintenance
+      .processBuildCollaborationSearchCutoverVerification,
+    { checkId },
+  );
 }
 
 async function deleteCollaborationTenantSetting(
