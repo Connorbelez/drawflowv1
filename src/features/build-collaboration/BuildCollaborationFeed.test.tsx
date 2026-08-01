@@ -107,6 +107,12 @@ const mocks = vi.hoisted(() => ({
   canSchedule: false,
   workflowAssignmentMode: "direct" as "direct" | "request",
   workflowCanAccept: false,
+  viewerBinding: {
+    buildId: "build-1",
+    organizationId: "org-1",
+    role: "admin",
+    workosUserId: "user_admin",
+  } as Record<string, unknown>,
   workflowTransitions: [
     "in_progress",
     "blocked",
@@ -411,6 +417,12 @@ vi.mock("convex/react", () => ({
     const functionName = getFunctionName(
       reference as Parameters<typeof getFunctionName>[0]
     );
+    if (
+      functionName ===
+      "build_collaboration_viewer:getBuildCollaborationViewerBinding"
+    ) {
+      return mocks.viewerBinding;
+    }
     if (
       functionName ===
       "build_collaboration_focus:getFocusedBuildActionItemContext"
@@ -886,6 +898,12 @@ afterEach(() => {
   mocks.canSchedule = false;
   mocks.workflowAssignmentMode = "direct";
   mocks.workflowCanAccept = false;
+  mocks.viewerBinding = {
+    buildId: "build-1",
+    organizationId: "org-1",
+    role: "admin",
+    workosUserId: "user_admin",
+  };
   mocks.workflowTransitions = ["in_progress", "blocked", "cancelled"];
   searchAction.mockReset();
   offlineDraftMocks.deleteDraft.mockClear();
@@ -894,6 +912,20 @@ afterEach(() => {
 });
 
 describe("BuildCollaborationFeed", () => {
+  test("renders the server-derived viewer binding for production persona verification", () => {
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    const feed = screen.getByTestId("build-collaboration-feed");
+    expect(feed.getAttribute("data-build-id")).toBe("build-1");
+    expect(feed.getAttribute("data-organization-id")).toBe("org-1");
+    expect(feed.getAttribute("data-viewer-role")).toBe("admin");
+    expect(feed.getAttribute("data-viewer-workos-user-id")).toBe(
+      "user_admin"
+    );
+  });
+
   test("advertises a whole-minute schedule boundary beyond the server minimum", () => {
     const now = Date.parse("2026-08-01T12:34:30.500Z");
     const minimum = minimumScheduledPublicationTimestamp(now);

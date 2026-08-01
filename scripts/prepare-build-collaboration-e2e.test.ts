@@ -103,6 +103,7 @@ describe("prepareBuildCollaborationE2E", () => {
             referenceLabel: "Foundation and footings",
             role,
             visiblePostText: "Foundation inspection complete.",
+            workosUserId: `user_${role.replaceAll("-", "_")}`,
           })),
           revocation: {
             controlUrl:
@@ -185,6 +186,7 @@ describe("prepareBuildCollaborationE2E", () => {
                 referenceLabel: "Reference",
                 role,
                 visiblePostText: "Post",
+                workosUserId: `user_${role.replaceAll("-", "_")}`,
               })),
               revocation: {
                 controlUrl:

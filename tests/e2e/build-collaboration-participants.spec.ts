@@ -24,6 +24,7 @@ interface CollaborationPersonaFixture {
     | "contractor";
   storageState: string;
   visiblePostText: string;
+  workosUserId: string;
 }
 
 interface CollaborationRevocationFixture {
@@ -33,6 +34,8 @@ interface CollaborationRevocationFixture {
 }
 
 interface CollaborationE2EFixture {
+  buildId: string;
+  organizationId: string;
   personas: CollaborationPersonaFixture[];
   revocation: CollaborationRevocationFixture;
 }
@@ -88,6 +91,16 @@ for (const persona of fixture?.personas ?? []) {
       await page.goto(persona.buildUrl);
       const feed = page.getByTestId("build-collaboration-feed");
       await expect(feed).toBeVisible();
+      await expect(feed).toHaveAttribute("data-build-id", fixture!.buildId);
+      await expect(feed).toHaveAttribute(
+        "data-organization-id",
+        fixture!.organizationId
+      );
+      await expect(feed).toHaveAttribute("data-viewer-role", persona.role);
+      await expect(feed).toHaveAttribute(
+        "data-viewer-workos-user-id",
+        persona.workosUserId
+      );
       await expect(feed.getByText(persona.visiblePostText)).toBeVisible();
       await expect(
         feed.getByRole("button", { name: ACTION_ITEMS_TAB_PATTERN }).first()

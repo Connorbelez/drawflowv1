@@ -43,7 +43,15 @@
 - Hardened deadline processing so corrupt Action Item tenant scope is
   quarantined and attributed from the canonical Build rather than silently left
   pending. Raised the bounded scheduler-drain ceiling for the intentionally
-  paged participant-activation/search-rebuild regression.
+  paged participant-activation/search-rebuild regression, including a generous
+  full-suite timeout for the scheduler-heavy reconciliation proof.
+- Bound every production persona journey to the server-authorized WorkOS user,
+  effective role, organization, and Build before behavioral assertions run.
+  Fixture validation also rejects duplicate identities and copied Playwright
+  storage states, so role labels cannot attest themselves.
+- Operational Milestone, Draw, Document, Evidence, and Site Visit transitions
+  now fail and atomically roll back during a rehearsal snapshot freeze instead
+  of committing without their canonical Build-local collaboration event.
 - Local release gates on 2026-08-01: Convex codegen/typecheck passed; 206 test
   files and 1,725 tests passed; application typecheck and production build
   passed; 78 HTML interaction snippets passed; the warning regression check
@@ -51,6 +59,11 @@
   Familiar Feed suite, 124-test production proposal suite, 25-test Action Item
   suite, 12-test Action Item queue suite, 10-test migration/rehearsal suite,
   3 certifier tests, and 3 governed-runner tests passed.
+- Final post-review release gates on 2026-08-01: Convex codegen/typecheck and
+  application production build passed; all 207 test files and 1,733 tests
+  passed; all 56 Familiar Feed tests, 10 operational-event tests, 4 cutover
+  certifier tests, and 3 authenticated-fixture integrity tests passed; all 78
+  HTML interaction snippets and the build-warning regression gate passed.
 
 ## Required production checkpoint
 

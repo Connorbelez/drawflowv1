@@ -47,6 +47,7 @@ interface SetupPersona {
   referenceLabel: string;
   role: PersonaRole;
   visiblePostText: string;
+  workosUserId: string;
 }
 
 interface SetupResponse {
@@ -209,6 +210,20 @@ function validateSetupResponse(
       "The E2E setup response must contain each approved persona exactly once."
     );
   }
+  const workosUserIds = personas
+    .filter(isRecord)
+    .map((persona) => persona.workosUserId)
+    .filter((workosUserId): workosUserId is string =>
+      hasFixtureText(workosUserId)
+    );
+  if (
+    workosUserIds.length !== PERSONA_ROLES.length ||
+    new Set(workosUserIds).size !== PERSONA_ROLES.length
+  ) {
+    throw new Error(
+      "The E2E setup response must bind each persona to a distinct authenticated WorkOS user."
+    );
+  }
   for (const persona of personas) {
     const buildUrl =
       isRecord(persona) && typeof persona.buildUrl === "string"
@@ -239,7 +254,8 @@ function validateSetupResponse(
       typeof persona.externalOrganization === "boolean" &&
       typeof persona.grantOnly === "boolean" &&
       hasFixtureText(persona.referenceLabel) &&
-      hasFixtureText(persona.visiblePostText);
+      hasFixtureText(persona.visiblePostText) &&
+      hasFixtureText(persona.workosUserId);
     if (!isValidPersona) {
       throw new Error("The E2E setup response contains an invalid persona.");
     }

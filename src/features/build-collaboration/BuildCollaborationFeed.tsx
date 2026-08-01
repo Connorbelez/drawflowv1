@@ -556,6 +556,10 @@ function BuildCollaborationFeedContent({
     buildCollaborationScopeArgs(activeBuildId, organizationId),
     { initialNumItems: 20 }
   );
+  const viewerBinding = useQuery(
+    api.build_collaboration_viewer.getBuildCollaborationViewerBinding,
+    buildCollaborationScopeArgs(activeBuildId, organizationId)
+  );
   const rawTagOptions = useQuery(
     api.build_collaboration_references.listBuildCollaborationTagOptions,
     buildCollaborationScopeArgs(activeBuildId, organizationId)
@@ -1403,7 +1407,11 @@ function BuildCollaborationFeedContent({
     <section
       aria-label="Build collaboration"
       className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]"
+      data-build-id={viewerBinding?.buildId}
+      data-organization-id={viewerBinding?.organizationId}
       data-testid="build-collaboration-feed"
+      data-viewer-role={viewerBinding?.role}
+      data-viewer-workos-user-id={viewerBinding?.workosUserId}
     >
       <div className="min-w-0 space-y-4">
         {isOnline ? null : (

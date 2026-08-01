@@ -1,4 +1,7 @@
 {
+  "applicationUrl": "https://drawflow.example.com",
+  "buildId": "ACTIVE_BUILD_ID",
+  "organizationId": "WORKOS_ORGANIZATION_ID",
   "personas": [
     {
       "actionItemText": "Shared Build action",
@@ -9,7 +12,8 @@
       "referenceLabel": "Foundation and footings",
       "role": "admin",
       "storageState": "playwright/.auth/admin.json",
-      "visiblePostText": "Visible to every Build participant."
+      "visiblePostText": "Visible to every Build participant.",
+      "workosUserId": "WORKOS_ADMIN_USER_ID"
     },
     {
       "actionItemText": "Shared Build action",
@@ -20,7 +24,8 @@
       "referenceLabel": "Foundation and footings",
       "role": "principle-broker",
       "storageState": "playwright/.auth/principle-broker.json",
-      "visiblePostText": "Visible to every Build participant."
+      "visiblePostText": "Visible to every Build participant.",
+      "workosUserId": "WORKOS_PRINCIPLE_BROKER_USER_ID"
     },
     {
       "actionItemText": "Shared Build action",
@@ -31,7 +36,8 @@
       "referenceLabel": "Foundation and footings",
       "role": "broker",
       "storageState": "playwright/.auth/broker.json",
-      "visiblePostText": "Visible to every Build participant."
+      "visiblePostText": "Visible to every Build participant.",
+      "workosUserId": "WORKOS_BROKER_USER_ID"
     },
     {
       "actionItemText": "Shared Build action",
@@ -42,7 +48,8 @@
       "referenceLabel": "Foundation and footings",
       "role": "builder",
       "storageState": "playwright/.auth/builder.json",
-      "visiblePostText": "Visible to every Build participant."
+      "visiblePostText": "Visible to every Build participant.",
+      "workosUserId": "WORKOS_BUILDER_USER_ID"
     },
     {
       "actionItemText": "Shared Build action",
@@ -53,7 +60,8 @@
       "referenceLabel": "Foundation and footings",
       "role": "broker-staff",
       "storageState": "playwright/.auth/broker-staff.json",
-      "visiblePostText": "Visible to every Build participant."
+      "visiblePostText": "Visible to every Build participant.",
+      "workosUserId": "WORKOS_BROKER_STAFF_USER_ID"
     },
     {
       "actionItemText": "Shared Build action",
@@ -64,7 +72,8 @@
       "referenceLabel": "Foundation and footings",
       "role": "builder-staff",
       "storageState": "playwright/.auth/builder-staff.json",
-      "visiblePostText": "Visible to every Build participant."
+      "visiblePostText": "Visible to every Build participant.",
+      "workosUserId": "WORKOS_BUILDER_STAFF_USER_ID"
     },
     {
       "actionItemText": "Shared Build action",
@@ -75,7 +84,8 @@
       "referenceLabel": "Foundation and footings",
       "role": "homeowner",
       "storageState": "playwright/.auth/homeowner.json",
-      "visiblePostText": "Visible to every Build participant."
+      "visiblePostText": "Visible to every Build participant.",
+      "workosUserId": "WORKOS_HOMEOWNER_USER_ID"
     },
     {
       "actionItemText": "Shared Build action",
@@ -86,7 +96,8 @@
       "referenceLabel": "Foundation and footings",
       "role": "contractor",
       "storageState": "playwright/.auth/contractor.json",
-      "visiblePostText": "Visible to every Build participant."
+      "visiblePostText": "Visible to every Build participant.",
+      "workosUserId": "WORKOS_CONTRACTOR_USER_ID"
     }
   ],
   "revocation": {

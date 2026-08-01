@@ -369,15 +369,23 @@ async function resolveSystemEventScope(
       query.eq("organizationId", build.organizationId)
     )
     .unique();
-  if (
-    !tenantSetting ||
-    tenantSetting.status !== "active" ||
-    (await isBuildCollaborationCutoverFrozen(ctx, build.organizationId))
-  ) {
+  if (!tenantSetting) {
     return { status: "inactive" };
   }
   if (tenantSetting.brokerageId !== build.brokerageId) {
     throw new Error("Forbidden: collaboration tenant scope");
+  }
+  if (await isBuildCollaborationCutoverFrozen(ctx, build.organizationId)) {
+    // Operational workflow mutations await this publisher in the same Convex
+    // transaction. Throwing here rolls the source transition back atomically,
+    // preventing a snapshot freeze from committing state without its canonical
+    // collaboration event. The caller can retry after the rehearsal completes.
+    throw new Error(
+      "Build Collaboration is temporarily frozen for a rollback rehearsal snapshot. Retry the operational transition after the rehearsal completes."
+    );
+  }
+  if (tenantSetting.status !== "active") {
+    return { status: "inactive" };
   }
   const brokerage = await ctx.db.get(build.brokerageId);
   const proposal = await ctx.db.get(build.proposalId);

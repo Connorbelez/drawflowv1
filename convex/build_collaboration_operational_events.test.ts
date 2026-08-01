@@ -333,6 +333,25 @@ async function feedKinds(
 }
 
 describe("Build Collaboration operational events", () => {
+  test("derives the collaboration viewer binding from authorized server state", async () => {
+    const fixture = await seedOperationalBuild();
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration_viewer
+          .getBuildCollaborationViewerBinding,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toEqual({
+      buildId: fixture.buildId,
+      organizationId: ORGANIZATION_ID,
+      role: "admin",
+      workosUserId: "user_admin",
+    });
+  });
+
   test("publishes submitted and location-unverified Evidence without widening access", async () => {
     const fixture = await seedOperationalBuild();
 
@@ -1713,5 +1732,105 @@ describe("Build Collaboration operational events", () => {
         .unique(),
     );
     expect(inactiveAsset).toBeTruthy();
+  });
+
+  test("rolls operational source mutations back while cutover snapshots are frozen", async () => {
+    const fixture = await seedOperationalBuild();
+    const rehearsalId = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("buildCollaborationCutoverRehearsals", {
+        beforeCutoverEpoch: 1,
+        brokerageId: fixture.brokerageId,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        releaseApplicationUrl: "https://drawflow.test.fairlend.ca",
+        releaseApplicationVersion: "test-release",
+        releaseConvexDeployment: "test:deployment:prod",
+        releaseConvexUrl: "https://test.convex.cloud",
+        releaseGitCommit: "0123456789abcdef0123456789abcdef01234567",
+        representativeBuildId: fixture.buildId,
+        requestedByWorkosUserId: "user_admin",
+        status: "capturing_before",
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.addActiveBuildDocument,
+        {
+          buildId: fixture.buildId,
+          clientOperationId: "frozen-rehearsal-permit",
+          documentType: "permit",
+          fileName: "Frozen rehearsal permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/temporarily frozen for a rollback rehearsal snapshot/i);
+
+    const state = await fixture.base.run(async (ctx) => ({
+      auditCount: (await ctx.db.query("auditEvents").collect()).filter(
+        (event) =>
+          event.organizationId === ORGANIZATION_ID &&
+          event.command === "addActiveBuildDocument"
+      ).length,
+      documentCount: (
+        await ctx.db
+          .query("buildDocuments")
+          .withIndex("by_build", (query) =>
+            query.eq("buildId", fixture.buildId)
+          )
+          .collect()
+      ).length,
+    }));
+    expect(state).toEqual({ auditCount: 0, documentCount: 0 });
+    expect(
+      (await collaborationSnapshot(fixture.base, String(fixture.buildId))).posts
+    ).toHaveLength(0);
+
+    await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      await ctx.db.patch(setting!._id, {
+        status: "disabled",
+        updatedAt: Date.now(),
+      });
+      await ctx.db.patch(rehearsalId, {
+        status: "capturing_after",
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.addActiveBuildDocument,
+        {
+          buildId: fixture.buildId,
+          clientOperationId: "frozen-after-snapshot-permit",
+          documentType: "permit",
+          fileName: "Frozen after-snapshot permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/temporarily frozen for a rollback rehearsal snapshot/i);
+    expect(
+      await fixture.base.run(async (ctx) =>
+        (
+          await ctx.db
+            .query("buildDocuments")
+            .withIndex("by_build", (query) =>
+              query.eq("buildId", fixture.buildId)
+            )
+            .collect()
+        ).length
+      )
+    ).toBe(0);
   });
 });

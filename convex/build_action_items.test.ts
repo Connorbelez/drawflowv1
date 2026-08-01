@@ -2343,7 +2343,7 @@ describe("Build Action Item server authorization", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+  }, 30_000);
 
   test("counts pending activations toward capacity and rejects an over-capacity activation projection", async () => {
     const fixture = await seedActionItemBuild();

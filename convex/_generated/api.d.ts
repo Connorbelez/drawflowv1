@@ -102,6 +102,7 @@ import type * as build_collaboration_system_events from "../build_collaboration_
 import type * as build_collaboration_threads from "../build_collaboration_threads.js";
 import type * as build_collaboration_validation from "../build_collaboration_validation.js";
 import type * as build_collaboration_validators from "../build_collaboration_validators.js";
+import type * as build_collaboration_viewer from "../build_collaboration_viewer.js";
 import type * as build_collaboration_webhook_contracts from "../build_collaboration_webhook_contracts.js";
 import type * as build_collaboration_webhook_network from "../build_collaboration_webhook_network.js";
 import type * as build_collaboration_webhook_signing from "../build_collaboration_webhook_signing.js";
@@ -248,6 +249,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_threads: typeof build_collaboration_threads;
   build_collaboration_validation: typeof build_collaboration_validation;
   build_collaboration_validators: typeof build_collaboration_validators;
+  build_collaboration_viewer: typeof build_collaboration_viewer;
   build_collaboration_webhook_contracts: typeof build_collaboration_webhook_contracts;
   build_collaboration_webhook_network: typeof build_collaboration_webhook_network;
   build_collaboration_webhook_signing: typeof build_collaboration_webhook_signing;

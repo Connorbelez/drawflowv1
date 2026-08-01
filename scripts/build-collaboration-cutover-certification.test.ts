@@ -324,6 +324,7 @@ function e2eEvidence(directory: string) {
       buildUrl: `${context.applicationUrl}/backoffice/builds/${context.representativeBuildId}?focus=actionItem:action_${index}`,
       role,
       storageState: storageStates[index].path,
+      workosUserId: `user_${role.replaceAll("-", "_")}`,
     })),
   });
   writeFileSync(fixturePath, fixtureSource);

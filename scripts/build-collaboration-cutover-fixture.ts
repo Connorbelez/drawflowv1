@@ -19,6 +19,7 @@ interface FixturePersona {
   buildUrl: string;
   role: string;
   storageState: string;
+  workosUserId: string;
 }
 
 interface CollaborationFixture {
@@ -69,6 +70,17 @@ export function validateBuildCollaborationE2EFixture(
   if (JSON.stringify(roleSet) !== JSON.stringify([...ROLES].sort())) {
     throw new Error("Authenticated E2E fixture must contain every role once.");
   }
+  const workosUserIds = fixture.personas.map((persona) =>
+    persona.workosUserId?.trim()
+  );
+  if (
+    workosUserIds.some((workosUserId) => !workosUserId) ||
+    new Set(workosUserIds).size !== ROLES.length
+  ) {
+    throw new Error(
+      "Authenticated E2E fixture must bind every role to a distinct WorkOS user."
+    );
+  }
   const storageStates = fixture.personas.map((persona) => {
     const url = new URL(persona.buildUrl, applicationOrigin);
     if (
@@ -82,6 +94,11 @@ export function validateBuildCollaborationE2EFixture(
     const storage = readEvidenceFile(persona.storageState);
     return { path: storage.path, role: persona.role, sha256: storage.sha256 };
   });
+  if (new Set(storageStates.map((state) => state.sha256)).size !== ROLES.length) {
+    throw new Error(
+      "Authenticated E2E fixture must use a distinct storage state for every WorkOS user."
+    );
+  }
   return {
     fixturePath: fixtureFile.path,
     fixtureSha256: fixtureFile.sha256,

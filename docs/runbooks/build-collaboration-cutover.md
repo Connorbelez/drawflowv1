@@ -269,7 +269,11 @@ repeat until `isComplete=true`. Beginning the snapshot enforces the freeze in
 every collaboration read/write path, and rollout transitions are rejected
 until the corresponding snapshot phase is complete. Each page also rechecks
 the tenant status and cutover epoch, so a partial snapshot cannot cross a
-disable or reactivation boundary:
+disable or reactivation boundary. Canonical Milestone, Draw, Document,
+Evidence, and Site Visit publishers also fail their originating Convex
+transaction during this freeze. Operators must retry those operational
+transitions after the rehearsal completes; no source transition may commit
+without its Build-local collaboration event:
 
 ```sh
 REHEARSAL=$(bun x convex run --deployment '<production-convex-deployment>' --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_cutover_rehearsals:beginBuildCollaborationRollbackRehearsal '{"organizationId":"<workos-organization-id>","buildId":"<active-build-id>","gitCommit":"<40-character-git-sha>","applicationVersion":"<application-version>","applicationUrl":"https://<production-host>","convexDeployment":"<production-convex-deployment>","convexUrl":"https://<production-convex-url>"}')
@@ -355,6 +359,15 @@ bun run run:build-collaboration-cutover-evidence -- \
   --visual-evidence '<release-evidence-dir>/visual-review.json' \
   --keyboard-evidence '<release-evidence-dir>/keyboard-review.json'
 ```
+
+The authenticated fixture is not an assertion authority. Its setup response
+must provide a distinct `workosUserId` for every approved persona and a
+distinct Playwright storage state for that user. On every role journey,
+Playwright compares the declared identity, effective role, organization, and
+Build against the server-authorized viewer binding rendered by the production
+collaboration surface before checking any behavioral evidence. A copied Admin
+session or a mislabeled role therefore fails the gate even when its cookie file
+and fixture JSON are internally valid.
 
 After the rehearsal is complete, parity has been regenerated, and the tenant
 has been reactivated, finalize the four migration artifacts and both manual
