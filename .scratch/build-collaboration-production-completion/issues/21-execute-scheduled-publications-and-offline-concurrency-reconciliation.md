@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Bind HITL approval to a trusted human actor and atomic publication bundle; 04 — Enforce canonical typed-reference ACLs and a role-safe @ index; 07 — Add immutable post/comment editing and tombstones; 17 — Govern collaboration assets and attachments.
 
-**Status:** implemented
+**Status:** completed
 
 **Source contracts:** Build Collaboration Product Contract §13; Build Collaboration Production Implementation Plan — Assets, drafts, and publication approval and Tasks 5 and 9; Build Collaboration Cutover Runbook — Verification and monitoring; Build Collaboration Implementation Gap Analysis — Scheduling, concurrency, and offline gaps.
 

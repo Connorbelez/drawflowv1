@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Enforce tenant collaboration rollout state; 04 — Enforce canonical typed-reference ACLs and a role-safe @ index; 07 — Add immutable post/comment editing and tombstones.
 
-**Status:** complete
+**Status:** completed
 
 **Source contracts:** Build Collaboration Product Contract §§2–4 and 13; Build Collaboration Production Implementation Plan — Task 13; Build Collaboration Cutover Runbook — Preconditions, Migration, Parity Checks, and Rollback; Build Collaboration Implementation Gap Analysis — Migration exists without an executable cutover.
 

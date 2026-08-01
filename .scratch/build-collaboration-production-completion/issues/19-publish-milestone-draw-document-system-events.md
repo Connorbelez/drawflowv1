@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Enforce canonical typed-reference ACLs and a role-safe @ index; 11 — Create Action Items from live posts and open a full detail surface; 15 — Emit canonical notification events for collaboration activity; 17 — Govern collaboration assets and attachments.
 
-**Status:** ready-for-agent
+**Status:** completed
 
 **Source contracts:** Build Collaboration Product Contract §11; Build Collaboration Production Implementation Plan — Internal event interface and Task 9; Build Collaboration Cutover Runbook — Verification and monitoring; Build Collaboration Implementation Gap Analysis — Operational integration is not connected.
 

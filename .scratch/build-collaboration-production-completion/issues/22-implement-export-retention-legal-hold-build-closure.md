@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 — Add hierarchical moderation and appeal; 14 — Deliver personal/entity queues, reminders, and escalation; 17 — Govern collaboration assets and attachments; 20 — Implement authorized Build-local search and deep-link hydration.
 
-**Status:** complete
+**Status:** completed
 
 **Source contracts:** Build Collaboration Product Contract §14; Build Collaboration Production Implementation Plan — Task 14; Build Collaboration Cutover Runbook — Rollback and Verification; Build Collaboration Implementation Gap Analysis — Operational integration and lifecycle gaps.
 

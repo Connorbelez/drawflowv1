@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 — Add hierarchical moderation and appeal; 09 — Implement thread resolution and intent-specific outcomes; 12 — Complete assignment requests and governed completion; 18 — Publish Evidence and Site Visit transitions into collaboration; 19 — Publish Milestone, Draw, and Document transitions into collaboration; 22 — Implement export, retention, legal hold, and Build closure.
 
-**Status:** complete
+**Status:** completed
 
 **Source contracts:** Build Collaboration Product Contract §15; Build Collaboration Production Implementation Plan — Internal event interface and Tasks 9 and 14; Build Collaboration Cutover Runbook — Verification and monitoring; Build Collaboration Implementation Gap Analysis — API and webhook gaps.
 

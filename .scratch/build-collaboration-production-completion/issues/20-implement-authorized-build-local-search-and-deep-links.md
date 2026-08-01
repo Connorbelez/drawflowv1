@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — Add immutable post/comment editing and tombstones; 10 — Complete focused nested discussions and comment interactions; 13 — Add Action Item dependencies, child items, references, and activity; 17 — Govern collaboration assets and attachments.
 
-**Status:** ready-for-agent
+**Status:** completed
 
 **Source contracts:** Build Collaboration Product Contract §§7, 10, and 13; Build Collaboration Production Implementation Plan — Index and search requirements and Tasks 8 and 14; Build Collaboration Cutover Runbook — Verification; Build Collaboration Implementation Gap Analysis — Search and navigation are presentation-level only.
 
