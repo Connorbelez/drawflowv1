@@ -506,6 +506,81 @@ describe("Build collaboration scheduled publication", () => {
     expect(state.draft).toMatchObject({ state: "active" });
   });
 
+  test("pauses when an approved participant reference is revoked", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const scheduledFor = BASE_TIME + 60_000;
+    const draft = await fixture.admin.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      {
+        ...publicationBundle("Referenced participant must remain authorized."),
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        references: [
+          {
+            entityId: "user_builder_staff",
+            entityKind: "participant",
+            label: "Builder Staff",
+            primary: true,
+            summary: "Active Build participant",
+          },
+        ],
+      }
+    );
+    const approvalId = (await fixture.admin.mutation(
+      (api as any).build_collaboration_scheduling
+        .approveAndScheduleBuildCollaborationDraft,
+      {
+        buildId: fixture.buildId,
+        draftId: draft.draftId,
+        expectedRevision: draft.revision,
+        organizationId: ORGANIZATION_ID,
+        scheduledFor,
+      }
+    )) as Id<"buildCollaborationPublicationApprovals">;
+    await fixture.base.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "user_builder_staff")
+        )
+        .unique();
+      if (!participant) {
+        throw new Error("Scheduling participant fixture is unavailable.");
+      }
+      await ctx.db.patch(participant._id, {
+        removedAt: BASE_TIME + 30_000,
+        status: "removed",
+        updatedAt: BASE_TIME + 30_000,
+        validUntil: BASE_TIME + 30_000,
+      });
+    });
+
+    vi.setSystemTime(scheduledFor + 1);
+    await fixture.base.action(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledBuildCollaborationPublication,
+      { approvalId }
+    );
+
+    const state = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      draft: await ctx.db.get(draft.draftId),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(state.posts).toEqual([]);
+    expect(state.approval).toMatchObject({
+      conflictReason: expect.stringContaining(
+        "referenced entity does not exist in this active Build or is archived"
+      ),
+      state: "paused",
+    });
+    expect(state.draft).toMatchObject({ state: "active" });
+  });
+
   test("pauses when an attached governed asset becomes unavailable", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
@@ -608,6 +683,112 @@ describe("Build collaboration scheduled publication", () => {
       conflictReason: expect.stringMatching(/asset|attachment|unavailable/i),
       state: "paused",
     });
+  });
+
+  test("pauses when an approved governed asset becomes orphaned", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const initialDraft = await fixture.admin.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      {
+        ...publicationBundle("Scheduled update with governed evidence."),
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const assetBlob = new Blob(["scheduled governed footing photo"], {
+      type: "image/jpeg",
+    });
+    const staged = await fixture.admin.mutation(
+      (api as any).build_collaboration_assets.beginBuildCollaborationAssetUpload,
+      {
+        buildId: fixture.buildId,
+        contextKind: "draft",
+        contextRecordId: initialDraft.draftId,
+        fileName: "scheduled-footing.jpg",
+        mimeType: "image/jpeg",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: assetBlob.size,
+      }
+    );
+    const storageId = await fixture.base.run(
+      async (ctx) => await ctx.storage.store(assetBlob)
+    );
+    const contentHashSha256 = "8".repeat(64);
+    const assetId = await fixture.admin.mutation(
+      (api as any).build_collaboration_assets
+        .finalizeBuildCollaborationAssetUpload,
+      {
+        buildId: fixture.buildId,
+        contentHashSha256,
+        fileName: "scheduled-footing.jpg",
+        mimeType: "image/jpeg",
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: staged.stagingSessionId,
+        storageId,
+      }
+    );
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId,
+        computedHashSha256: contentHashSha256,
+        outcome: "clean",
+        provider: "test-scanner",
+      }
+    );
+    const attachedDraft = await fixture.admin.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      {
+        ...publicationBundle("Scheduled update with governed evidence."),
+        attachmentAssetIds: [assetId],
+        buildId: fixture.buildId,
+        draftId: initialDraft.draftId,
+        expectedRevision: initialDraft.revision,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const scheduledFor = BASE_TIME + 60_000;
+    const approvalId = await fixture.admin.mutation(
+      (api as any).build_collaboration_scheduling
+        .approveAndScheduleBuildCollaborationDraft,
+      {
+        buildId: fixture.buildId,
+        draftId: attachedDraft.draftId,
+        expectedRevision: attachedDraft.revision,
+        organizationId: ORGANIZATION_ID,
+        scheduledFor,
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(staged.stagingSessionId, {
+        state: "abandoned",
+        updatedAt: BASE_TIME + 30_000,
+      });
+    });
+
+    vi.setSystemTime(scheduledFor + 1);
+    await fixture.base.action(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledBuildCollaborationPublication,
+      { approvalId }
+    );
+
+    const state = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      draft: await ctx.db.get(attachedDraft.draftId),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(state.posts).toEqual([]);
+    expect(state.approval).toMatchObject({
+      conflictReason: expect.stringContaining(
+        "A proposed collaboration asset is orphaned"
+      ),
+      state: "paused",
+    });
+    expect(state.draft).toMatchObject({ state: "active" });
   });
 
   test("pauses when an approved shared mutation has a stale expected revision", async () => {

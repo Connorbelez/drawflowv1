@@ -694,13 +694,13 @@ function requireAllReadersCanReadEvidence(
 }
 
 function unavailableReference() {
-  return new Error(
+  return buildCollaborationValidationError(
     "The referenced entity does not exist in this active Build or is archived."
   );
 }
 
 function incompatibleReference() {
-  return new Error(
+  return buildCollaborationValidationError(
     "The referenced entity is not readable by every publication reader."
   );
 }
