@@ -960,6 +960,51 @@ describe("BuildCollaborationFeed", () => {
     ).toBeNull();
   });
 
+  test("clears cached reference metadata immediately when exact access is revoked", async () => {
+    mocks.focusedReferenceContext = {
+      reference: {
+        entityId: "evidence-1",
+        entityKind: "evidenceAsset",
+        eyebrow: "Evidence",
+        href: "/backoffice/builds/build-1?tab=evidence&evidence=evidence-1",
+        label: "Foundation completion photo",
+        searchTerms: ["foundation", "photo"],
+        summary: "Location verified · uploaded today",
+      },
+      state: "visible",
+    };
+    const { rerender } = render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="evidenceAsset:evidence-1"
+        organizationId="org-1"
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Foundation completion photo",
+      }),
+    ).toBeTruthy();
+
+    mocks.focusedReferenceContext = { state: "revoked" };
+    rerender(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="evidenceAsset:evidence-1"
+        organizationId="org-1"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", {
+          name: "Foundation completion photo",
+        }),
+      ).toBeNull(),
+    );
+  });
+
   test("routes every searchable entity kind through its exact authorized deep link", async () => {
     const entityKinds = [
       "participant",

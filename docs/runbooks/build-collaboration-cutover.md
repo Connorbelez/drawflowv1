@@ -85,11 +85,16 @@ bun x convex run --prod build_collaboration_search_maintenance:inspectBuildColla
 
 The verifier first pages every WorkOS membership into the bounded collaboration
 authority projection, including `admin` or `principle-broker` roles present as
-secondary roles. The activation mutation enforces this verification atomically.
+secondary roles. It then rebuilds every Build search generation against that
+completed projection and waits for all bounded maintenance jobs to finish
+before it verifies reader fingerprints and Build counts. A failed rebuild
+blocks verification with its recorded failure; it is never accepted as ready.
+The activation mutation enforces this verification atomically.
 It rejects a
 missing, blocked, or stale check; unequal Build counts; a Build created after
 verification; changed organization-wide Admin/Principal Broker membership;
-changes to builder-account, Build-broker, or Build-contractor reader sources;
+changes to builder-account, Build-broker, Build-contractor, or assigned
+contractor-profile account identity reader sources;
 any Build in `building`; and every queued, running, or failed maintenance job.
 All activation checks use organization-scoped indexes. The operator cannot
 bypass this gate with the status-transition API.

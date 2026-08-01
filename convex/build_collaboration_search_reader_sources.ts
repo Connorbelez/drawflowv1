@@ -15,30 +15,41 @@ export async function buildCollaborationImplicitReaderSourceFingerprint(
     organizationId: string;
   }
 ) {
-  const [builderAccountLink, brokerAssignment, contractorAssignment] =
-    await Promise.all([
-      ctx.db
-        .query("builderAccountLinks")
-        .withIndex("by_brokerageId_and_updatedAt", (query) =>
-          query.eq("brokerageId", input.brokerageId)
-        )
-        .order("desc")
-        .first(),
-      ctx.db
-        .query("buildBrokerAssignments")
-        .withIndex("by_organizationId_and_createdAt", (query) =>
-          query.eq("organizationId", input.organizationId)
-        )
-        .order("desc")
-        .first(),
-      ctx.db
-        .query("buildContractorAssignments")
-        .withIndex("by_organizationId_and_updatedAt", (query) =>
-          query.eq("organizationId", input.organizationId)
-        )
-        .order("desc")
-        .first(),
-    ]);
+  const [
+    builderAccountLink,
+    brokerAssignment,
+    contractorAssignment,
+    contractorProfile,
+  ] = await Promise.all([
+    ctx.db
+      .query("builderAccountLinks")
+      .withIndex("by_brokerageId_and_updatedAt", (query) =>
+        query.eq("brokerageId", input.brokerageId)
+      )
+      .order("desc")
+      .first(),
+    ctx.db
+      .query("buildBrokerAssignments")
+      .withIndex("by_organizationId_and_createdAt", (query) =>
+        query.eq("organizationId", input.organizationId)
+      )
+      .order("desc")
+      .first(),
+    ctx.db
+      .query("buildContractorAssignments")
+      .withIndex("by_organizationId_and_updatedAt", (query) =>
+        query.eq("organizationId", input.organizationId)
+      )
+      .order("desc")
+      .first(),
+    ctx.db
+      .query("contractorProfiles")
+      .withIndex("by_organizationId_and_updatedAt", (query) =>
+        query.eq("organizationId", input.organizationId)
+      )
+      .order("desc")
+      .first(),
+  ]);
   return stableContentHash(
     JSON.stringify({
       brokerAssignment: brokerAssignment
@@ -64,6 +75,15 @@ export async function buildCollaborationImplicitReaderSourceFingerprint(
             id: contractorAssignment._id,
             status: contractorAssignment.status ?? "active",
             timestamp: contractorAssignment.updatedAt,
+          }
+        : null,
+      contractorProfile: contractorProfile
+        ? {
+            accountWorkosUserId: contractorProfile.accountWorkosUserId,
+            id: contractorProfile._id,
+            onboardingStatus: contractorProfile.onboardingStatus,
+            status: contractorProfile.status,
+            timestamp: contractorProfile.updatedAt,
           }
         : null,
     })

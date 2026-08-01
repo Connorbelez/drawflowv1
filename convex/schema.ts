@@ -1778,6 +1778,7 @@ export default defineSchema({
   })
     .index("by_brokerage", ["brokerageId"])
     .index("by_account_user", ["accountWorkosUserId"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"])
     .index("by_brokerage_normalized_email", ["brokerageId", "normalizedEmail"]),
   contractorCapabilities: defineTable({
     brokerageId: v.id("brokerages"),
@@ -3556,6 +3557,8 @@ export default defineSchema({
     ),
     authorityCursor: v.optional(v.union(v.string(), v.null())),
     authorityProjectionComplete: v.optional(v.boolean()),
+    rebuildCursor: v.optional(v.union(v.string(), v.null())),
+    searchRebuildComplete: v.optional(v.boolean()),
     cursor: v.optional(v.union(v.string(), v.null())),
     buildCount: v.number(),
     readyBuildCount: v.number(),

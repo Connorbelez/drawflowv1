@@ -25,6 +25,7 @@ const SEARCH_JOB_MAX_RETRY_MS = 60_000;
 const MAX_SEARCH_JOB_ERROR_LENGTH = 500;
 const CUTOVER_BUILD_BATCH_SIZE = 5;
 const CUTOVER_AUTHORITY_BATCH_SIZE = 50;
+const CUTOVER_REBUILD_POLL_MS = 1000;
 
 export async function queueBuildCollaborationSearchOwnerRebuild(
   ctx: MutationCtx,
@@ -188,7 +189,9 @@ export const startBuildCollaborationSearchCutoverVerification = internalMutation
       implicitReaderSourceFingerprint: undefined,
       latestBuildCreationTime: undefined,
       organizationId: authorization.organizationId,
+      rebuildCursor: null,
       readyBuildCount: 0,
+      searchRebuildComplete: false,
       startedAt: now,
       status: "building" as const,
       updatedAt: now,
@@ -326,6 +329,12 @@ export const processBuildCollaborationSearchCutoverVerification =
           status: "blocked",
           updatedAt: Date.now(),
         });
+        return null;
+      }
+      if (await processCutoverSearchRebuild(ctx, check)) {
+        return null;
+      }
+      if (await deferCutoverForSearchMaintenance(ctx, check)) {
         return null;
       }
       const page = await ctx.db
@@ -974,6 +983,97 @@ async function firstPendingSearchJob(
     )
   );
   return pending.find(Boolean) ?? null;
+}
+
+async function organizationSearchMaintenanceState(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: string
+) {
+  const [failed, running, queued] = await Promise.all(
+    (["failed", "running", "queued"] as const).map((status) =>
+      ctx.db
+        .query("buildCollaborationSearchJobs")
+        .withIndex("by_organizationId_and_status", (query) =>
+          query.eq("organizationId", organizationId).eq("status", status)
+        )
+        .first()
+    )
+  );
+  if (failed) {
+    return {
+      kind: "failed" as const,
+      reason: `Build ${failed.buildId} collaboration search maintenance failed${failed.lastError ? `: ${failed.lastError}` : "."}`,
+    };
+  }
+  return running || queued
+    ? { kind: "pending" as const }
+    : { kind: "idle" as const };
+}
+
+async function processCutoverSearchRebuild(
+  ctx: MutationCtx,
+  check: Doc<"buildCollaborationSearchCutoverChecks">
+) {
+  if (check.searchRebuildComplete) {
+    return false;
+  }
+  const rebuildPage = await ctx.db
+    .query("activeBuilds")
+    .withIndex("by_organizationId", (query) =>
+      query.eq("organizationId", check.organizationId)
+    )
+    .paginate({
+      cursor: check.rebuildCursor ?? null,
+      numItems: CUTOVER_BUILD_BATCH_SIZE,
+    });
+  for (const build of rebuildPage.page) {
+    const authorization = await authorizeActiveBuildAccessForViewer(
+      ctx,
+      searchMaintenanceViewer(build.organizationId),
+      { buildId: build._id, organizationId: build.organizationId }
+    );
+    await queueBuildCollaborationSearchBuildRebuild(ctx, { authorization });
+  }
+  await ctx.db.patch(check._id, {
+    rebuildCursor: rebuildPage.isDone ? null : rebuildPage.continueCursor,
+    searchRebuildComplete: rebuildPage.isDone,
+    updatedAt: Date.now(),
+  });
+  await ctx.scheduler.runAfter(
+    0,
+    internal.build_collaboration_search_maintenance
+      .processBuildCollaborationSearchCutoverVerification,
+    { checkId: check._id }
+  );
+  return true;
+}
+
+async function deferCutoverForSearchMaintenance(
+  ctx: MutationCtx,
+  check: Doc<"buildCollaborationSearchCutoverChecks">
+) {
+  const maintenance = await organizationSearchMaintenanceState(
+    ctx,
+    check.organizationId
+  );
+  if (maintenance.kind === "idle") {
+    return false;
+  }
+  if (maintenance.kind === "failed") {
+    await ctx.db.patch(check._id, {
+      failureReason: maintenance.reason,
+      status: "blocked",
+      updatedAt: Date.now(),
+    });
+    return true;
+  }
+  await ctx.scheduler.runAfter(
+    CUTOVER_REBUILD_POLL_MS,
+    internal.build_collaboration_search_maintenance
+      .processBuildCollaborationSearchCutoverVerification,
+    { checkId: check._id }
+  );
+  return true;
 }
 
 async function recordSearchJobFailure(

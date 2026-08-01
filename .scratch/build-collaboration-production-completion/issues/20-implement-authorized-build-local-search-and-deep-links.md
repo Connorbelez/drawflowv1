@@ -24,8 +24,12 @@ clear cached rows on change, and never query stale partitions while maintenance
 or backfill is incomplete. Durable retry leases and watchdogs recover failed or
 orphaned continuations without allowing search traffic to bypass backoff. A
 bounded WorkOS-derived authority projection preserves secondary Admin and
-Principal Broker roles. The tenant cutover verifier includes empty Builds, and
+Principal Broker roles. The tenant cutover verifier backfills that projection,
+rebuilds every Build search generation against it, includes empty Builds, and
 activation atomically rejects stale authority or implicit-reader fingerprints,
 pending jobs, and incomplete Build coverage using organization-scoped indexes.
+Implicit-reader drift includes contractor-profile account identity changes, not
+only Build-contractor assignment changes. Exact reference sheets clear cached
+metadata immediately when their focused authorization resolves as revoked.
 Contractor and Homeowner deep links hydrate every typed entity into the reusable
 detail sheets before offering canonical page/tab navigation.

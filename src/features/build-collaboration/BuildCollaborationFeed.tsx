@@ -367,6 +367,7 @@ function useFocusedEntityTarget(input: {
   directlyFocusedReference?: ReferenceOption;
   focusedActionItemId?: Id<"buildActionItems">;
   focusedEntityReference?: string;
+  focusedReferenceState?: "revoked" | "visible";
   referenceByKey: Map<string, ReferenceOption>;
   setActionItemSheetTarget: React.Dispatch<
     React.SetStateAction<BuildActionItemSheetTarget | null>
@@ -377,6 +378,10 @@ function useFocusedEntityTarget(input: {
 }) {
   useEffect(() => {
     if (!input.focusedEntityReference) {
+      return;
+    }
+    if (input.focusedReferenceState === "revoked") {
+      input.setFocusedReference(null);
       return;
     }
     const reference =
@@ -406,6 +411,7 @@ function useFocusedEntityTarget(input: {
   }, [
     input.directlyFocusedReference,
     input.focusedEntityReference,
+    input.focusedReferenceState,
     input.referenceByKey,
     input.setActionItemSheetTarget,
     input.setFocusedReference,
@@ -721,6 +727,7 @@ export function BuildCollaborationFeed({
     directlyFocusedReference,
     focusedActionItemId: focusedDetailActionItemId,
     focusedEntityReference,
+    focusedReferenceState: focusedReferenceContext?.state,
     referenceByKey,
     setActionItemSheetTarget,
     setFocusedReference,

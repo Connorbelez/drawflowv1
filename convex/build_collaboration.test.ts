@@ -3008,6 +3008,50 @@ describe("Build collaboration tenant rollout", () => {
     );
   });
 
+  test("backfills global authorities before rebuilding the generations verified for cutover", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const postId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      collaborationPublicationFixture({
+        buildId,
+        plainText: "Cutover authority backfill beacon.",
+      }),
+    );
+    await base.run(async (ctx) => {
+      await ctx.db.insert("workosOrganizationMemberships", {
+        roleSlug: "admin",
+        roleSlugs: ["admin"],
+        sourceEventId: "event_cutover_backfill_admin",
+        sourceEventType: "organization_membership.created",
+        status: "active",
+        workosMembershipId: "membership_cutover_backfill_admin",
+        workosOrganizationId: ORGANIZATION_ID,
+        workosUserId: "user_cutover_backfill_admin",
+      });
+    });
+    await finishSearchMaintenance(base);
+
+    await prepareSearchCutover(base, buildId);
+
+    const backfilledAdmin = withIdentity(base, {
+      roles: ["admin"],
+      subject: "user_cutover_backfill_admin",
+    });
+    const result = await backfilledAdmin.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        query: "cutover authority backfill beacon",
+      },
+    );
+    expect(result).toMatchObject({ indexing: false });
+    expect(result.page).toEqual([
+      expect.objectContaining({ id: postId, resultType: "post" }),
+    ]);
+  });
+
   test("rejects activation when an implicit Build reader changes after verification", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     await deleteCollaborationTenantSetting(base);
@@ -3049,6 +3093,84 @@ describe("Build collaboration tenant rollout", () => {
         status: "active",
         updatedAt: now,
         workosUserId: "user_reader_added_after_cutover",
+      });
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId,
+          expectedStatus: "migration_ready",
+          nextStatus: "active",
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(
+      "Collaboration search readiness changed after verification; run verification again.",
+    );
+  });
+
+  test("rejects activation when an assigned contractor profile changes its linked identity", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await deleteCollaborationTenantSetting(base);
+    const contractorId = await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) {
+        throw new Error("Active Build fixture is unavailable.");
+      }
+      const now = Date.now();
+      const profileId = await ctx.db.insert("contractorProfiles", {
+        accountWorkosUserId: "user_original_contractor_reader",
+        brokerageId: build.brokerageId,
+        createdAt: now,
+        name: "Reader Identity Contractor",
+        organizationId: ORGANIZATION_ID,
+        status: "active",
+        trades: ["Concrete"],
+        updatedAt: now,
+      });
+      await ctx.db.insert("buildContractorAssignments", {
+        brokerageId: build.brokerageId,
+        buildId,
+        contractorId: profileId,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        role: "Concrete contractor",
+        status: "active",
+        updatedAt: now,
+      });
+      return profileId;
+    });
+    await admin.mutation(
+      (api as any).build_collaboration_rollout
+        .recordBuildCollaborationMigrationParityEvidence,
+      {
+        buildId,
+        importedPostCount: 0,
+        mismatchCount: 0,
+        organizationId: ORGANIZATION_ID,
+        reason: "Empty Build parity fixture.",
+        reportHash: "sha256:contractor-reader-drift",
+        sourceRecordCount: 0,
+      },
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_rollout
+        .transitionBuildCollaborationTenantStatus,
+      {
+        buildId,
+        expectedStatus: "disabled",
+        nextStatus: "migration_ready",
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    await prepareSearchCutover(base, buildId);
+    await base.run(async (ctx) => {
+      await ctx.db.patch(contractorId, {
+        accountWorkosUserId: "user_replacement_contractor_reader",
+        updatedAt: Date.now() + 1,
       });
     });
 
@@ -6145,6 +6267,7 @@ async function prepareSearchCutover(
         .processBuildCollaborationSearchCutoverVerification,
       { checkId },
     );
+    await finishSearchMaintenance(t);
     const status = await t.run(async (ctx) => (await ctx.db.get(checkId))?.status);
     if (status !== "building") {
       return;
