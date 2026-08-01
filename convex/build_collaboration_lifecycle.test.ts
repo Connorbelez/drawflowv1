@@ -151,6 +151,101 @@ describe("Build collaboration export and lifecycle governance", () => {
     ).rejects.toThrow("expired");
   });
 
+  test("revalidates export scope and every exported asset download", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    const created = await fixture.brokerStaff.mutation(
+      (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        scope: "build",
+      }
+    );
+    const downloaded = await fixture.brokerStaff.mutation(
+      (api as any).build_collaboration_exports.downloadBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        exportId: created.exportId,
+        organizationId: ORGANIZATION_ID,
+        token: created.token,
+      }
+    );
+    expect(downloaded.assets).toHaveLength(1);
+    expect(downloaded.assets[0]?.url).toContain(
+      "/api/build-collaboration/export-asset"
+    );
+    expect(downloaded.assets[0]?.url).not.toContain("/api/storage/");
+
+    const authorizedAsset = await fixture.brokerStaff.mutation(
+      (api as any).build_collaboration_exports
+        .authorizeBuildCollaborationExportAssetDownload,
+      {
+        assetId: fixture.assetId,
+        buildId: fixture.buildId,
+        exportId: created.exportId,
+        organizationId: ORGANIZATION_ID,
+        token: created.token,
+      }
+    );
+    expect(authorizedAsset).toMatchObject({
+      expiresAt: created.expiresAt,
+      fileName: "foundation.txt",
+      mimeType: "text/plain",
+    });
+
+    await fixture.base.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "user_broker_staff")
+        )
+        .unique();
+      if (!participant) {
+        throw new Error("Expected Broker Staff participant fixture.");
+      }
+      await ctx.db.patch(participant._id, {
+        role: "builder-staff",
+        updatedAt: Date.now(),
+      });
+    });
+    const demoted = withIdentity(
+      fixture.base,
+      "builder-staff",
+      "user_broker_staff"
+    );
+    await expect(
+      demoted.mutation(
+        (api as any).build_collaboration_exports
+          .downloadBuildCollaborationExport,
+        {
+          buildId: fixture.buildId,
+          exportId: created.exportId,
+          organizationId: ORGANIZATION_ID,
+          token: created.token,
+        }
+      )
+    ).rejects.toThrow("scope changed");
+
+    vi.setSystemTime(created.expiresAt + 1);
+    await expect(
+      fixture.brokerStaff.mutation(
+        (api as any).build_collaboration_exports
+          .authorizeBuildCollaborationExportAssetDownload,
+        {
+          assetId: fixture.assetId,
+          buildId: fixture.buildId,
+          exportId: created.exportId,
+          organizationId: ORGANIZATION_ID,
+          token: created.token,
+        }
+      )
+    ).rejects.toThrow("expired");
+  });
+
   test("requires explicit authority and closure waivers, preserves archive reads, and audits reopen", async () => {
     const fixture = await seedLifecycleFixture();
     await expect(
@@ -408,6 +503,138 @@ describe("Build collaboration export and lifecycle governance", () => {
       "purged",
     ]);
     expect(retained.audit.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("persists cumulative audited progress across bounded purge retries", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    await fixture.base.run(async (ctx) => {
+      for (let index = 0; index < 10; index += 1) {
+        const now = BASE_TIME + 100 + index;
+        const postId = await ctx.db.insert("buildCollaborationPosts", {
+          acknowledgementRequired: false,
+          agentDrafted: false,
+          audienceFloorTier: 3,
+          audienceMode: "build_wide",
+          authorDisplayNameSnapshot: "Builder",
+          authorRole: "builder",
+          authorRolesSnapshot: ["builder"],
+          authorWorkosUserId: "user_builder",
+          brokerageId: (await ctx.db.get(fixture.buildId))!.brokerageId,
+          buildId: fixture.buildId,
+          commentCount: 0,
+          contentState: "active",
+          createdAt: now,
+          lastMeaningfulActivityAt: now,
+          openActionItemCount: 0,
+          organizationId: ORGANIZATION_ID,
+          postType: "update",
+          readRevision: 1,
+          revision: 1,
+          source: "human",
+          threadRevision: 0,
+          threadState: "open",
+          updatedAt: now,
+        });
+        const revisionId = await ctx.db.insert(
+          "buildCollaborationPostRevisions",
+          {
+            authorRole: "builder",
+            authorWorkosUserId: "user_builder",
+            brokerageId: (await ctx.db.get(fixture.buildId))!.brokerageId,
+            buildId: fixture.buildId,
+            contentHash: `purge-batch-${index}`,
+            createdAt: now,
+            organizationId: ORGANIZATION_ID,
+            plainText: `Purge batch ${index}`,
+            postId,
+            revision: 1,
+            tiptapJson: textDocument(`Purge batch ${index}`),
+          }
+        );
+        await ctx.db.patch(postId, { currentRevisionId: revisionId });
+      }
+    });
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_retention
+        .setBuildCollaborationRetentionPolicy,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        policyKey: "bounded-purge-test",
+        reason: "Exercise durable bounded purge progress.",
+        retentionDays: 30,
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_lifecycle.closeBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 0,
+        organizationId: ORGANIZATION_ID,
+        reason: "Prepare the Build for bounded retention purge.",
+        waivers: [
+          {
+            actionItemId: fixture.actionItemId,
+            reason: "Administrative archive exception.",
+          },
+        ],
+      }
+    );
+    vi.setSystemTime(BASE_TIME + 31 * 86_400_000);
+    const args = {
+      buildId: fixture.buildId,
+      expectedLifecycleRevision: 1,
+      organizationId: ORGANIZATION_ID,
+      reason: "Execute bounded retention purge.",
+    };
+    const first = await fixture.admin.mutation(
+      (api as any).build_collaboration_retention
+        .purgeExpiredBuildCollaborationContent,
+      args
+    );
+    expect(first).toMatchObject({
+      complete: false,
+      deletedPostCount: 10,
+    });
+    const progress = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildCollaborationRetentionPurges")
+        .withIndex("by_buildId_and_state", (query) =>
+          query.eq("buildId", fixture.buildId).eq("state", "in_progress")
+        )
+        .unique()
+    );
+    expect(progress).toMatchObject({ batchCount: 1, deletedPostCount: 10 });
+    const progressAudits = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query.eq("entityType", "buildCollaborationRetentionPurge")
+        )
+        .collect()
+    );
+    expect(progressAudits.map((event) => event.eventType)).toEqual([
+      "build.collaboration.retention_purge.started",
+      "build.collaboration.retention_purge.batch_completed",
+    ]);
+
+    const completed = await fixture.admin.mutation(
+      (api as any).build_collaboration_retention
+        .purgeExpiredBuildCollaborationContent,
+      args
+    );
+    expect(completed).toMatchObject({
+      complete: true,
+      deletedPostCount: 12,
+    });
+    const replay = await fixture.admin.mutation(
+      (api as any).build_collaboration_retention
+        .purgeExpiredBuildCollaborationContent,
+      args
+    );
+    expect(replay).toEqual(completed);
   });
 });
 

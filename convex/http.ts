@@ -48,6 +48,66 @@ http.route({
 http.route({
   handler: httpAction(async (ctx, request) => {
     const requestUrl = new URL(request.url);
+    const assetId = requestUrl.searchParams.get("assetId");
+    const buildId = requestUrl.searchParams.get("buildId");
+    const exportId = requestUrl.searchParams.get("exportId");
+    const organizationId = requestUrl.searchParams.get("organizationId");
+    const token = requestUrl.searchParams.get("token");
+    if (!(assetId && buildId && exportId && organizationId && token)) {
+      return new Response("Missing collaboration export asset credentials.", {
+        status: 400,
+      });
+    }
+    try {
+      const authorized = await ctx.runMutation(
+        api.build_collaboration_exports
+          .authorizeBuildCollaborationExportAssetDownload,
+        {
+          assetId: assetId as never,
+          buildId: buildId as never,
+          exportId: exportId as never,
+          organizationId,
+          token,
+        }
+      );
+      if (authorized.expiresAt <= Date.now()) {
+        return new Response("Collaboration export link has expired.", {
+          status: 410,
+        });
+      }
+      const storageUrl = await ctx.storage.getUrl(authorized.storageId);
+      if (!storageUrl) {
+        return new Response("Collaboration export asset is unavailable.", {
+          status: 404,
+        });
+      }
+      const sourceResponse = await fetch(storageUrl);
+      if (!(sourceResponse.ok && sourceResponse.body)) {
+        return new Response("Collaboration export asset is unavailable.", {
+          status: 404,
+        });
+      }
+      return new Response(sourceResponse.body, {
+        headers: {
+          "Cache-Control": "private, no-store, max-age=0",
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(authorized.fileName)}`,
+          "Content-Type": authorized.mimeType,
+          "X-Content-Type-Options": "nosniff",
+        },
+        status: 200,
+      });
+    } catch {
+      return new Response("Collaboration export asset access denied.", {
+        status: 403,
+      });
+    }
+  }),
+  method: "GET",
+  path: "/api/build-collaboration/export-asset",
+});
+http.route({
+  handler: httpAction(async (ctx, request) => {
+    const requestUrl = new URL(request.url);
     const sourceUrl = requestUrl.searchParams.get("url");
     if (!sourceUrl) {
       return new Response("Missing evidence source URL.", { status: 400 });

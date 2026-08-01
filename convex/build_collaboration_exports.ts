@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation } from "./authz";
+import type { AuthorizedViewer } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import {
   canReadCollaborationAsset,
@@ -17,6 +18,7 @@ const EXPORT_BURST_WARNING_COUNT = 10;
 const EXPORT_BURST_LIMIT = 20;
 const MAX_EXPORT_POSTS = 2000;
 const MAX_EXPORT_ASSETS = 2000;
+const TRAILING_SLASH_PATTERN = /\/$/;
 
 const requestedScopeValidator = v.union(
   v.literal("build"),
@@ -53,6 +55,13 @@ const exportDownloadValidator = v.object({
   expiresAt: v.number(),
   manifestJson: v.string(),
   scope: exportScopeValidator,
+});
+
+const exportAssetAuthorizationValidator = v.object({
+  expiresAt: v.number(),
+  fileName: v.string(),
+  mimeType: v.string(),
+  storageId: v.id("_storage"),
 });
 
 export const requestBuildCollaborationExport = authenticatedMutation
@@ -144,31 +153,10 @@ export const downloadBuildCollaborationExport = authenticatedMutation
   })
   .returns(exportDownloadValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeActiveBuildCollaborationAccess(
+    const { authorization, manifest, now, row } = await requireAuthorizedExport(
       ctx,
       args
     );
-    await requireHumanCollaborationActor(ctx, authorization);
-    const row = await ctx.db.get(args.exportId);
-    if (
-      !row ||
-      row.organizationId !== authorization.organizationId ||
-      row.brokerageId !== authorization.brokerage._id ||
-      row.buildId !== authorization.build._id ||
-      row.requestedByWorkosUserId !== authorization.viewer.subject ||
-      row.tokenHash !== (await sha256Hex(args.token))
-    ) {
-      throw new Error("Collaboration export link is invalid or unavailable.");
-    }
-    const now = Date.now();
-    if (row.state !== "active" || row.expiresAt <= now) {
-      throw new Error("Collaboration export link has expired.");
-    }
-
-    const manifest = JSON.parse(row.manifestJson) as {
-      assetIds?: Id<"buildCollaborationAssets">[];
-      posts?: { postId: Id<"buildCollaborationPosts"> }[];
-    };
     for (const exportedPost of manifest.posts ?? []) {
       const post = await ctx.db.get(exportedPost.postId);
       if (
@@ -199,16 +187,18 @@ export const downloadBuildCollaborationExport = authenticatedMutation
           "Collaboration export access changed; request a new authorized export."
         );
       }
-      const url = await ctx.storage.getUrl(asset.storageId);
-      if (!url) {
-        throw new Error("An exported collaboration asset is unavailable.");
-      }
       assets.push({
         assetId: asset._id,
         fileName: asset.fileName,
         mimeType: asset.mimeType,
         sizeBytes: asset.sizeBytes,
-        url,
+        url: buildExportAssetDownloadUrl({
+          assetId: asset._id,
+          buildId: authorization.build._id,
+          exportId: row._id,
+          organizationId: authorization.organizationId,
+          token: args.token,
+        }),
         version: asset.version,
       });
     }
@@ -225,6 +215,132 @@ export const downloadBuildCollaborationExport = authenticatedMutation
     };
   })
   .public();
+
+export const authorizeBuildCollaborationExportAssetDownload =
+  authenticatedMutation
+    .input({
+      assetId: v.id("buildCollaborationAssets"),
+      buildId: v.id("activeBuilds"),
+      exportId: v.id("buildCollaborationExports"),
+      organizationId: v.string(),
+      token: v.string(),
+    })
+    .returns(exportAssetAuthorizationValidator)
+    .handler(async (ctx, args) => {
+      const { authorization, manifest, now, row } =
+        await requireAuthorizedExport(ctx, args);
+      if (!(manifest.assetIds ?? []).includes(args.assetId)) {
+        throw new Error("The asset is not part of this collaboration export.");
+      }
+      const asset = await ctx.db.get(args.assetId);
+      if (
+        !(
+          asset &&
+          (await canReadCollaborationAsset(ctx, { asset, authorization }))
+        )
+      ) {
+        throw new Error(
+          "Collaboration export access changed; request a new authorized export."
+        );
+      }
+      await ctx.db.patch(row._id, {
+        accessCount: row.accessCount + 1,
+        lastAccessedAt: now,
+      });
+      return {
+        expiresAt: row.expiresAt,
+        fileName: asset.fileName,
+        mimeType: asset.mimeType,
+        storageId: asset.storageId,
+      };
+    })
+    .public();
+
+async function requireAuthorizedExport(
+  ctx: MutationCtx & { viewer: AuthorizedViewer },
+  args: {
+    buildId: Id<"activeBuilds">;
+    exportId: Id<"buildCollaborationExports">;
+    organizationId: string;
+    token: string;
+  }
+) {
+  const authorization = await authorizeActiveBuildCollaborationAccess(
+    ctx,
+    args
+  );
+  await requireHumanCollaborationActor(ctx, authorization);
+  const row = await ctx.db.get(args.exportId);
+  if (
+    !row ||
+    row.organizationId !== authorization.organizationId ||
+    row.brokerageId !== authorization.brokerage._id ||
+    row.buildId !== authorization.build._id ||
+    row.requestedByWorkosUserId !== authorization.viewer.subject ||
+    row.tokenHash !== (await sha256Hex(args.token))
+  ) {
+    throw new Error("Collaboration export link is invalid or unavailable.");
+  }
+  const now = Date.now();
+  if (row.state !== "active" || row.expiresAt <= now) {
+    throw new Error("Collaboration export link has expired.");
+  }
+  assertCurrentExportScope(authorization, row.scope);
+  const manifest = JSON.parse(row.manifestJson) as {
+    assetIds?: Id<"buildCollaborationAssets">[];
+    posts?: { postId: Id<"buildCollaborationPosts"> }[];
+  };
+  return { authorization, manifest, now, row };
+}
+
+function assertCurrentExportScope(
+  authorization: ActiveBuildAuthorization,
+  storedScope: Doc<"buildCollaborationExports">["scope"]
+) {
+  let currentScope: Doc<"buildCollaborationExports">["scope"];
+  try {
+    currentScope = resolveExportScope(
+      authorization,
+      storedScope === "full_archive" || storedScope === "authorized_build"
+        ? "build"
+        : storedScope
+    );
+  } catch {
+    throw new Error(
+      "Collaboration export scope changed; request a new authorized export."
+    );
+  }
+  const stillAllowed =
+    currentScope === storedScope ||
+    (storedScope === "authorized_build" && currentScope === "full_archive");
+  if (!stillAllowed) {
+    throw new Error(
+      "Collaboration export scope changed; request a new authorized export."
+    );
+  }
+}
+
+function buildExportAssetDownloadUrl(input: {
+  assetId: Id<"buildCollaborationAssets">;
+  buildId: Id<"activeBuilds">;
+  exportId: Id<"buildCollaborationExports">;
+  organizationId: string;
+  token: string;
+}) {
+  const query = new URLSearchParams({
+    assetId: input.assetId,
+    buildId: input.buildId,
+    exportId: input.exportId,
+    organizationId: input.organizationId,
+    token: input.token,
+  });
+  const path = `/api/build-collaboration/export-asset?${query.toString()}`;
+  const siteUrl = process.env.CONVEX_SITE_URL?.replace(
+    TRAILING_SLASH_PATTERN,
+    ""
+  );
+  return siteUrl ? `${siteUrl}${path}` : path;
+}
 
 function resolveExportScope(
   authorization: ActiveBuildAuthorization,

@@ -3354,12 +3354,23 @@ export default defineSchema({
     requestedByWorkosUserId: v.string(),
     requestedByRole: buildCollaborationRoleValidator,
     reason: v.string(),
-    state: v.union(v.literal("completed"), v.literal("blocked")),
+    operationKey: v.optional(v.string()),
+    state: v.union(
+      v.literal("in_progress"),
+      v.literal("completed"),
+      v.literal("blocked")
+    ),
     deletedPostCount: v.number(),
     deletedAssetCount: v.number(),
     retainedAuditEventCount: v.number(),
-    completedAt: v.number(),
-  }).index("by_buildId_and_completedAt", ["buildId", "completedAt"]),
+    batchCount: v.optional(v.number()),
+    startedAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_buildId_and_completedAt", ["buildId", "completedAt"])
+    .index("by_buildId_and_state", ["buildId", "state"])
+    .index("by_operationKey", ["operationKey"]),
   buildCollaborationPosts: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

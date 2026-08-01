@@ -276,6 +276,25 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
   .handler(async (ctx, args) => {
     const authorization = await authorizeLifecycleAuthority(ctx, args);
     const reason = requiredReason(args.reason, "A retention purge reason");
+    const operationKey = `${authorization.build._id}:${args.expectedLifecycleRevision}`;
+    let purge = await findMatchingRetentionPurge(ctx, {
+      authorization,
+      operationKey,
+      reason,
+    });
+    if (purge) {
+      if (purge.state === "completed") {
+        return {
+          complete: true,
+          deletedAssetCount: purge.deletedAssetCount,
+          deletedPostCount: purge.deletedPostCount,
+          remainingPostCount: 0,
+        };
+      }
+      if (purge.state === "blocked") {
+        throw new Error("Retention purge operation is blocked.");
+      }
+    }
     const lifecycle = await getStoredBuildCollaborationState(
       ctx,
       authorization
@@ -290,18 +309,28 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
         "Retention purge requires the current explicitly closed Build collaboration revision."
       );
     }
-    const policy = await ctx.db
-      .query("buildCollaborationRetentionPolicies")
-      .withIndex("by_organizationId_and_state", (query) =>
-        query
-          .eq("organizationId", authorization.organizationId)
-          .eq("state", "active")
-      )
-      .unique();
-    if (!policy || policy.brokerageId !== authorization.brokerage._id) {
-      throw new Error("An active tenant retention policy is required.");
+    const snapshottedPolicyId = lifecycle.retentionPolicyId;
+    const policy = snapshottedPolicyId
+      ? await ctx.db.get(snapshottedPolicyId)
+      : purge
+        ? await ctx.db.get(purge.retentionPolicyId)
+        : null;
+    if (
+      !policy ||
+      policy.organizationId !== authorization.organizationId ||
+      policy.brokerageId !== authorization.brokerage._id ||
+      lifecycle.retentionPolicyVersion !== policy.version
+    ) {
+      throw new Error(
+        "Build closure is missing its exact retention policy snapshot."
+      );
     }
-    const eligibleAt = lifecycle.closedAt + policy.retentionDays * 86_400_000;
+    const eligibleAt = lifecycle.retentionEligibleAt;
+    if (!eligibleAt) {
+      throw new Error(
+        "Build closure is missing its snapshotted retention eligibility date."
+      );
+    }
     if (Date.now() < eligibleAt) {
       throw new Error(
         "Build collaboration is not yet eligible for retention purge."
@@ -317,6 +346,45 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
       throw new Error("Legal hold blocks retention purge for this Build.");
     }
 
+    const startedAt = Date.now();
+    if (!purge) {
+      const purgeId = await ctx.db.insert("buildCollaborationRetentionPurges", {
+        batchCount: 0,
+        brokerageId: authorization.brokerage._id,
+        buildId: authorization.build._id,
+        deletedAssetCount: 0,
+        deletedPostCount: 0,
+        operationKey,
+        organizationId: authorization.organizationId,
+        reason,
+        requestedByRole: authorization.effectiveRole.role,
+        requestedByWorkosUserId: authorization.viewer.subject,
+        retainedAuditEventCount: 0,
+        retentionPolicyId: policy._id,
+        startedAt,
+        state: "in_progress",
+        updatedAt: startedAt,
+      });
+      purge = await ctx.db.get(purgeId);
+      if (!purge) {
+        throw new Error("Retention purge progress could not be initialized.");
+      }
+      await recordGovernanceAudit(ctx, {
+        authorization,
+        command: "purgeExpiredBuildCollaborationContent",
+        entityId: purgeId,
+        entityType: "buildCollaborationRetentionPurge",
+        eventType: "build.collaboration.retention_purge.started",
+        newState: JSON.stringify({
+          operationKey,
+          retentionPolicyId: policy._id,
+          state: "in_progress",
+        }),
+        now: startedAt,
+        reason,
+      });
+    }
+
     const posts = await ctx.db
       .query("buildCollaborationPosts")
       .withIndex("by_buildId_and_createdAt", (query) =>
@@ -327,12 +395,35 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
     for (const post of batch) {
       await deletePostTree(ctx, post);
     }
+    const now = Date.now();
+    const deletedPostCount = purge.deletedPostCount + batch.length;
+    const batchCount = (purge.batchCount ?? 0) + (batch.length > 0 ? 1 : 0);
     const remainingPostCount = Math.max(0, posts.length - batch.length);
     if (posts.length > PURGE_POST_BATCH_SIZE) {
+      await ctx.db.patch(purge._id, {
+        batchCount,
+        deletedPostCount,
+        updatedAt: now,
+      });
+      await recordGovernanceAudit(ctx, {
+        authorization,
+        command: "purgeExpiredBuildCollaborationContent",
+        entityId: purge._id,
+        entityType: "buildCollaborationRetentionPurge",
+        eventType: "build.collaboration.retention_purge.batch_completed",
+        newState: JSON.stringify({
+          batchCount,
+          deletedPostCount,
+          remainingPostCount,
+          state: "in_progress",
+        }),
+        now,
+        reason,
+      });
       return {
         complete: false,
-        deletedAssetCount: 0,
-        deletedPostCount: batch.length,
+        deletedAssetCount: purge.deletedAssetCount,
+        deletedPostCount,
         remainingPostCount,
       };
     }
@@ -341,7 +432,6 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
       ctx,
       authorization.build._id
     );
-    const now = Date.now();
     const revision = lifecycle.revision + 1;
     await ctx.db.patch(lifecycle._id, {
       purgeReason: reason,
@@ -359,19 +449,14 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
         )
         .take(500)
     ).length;
-    await ctx.db.insert("buildCollaborationRetentionPurges", {
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
+    await ctx.db.patch(purge._id, {
+      batchCount,
       completedAt: now,
       deletedAssetCount,
-      deletedPostCount: batch.length,
-      organizationId: authorization.organizationId,
-      reason,
-      requestedByRole: authorization.effectiveRole.role,
-      requestedByWorkosUserId: authorization.viewer.subject,
+      deletedPostCount,
       retainedAuditEventCount,
-      retentionPolicyId: policy._id,
       state: "completed",
+      updatedAt: now,
     });
     await ctx.db.insert("buildCollaborationBuildLifecycleEvents", {
       actorRole: authorization.effectiveRole.role,
@@ -397,7 +482,7 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
       eventType: "build.collaboration.purged",
       newState: JSON.stringify({
         deletedAssetCount,
-        deletedPostCount: batch.length,
+        deletedPostCount,
         revision,
         state: "purged",
       }),
@@ -411,11 +496,37 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
     return {
       complete: true,
       deletedAssetCount,
-      deletedPostCount: batch.length,
+      deletedPostCount,
       remainingPostCount: 0,
     };
   })
   .public();
+
+async function findMatchingRetentionPurge(
+  ctx: MutationCtx,
+  input: {
+    authorization: Awaited<ReturnType<typeof authorizeLifecycleAuthority>>;
+    operationKey: string;
+    reason: string;
+  }
+) {
+  const purge = await ctx.db
+    .query("buildCollaborationRetentionPurges")
+    .withIndex("by_operationKey", (query) =>
+      query.eq("operationKey", input.operationKey)
+    )
+    .unique();
+  if (
+    purge &&
+    (purge.organizationId !== input.authorization.organizationId ||
+      purge.brokerageId !== input.authorization.brokerage._id ||
+      purge.buildId !== input.authorization.build._id ||
+      purge.reason !== input.reason)
+  ) {
+    throw new Error("Retention purge operation does not match this request.");
+  }
+  return purge;
+}
 
 async function deletePostTree(
   ctx: MutationCtx,
@@ -472,22 +583,28 @@ async function deletePostTree(
     }
     await deleteRows(
       ctx,
-      await ctx.db
-        .query("buildCollaborationReactions")
-        .withIndex("by_commentId_and_workosUserId", (query) =>
-          query.eq("commentId", comment._id)
-        )
-        .take(MAX_CHILD_ROWS_PER_POST)
+      await bounded(
+        ctx.db
+          .query("buildCollaborationReactions")
+          .withIndex("by_commentId_and_workosUserId", (query) =>
+            query.eq("commentId", comment._id)
+          )
+          .take(MAX_CHILD_ROWS_PER_POST + 1),
+        "comment reactions"
+      )
     );
     await deleteRows(
       ctx,
-      await ctx.db
-        .query("buildCollaborationPins")
-        .withIndex(
-          "by_postId_and_commentId_and_workosUserId_and_kind",
-          (query) => query.eq("postId", post._id).eq("commentId", comment._id)
-        )
-        .take(MAX_CHILD_ROWS_PER_POST)
+      await bounded(
+        ctx.db
+          .query("buildCollaborationPins")
+          .withIndex(
+            "by_postId_and_commentId_and_workosUserId_and_kind",
+            (query) => query.eq("postId", post._id).eq("commentId", comment._id)
+          )
+          .take(MAX_CHILD_ROWS_PER_POST + 1),
+        "comment pins"
+      )
     );
     await deleteModerationCase(ctx, "comment", comment._id);
     await ctx.db.delete(comment._id);
@@ -505,97 +622,142 @@ async function deletePostTree(
   for (const item of actionItems) {
     await deleteActionItem(ctx, item);
   }
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildActionItemCreationRequests")
+        .withIndex("by_postId_and_creatorWorkosUserId_and_requestId", (query) =>
+          query.eq("postId", post._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "Action Item creation requests"
+    )
+  );
 
   await deleteRows(
     ctx,
-    await ctx.db
-      .query("buildCollaborationDecisionOutcomeRevisions")
-      .withIndex("by_postId_and_revision", (query) =>
-        query.eq("postId", post._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  await deleteRows(
-    ctx,
-    await ctx.db
-      .query("buildCollaborationThreadEvents")
-      .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  await deleteRows(
-    ctx,
-    await ctx.db
-      .query("buildCollaborationAudienceMembers")
-      .withIndex("by_postId_and_workosUserId", (query) =>
-        query.eq("postId", post._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  await deleteRows(
-    ctx,
-    await ctx.db
-      .query("buildCollaborationSearchRecords")
-      .withIndex("by_postId", (query) => query.eq("postId", post._id))
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  await deleteRows(
-    ctx,
-    await ctx.db
-      .query("buildCollaborationReferences")
-      .withIndex("by_postId", (query) => query.eq("postId", post._id))
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  await deleteRows(
-    ctx,
-    await ctx.db
-      .query("buildCollaborationFollows")
-      .withIndex("by_postId_and_workosUserId", (query) =>
-        query.eq("postId", post._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  await deleteRows(
-    ctx,
-    await ctx.db
-      .query("buildCollaborationReactions")
-      .withIndex("by_postId_and_workosUserId", (query) =>
-        query.eq("postId", post._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  await deleteRows(
-    ctx,
-    await ctx.db
-      .query("buildCollaborationReceipts")
-      .withIndex("by_postId_and_workosUserId", (query) =>
-        query.eq("postId", post._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  await deleteRows(
-    ctx,
-    await ctx.db
-      .query("buildCollaborationPins")
-      .withIndex("by_postId_and_workosUserId_and_kind", (query) =>
-        query.eq("postId", post._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  const targets = await ctx.db
-    .query("buildCollaborationAcknowledgementTargets")
-    .withIndex("by_postId_and_workosUserId", (query) =>
-      query.eq("postId", post._id)
+    await bounded(
+      ctx.db
+        .query("buildCollaborationDecisionOutcomeRevisions")
+        .withIndex("by_postId_and_revision", (query) =>
+          query.eq("postId", post._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "decision outcome revisions"
     )
-    .take(MAX_CHILD_ROWS_PER_POST);
+  );
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildCollaborationThreadEvents")
+        .withIndex("by_postId_and_createdAt", (query) =>
+          query.eq("postId", post._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "thread events"
+    )
+  );
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildCollaborationAudienceMembers")
+        .withIndex("by_postId_and_workosUserId", (query) =>
+          query.eq("postId", post._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "audience members"
+    )
+  );
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildCollaborationSearchRecords")
+        .withIndex("by_postId", (query) => query.eq("postId", post._id))
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "search records"
+    )
+  );
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildCollaborationReferences")
+        .withIndex("by_postId", (query) => query.eq("postId", post._id))
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "post references"
+    )
+  );
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildCollaborationFollows")
+        .withIndex("by_postId_and_workosUserId", (query) =>
+          query.eq("postId", post._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "post follows"
+    )
+  );
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildCollaborationReactions")
+        .withIndex("by_postId_and_workosUserId", (query) =>
+          query.eq("postId", post._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "post reactions"
+    )
+  );
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildCollaborationReceipts")
+        .withIndex("by_postId_and_workosUserId", (query) =>
+          query.eq("postId", post._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "post receipts"
+    )
+  );
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildCollaborationPins")
+        .withIndex("by_postId_and_workosUserId_and_kind", (query) =>
+          query.eq("postId", post._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "post pins"
+    )
+  );
+  const targets = await bounded(
+    ctx.db
+      .query("buildCollaborationAcknowledgementTargets")
+      .withIndex("by_postId_and_workosUserId", (query) =>
+        query.eq("postId", post._id)
+      )
+      .take(MAX_CHILD_ROWS_PER_POST + 1),
+    "acknowledgement targets"
+  );
   for (const target of targets) {
     await deleteRows(
       ctx,
-      await ctx.db
-        .query("buildCollaborationAcknowledgements")
-        .withIndex("by_targetId", (query) => query.eq("targetId", target._id))
-        .take(MAX_CHILD_ROWS_PER_POST)
+      await bounded(
+        ctx.db
+          .query("buildCollaborationAcknowledgements")
+          .withIndex("by_targetId", (query) => query.eq("targetId", target._id))
+          .take(MAX_CHILD_ROWS_PER_POST + 1),
+        "acknowledgements"
+      )
     );
     await ctx.db.delete(target._id);
   }
@@ -609,63 +771,84 @@ async function deleteActionItem(
 ) {
   await deleteRows(
     ctx,
-    await ctx.db
-      .query("buildActionItemEvents")
+    await bounded(
+      ctx.db
+        .query("buildActionItemEvents")
+        .withIndex("by_actionItemId_and_createdAt", (query) =>
+          query.eq("actionItemId", item._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "Action Item events"
+    )
+  );
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildActionItemRevisions")
+        .withIndex("by_actionItemId_and_revision", (query) =>
+          query.eq("actionItemId", item._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "Action Item revisions"
+    )
+  );
+  await deleteRows(
+    ctx,
+    await bounded(
+      ctx.db
+        .query("buildActionItemLabels")
+        .withIndex("by_actionItemId_and_normalizedLabel", (query) =>
+          query.eq("actionItemId", item._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "Action Item labels"
+    )
+  );
+  const comments = await bounded(
+    ctx.db
+      .query("buildActionItemComments")
       .withIndex("by_actionItemId_and_createdAt", (query) =>
         query.eq("actionItemId", item._id)
       )
-      .take(MAX_CHILD_ROWS_PER_POST)
+      .take(MAX_CHILD_ROWS_PER_POST + 1),
+    "Action Item comments"
   );
-  await deleteRows(
-    ctx,
-    await ctx.db
-      .query("buildActionItemRevisions")
-      .withIndex("by_actionItemId_and_revision", (query) =>
-        query.eq("actionItemId", item._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  await deleteRows(
-    ctx,
-    await ctx.db
-      .query("buildActionItemLabels")
-      .withIndex("by_actionItemId_and_normalizedLabel", (query) =>
-        query.eq("actionItemId", item._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
-  );
-  const comments = await ctx.db
-    .query("buildActionItemComments")
-    .withIndex("by_actionItemId_and_createdAt", (query) =>
-      query.eq("actionItemId", item._id)
-    )
-    .take(MAX_CHILD_ROWS_PER_POST);
   for (const comment of comments) {
     await deleteOwnerRows(ctx, "actionItemComment", comment._id);
     await ctx.db.delete(comment._id);
   }
   await deleteRows(
     ctx,
-    await ctx.db
-      .query("buildActionItemChecklistItems")
-      .withIndex("by_actionItemId_and_order", (query) =>
-        query.eq("actionItemId", item._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
+    await bounded(
+      ctx.db
+        .query("buildActionItemChecklistItems")
+        .withIndex("by_actionItemId_and_order", (query) =>
+          query.eq("actionItemId", item._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "Action Item checklist entries"
+    )
   );
   const relations = [
-    ...(await ctx.db
-      .query("buildActionItemRelations")
-      .withIndex("by_sourceActionItemId_and_status", (query) =>
-        query.eq("sourceActionItemId", item._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)),
-    ...(await ctx.db
-      .query("buildActionItemRelations")
-      .withIndex("by_targetActionItemId_and_status", (query) =>
-        query.eq("targetActionItemId", item._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)),
+    ...(await bounded(
+      ctx.db
+        .query("buildActionItemRelations")
+        .withIndex("by_sourceActionItemId_and_status", (query) =>
+          query.eq("sourceActionItemId", item._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "outgoing Action Item relations"
+    )),
+    ...(await bounded(
+      ctx.db
+        .query("buildActionItemRelations")
+        .withIndex("by_targetActionItemId_and_status", (query) =>
+          query.eq("targetActionItemId", item._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "incoming Action Item relations"
+    )),
   ];
   for (const relationId of new Set(relations.map((relation) => relation._id))) {
     if (await ctx.db.get(relationId)) {
@@ -674,12 +857,15 @@ async function deleteActionItem(
   }
   await deleteRows(
     ctx,
-    await ctx.db
-      .query("buildActionItemPostLinks")
-      .withIndex("by_actionItemId_and_postId", (query) =>
-        query.eq("actionItemId", item._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
+    await bounded(
+      ctx.db
+        .query("buildActionItemPostLinks")
+        .withIndex("by_actionItemId_and_postId", (query) =>
+          query.eq("actionItemId", item._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "Action Item post links"
+    )
   );
   await deleteOwnerRows(ctx, "actionItem", item._id);
   await ctx.db.delete(item._id);
@@ -696,21 +882,27 @@ async function deleteOwnerRows(
 ) {
   await deleteRows(
     ctx,
-    await ctx.db
-      .query("buildCollaborationAttachments")
-      .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-        query.eq("ownerKind", ownerKind).eq("ownerRecordId", ownerRecordId)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
+    await bounded(
+      ctx.db
+        .query("buildCollaborationAttachments")
+        .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+          query.eq("ownerKind", ownerKind).eq("ownerRecordId", ownerRecordId)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      `${ownerKind} attachments`
+    )
   );
   await deleteRows(
     ctx,
-    await ctx.db
-      .query("buildCollaborationReferences")
-      .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-        query.eq("ownerKind", ownerKind).eq("ownerRecordId", ownerRecordId)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST)
+    await bounded(
+      ctx.db
+        .query("buildCollaborationReferences")
+        .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+          query.eq("ownerKind", ownerKind).eq("ownerRecordId", ownerRecordId)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      `${ownerKind} references`
+    )
   );
 }
 
@@ -719,21 +911,29 @@ async function deleteModerationCase(
   entityKind: "comment" | "post",
   entityId: string
 ) {
-  const cases = await ctx.db
-    .query("buildCollaborationModerationCases")
-    .withIndex("by_entityKind_and_entityId", (query) =>
-      query.eq("entityKind", entityKind).eq("entityId", entityId)
-    )
-    .take(20);
+  const cases = await boundedAt(
+    ctx.db
+      .query("buildCollaborationModerationCases")
+      .withIndex("by_entityKind_and_entityId", (query) =>
+        query.eq("entityKind", entityKind).eq("entityId", entityId)
+      )
+      .take(21),
+    20,
+    `${entityKind} moderation cases`
+  );
   for (const moderationCase of cases) {
     await deleteRows(
       ctx,
-      await ctx.db
-        .query("buildCollaborationModerationEvents")
-        .withIndex("by_caseId_and_createdAt", (query) =>
-          query.eq("caseId", moderationCase._id)
-        )
-        .take(100)
+      await boundedAt(
+        ctx.db
+          .query("buildCollaborationModerationEvents")
+          .withIndex("by_caseId_and_createdAt", (query) =>
+            query.eq("caseId", moderationCase._id)
+          )
+          .take(101),
+        100,
+        "moderation events"
+      )
     );
     await ctx.db.delete(moderationCase._id);
   }
@@ -743,64 +943,143 @@ async function deleteBuildResidue(
   ctx: MutationCtx,
   buildId: Id<"activeBuilds">
 ) {
-  const assets = await ctx.db
-    .query("buildCollaborationAssets")
-    .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
-    .take(5001);
-  if (assets.length > 5000) {
-    throw new Error("Build asset purge exceeds the 5,000-asset safety limit.");
-  }
+  const assets = await boundedAt(
+    ctx.db
+      .query("buildCollaborationAssets")
+      .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+      .take(5001),
+    5000,
+    "Build assets"
+  );
   for (const asset of assets) {
     if (!asset.storageDeletedAt) {
       await ctx.storage.delete(asset.storageId);
     }
     await ctx.db.delete(asset._id);
   }
-  const deliveryBatches = await ctx.db
-    .query("buildCollaborationDeliveryBatches")
-    .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
-    .take(5000);
+  const deliveryBatches = await boundedAt(
+    ctx.db
+      .query("buildCollaborationDeliveryBatches")
+      .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+      .take(5001),
+    5000,
+    "delivery batches"
+  );
   for (const batch of deliveryBatches) {
     await deleteRows(
       ctx,
-      await ctx.db
-        .query("buildCollaborationDeliveryAttempts")
-        .withIndex("by_batchId_and_state", (query) =>
-          query.eq("batchId", batch._id)
-        )
-        .take(5000)
+      await boundedAt(
+        ctx.db
+          .query("buildCollaborationDeliveryAttempts")
+          .withIndex("by_batchId_and_state", (query) =>
+            query.eq("batchId", batch._id)
+          )
+          .take(5001),
+        5000,
+        "delivery attempts"
+      )
     );
     await ctx.db.delete(batch._id);
   }
   for (const tableRows of [
-    await ctx.db
-      .query("buildCollaborationAssetStagingSessions")
-      .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
-      .take(5000),
-    await ctx.db
-      .query("buildCollaborationPublicationApprovals")
-      .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
-      .take(5000),
-    await ctx.db
-      .query("buildCollaborationDrafts")
-      .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
-      .take(5000),
-    await ctx.db
-      .query("buildCollaborationSearchJobs")
-      .withIndex("by_buildId_and_status", (query) =>
-        query.eq("buildId", buildId)
-      )
-      .take(5000),
-    await ctx.db
-      .query("buildCollaborationExternalDeliveries")
-      .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
-      .take(5000),
-    await ctx.db
-      .query("recipientDeliveries")
-      .withIndex("by_collaborationBuildId", (query) =>
-        query.eq("collaborationBuildId", buildId)
-      )
-      .take(5000),
+    await boundedAt(
+      ctx.db
+        .query("buildCollaborationAssetStagingSessions")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .take(5001),
+      5000,
+      "asset staging sessions"
+    ),
+    await boundedAt(
+      ctx.db
+        .query("buildCollaborationPublicationApprovals")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .take(5001),
+      5000,
+      "publication approvals"
+    ),
+    await boundedAt(
+      ctx.db
+        .query("buildCollaborationDrafts")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .take(5001),
+      5000,
+      "drafts"
+    ),
+    await boundedAt(
+      ctx.db
+        .query("buildCollaborationSearchJobs")
+        .withIndex("by_buildId_and_status", (query) =>
+          query.eq("buildId", buildId)
+        )
+        .take(5001),
+      5000,
+      "search jobs"
+    ),
+    await boundedAt(
+      ctx.db
+        .query("buildCollaborationExternalDeliveries")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .take(5001),
+      5000,
+      "external deliveries"
+    ),
+    await boundedAt(
+      ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_collaborationBuildId", (query) =>
+          query.eq("collaborationBuildId", buildId)
+        )
+        .take(5001),
+      5000,
+      "recipient deliveries"
+    ),
+    await boundedAt(
+      ctx.db
+        .query("buildActionItemCreationRequests")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .take(5001),
+      5000,
+      "Action Item creation requests"
+    ),
+    await boundedAt(
+      ctx.db
+        .query("buildCollaborationActivityProjections")
+        .withIndex("by_buildId_and_projectionKey", (query) =>
+          query.eq("buildId", buildId)
+        )
+        .take(5001),
+      5000,
+      "activity projections"
+    ),
+    await boundedAt(
+      ctx.db
+        .query("buildCollaborationNotificationPreferences")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query.eq("buildId", buildId)
+        )
+        .take(5001),
+      5000,
+      "notification preferences"
+    ),
+    await boundedAt(
+      ctx.db
+        .query("buildCollaborationPushEndpointBuildBindings")
+        .withIndex("by_buildId_and_endpoint", (query) =>
+          query.eq("buildId", buildId)
+        )
+        .take(5001),
+      5000,
+      "push endpoint Build bindings"
+    ),
+    await boundedAt(
+      ctx.db
+        .query("buildCollaborationPushSubscriptions")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .take(5001),
+      5000,
+      "Build-scoped push subscriptions"
+    ),
   ]) {
     await deleteRows(ctx, tableRows);
   }
@@ -811,12 +1090,16 @@ async function deleteBuildResidue(
   if (searchState) {
     await ctx.db.delete(searchState._id);
   }
-  const exports = await ctx.db
-    .query("buildCollaborationExports")
-    .withIndex("by_buildId_and_createdAt", (query) =>
-      query.eq("buildId", buildId)
-    )
-    .take(5000);
+  const exports = await boundedAt(
+    ctx.db
+      .query("buildCollaborationExports")
+      .withIndex("by_buildId_and_createdAt", (query) =>
+        query.eq("buildId", buildId)
+      )
+      .take(5001),
+    5000,
+    "exports"
+  );
   for (const row of exports) {
     await ctx.db.patch(row._id, {
       aclSnapshotJson: JSON.stringify({ purged: true }),
@@ -825,7 +1108,102 @@ async function deleteBuildResidue(
       tokenHash: `revoked:${row._id}`,
     });
   }
+  await assertBuildCollaborationResidueRemoved(ctx, buildId);
   return assets.length;
+}
+
+async function assertBuildCollaborationResidueRemoved(
+  ctx: MutationCtx,
+  buildId: Id<"activeBuilds">
+) {
+  const checks = [
+    [
+      "posts",
+      await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_createdAt", (query) =>
+          query.eq("buildId", buildId)
+        )
+        .first(),
+    ],
+    [
+      "Action Items",
+      await ctx.db
+        .query("buildActionItems")
+        .withIndex("by_buildId_and_queueSortAt", (query) =>
+          query.eq("buildId", buildId)
+        )
+        .first(),
+    ],
+    [
+      "assets",
+      await ctx.db
+        .query("buildCollaborationAssets")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .first(),
+    ],
+    [
+      "drafts",
+      await ctx.db
+        .query("buildCollaborationDrafts")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .first(),
+    ],
+    [
+      "publication approvals",
+      await ctx.db
+        .query("buildCollaborationPublicationApprovals")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .first(),
+    ],
+    [
+      "Action Item creation requests",
+      await ctx.db
+        .query("buildActionItemCreationRequests")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .first(),
+    ],
+    [
+      "activity projections",
+      await ctx.db
+        .query("buildCollaborationActivityProjections")
+        .withIndex("by_buildId_and_projectionKey", (query) =>
+          query.eq("buildId", buildId)
+        )
+        .first(),
+    ],
+    [
+      "notification preferences",
+      await ctx.db
+        .query("buildCollaborationNotificationPreferences")
+        .withIndex("by_buildId_and_workosUserId", (query) =>
+          query.eq("buildId", buildId)
+        )
+        .first(),
+    ],
+    [
+      "push bindings",
+      await ctx.db
+        .query("buildCollaborationPushEndpointBuildBindings")
+        .withIndex("by_buildId_and_endpoint", (query) =>
+          query.eq("buildId", buildId)
+        )
+        .first(),
+    ],
+    [
+      "push subscriptions",
+      await ctx.db
+        .query("buildCollaborationPushSubscriptions")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .first(),
+    ],
+  ] as const;
+  const residue = checks.find(([, row]) => row !== null);
+  if (residue) {
+    throw new Error(
+      `Retention purge cannot finalize while ${residue[0]} remain.`
+    );
+  }
 }
 
 async function deleteRows(
@@ -838,11 +1216,17 @@ async function deleteRows(
 }
 
 async function bounded<T>(promise: Promise<T[]>, label: string) {
+  return await boundedAt(promise, MAX_CHILD_ROWS_PER_POST, label);
+}
+
+async function boundedAt<T>(
+  promise: Promise<T[]>,
+  limit: number,
+  label: string
+) {
   const rows = await promise;
-  if (rows.length > MAX_CHILD_ROWS_PER_POST) {
-    throw new Error(
-      `Retention purge found more than ${MAX_CHILD_ROWS_PER_POST} ${label} on one post.`
-    );
+  if (rows.length > limit) {
+    throw new Error(`Retention purge found more than ${limit} ${label}.`);
   }
   return rows;
 }
