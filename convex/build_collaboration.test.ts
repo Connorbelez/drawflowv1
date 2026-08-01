@@ -3399,6 +3399,42 @@ describe("Build collaboration canonical reference authorization", () => {
       ),
     ).resolves.toBeNull();
   });
+  test("resolves an exact authorized entity focus without autocomplete enumeration", async () => {
+    const fixture = await seedActiveBuild();
+    const entities = await seedCollaborationReferenceEntities(fixture);
+
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationReference,
+        {
+          buildId: fixture.buildId,
+          entityId: entities.milestoneId,
+          entityKind: "milestone",
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toEqual({
+      reference: expect.objectContaining({
+        entityId: entities.milestoneId,
+        entityKind: "milestone",
+      }),
+      state: "visible",
+    });
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationReference,
+        {
+          buildId: fixture.buildId,
+          entityId: "forged-milestone-id",
+          entityKind: "milestone",
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toEqual({ state: "revoked" });
+  });
+
 
   test("indexes every canonical kind while omitting restricted fields and entities for lower roles", async () => {
     const fixture = await seedActiveBuild();

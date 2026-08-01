@@ -3,9 +3,14 @@ import { v } from "convex/values";
 import { authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
-import { collaborationFocusedPostContextValidator } from "./build_collaboration_contracts";
+import {
+  collaborationFocusedPostContextValidator,
+  collaborationTagOptionValidator,
+} from "./build_collaboration_contracts";
 import { projectReadableBuildCollaborationPost } from "./build_collaboration_projection";
+import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { buildCollaborationReferenceKindValidator } from "./build_collaboration_validators";
 import type { Id, QueryCtx } from "./types";
 
 export const getFocusedBuildActionItemContext = authenticatedQuery
@@ -48,6 +53,51 @@ export const getFocusedBuildActionItemContext = authenticatedQuery
   })
   .public();
 
+export const getFocusedBuildCollaborationReference = authenticatedQuery
+  .input({
+    buildId: v.id("activeBuilds"),
+    entityId: v.string(),
+    entityKind: buildCollaborationReferenceKindValidator,
+    organizationId: v.string(),
+  })
+  .returns(
+    v.union(
+      v.object({ state: v.literal("revoked") }),
+      v.object({
+        reference: collaborationTagOptionValidator,
+        state: v.literal("visible"),
+      })
+    )
+  )
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
+    try {
+      const reference = await resolveCurrentBuildCollaborationReference(ctx, {
+        authorization,
+        entityId: args.entityId,
+        entityKind: args.entityKind,
+      });
+      return {
+        reference: {
+          entityId: reference.entityId,
+          entityKind: reference.entityKind,
+          eyebrow: reference.eyebrow,
+          href: reference.href,
+          label: reference.label,
+          searchTerms: reference.searchTerms,
+          summary: reference.summary,
+        },
+        state: "visible" as const,
+      };
+    } catch {
+      return { state: "revoked" as const };
+    }
+  })
+  .public();
+
 export const getFocusedBuildCollaborationAssetContext = authenticatedQuery
   .input({
     assetId: v.string(),
@@ -58,6 +108,7 @@ export const getFocusedBuildCollaborationAssetContext = authenticatedQuery
     v.union(
       v.object({ state: v.literal("revoked") }),
       v.object({
+        actionItemId: v.optional(v.id("buildActionItems")),
         assetId: v.id("buildCollaborationAssets"),
         commentId: v.optional(v.id("buildCollaborationComments")),
         postId: v.id("buildCollaborationPosts"),
@@ -93,6 +144,7 @@ export const getFocusedBuildCollaborationAssetContext = authenticatedQuery
       return { state: "revoked" as const };
     }
     return {
+      actionItemId: owner?.actionItemId,
       assetId: asset._id,
       commentId: owner?.commentId,
       postId: post._id,
@@ -178,7 +230,9 @@ async function resolvePublishedAssetOwner(
         attachment.ownerRecordId
       );
       const item = actionItemId ? await ctx.db.get(actionItemId) : null;
-      return item ? { postId: item.originatingPostId } : null;
+      return item
+        ? { actionItemId: item._id, postId: item.originatingPostId }
+        : null;
     }
     default:
       return null;

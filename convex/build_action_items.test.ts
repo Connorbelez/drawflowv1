@@ -325,6 +325,23 @@ describe("Build Action Item server authorization", () => {
     );
     expect(replayedId).toBe(actionItemId);
 
+    await expect(
+      fixture.reader.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationAssetContext,
+        {
+          assetId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toMatchObject({
+      actionItemId,
+      assetId,
+      postId: fixture.postId,
+      state: "visible",
+    });
+
     let detail = await fixture.reader.query(
       (api as any).build_action_item_details.getBuildActionItemDetail,
       {

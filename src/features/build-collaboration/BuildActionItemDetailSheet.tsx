@@ -84,6 +84,7 @@ export type BuildActionItemSheetTarget =
 
 export function BuildActionItemDetailSheet({
   buildId,
+  focusedAssetId,
   onCreated,
   onOpenChange,
   onReferenceOpen,
@@ -93,6 +94,7 @@ export function BuildActionItemDetailSheet({
   target,
 }: {
   buildId: Id<"activeBuilds">;
+  focusedAssetId?: Id<"buildCollaborationAssets">;
   onCreated?: (actionItemId: Id<"buildActionItems">) => void;
   onOpenChange: (open: boolean) => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
@@ -123,6 +125,7 @@ export function BuildActionItemDetailSheet({
           <ActionItemDetailPanel
             buildId={buildId}
             detail={detail}
+            focusedAssetId={focusedAssetId}
             onOpenChange={onOpenChange}
             onReferenceOpen={onReferenceOpen}
             organizationId={organizationId}
@@ -379,6 +382,7 @@ function ActionItemCreatePanel({
 function ActionItemDetailPanel({
   buildId,
   detail,
+  focusedAssetId,
   onOpenChange,
   onReferenceOpen,
   organizationId,
@@ -386,6 +390,7 @@ function ActionItemDetailPanel({
 }: {
   buildId: Id<"activeBuilds">;
   detail: ActionItemDetail | undefined;
+  focusedAssetId?: Id<"buildCollaborationAssets">;
   onOpenChange: (open: boolean) => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   organizationId: string;
@@ -425,6 +430,7 @@ function ActionItemDetailPanel({
     <VisibleActionItemDetail
       buildId={buildId}
       detail={detail}
+      focusedAssetId={focusedAssetId}
       onOpenChange={onOpenChange}
       onReferenceOpen={onReferenceOpen}
       organizationId={organizationId}
@@ -436,6 +442,7 @@ function ActionItemDetailPanel({
 function VisibleActionItemDetail({
   buildId,
   detail,
+  focusedAssetId,
   onOpenChange,
   onReferenceOpen,
   organizationId,
@@ -443,6 +450,7 @@ function VisibleActionItemDetail({
 }: {
   buildId: Id<"activeBuilds">;
   detail: VisibleActionItemDetail;
+  focusedAssetId?: Id<"buildCollaborationAssets">;
   onOpenChange: (open: boolean) => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   organizationId: string;
@@ -742,6 +750,7 @@ function VisibleActionItemDetail({
         <DetailContext
           buildId={buildId}
           detail={detail}
+          focusedAssetId={focusedAssetId}
           onReferenceOpen={onReferenceOpen}
           onReplaceAsset={replaceAsset}
           organizationId={organizationId}
@@ -928,6 +937,7 @@ function ActionItemWorkflowPanel({
 function DetailContext({
   buildId,
   detail,
+  focusedAssetId,
   onReferenceOpen,
   onReplaceAsset,
   organizationId,
@@ -935,6 +945,7 @@ function DetailContext({
 }: {
   buildId: Id<"activeBuilds">;
   detail: VisibleActionItemDetail;
+  focusedAssetId?: Id<"buildCollaborationAssets">;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   onReplaceAsset: (
     asset: BuildCollaborationAssetSummary,
@@ -977,6 +988,7 @@ function DetailContext({
       <BuildCollaborationAssetList
         assets={detail.attachments}
         buildId={buildId}
+        focusedAssetId={focusedAssetId}
         onReplace={onReplaceAsset}
         organizationId={organizationId}
       />

@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
     | "assigned",
   actionItemDetailState: "visible" as "revoked" | "visible",
   actionItemRequiresAcceptance: false,
+  actionItemAttachments: [] as Array<Record<string, unknown>>,
   actionItemWorkKind: "ordinary" as
     | "ordinary"
     | "approval"
@@ -49,6 +50,7 @@ const mocks = vi.hoisted(() => ({
     | undefined,
   focusedAssetContext: undefined as Record<string, unknown> | undefined,
   focusedPostContext: undefined as Record<string, unknown> | undefined,
+  focusedReferenceContext: undefined as Record<string, unknown> | undefined,
   focusedPostId: "post-1" as string | null,
   loadMore: vi.fn(),
   mutate: vi.fn().mockResolvedValue(null),
@@ -361,6 +363,12 @@ vi.mock("convex/react", () => ({
     }
     if (
       functionName ===
+      "build_collaboration_focus:getFocusedBuildCollaborationReference"
+    ) {
+      return args === "skip" ? undefined : mocks.focusedReferenceContext;
+    }
+    if (
+      functionName ===
       "build_collaboration_focus:getFocusedBuildCollaborationAssetContext"
     ) {
       return args === "skip" ? undefined : mocks.focusedAssetContext;
@@ -387,7 +395,7 @@ vi.mock("convex/react", () => ({
             revision: 1,
           },
         ],
-        attachments: [],
+        attachments: mocks.actionItemAttachments,
         comments: [],
         item: {
           actionItemId: "action-1",
@@ -743,6 +751,7 @@ afterEach(() => {
   mocks.acceptedCommentId = undefined;
   mocks.actionItemAssignmentState = "unassigned";
   mocks.actionItemDetailState = "visible";
+  mocks.actionItemAttachments = [];
   mocks.actionItemRequiresAcceptance = false;
   mocks.actionItemWorkKind = "ordinary";
   mocks.announcementExpiresAt = undefined;
@@ -753,6 +762,7 @@ afterEach(() => {
   mocks.focusedAssetContext = undefined;
   mocks.focusedCommentContext = undefined;
   mocks.focusedPostContext = undefined;
+  mocks.focusedReferenceContext = undefined;
   mocks.focusedPostId = "post-1";
   mocks.postContentState = "active";
   mocks.postResolutionSummary = undefined;
@@ -1106,6 +1116,71 @@ describe("BuildCollaborationFeed", () => {
     expect(asset.getAttribute("data-focused")).toBe("true");
     expect(document.activeElement).toBe(asset);
     expect(screen.getByText("Focused attachment thread.")).toBeTruthy();
+  });
+
+  test("resolves an exact entity focus outside the bounded autocomplete catalog", async () => {
+    mocks.focusedReferenceContext = {
+      reference: {
+        entityId: "milestone-outside-catalog",
+        entityKind: "milestone",
+        eyebrow: "Milestone",
+        href: "/contractor/builds/build-1?tab=milestones&milestone=milestone-outside-catalog",
+        label: "Deep foundation inspection",
+        searchTerms: ["deep", "foundation"],
+        summary: "Ready for review",
+      },
+      state: "visible",
+    };
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="milestone:milestone-outside-catalog"
+        organizationId="org-1"
+      />,
+    );
+
+    expect(
+      await screen.findByText("Deep foundation inspection"),
+    ).toBeTruthy();
+    expect(screen.getByText("Ready for review")).toBeTruthy();
+  });
+
+  test("opens and focuses an Action Item-owned asset", async () => {
+    mocks.focusedAssetContext = {
+      actionItemId: "action-1",
+      assetId: "action-asset-1",
+      postId: "post-1",
+      state: "visible",
+    };
+    mocks.actionItemAttachments = [
+      {
+        assetId: "action-asset-1",
+        fileName: "engineer-seal.pdf",
+        mimeType: "application/pdf",
+        scanState: "clean",
+        sizeBytes: 2048,
+        state: "available",
+        version: 1,
+      },
+    ];
+
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        focusedReference="asset:action-asset-1"
+        organizationId="org-1"
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Upload engineer seal" }),
+    ).toBeTruthy();
+    const asset = await screen.findByTestId(
+      "collaboration-asset-action-asset-1",
+    );
+    expect(asset.getAttribute("data-focused")).toBe("true");
+    expect(document.activeElement).toBe(asset);
   });
 
   test("shows the viewer's authorized cross-Build assignment queue", () => {

@@ -117,6 +117,7 @@ import {
   parseDraftBundle,
   plainTextFromDocument,
   postTypeLabel,
+  type RawCollaborationTagOption,
   type ReferenceOption,
   reactionLabel,
   roleLabel,
@@ -124,6 +125,7 @@ import {
   toCollaborationTagOption,
   toEditorReferenceKind,
 } from "./model.ts";
+import { parseBuildCollaborationFocus } from "./referenceFocus.ts";
 
 const BUILD_WORKSPACE_PATH_PATTERN =
   /(\/(?:backoffice|builder-staff|builder|contractor|homeowner)\/builds\/)[^/]+/;
@@ -158,6 +160,13 @@ function buildQueueArgs(buildId: Id<"activeBuilds">, organizationId?: string) {
   return organizationId
     ? { buildId, organizationId, scope: "build" as const }
     : ("skip" as const);
+}
+
+function buildCollaborationScopeArgs(
+  buildId: Id<"activeBuilds">,
+  organizationId?: string
+) {
+  return organizationId ? { buildId, organizationId } : ("skip" as const);
 }
 
 function actionItemQueueState(query: {
@@ -216,6 +225,49 @@ function focusedAssetIdFromReference(reference?: string) {
   return reference?.startsWith("asset:")
     ? reference.slice("asset:".length)
     : undefined;
+}
+
+const DIRECT_REFERENCE_FOCUS_KINDS = new Set<
+  RawCollaborationTagOption["entityKind"]
+>([
+  "document",
+  "draw",
+  "evidenceAsset",
+  "evidencePackage",
+  "material",
+  "milestone",
+  "participant",
+  "siteVisit",
+  "submilestone",
+]);
+
+function focusedReferenceQueryArgs({
+  buildId,
+  organizationId,
+  reference,
+}: {
+  buildId: Id<"activeBuilds">;
+  organizationId?: string;
+  reference?: string;
+}) {
+  const target = parseBuildCollaborationFocus(reference);
+  if (
+    !(
+      organizationId &&
+      target &&
+      DIRECT_REFERENCE_FOCUS_KINDS.has(
+        target.entityKind as RawCollaborationTagOption["entityKind"]
+      )
+    )
+  ) {
+    return "skip" as const;
+  }
+  return {
+    buildId,
+    entityId: target.entityId,
+    entityKind: target.entityKind as RawCollaborationTagOption["entityKind"],
+    organizationId,
+  };
 }
 
 function focusedActionItemQueryArgs({
@@ -311,6 +363,119 @@ interface CollaborationEditTarget {
   revision: number;
 }
 
+function useFocusedEntityTarget(input: {
+  directlyFocusedReference?: ReferenceOption;
+  focusedActionItemId?: Id<"buildActionItems">;
+  focusedEntityReference?: string;
+  referenceByKey: Map<string, ReferenceOption>;
+  setActionItemSheetTarget: React.Dispatch<
+    React.SetStateAction<BuildActionItemSheetTarget | null>
+  >;
+  setFocusedReference: React.Dispatch<
+    React.SetStateAction<FocusedReference | null>
+  >;
+}) {
+  useEffect(() => {
+    if (!input.focusedEntityReference) {
+      return;
+    }
+    const reference =
+      input.directlyFocusedReference ??
+      input.referenceByKey.get(input.focusedEntityReference);
+    if (!reference) {
+      return;
+    }
+    if (reference.entityKind === "actionItem") {
+      input.setFocusedReference(null);
+      input.setActionItemSheetTarget((current) =>
+        current?.kind === "detail" && current.actionItemId === reference.id
+          ? current
+          : {
+              actionItemId: reference.id as Id<"buildActionItems">,
+              kind: "detail",
+            }
+      );
+      return;
+    }
+    input.setFocusedReference((current) =>
+      current?.entityKind === reference.entityKind &&
+      current.id === reference.id
+        ? current
+        : reference
+    );
+  }, [
+    input.directlyFocusedReference,
+    input.focusedEntityReference,
+    input.referenceByKey,
+    input.setActionItemSheetTarget,
+    input.setFocusedReference,
+  ]);
+  useEffect(() => {
+    if (!input.focusedActionItemId) {
+      return;
+    }
+    input.setActionItemSheetTarget((current) =>
+      current?.kind === "detail" &&
+      current.actionItemId === input.focusedActionItemId
+        ? current
+        : {
+            actionItemId: input.focusedActionItemId as Id<"buildActionItems">,
+            kind: "detail",
+          }
+    );
+  }, [input.focusedActionItemId, input.setActionItemSheetTarget]);
+}
+
+function directFocusedReference(
+  context:
+    | {
+        reference: RawCollaborationTagOption;
+        state: "visible";
+      }
+    | { state: "revoked" }
+    | undefined
+) {
+  if (context?.state !== "visible") {
+    return;
+  }
+  return toCollaborationTagOption(context.reference);
+}
+
+function actionItemFocusedAssetId(input: {
+  actionItemId?: Id<"buildActionItems">;
+  assetId?: Id<"buildCollaborationAssets">;
+  target: BuildActionItemSheetTarget | null;
+}) {
+  if (
+    input.actionItemId &&
+    input.assetId &&
+    input.target?.kind === "detail" &&
+    input.target.actionItemId === input.actionItemId
+  ) {
+    return input.assetId;
+  }
+}
+
+function focusCollaborationReference(input: {
+  reference: FocusedReference;
+  setActionItemSheetTarget: React.Dispatch<
+    React.SetStateAction<BuildActionItemSheetTarget | null>
+  >;
+  setFocusedReference: React.Dispatch<
+    React.SetStateAction<FocusedReference | null>
+  >;
+}) {
+  if (input.reference.entityKind === "actionItem") {
+    input.setFocusedReference(null);
+    input.setActionItemSheetTarget({
+      actionItemId: input.reference.id as Id<"buildActionItems">,
+      kind: "detail",
+    });
+    return;
+  }
+  input.setFocusedReference(input.reference);
+}
+
 export function BuildCollaborationFeed({
   buildId,
   focusedReference: focusedEntityReference,
@@ -329,12 +494,12 @@ export function BuildCollaborationFeed({
   const activeBuildId = buildId as Id<"activeBuilds">;
   const feed = usePaginatedQuery(
     api.build_collaboration.listBuildCollaborationFeed,
-    organizationId ? { buildId: activeBuildId, organizationId } : "skip",
+    buildCollaborationScopeArgs(activeBuildId, organizationId),
     { initialNumItems: 20 }
   );
   const rawTagOptions = useQuery(
     api.build_collaboration_references.listBuildCollaborationTagOptions,
-    organizationId ? { buildId: activeBuildId, organizationId } : "skip"
+    buildCollaborationScopeArgs(activeBuildId, organizationId)
   );
   const focusedActionItemId = focusedActionItemIdFromReference(
     focusedEntityReference
@@ -358,6 +523,14 @@ export function BuildCollaborationFeed({
       }
     | null
     | undefined;
+  const focusedReferenceContext = useQuery(
+    api.build_collaboration_focus.getFocusedBuildCollaborationReference,
+    focusedReferenceQueryArgs({
+      buildId: activeBuildId,
+      organizationId,
+      reference: focusedEntityReference,
+    })
+  );
   const focusedAssetContext = useQuery(
     api.build_collaboration_focus.getFocusedBuildCollaborationAssetContext,
     focusedAssetQueryArgs({
@@ -367,6 +540,7 @@ export function BuildCollaborationFeed({
     })
   ) as
     | {
+        actionItemId?: Id<"buildActionItems">;
         assetId: Id<"buildCollaborationAssets">;
         commentId?: Id<"buildCollaborationComments">;
         postId: Id<"buildCollaborationPosts">;
@@ -381,6 +555,10 @@ export function BuildCollaborationFeed({
   const focusedAssetPostId = visibleContextValue(
     focusedAssetContext,
     (context) => context.postId
+  );
+  const focusedAssetActionItemId = visibleContextValue(
+    focusedAssetContext,
+    (context) => context.actionItemId
   );
   const focusedCommentId = focusedCommentTokenId ?? focusedAssetCommentId;
   const focusedCommentContext = useQuery(
@@ -412,7 +590,7 @@ export function BuildCollaborationFeed({
     | undefined;
   const drafts = useQuery(
     api.build_collaboration_drafts.listMyBuildCollaborationDrafts,
-    organizationId ? { buildId: activeBuildId, organizationId } : "skip"
+    buildCollaborationScopeArgs(activeBuildId, organizationId)
   );
   const personalActionItems = usePaginatedQuery(
     api.build_action_item_queues.listMyBuildActionItemQueue,
@@ -533,57 +711,26 @@ export function BuildCollaborationFeed({
       ),
     [tagOptions]
   );
-  useEffect(() => {
-    if (!focusedEntityReference) {
-      return;
-    }
-    const reference = referenceByKey.get(focusedEntityReference);
-    if (!reference) {
-      return;
-    }
-    if (reference.entityKind === "actionItem") {
-      setFocusedReference(null);
-      setActionItemSheetTarget((current) =>
-        current?.kind === "detail" && current.actionItemId === reference.id
-          ? current
-          : {
-              actionItemId: reference.id as Id<"buildActionItems">,
-              kind: "detail",
-            }
-      );
-      return;
-    }
-    setFocusedReference((current) =>
-      current?.entityKind === reference.entityKind &&
-      current.id === reference.id
-        ? current
-        : reference
-    );
-  }, [focusedEntityReference, referenceByKey]);
-  useEffect(() => {
-    if (!focusedActionItemContext?.actionItemId) {
-      return;
-    }
-    setActionItemSheetTarget((current) =>
-      current?.kind === "detail" &&
-      current.actionItemId === focusedActionItemContext.actionItemId
-        ? current
-        : {
-            actionItemId: focusedActionItemContext.actionItemId,
-            kind: "detail",
-          }
-    );
-  }, [focusedActionItemContext?.actionItemId]);
+  const directlyFocusedReference = useMemo(
+    () => directFocusedReference(focusedReferenceContext),
+    [focusedReferenceContext]
+  );
+  const focusedDetailActionItemId =
+    focusedActionItemContext?.actionItemId ?? focusedAssetActionItemId;
+  useFocusedEntityTarget({
+    directlyFocusedReference,
+    focusedActionItemId: focusedDetailActionItemId,
+    focusedEntityReference,
+    referenceByKey,
+    setActionItemSheetTarget,
+    setFocusedReference,
+  });
   const focusReference = (reference: FocusedReference) => {
-    if (reference.entityKind === "actionItem") {
-      setFocusedReference(null);
-      setActionItemSheetTarget({
-        actionItemId: reference.id as Id<"buildActionItems">,
-        kind: "detail",
-      });
-      return;
-    }
-    setFocusedReference(reference);
+    focusCollaborationReference({
+      reference,
+      setActionItemSheetTarget,
+      setFocusedReference,
+    });
   };
   const openSearchResult = (result: BuildCollaborationSearchResult) => {
     const target = searchResultReference(result);
@@ -1409,6 +1556,11 @@ export function BuildCollaborationFeed({
 
       <BuildActionItemDetailSheet
         buildId={activeBuildId}
+        focusedAssetId={actionItemFocusedAssetId({
+          actionItemId: focusedAssetActionItemId,
+          assetId: focusedAssetId as Id<"buildCollaborationAssets"> | undefined,
+          target: actionItemSheetTarget,
+        })}
         onOpenChange={(open) => {
           if (!open) {
             setActionItemSheetTarget(null);
