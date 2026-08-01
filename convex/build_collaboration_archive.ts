@@ -62,31 +62,31 @@ export async function buildBuildCollaborationHistoryArchive(
   ctx: QueryCtx,
   input: {
     authorization: ActiveBuildAuthorization;
-  },
+  }
 ) {
   const lifecycle = await ctx.db
     .query("buildCollaborationBuildStates")
     .withIndex("by_buildId", (query) =>
-      query.eq("buildId", input.authorization.build._id),
+      query.eq("buildId", input.authorization.build._id)
     )
     .unique();
   const lifecycleEvents = await limited(
     ctx.db
       .query("buildCollaborationBuildLifecycleEvents")
       .withIndex("by_buildId_and_createdAt", (query) =>
-        query.eq("buildId", input.authorization.build._id),
+        query.eq("buildId", input.authorization.build._id)
       )
       .take(ARCHIVE_ROW_LIMIT + 1),
-    "Build lifecycle events",
+    "Build lifecycle events"
   );
   const closureWaivers = await limited(
     ctx.db
       .query("buildCollaborationClosureWaivers")
       .withIndex("by_buildId_and_lifecycleRevision", (query) =>
-        query.eq("buildId", input.authorization.build._id),
+        query.eq("buildId", input.authorization.build._id)
       )
       .take(ARCHIVE_ROW_LIMIT + 1),
-    "Build closure waivers",
+    "Build closure waivers"
   );
   const lifecycleAudit = lifecycle
     ? await limited(
@@ -95,10 +95,10 @@ export async function buildBuildCollaborationHistoryArchive(
           .withIndex("by_entity", (query) =>
             query
               .eq("entityType", "buildCollaborationBuildState")
-              .eq("entityId", lifecycle._id),
+              .eq("entityId", lifecycle._id)
           )
           .take(ARCHIVE_ROW_LIMIT + 1),
-        "Build lifecycle audit events",
+        "Build lifecycle audit events"
       )
     : [];
   return { closureWaivers, lifecycle, lifecycleAudit, lifecycleEvents };
@@ -113,7 +113,7 @@ export async function buildCollaborationPostArchivePage(
     postSnapshot: CollaborationPostArchiveSnapshot;
     section: CollaborationPostArchiveSection;
     snapshotAt: number;
-  },
+  }
 ) {
   const { authorization, cursor, post, postSnapshot, section, snapshotAt } =
     input;
@@ -128,14 +128,14 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationPostRevisions")
       .withIndex("by_postId_and_revision", (query) =>
-        query.eq("postId", post._id),
+        query.eq("postId", post._id)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     const page: Record<string, unknown>[] = [];
     for (const revision of result.page.filter(
       (candidate) =>
         candidate.createdAt <= snapshotAt &&
-        candidate.revision <= postSnapshot.revision,
+        candidate.revision <= postSnapshot.revision
     )) {
       page.push({
         attachments: await ownerAttachments(ctx, "postRevision", revision._id),
@@ -143,10 +143,10 @@ export async function buildCollaborationPostArchivePage(
           ctx.db
             .query("buildCollaborationAudienceSnapshots")
             .withIndex("by_postRevisionId_and_workosUserId", (query) =>
-              query.eq("postRevisionId", revision._id),
+              query.eq("postRevisionId", revision._id)
             )
             .take(ARCHIVE_ROW_LIMIT + 1),
-          "post audience snapshots",
+          "post audience snapshots"
         ),
         references: await ownerReferences(ctx, "postRevision", revision._id),
         revision,
@@ -158,7 +158,7 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationComments")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id).lte("createdAt", snapshotAt),
+        query.eq("postId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return { ...result, page: undefined, data: result.page };
@@ -167,7 +167,7 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationCommentRevisions")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id).lte("createdAt", snapshotAt),
+        query.eq("postId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     const page = await Promise.all(
@@ -175,11 +175,11 @@ export async function buildCollaborationPostArchivePage(
         attachments: await ownerAttachments(
           ctx,
           "commentRevision",
-          revision._id,
+          revision._id
         ),
         references: await ownerReferences(ctx, "commentRevision", revision._id),
         revision,
-      })),
+      }))
     );
     return { ...result, page: undefined, data: page };
   }
@@ -187,7 +187,7 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildActionItems")
       .withIndex("by_originatingPostId_and_createdAt", (query) =>
-        query.eq("originatingPostId", post._id).lte("createdAt", snapshotAt),
+        query.eq("originatingPostId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return {
@@ -195,8 +195,8 @@ export async function buildCollaborationPostArchivePage(
       page: undefined,
       data: await Promise.all(
         result.page.map((item) =>
-          archiveActionItemSnapshot(ctx, item, snapshotAt),
-        ),
+          archiveActionItemSnapshot(ctx, item, snapshotAt)
+        )
       ),
     };
   }
@@ -212,7 +212,7 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationAcknowledgementTargets")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id).lte("createdAt", snapshotAt),
+        query.eq("postId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     const page = await Promise.all(
@@ -221,13 +221,13 @@ export async function buildCollaborationPostArchivePage(
           ctx.db
             .query("buildCollaborationAcknowledgements")
             .withIndex("by_targetId", (query) =>
-              query.eq("targetId", target._id),
+              query.eq("targetId", target._id)
             )
             .take(ARCHIVE_ROW_LIMIT + 1),
-          "acknowledgements",
+          "acknowledgements"
         ),
         target,
-      })),
+      }))
     );
     return { ...result, page: undefined, data: page };
   }
@@ -235,7 +235,7 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationAudienceMembers")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id).lte("createdAt", snapshotAt),
+        query.eq("postId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return { ...result, page: undefined, data: result.page };
@@ -244,7 +244,7 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildActionItemCreationRequests")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id).lte("createdAt", snapshotAt),
+        query.eq("postId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return { ...result, page: undefined, data: result.page };
@@ -253,7 +253,7 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationDecisionOutcomeRevisions")
       .withIndex("by_postId_and_revision", (query) =>
-        query.eq("postId", post._id),
+        query.eq("postId", post._id)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return { ...result, page: undefined, data: result.page };
@@ -262,14 +262,14 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationFollows")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id).lte("createdAt", snapshotAt),
+        query.eq("postId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return {
       ...result,
       page: undefined,
       data: result.page.filter(
-        (follow) => follow.workosUserId === authorization.viewer.subject,
+        (follow) => follow.workosUserId === authorization.viewer.subject
       ),
     };
   }
@@ -277,7 +277,7 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationModerationCases")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id).lte("createdAt", snapshotAt),
+        query.eq("postId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return {
@@ -287,8 +287,8 @@ export async function buildCollaborationPostArchivePage(
         result.page
           .filter((moderationCase) => moderationCase.entityKind === "post")
           .map((moderationCase) =>
-            archiveModerationCase(ctx, authorization, moderationCase),
-          ),
+            archiveModerationCase(ctx, authorization, moderationCase)
+          )
       ),
     };
   }
@@ -296,14 +296,14 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationPins")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id).lte("createdAt", snapshotAt),
+        query.eq("postId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return {
       ...result,
       page: undefined,
       data: result.page.filter((pin) =>
-        isVisibleArchivePin(authorization, pin),
+        isVisibleArchivePin(authorization, pin)
       ),
     };
   }
@@ -311,7 +311,7 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationReactions")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id).lte("createdAt", snapshotAt),
+        query.eq("postId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return { ...result, page: undefined, data: result.page };
@@ -320,14 +320,14 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationReceipts")
       .withIndex("by_postId_and_firstViewedAt", (query) =>
-        query.eq("postId", post._id).lte("firstViewedAt", snapshotAt),
+        query.eq("postId", post._id).lte("firstViewedAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return {
       ...result,
       page: undefined,
       data: result.page.filter((receipt) =>
-        canSeeCollaborationReceipt(authorization, receipt),
+        canSeeCollaborationReceipt(authorization, receipt)
       ),
     };
   }
@@ -335,7 +335,7 @@ export async function buildCollaborationPostArchivePage(
     const result = await ctx.db
       .query("buildCollaborationReferences")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id).lte("createdAt", snapshotAt),
+        query.eq("postId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
     return { ...result, page: undefined, data: result.page };
@@ -343,7 +343,7 @@ export async function buildCollaborationPostArchivePage(
   const result = await ctx.db
     .query("buildCollaborationThreadEvents")
     .withIndex("by_postId_and_createdAt", (query) =>
-      query.eq("postId", post._id).lte("createdAt", snapshotAt),
+      query.eq("postId", post._id).lte("createdAt", snapshotAt)
     )
     .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
   return { ...result, page: undefined, data: result.page };
@@ -352,12 +352,12 @@ export async function buildCollaborationPostArchivePage(
 async function archiveActionItemSnapshot(
   ctx: QueryCtx,
   item: Doc<"buildActionItems">,
-  snapshotAt: number,
+  snapshotAt: number
 ) {
   const revision = await ctx.db
     .query("buildActionItemRevisions")
     .withIndex("by_actionItemId_and_revision", (query) =>
-      query.eq("actionItemId", item._id),
+      query.eq("actionItemId", item._id)
     )
     .filter((query) => query.lte(query.field("createdAt"), snapshotAt))
     .order("desc")
@@ -382,7 +382,7 @@ async function buildActionItemChildArchivePage(
     postId: Id<"buildCollaborationPosts">;
     section: ActionItemChildArchiveSection;
     snapshotAt: number;
-  },
+  }
 ) {
   const state = decodeActionItemChildCursor(input.cursor);
   let item: Doc<"buildActionItems"> | null = null;
@@ -403,7 +403,7 @@ async function buildActionItemChildArchivePage(
       .withIndex("by_originatingPostId_and_createdAt", (query) =>
         query
           .eq("originatingPostId", input.postId)
-          .lte("createdAt", input.snapshotAt),
+          .lte("createdAt", input.snapshotAt)
       )
       .paginate({ cursor: state.nextItemCursor, numItems: 1 });
     item = itemPage.page[0] ?? null;
@@ -441,7 +441,7 @@ async function actionItemChildPage(
     cursor: string | null;
     section: ActionItemChildArchiveSection;
     snapshotAt: number;
-  },
+  }
 ) {
   const pagination = { cursor: input.cursor, numItems: ARCHIVE_PAGE_SIZE };
   if (input.section === "action_item_attachments") {
@@ -450,7 +450,7 @@ async function actionItemChildPage(
       .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
         query
           .eq("ownerKind", "actionItem")
-          .eq("ownerRecordId", input.actionItemId),
+          .eq("ownerRecordId", input.actionItemId)
       )
       .filter((query) => query.lte(query.field("createdAt"), input.snapshotAt))
       .paginate(pagination);
@@ -459,7 +459,7 @@ async function actionItemChildPage(
     return await ctx.db
       .query("buildActionItemChecklistItems")
       .withIndex("by_actionItemId_and_order", (query) =>
-        query.eq("actionItemId", input.actionItemId),
+        query.eq("actionItemId", input.actionItemId)
       )
       .filter((query) => query.lte(query.field("createdAt"), input.snapshotAt))
       .paginate(pagination);
@@ -470,7 +470,7 @@ async function actionItemChildPage(
       .withIndex("by_actionItemId_and_createdAt", (query) =>
         query
           .eq("actionItemId", input.actionItemId)
-          .lte("createdAt", input.snapshotAt),
+          .lte("createdAt", input.snapshotAt)
       )
       .paginate(pagination);
   }
@@ -480,7 +480,7 @@ async function actionItemChildPage(
       .withIndex("by_actionItemId_and_createdAt", (query) =>
         query
           .eq("actionItemId", input.actionItemId)
-          .lte("createdAt", input.snapshotAt),
+          .lte("createdAt", input.snapshotAt)
       )
       .paginate(pagination);
   }
@@ -488,7 +488,7 @@ async function actionItemChildPage(
     return await ctx.db
       .query("buildActionItemLabels")
       .withIndex("by_actionItemId_and_normalizedLabel", (query) =>
-        query.eq("actionItemId", input.actionItemId),
+        query.eq("actionItemId", input.actionItemId)
       )
       .filter((query) => query.lte(query.field("createdAt"), input.snapshotAt))
       .paginate(pagination);
@@ -497,7 +497,7 @@ async function actionItemChildPage(
     return await ctx.db
       .query("buildActionItemPostLinks")
       .withIndex("by_actionItemId_and_postId", (query) =>
-        query.eq("actionItemId", input.actionItemId),
+        query.eq("actionItemId", input.actionItemId)
       )
       .filter((query) => query.lte(query.field("createdAt"), input.snapshotAt))
       .paginate(pagination);
@@ -508,7 +508,7 @@ async function actionItemChildPage(
       .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
         query
           .eq("ownerKind", "actionItem")
-          .eq("ownerRecordId", input.actionItemId),
+          .eq("ownerRecordId", input.actionItemId)
       )
       .filter((query) => query.lte(query.field("createdAt"), input.snapshotAt))
       .paginate(pagination);
@@ -517,7 +517,7 @@ async function actionItemChildPage(
     return await ctx.db
       .query("buildActionItemRelations")
       .withIndex("by_targetActionItemId_and_status", (query) =>
-        query.eq("targetActionItemId", input.actionItemId),
+        query.eq("targetActionItemId", input.actionItemId)
       )
       .filter((query) => query.lte(query.field("createdAt"), input.snapshotAt))
       .paginate(pagination);
@@ -526,7 +526,7 @@ async function actionItemChildPage(
     return await ctx.db
       .query("buildActionItemRelations")
       .withIndex("by_sourceActionItemId_and_status", (query) =>
-        query.eq("sourceActionItemId", input.actionItemId),
+        query.eq("sourceActionItemId", input.actionItemId)
       )
       .filter((query) => query.lte(query.field("createdAt"), input.snapshotAt))
       .paginate(pagination);
@@ -534,14 +534,14 @@ async function actionItemChildPage(
   return await ctx.db
     .query("buildActionItemRevisions")
     .withIndex("by_actionItemId_and_revision", (query) =>
-      query.eq("actionItemId", input.actionItemId),
+      query.eq("actionItemId", input.actionItemId)
     )
     .filter((query) => query.lte(query.field("createdAt"), input.snapshotAt))
     .paginate(pagination);
 }
 
 function decodeActionItemChildCursor(
-  cursor: string | null,
+  cursor: string | null
 ): ActionItemChildArchiveCursor {
   if (!cursor) {
     return { childCursor: null, nextItemCursor: null };
@@ -562,17 +562,17 @@ export async function buildCollaborationPostArchive(
   input: {
     authorization: ActiveBuildAuthorization;
     post: Doc<"buildCollaborationPosts">;
-  },
+  }
 ) {
   const { authorization, post } = input;
   const revisions = await limited(
     ctx.db
       .query("buildCollaborationPostRevisions")
       .withIndex("by_postId_and_revision", (query) =>
-        query.eq("postId", post._id),
+        query.eq("postId", post._id)
       )
       .take(ARCHIVE_ROW_LIMIT + 1),
-    "post revisions",
+    "post revisions"
   );
   const revisionHistory: Record<string, unknown>[] = [];
   for (const revision of revisions) {
@@ -582,10 +582,10 @@ export async function buildCollaborationPostArchive(
         ctx.db
           .query("buildCollaborationAudienceSnapshots")
           .withIndex("by_postRevisionId_and_workosUserId", (query) =>
-            query.eq("postRevisionId", revision._id),
+            query.eq("postRevisionId", revision._id)
           )
           .take(ARCHIVE_ROW_LIMIT + 1),
-        "post audience snapshots",
+        "post audience snapshots"
       ),
       references: await ownerReferences(ctx, "postRevision", revision._id),
       revision,
@@ -595,10 +595,10 @@ export async function buildCollaborationPostArchive(
     ctx.db
       .query("buildCollaborationComments")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id),
+        query.eq("postId", post._id)
       )
       .take(ARCHIVE_ROW_LIMIT + 1),
-    "comments",
+    "comments"
   );
   const commentHistory: Record<string, unknown>[] = [];
   for (const comment of comments) {
@@ -606,10 +606,10 @@ export async function buildCollaborationPostArchive(
       ctx.db
         .query("buildCollaborationCommentRevisions")
         .withIndex("by_commentId_and_revision", (query) =>
-          query.eq("commentId", comment._id),
+          query.eq("commentId", comment._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "comment revisions",
+      "comment revisions"
     );
     const revisionEntries: Record<string, unknown>[] = [];
     for (const revision of commentRevisions) {
@@ -617,7 +617,7 @@ export async function buildCollaborationPostArchive(
         attachments: await ownerAttachments(
           ctx,
           "commentRevision",
-          revision._id,
+          revision._id
         ),
         references: await ownerReferences(ctx, "commentRevision", revision._id),
         revision,
@@ -629,7 +629,7 @@ export async function buildCollaborationPostArchive(
         ctx,
         authorization,
         "comment",
-        comment._id,
+        comment._id
       ),
       pins: (
         await limited(
@@ -638,20 +638,20 @@ export async function buildCollaborationPostArchive(
             .withIndex(
               "by_postId_and_commentId_and_workosUserId_and_kind",
               (query) =>
-                query.eq("postId", post._id).eq("commentId", comment._id),
+                query.eq("postId", post._id).eq("commentId", comment._id)
             )
             .take(ARCHIVE_ROW_LIMIT + 1),
-          "comment pins",
+          "comment pins"
         )
       ).filter((pin) => isVisibleArchivePin(authorization, pin)),
       reactions: await limited(
         ctx.db
           .query("buildCollaborationReactions")
           .withIndex("by_commentId_and_workosUserId", (query) =>
-            query.eq("commentId", comment._id),
+            query.eq("commentId", comment._id)
           )
           .take(ARCHIVE_ROW_LIMIT + 1),
-        "comment reactions",
+        "comment reactions"
       ),
       revisions: revisionEntries,
     });
@@ -660,10 +660,10 @@ export async function buildCollaborationPostArchive(
     ctx.db
       .query("buildActionItems")
       .withIndex("by_originatingPostId_and_queueSortAt", (query) =>
-        query.eq("originatingPostId", post._id),
+        query.eq("originatingPostId", post._id)
       )
       .take(ARCHIVE_ROW_LIMIT + 1),
-    "Action Items",
+    "Action Items"
   );
   const actionItemHistory: Record<string, unknown>[] = [];
   for (const item of actionItems) {
@@ -673,10 +673,10 @@ export async function buildCollaborationPostArchive(
     ctx.db
       .query("buildCollaborationAcknowledgementTargets")
       .withIndex("by_postId_and_workosUserId", (query) =>
-        query.eq("postId", post._id),
+        query.eq("postId", post._id)
       )
       .take(ARCHIVE_ROW_LIMIT + 1),
-    "acknowledgement targets",
+    "acknowledgement targets"
   );
   const acknowledgements: Record<string, unknown>[] = [];
   for (const target of acknowledgementTargets) {
@@ -686,7 +686,7 @@ export async function buildCollaborationPostArchive(
           .query("buildCollaborationAcknowledgements")
           .withIndex("by_targetId", (query) => query.eq("targetId", target._id))
           .take(ARCHIVE_ROW_LIMIT + 1),
-        "acknowledgements",
+        "acknowledgements"
       ),
       target,
     });
@@ -698,39 +698,39 @@ export async function buildCollaborationPostArchive(
       ctx.db
         .query("buildCollaborationAudienceMembers")
         .withIndex("by_postId_and_workosUserId", (query) =>
-          query.eq("postId", post._id),
+          query.eq("postId", post._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "audience members",
+      "audience members"
     ),
     comments: commentHistory,
     creationRequests: await limited(
       ctx.db
         .query("buildActionItemCreationRequests")
         .withIndex("by_postId_and_creatorWorkosUserId_and_requestId", (query) =>
-          query.eq("postId", post._id),
+          query.eq("postId", post._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "Action Item creation requests",
+      "Action Item creation requests"
     ),
     decisionOutcomeRevisions: await limited(
       ctx.db
         .query("buildCollaborationDecisionOutcomeRevisions")
         .withIndex("by_postId_and_revision", (query) =>
-          query.eq("postId", post._id),
+          query.eq("postId", post._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "decision outcome revisions",
+      "decision outcome revisions"
     ),
     follows: (
       await limited(
         ctx.db
           .query("buildCollaborationFollows")
           .withIndex("by_postId_and_workosUserId", (query) =>
-            query.eq("postId", post._id),
+            query.eq("postId", post._id)
           )
           .take(ARCHIVE_ROW_LIMIT + 1),
-        "post follows",
+        "post follows"
       )
     ).filter((follow) => follow.workosUserId === authorization.viewer.subject),
     moderation: await moderationHistory(ctx, authorization, "post", post._id),
@@ -739,10 +739,10 @@ export async function buildCollaborationPostArchive(
         ctx.db
           .query("buildCollaborationPins")
           .withIndex("by_postId_and_workosUserId_and_kind", (query) =>
-            query.eq("postId", post._id),
+            query.eq("postId", post._id)
           )
           .take(ARCHIVE_ROW_LIMIT + 1),
-        "post pins",
+        "post pins"
       )
     ).filter((pin) => isVisibleArchivePin(authorization, pin)),
     post,
@@ -750,20 +750,20 @@ export async function buildCollaborationPostArchive(
       ctx.db
         .query("buildCollaborationReactions")
         .withIndex("by_postId_and_workosUserId", (query) =>
-          query.eq("postId", post._id),
+          query.eq("postId", post._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "post reactions",
+      "post reactions"
     ),
     receipts: (
       await limited(
         ctx.db
           .query("buildCollaborationReceipts")
           .withIndex("by_postId_and_workosUserId", (query) =>
-            query.eq("postId", post._id),
+            query.eq("postId", post._id)
           )
           .take(ARCHIVE_ROW_LIMIT + 1),
-        "post receipts",
+        "post receipts"
       )
     ).filter((receipt) => canSeeCollaborationReceipt(authorization, receipt)),
     references: await limited(
@@ -771,17 +771,17 @@ export async function buildCollaborationPostArchive(
         .query("buildCollaborationReferences")
         .withIndex("by_postId", (query) => query.eq("postId", post._id))
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "post references",
+      "post references"
     ),
     revisions: revisionHistory,
     threadEvents: await limited(
       ctx.db
         .query("buildCollaborationThreadEvents")
         .withIndex("by_postId_and_createdAt", (query) =>
-          query.eq("postId", post._id),
+          query.eq("postId", post._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "thread events",
+      "thread events"
     ),
   };
 }
@@ -792,19 +792,19 @@ async function archiveActionItem(ctx: QueryCtx, item: Doc<"buildActionItems">) {
       ctx.db
         .query("buildActionItemRelations")
         .withIndex("by_sourceActionItemId_and_status", (query) =>
-          query.eq("sourceActionItemId", item._id),
+          query.eq("sourceActionItemId", item._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "outgoing Action Item relations",
+      "outgoing Action Item relations"
     )),
     ...(await limited(
       ctx.db
         .query("buildActionItemRelations")
         .withIndex("by_targetActionItemId_and_status", (query) =>
-          query.eq("targetActionItemId", item._id),
+          query.eq("targetActionItemId", item._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "incoming Action Item relations",
+      "incoming Action Item relations"
     )),
   ];
   return {
@@ -813,47 +813,47 @@ async function archiveActionItem(ctx: QueryCtx, item: Doc<"buildActionItems">) {
       ctx.db
         .query("buildActionItemChecklistItems")
         .withIndex("by_actionItemId_and_order", (query) =>
-          query.eq("actionItemId", item._id),
+          query.eq("actionItemId", item._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "Action Item checklist entries",
+      "Action Item checklist entries"
     ),
     comments: await limited(
       ctx.db
         .query("buildActionItemComments")
         .withIndex("by_actionItemId_and_createdAt", (query) =>
-          query.eq("actionItemId", item._id),
+          query.eq("actionItemId", item._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "Action Item comments",
+      "Action Item comments"
     ),
     events: await limited(
       ctx.db
         .query("buildActionItemEvents")
         .withIndex("by_actionItemId_and_createdAt", (query) =>
-          query.eq("actionItemId", item._id),
+          query.eq("actionItemId", item._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "Action Item events",
+      "Action Item events"
     ),
     item,
     labels: await limited(
       ctx.db
         .query("buildActionItemLabels")
         .withIndex("by_actionItemId_and_normalizedLabel", (query) =>
-          query.eq("actionItemId", item._id),
+          query.eq("actionItemId", item._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "Action Item labels",
+      "Action Item labels"
     ),
     postLinks: await limited(
       ctx.db
         .query("buildActionItemPostLinks")
         .withIndex("by_actionItemId_and_postId", (query) =>
-          query.eq("actionItemId", item._id),
+          query.eq("actionItemId", item._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "Action Item post links",
+      "Action Item post links"
     ),
     references: await ownerReferences(ctx, "actionItem", item._id),
     relations: [...new Map(relations.map((row) => [row._id, row])).values()],
@@ -861,17 +861,17 @@ async function archiveActionItem(ctx: QueryCtx, item: Doc<"buildActionItems">) {
       ctx.db
         .query("buildActionItemRevisions")
         .withIndex("by_actionItemId_and_revision", (query) =>
-          query.eq("actionItemId", item._id),
+          query.eq("actionItemId", item._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "Action Item revisions",
+      "Action Item revisions"
     ),
   };
 }
 
 function isVisibleArchivePin(
   authorization: ActiveBuildAuthorization,
-  pin: Doc<"buildCollaborationPins">,
+  pin: Doc<"buildCollaborationPins">
 ) {
   return (
     pin.kind !== "personal" || pin.workosUserId === authorization.viewer.subject
@@ -882,21 +882,21 @@ async function moderationHistory(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
   entityKind: "comment" | "post",
-  entityId: string,
+  entityId: string
 ) {
   const cases = await limited(
     ctx.db
       .query("buildCollaborationModerationCases")
       .withIndex("by_entityKind_and_entityId", (query) =>
-        query.eq("entityKind", entityKind).eq("entityId", entityId),
+        query.eq("entityKind", entityKind).eq("entityId", entityId)
       )
       .take(ARCHIVE_ROW_LIMIT + 1),
-    "moderation cases",
+    "moderation cases"
   );
   const history: Record<string, unknown>[] = [];
   for (const moderationCase of cases) {
     history.push(
-      await archiveModerationCase(ctx, authorization, moderationCase),
+      await archiveModerationCase(ctx, authorization, moderationCase)
     );
   }
   return history;
@@ -905,57 +905,57 @@ async function moderationHistory(
 async function archiveModerationCase(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
-  moderationCase: Doc<"buildCollaborationModerationCases">,
+  moderationCase: Doc<"buildCollaborationModerationCases">
 ) {
   return {
     case: {
       ...moderationCase,
       evidenceSnapshotJson: sanitizeModerationEvidenceSnapshot(
         authorization,
-        moderationCase.evidenceSnapshotJson,
+        moderationCase.evidenceSnapshotJson
       ),
     },
     events: await limited(
       ctx.db
         .query("buildCollaborationModerationEvents")
         .withIndex("by_caseId_and_createdAt", (query) =>
-          query.eq("caseId", moderationCase._id),
+          query.eq("caseId", moderationCase._id)
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
-      "moderation events",
+      "moderation events"
     ),
   };
 }
 
 function sanitizeModerationEvidenceSnapshot(
   authorization: ActiveBuildAuthorization,
-  value: string,
+  value: string
 ) {
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     const receiptSnapshots = Array.isArray(parsed.receiptSnapshots)
       ? parsed.receiptSnapshots.filter(
           (
-            receipt,
+            receipt
           ): receipt is {
             viewerRole: Doc<"buildCollaborationReceipts">["viewerRole"];
             workosUserId: string;
           } =>
             Boolean(
               receipt &&
-              typeof receipt === "object" &&
-              typeof (receipt as Record<string, unknown>).workosUserId ===
-                "string" &&
-              typeof (receipt as Record<string, unknown>).viewerRole ===
-                "string" &&
-              canSeeCollaborationReceipt(
-                authorization,
-                receipt as {
-                  viewerRole: Doc<"buildCollaborationReceipts">["viewerRole"];
-                  workosUserId: string;
-                },
-              ),
-            ),
+                typeof receipt === "object" &&
+                typeof (receipt as Record<string, unknown>).workosUserId ===
+                  "string" &&
+                typeof (receipt as Record<string, unknown>).viewerRole ===
+                  "string" &&
+                canSeeCollaborationReceipt(
+                  authorization,
+                  receipt as {
+                    viewerRole: Doc<"buildCollaborationReceipts">["viewerRole"];
+                    workosUserId: string;
+                  }
+                )
+            )
         )
       : [];
     return JSON.stringify({ ...parsed, receiptSnapshots });
@@ -971,32 +971,32 @@ function sanitizeModerationEvidenceSnapshot(
 async function ownerAttachments(
   ctx: QueryCtx,
   ownerKind: Doc<"buildCollaborationAttachments">["ownerKind"],
-  ownerRecordId: string,
+  ownerRecordId: string
 ) {
   return await limited(
     ctx.db
       .query("buildCollaborationAttachments")
       .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-        query.eq("ownerKind", ownerKind).eq("ownerRecordId", ownerRecordId),
+        query.eq("ownerKind", ownerKind).eq("ownerRecordId", ownerRecordId)
       )
       .take(ARCHIVE_ROW_LIMIT + 1),
-    `${ownerKind} attachments`,
+    `${ownerKind} attachments`
   );
 }
 
 async function ownerReferences(
   ctx: QueryCtx,
   ownerKind: Doc<"buildCollaborationReferences">["ownerKind"],
-  ownerRecordId: string,
+  ownerRecordId: string
 ) {
   return await limited(
     ctx.db
       .query("buildCollaborationReferences")
       .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-        query.eq("ownerKind", ownerKind).eq("ownerRecordId", ownerRecordId),
+        query.eq("ownerKind", ownerKind).eq("ownerRecordId", ownerRecordId)
       )
       .take(ARCHIVE_ROW_LIMIT + 1),
-    `${ownerKind} references`,
+    `${ownerKind} references`
   );
 }
 
@@ -1004,7 +1004,7 @@ async function limited<T>(promise: Promise<T[]>, label: string) {
   const rows = await promise;
   if (rows.length > ARCHIVE_ROW_LIMIT) {
     throw new Error(
-      `Full archive exceeds the ${ARCHIVE_ROW_LIMIT} ${label} limit.`,
+      `Full archive exceeds the ${ARCHIVE_ROW_LIMIT} ${label} limit.`
     );
   }
   return rows;

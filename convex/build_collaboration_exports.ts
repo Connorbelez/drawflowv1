@@ -29,14 +29,14 @@ const TRAILING_SLASH_PATTERN = /\/$/;
 const requestedScopeValidator = v.union(
   v.literal("build"),
   v.literal("thread"),
-  v.literal("asset"),
+  v.literal("asset")
 );
 
 const exportScopeValidator = v.union(
   v.literal("full_archive"),
   v.literal("authorized_build"),
   v.literal("thread"),
-  v.literal("asset"),
+  v.literal("asset")
 );
 
 const exportRequestResultValidator = v.object({
@@ -57,7 +57,7 @@ const exportDownloadValidator = v.object({
       sizeBytes: v.number(),
       url: v.string(),
       version: v.number(),
-    }),
+    })
   ),
   expiresAt: v.number(),
   manifestJson: v.string(),
@@ -90,7 +90,7 @@ export const requestBuildCollaborationExport = authenticatedMutation
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildCollaborationAccess(
       ctx,
-      args,
+      args
     );
     await requireHumanCollaborationActor(ctx, authorization);
     const scope = resolveExportScope(authorization, args.scope);
@@ -163,7 +163,7 @@ export const requestBuildCollaborationExport = authenticatedMutation
         0,
         internal.build_collaboration_export_archive
           .generateBuildCollaborationFullArchive,
-        { exportId },
+        { exportId }
       );
     }
     return { expiresAt, exportId, scope, state, token };
@@ -181,7 +181,7 @@ export const downloadBuildCollaborationExport = authenticatedMutation
   .handler(async (ctx, args) => {
     const { authorization, manifest, now, row } = await requireAuthorizedExport(
       ctx,
-      args,
+      args
     );
     for (const exportedPost of manifest.posts ?? []) {
       const post = await ctx.db.get(exportedPost.postId);
@@ -189,7 +189,7 @@ export const downloadBuildCollaborationExport = authenticatedMutation
         !(post && (await canReadCollaborationPost(ctx, authorization, post)))
       ) {
         throw new Error(
-          "Collaboration export access changed; request a new authorized export.",
+          "Collaboration export access changed; request a new authorized export."
         );
       }
     }
@@ -210,7 +210,7 @@ export const downloadBuildCollaborationExport = authenticatedMutation
         )
       ) {
         throw new Error(
-          "Collaboration export access changed; request a new authorized export.",
+          "Collaboration export access changed; request a new authorized export."
         );
       }
       assets.push({
@@ -281,7 +281,7 @@ export const authorizeBuildCollaborationExportAssetDownload =
         )
       ) {
         throw new Error(
-          "Collaboration export access changed; request a new authorized export.",
+          "Collaboration export access changed; request a new authorized export."
         );
       }
       await ctx.db.patch(row._id, {
@@ -325,14 +325,14 @@ export const authorizeBuildCollaborationExportArchiveChunkDownload =
           !(post && (await canReadCollaborationPost(ctx, authorization, post)))
         ) {
           throw new Error(
-            "Collaboration export access changed; request a new authorized export.",
+            "Collaboration export access changed; request a new authorized export."
           );
         }
       }
       const chunk = await ctx.db
         .query("buildCollaborationExportArchiveChunks")
         .withIndex("by_exportId_and_sequence", (query) =>
-          query.eq("exportId", row._id).eq("sequence", args.chunkIndex),
+          query.eq("exportId", row._id).eq("sequence", args.chunkIndex)
         )
         .unique();
       if (
@@ -363,11 +363,11 @@ async function requireAuthorizedExport(
     exportId: Id<"buildCollaborationExports">;
     organizationId: string;
     token: string;
-  },
+  }
 ) {
   const authorization = await authorizeActiveBuildCollaborationAccess(
     ctx,
-    args,
+    args
   );
   await requireHumanCollaborationActor(ctx, authorization);
   const row = await ctx.db.get(args.exportId);
@@ -422,14 +422,14 @@ function buildExportArchiveChunkDownloadUrl(input: {
   const path = `/api/build-collaboration/export-archive-chunk?${query.toString()}`;
   const siteUrl = process.env.CONVEX_SITE_URL?.replace(
     TRAILING_SLASH_PATTERN,
-    "",
+    ""
   );
   return siteUrl ? `${siteUrl}${path}` : path;
 }
 
 function assertCurrentExportScope(
   authorization: ActiveBuildAuthorization,
-  storedScope: Doc<"buildCollaborationExports">["scope"],
+  storedScope: Doc<"buildCollaborationExports">["scope"]
 ) {
   let currentScope: Doc<"buildCollaborationExports">["scope"];
   try {
@@ -437,11 +437,11 @@ function assertCurrentExportScope(
       authorization,
       storedScope === "full_archive" || storedScope === "authorized_build"
         ? "build"
-        : storedScope,
+        : storedScope
     );
   } catch {
     throw new Error(
-      "Collaboration export scope changed; request a new authorized export.",
+      "Collaboration export scope changed; request a new authorized export."
     );
   }
   const stillAllowed =
@@ -449,7 +449,7 @@ function assertCurrentExportScope(
     (storedScope === "authorized_build" && currentScope === "full_archive");
   if (!stillAllowed) {
     throw new Error(
-      "Collaboration export scope changed; request a new authorized export.",
+      "Collaboration export scope changed; request a new authorized export."
     );
   }
 }
@@ -471,14 +471,14 @@ function buildExportAssetDownloadUrl(input: {
   const path = `/api/build-collaboration/export-asset?${query.toString()}`;
   const siteUrl = process.env.CONVEX_SITE_URL?.replace(
     TRAILING_SLASH_PATTERN,
-    "",
+    ""
   );
   return siteUrl ? `${siteUrl}${path}` : path;
 }
 
 function resolveExportScope(
   authorization: ActiveBuildAuthorization,
-  requestedScope: "asset" | "build" | "thread",
+  requestedScope: "asset" | "build" | "thread"
 ): Doc<"buildCollaborationExports">["scope"] {
   const role = authorization.effectiveRole.role;
   if (requestedScope === "build") {
@@ -518,7 +518,7 @@ async function buildExportSnapshot(
     generatedAt: number;
     postId?: Id<"buildCollaborationPosts">;
     scope: Doc<"buildCollaborationExports">["scope"];
-  },
+  }
 ) {
   const selectedPosts = await selectExportPosts(ctx, input);
   const postIds = new Set(selectedPosts.map((post) => post._id));
@@ -550,8 +550,7 @@ async function buildExportSnapshot(
     postIds,
   });
   const participant = input.authorization.participants.find(
-    (candidate) =>
-      candidate.workosUserId === input.authorization.viewer.subject,
+    (candidate) => candidate.workosUserId === input.authorization.viewer.subject
   );
   const manifest = {
     actionItems,
@@ -591,7 +590,7 @@ async function buildExportSnapshot(
 
 async function buildExportedPosts(
   ctx: MutationCtx,
-  selectedPosts: Doc<"buildCollaborationPosts">[],
+  selectedPosts: Doc<"buildCollaborationPosts">[]
 ) {
   const posts: Record<string, unknown>[] = [];
   for (const post of selectedPosts) {
@@ -604,7 +603,7 @@ async function buildExportedPosts(
     const comments = await ctx.db
       .query("buildCollaborationComments")
       .withIndex("by_postId_and_createdAt", (query) =>
-        query.eq("postId", post._id),
+        query.eq("postId", post._id)
       )
       .take(2001);
     if (comments.length > 2000) {
@@ -651,14 +650,14 @@ async function buildExportedPosts(
 
 async function buildExportedActionItems(
   ctx: MutationCtx,
-  selectedPosts: Doc<"buildCollaborationPosts">[],
+  selectedPosts: Doc<"buildCollaborationPosts">[]
 ) {
   const actionItems: Record<string, unknown>[] = [];
   for (const post of selectedPosts) {
     const rows = await ctx.db
       .query("buildActionItems")
       .withIndex("by_originatingPostId_and_queueSortAt", (query) =>
-        query.eq("originatingPostId", post._id),
+        query.eq("originatingPostId", post._id)
       )
       .take(2001);
     if (rows.length > 2000) {
@@ -674,7 +673,7 @@ async function buildExportedActionItems(
         priority: item.priority,
         status: item.status,
         title: item.title,
-      })),
+      }))
     );
   }
   return actionItems;
@@ -690,7 +689,7 @@ async function buildExportAclSnapshot(
     participantPeriod?: number;
     posts: Doc<"buildCollaborationPosts">[];
     scope: Doc<"buildCollaborationExports">["scope"];
-  },
+  }
 ) {
   return {
     assetIds: input.manifestAssetIds,
@@ -701,8 +700,8 @@ async function buildExportAclSnapshot(
     assetDecisions: await Promise.all(
       input.assets.map(
         async (asset) =>
-          await buildExportAssetAclDecision(ctx, input.authorization, asset),
-      ),
+          await buildExportAssetAclDecision(ctx, input.authorization, asset)
+      )
     ),
     postDecisions: await Promise.all(
       input.posts.map(async (post) => {
@@ -713,7 +712,7 @@ async function buildExportAclSnapshot(
                 .withIndex("by_postId_and_workosUserId", (query) =>
                   query
                     .eq("postId", post._id)
-                    .eq("workosUserId", input.authorization.viewer.subject),
+                    .eq("workosUserId", input.authorization.viewer.subject)
                 )
                 .unique()
             : null;
@@ -749,7 +748,7 @@ async function buildExportAclSnapshot(
           postId: post._id,
           viewerRoleTier: input.authorization.effectiveRole.tier,
         };
-      }),
+      })
     ),
     roles: input.authorization.roles,
     scope: input.scope,
@@ -760,11 +759,11 @@ async function buildExportAclSnapshot(
 async function buildExportAssetAclDecision(
   ctx: MutationCtx,
   authorization: ActiveBuildAuthorization,
-  asset: Doc<"buildCollaborationAssets">,
+  asset: Doc<"buildCollaborationAssets">
 ) {
   const authorizationDecision = await resolveCollaborationAssetReadDecision(
     ctx,
-    { asset, authorization },
+    { asset, authorization }
   );
   if (!authorizationDecision) {
     throw new Error("An exported asset is no longer authorized.");
@@ -793,19 +792,19 @@ async function selectExportPosts(
     authorization: ActiveBuildAuthorization;
     postId?: Id<"buildCollaborationPosts">;
     scope: Doc<"buildCollaborationExports">["scope"];
-  },
+  }
 ) {
   if (input.scope === "asset") {
     return [];
   }
   const candidates = input.postId
     ? [await ctx.db.get(input.postId)].filter(
-        (post): post is Doc<"buildCollaborationPosts"> => Boolean(post),
+        (post): post is Doc<"buildCollaborationPosts"> => Boolean(post)
       )
     : await ctx.db
         .query("buildCollaborationPosts")
         .withIndex("by_buildId_and_createdAt", (query) =>
-          query.eq("buildId", input.authorization.build._id),
+          query.eq("buildId", input.authorization.build._id)
         )
         .take(MAX_EXPORT_POSTS + 1);
   if (candidates.length > MAX_EXPORT_POSTS) {
@@ -830,7 +829,7 @@ async function selectExportAssets(
     authorization: ActiveBuildAuthorization;
     postIds: Set<Id<"buildCollaborationPosts">>;
     scope: Doc<"buildCollaborationExports">["scope"];
-  },
+  }
 ) {
   if (input.scope === "asset") {
     const asset = input.assetId ? await ctx.db.get(input.assetId) : null;
@@ -855,10 +854,10 @@ async function selectExportAssets(
           .withIndex("by_buildId_and_state_and_createdAt", (query) =>
             query
               .eq("buildId", input.authorization.build._id)
-              .eq("state", state as "available" | "superseded"),
+              .eq("state", state as "available" | "superseded")
           )
-          .take(MAX_EXPORT_ASSETS + 1),
-      ),
+          .take(MAX_EXPORT_ASSETS + 1)
+      )
     )
   ).flat();
   if (candidates.length > MAX_EXPORT_ASSETS) {
@@ -883,7 +882,7 @@ async function selectExportAssets(
 
 async function enforceExportBurstLimit(
   ctx: MutationCtx,
-  authorization: ActiveBuildAuthorization,
+  authorization: ActiveBuildAuthorization
 ) {
   const now = Date.now();
   const recent = (
@@ -894,14 +893,14 @@ async function enforceExportBurstLimit(
         (query) =>
           query
             .eq("organizationId", authorization.organizationId)
-            .eq("requestedByWorkosUserId", authorization.viewer.subject),
+            .eq("requestedByWorkosUserId", authorization.viewer.subject)
       )
       .order("desc")
       .take(EXPORT_BURST_LIMIT + 1)
   ).filter((row) => row.createdAt >= now - EXPORT_BURST_WINDOW_MS);
   if (recent.length >= EXPORT_BURST_LIMIT) {
     throw new Error(
-      "Export rate limit reached. Try again after the one-hour window resets.",
+      "Export rate limit reached. Try again after the one-hour window resets."
     );
   }
   if (recent.length + 1 === EXPORT_BURST_WARNING_COUNT) {
@@ -924,9 +923,9 @@ async function enforceExportBurstLimit(
 async function sha256Hex(value: string) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(value),
+    new TextEncoder().encode(value)
   );
   return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
+    byte.toString(16).padStart(2, "0")
   ).join("");
 }

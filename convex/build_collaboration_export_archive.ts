@@ -19,7 +19,7 @@ const EXPORT_TTL_MS = 15 * 60_000;
 
 const archiveRecordKindValidator = v.union(
   v.literal("build_history"),
-  v.literal("post"),
+  v.literal("post")
 );
 
 const archivePostSectionValidator = v.union(
@@ -48,7 +48,7 @@ const archivePostSectionValidator = v.union(
   v.literal("reactions"),
   v.literal("receipts"),
   v.literal("references"),
-  v.literal("thread_events"),
+  v.literal("thread_events")
 );
 
 export const readBuildCollaborationArchivePlan = internalQuery
@@ -57,7 +57,7 @@ export const readBuildCollaborationArchivePlan = internalQuery
   .handler(async (ctx, args) => {
     const { authorization, exportRow, manifest } = await archiveContext(
       ctx,
-      args.exportId,
+      args.exportId
     );
     return {
       buildId: authorization.build._id,
@@ -83,7 +83,7 @@ export const readBuildCollaborationArchiveRecord = internalQuery
   .handler(async (ctx, args) => {
     const { authorization, manifest } = await archiveContext(
       ctx,
-      args.exportId,
+      args.exportId
     );
     if (args.kind === "build_history") {
       if (args.postId) {
@@ -137,7 +137,7 @@ export const reserveBuildCollaborationArchiveChunk = internalMutation
     const existing = await ctx.db
       .query("buildCollaborationExportArchiveChunks")
       .withIndex("by_exportId_and_sequence", (query) =>
-        query.eq("exportId", args.exportId).eq("sequence", args.sequence),
+        query.eq("exportId", args.exportId).eq("sequence", args.sequence)
       )
       .unique();
     if (existing) {
@@ -148,7 +148,7 @@ export const reserveBuildCollaborationArchiveChunk = internalMutation
         existing.partIndex !== args.partIndex
       ) {
         throw new Error(
-          "Archive chunk replay conflicts with persisted output.",
+          "Archive chunk replay conflicts with persisted output."
         );
       }
       if (existing.storageId) {
@@ -200,7 +200,7 @@ export const completeBuildCollaborationArchiveChunk = internalMutation
     const chunk = await ctx.db
       .query("buildCollaborationExportArchiveChunks")
       .withIndex("by_exportId_and_sequence", (query) =>
-        query.eq("exportId", args.exportId).eq("sequence", args.sequence),
+        query.eq("exportId", args.exportId).eq("sequence", args.sequence)
       )
       .unique();
     if (!chunk) {
@@ -256,7 +256,7 @@ export const completeBuildCollaborationArchive = internalMutation
       args.nextSequence < expectedSequence
     ) {
       throw new Error(
-        "Archive progress replay conflicts with persisted state.",
+        "Archive progress replay conflicts with persisted state."
       );
     }
     const nextRecordIndex = args.recordDone
@@ -274,7 +274,7 @@ export const completeBuildCollaborationArchive = internalMutation
         0,
         internal.build_collaboration_export_archive
           .generateBuildCollaborationFullArchive,
-        { exportId: exportRow._id },
+        { exportId: exportRow._id }
       );
       return null;
     }
@@ -284,7 +284,7 @@ export const completeBuildCollaborationArchive = internalMutation
         .withIndex("by_exportId_and_sequence", (query) =>
           query
             .eq("exportId", exportRow._id)
-            .eq("sequence", args.nextSequence - 1),
+            .eq("sequence", args.nextSequence - 1)
         )
         .unique();
       if (!lastChunk?.storageId) {
@@ -352,14 +352,14 @@ export const cleanupBuildCollaborationExportArchive = internalMutation
         exportRow.expiresAt - now,
         internal.build_collaboration_export_archive
           .cleanupBuildCollaborationExportArchive,
-        args,
+        args
       );
       return null;
     }
     const chunks = await ctx.db
       .query("buildCollaborationExportArchiveChunks")
       .withIndex("by_exportId_and_sequence", (query) =>
-        query.eq("exportId", exportRow._id),
+        query.eq("exportId", exportRow._id)
       )
       .take(100);
     for (const chunk of chunks) {
@@ -373,7 +373,7 @@ export const cleanupBuildCollaborationExportArchive = internalMutation
         0,
         internal.build_collaboration_export_archive
           .cleanupBuildCollaborationExportArchive,
-        args,
+        args
       );
       return null;
     }
@@ -394,13 +394,13 @@ export const cleanupExpiredBuildCollaborationExportArchives = internalMutation
       ctx.db
         .query("buildCollaborationExports")
         .withIndex("by_state_and_expiresAt", (query) =>
-          query.eq("state", "active").lt("expiresAt", now),
+          query.eq("state", "active").lt("expiresAt", now)
         )
         .take(20),
       ctx.db
         .query("buildCollaborationExports")
         .withIndex("by_state_and_expiresAt", (query) =>
-          query.eq("state", "failed"),
+          query.eq("state", "failed")
         )
         .take(20),
     ]);
@@ -409,7 +409,7 @@ export const cleanupExpiredBuildCollaborationExportArchives = internalMutation
       const chunks = await ctx.db
         .query("buildCollaborationExportArchiveChunks")
         .withIndex("by_exportId_and_sequence", (query) =>
-          query.eq("exportId", exportRow._id),
+          query.eq("exportId", exportRow._id)
         )
         .take(100);
       for (const chunk of chunks) {
@@ -437,7 +437,7 @@ export const generateBuildCollaborationFullArchive = internalAction
       const plan = (await ctx.runQuery(
         internal.build_collaboration_export_archive
           .readBuildCollaborationArchivePlan,
-        args,
+        args
       )) as {
         cursor: string | null;
         nextRecordIndex: number;
@@ -460,7 +460,7 @@ export const generateBuildCollaborationFullArchive = internalAction
             kind: "post" as const,
             postId,
             section,
-          })),
+          }))
         ),
       ];
       const recordIndex = plan.nextRecordIndex;
@@ -471,7 +471,7 @@ export const generateBuildCollaborationFullArchive = internalAction
       const record = (await ctx.runQuery(
         internal.build_collaboration_export_archive
           .readBuildCollaborationArchiveRecord,
-        { cursor: plan.cursor, exportId: args.exportId, ...source },
+        { cursor: plan.cursor, exportId: args.exportId, ...source }
       )) as { continueCursor: string; isDone: boolean };
       const bytes = new TextEncoder().encode(`${JSON.stringify(record)}\n`);
       let sequence = plan.nextSequence;
@@ -494,20 +494,20 @@ export const generateBuildCollaborationFullArchive = internalAction
             partIndex,
             recordIndex,
             sequence,
-          },
+          }
         )) as { state: "busy" | "owned" | "stored" };
         if (reservation.state === "busy") {
           await ctx.scheduler.runAfter(
             ARCHIVE_CHUNK_CLAIM_TTL_MS,
             internal.build_collaboration_export_archive
               .generateBuildCollaborationFullArchive,
-            args,
+            args
           );
           return null;
         }
         if (reservation.state === "owned") {
           const storageId = await ctx.storage.store(
-            new Blob([part], { type: "application/x-ndjson" }),
+            new Blob([part], { type: "application/x-ndjson" })
           );
           try {
             const completed = (await ctx.runMutation(
@@ -518,7 +518,7 @@ export const generateBuildCollaborationFullArchive = internalAction
                 exportId: args.exportId,
                 sequence,
                 storageId,
-              },
+              }
             )) as { accepted: boolean; existingStorageId?: Id<"_storage"> };
             if (!completed.accepted) {
               await ctx.storage.delete(storageId);
@@ -526,7 +526,7 @@ export const generateBuildCollaborationFullArchive = internalAction
                 ARCHIVE_CHUNK_CLAIM_TTL_MS,
                 internal.build_collaboration_export_archive
                   .generateBuildCollaborationFullArchive,
-                args,
+                args
               );
               return null;
             }
@@ -547,7 +547,7 @@ export const generateBuildCollaborationFullArchive = internalAction
           nextSequence: sequence,
           planRecordCount: records.length,
           recordDone: record.isDone,
-        },
+        }
       );
     } catch (error) {
       await ctx.runMutation(
@@ -559,7 +559,7 @@ export const generateBuildCollaborationFullArchive = internalAction
             error instanceof Error
               ? error.message.slice(0, 500)
               : "Archive generation failed.",
-        },
+        }
       );
     }
     return null;
@@ -568,7 +568,7 @@ export const generateBuildCollaborationFullArchive = internalAction
 
 async function archiveContext(
   ctx: QueryCtx,
-  exportId: Id<"buildCollaborationExports">,
+  exportId: Id<"buildCollaborationExports">
 ) {
   const exportRow = await ctx.db.get(exportId);
   if (!exportRow || exportRow.scope !== "full_archive") {
@@ -588,7 +588,7 @@ async function archiveContext(
       subject: exportRow.requestedByWorkosUserId,
       tokenIdentifier: `archive-export:${exportRow._id}`,
     },
-    { buildId: exportRow.buildId, organizationId: exportRow.organizationId },
+    { buildId: exportRow.buildId, organizationId: exportRow.organizationId }
   );
   const parsed = JSON.parse(exportRow.manifestJson) as {
     archiveSnapshotAt?: number;
@@ -608,7 +608,7 @@ async function archiveContext(
 
 async function requireBuildingArchiveExport(
   ctx: { db: QueryCtx["db"] },
-  exportId: Id<"buildCollaborationExports">,
+  exportId: Id<"buildCollaborationExports">
 ) {
   const exportRow = await ctx.db.get(exportId);
   if (
@@ -624,7 +624,7 @@ async function requireBuildingArchiveExport(
 async function sha256Hex(bytes: Uint8Array) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    Uint8Array.from(bytes).buffer,
+    Uint8Array.from(bytes).buffer
   );
   return [...new Uint8Array(digest)]
     .map((value) => value.toString(16).padStart(2, "0"))

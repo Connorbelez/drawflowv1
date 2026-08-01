@@ -9,7 +9,7 @@ crons.interval(
   { minutes: 5 },
   internal.build_collaboration_delivery_transport
     .processBuildCollaborationExternalDeliveries,
-  {},
+  {}
 );
 
 crons.interval(
@@ -17,7 +17,7 @@ crons.interval(
   { minutes: 5 },
   internal.build_collaboration_scheduling
     .processDueBuildCollaborationScheduledPublications,
-  {},
+  {}
 );
 
 crons.interval(
@@ -25,21 +25,21 @@ crons.interval(
   { minutes: 15 },
   internal.build_collaboration_export_archive
     .cleanupExpiredBuildCollaborationExportArchives,
-  {},
+  {}
 );
 
 crons.hourly(
   "process Build Action Item deadlines",
   { minuteUTC: 5 },
   internal.build_action_item_queues.processBuildActionItemDeadlines,
-  {},
+  {}
 );
 
 crons.daily(
   "roll forward approved timelines",
   { hourUTC: 8, minuteUTC: 0 },
   internal.demo_timeline_plans.demo_rollForwardApprovedTimelines,
-  {},
+  {}
 );
 
 export default crons;
