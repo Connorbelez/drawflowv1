@@ -17,6 +17,30 @@ afterEach(() => {
 });
 
 describe("Build collaboration scheduled publication", () => {
+  test("only promotes explicitly recognized revalidation failures to material conflicts", async () => {
+    await expect(
+      schedulingModule.revalidateMaterialBoundary(
+        async () => {
+          throw new Error("Transient Convex database failure.");
+        },
+        () => false
+      )
+    ).rejects.toThrow("Transient Convex database failure.");
+
+    await expect(
+      schedulingModule.revalidateMaterialBoundary(
+        async () => {
+          throw new Error("Deterministic publication conflict.");
+        },
+        () => true
+      )
+    ).rejects.toMatchObject({
+      data: expect.objectContaining({
+        code: "BUILD_COLLABORATION_SCHEDULE_MATERIAL_CONFLICT",
+      }),
+    });
+  });
+
   test("limits scheduling to coordinating humans and Updates or Announcements", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
