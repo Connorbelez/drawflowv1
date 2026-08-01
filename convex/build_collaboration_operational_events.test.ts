@@ -260,7 +260,13 @@ async function seedOperationalBuild(options?: { collaborationActive?: boolean })
         workosUserId: authority.subject,
       });
     }
-    return { buildId, milestoneId, proposalId };
+    return {
+      brokerageId: foundation.brokerageId,
+      buildId,
+      builderProfileId: foundation.builderProfileId,
+      milestoneId,
+      proposalId,
+    };
   });
   return {
     admin,
@@ -1198,7 +1204,54 @@ describe("Build Collaboration operational events", () => {
 
   test("publishes Draw submission, return, approval, and release only to financial readers", async () => {
     const fixture = await seedOperationalBuild();
+    const permittedBuilderStaff = withIdentity(
+      fixture.base,
+      "builder-staff",
+      "user_builder_staff_draw_view",
+    );
     await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("buildParticipants", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        displayNameSnapshot: "Draw-view Builder Staff",
+        joinedAt: now,
+        organizationId: ORGANIZATION_ID,
+        participationPeriod: 1,
+        role: "builder-staff",
+        status: "active",
+        updatedAt: now,
+        validFrom: now,
+        workosUserId: "user_builder_staff_draw_view",
+      });
+      const builderAccountLinkId = await ctx.db.insert("builderAccountLinks", {
+        brokerageId: fixture.brokerageId,
+        builderProfileId: fixture.builderProfileId,
+        createdAt: now,
+        role: "staff",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_builder_staff_draw_view",
+      });
+      await ctx.db.insert("builderStaffPermissionGrants", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        builderAccountLinkId,
+        builderProfileId: fixture.builderProfileId,
+        canCreate: false,
+        canDelete: false,
+        canUpdate: false,
+        canView: true,
+        createdAt: now,
+        createdByWorkosUserId: "user_admin",
+        organizationId: ORGANIZATION_ID,
+        resourceType: "draw",
+        scope: "activeBuild",
+        updatedAt: now,
+        updatedByWorkosUserId: "user_admin",
+        workosUserId: "user_builder_staff_draw_view",
+      });
       await ctx.db.patch(fixture.milestoneId, {
         completionReview: { status: "approved" },
         evidenceState: "Approved",
@@ -1327,9 +1380,16 @@ describe("Build Collaboration operational events", () => {
           href: expect.stringMatching(/focus=draw%3A/),
           recipientWorkosUserId: "user_global_principal",
         }),
-      ])
+      ]),
     );
     expect(await feedKinds(fixture.builderStaff, fixture.buildId)).toEqual([
+      "restricted",
+      "restricted",
+      "restricted",
+      "restricted",
+      "restricted",
+    ]);
+    expect(await feedKinds(permittedBuilderStaff, fixture.buildId)).toEqual([
       "post",
       "post",
       "post",
@@ -1350,6 +1410,17 @@ describe("Build Collaboration operational events", () => {
       "restricted",
       "restricted",
     ]);
+    expect(
+      snapshot.deliveries.some(
+        (delivery) => delivery.recipientWorkosUserId === "user_builder_staff",
+      ),
+    ).toBe(false);
+    expect(
+      snapshot.deliveries.some(
+        (delivery) =>
+          delivery.recipientWorkosUserId === "user_builder_staff_draw_view",
+      ),
+    ).toBe(true);
   });
 
   test("rolls the authoritative operation back when collaboration publication violates tenant scope", async () => {

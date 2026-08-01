@@ -5,6 +5,7 @@ import {
 import { ConvexError, v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
+import { copyProposalDocumentsToActiveBuild } from "./active_build_document_lineage";
 import {
   type AuthorizedViewer,
   authenticatedAction,
@@ -27921,27 +27922,16 @@ async function copyProposalOperationalRowsToActiveBuild(
     buildMilestones.map((milestone) => [
       String(milestone.proposalMilestoneId),
       milestone,
-    ])
+    ]),
   );
-  for (const document of documents) {
-    await ctx.db.insert("buildDocuments", {
-      brokerageId: input.auth.brokerage._id,
-      buildId: input.buildId,
-      contractorVisible: document.contractorVisible,
-      createdAt: input.now,
-      documentType: document.documentType,
-      fileName: document.fileName,
-      mimeType: document.mimeType,
-      organizationId: input.organizationId,
-      proposalId: input.proposalId,
-      sizeBytes: document.sizeBytes,
-      status: document.status,
-      storageId: document.storageId,
-      updatedAt: input.now,
-      uploadedByWorkosUserId: document.uploadedByWorkosUserId,
-      version: 1,
-    });
-  }
+  await copyProposalDocumentsToActiveBuild(ctx, {
+    brokerageId: input.auth.brokerage._id,
+    buildId: input.buildId,
+    documents,
+    now: input.now,
+    organizationId: input.organizationId,
+    proposalId: input.proposalId,
+  });
   for (const asset of evidenceAssets) {
     await ctx.db.insert("buildEvidenceAssets", {
       brokerageId: input.auth.brokerage._id,

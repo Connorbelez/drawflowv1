@@ -8449,7 +8449,13 @@ describe("production proposal foundation", () => {
         documents: [
           {
             documentType: "permit",
-            fileName: "legacy-permit.pdf",
+            fileName: "legacy-permit-v1.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 512,
+          },
+          {
+            documentType: "permit",
+            fileName: "legacy-permit-v2.pdf",
             mimeType: "application/pdf",
             sizeBytes: 512,
           },
@@ -8582,6 +8588,10 @@ describe("production proposal foundation", () => {
           .withIndex("by_build", (q: any) => q.eq("buildId", repaired.buildId))
           .collect()
       ).length,
+      documents: await ctx.db
+        .query("buildDocuments")
+        .withIndex("by_build", (q: any) => q.eq("buildId", repaired.buildId))
+        .collect(),
       milestoneCount: (
         await ctx.db
           .query("buildMilestones")
@@ -8612,8 +8622,23 @@ describe("production proposal foundation", () => {
       ],
       buildCount: 1,
       capitalPlanCount: 1,
-      documentCount: 1,
+      documentCount: 2,
       milestoneCount: 1,
+    });
+    const [permitV1, permitV2] = firstRepairState.documents.sort(
+      (left: any, right: any) => left.version - right.version,
+    );
+    expect(permitV1).toMatchObject({
+      fileName: "legacy-permit-v1.pdf",
+      status: "superseded",
+      supersededByDocumentId: permitV2._id,
+      version: 1,
+    });
+    expect(permitV2).toMatchObject({
+      fileName: "legacy-permit-v2.pdf",
+      status: "uploaded",
+      supersedesDocumentId: permitV1._id,
+      version: 2,
     });
 
     await expect(

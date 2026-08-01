@@ -9,6 +9,7 @@
  */
 
 import type * as activeBuildAccess from "../activeBuildAccess.js";
+import type * as active_build_document_lineage from "../active_build_document_lineage.js";
 import type * as assistant from "../assistant.js";
 import type * as assistantProvider from "../assistantProvider.js";
 import type * as auth from "../auth.js";
@@ -69,6 +70,7 @@ import type * as build_collaboration_references from "../build_collaboration_ref
 import type * as build_collaboration_resolution from "../build_collaboration_resolution.js";
 import type * as build_collaboration_resolution_migration from "../build_collaboration_resolution_migration.js";
 import type * as build_collaboration_rollout from "../build_collaboration_rollout.js";
+import type * as build_collaboration_system_event_access from "../build_collaboration_system_event_access.js";
 import type * as build_collaboration_system_events from "../build_collaboration_system_events.js";
 import type * as build_collaboration_threads from "../build_collaboration_threads.js";
 import type * as build_collaboration_validators from "../build_collaboration_validators.js";
@@ -120,6 +122,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   activeBuildAccess: typeof activeBuildAccess;
+  active_build_document_lineage: typeof active_build_document_lineage;
   assistant: typeof assistant;
   assistantProvider: typeof assistantProvider;
   auth: typeof auth;
@@ -180,6 +183,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_resolution: typeof build_collaboration_resolution;
   build_collaboration_resolution_migration: typeof build_collaboration_resolution_migration;
   build_collaboration_rollout: typeof build_collaboration_rollout;
+  build_collaboration_system_event_access: typeof build_collaboration_system_event_access;
   build_collaboration_system_events: typeof build_collaboration_system_events;
   build_collaboration_threads: typeof build_collaboration_threads;
   build_collaboration_validators: typeof build_collaboration_validators;

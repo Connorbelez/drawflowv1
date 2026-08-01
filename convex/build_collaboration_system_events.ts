@@ -19,6 +19,7 @@ import {
 import { stableContentHash } from "./build_collaboration";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import { collaborationRoleTier } from "./build_collaboration_model";
+import { canReadDrawSystemEvent } from "./build_collaboration_system_event_access";
 import {
   type BuildCollaborationNotificationKind,
   emitCanonicalBuildCollaborationNotification,
@@ -464,13 +465,21 @@ async function systemEventReaders(
     participants: ActiveBuildParticipantProjection[];
     primaryReferenceId?: string;
     primaryReferenceKind?: BuildCollaborationSystemEventInput["primaryReferenceKind"];
-  }
+  },
 ) {
   if (input.primaryReferenceKind === "draw") {
-    return input.participants.filter(
-      (participant) =>
-        participant.role !== "contractor" && participant.role !== "homeowner"
+    const readerDecisions = await Promise.all(
+      input.participants.map(async (participant) => ({
+        allowed: await canReadDrawSystemEvent(ctx, {
+          buildId: input.buildId,
+          participant,
+        }),
+        participant,
+      })),
     );
+    return readerDecisions
+      .filter((decision) => decision.allowed)
+      .map((decision) => decision.participant);
   }
   if (
     input.primaryReferenceKind === "evidenceAsset" ||
