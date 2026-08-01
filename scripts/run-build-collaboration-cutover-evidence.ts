@@ -2,12 +2,13 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-
+import { validateBuildCollaborationE2EFixture } from "./build-collaboration-cutover-fixture";
 import {
   BUILD_COLLABORATION_INTERFACE_RUNNER,
   BUILD_COLLABORATION_MANUAL_REVIEW_RUNNER,
   BUILD_COLLABORATION_SMOKE_RUNNER,
   buildCollaborationRoleSmokeArgv,
+  isProductionConvexDeployment,
   serializeCommand,
 } from "./build-collaboration-cutover-gates";
 
@@ -94,7 +95,7 @@ function readManifest(path: string): Manifest {
       manifest.representativeBuildId &&
       manifest.release?.applicationUrl?.startsWith("https://") &&
       manifest.release.applicationVersion &&
-      manifest.release.convexDeployment &&
+      isProductionConvexDeployment(manifest.release.convexDeployment ?? "") &&
       manifest.release.convexUrl?.startsWith("https://") &&
       GIT_SHA_PATTERN.test(manifest.release.gitCommit)
     )
@@ -177,6 +178,7 @@ export function runBuildCollaborationCutoverEvidence(argv: string[]) {
       throw new Error("Smoke evidence requires an approved --role.");
     }
     const command = buildCollaborationRoleSmokeArgv(args.role);
+    const e2eEvidence = validateBuildCollaborationE2EFixture(common);
     const result = spawnSync(command[0], command.slice(1), {
       encoding: "utf8",
       env: process.env,
@@ -202,6 +204,7 @@ export function runBuildCollaborationCutoverEvidence(argv: string[]) {
     );
     writeArtifact(args.outputPath, {
       ...common,
+      ...e2eEvidence,
       command: serializeCommand(command),
       completedAt: new Date().toISOString(),
       exitCode: 0,

@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 import {
   BUILD_COLLABORATION_CUTOVER_GATE_RUNNER,
   buildCollaborationCutoverGateArgv,
+  isProductionConvexDeployment,
   serializeCommand,
 } from "./build-collaboration-cutover-gates";
 import { runBuildCollaborationCutoverGate } from "./run-build-collaboration-cutover-gate";
@@ -19,7 +20,7 @@ const gitCommit = execFileSync("git", ["rev-parse", "HEAD"], {
 const context = {
   applicationUrl: "https://drawflow.example.com",
   applicationVersion: "release-2026-08-01",
-  convexDeployment: "example-production",
+  convexDeployment: "fairlend:drawflow:prod",
   convexUrl: "https://example.convex.cloud",
   forbiddenOrganizationId: "org_forbidden",
   gitCommit,
@@ -34,11 +35,27 @@ describe("Build Collaboration governed cutover gates", () => {
       context
     );
     expect(serializeCommand(argv ?? [])).toContain(
-      "--convex-deployment example-production"
+      "--convex-deployment fairlend:drawflow:prod"
     );
     expect(serializeCommand(argv ?? [])).toContain(
       "--forbidden-organization-id org_forbidden"
     );
+  });
+
+  test("accepts only canonical production Convex deployment selectors", () => {
+    expect(isProductionConvexDeployment("prod")).toBe(true);
+    expect(isProductionConvexDeployment("fairlend:drawflow:prod")).toBe(true);
+    expect(isProductionConvexDeployment("dev/example-drawflow")).toBe(false);
+    expect(isProductionConvexDeployment("fairlend:drawflow:staging")).toBe(
+      false
+    );
+    expect(isProductionConvexDeployment("example-production")).toBe(false);
+    expect(
+      serializeCommand(
+        buildCollaborationCutoverGateArgv("deploymentRegistration", context) ??
+          []
+      )
+    ).toContain(`--url ${context.convexUrl}`);
   });
 
   test("writes manual-review evidence only through the governed runner", () => {

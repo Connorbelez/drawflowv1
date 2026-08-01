@@ -6,7 +6,7 @@
   "release": {
     "gitCommit": "<40-character-git-commit>",
     "applicationVersion": "<application-deployment-version>",
-    "convexDeployment": "<production-convex-deployment>",
+    "convexDeployment": "<team>:<project>:prod",
     "convexUrl": "https://<production-convex-url>",
     "applicationUrl": "https://<production-host>"
   },

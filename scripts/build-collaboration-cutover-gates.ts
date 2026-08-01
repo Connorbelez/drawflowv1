@@ -11,6 +11,8 @@ export const BUILD_COLLABORATION_INTERFACE_RUNNER =
   "drawflow-build-collaboration-interface-runner/v1";
 
 const SHELL_SAFE_ARGUMENT_PATTERN = /^[A-Za-z0-9_./:=+-]+$/;
+const PRODUCTION_DEPLOYMENT_PATTERN =
+  /^(?:prod|[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*:prod)$/i;
 
 export const BUILD_COLLABORATION_AUTOMATED_CUTOVER_GATES = [
   "convexCodegen",
@@ -94,6 +96,10 @@ export function isBuildCollaborationCutoverGate(
   );
 }
 
+export function isProductionConvexDeployment(value: string) {
+  return PRODUCTION_DEPLOYMENT_PATTERN.test(value);
+}
+
 export function isManualBuildCollaborationCutoverGate(
   value: BuildCollaborationCutoverGate
 ) {
@@ -122,7 +128,14 @@ export function buildCollaborationCutoverGateArgv(
     case "uiHtmlAudit":
       return ["bun", "run", "ui:html:audit"];
     case "deploymentRegistration":
-      return ["bun", "run", "verify:convex-deployment"];
+      return [
+        "bun",
+        "run",
+        "verify:convex-deployment",
+        "--",
+        "--url",
+        context.convexUrl,
+      ];
     case "authenticatedProductionProbes":
       if (!context.forbiddenOrganizationId) {
         throw new Error(

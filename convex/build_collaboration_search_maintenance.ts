@@ -828,6 +828,14 @@ async function completeSearchJob(
       authorization
     );
     if (state.targetReaderFingerprint !== readerFingerprint) {
+      // A reader can join while older owner jobs are still draining. Advance
+      // the target before queuing the replacement generation; retaining the
+      // stale target makes every completed replacement enqueue another build
+      // rebuild forever.
+      await ctx.db.patch(state._id, {
+        targetReaderFingerprint: readerFingerprint,
+        updatedAt: now,
+      });
       await queueBuildCollaborationSearchBuildRebuild(ctx, { authorization });
       return;
     }

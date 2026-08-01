@@ -128,6 +128,12 @@ export const transitionBuildCollaborationTenantStatus = authenticatedMutation
         `Collaboration rollout changed concurrently; expected ${args.expectedStatus} but found ${currentStatus}.`
       );
     }
+    await requireRollbackRehearsalTransition(
+      ctx,
+      authorization.organizationId,
+      currentStatus,
+      args.nextStatus
+    );
     requireLegalTransition(currentStatus, args.nextStatus);
     const reason = normalizeReason(args.reason);
     if (args.nextStatus === "disabled" && !reason) {
@@ -302,6 +308,11 @@ export async function requireActiveBuildCollaborationTenant(
   if (setting?.status !== "active") {
     throw new Error(BUILD_COLLABORATION_UNAVAILABLE_ERROR);
   }
+  if (await isBuildCollaborationCutoverFrozen(ctx, authorization.organizationId)) {
+    throw new Error(
+      "Build Collaboration is temporarily frozen for a rollback rehearsal snapshot."
+    );
+  }
   return setting;
 }
 
@@ -324,7 +335,63 @@ export async function requireActiveBuildCollaborationTenantByScope(
   ) {
     throw new Error(BUILD_COLLABORATION_UNAVAILABLE_ERROR);
   }
+  if (await isBuildCollaborationCutoverFrozen(ctx, input.organizationId)) {
+    throw new Error(
+      "Build Collaboration is temporarily frozen for a rollback rehearsal snapshot."
+    );
+  }
   return setting;
+}
+
+export async function isBuildCollaborationCutoverFrozen(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: string
+) {
+  const rehearsal = await latestBuildCollaborationRollbackRehearsal(
+    ctx,
+    organizationId
+  );
+  return (
+    rehearsal?.status === "capturing_before" ||
+    rehearsal?.status === "before_ready" ||
+    rehearsal?.status === "capturing_after"
+  );
+}
+
+async function requireRollbackRehearsalTransition(
+  ctx: MutationCtx,
+  organizationId: string,
+  currentStatus: CollaborationTenantStatus,
+  nextStatus: CollaborationTenantStatus
+) {
+  const rehearsal = await latestBuildCollaborationRollbackRehearsal(
+    ctx,
+    organizationId
+  );
+  if (!rehearsal || ["complete", "failed"].includes(rehearsal.status)) return;
+  if (
+    rehearsal.status === "before_ready" &&
+    currentStatus === "active" &&
+    nextStatus === "disabled"
+  ) {
+    return;
+  }
+  throw new Error(
+    "Collaboration rollout cannot transition while a rollback rehearsal snapshot is incomplete."
+  );
+}
+
+async function latestBuildCollaborationRollbackRehearsal(
+  ctx: QueryCtx | MutationCtx,
+  organizationId: string
+) {
+  return await ctx.db
+    .query("buildCollaborationCutoverRehearsals")
+    .withIndex("by_organizationId_and_createdAt", (query) =>
+      query.eq("organizationId", organizationId)
+    )
+    .order("desc")
+    .first();
 }
 
 async function getTenantSetting(

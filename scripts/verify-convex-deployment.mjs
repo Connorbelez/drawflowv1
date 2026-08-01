@@ -9,7 +9,11 @@ if (skipOutsideVercel) {
   process.exit(0);
 }
 
-const deploymentUrl = process.env.VITE_CONVEX_URL;
+const urlArgumentIndex = process.argv.indexOf("--url");
+const deploymentUrl =
+  urlArgumentIndex >= 0
+    ? process.argv[urlArgumentIndex + 1]
+    : process.env.VITE_CONVEX_URL;
 if (!deploymentUrl) {
   console.error(
     "Convex function-registration check failed: VITE_CONVEX_URL is not configured."
@@ -134,7 +138,9 @@ await Promise.all(
 );
 
 if (missingFunctions.length > 0 || verificationFailures.length > 0) {
-  console.error(`Convex function-registration check failed for ${deploymentUrl}.`);
+  console.error(
+    `Convex function-registration check failed for ${deploymentUrl}.`
+  );
   for (const functionName of missingFunctions) {
     console.error(`- Missing public function: ${functionName}`);
   }

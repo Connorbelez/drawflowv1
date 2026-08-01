@@ -3415,6 +3415,30 @@ export default defineSchema({
   })
     .index("by_rehearsalId_and_kind", ["rehearsalId", "kind"])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  buildCollaborationCutoverArtifactAttestations: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    representativeBuildId: v.id("activeBuilds"),
+    rehearsalId: v.id("buildCollaborationCutoverRehearsals"),
+    kind: v.union(
+      v.literal("migration_preview"),
+      v.literal("migration_application"),
+      v.literal("migration_replay"),
+      v.literal("migration_parity"),
+      v.literal("manual_visual_review"),
+      v.literal("manual_keyboard_review")
+    ),
+    artifactSha256: v.string(),
+    attestedByWorkosUserId: v.string(),
+    attestedByRoles: v.array(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_rehearsalId_and_kind_and_createdAt", [
+      "rehearsalId",
+      "kind",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   buildCollaborationMigrationParityEvidence: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

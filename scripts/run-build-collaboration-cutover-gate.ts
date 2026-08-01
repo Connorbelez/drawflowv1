@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-
+import { validateBuildCollaborationE2EFixture } from "./build-collaboration-cutover-fixture";
 import {
   BUILD_COLLABORATION_CUTOVER_GATE_RUNNER,
   BUILD_COLLABORATION_MANUAL_REVIEW_RUNNER,
@@ -16,6 +16,7 @@ import {
   buildCollaborationCutoverGateArgv,
   isBuildCollaborationCutoverGate,
   isManualBuildCollaborationCutoverGate,
+  isProductionConvexDeployment,
   serializeCommand,
 } from "./build-collaboration-cutover-gates";
 
@@ -92,7 +93,7 @@ function requireManifest(path: string): CutoverManifest {
       parsed.representativeBuildId &&
       release?.applicationUrl?.startsWith("https://") &&
       release.applicationVersion &&
-      release.convexDeployment &&
+      isProductionConvexDeployment(release.convexDeployment ?? "") &&
       release.convexUrl?.startsWith("https://") &&
       GIT_SHA_PATTERN.test(release.gitCommit)
     )
@@ -187,6 +188,10 @@ export function runBuildCollaborationCutoverGate(argv: string[]) {
   if (!command) {
     throw new Error(`Missing automated command for ${args.gate}.`);
   }
+  const e2eEvidence =
+    args.gate === "playwrightRoleJourneys"
+      ? validateBuildCollaborationE2EFixture(context)
+      : undefined;
   const result = spawnSync(command[0], command.slice(1), {
     encoding: "utf8",
     env: process.env,
@@ -212,6 +217,7 @@ export function runBuildCollaborationCutoverGate(argv: string[]) {
   );
   writeArtifact(args.outputPath, {
     ...common,
+    ...(e2eEvidence ?? {}),
     command: serializeCommand(command),
     completedAt: new Date().toISOString(),
     exitCode: 0,

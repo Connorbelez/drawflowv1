@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
-
+import { validateBuildCollaborationE2EFixture } from "./build-collaboration-cutover-fixture";
 import {
   BUILD_COLLABORATION_CUTOVER_GATE_RUNNER,
   BUILD_COLLABORATION_CUTOVER_GATES,
@@ -18,6 +18,7 @@ import {
   buildCollaborationCutoverGateArgv,
   buildCollaborationRoleSmokeArgv,
   isManualBuildCollaborationCutoverGate,
+  isProductionConvexDeployment,
   serializeCommand,
 } from "./build-collaboration-cutover-gates";
 
@@ -55,11 +56,39 @@ const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:/;
 const GIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const HTTPS_PATTERN = /^https:\/\//;
 const NON_HUMAN_ACTOR_PATTERN = /^(?:agent|system):/i;
-const NON_PRODUCTION_DEPLOYMENT_PATTERN = /^(?:dev|local|staging)$/i;
 const WORKOS_USER_PATTERN = /^user_[A-Za-z0-9]+$/;
+
+type ArtifactAttestationKind =
+  | "migration_preview"
+  | "migration_application"
+  | "migration_replay"
+  | "migration_parity"
+  | "manual_visual_review"
+  | "manual_keyboard_review";
+
+const MIGRATION_ATTESTATION_KINDS = {
+  application: "migration_application",
+  parity: "migration_parity",
+  preview: "migration_preview",
+  replay: "migration_replay",
+} as const satisfies Record<string, ArtifactAttestationKind>;
+
+const MANUAL_ATTESTATION_KINDS = {
+  keyboardReview: "manual_keyboard_review",
+  visualReview: "manual_visual_review",
+} as const satisfies Record<string, ArtifactAttestationKind>;
 
 type JsonObject = Record<string, unknown>;
 export interface BuildCollaborationCutoverLiveState {
+  artifactAttestations: Array<{
+    artifactSha256: string;
+    attestedByRoles: string[];
+    attestedByWorkosUserId: string;
+    attestationId: string;
+    createdAt: number;
+    kind: ArtifactAttestationKind;
+    rehearsalId: string;
+  }>;
   evidence: {
     buildReportCount: number;
     cutoverEpoch: number;
@@ -213,11 +242,8 @@ export function validateBuildCollaborationCutoverEvidence(
         pattern: HTTPS_PATTERN,
       })
     : undefined;
-  if (
-    convexDeployment &&
-    NON_PRODUCTION_DEPLOYMENT_PATTERN.test(convexDeployment)
-  ) {
-    errors.push("release.convexDeployment must designate production.");
+  if (convexDeployment && !isProductionConvexDeployment(convexDeployment)) {
+    errors.push("release.convexDeployment must be prod or team:project:prod.");
   }
   const context =
     organizationId &&
@@ -294,6 +320,13 @@ export function validateBuildCollaborationCutoverEvidence(
         "completedAt",
         `migration ${stage}`
       );
+      validateArtifactAttestation(
+        errors,
+        liveState,
+        MIGRATION_ATTESTATION_KINDS[stage],
+        asObject(migration[`${stage}Artifact`])?.sha256,
+        `migration ${stage}`
+      );
       if (stage === "parity") {
         validateParityArtifact(errors, artifact, liveState);
       }
@@ -332,7 +365,22 @@ export function validateBuildCollaborationCutoverEvidence(
         commandName,
         `${commandName} commandName`
       );
-      validateGovernedGateArtifact(errors, artifact, commandName, context);
+      validateGovernedGateArtifact(
+        errors,
+        artifact,
+        commandName,
+        context,
+        manifestDirectory
+      );
+      if (liveState && isManualBuildCollaborationCutoverGate(commandName)) {
+        validateArtifactAttestation(
+          errors,
+          liveState,
+          MANUAL_ATTESTATION_KINDS[commandName],
+          asObject(commands[commandName])?.sha256,
+          commandName
+        );
+      }
       if (artifact.exitCode !== 0) {
         errors.push(`${commandName} command did not pass with exit code 0.`);
       }
@@ -407,6 +455,7 @@ export function validateBuildCollaborationCutoverEvidence(
       });
       validateHashedCommandOutput(errors, artifact, "stdout", `${role} smoke`);
       validateHashedCommandOutput(errors, artifact, "stderr", `${role} smoke`);
+      validateE2EArtifact(errors, artifact, context, `${role} smoke`);
       validateIsoTimestamp(errors, artifact, "startedAt", `${role} smoke`);
       validateIsoTimestamp(errors, artifact, "completedAt", `${role} smoke`);
     }
@@ -566,6 +615,9 @@ function validateLiveState(
     )
   ) {
     errors.push("Server-derived activation actor and timestamp are required.");
+  }
+  if (!Array.isArray(live.artifactAttestations)) {
+    errors.push("Server-derived artifact attestations are required.");
   }
   const evidence = asObject(live.evidence);
   const migration = asObject(live.migration);
@@ -865,7 +917,8 @@ function validateGovernedGateArtifact(
   errors: string[],
   artifact: JsonObject,
   commandName: (typeof REQUIRED_BUILD_COLLABORATION_CUTOVER_COMMANDS)[number],
-  context: CommonArtifactContext
+  context: CommonArtifactContext,
+  manifestDirectory: string
 ) {
   requireExactString(
     errors,
@@ -902,13 +955,12 @@ function validateGovernedGateArtifact(
           errors.push(`${commandName} evidence ${index} must be an object.`);
           continue;
         }
-        requireText(errors, typed, "path", {
-          label: `${commandName} evidence ${index} path`,
-        });
-        requireText(errors, typed, "sha256", {
-          label: `${commandName} evidence ${index} sha256`,
-          pattern: SHA256_PATTERN,
-        });
+        validateHashedFileReference(
+          errors,
+          typed,
+          manifestDirectory,
+          `${commandName} evidence ${index}`
+        );
       }
     } else {
       errors.push(`${commandName} requires hashed human-review evidence.`);
@@ -959,6 +1011,107 @@ function validateGovernedGateArtifact(
   });
   validateHashedCommandOutput(errors, artifact, "stdout", commandName);
   validateHashedCommandOutput(errors, artifact, "stderr", commandName);
+  if (commandName === "playwrightRoleJourneys") {
+    validateE2EArtifact(errors, artifact, context, commandName);
+  }
+}
+
+function validateArtifactAttestation(
+  errors: string[],
+  live: BuildCollaborationCutoverLiveState,
+  kind: ArtifactAttestationKind,
+  artifactSha256: unknown,
+  label: string
+) {
+  const rehearsalId = live.rollbackRehearsal?.rehearsalId;
+  const attestation = (
+    Array.isArray(live.artifactAttestations) ? live.artifactAttestations : []
+  ).find((candidate) => asObject(candidate)?.kind === kind);
+  if (!attestation) {
+    errors.push(
+      `${label} requires an authenticated human artifact attestation.`
+    );
+    return;
+  }
+  if (
+    typeof artifactSha256 !== "string" ||
+    !SHA256_PATTERN.test(artifactSha256) ||
+    attestation.artifactSha256 !== artifactSha256.toLowerCase()
+  ) {
+    errors.push(
+      `${label} artifact hash does not match its server attestation.`
+    );
+  }
+  if (attestation.rehearsalId !== rehearsalId) {
+    errors.push(
+      `${label} attestation is not bound to the certified rehearsal.`
+    );
+  }
+  if (
+    !WORKOS_USER_PATTERN.test(attestation.attestedByWorkosUserId) ||
+    NON_HUMAN_ACTOR_PATTERN.test(attestation.attestedByWorkosUserId) ||
+    !Array.isArray(attestation.attestedByRoles) ||
+    attestation.attestedByRoles.length === 0 ||
+    !Number.isSafeInteger(attestation.createdAt)
+  ) {
+    errors.push(`${label} attestation lacks authenticated human provenance.`);
+  }
+}
+
+function validateHashedFileReference(
+  errors: string[],
+  reference: JsonObject,
+  directory: string,
+  label: string
+) {
+  const path = requireText(errors, reference, "path", {
+    label: `${label} path`,
+  });
+  const expectedHash = requireText(errors, reference, "sha256", {
+    label: `${label} sha256`,
+    pattern: SHA256_PATTERN,
+  });
+  if (!(path && expectedHash)) {
+    return;
+  }
+  const resolved = isAbsolute(path) ? path : resolve(directory, path);
+  if (!(existsSync(resolved) && statSync(resolved).isFile())) {
+    errors.push(`${label} does not exist: ${path}.`);
+    return;
+  }
+  const actualHash = createHash("sha256")
+    .update(readFileSync(resolved))
+    .digest("hex");
+  if (actualHash !== expectedHash.toLowerCase()) {
+    errors.push(`${label} hash does not match ${path}.`);
+  }
+}
+
+function validateE2EArtifact(
+  errors: string[],
+  artifact: JsonObject,
+  context: CommonArtifactContext,
+  label: string
+) {
+  try {
+    const evidence = validateBuildCollaborationE2EFixture(
+      context,
+      typeof artifact.fixturePath === "string" ? artifact.fixturePath : ""
+    );
+    if (artifact.fixtureSha256 !== evidence.fixtureSha256) {
+      errors.push(`${label} fixture hash does not match retained evidence.`);
+    }
+    if (
+      JSON.stringify(artifact.storageStates) !==
+      JSON.stringify(evidence.storageStates)
+    ) {
+      errors.push(`${label} authenticated storage-state evidence changed.`);
+    }
+  } catch (error) {
+    errors.push(
+      `${label} fixture evidence is invalid: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 function validateHashedCommandOutput(
@@ -1060,10 +1213,7 @@ function fetchAuthenticatedProductionLiveState(manifest: JsonObject) {
     typeof release?.convexDeployment === "string"
       ? release.convexDeployment
       : "";
-  if (
-    !convexDeployment ||
-    NON_PRODUCTION_DEPLOYMENT_PATTERN.test(convexDeployment)
-  ) {
+  if (!(convexDeployment && isProductionConvexDeployment(convexDeployment))) {
     throw new Error("A specific production Convex deployment is required.");
   }
   const result = spawnSync(

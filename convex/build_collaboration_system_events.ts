@@ -28,7 +28,10 @@ import {
   type CanonicalBuildCollaborationReference,
   resolveCanonicalBuildCollaborationReferences,
 } from "./build_collaboration_references";
-import { BUILD_COLLABORATION_UNAVAILABLE_ERROR } from "./build_collaboration_rollout";
+import {
+  BUILD_COLLABORATION_UNAVAILABLE_ERROR,
+  isBuildCollaborationCutoverFrozen,
+} from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchBuildRebuild } from "./build_collaboration_search_maintenance";
 import { canReadDrawSystemEvent } from "./build_collaboration_system_event_access";
 import {
@@ -366,7 +369,11 @@ async function resolveSystemEventScope(
       query.eq("organizationId", build.organizationId)
     )
     .unique();
-  if (!tenantSetting || tenantSetting.status !== "active") {
+  if (
+    !tenantSetting ||
+    tenantSetting.status !== "active" ||
+    (await isBuildCollaborationCutoverFrozen(ctx, build.organizationId))
+  ) {
     return { status: "inactive" };
   }
   if (tenantSetting.brokerageId !== build.brokerageId) {

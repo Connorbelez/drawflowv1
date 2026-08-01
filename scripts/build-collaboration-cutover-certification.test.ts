@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -27,7 +27,7 @@ import {
 const context = {
   applicationUrl: "https://drawflow.example.com",
   applicationVersion: "release-2026-08-01",
-  convexDeployment: "example-production",
+  convexDeployment: "fairlend:drawflow:prod",
   convexUrl: "https://example.convex.cloud",
   forbiddenOrganizationId: "org_forbidden",
   gitCommit: "0123456789abcdef0123456789abcdef01234567",
@@ -59,6 +59,7 @@ function artifact(directory: string, name: string, contents: Record<string, unkn
 
 function liveState(): BuildCollaborationCutoverLiveState {
   return {
+    artifactAttestations: [],
     evidence: {
       buildReportCount: 2,
       cutoverEpoch: 4,
@@ -142,8 +143,10 @@ function liveState(): BuildCollaborationCutoverLiveState {
   };
 }
 
-function validManifest(directory: string) {
-  const live = liveState();
+function validManifest(
+  directory: string,
+  live = liveState()
+) {
   const completedAt = "2026-08-01T12:00:00.000Z";
   const commands = Object.fromEntries(
     REQUIRED_BUILD_COLLABORATION_CUTOVER_COMMANDS.map((commandName) => [
@@ -155,7 +158,13 @@ function validManifest(directory: string) {
       ),
     ])
   );
-  return {
+  const migration = {
+    applicationArtifact: artifact(directory, "migration-application", { completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "application", status: "passed" }),
+    parityArtifact: artifact(directory, "migration-parity", { ...live.evidence, completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "parity", status: "passed" }),
+    previewArtifact: artifact(directory, "migration-preview", { completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "preview", status: "passed" }),
+    replayArtifact: artifact(directory, "migration-replay", { completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "replay", status: "passed" }),
+  };
+  const manifest = {
     activation: artifact(directory, "activation", {
       activatedAt: live.tenant.activatedAt,
       actorWorkosUserId: "user_admin",
@@ -179,12 +188,7 @@ function validManifest(directory: string) {
       status: "passed",
       visualReviewSha256: commands.visualReview.sha256,
     }),
-    migration: {
-      applicationArtifact: artifact(directory, "migration-application", { completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "application", status: "passed" }),
-      parityArtifact: artifact(directory, "migration-parity", { ...live.evidence, completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "parity", status: "passed" }),
-      previewArtifact: artifact(directory, "migration-preview", { completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "preview", status: "passed" }),
-      replayArtifact: artifact(directory, "migration-replay", { completedAt, schemaVersion: "build-collaboration-migration-artifact/v1", stage: "replay", status: "passed" }),
-    },
+    migration,
     monitoring: Object.fromEntries(REQUIRED_BUILD_COLLABORATION_MONITORS.map((name) => [name, `https://monitor.example.com/${name}`])),
     organizationId: context.organizationId,
     release: {
@@ -208,6 +212,7 @@ function validManifest(directory: string) {
         return [
           role,
           artifact(directory, `smoke-${role}`, {
+            ...e2eEvidence(directory),
             command: serializeCommand(buildCollaborationRoleSmokeArgv(role)),
             completedAt,
             exitCode: 0,
@@ -226,6 +231,30 @@ function validManifest(directory: string) {
       })
     ),
   };
+  live.artifactAttestations = [
+    attestation("migration_preview", migration.previewArtifact.sha256),
+    attestation("migration_application", migration.applicationArtifact.sha256),
+    attestation("migration_replay", migration.replayArtifact.sha256),
+    attestation("migration_parity", migration.parityArtifact.sha256),
+    attestation("manual_visual_review", commands.visualReview.sha256),
+    attestation("manual_keyboard_review", commands.keyboardReview.sha256),
+  ];
+  return manifest;
+}
+
+function attestation(
+  kind: BuildCollaborationCutoverLiveState["artifactAttestations"][number]["kind"],
+  artifactSha256: string
+) {
+  return {
+    artifactSha256,
+    attestedByRoles: ["admin"],
+    attestedByWorkosUserId: "user_admin",
+    attestationId: `attestation_${kind}`,
+    createdAt: 1_754_046_900_000,
+    kind,
+    rehearsalId: "rehearsal_123",
+  };
 }
 
 function commandEvidence(
@@ -242,9 +271,15 @@ function commandEvidence(
     startedAt: completedAt,
   };
   if (isManualBuildCollaborationCutoverGate(commandName)) {
+    const evidencePath = join(directory, `${commandName}-evidence.png`);
+    const evidenceBytes = `reviewed-${commandName}`;
+    writeFileSync(evidencePath, evidenceBytes);
     return {
       ...common,
-      evidence: [{ path: `/evidence/${commandName}.png`, sha256: "b".repeat(64) }],
+      evidence: [{
+        path: evidencePath,
+        sha256: createHash("sha256").update(evidenceBytes).digest("hex"),
+      }],
       mode: "human_review",
       producer: BUILD_COLLABORATION_MANUAL_REVIEW_RUNNER,
       reviewerWorkosUserId: "user_admin",
@@ -255,6 +290,9 @@ function commandEvidence(
   const stderr = outputEvidence(directory, `${commandName}-stderr`, "stderr");
   return {
     ...common,
+    ...(commandName === "playwrightRoleJourneys"
+      ? e2eEvidence(directory)
+      : {}),
     command: serializeCommand(argv ?? []),
     mode: "automated",
     producer: BUILD_COLLABORATION_CUTOVER_GATE_RUNNER,
@@ -262,6 +300,37 @@ function commandEvidence(
     stderrSha256: stderr.sha256,
     stdoutPath: stdout.path,
     stdoutSha256: stdout.sha256,
+  };
+}
+
+function e2eEvidence(directory: string) {
+  const roles = [...REQUIRED_BUILD_COLLABORATION_ROLES];
+  const storageStates = roles.map((role) => {
+    const path = join(directory, `storage-${role}.json`);
+    const contents = JSON.stringify({ cookies: [{ name: "auth", role }] });
+    writeFileSync(path, contents);
+    return {
+      path,
+      role,
+      sha256: createHash("sha256").update(contents).digest("hex"),
+    };
+  });
+  const fixturePath = join(directory, "e2e-fixture.json");
+  const fixtureSource = JSON.stringify({
+    applicationUrl: context.applicationUrl,
+    buildId: context.representativeBuildId,
+    organizationId: context.organizationId,
+    personas: roles.map((role, index) => ({
+      buildUrl: `${context.applicationUrl}/backoffice/builds/${context.representativeBuildId}?focus=actionItem:action_${index}`,
+      role,
+      storageState: storageStates[index].path,
+    })),
+  });
+  writeFileSync(fixturePath, fixtureSource);
+  return {
+    fixturePath,
+    fixtureSha256: createHash("sha256").update(fixtureSource).digest("hex"),
+    storageStates,
   };
 }
 
@@ -277,12 +346,14 @@ function outputEvidence(directory: string, name: string, contents: string) {
 describe("Build Collaboration cutover evidence certification", () => {
   test("accepts typed evidence cross-checked against authenticated production state", () => {
     const directory = mkdtempSync(join(tmpdir(), "drawflow-cutover-valid-"));
-    expect(validateBuildCollaborationCutoverEvidence(validManifest(directory), directory, liveState())).toEqual([]);
+    const live = liveState();
+    expect(validateBuildCollaborationCutoverEvidence(validManifest(directory, live), directory, live)).toEqual([]);
   });
 
   test("rejects fabricated hash-valid artifacts, stale parity, and missing live state", () => {
     const directory = mkdtempSync(join(tmpdir(), "drawflow-cutover-invalid-"));
-    const manifest = validManifest(directory) as any;
+    const stale = liveState() as any;
+    const manifest = validManifest(directory, stale) as any;
     manifest.commands.fullTestSuite = artifact(directory, "forged-command", {
       ...commandEvidence(
         "fullTestSuite",
@@ -292,7 +363,6 @@ describe("Build Collaboration cutover evidence certification", () => {
       command: "bun run fake-tests",
       producer: "operator-authored-json/v1",
     });
-    const stale = liveState() as any;
     stale.migration.latestBuildId = "older_build";
     const errors = validateBuildCollaborationCutoverEvidence(manifest, directory, stale);
     expect(errors).toEqual(expect.arrayContaining([
@@ -305,8 +375,8 @@ describe("Build Collaboration cutover evidence certification", () => {
 
   test("rejects rollback record replacement and a non-incrementing epoch", () => {
     const directory = mkdtempSync(join(tmpdir(), "drawflow-cutover-rollback-"));
-    const manifest = validManifest(directory);
     const invalid = liveState();
+    const manifest = validManifest(directory, invalid);
     invalid.rollbackRehearsal!.disabledCutoverEpoch = 3;
     invalid.rollbackRehearsal!.afterSnapshot.posts = digest("replacement");
     const errors = validateBuildCollaborationCutoverEvidence(manifest, directory, invalid);
@@ -314,5 +384,34 @@ describe("Build Collaboration cutover evidence certification", () => {
       expect.stringContaining("cutover epoch"),
       expect.stringContaining("Tenant-wide stable-ID/content digests"),
     ]));
+  });
+
+  test("rejects tampered manual evidence and an artifact attestation mismatch", () => {
+    const directory = mkdtempSync(join(tmpdir(), "drawflow-cutover-provenance-"));
+    const live = liveState();
+    const manifest = validManifest(directory, live) as any;
+    const visualArtifact = JSON.parse(
+      readFileSync(manifest.commands.visualReview.path, "utf8")
+    );
+    writeFileSync(visualArtifact.evidence[0].path, "tampered-after-review");
+    const preview = live.artifactAttestations.find(
+      (candidate) => candidate.kind === "migration_preview"
+    );
+    if (preview) {
+      preview.artifactSha256 = "f".repeat(64);
+    }
+    const errors = validateBuildCollaborationCutoverEvidence(
+      manifest,
+      directory,
+      live
+    );
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("visualReview evidence 0 hash does not match"),
+        expect.stringContaining(
+          "migration preview artifact hash does not match its server attestation"
+        ),
+      ])
+    );
   });
 });

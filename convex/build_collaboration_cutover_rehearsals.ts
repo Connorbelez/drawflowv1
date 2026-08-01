@@ -20,6 +20,18 @@ const LEGACY_WRITE_DENIAL =
   "Public/Internal Notes are retired. Publish a governed collaboration post instead.";
 const GIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const HTTPS_PATTERN = /^https:\/\//;
+const PRODUCTION_DEPLOYMENT_PATTERN =
+  /^(?:prod|[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*:prod)$/i;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
+
+const artifactAttestationKindValidator = v.union(
+  v.literal("migration_preview"),
+  v.literal("migration_application"),
+  v.literal("migration_replay"),
+  v.literal("migration_parity"),
+  v.literal("manual_visual_review"),
+  v.literal("manual_keyboard_review")
+);
 
 const snapshotPhaseValidator = v.union(
   v.literal("posts"),
@@ -160,6 +172,7 @@ export const advanceBuildCollaborationRollbackSnapshot = authenticatedMutation
         retentionMatched: snapshot.status === "complete",
       };
     }
+    await requireSnapshotState(ctx, snapshot);
     const page = await snapshotPage(ctx, snapshot, limit);
     let currentHash = snapshot.currentHash;
     for (const row of page.page) {
@@ -395,6 +408,74 @@ export const recordBuildCollaborationLegacyWriteDenialCanary = internalMutation
   })
   .internal();
 
+export const attestBuildCollaborationCutoverArtifact = authenticatedMutation
+  .input({
+    artifactSha256: v.string(),
+    buildId: v.id("activeBuilds"),
+    kind: artifactAttestationKindValidator,
+    organizationId: v.string(),
+    rehearsalId: v.id("buildCollaborationCutoverRehearsals"),
+  })
+  .returns(v.id("buildCollaborationCutoverArtifactAttestations"))
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeLegacyNoteOperator(ctx, args, true);
+    const rehearsal = await requireAuthorizedRehearsal(
+      ctx,
+      args.rehearsalId,
+      authorization.organizationId,
+      authorization.brokerage._id
+    );
+    const setting = await requireTenantSetting(
+      ctx,
+      authorization.organizationId
+    );
+    if (
+      rehearsal.status !== "complete" ||
+      setting.status !== "active" ||
+      rehearsal.disabledCutoverEpoch === undefined ||
+      setting.cutoverEpoch !== rehearsal.disabledCutoverEpoch ||
+      rehearsal.representativeBuildId !== authorization.build._id
+    ) {
+      throw new Error(
+        "Cutover artifacts may be attested only after the completed rehearsal is reactivated at the certified epoch."
+      );
+    }
+    const artifactSha256 = args.artifactSha256.trim().toLowerCase();
+    if (!SHA256_PATTERN.test(artifactSha256)) {
+      throw new Error("Cutover artifact SHA-256 is invalid.");
+    }
+    const now = Date.now();
+    const attestationId = await ctx.db.insert(
+      "buildCollaborationCutoverArtifactAttestations",
+      {
+        artifactSha256,
+        attestedByRoles: [...authorization.viewer.roles],
+        attestedByWorkosUserId: authorization.viewer.subject,
+        brokerageId: authorization.brokerage._id,
+        createdAt: now,
+        kind: args.kind,
+        organizationId: authorization.organizationId,
+        rehearsalId: rehearsal._id,
+        representativeBuildId: authorization.build._id,
+      }
+    );
+    await ctx.db.insert("auditEvents", {
+      actorRoles: [...authorization.viewer.roles],
+      actorWorkosUserId: authorization.viewer.subject,
+      brokerageId: authorization.brokerage._id,
+      command: "attestBuildCollaborationCutoverArtifact",
+      createdAt: now,
+      entityId: attestationId,
+      entityType: "buildCollaborationCutoverArtifactAttestation",
+      eventType: "build.collaboration.cutover.artifact_attested",
+      newState: JSON.stringify({ artifactSha256, kind: args.kind }),
+      organizationId: authorization.organizationId,
+      warnings: [],
+    });
+    return attestationId;
+  })
+  .public();
+
 async function createSnapshot(
   ctx: MutationCtx,
   input: {
@@ -576,7 +657,7 @@ function normalizeAndVerifyReleaseMetadata(
     !(
       GIT_SHA_PATTERN.test(release.gitCommit) &&
       release.applicationVersion &&
-      release.convexDeployment &&
+      PRODUCTION_DEPLOYMENT_PATTERN.test(release.convexDeployment) &&
       HTTPS_PATTERN.test(release.applicationUrl) &&
       HTTPS_PATTERN.test(release.convexUrl)
     )
@@ -632,6 +713,37 @@ async function requireAuthorizedSnapshot(
     throw new Error("Forbidden: rollback snapshot scope.");
   }
   return snapshot;
+}
+
+async function requireSnapshotState(
+  ctx: MutationCtx,
+  snapshot: Doc<"buildCollaborationCutoverSnapshots">
+) {
+  const [rehearsal, setting] = await Promise.all([
+    ctx.db.get(snapshot.rehearsalId),
+    requireTenantSetting(ctx, snapshot.organizationId),
+  ]);
+  if (!rehearsal) {
+    throw new Error("Rollback rehearsal was not found.");
+  }
+  const isValidBefore =
+    snapshot.kind === "before" &&
+    rehearsal.beforeSnapshotId === snapshot._id &&
+    rehearsal.status === "capturing_before" &&
+    setting.status === "active" &&
+    setting.cutoverEpoch === rehearsal.beforeCutoverEpoch;
+  const isValidAfter =
+    snapshot.kind === "after" &&
+    rehearsal.afterSnapshotId === snapshot._id &&
+    rehearsal.status === "capturing_after" &&
+    setting.status === "disabled" &&
+    rehearsal.disabledCutoverEpoch !== undefined &&
+    setting.cutoverEpoch === rehearsal.disabledCutoverEpoch;
+  if (!(isValidBefore || isValidAfter)) {
+    throw new Error(
+      "Rollback snapshot state changed; discard the partial snapshot and restart the rehearsal."
+    );
+  }
 }
 
 async function requireAuthorizedRehearsal(

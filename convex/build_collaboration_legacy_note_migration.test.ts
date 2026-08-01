@@ -9,6 +9,7 @@ import type { Id } from "./types";
 
 const modules = import.meta.glob("./**/*.ts");
 const ORGANIZATION_ID = "org_legacy_note_migration";
+const ADMIN_USER_ID = "user_migration_admin";
 const PLAN_VERSION = "build-collaboration-legacy-notes/v2";
 const PARITY_VERSION = "build-collaboration-legacy-note-parity/v2";
 
@@ -376,7 +377,7 @@ describe("Build collaboration legacy-note migration", () => {
     process.env.BUILD_COLLABORATION_RELEASE_APPLICATION_VERSION =
       "release-2026-08-01";
     process.env.BUILD_COLLABORATION_RELEASE_CONVEX_DEPLOYMENT =
-      "example-production";
+      "fairlend:drawflow:prod";
     process.env.BUILD_COLLABORATION_RELEASE_GIT_SHA =
       "0123456789abcdef0123456789abcdef01234567";
     process.env.CONVEX_CLOUD_URL = "https://example.convex.cloud";
@@ -408,12 +409,67 @@ describe("Build collaboration legacy-note migration", () => {
         applicationUrl: "https://drawflow.example.com",
         applicationVersion: "release-2026-08-01",
         buildId: fixture.buildId,
-        convexDeployment: "example-production",
+        convexDeployment: "fairlend:drawflow:prod",
         convexUrl: "https://example.convex.cloud",
         gitCommit: "0123456789abcdef0123456789abcdef01234567",
         organizationId: ORGANIZATION_ID,
       }
     );
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId: fixture.buildId,
+          expectedStatus: "active",
+          nextStatus: "disabled",
+          organizationId: ORGANIZATION_ID,
+          reason: "Adversarial partial-snapshot transition",
+        }
+      )
+    ).rejects.toThrow("snapshot is incomplete");
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration.listBuildCollaborationFeed,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor: null, numItems: 1 },
+        }
+      )
+    ).rejects.toThrow("temporarily frozen");
+    await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (!setting) throw new Error("Expected tenant setting.");
+      await ctx.db.patch(setting._id, { cutoverEpoch: 4, status: "disabled" });
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_cutover_rehearsals
+          .advanceBuildCollaborationRollbackSnapshot,
+        {
+          buildId: fixture.buildId,
+          limit: 1,
+          organizationId: ORGANIZATION_ID,
+          snapshotId: started.snapshotId,
+        }
+      )
+    ).rejects.toThrow("snapshot state changed");
+    await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (!setting) throw new Error("Expected tenant setting.");
+      await ctx.db.patch(setting._id, { cutoverEpoch: 3, status: "active" });
+    });
     let beforeComplete = false;
     for (let guard = 0; !beforeComplete; guard += 1) {
       expect(guard).toBeLessThan(20);
@@ -429,16 +485,17 @@ describe("Build collaboration legacy-note migration", () => {
       );
       beforeComplete = page.isComplete;
     }
-    await fixture.base.run(async (ctx) => {
-      const setting = await ctx.db
-        .query("buildCollaborationTenantSettings")
-        .withIndex("by_organizationId", (query) =>
-          query.eq("organizationId", ORGANIZATION_ID)
-        )
-        .unique();
-      if (!setting) throw new Error("Expected tenant setting.");
-      await ctx.db.patch(setting._id, { cutoverEpoch: 4, status: "disabled" });
-    });
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_rollout
+        .transitionBuildCollaborationTenantStatus,
+      {
+        buildId: fixture.buildId,
+        expectedStatus: "active",
+        nextStatus: "disabled",
+        organizationId: ORGANIZATION_ID,
+        reason: "Production rollback rehearsal",
+      }
+    );
     await expect(
       fixture.admin.action(
         (api as any).build_collaboration_cutover_rehearsals
@@ -459,6 +516,48 @@ describe("Build collaboration legacy-note migration", () => {
         rehearsalId: started.rehearsalId,
       }
     );
+    await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (!setting) throw new Error("Expected tenant setting.");
+      await ctx.db.patch(setting._id, { status: "active" });
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_cutover_rehearsals
+          .advanceBuildCollaborationRollbackSnapshot,
+        {
+          buildId: fixture.buildId,
+          limit: 1,
+          organizationId: ORGANIZATION_ID,
+          snapshotId: afterSnapshotId,
+        }
+      )
+    ).rejects.toThrow("snapshot state changed");
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration.listBuildCollaborationFeed,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor: null, numItems: 1 },
+        }
+      )
+    ).rejects.toThrow("temporarily frozen");
+    await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (!setting) throw new Error("Expected tenant setting.");
+      await ctx.db.patch(setting._id, { status: "disabled" });
+    });
     let afterComplete = false;
     for (let guard = 0; !afterComplete; guard += 1) {
       expect(guard).toBeLessThan(20);
@@ -485,6 +584,52 @@ describe("Build collaboration legacy-note migration", () => {
         "Public/Internal Notes are retired. Publish a governed collaboration post instead.",
       status: "complete",
     });
+    await fixture.base.run(async (ctx) => {
+      const setting = await ctx.db
+        .query("buildCollaborationTenantSettings")
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID)
+        )
+        .unique();
+      if (!setting) throw new Error("Expected tenant setting.");
+      await ctx.db.patch(setting._id, {
+        activatedAt: fixture.now + 10_000,
+        activatedByWorkosUserId: ADMIN_USER_ID,
+        status: "active",
+      });
+    });
+    const attestationId = await fixture.admin.mutation(
+      (api as any).build_collaboration_cutover_rehearsals
+        .attestBuildCollaborationCutoverArtifact,
+      {
+        artifactSha256: "A".repeat(64),
+        buildId: fixture.buildId,
+        kind: "migration_preview",
+        organizationId: ORGANIZATION_ID,
+        rehearsalId: started.rehearsalId,
+      }
+    );
+    const attestation = await fixture.base.run(async (ctx) =>
+      ctx.db.get(attestationId)
+    );
+    expect(attestation).toMatchObject({
+      artifactSha256: "a".repeat(64),
+      attestedByWorkosUserId: ADMIN_USER_ID,
+      kind: "migration_preview",
+      rehearsalId: started.rehearsalId,
+    });
+    const certificationState = await fixture.admin.query(
+      (api as any).build_collaboration_cutover_certification
+        .getBuildCollaborationCutoverCertificationState,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(certificationState.artifactAttestations).toEqual([
+      expect.objectContaining({
+        artifactSha256: "a".repeat(64),
+        attestedByWorkosUserId: ADMIN_USER_ID,
+        kind: "migration_preview",
+      }),
+    ]);
   });
 
   test("detects orphaned imports even when a new plan has zero source notes", async () => {
@@ -754,7 +899,7 @@ describe("Build collaboration legacy-note migration", () => {
 });
 
 function withAdminIdentity(base: ReturnType<typeof convexTest>) {
-  return withRoleIdentity(base, "admin", "user_migration_admin");
+  return withRoleIdentity(base, "admin", ADMIN_USER_ID);
 }
 
 function withRoleIdentity(

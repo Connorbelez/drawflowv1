@@ -4,6 +4,15 @@ import { authenticatedQuery } from "./authz";
 import { authorizeLegacyNoteOperator } from "./build_collaboration_legacy_note_shared";
 import type { Doc, Id } from "./types";
 
+const CUTOVER_ARTIFACT_ATTESTATION_KINDS = [
+  "migration_preview",
+  "migration_application",
+  "migration_replay",
+  "migration_parity",
+  "manual_visual_review",
+  "manual_keyboard_review",
+] as const;
+
 export const getBuildCollaborationCutoverCertificationState = authenticatedQuery
   .input({
     buildId: v.id("activeBuilds"),
@@ -55,6 +64,29 @@ export const getBuildCollaborationCutoverCertificationState = authenticatedQuery
     const afterSnapshot = rehearsal?.afterSnapshotId
       ? await ctx.db.get(rehearsal.afterSnapshotId)
       : null;
+    const artifactAttestations = rehearsal
+      ? (
+          await Promise.all(
+            CUTOVER_ARTIFACT_ATTESTATION_KINDS.map((kind) =>
+              ctx.db
+                .query("buildCollaborationCutoverArtifactAttestations")
+                .withIndex("by_rehearsalId_and_kind_and_createdAt", (query) =>
+                  query.eq("rehearsalId", rehearsal._id).eq("kind", kind)
+                )
+                .order("desc")
+                .first()
+            )
+          )
+        ).filter(
+          (attestation): attestation is NonNullable<typeof attestation> =>
+            Boolean(
+              attestation &&
+                attestation.organizationId === authorization.organizationId &&
+                attestation.brokerageId === authorization.brokerage._id &&
+                attestation.representativeBuildId === authorization.build._id
+            )
+        )
+      : [];
     const rolloutEvents = await ctx.db
       .query("auditEvents")
       .withIndex("by_entity", (query) =>
@@ -66,6 +98,15 @@ export const getBuildCollaborationCutoverCertificationState = authenticatedQuery
       .take(20);
 
     return {
+      artifactAttestations: artifactAttestations.map((attestation) => ({
+        artifactSha256: attestation.artifactSha256,
+        attestedByRoles: attestation.attestedByRoles,
+        attestedByWorkosUserId: attestation.attestedByWorkosUserId,
+        attestationId: attestation._id,
+        createdAt: attestation.createdAt,
+        kind: attestation.kind,
+        rehearsalId: attestation.rehearsalId,
+      })),
       evidence: projectEvidence(evidence, authorization.brokerage._id),
       latestBuild: latestBuild
         ? { buildId: latestBuild._id, creationTime: latestBuild._creationTime }

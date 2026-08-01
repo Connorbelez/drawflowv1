@@ -69,6 +69,11 @@ export async function prepareBuildCollaborationE2E(input: {
     "BUILD_COLLABORATION_E2E_CONTROL_TOKEN"
   );
   const baseUrl = requireEnvironment(env, "PLAYWRIGHT_BASE_URL");
+  const organizationId = requireEnvironment(
+    env,
+    "BUILD_COLLABORATION_E2E_ORGANIZATION_ID"
+  );
+  const buildId = requireEnvironment(env, "BUILD_COLLABORATION_E2E_BUILD_ID");
   assertRuntimeUrl(setupUrl, "setup URL");
   assertRuntimeUrl(baseUrl, "Playwright base URL", true);
   if (controlToken.length < 24 || PLACEHOLDER_PATTERN.test(controlToken)) {
@@ -98,7 +103,17 @@ export async function prepareBuildCollaborationE2E(input: {
       `Build collaboration E2E setup failed with HTTP ${setupResponse.status}.`
     );
   }
-  const setup = validateSetupResponse(await setupResponse.json(), baseUrl);
+  if (
+    PLACEHOLDER_PATTERN.test(organizationId) ||
+    PLACEHOLDER_PATTERN.test(buildId)
+  ) {
+    throw new Error("E2E organization and Build IDs must be non-placeholder.");
+  }
+  const setup = validateSetupResponse(
+    await setupResponse.json(),
+    baseUrl,
+    buildId
+  );
   const storageStateByRole = new Map<PersonaRole, string>();
   for (const role of PERSONA_ROLES) {
     const encodedState = requireEnvironment(env, AUTH_ENV_BY_ROLE[role]);
@@ -118,6 +133,9 @@ export async function prepareBuildCollaborationE2E(input: {
     fixturePath,
     `${JSON.stringify(
       {
+        applicationUrl: new URL(baseUrl).origin,
+        buildId,
+        organizationId,
         personas: setup.personas.map((persona) => ({
           ...persona,
           storageState: storageStateByRole.get(persona.role),
@@ -172,7 +190,11 @@ function decodeStorageState(encodedState: string, role: PersonaRole) {
   return parsed;
 }
 
-function validateSetupResponse(value: unknown, baseUrl: string): SetupResponse {
+function validateSetupResponse(
+  value: unknown,
+  baseUrl: string,
+  buildId: string
+): SetupResponse {
   if (!(isRecord(value) && Array.isArray(value.personas))) {
     throw new Error("The E2E setup response does not contain personas.");
   }
@@ -209,6 +231,7 @@ function validateSetupResponse(value: unknown, baseUrl: string): SetupResponse {
       parsedBuildUrl.pathname.startsWith(
         `/${ROUTE_PREFIX_BY_ROLE[role]}/builds/`
       ) &&
+      parsedBuildUrl.pathname.split("/").at(-1) === buildId &&
       !PLACEHOLDER_PATTERN.test(decodeURIComponent(buildUrl)) &&
       FOCUS_PATTERN.test(focus) &&
       !PLACEHOLDER_PATTERN.test(focus) &&

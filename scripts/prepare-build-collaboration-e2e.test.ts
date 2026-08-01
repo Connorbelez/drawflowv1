@@ -79,7 +79,9 @@ describe("prepareBuildCollaborationE2E", () => {
     const env: Record<string, string> = {
       BUILD_COLLABORATION_E2E_CONTROL_TOKEN:
         "test-control-token-with-32-characters",
+      BUILD_COLLABORATION_E2E_BUILD_ID: "build_01",
       BUILD_COLLABORATION_E2E_OUTPUT_DIR: resolve(directory, "output"),
+      BUILD_COLLABORATION_E2E_ORGANIZATION_ID: "org_fairlend",
       BUILD_COLLABORATION_E2E_SETUP_URL:
         "https://fixture-control.test.fairlend.ca/setup",
       GITHUB_ENV: githubEnvironmentPath,
@@ -117,6 +119,11 @@ describe("prepareBuildCollaborationE2E", () => {
     });
 
     const fixture = JSON.parse(readFileSync(prepared.fixturePath, "utf8"));
+    expect(fixture).toMatchObject({
+      applicationUrl: "https://drawflow.test.fairlend.ca",
+      buildId: "build_01",
+      organizationId: "org_fairlend",
+    });
     expect(fixture.personas).toHaveLength(8);
     expect(fixture.personas.map((persona: { role: string }) => persona.role))
       .toEqual(roles);
@@ -151,7 +158,9 @@ describe("prepareBuildCollaborationE2E", () => {
     const env: Record<string, string> = {
       BUILD_COLLABORATION_E2E_CONTROL_TOKEN:
         "test-control-token-with-32-characters",
+      BUILD_COLLABORATION_E2E_BUILD_ID: "build_01",
       BUILD_COLLABORATION_E2E_OUTPUT_DIR: resolve(directory, "output"),
+      BUILD_COLLABORATION_E2E_ORGANIZATION_ID: "org_fairlend",
       BUILD_COLLABORATION_E2E_SETUP_URL:
         "https://fixture-control.test.fairlend.ca/setup",
       PLAYWRIGHT_BASE_URL: "https://drawflow.test.fairlend.ca",

@@ -26,6 +26,9 @@ duplicating operational records.
   `BUILD_COLLABORATION_RELEASE_GIT_SHA`. `CONVEX_CLOUD_URL` must identify the
   same deployment. The web deployment must expose the same Git SHA and version
   at `GET /api/release`; certification fails closed when either side differs.
+- Set the deployment selector to canonical `prod` or
+  `<team>:<project>:prod`. Raw deployment names, development selectors, and
+  staging/preview references are not accepted as production evidence.
 
 ## Migration
 
@@ -262,7 +265,11 @@ Rehearse this against the complete tenant, not only the representative Build.
 Freeze collaboration publishing for the maintenance window, then create and
 advance a durable server-side `before` snapshot. Each call processes at most
 100 indexed tenant rows and persists the cursor plus chained SHA-256 digest;
-repeat until `isComplete=true`:
+repeat until `isComplete=true`. Beginning the snapshot enforces the freeze in
+every collaboration read/write path, and rollout transitions are rejected
+until the corresponding snapshot phase is complete. Each page also rechecks
+the tenant status and cutover epoch, so a partial snapshot cannot cross a
+disable or reactivation boundary:
 
 ```sh
 REHEARSAL=$(bun x convex run --deployment '<production-convex-deployment>' --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_cutover_rehearsals:beginBuildCollaborationRollbackRehearsal '{"organizationId":"<workos-organization-id>","buildId":"<active-build-id>","gitCommit":"<40-character-git-sha>","applicationVersion":"<application-version>","applicationUrl":"https://<production-host>","convexDeployment":"<production-convex-deployment>","convexUrl":"https://<production-convex-url>"}')
@@ -347,6 +354,34 @@ bun run run:build-collaboration-cutover-evidence -- \
   --output '<release-evidence-dir>/interface.json' \
   --visual-evidence '<release-evidence-dir>/visual-review.json' \
   --keyboard-evidence '<release-evidence-dir>/keyboard-review.json'
+```
+
+After the rehearsal is complete, parity has been regenerated, and the tenant
+has been reactivated, finalize the four migration artifacts and both manual
+review artifacts. An authenticated human Admin or Principal Broker must attest
+the exact SHA-256 of each finalized JSON artifact on the production server.
+Certification rejects a missing, superseded, cross-rehearsal, or agent-authored
+attestation, and it independently rehashes all manual-review sidecars:
+
+```sh
+PROD_CONVEX_DEPLOYMENT='<team>:<project>:prod'
+MANIFEST='<release-evidence-dir>/cutover-evidence.json'
+
+for KIND_AND_HASH in \
+  "migration_preview:$(jq -r '.migration.previewArtifact.sha256' "$MANIFEST")" \
+  "migration_application:$(jq -r '.migration.applicationArtifact.sha256' "$MANIFEST")" \
+  "migration_replay:$(jq -r '.migration.replayArtifact.sha256' "$MANIFEST")" \
+  "migration_parity:$(jq -r '.migration.parityArtifact.sha256' "$MANIFEST")" \
+  "manual_visual_review:$(jq -r '.commands.visualReview.sha256' "$MANIFEST")" \
+  "manual_keyboard_review:$(jq -r '.commands.keyboardReview.sha256' "$MANIFEST")"
+do
+  KIND=${KIND_AND_HASH%%:*}
+  ARTIFACT_SHA256=${KIND_AND_HASH#*:}
+  bun x convex run --deployment "$PROD_CONVEX_DEPLOYMENT" \
+    --identity "$OPERATOR_IDENTITY_JSON" \
+    build_collaboration_cutover_rehearsals:attestBuildCollaborationCutoverArtifact \
+    "$(jq -nc --arg organizationId '<workos-organization-id>' --arg buildId '<active-build-id>' --arg rehearsalId "$REHEARSAL_ID" --arg kind "$KIND" --arg artifactSha256 "$ARTIFACT_SHA256" '{organizationId:$organizationId,buildId:$buildId,rehearsalId:$rehearsalId,kind:$kind,artifactSha256:$artifactSha256}')"
+done
 ```
 
 Then certify the evidence:
