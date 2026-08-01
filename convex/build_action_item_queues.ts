@@ -35,6 +35,7 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { isBuildCollaborationWritableByBuildId } from "./build_collaboration_lifecycle_state";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import {
   type BuildCollaborationRole,
@@ -221,6 +222,14 @@ export const applyBuildActionItemPolicyDueDate = internalMutation
   .returns(v.id("buildActionItems"))
   .handler(async (ctx, args) => {
     const item = await requireScopedActionItem(ctx, args);
+    if (
+      !(await isBuildCollaborationWritableByBuildId(ctx, {
+        buildId: item.buildId,
+        organizationId: item.organizationId,
+      }))
+    ) {
+      return item._id;
+    }
     const policyKey = args.policyKey.trim();
     if (!(policyKey && Number.isFinite(args.dueAt) && args.dueAt > 0)) {
       throw new Error("A valid policy key and due date are required.");
@@ -514,6 +523,14 @@ export const processBuildActionItemDeadlines = internalMutation
       numItems: DEADLINE_BATCH_SIZE,
     });
     for (const item of page.page) {
+      if (
+        !(await isBuildCollaborationWritableByBuildId(ctx, {
+          buildId: item.buildId,
+          organizationId: item.organizationId,
+        }))
+      ) {
+        continue;
+      }
       await ctx.scheduler.runAfter(
         0,
         internal.build_action_item_queues.processOneBuildActionItemDeadline,
@@ -548,6 +565,14 @@ export const processOneBuildActionItemDeadline = internalMutation
       item.deadlineProcessingState !== "pending" ||
       item.deadlineNextAt === undefined ||
       item.deadlineNextAt > args.asOf
+    ) {
+      return null;
+    }
+    if (
+      !(await isBuildCollaborationWritableByBuildId(ctx, {
+        buildId: item.buildId,
+        organizationId: item.organizationId,
+      }))
     ) {
       return null;
     }

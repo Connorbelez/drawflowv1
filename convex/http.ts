@@ -8,6 +8,13 @@ const ALLOWED_CONVEX_STORAGE_HOST_SUFFIXES = [
   ".convex.site",
 ] as const;
 const CALENDAR_SUBSCRIPTION_PATH = /\/api\/calendar\/([^/]+)\.ics$/;
+const BUILD_COLLABORATION_EXPORT_ASSET_PATH =
+  "/api/build-collaboration/export-asset";
+const DEFAULT_BUILD_COLLABORATION_APP_ORIGINS = [
+  "https://drawflow.fairlend.ca",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+] as const;
 
 const http = httpRouter();
 authKit.registerRoutes(http);
@@ -46,7 +53,26 @@ http.route({
   path: "/evidence-image-source",
 });
 http.route({
+  handler: httpAction((_ctx, request) => {
+    const corsHeaders = buildCollaborationExportCorsHeaders(request);
+    if (!corsHeaders) {
+      return new Response("Build Collaboration export origin denied.", {
+        status: 403,
+      });
+    }
+    return new Response(null, { headers: corsHeaders, status: 204 });
+  }),
+  method: "OPTIONS",
+  path: BUILD_COLLABORATION_EXPORT_ASSET_PATH,
+});
+http.route({
   handler: httpAction(async (ctx, request) => {
+    const corsHeaders = buildCollaborationExportCorsHeaders(request);
+    if (!corsHeaders) {
+      return new Response("Build Collaboration export origin denied.", {
+        status: 403,
+      });
+    }
     const requestUrl = new URL(request.url);
     const assetId = requestUrl.searchParams.get("assetId");
     const buildId = requestUrl.searchParams.get("buildId");
@@ -89,6 +115,7 @@ http.route({
       }
       return new Response(sourceResponse.body, {
         headers: {
+          ...corsHeaders,
           "Cache-Control": "private, no-store, max-age=0",
           "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(authorized.fileName)}`,
           "Content-Type": authorized.mimeType,
@@ -103,7 +130,7 @@ http.route({
     }
   }),
   method: "GET",
-  path: "/api/build-collaboration/export-asset",
+  path: BUILD_COLLABORATION_EXPORT_ASSET_PATH,
 });
 http.route({
   handler: httpAction(async (ctx, request) => {
@@ -187,6 +214,33 @@ function parseAllowedEvidenceStorageUrl(sourceUrl: string | null) {
   } catch {
     return null;
   }
+}
+
+function buildCollaborationExportCorsHeaders(request: Request) {
+  const origin = request.headers.get("Origin");
+  if (!origin) {
+    return {};
+  }
+  const configuredOrigins = (process.env.DRAWFLOW_APP_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (
+    ![
+      ...DEFAULT_BUILD_COLLABORATION_APP_ORIGINS,
+      ...configuredOrigins,
+    ].includes(origin)
+  ) {
+    return null;
+  }
+  return {
+    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Expose-Headers": "Content-Disposition, Content-Type",
+    "Access-Control-Max-Age": "600",
+    Vary: "Origin",
+  };
 }
 
 export default http;

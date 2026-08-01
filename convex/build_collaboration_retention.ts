@@ -270,7 +270,7 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
       complete: v.boolean(),
       deletedAssetCount: v.number(),
       deletedPostCount: v.number(),
-      remainingPostCount: v.number(),
+      hasRemainingPosts: v.boolean(),
     })
   )
   .handler(async (ctx, args) => {
@@ -282,69 +282,15 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
       operationKey,
       reason,
     });
-    if (purge) {
-      if (purge.state === "completed") {
-        return {
-          complete: true,
-          deletedAssetCount: purge.deletedAssetCount,
-          deletedPostCount: purge.deletedPostCount,
-          remainingPostCount: 0,
-        };
-      }
-      if (purge.state === "blocked") {
-        throw new Error("Retention purge operation is blocked.");
-      }
+    const replayResult = resolveRetentionPurgeReplay(purge);
+    if (replayResult) {
+      return replayResult;
     }
-    const lifecycle = await getStoredBuildCollaborationState(
-      ctx,
-      authorization
-    );
-    if (
-      !lifecycle ||
-      lifecycle.state !== "closed" ||
-      lifecycle.revision !== args.expectedLifecycleRevision ||
-      !lifecycle.closedAt
-    ) {
-      throw new Error(
-        "Retention purge requires the current explicitly closed Build collaboration revision."
-      );
-    }
-    const snapshottedPolicyId = lifecycle.retentionPolicyId;
-    const policy = snapshottedPolicyId
-      ? await ctx.db.get(snapshottedPolicyId)
-      : purge
-        ? await ctx.db.get(purge.retentionPolicyId)
-        : null;
-    if (
-      !policy ||
-      policy.organizationId !== authorization.organizationId ||
-      policy.brokerageId !== authorization.brokerage._id ||
-      lifecycle.retentionPolicyVersion !== policy.version
-    ) {
-      throw new Error(
-        "Build closure is missing its exact retention policy snapshot."
-      );
-    }
-    const eligibleAt = lifecycle.retentionEligibleAt;
-    if (!eligibleAt) {
-      throw new Error(
-        "Build closure is missing its snapshotted retention eligibility date."
-      );
-    }
-    if (Date.now() < eligibleAt) {
-      throw new Error(
-        "Build collaboration is not yet eligible for retention purge."
-      );
-    }
-    const legalHold = await ctx.db
-      .query("buildCollaborationLegalHolds")
-      .withIndex("by_buildId_and_state", (query) =>
-        query.eq("buildId", authorization.build._id).eq("state", "active")
-      )
-      .unique();
-    if (legalHold) {
-      throw new Error("Legal hold blocks retention purge for this Build.");
-    }
+    const { lifecycle, policy } = await requireEligiblePurgeContext(ctx, {
+      authorization,
+      expectedLifecycleRevision: args.expectedLifecycleRevision,
+      purge,
+    });
 
     const startedAt = Date.now();
     if (!purge) {
@@ -398,8 +344,8 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
     const now = Date.now();
     const deletedPostCount = purge.deletedPostCount + batch.length;
     const batchCount = (purge.batchCount ?? 0) + (batch.length > 0 ? 1 : 0);
-    const remainingPostCount = Math.max(0, posts.length - batch.length);
-    if (posts.length > PURGE_POST_BATCH_SIZE) {
+    const hasRemainingPosts = posts.length > PURGE_POST_BATCH_SIZE;
+    if (hasRemainingPosts) {
       await ctx.db.patch(purge._id, {
         batchCount,
         deletedPostCount,
@@ -414,7 +360,7 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
         newState: JSON.stringify({
           batchCount,
           deletedPostCount,
-          remainingPostCount,
+          hasRemainingPosts,
           state: "in_progress",
         }),
         now,
@@ -424,7 +370,7 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
         complete: false,
         deletedAssetCount: purge.deletedAssetCount,
         deletedPostCount,
-        remainingPostCount,
+        hasRemainingPosts,
       };
     }
 
@@ -497,10 +443,27 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
       complete: true,
       deletedAssetCount,
       deletedPostCount,
-      remainingPostCount: 0,
+      hasRemainingPosts: false,
     };
   })
   .public();
+
+function resolveRetentionPurgeReplay(
+  purge: Doc<"buildCollaborationRetentionPurges"> | null
+) {
+  if (purge?.state === "completed") {
+    return {
+      complete: true,
+      deletedAssetCount: purge.deletedAssetCount,
+      deletedPostCount: purge.deletedPostCount,
+      hasRemainingPosts: false,
+    };
+  }
+  if (purge?.state === "blocked") {
+    throw new Error("Retention purge operation is blocked.");
+  }
+  return null;
+}
 
 async function findMatchingRetentionPurge(
   ctx: MutationCtx,
@@ -526,6 +489,65 @@ async function findMatchingRetentionPurge(
     throw new Error("Retention purge operation does not match this request.");
   }
   return purge;
+}
+
+async function requireEligiblePurgeContext(
+  ctx: MutationCtx,
+  input: {
+    authorization: Awaited<ReturnType<typeof authorizeLifecycleAuthority>>;
+    expectedLifecycleRevision: number;
+    purge: Doc<"buildCollaborationRetentionPurges"> | null;
+  }
+) {
+  const lifecycle = await getStoredBuildCollaborationState(
+    ctx,
+    input.authorization
+  );
+  if (
+    !lifecycle ||
+    lifecycle.state !== "closed" ||
+    lifecycle.revision !== input.expectedLifecycleRevision ||
+    !lifecycle.closedAt
+  ) {
+    throw new Error(
+      "Retention purge requires the current explicitly closed Build collaboration revision."
+    );
+  }
+  const policy = lifecycle.retentionPolicyId
+    ? await ctx.db.get(lifecycle.retentionPolicyId)
+    : input.purge
+      ? await ctx.db.get(input.purge.retentionPolicyId)
+      : null;
+  if (
+    !policy ||
+    policy.organizationId !== input.authorization.organizationId ||
+    policy.brokerageId !== input.authorization.brokerage._id ||
+    lifecycle.retentionPolicyVersion !== policy.version
+  ) {
+    throw new Error(
+      "Build closure is missing its exact retention policy snapshot."
+    );
+  }
+  if (!lifecycle.retentionEligibleAt) {
+    throw new Error(
+      "Build closure is missing its snapshotted retention eligibility date."
+    );
+  }
+  if (Date.now() < lifecycle.retentionEligibleAt) {
+    throw new Error(
+      "Build collaboration is not yet eligible for retention purge."
+    );
+  }
+  const legalHold = await ctx.db
+    .query("buildCollaborationLegalHolds")
+    .withIndex("by_buildId_and_state", (query) =>
+      query.eq("buildId", input.authorization.build._id).eq("state", "active")
+    )
+    .unique();
+  if (legalHold) {
+    throw new Error("Legal hold blocks retention purge for this Build.");
+  }
+  return { lifecycle, policy };
 }
 
 async function deletePostTree(
@@ -981,15 +1003,42 @@ async function deleteBuildResidue(
     );
     await ctx.db.delete(batch._id);
   }
+  const stagingSessions = await boundedAt(
+    ctx.db
+      .query("buildCollaborationAssetStagingSessions")
+      .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+      .take(5001),
+    5000,
+    "asset staging sessions"
+  );
+  for (const session of stagingSessions) {
+    if (session.pendingStorageId && !session.assetId) {
+      const pendingStorageId = session.pendingStorageId;
+      const [boundAsset, boundSessions] = await Promise.all([
+        ctx.db
+          .query("buildCollaborationAssets")
+          .withIndex("by_storageId", (query) =>
+            query.eq("storageId", pendingStorageId)
+          )
+          .unique(),
+        ctx.db
+          .query("buildCollaborationAssetStagingSessions")
+          .withIndex("by_pendingStorageId", (query) =>
+            query.eq("pendingStorageId", pendingStorageId)
+          )
+          .take(2),
+      ]);
+      if (
+        !boundAsset &&
+        boundSessions.length === 1 &&
+        boundSessions[0]?._id === session._id
+      ) {
+        await ctx.storage.delete(pendingStorageId);
+      }
+    }
+    await ctx.db.delete(session._id);
+  }
   for (const tableRows of [
-    await boundedAt(
-      ctx.db
-        .query("buildCollaborationAssetStagingSessions")
-        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
-        .take(5001),
-      5000,
-      "asset staging sessions"
-    ),
     await boundedAt(
       ctx.db
         .query("buildCollaborationPublicationApprovals")

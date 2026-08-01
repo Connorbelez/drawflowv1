@@ -8,7 +8,10 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
-import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
+import {
+  isBuildCollaborationWritableByBuildId,
+  requireBuildCollaborationWritable,
+} from "./build_collaboration_lifecycle_state";
 import {
   type CanonicalBuildCollaborationReference,
   resolveCurrentBuildCollaborationReference,
@@ -362,6 +365,14 @@ export const expireBuildCollaborationAnnouncementProminence = internalMutation
       post.announcementExpiresAt !== args.announcementExpiresAt ||
       post.announcementProminent === false ||
       Date.now() < args.announcementExpiresAt
+    ) {
+      return null;
+    }
+    if (
+      !(await isBuildCollaborationWritableByBuildId(ctx, {
+        buildId: post.buildId,
+        organizationId: post.organizationId,
+      }))
     ) {
       return null;
     }

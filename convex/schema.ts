@@ -2731,6 +2731,7 @@ export default defineSchema({
     updatedAt: v.number(),
     revokedAt: v.optional(v.number()),
   })
+    .index("by_buildId", ["buildId"])
     .index("by_organizationId_and_workosUserId_and_state", [
       "organizationId",
       "workosUserId",
@@ -3269,6 +3270,8 @@ export default defineSchema({
     reopenedByRole: v.optional(buildCollaborationRoleValidator),
     reopenReason: v.optional(v.string()),
     retentionEligibleAt: v.optional(v.number()),
+    retentionPolicyId: v.optional(v.id("buildCollaborationRetentionPolicies")),
+    retentionPolicyVersion: v.optional(v.number()),
     purgedAt: v.optional(v.number()),
     purgedByWorkosUserId: v.optional(v.string()),
     purgeReason: v.optional(v.string()),
@@ -4106,11 +4109,13 @@ export default defineSchema({
     requestId: v.string(),
     actionItemId: v.id("buildActionItems"),
     createdAt: v.number(),
-  }).index("by_postId_and_creatorWorkosUserId_and_requestId", [
-    "postId",
-    "creatorWorkosUserId",
-    "requestId",
-  ]),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_postId_and_creatorWorkosUserId_and_requestId", [
+      "postId",
+      "creatorWorkosUserId",
+      "requestId",
+    ]),
   buildCollaborationActivityProjections: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

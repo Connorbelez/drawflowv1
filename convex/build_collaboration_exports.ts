@@ -1,9 +1,10 @@
 import { v } from "convex/values";
 
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
-import { authenticatedMutation } from "./authz";
 import type { AuthorizedViewer } from "./authz";
+import { authenticatedMutation } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { buildFullBuildCollaborationArchive } from "./build_collaboration_archive";
 import {
   canReadCollaborationAsset,
   isCleanCollaborationAsset,
@@ -388,6 +389,61 @@ async function buildExportSnapshot(
 ) {
   const selectedPosts = await selectExportPosts(ctx, input);
   const postIds = new Set(selectedPosts.map((post) => post._id));
+  const posts = await buildExportedPosts(ctx, selectedPosts);
+  const actionItems = await buildExportedActionItems(ctx, selectedPosts);
+  const assets = await selectExportAssets(ctx, {
+    ...input,
+    postIds,
+  });
+  const participant = input.authorization.participants.find(
+    (candidate) => candidate.workosUserId === input.authorization.viewer.subject
+  );
+  const fullArchive =
+    input.scope === "full_archive"
+      ? await buildFullBuildCollaborationArchive(ctx, {
+          authorization: input.authorization,
+          posts: selectedPosts,
+        })
+      : undefined;
+  const manifest = {
+    actionItems,
+    assetIds: assets.map((asset) => asset._id),
+    assets: assets.map((asset) => ({
+      assetId: asset._id,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      sizeBytes: asset.sizeBytes,
+      version: asset.version,
+    })),
+    build: {
+      buildId: input.authorization.build._id,
+      buildName: input.authorization.build.buildName,
+    },
+    exportedAt: input.generatedAt,
+    fullArchive,
+    posts,
+    scope: input.scope,
+  };
+  const aclSnapshot = await buildExportAclSnapshot(ctx, {
+    assets,
+    authorization: input.authorization,
+    generatedAt: input.generatedAt,
+    manifestAssetIds: manifest.assetIds,
+    participantPeriod: participant?.participationPeriod,
+    posts: selectedPosts,
+    scope: input.scope,
+  });
+  return {
+    aclSnapshot,
+    manifest,
+    recordCount: posts.length + actionItems.length + assets.length,
+  };
+}
+
+async function buildExportedPosts(
+  ctx: MutationCtx,
+  selectedPosts: Doc<"buildCollaborationPosts">[]
+) {
   const posts: Record<string, unknown>[] = [];
   for (const post of selectedPosts) {
     const revision = post.currentRevisionId
@@ -441,10 +497,13 @@ async function buildExportSnapshot(
       tiptapJson: revision.tiptapJson,
     });
   }
-  const assets = await selectExportAssets(ctx, {
-    ...input,
-    postIds,
-  });
+  return posts;
+}
+
+async function buildExportedActionItems(
+  ctx: MutationCtx,
+  selectedPosts: Doc<"buildCollaborationPosts">[]
+) {
   const actionItems: Record<string, unknown>[] = [];
   for (const post of selectedPosts) {
     const rows = await ctx.db
@@ -469,47 +528,76 @@ async function buildExportSnapshot(
       }))
     );
   }
-  const participant = input.authorization.participants.find(
-    (candidate) => candidate.workosUserId === input.authorization.viewer.subject
-  );
-  const manifest = {
-    actionItems,
-    assetIds: assets.map((asset) => asset._id),
-    assets: assets.map((asset) => ({
-      assetId: asset._id,
-      fileName: asset.fileName,
-      mimeType: asset.mimeType,
-      sizeBytes: asset.sizeBytes,
-      version: asset.version,
-    })),
-    build: {
-      buildId: input.authorization.build._id,
-      buildName: input.authorization.build.buildName,
-    },
-    exportedAt: input.generatedAt,
-    posts,
-    scope: input.scope,
-  };
-  const aclSnapshot = {
-    assetIds: manifest.assetIds,
+  return actionItems;
+}
+
+async function buildExportAclSnapshot(
+  ctx: MutationCtx,
+  input: {
+    assets: Doc<"buildCollaborationAssets">[];
+    authorization: ActiveBuildAuthorization;
+    generatedAt: number;
+    manifestAssetIds: Id<"buildCollaborationAssets">[];
+    participantPeriod?: number;
+    posts: Doc<"buildCollaborationPosts">[];
+    scope: Doc<"buildCollaborationExports">["scope"];
+  }
+) {
+  return {
+    assetIds: input.manifestAssetIds,
     effectiveRole: input.authorization.effectiveRole.role,
     generatedAt: input.generatedAt,
     organizationId: input.authorization.organizationId,
-    participantPeriod: participant?.participationPeriod,
-    postDecisions: selectedPosts.map((post) => ({
-      audienceFloorTier: post.audienceFloorTier,
-      audienceMode: post.audienceMode,
-      decision: "authorized",
-      postId: post._id,
+    participantPeriod: input.participantPeriod,
+    assetDecisions: input.assets.map((asset) => ({
+      assetId: asset._id,
+      basis: asset.readerWorkosUserIds?.includes(
+        input.authorization.viewer.subject
+      )
+        ? "published_reader_snapshot"
+        : "originating_post_acl",
+      maximumAudienceMode: asset.maximumAudienceMode,
+      originatingPostId: asset.originatingPostId,
+      readerSnapshotIncludedViewer: Boolean(
+        asset.readerWorkosUserIds?.includes(input.authorization.viewer.subject)
+      ),
     })),
+    postDecisions: await Promise.all(
+      input.posts.map(async (post) => {
+        const customMembership =
+          post.audienceMode === "custom"
+            ? await ctx.db
+                .query("buildCollaborationAudienceMembers")
+                .withIndex("by_postId_and_workosUserId", (query) =>
+                  query
+                    .eq("postId", post._id)
+                    .eq("workosUserId", input.authorization.viewer.subject)
+                )
+                .unique()
+            : null;
+        const roleTierAuthorized =
+          input.authorization.effectiveRole.tier >= post.audienceFloorTier;
+        return {
+          audienceFloorTier: post.audienceFloorTier,
+          audienceMode: post.audienceMode,
+          basis: roleTierAuthorized
+            ? "role_tier"
+            : post.audienceMode === "build_wide"
+              ? "build_wide"
+              : "custom_audience_membership",
+          customAudienceMembershipId: customMembership?._id,
+          customAudienceAddedAt: customMembership?.createdAt,
+          customAudienceAddedByWorkosUserId:
+            customMembership?.addedByWorkosUserId,
+          decision: "authorized",
+          postId: post._id,
+          viewerRoleTier: input.authorization.effectiveRole.tier,
+        };
+      })
+    ),
     roles: input.authorization.roles,
     scope: input.scope,
     viewerWorkosUserId: input.authorization.viewer.subject,
-  };
-  return {
-    aclSnapshot,
-    manifest,
-    recordCount: posts.length + actionItems.length + assets.length,
   };
 }
 

@@ -1,6 +1,6 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { buildCollaborationValidationError } from "./build_collaboration_validation";
-import type { QueryCtx } from "./types";
+import type { Id, QueryCtx } from "./types";
 
 export const BUILD_COLLABORATION_CLOSED_ERROR =
   "This Build's collaboration archive is closed and read-only.";
@@ -42,4 +42,22 @@ export async function requireBuildCollaborationWritable(
   if (state?.state === "purged") {
     throw buildCollaborationValidationError(BUILD_COLLABORATION_PURGED_ERROR);
   }
+}
+
+export async function isBuildCollaborationWritableByBuildId(
+  ctx: QueryCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    organizationId: string;
+  }
+) {
+  const state = await ctx.db
+    .query("buildCollaborationBuildStates")
+    .withIndex("by_buildId", (query) => query.eq("buildId", input.buildId))
+    .unique();
+  return (
+    (!state || state.organizationId === input.organizationId) &&
+    state?.state !== "closed" &&
+    state?.state !== "purged"
+  );
 }
