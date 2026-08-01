@@ -22,6 +22,7 @@ describe("Build collaboration export and lifecycle governance", () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
     const fixture = await seedLifecycleFixture();
+    vi.setSystemTime(BASE_TIME + 10);
     const expectedBuildScopes: Array<
       [
         typeof fixture.admin,
@@ -215,6 +216,7 @@ describe("Build collaboration export and lifecycle governance", () => {
     ).toMatchObject({
       decision: "authorized",
       entityAclAuthorized: true,
+      entityAclDecision: { basis: "role", role: "admin" },
       entityAclRequired: true,
     });
     expect(
@@ -226,6 +228,95 @@ describe("Build collaboration export and lifecycle governance", () => {
       decision: "authorized",
       postId: fixture.sharedPostId,
       readerSnapshotIncludedViewer: true,
+    });
+    const demotedAdmin = withIdentity(
+      fixture.base,
+      "principle-broker",
+      "user_admin",
+    );
+    await expect(
+      demotedAdmin.mutation(
+        (api as any).build_collaboration_exports
+          .authorizeBuildCollaborationExportArchiveChunkDownload,
+        {
+          buildId: fixture.buildId,
+          chunkIndex: 0,
+          exportId: created.exportId,
+          organizationId: ORGANIZATION_ID,
+          token: created.token,
+        },
+      ),
+    ).rejects.toThrow("access changed");
+  });
+
+  test("snapshots the exact Builder Staff draw permission grant", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    const permission = await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.sharedPostId, {
+        audienceFloorTier: 2,
+        primaryReferenceKind: "draw",
+        primaryReferenceId: "draw-fixture",
+        source: "system",
+      });
+      const linkId = await ctx.db.insert("builderAccountLinks", {
+        brokerageId: fixture.brokerageId,
+        builderProfileId: fixture.builderProfileId,
+        createdAt: BASE_TIME,
+        role: "staff",
+        status: "active",
+        updatedAt: BASE_TIME,
+        workosUserId: "user_builder_staff",
+      });
+      const grantId = await ctx.db.insert("builderStaffPermissionGrants", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        builderAccountLinkId: linkId,
+        builderProfileId: fixture.builderProfileId,
+        canCreate: false,
+        canDelete: false,
+        canUpdate: false,
+        canView: true,
+        createdAt: BASE_TIME,
+        createdByWorkosUserId: "user_admin",
+        organizationId: ORGANIZATION_ID,
+        resourceType: "draw",
+        scope: "activeBuild",
+        updatedAt: BASE_TIME,
+        updatedByWorkosUserId: "user_admin",
+        workosUserId: "user_builder_staff",
+      });
+      return { grantId, linkId };
+    });
+    const created = await fixture.builderStaff.mutation(
+      (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.sharedPostId,
+        scope: "thread",
+      },
+    );
+    const downloaded = await fixture.builderStaff.mutation(
+      (api as any).build_collaboration_exports.downloadBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        exportId: created.exportId,
+        organizationId: ORGANIZATION_ID,
+        token: created.token,
+      },
+    );
+    const acl = JSON.parse(downloaded.aclSnapshotJson);
+    expect(acl.postDecisions[0]).toMatchObject({
+      entityAclAuthorized: true,
+      entityAclDecision: {
+        basis: "builder_staff_permission_grant",
+        builderAccountLinkId: permission.linkId,
+        permissionGrantId: permission.grantId,
+      },
+      entityAclRequired: true,
+      postId: fixture.sharedPostId,
     });
   });
 
@@ -891,6 +982,39 @@ describe("Build collaboration export and lifecycle governance", () => {
           workosUserId,
         });
       }
+      const replyId = await ctx.db.insert("buildCollaborationComments", {
+        authorDisplayNameSnapshot: "Broker",
+        authorRole: "broker",
+        authorWorkosUserId: "user_broker",
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        contentState: "active",
+        createdAt: BASE_TIME,
+        logicalDepth: 0,
+        organizationId: post.organizationId,
+        postId: post._id,
+        revision: 1,
+        updatedAt: BASE_TIME,
+      });
+      await ctx.db.insert("buildCollaborationPins", {
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        createdAt: BASE_TIME,
+        kind: "build",
+        organizationId: post.organizationId,
+        postId: post._id,
+        workosUserId: "user_broker",
+      });
+      await ctx.db.insert("buildCollaborationPins", {
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        commentId: replyId,
+        createdAt: BASE_TIME,
+        kind: "reply",
+        organizationId: post.organizationId,
+        postId: post._id,
+        workosUserId: "user_broker",
+      });
       for (const [workosUserId, viewerRole] of [
         ["user_admin", "admin"],
         ["user_principle_broker", "principle-broker"],
@@ -953,6 +1077,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         updatedAt: BASE_TIME,
       });
     });
+    vi.setSystemTime(BASE_TIME + 10);
     const created = await fixture.principal.mutation(
       (api as any).build_collaboration_exports.requestBuildCollaborationExport,
       {
@@ -975,6 +1100,11 @@ describe("Build collaboration export and lifecycle governance", () => {
       ),
     ).rejects.toThrow("still generating");
     await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const completedExport = await fixture.base.run((ctx) =>
+      ctx.db.get(created.exportId as Id<"buildCollaborationExports">),
+    );
+    expect(completedExport?.state).toBe("active");
+    expect(completedExport?.archiveFailure).toBeUndefined();
     const downloaded = await fixture.principal.mutation(
       (api as any).build_collaboration_exports.downloadBuildCollaborationExport,
       {
@@ -1001,7 +1131,7 @@ describe("Build collaboration export and lifecycle governance", () => {
           query.eq("exportId", created.exportId).eq("sequence", 0),
         )
         .unique();
-      if (!chunk) {
+      if (!chunk?.storageId) {
         throw new Error("Expected first archive chunk.");
       }
       const body = await ctx.storage.get(chunk.storageId);
@@ -1045,6 +1175,9 @@ describe("Build collaboration export and lifecycle governance", () => {
         .collect();
       let ndjson = "";
       for (const chunk of chunks.sort((a, b) => a.sequence - b.sequence)) {
+        if (!chunk.storageId) {
+          throw new Error("Expected persisted archive chunk storage.");
+        }
         const body = await ctx.storage.get(chunk.storageId);
         if (!body) {
           throw new Error("Expected persisted archive chunk body.");
@@ -1056,47 +1189,72 @@ describe("Build collaboration export and lifecycle governance", () => {
         .split("\n")
         .map((line) => JSON.parse(line));
     });
-    const archivedPost = archiveRecords.find(
-      (entry: any) =>
-        entry.kind === "post" && entry.data.post._id === fixture.sharedPostId,
-    ).data;
-    expect(
-      archivedPost.revisions.map((entry: any) => entry.revision.revision),
-    ).toEqual([1, 2]);
-    expect(
-      archivedPost.follows.map((entry: any) => entry.workosUserId),
-    ).toEqual(["user_principle_broker"]);
-    expect(archivedPost.pins.map((entry: any) => entry.workosUserId)).toEqual([
+    const sectionRows = (section: string) =>
+      archiveRecords
+        .filter(
+          (entry: any) =>
+            entry.kind === "post" &&
+            entry.section === section &&
+            Array.isArray(entry.data),
+        )
+        .flatMap((entry: any) => entry.data);
+    const revisions = sectionRows("revisions");
+    const follows = sectionRows("follows");
+    const pins = sectionRows("pins");
+    const receipts = sectionRows("receipts");
+    const moderation = sectionRows("moderation");
+    const actionItems = sectionRows("action_items");
+    expect(revisions.map((entry: any) => entry.revision.revision)).toEqual([
+      1, 2,
+    ]);
+    expect(follows.map((entry: any) => entry.workosUserId)).toEqual([
       "user_principle_broker",
     ]);
-    expect(
-      archivedPost.receipts.map((entry: any) => entry.workosUserId),
-    ).toEqual(["user_broker"]);
+    expect(pins.map((entry: any) => [entry.kind, entry.workosUserId])).toEqual([
+      ["personal", "user_principle_broker"],
+      ["build", "user_broker"],
+      ["reply", "user_broker"],
+    ]);
+    expect(receipts.map((entry: any) => entry.workosUserId)).toEqual([
+      "user_broker",
+    ]);
     const moderationSnapshot = JSON.parse(
-      archivedPost.moderation[0].case.evidenceSnapshotJson,
+      moderation[0].case.evidenceSnapshotJson,
     );
     expect(
       moderationSnapshot.receiptSnapshots.map(
         (entry: any) => entry.displayNameSnapshot,
       ),
     ).toEqual(["broker-visible-receipt"]);
-    expect(archivedPost.actionItems[0]).toEqual(
+    expect(actionItems[0]).toEqual(
       expect.objectContaining({
-        events: expect.any(Array),
-        revisions: expect.any(Array),
-        checklist: expect.any(Array),
-        relations: expect.any(Array),
+        actionItemId: expect.any(String),
+        snapshot: expect.objectContaining({ title: "Final archive task" }),
       }),
     );
-    expect(archivedPost).toEqual(
-      expect.objectContaining({
-        acknowledgements: expect.any(Array),
-        moderation: expect.any(Array),
-        receipts: expect.any(Array),
-        references: expect.any(Array),
-        threadEvents: expect.any(Array),
-      }),
-    );
+    for (const section of [
+      "action_item_attachments",
+      "action_item_checklist",
+      "action_item_comments",
+      "action_item_events",
+      "action_item_labels",
+      "action_item_post_links",
+      "action_item_references",
+      "action_item_relations_incoming",
+      "action_item_relations_outgoing",
+      "action_item_revisions",
+    ]) {
+      expect(sectionRows(section)).toEqual(expect.any(Array));
+    }
+    for (const section of [
+      "acknowledgements",
+      "moderation",
+      "receipts",
+      "references",
+      "thread_events",
+    ]) {
+      expect(sectionRows(section)).toEqual(expect.any(Array));
+    }
     expect(
       archiveRecords.find((entry: any) => entry.kind === "build_history").data,
     ).toEqual(
@@ -1105,6 +1263,291 @@ describe("Build collaboration export and lifecycle governance", () => {
         lifecycleEvents: expect.any(Array),
       }),
     );
+  });
+
+  test("paginates large thread bodies before serialization and cleans expired archive blobs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    const largeText = "x".repeat(120_000);
+    await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(fixture.sharedPostId);
+      if (!post) {
+        throw new Error("Expected large archive post fixture.");
+      }
+      for (let index = 0; index < 12; index += 1) {
+        const commentId = await ctx.db.insert("buildCollaborationComments", {
+          authorDisplayNameSnapshot: "Builder",
+          authorRole: "builder",
+          authorWorkosUserId: "user_builder",
+          brokerageId: post.brokerageId,
+          buildId: post.buildId,
+          contentState: "active",
+          createdAt: BASE_TIME + index,
+          logicalDepth: 0,
+          organizationId: post.organizationId,
+          postId: post._id,
+          revision: 1,
+          updatedAt: BASE_TIME + index,
+        });
+        const revisionId = await ctx.db.insert(
+          "buildCollaborationCommentRevisions",
+          {
+            authorRole: "builder",
+            authorWorkosUserId: "user_builder",
+            brokerageId: post.brokerageId,
+            buildId: post.buildId,
+            commentId,
+            contentHash: `large-comment-${index}`,
+            createdAt: BASE_TIME + index,
+            organizationId: post.organizationId,
+            plainText: largeText,
+            postId: post._id,
+            revision: 1,
+            tiptapJson: textDocument(largeText),
+          },
+        );
+        await ctx.db.patch(commentId, { currentRevisionId: revisionId });
+      }
+      const actionItem = await ctx.db
+        .query("buildActionItems")
+        .withIndex("by_originatingPostId_and_createdAt", (query) =>
+          query.eq("originatingPostId", post._id),
+        )
+        .first();
+      if (!actionItem) {
+        throw new Error("Expected large archive Action Item fixture.");
+      }
+      for (let index = 0; index < 12; index += 1) {
+        await ctx.db.insert("buildActionItemComments", {
+          actionItemId: actionItem._id,
+          authorDisplayNameSnapshot: "Builder",
+          authorRole: "builder",
+          authorWorkosUserId: "user_builder",
+          brokerageId: post.brokerageId,
+          buildId: post.buildId,
+          createdAt: BASE_TIME + index,
+          organizationId: post.organizationId,
+          plainText: largeText,
+          tiptapJson: textDocument(largeText),
+        });
+      }
+    });
+    vi.setSystemTime(BASE_TIME + 20);
+    const created = await fixture.principal.mutation(
+      (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        scope: "build",
+      },
+    );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const downloaded = await fixture.principal.mutation(
+      (api as any).build_collaboration_exports.downloadBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        exportId: created.exportId,
+        organizationId: ORGANIZATION_ID,
+        token: created.token,
+      },
+    );
+    const archiveText = await readArchiveText(fixture.base, created.exportId);
+    const commentRevisionPages = archiveText
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+      .filter(
+        (record) =>
+          record.kind === "post" && record.section === "comment_revisions",
+      );
+    expect(commentRevisionPages).toHaveLength(6);
+    expect(
+      commentRevisionPages.every((record) => record.data.length <= 2),
+    ).toBe(true);
+    expect(
+      commentRevisionPages.reduce(
+        (count, record) => count + record.data.length,
+        0,
+      ),
+    ).toBe(12);
+    const actionItemCommentPages = archiveText
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+      .filter(
+        (record) =>
+          record.kind === "post" &&
+          record.section === "action_item_comments" &&
+          record.data.length > 0,
+      );
+    expect(actionItemCommentPages).toHaveLength(6);
+    expect(
+      actionItemCommentPages.every((record) => record.data.length <= 2),
+    ).toBe(true);
+    expect(
+      actionItemCommentPages.reduce(
+        (count, record) => count + record.data.length,
+        0,
+      ),
+    ).toBe(12);
+    expect(downloaded.manifestJson.length).toBeLessThan(100_000);
+
+    const beforeCleanup = await fixture.base.run(async (ctx) => {
+      const row = await ctx.db.get(
+        created.exportId as Id<"buildCollaborationExports">,
+      );
+      const chunk = await ctx.db
+        .query("buildCollaborationExportArchiveChunks")
+        .withIndex("by_exportId_and_sequence", (query) =>
+          query.eq("exportId", created.exportId),
+        )
+        .first();
+      return { expiresAt: row?.expiresAt, storageId: chunk?.storageId };
+    });
+    if (!(beforeCleanup.expiresAt && beforeCleanup.storageId)) {
+      throw new Error("Expected generated archive cleanup fixture.");
+    }
+    vi.setSystemTime(beforeCleanup.expiresAt + 1);
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_export_archive
+        .cleanupExpiredBuildCollaborationExportArchives,
+      {},
+    );
+    const cleaned = await fixture.base.run(async (ctx) => ({
+      chunks: await ctx.db
+        .query("buildCollaborationExportArchiveChunks")
+        .withIndex("by_exportId_and_sequence", (query) =>
+          query.eq("exportId", created.exportId),
+        )
+        .collect(),
+      row: await ctx.db.get(
+        created.exportId as Id<"buildCollaborationExports">,
+      ),
+      storageExists: Boolean(await ctx.storage.get(beforeCleanup.storageId!)),
+    }));
+    expect(cleaned.chunks).toEqual([]);
+    expect(cleaned.row?.state).toBe("expired");
+    expect(cleaned.storageExists).toBe(false);
+  });
+
+  test("freezes archive revisions and core projection at request time", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME + 10);
+    const fixture = await seedLifecycleFixture();
+    const created = await fixture.principal.mutation(
+      (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        scope: "build",
+      },
+    );
+    vi.setSystemTime(BASE_TIME + 20);
+    await fixture.base.run(async (ctx) => {
+      const post = await ctx.db.get(fixture.sharedPostId);
+      if (!post?.currentRevisionId) {
+        throw new Error("Expected request-time post revision.");
+      }
+      const current = await ctx.db.get(post.currentRevisionId);
+      if (!current) {
+        throw new Error("Expected request-time revision row.");
+      }
+      const revisionId = await ctx.db.insert(
+        "buildCollaborationPostRevisions",
+        {
+          authorRole: "builder",
+          authorWorkosUserId: "user_builder",
+          brokerageId: current.brokerageId,
+          buildId: current.buildId,
+          contentHash: "after-export-request",
+          createdAt: BASE_TIME + 20,
+          organizationId: current.organizationId,
+          plainText: "This edit happened after the export request.",
+          postId: current.postId,
+          revision: 2,
+          tiptapJson: textDocument(
+            "This edit happened after the export request.",
+          ),
+        },
+      );
+      await ctx.db.patch(post._id, {
+        currentRevisionId: revisionId,
+        revision: 2,
+        updatedAt: BASE_TIME + 20,
+      });
+    });
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const records = (await readArchiveText(fixture.base, created.exportId))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const core = records.find(
+      (record) =>
+        record.kind === "post" &&
+        record.section === "core" &&
+        record.data[0]?.postId === fixture.sharedPostId,
+    );
+    const revisionRows = records
+      .filter(
+        (record) =>
+          record.kind === "post" &&
+          record.section === "revisions" &&
+          Array.isArray(record.data),
+      )
+      .flatMap((record) => record.data)
+      .filter((entry) => entry.revision.postId === fixture.sharedPostId);
+    expect(core.data[0]).toMatchObject({
+      currentRevisionId: expect.any(String),
+      revision: 1,
+    });
+    expect(revisionRows.map((entry) => entry.revision.revision)).toEqual([1]);
+  });
+
+  test("claims archive chunks before storage and replays completed claims idempotently", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME + 10);
+    const fixture = await seedLifecycleFixture();
+    const created = await fixture.principal.mutation(
+      (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        scope: "build",
+      },
+    );
+    const reserve = (claimToken: string) =>
+      fixture.base.mutation(
+        (internal as any).build_collaboration_export_archive
+          .reserveBuildCollaborationArchiveChunk,
+        {
+          byteLength: 7,
+          claimToken,
+          contentHashSha256: "fixture-hash",
+          exportId: created.exportId,
+          partIndex: 0,
+          recordIndex: 999,
+          sequence: 999,
+        },
+      );
+    await expect(reserve("claim-a")).resolves.toEqual({ state: "owned" });
+    await expect(reserve("claim-b")).resolves.toEqual({ state: "busy" });
+    const storageId = await fixture.base.run((ctx) =>
+      ctx.storage.store(new Blob(["archive"], { type: "text/plain" })),
+    );
+    await expect(
+      fixture.base.mutation(
+        (internal as any).build_collaboration_export_archive
+          .completeBuildCollaborationArchiveChunk,
+        {
+          claimToken: "claim-a",
+          exportId: created.exportId,
+          sequence: 999,
+          storageId,
+        },
+      ),
+    ).resolves.toEqual({ accepted: true });
+    await expect(reserve("claim-b")).resolves.toEqual({ state: "stored" });
   });
 
   test("keeps the retention window snapshotted at Build closure", async () => {
@@ -1899,7 +2342,9 @@ async function seedLifecycleFixture() {
     return {
       actionItemId,
       assetId,
+      brokerageId: foundation.brokerageId,
       buildId,
+      builderProfileId: foundation.builderProfileId,
       secretPostId,
       sharedPostId,
     };
@@ -1974,6 +2419,9 @@ async function readArchiveText(
     for (const chunk of chunks.sort(
       (left, right) => left.sequence - right.sequence,
     )) {
+      if (!chunk.storageId) {
+        throw new Error("Expected persisted archive chunk storage.");
+      }
       const body = await ctx.storage.get(chunk.storageId);
       if (!body) {
         throw new Error("Expected persisted archive chunk body.");

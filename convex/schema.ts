@@ -44,7 +44,7 @@ const siteVisitLocationAttemptValidator = v.object({
     v.literal("denied"),
     v.literal("granted"),
     v.literal("not_requested"),
-    v.literal("unavailable")
+    v.literal("unavailable"),
   ),
   verified: v.boolean(),
 });
@@ -58,7 +58,7 @@ const demoTimelineStatusValidator = v.union(
   v.literal("complete"),
   v.literal("ready"),
   v.literal("review"),
-  v.literal("upcoming")
+  v.literal("upcoming"),
 );
 
 const demoTimelineIconValidator = v.union(
@@ -72,7 +72,7 @@ const demoTimelineIconValidator = v.union(
   v.literal("kitchen"),
   v.literal("plumbing"),
   v.literal("roofing"),
-  v.literal("roughIn")
+  v.literal("roughIn"),
 );
 
 const demoTimelineToneValidator = v.optional(
@@ -81,14 +81,14 @@ const demoTimelineToneValidator = v.optional(
     v.literal("blocked"),
     v.literal("complete"),
     v.literal("upcoming"),
-    v.literal("warning")
-  )
+    v.literal("warning"),
+  ),
 );
 
 const demoTimelineSnapshotSubmilestoneStatusValidator = v.union(
   v.literal("todo"),
   v.literal("in_progress"),
-  v.literal("done")
+  v.literal("done"),
 );
 
 const demoTimelineSnapshotSubmilestoneValidator = v.object({
@@ -116,7 +116,7 @@ const demoTimelineMilestoneDataValidator = v.object({
       qualityNote: v.optional(v.string()),
       qualityRating: v.optional(v.number()),
       submittedAt: v.string(),
-    })
+    }),
   ),
   completionPaymentAmount: v.optional(v.number()),
   completionReview: v.optional(
@@ -133,10 +133,10 @@ const demoTimelineMilestoneDataValidator = v.object({
           tokenExpiresAt: v.optional(v.number()),
           url: v.optional(v.string()),
           visitId: v.optional(v.string()),
-        })
+        }),
       ),
       status: v.union(v.literal("approved"), v.literal("revisionRequested")),
-    })
+    }),
   ),
   draw: v.string(),
   drawAvailabilityAmount: v.optional(v.number()),
@@ -154,9 +154,9 @@ const demoTimelineMilestoneDataValidator = v.object({
           previewUrl: v.optional(v.string()),
           size: v.number(),
           tag: v.string(),
-        })
+        }),
       ),
-    })
+    }),
   ),
   icon: demoTimelineIconValidator,
   initialPaymentAmount: v.optional(v.number()),
@@ -166,7 +166,7 @@ const demoTimelineMilestoneDataValidator = v.object({
   status: demoTimelineStatusValidator,
   subMilestones: v.optional(v.array(v.string())),
   submilestoneDetails: v.optional(
-    v.array(demoTimelineSnapshotSubmilestoneValidator)
+    v.array(demoTimelineSnapshotSubmilestoneValidator),
   ),
 });
 
@@ -195,8 +195,8 @@ const demoTimelineDrawValidator = v.object({
       v.literal("draft"),
       v.literal("requested"),
       v.literal("approved"),
-      v.literal("rejected")
-    )
+      v.literal("rejected"),
+    ),
   ),
   reviewedAt: v.optional(v.string()),
   requestedAt: v.optional(v.string()),
@@ -209,8 +209,8 @@ const demoTimelineCapitalSpikeValidator = v.object({
     v.union(
       v.literal("cashInfusion"),
       v.literal("cost"),
-      v.literal("homeEquityTakeout")
-    )
+      v.literal("homeEquityTakeout"),
+    ),
   ),
   id: v.string(),
   interestAnnualBps: v.optional(v.number()),
@@ -233,31 +233,31 @@ const demoTimelinePlanStatusValidator = v.union(
   v.literal("draft"),
   v.literal("submitted"),
   v.literal("approved"),
-  v.literal("archived")
+  v.literal("archived"),
 );
 
 const demoTimelineDrawStatusValidator = v.union(
   v.literal("draft"),
   v.literal("requested"),
   v.literal("approved"),
-  v.literal("rejected")
+  v.literal("rejected"),
 );
 
 const demoTimelineCapitalEventKindValidator = v.union(
   v.literal("cost"),
-  v.literal("cashInfusion")
+  v.literal("cashInfusion"),
 );
 
 const demoTimelineModificationRequestTypeValidator = v.union(
   v.literal("createMilestone"),
   v.literal("deleteMilestone"),
-  v.literal("updateMilestoneBudget")
+  v.literal("updateMilestoneBudget"),
 );
 
 const demoTimelineModificationRequestStatusValidator = v.union(
   v.literal("requested"),
   v.literal("approved"),
-  v.literal("rejected")
+  v.literal("rejected"),
 );
 
 const demoTimelineSiteVisitStatusValidator = v.union(
@@ -265,12 +265,12 @@ const demoTimelineSiteVisitStatusValidator = v.union(
   v.literal("in_progress"),
   v.literal("complete"),
   v.literal("expired"),
-  v.literal("superseded")
+  v.literal("superseded"),
 );
 
 const demoSiteVisitGuidanceKindValidator = v.union(
   v.literal("whatToVerify"),
-  v.literal("cameraAngle")
+  v.literal("cameraAngle"),
 );
 
 const demoTimelineSubmilestoneSnapshotValidator = v.object({
@@ -281,7 +281,7 @@ const demoTimelineSubmilestoneSnapshotValidator = v.object({
   name: v.string(),
   order: v.number(),
   status: v.optional(
-    v.union(v.literal("todo"), v.literal("in_progress"), v.literal("done"))
+    v.union(v.literal("todo"), v.literal("in_progress"), v.literal("done")),
   ),
 });
 
@@ -289,14 +289,14 @@ const productionProposalStatusValidator = v.union(
   v.literal("draft"),
   v.literal("submitted"),
   v.literal("approved"),
-  v.literal("closed")
+  v.literal("closed"),
 );
 
 const productionReviewOutcomeValidator = v.union(
   v.literal("none"),
   v.literal("requested_changes"),
   v.literal("rejected"),
-  v.literal("approved")
+  v.literal("approved"),
 );
 
 const productionSelectedPlanValidator = v.object({
@@ -315,7 +315,7 @@ const productionSelectedPlanValidator = v.object({
   planKey: v.union(
     v.literal("cheapestFeasible"),
     v.literal("fastest"),
-    v.literal("capitalConstrained")
+    v.literal("capitalConstrained"),
   ),
   recommendationReason: v.string(),
   selectedAt: v.number(),
@@ -326,25 +326,25 @@ const productionDocumentTypeValidator = v.union(
   v.literal("permit"),
   v.literal("budget"),
   v.literal("plan"),
-  v.literal("supporting")
+  v.literal("supporting"),
 );
 
 const productionDocumentStatusValidator = v.union(
   v.literal("uploaded"),
   v.literal("linked"),
-  v.literal("waived")
+  v.literal("waived"),
 );
 
 const buildDocumentStatusValidator = v.union(
   v.literal("uploaded"),
   v.literal("linked"),
   v.literal("waived"),
-  v.literal("superseded")
+  v.literal("superseded"),
 );
 
 const siteVisitGuidanceFieldValidator = v.union(
   v.string(),
-  v.array(v.string())
+  v.array(v.string()),
 );
 
 const siteVisitGuidanceValidator = v.object({
@@ -354,12 +354,12 @@ const siteVisitGuidanceValidator = v.object({
 
 const richTextFormatValidator = v.union(
   v.literal("plain_text"),
-  v.literal("html")
+  v.literal("html"),
 );
 
 const productionBuildStatusValidator = v.union(
   v.literal("active"),
-  v.literal("future_start")
+  v.literal("future_start"),
 );
 
 const productionBuildDrawStatusValidator = v.union(
@@ -371,7 +371,7 @@ const productionBuildDrawStatusValidator = v.union(
   v.literal("approved_for_release"),
   v.literal("rejected"),
   v.literal("withdrawn"),
-  v.literal("released")
+  v.literal("released"),
 );
 
 const activeBuildDrawRequestStatusValidator = v.union(
@@ -382,31 +382,31 @@ const activeBuildDrawRequestStatusValidator = v.union(
   v.literal("approved_for_release"),
   v.literal("rejected"),
   v.literal("withdrawn"),
-  v.literal("released")
+  v.literal("released"),
 );
 
 const contractorKindValidator = v.union(
   v.literal("company"),
   v.literal("individual"),
-  v.literal("crew")
+  v.literal("crew"),
 );
 
 const contractorPayRateUnitValidator = v.union(
   v.literal("hour"),
   v.literal("day"),
-  v.literal("fixed")
+  v.literal("fixed"),
 );
 
 const contractorOnboardingStatusValidator = v.union(
   v.literal("profile_only"),
   v.literal("invited"),
-  v.literal("account_linked")
+  v.literal("account_linked"),
 );
 
 const contractorProfileSourceValidator = v.union(
   v.literal("builder_created"),
   v.literal("backoffice_created"),
-  v.literal("self_service")
+  v.literal("self_service"),
 );
 
 const contractorProfileReviewTypeValidator = v.union(
@@ -416,13 +416,13 @@ const contractorProfileReviewTypeValidator = v.union(
   v.literal("deactivation"),
   v.literal("merge"),
   v.literal("split"),
-  v.literal("account_unlink")
+  v.literal("account_unlink"),
 );
 
 const contractorProfileReviewStatusValidator = v.union(
   v.literal("pending"),
   v.literal("approved"),
-  v.literal("rejected")
+  v.literal("rejected"),
 );
 
 // Self-service onboarding review state machine (PRD §7.1, §14.1). Distinct
@@ -436,7 +436,7 @@ const contractorOnboardingReviewStatusValidator = v.union(
   v.literal("approved_pending_workos"),
   v.literal("active"),
   v.literal("rejected"),
-  v.literal("merged")
+  v.literal("merged"),
 );
 
 // Backoffice onboarding review decision outcomes (PRD §7.2).
@@ -447,7 +447,7 @@ const contractorOnboardingReviewOutcomeValidator = v.union(
   v.literal("merged"),
   v.literal("compliance_required"),
   v.literal("approved_missing_compliance"),
-  v.literal("compliance_not_required")
+  v.literal("compliance_not_required"),
 );
 
 // Invite/claim intent lifecycle (PRD §7.3, §14.2).
@@ -457,7 +457,7 @@ const contractorInviteClaimStateValidator = v.union(
   v.literal("accepted_pending_confirmation"),
   v.literal("claimed"),
   v.literal("revoked"),
-  v.literal("expired")
+  v.literal("expired"),
 );
 
 // Contractor-submitted supporting evidence feedback (PRD §8.7, §14.4).
@@ -467,7 +467,7 @@ const contractorEvidenceFeedbackStateValidator = v.union(
   v.literal("not_relevant"),
   v.literal("more_context_requested"),
   v.literal("replacement_requested"),
-  v.literal("addressed")
+  v.literal("addressed"),
 );
 
 // Assignment acknowledgement + scope issue state (PRD §14.3).
@@ -476,13 +476,13 @@ const contractorAssignmentAckStateValidator = v.union(
   v.literal("acknowledged"),
   v.literal("clarification_requested"),
   v.literal("scope_disputed"),
-  v.literal("resolved")
+  v.literal("resolved"),
 );
 
 const contractorScopeIssueKindValidator = v.union(
   v.literal("clarification"),
   v.literal("mismatch"),
-  v.literal("schedule_conflict")
+  v.literal("schedule_conflict"),
 );
 
 const contractorScopeIssueStatusValidator = v.union(
@@ -491,7 +491,7 @@ const contractorScopeIssueStatusValidator = v.union(
   v.literal("awaiting_builder"),
   v.literal("awaiting_backoffice"),
   v.literal("resolved"),
-  v.literal("withdrawn")
+  v.literal("withdrawn"),
 );
 
 // Contractor notification channels (PRD §10). Narrow notifications only — no
@@ -507,41 +507,41 @@ const contractorNotificationKindValidator = v.union(
   v.literal("clarification_requested"),
   v.literal("clarification_responded"),
   v.literal("clarification_resolved"),
-  v.literal("onboarding_result")
+  v.literal("onboarding_result"),
 );
 
 const contractorNotificationChannelValidator = v.union(
   v.literal("in_app"),
-  v.literal("email")
+  v.literal("email"),
 );
 
 const milestoneContractorAssignmentStatusValidator = v.union(
   v.literal("planned"),
   v.literal("active"),
   v.literal("completed"),
-  v.literal("removed")
+  v.literal("removed"),
 );
 
 const contractorQualityRatingSourceValidator = v.union(
   v.literal("builder_evidence"),
   v.literal("site_visit"),
-  v.literal("backoffice")
+  v.literal("backoffice"),
 );
 
 const productionCostItemTypeValidator = v.union(
   v.literal("material"),
-  v.literal("equipment")
+  v.literal("equipment"),
 );
 
 const productionCostItemBudgetTreatmentValidator = v.union(
   v.literal("logOnly"),
   v.literal("add"),
-  v.literal("maintain")
+  v.literal("maintain"),
 );
 
 const builderStaffPermissionScopeValidator = v.union(
   v.literal("proposal"),
-  v.literal("activeBuild")
+  v.literal("activeBuild"),
 );
 
 const builderStaffPermissionResourceValidator = v.union(
@@ -552,25 +552,25 @@ const builderStaffPermissionResourceValidator = v.union(
   v.literal("contractor"),
   v.literal("material"),
   v.literal("capitalEvent"),
-  v.literal("reminder")
+  v.literal("reminder"),
 );
 
 const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
-  v.literal("failed")
+  v.literal("failed"),
 );
 
 const recipientDeliveryStatusValidator = v.union(
   v.literal("unread"),
   v.literal("read"),
   v.literal("dismissed"),
-  v.literal("resolved")
+  v.literal("resolved"),
 );
 
 const recipientDeliveryResolutionModeValidator = v.union(
   v.literal("domain"),
-  v.literal("recipient")
+  v.literal("recipient"),
 );
 
 const buildCollaborationExternalDeliveryStatusValidator = v.union(
@@ -578,84 +578,84 @@ const buildCollaborationExternalDeliveryStatusValidator = v.union(
   v.literal("dispatched"),
   v.literal("failed"),
   v.literal("sent"),
-  v.literal("cancelled")
+  v.literal("cancelled"),
 );
 
 const buildCollaborationExternalChannelValidator = v.union(
   v.literal("email"),
-  v.literal("push")
+  v.literal("push"),
 );
 
 const buildCollaborationDeliveryCadenceValidator = v.union(
   v.literal("immediate"),
   v.literal("daily"),
-  v.literal("weekly")
+  v.literal("weekly"),
 );
 
 const buildCollaborationDeliveryAttemptStateValidator = v.union(
   v.literal("sending"),
   v.literal("succeeded"),
-  v.literal("failed")
+  v.literal("failed"),
 );
 
 const buildCollaborationDeliveryBatchStateValidator = v.union(
   v.literal("sending"),
   v.literal("succeeded"),
   v.literal("failed"),
-  v.literal("cancelled")
+  v.literal("cancelled"),
 );
 
 const operationsHandoffAcknowledgementStateValidator = v.union(
   v.literal("pending_decision"),
   v.literal("returned"),
-  v.literal("acknowledged")
+  v.literal("acknowledged"),
 );
 
 const operationsHandoffReturnDecisionValidator = v.union(
   v.literal("continue"),
   v.literal("reroute"),
-  v.literal("close")
+  v.literal("close"),
 );
 
 const integrationEndpointStatusValidator = v.union(
   v.literal("draft"),
   v.literal("active"),
   v.literal("disabled"),
-  v.literal("revoked")
+  v.literal("revoked"),
 );
 
 const integrationDeliveryStatusValidator = v.union(
   v.literal("pending"),
   v.literal("delivered"),
   v.literal("failed"),
-  v.literal("retry_pending")
+  v.literal("retry_pending"),
 );
 
 const proposalCollaborationSessionStatusValidator = v.union(
   v.literal("active"),
-  v.literal("inactive")
+  v.literal("inactive"),
 );
 
 const proposalCollaborationInitiatorSideValidator = v.union(
   v.literal("broker"),
-  v.literal("builder")
+  v.literal("builder"),
 );
 
 const proposalCollaborationPermissionValidator = v.union(
   v.literal("view"),
-  v.literal("edit")
+  v.literal("edit"),
 );
 
 const proposalCollaborationParticipantStatusValidator = v.union(
   v.literal("invited"),
   v.literal("joined"),
-  v.literal("revoked")
+  v.literal("revoked"),
 );
 
 const proposalCollaborationParticipantSourceValidator = v.union(
   v.literal("creator"),
   v.literal("share-link"),
-  v.literal("invite")
+  v.literal("invite"),
 );
 
 export default defineSchema({
@@ -687,7 +687,7 @@ export default defineSchema({
         openWarnings: v.optional(v.number()),
         percentComplete: v.optional(v.number()),
         siteVisitsOpen: v.optional(v.number()),
-      })
+      }),
     ),
     borrowerCoPayBps: v.optional(v.number()),
     borrowerCoPayCents: v.optional(v.number()),
@@ -776,7 +776,7 @@ export default defineSchema({
     frozenAt: v.optional(v.number()),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones")
+      v.id("demo_timelineMilestones"),
     ),
     milestoneKey: v.string(),
     reviewStatus: v.string(),
@@ -888,7 +888,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones")
+      v.id("demo_timelineMilestones"),
     ),
     milestoneKey: v.string(),
     notes: v.string(),
@@ -901,7 +901,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones")
+      v.id("demo_timelineMilestones"),
     ),
     milestoneKey: v.string(),
     originalApprovedCents: v.number(),
@@ -923,7 +923,7 @@ export default defineSchema({
     scopeBoundAt: v.optional(v.number()),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones")
+      v.id("demo_timelineMilestones"),
     ),
     locationAttempt: v.optional(siteVisitLocationAttemptValidator),
     milestoneKey: v.string(),
@@ -949,7 +949,7 @@ export default defineSchema({
     createdAt: v.number(),
     milestoneId: v.union(
       v.id("demo_milestones"),
-      v.id("demo_timelineMilestones")
+      v.id("demo_timelineMilestones"),
     ),
     milestoneKey: v.string(),
     milestoneName: v.string(),
@@ -1024,7 +1024,7 @@ export default defineSchema({
         name: v.string(),
         percentageBps: v.number(),
         type: v.string(),
-      })
+      }),
     ),
     orgKey: v.string(),
     seedVersion: v.number(),
@@ -1515,7 +1515,7 @@ export default defineSchema({
     status: v.union(
       v.literal("active"),
       v.literal("disabled"),
-      v.literal("expired")
+      v.literal("expired"),
     ),
     updatedAt: v.number(),
   })
@@ -1550,7 +1550,7 @@ export default defineSchema({
     orgKey: v.optional(v.string()),
     scenario: v.string(),
     sourceTimelineCapitalEventId: v.optional(
-      v.id("demo_timelineCapitalEvents")
+      v.id("demo_timelineCapitalEvents"),
     ),
     updatedAt: v.number(),
   })
@@ -1633,7 +1633,7 @@ export default defineSchema({
     status: v.union(
       v.literal("todo"),
       v.literal("in_progress"),
-      v.literal("done")
+      v.literal("done"),
     ),
     budgetCents: v.optional(v.number()),
     durationDays: v.optional(v.number()),
@@ -1677,7 +1677,7 @@ export default defineSchema({
       v.literal("pending"),
       v.literal("active"),
       v.literal("transferred"),
-      v.literal("failed")
+      v.literal("failed"),
     ),
     effectiveAt: v.number(),
     updatedAt: v.number(),
@@ -1834,7 +1834,7 @@ export default defineSchema({
     status: v.union(
       v.literal("suggested"),
       v.literal("verified"),
-      v.literal("rejected")
+      v.literal("rejected"),
     ),
     confidence: v.optional(v.number()),
     reason: v.optional(v.string()),
@@ -1935,7 +1935,7 @@ export default defineSchema({
     contractorId: v.id("contractorProfiles"),
     // Optional explicit assignment pointer (PRD §8.7 required metadata).
     proposalAssignmentId: v.optional(
-      v.id("proposalMilestoneContractorAssignments")
+      v.id("proposalMilestoneContractorAssignments"),
     ),
     buildAssignmentId: v.optional(v.id("milestoneContractorAssignments")),
     targetType: v.union(v.literal("proposal"), v.literal("build")),
@@ -1977,7 +1977,7 @@ export default defineSchema({
     contractorId: v.id("contractorProfiles"),
     assignmentType: v.union(v.literal("proposal"), v.literal("build")),
     proposalAssignmentId: v.optional(
-      v.id("proposalMilestoneContractorAssignments")
+      v.id("proposalMilestoneContractorAssignments"),
     ),
     buildAssignmentId: v.optional(v.id("milestoneContractorAssignments")),
     kind: v.union(v.literal("assignment"), v.literal("schedule")),
@@ -1996,7 +1996,7 @@ export default defineSchema({
     contractorId: v.id("contractorProfiles"),
     assignmentType: v.union(v.literal("proposal"), v.literal("build")),
     proposalAssignmentId: v.optional(
-      v.id("proposalMilestoneContractorAssignments")
+      v.id("proposalMilestoneContractorAssignments"),
     ),
     buildAssignmentId: v.optional(v.id("milestoneContractorAssignments")),
     proposalId: v.optional(v.id("buildProposals")),
@@ -2039,7 +2039,7 @@ export default defineSchema({
     mergeStatus: v.union(
       v.literal("suggested"),
       v.literal("resolved"),
-      v.literal("rejected")
+      v.literal("rejected"),
     ),
     mergedByWorkosUserId: v.optional(v.string()),
     mergedAt: v.optional(v.number()),
@@ -2419,8 +2419,8 @@ export default defineSchema({
         v.literal("draft"),
         v.literal("requested"),
         v.literal("approved"),
-        v.literal("rejected")
-      )
+        v.literal("rejected"),
+      ),
     ),
     requestedAt: v.optional(v.string()),
     reviewedAt: v.optional(v.string()),
@@ -2440,7 +2440,7 @@ export default defineSchema({
     eventKind: v.union(
       v.literal("cost"),
       v.literal("cashInfusion"),
-      v.literal("homeEquityTakeout")
+      v.literal("homeEquityTakeout"),
     ),
     interestAnnualBps: v.optional(v.number()),
     order: v.number(),
@@ -2484,7 +2484,7 @@ export default defineSchema({
     requestType: v.union(
       v.literal("createMilestone"),
       v.literal("deleteMilestone"),
-      v.literal("updateMilestoneBudget")
+      v.literal("updateMilestoneBudget"),
     ),
     reviewNote: v.optional(v.string()),
     reviewedAt: v.optional(v.number()),
@@ -2493,7 +2493,7 @@ export default defineSchema({
     status: v.union(
       v.literal("requested"),
       v.literal("approved"),
-      v.literal("rejected")
+      v.literal("rejected"),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2531,7 +2531,7 @@ export default defineSchema({
     status: v.union(
       v.literal("active"),
       v.literal("claimed"),
-      v.literal("revoked")
+      v.literal("revoked"),
     ),
     createdByWorkosUserId: v.string(),
     claimedByWorkosUserId: v.optional(v.string()),
@@ -2640,7 +2640,7 @@ export default defineSchema({
     collaborationBuildId: v.optional(v.id("activeBuilds")),
     collaborationCommentId: v.optional(v.id("buildCollaborationComments")),
     collaborationEventKind: v.optional(
-      buildCollaborationNotificationKindValidator
+      buildCollaborationNotificationKindValidator,
     ),
     collaborationPostId: v.optional(v.id("buildCollaborationPosts")),
     collaborationReferenceId: v.optional(v.id("buildCollaborationReferences")),
@@ -2872,7 +2872,7 @@ export default defineSchema({
       v.literal("week"),
       v.literal("month"),
       v.literal("quarter"),
-      v.literal("agenda")
+      v.literal("agenda"),
     ),
     updatedAt: v.number(),
     viewKey: v.string(),
@@ -2888,7 +2888,7 @@ export default defineSchema({
       v.literal("evidenceDue"),
       v.literal("reviewTarget"),
       v.literal("adminDecisionTarget"),
-      v.literal("drawReleaseTarget")
+      v.literal("drawReleaseTarget"),
     ),
     drawKey: v.optional(v.string()),
     entityKey: v.string(),
@@ -2916,11 +2916,11 @@ export default defineSchema({
           v.literal("workosUser"),
           v.literal("builderProfile"),
           v.literal("contractorProfile"),
-          v.literal("externalEmail")
+          v.literal("externalEmail"),
         ),
         role: v.optional(v.string()),
         workosUserId: v.optional(v.string()),
-      })
+      }),
     ),
     brokerageId: v.id("brokerages"),
     createdAt: v.number(),
@@ -2929,7 +2929,7 @@ export default defineSchema({
     endsAt: v.optional(v.string()),
     externalEventId: v.optional(v.string()),
     externalProvider: v.optional(
-      v.union(v.literal("google"), v.literal("outlook"), v.literal("ics"))
+      v.union(v.literal("google"), v.literal("outlook"), v.literal("ics")),
     ),
     location: v.optional(v.string()),
     buildId: v.optional(v.id("activeBuilds")),
@@ -2960,14 +2960,14 @@ export default defineSchema({
     provider: v.union(
       v.literal("ics"),
       v.literal("google"),
-      v.literal("outlook")
+      v.literal("outlook"),
     ),
     sourceBuildId: v.optional(v.id("activeBuilds")),
     sourceProposalId: v.optional(v.id("buildProposals")),
     status: v.union(
       v.literal("active"),
       v.literal("paused"),
-      v.literal("revoked")
+      v.literal("revoked"),
     ),
     subscriptionKey: v.string(),
     surface: v.union(v.literal("proposal"), v.literal("activeBuild")),
@@ -2986,12 +2986,12 @@ export default defineSchema({
     provider: v.union(
       v.literal("ics"),
       v.literal("google"),
-      v.literal("outlook")
+      v.literal("outlook"),
     ),
     status: v.union(
       v.literal("pendingReview"),
       v.literal("applied"),
-      v.literal("rejected")
+      v.literal("rejected"),
     ),
     subscriptionId: v.optional(v.id("calendarSyncSubscriptions")),
     updatedAt: v.number(),
@@ -3039,7 +3039,7 @@ export default defineSchema({
       v.literal("user"),
       v.literal("assistant"),
       v.literal("system"),
-      v.literal("tool")
+      v.literal("tool"),
     ),
     threadId: v.id("assistantThreads"),
   })
@@ -3063,7 +3063,7 @@ export default defineSchema({
       v.literal("preview"),
       v.literal("committed"),
       v.literal("failed"),
-      v.literal("cancelled")
+      v.literal("cancelled"),
     ),
     threadId: v.optional(v.id("assistantThreads")),
     updatedAt: v.number(),
@@ -3089,7 +3089,7 @@ export default defineSchema({
       v.literal("needs_input"),
       v.literal("succeeded"),
       v.literal("failed"),
-      v.literal("cancelled")
+      v.literal("cancelled"),
     ),
     steps: v.array(v.any()),
     threadId: v.optional(v.id("assistantThreads")),
@@ -3114,7 +3114,7 @@ export default defineSchema({
       v.literal("running"),
       v.literal("needs_input"),
       v.literal("succeeded"),
-      v.literal("failed")
+      v.literal("failed"),
     ),
     threadId: v.id("assistantThreads"),
   })
@@ -3145,7 +3145,7 @@ export default defineSchema({
         activeMilestoneKey: v.optional(v.string()),
         selectedPanelOpen: v.boolean(),
         straightLine: v.boolean(),
-      })
+      }),
     ),
     timelineMinimumCashReserveCents: v.optional(v.number()),
     borrowerStartingCashCents: v.optional(v.number()),
@@ -3176,7 +3176,7 @@ export default defineSchema({
     removalReason: v.optional(v.string()),
     revocationCleanupCompletedAt: v.optional(v.number()),
     revocationCleanupStatus: v.optional(
-      v.union(v.literal("pending"), v.literal("completed"))
+      v.union(v.literal("pending"), v.literal("completed")),
     ),
     validFrom: v.number(),
     validUntil: v.optional(v.number()),
@@ -3287,7 +3287,7 @@ export default defineSchema({
     eventType: v.union(
       v.literal("closed"),
       v.literal("reopened"),
-      v.literal("purged")
+      v.literal("purged"),
     ),
     revision: v.number(),
     actorWorkosUserId: v.string(),
@@ -3320,7 +3320,7 @@ export default defineSchema({
       v.literal("full_archive"),
       v.literal("authorized_build"),
       v.literal("thread"),
-      v.literal("asset")
+      v.literal("asset"),
     ),
     postId: v.optional(v.id("buildCollaborationPosts")),
     assetId: v.optional(v.id("buildCollaborationAssets")),
@@ -3331,13 +3331,15 @@ export default defineSchema({
       v.literal("active"),
       v.literal("failed"),
       v.literal("expired"),
-      v.literal("revoked")
+      v.literal("revoked"),
     ),
     archiveChunkCount: v.optional(v.number()),
     archiveCompletedAt: v.optional(v.number()),
     archiveFailure: v.optional(v.string()),
+    archiveCursor: v.optional(v.string()),
     archiveNextRecordIndex: v.optional(v.number()),
     archiveNextSequence: v.optional(v.number()),
+    archiveRecordCount: v.optional(v.number()),
     aclSnapshotJson: v.string(),
     manifestJson: v.string(),
     recordCount: v.number(),
@@ -3347,6 +3349,7 @@ export default defineSchema({
   })
     .index("by_tokenHash", ["tokenHash"])
     .index("by_buildId_and_createdAt", ["buildId", "createdAt"])
+    .index("by_state_and_expiresAt", ["state", "expiresAt"])
     .index("by_requestedByWorkosUserId_and_createdAt", [
       "requestedByWorkosUserId",
       "createdAt",
@@ -3366,7 +3369,11 @@ export default defineSchema({
     partIndex: v.number(),
     byteLength: v.number(),
     contentHashSha256: v.string(),
-    storageId: v.id("_storage"),
+    state: v.optional(v.union(v.literal("reserved"), v.literal("stored"))),
+    claimToken: v.optional(v.string()),
+    reservedAt: v.optional(v.number()),
+    storageId: v.optional(v.id("_storage")),
+    storedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_exportId_and_sequence", ["exportId", "sequence"])
@@ -3383,7 +3390,7 @@ export default defineSchema({
     state: v.union(
       v.literal("in_progress"),
       v.literal("completed"),
-      v.literal("blocked")
+      v.literal("blocked"),
     ),
     deletedPostCount: v.number(),
     deletedAssetCount: v.number(),
@@ -3439,7 +3446,7 @@ export default defineSchema({
     moderatedByWorkosUserId: v.optional(v.string()),
     moderatedByRole: v.optional(buildCollaborationRoleValidator),
     activeModerationCaseId: v.optional(
-      v.id("buildCollaborationModerationCases")
+      v.id("buildCollaborationModerationCases"),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -3507,7 +3514,7 @@ export default defineSchema({
       v.literal("reopened"),
       v.literal("reply_reopened"),
       v.literal("accepted_answer_unavailable"),
-      v.literal("announcement_expiration_changed")
+      v.literal("announcement_expiration_changed"),
     ),
     actorWorkosUserId: v.string(),
     actorRole: buildCollaborationRoleValidator,
@@ -3516,7 +3523,7 @@ export default defineSchema({
     reason: v.optional(v.string()),
     acceptedCommentId: v.optional(v.id("buildCollaborationComments")),
     decisionRevisionId: v.optional(
-      v.id("buildCollaborationDecisionOutcomeRevisions")
+      v.id("buildCollaborationDecisionOutcomeRevisions"),
     ),
     createdAt: v.number(),
   }).index("by_postId_and_createdAt", ["postId", "createdAt"]),
@@ -3530,6 +3537,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
     .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
   buildCollaborationAudienceSnapshots: defineTable({
     organizationId: v.string(),
@@ -3541,7 +3549,7 @@ export default defineSchema({
     resolution: v.union(
       v.literal("reader"),
       v.literal("excluded"),
-      v.literal("mandatory")
+      v.literal("mandatory"),
     ),
     reason: v.string(),
     createdAt: v.number(),
@@ -3571,7 +3579,7 @@ export default defineSchema({
     moderatedByWorkosUserId: v.optional(v.string()),
     moderatedByRole: v.optional(buildCollaborationRoleValidator),
     activeModerationCaseId: v.optional(
-      v.id("buildCollaborationModerationCases")
+      v.id("buildCollaborationModerationCases"),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -3598,6 +3606,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_commentId_and_revision", ["commentId", "revision"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
     .searchIndex("search_plainText", {
       searchField: "plainText",
       filterFields: ["buildId", "organizationId"],
@@ -3608,7 +3617,7 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     postId: v.id("buildCollaborationPosts"),
     ownerKind: v.optional(
-      v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem"))
+      v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem")),
     ),
     ownerId: v.optional(v.string()),
     readerPartitionKey: v.string(),
@@ -3668,21 +3677,21 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     postId: v.optional(v.id("buildCollaborationPosts")),
     ownerKind: v.optional(
-      v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem"))
+      v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem")),
     ),
     ownerId: v.optional(v.string()),
     scope: v.union(
       v.literal("owner"),
       v.literal("post"),
       v.literal("post_tree"),
-      v.literal("build")
+      v.literal("build"),
     ),
     generation: v.number(),
     status: v.union(
       v.literal("queued"),
       v.literal("running"),
       v.literal("failed"),
-      v.literal("complete")
+      v.literal("complete"),
     ),
     phase: v.union(
       v.literal("retire"),
@@ -3692,13 +3701,13 @@ export default defineSchema({
       v.literal("enumerate_posts"),
       v.literal("enumerate_comments"),
       v.literal("enumerate_actions"),
-      v.literal("complete")
+      v.literal("complete"),
     ),
     readerOffset: v.optional(v.number()),
     candidateOffset: v.optional(v.number()),
     candidateCursor: v.optional(v.union(v.string(), v.null())),
     candidatePhase: v.optional(
-      v.union(v.literal("base"), v.literal("references"), v.literal("assets"))
+      v.union(v.literal("base"), v.literal("references"), v.literal("assets")),
     ),
     cursor: v.optional(v.union(v.string(), v.null())),
     failureCount: v.optional(v.number()),
@@ -3729,7 +3738,7 @@ export default defineSchema({
     status: v.union(
       v.literal("building"),
       v.literal("blocked"),
-      v.literal("ready")
+      v.literal("ready"),
     ),
     authorityCursor: v.optional(v.union(v.string(), v.null())),
     authorityProjectionComplete: v.optional(v.boolean()),
@@ -3772,7 +3781,7 @@ export default defineSchema({
       v.literal("moderated"),
       v.literal("appealed"),
       v.literal("restored"),
-      v.literal("final_retained")
+      v.literal("final_retained"),
     ),
     currentReason: v.string(),
     appealReviewerMinimumTier: v.number(),
@@ -3787,6 +3796,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_entityKind_and_entityId", ["entityKind", "entityId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
     .index("by_postId_and_status", ["postId", "status"])
     .index("by_contentAuthorWorkosUserId_and_status", [
       "contentAuthorWorkosUserId",
@@ -3801,7 +3811,7 @@ export default defineSchema({
       v.literal("moderated"),
       v.literal("appealed"),
       v.literal("restored"),
-      v.literal("retained")
+      v.literal("retained"),
     ),
     actorWorkosUserId: v.string(),
     actorRole: buildCollaborationRoleValidator,
@@ -3838,7 +3848,8 @@ export default defineSchema({
       "ownerKind",
       "actionItemQueueSortAt",
     ])
-    .index("by_postId", ["postId"]),
+    .index("by_postId", ["postId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"]),
   buildCollaborationFollows: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -3850,13 +3861,14 @@ export default defineSchema({
       v.literal("commenter"),
       v.literal("mentioned"),
       v.literal("assigned"),
-      v.literal("manual")
+      v.literal("manual"),
     ),
     active: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
     .index("by_buildId_and_workosUserId_and_active", [
       "buildId",
       "workosUserId",
@@ -3874,6 +3886,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
     .index("by_postId_and_commentId_and_workosUserId", [
       "postId",
       "commentId",
@@ -3892,6 +3905,7 @@ export default defineSchema({
     latestRevisionViewed: v.number(),
   })
     .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_firstViewedAt", ["postId", "firstViewedAt"])
     .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
   buildCollaborationPins: defineTable({
     organizationId: v.string(),
@@ -3903,6 +3917,7 @@ export default defineSchema({
     kind: buildCollaborationPinKindValidator,
     createdAt: v.number(),
   })
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
     .index("by_buildId_and_kind_and_createdAt", [
       "buildId",
       "kind",
@@ -3932,6 +3947,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_postId_and_workosUserId", ["postId", "workosUserId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
     .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"]),
   buildCollaborationAcknowledgements: defineTable({
     organizationId: v.string(),
@@ -3966,7 +3982,7 @@ export default defineSchema({
     assignmentRequestedAt: v.optional(v.number()),
     dueAt: v.optional(v.number()),
     dueDateSource: v.optional(
-      v.union(v.literal("manual"), v.literal("policy"))
+      v.union(v.literal("manual"), v.literal("policy")),
     ),
     dueDatePolicyKey: v.optional(v.string()),
     policyDueAt: v.optional(v.number()),
@@ -3981,15 +3997,15 @@ export default defineSchema({
         v.literal("before"),
         v.literal("due"),
         v.literal("overdue"),
-        v.literal("escalated")
-      )
+        v.literal("escalated"),
+      ),
     ),
     deadlineProcessingState: v.optional(
       v.union(
         v.literal("pending"),
         v.literal("complete"),
-        v.literal("quarantined")
-      )
+        v.literal("quarantined"),
+      ),
     ),
     deadlineProcessingFailure: v.optional(v.string()),
     deadlineProcessingFailedAt: v.optional(v.number()),
@@ -4009,6 +4025,10 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_originatingPostId_and_createdAt", [
+      "originatingPostId",
+      "createdAt",
+    ])
     .index("by_originatingPostId_and_status", ["originatingPostId", "status"])
     .index("by_originatingPostId_and_queueSortAt", [
       "originatingPostId",
@@ -4133,6 +4153,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_buildId", ["buildId"])
+    .index("by_postId_and_createdAt", ["postId", "createdAt"])
     .index("by_postId_and_creatorWorkosUserId_and_requestId", [
       "postId",
       "creatorWorkosUserId",
@@ -4146,7 +4167,7 @@ export default defineSchema({
     actionItemId: v.id("buildActionItems"),
     targetKind: v.union(
       v.literal("post"),
-      buildCollaborationReferenceKindValidator
+      buildCollaborationReferenceKindValidator,
     ),
     targetId: v.string(),
     eventType: v.string(),
@@ -4172,7 +4193,7 @@ export default defineSchema({
     status: v.union(
       v.literal("active"),
       v.literal("suspended"),
-      v.literal("superseded")
+      v.literal("superseded"),
     ),
     suspensionReason: v.optional(v.string()),
     suspendedAt: v.optional(v.number()),
@@ -4220,7 +4241,7 @@ export default defineSchema({
     scanState: v.optional(buildCollaborationAssetScanStateValidator),
     contentHashSha256: v.optional(v.string()),
     stagingSessionId: v.optional(
-      v.id("buildCollaborationAssetStagingSessions")
+      v.id("buildCollaborationAssetStagingSessions"),
     ),
     uploadedByWorkosUserId: v.string(),
     version: v.number(),
@@ -4376,7 +4397,7 @@ export default defineSchema({
     digestCadence: v.union(
       v.literal("daily"),
       v.literal("weekly"),
-      v.literal("never")
+      v.literal("never"),
     ),
     channels: v.array(buildCollaborationNotificationChannelValidator),
     createdAt: v.number(),
@@ -4400,11 +4421,11 @@ export default defineSchema({
     renderedItemSnapshot: v.optional(v.string()),
     collaborationPostId: v.optional(v.id("buildCollaborationPosts")),
     collaborationPostRevisionId: v.optional(
-      v.id("buildCollaborationPostRevisions")
+      v.id("buildCollaborationPostRevisions"),
     ),
     collaborationCommentId: v.optional(v.id("buildCollaborationComments")),
     collaborationCommentRevisionId: v.optional(
-      v.id("buildCollaborationCommentRevisions")
+      v.id("buildCollaborationCommentRevisions"),
     ),
     collaborationActionItemId: v.optional(v.id("buildActionItems")),
     collaborationReferenceId: v.optional(v.id("buildCollaborationReferences")),
@@ -4614,7 +4635,7 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     proposalId: v.id("buildProposals"),
     facilityKind: v.optional(
-      v.union(v.literal("construction"), v.literal("homeEquityTakeout"))
+      v.union(v.literal("construction"), v.literal("homeEquityTakeout")),
     ),
     sourceCapitalEventKey: v.optional(v.string()),
     interestAccrualStartDate: v.optional(v.string()),
@@ -4641,7 +4662,7 @@ export default defineSchema({
     version: v.number(),
     source: v.union(
       v.literal("proposal_closing_copy"),
-      v.literal("approved_budget_revision")
+      v.literal("approved_budget_revision"),
     ),
     supersedesCapitalPlanId: v.optional(v.id("buildCapitalPlans")),
     revisionRequestId: v.optional(v.id("activeBuildBudgetRevisionRequests")),
@@ -4665,7 +4686,7 @@ export default defineSchema({
     status: v.union(
       v.literal("requested"),
       v.literal("approved"),
-      v.literal("rejected")
+      v.literal("rejected"),
     ),
     reviewNote: v.optional(v.string()),
     reviewedAt: v.optional(v.number()),
@@ -4688,7 +4709,7 @@ export default defineSchema({
     requestedPayload: v.any(),
     requestType: v.union(
       v.literal("principalIncrease"),
-      v.literal("paybackExtension")
+      v.literal("paybackExtension"),
     ),
     reviewNote: v.optional(v.string()),
     reviewedAt: v.optional(v.number()),
@@ -4697,7 +4718,7 @@ export default defineSchema({
     status: v.union(
       v.literal("requested"),
       v.literal("approved"),
-      v.literal("rejected")
+      v.literal("rejected"),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -4738,7 +4759,7 @@ export default defineSchema({
     status: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
-      v.literal("complete")
+      v.literal("complete"),
     ),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -4769,7 +4790,7 @@ export default defineSchema({
     status: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
-      v.literal("complete")
+      v.literal("complete"),
     ),
     completedAt: v.optional(v.number()),
     completedByWorkosUserId: v.optional(v.string()),
@@ -4793,21 +4814,21 @@ export default defineSchema({
         status: v.union(
           v.literal("planned"),
           v.literal("in_progress"),
-          v.literal("complete")
+          v.literal("complete"),
         ),
-      })
+      }),
     ),
     eventType: v.union(
       v.literal("started"),
       v.literal("start_corrected"),
-      v.literal("start_retracted")
+      v.literal("start_retracted"),
     ),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     newLifecycleState: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
-      v.literal("complete")
+      v.literal("complete"),
     ),
     organizationId: v.string(),
     originalEventId: v.optional(v.id("milestoneStartEvents")),
@@ -4815,7 +4836,7 @@ export default defineSchema({
     priorLifecycleState: v.union(
       v.literal("planned"),
       v.literal("in_progress"),
-      v.literal("complete")
+      v.literal("complete"),
     ),
     reason: v.optional(v.string()),
     reportedAt: v.number(),
@@ -4942,7 +4963,7 @@ export default defineSchema({
     status: v.union(
       v.literal("requested"),
       v.literal("complete"),
-      v.literal("cancelled")
+      v.literal("cancelled"),
     ),
     requestedDay: v.number(),
     requestedAt: v.string(),
@@ -5000,7 +5021,7 @@ export default defineSchema({
       v.literal("borrower_copay"),
       v.literal("draw_release"),
       v.literal("cost"),
-      v.literal("home_equity_takeout")
+      v.literal("home_equity_takeout"),
     ),
     loanFacilityId: v.optional(v.id("loanFacilities")),
     label: v.string(),
@@ -5054,7 +5075,7 @@ export default defineSchema({
       v.literal("active"),
       v.literal("inactive"),
       v.literal("pending"),
-      v.literal("deleted")
+      v.literal("deleted"),
     ),
     roleSlug: v.optional(v.string()),
     roleSlugs: v.array(v.string()),
@@ -5120,7 +5141,7 @@ export default defineSchema({
       v.literal("processing"),
       v.literal("processed"),
       v.literal("failed"),
-      v.literal("skipped")
+      v.literal("skipped"),
     ),
     processedAt: v.optional(v.number()),
     error: v.optional(v.string()),

@@ -2,7 +2,7 @@ import type { BuildCollaborationRole } from "./build_collaboration_model";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 export function isDrawSystemPost(
-  post: Pick<Doc<"buildCollaborationPosts">, "primaryReferenceKind" | "source">,
+  post: Pick<Doc<"buildCollaborationPosts">, "primaryReferenceKind" | "source">
 ) {
   return post.source === "system" && post.primaryReferenceKind === "draw";
 }
@@ -13,34 +13,52 @@ export async function canReadDrawSystemEvent(
     buildId: Id<"activeBuilds">;
     role: BuildCollaborationRole;
     workosUserId: string;
-  },
+  }
+) {
+  return Boolean(await resolveDrawSystemEventReadDecision(ctx, input));
+}
+
+export async function resolveDrawSystemEventReadDecision(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    role: BuildCollaborationRole;
+    workosUserId: string;
+  }
 ) {
   if (input.role === "contractor" || input.role === "homeowner") {
-    return false;
+    return null;
   }
   if (input.role !== "builder-staff") {
-    return true;
+    return {
+      basis: "role" as const,
+      role: input.role,
+    };
   }
 
   const build = await ctx.db.get(input.buildId);
   if (!build?.builderProfileId) {
-    return false;
+    return null;
   }
+  const builderProfileId = build.builderProfileId;
   const activeLinks = (
     await ctx.db
       .query("builderAccountLinks")
       .withIndex("by_builder_user", (query) =>
         query
-          .eq("builderProfileId", build.builderProfileId!)
-          .eq("workosUserId", input.workosUserId),
+          .eq("builderProfileId", builderProfileId)
+          .eq("workosUserId", input.workosUserId)
       )
       .collect()
   ).filter(
-    (link) =>
-      link.status === "active" && link.brokerageId === build.brokerageId,
+    (link) => link.status === "active" && link.brokerageId === build.brokerageId
   );
-  if (activeLinks.some((link) => link.role === "owner")) {
-    return true;
+  const ownerLink = activeLinks.find((link) => link.role === "owner");
+  if (ownerLink) {
+    return {
+      basis: "builder_owner_link" as const,
+      builderAccountLinkId: ownerLink._id,
+    };
   }
 
   for (const link of activeLinks) {
@@ -50,22 +68,25 @@ export async function canReadDrawSystemEvent(
         query
           .eq("buildId", input.buildId)
           .eq("builderAccountLinkId", link._id)
-          .eq("resourceType", "draw"),
+          .eq("resourceType", "draw")
       )
       .collect();
-    if (
-      grants.some(
-        (grant) =>
-          grant.scope === "activeBuild" &&
-          grant.organizationId === build.organizationId &&
-          grant.brokerageId === build.brokerageId &&
-          grant.builderProfileId === build.builderProfileId &&
-          grant.workosUserId === input.workosUserId &&
-          grant.canView,
-      )
-    ) {
-      return true;
+    const grant = grants.find(
+      (candidate) =>
+        candidate.scope === "activeBuild" &&
+        candidate.organizationId === build.organizationId &&
+        candidate.brokerageId === build.brokerageId &&
+        candidate.builderProfileId === builderProfileId &&
+        candidate.workosUserId === input.workosUserId &&
+        candidate.canView
+    );
+    if (grant) {
+      return {
+        basis: "builder_staff_permission_grant" as const,
+        builderAccountLinkId: link._id,
+        permissionGrantId: grant._id,
+      };
     }
   }
-  return false;
+  return null;
 }
