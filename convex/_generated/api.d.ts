@@ -70,6 +70,7 @@ import type * as build_collaboration_references from "../build_collaboration_ref
 import type * as build_collaboration_resolution from "../build_collaboration_resolution.js";
 import type * as build_collaboration_resolution_migration from "../build_collaboration_resolution_migration.js";
 import type * as build_collaboration_rollout from "../build_collaboration_rollout.js";
+import type * as build_collaboration_search from "../build_collaboration_search.js";
 import type * as build_collaboration_system_event_access from "../build_collaboration_system_event_access.js";
 import type * as build_collaboration_system_events from "../build_collaboration_system_events.js";
 import type * as build_collaboration_threads from "../build_collaboration_threads.js";
@@ -183,6 +184,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_resolution: typeof build_collaboration_resolution;
   build_collaboration_resolution_migration: typeof build_collaboration_resolution_migration;
   build_collaboration_rollout: typeof build_collaboration_rollout;
+  build_collaboration_search: typeof build_collaboration_search;
   build_collaboration_system_event_access: typeof build_collaboration_system_event_access;
   build_collaboration_system_events: typeof build_collaboration_system_events;
   build_collaboration_threads: typeof build_collaboration_threads;

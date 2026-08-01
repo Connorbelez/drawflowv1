@@ -16,7 +16,6 @@ import {
   Paperclip,
   Pencil,
   Pin,
-  Search,
   Send,
   ShieldAlert,
   SquareKanban,
@@ -83,6 +82,10 @@ import {
   BuildCollaborationReferenceChip,
   BuildCollaborationReferenceSheet,
 } from "./BuildCollaborationReference.tsx";
+import {
+  BuildCollaborationSearch,
+  type BuildCollaborationSearchResult,
+} from "./BuildCollaborationSearch.tsx";
 import { BuildCollaborationThreadSheet } from "./BuildCollaborationThreadSheet.tsx";
 import {
   abandonGovernedCollaborationAssets,
@@ -339,7 +342,11 @@ export function BuildCollaborationFeed({
     focusedPostQueryArgs({
       buildId: activeBuildId,
       organizationId,
-      postId: focusedPostId,
+      postId:
+        focusedPostId ??
+        (focusedCommentContext?.state === "visible"
+          ? focusedCommentContext.postId
+          : focusedActionItemContext?.postId),
     })
   ) as
     | { entry: CollaborationFeedPostEntry; state: "visible" }
@@ -386,7 +393,6 @@ export function BuildCollaborationFeed({
     api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
   const [filter, setFilter] = useState<FeedFilter>("all");
-  const [search, setSearch] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
   const [postType, setPostType] = useState<PostType>("update");
   const [audienceMode, setAudienceMode] = useState<AudienceMode>("build_wide");
@@ -508,6 +514,14 @@ export function BuildCollaborationFeed({
     }
     setFocusedReference(reference);
   };
+  const openSearchResult = (result: BuildCollaborationSearchResult) => {
+    const target = searchResultReference(result);
+    if (onOpenReference) {
+      onOpenReference({ ...target, href: result.href });
+      return;
+    }
+    window.history.replaceState(window.history.state, "", result.href);
+  };
   const openActionItemSheetReference = (
     reference: CollaborationTagReference
   ) => {
@@ -548,24 +562,9 @@ export function BuildCollaborationFeed({
     feed.loadMore(20);
   }, [feed, feedEntries, focusedActionItemContext, focusedCommentContext]);
   const visibleResults = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
     return feedEntries.filter((entry) => {
       if (entry.kind !== "post") {
-        return filter === "all" && !normalizedSearch;
-      }
-      const matchesSearch =
-        !normalizedSearch ||
-        [
-          entry.revision.plainText,
-          entry.post.authorDisplayNameSnapshot,
-          ...entry.references.map((reference) => reference.labelSnapshot),
-          ...entry.actionItems.map((actionItem) => actionItem.title),
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedSearch);
-      if (!matchesSearch) {
-        return false;
+        return filter === "all";
       }
       if (filter === "pinned") {
         return entry.pins.length > 0;
@@ -580,7 +579,7 @@ export function BuildCollaborationFeed({
       }
       return true;
     });
-  }, [feedEntries, filter, search]);
+  }, [feedEntries, filter]);
   const {
     displayedResults: commentFocusedResults,
     focusedPostEntry: commentFocusedPostEntry,
@@ -1171,7 +1170,7 @@ export function BuildCollaborationFeed({
           </FramePanel>
         </Frame>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-3">
           <Tabs
             onValueChange={(value) => setFilter(value as FeedFilter)}
             value={filter}
@@ -1183,19 +1182,12 @@ export function BuildCollaborationFeed({
               <TabsTab value="following">Following</TabsTab>
             </TabsList>
           </Tabs>
-          <div className="relative block min-w-0 sm:w-64">
-            <Search
-              aria-hidden="true"
-              className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              aria-label="Search loaded collaboration posts"
-              className="pl-9"
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search this Build"
-              value={search}
-            />
-          </div>
+          <BuildCollaborationSearch
+            buildId={activeBuildId}
+            onOpen={openSearchResult}
+            organizationId={organizationId}
+            participants={participants}
+          />
         </div>
 
         {feed.status === "LoadingFirstPage" ? (
@@ -2908,7 +2900,15 @@ function focusedPostCollaborationResults({
     (entry): entry is CollaborationFeedPostEntry =>
       entry.kind === "post" && entry.post._id === focusedPostId
   );
-  return focusedPostEntry ? [focusedPostEntry] : [];
+  if (!focusedPostEntry) {
+    return otherwise;
+  }
+  return otherwise.some(
+    (entry) =>
+      entry.kind === "post" && entry.post._id === focusedPostEntry.post._id
+  )
+    ? otherwise
+    : [focusedPostEntry, ...otherwise];
 }
 
 function useFocusedCollaborationPostCard(
@@ -2919,7 +2919,6 @@ function useFocusedCollaborationPostCard(
     if (!focused) {
       return;
     }
-    cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
     cardRef.current?.focus({ preventScroll: true });
   }, [cardRef, focused]);
 }
@@ -2957,7 +2956,7 @@ function focusedCommentCollaborationResults({
   }
   if (context?.state !== "visible") {
     return {
-      displayedResults: [] as CollaborationFeedEntry[],
+      displayedResults: visibleResults,
       focusedPostEntry: undefined,
     };
   }
@@ -2965,9 +2964,40 @@ function focusedCommentCollaborationResults({
     (entry) => entry.kind === "post" && entry.post._id === context.postId
   );
   return {
-    displayedResults: focusedPostEntry ? [focusedPostEntry] : [],
+    displayedResults:
+      focusedPostEntry &&
+      !visibleResults.some(
+        (entry) =>
+          entry.kind === "post" && entry.post._id === focusedPostEntry.post._id
+      )
+        ? [focusedPostEntry, ...visibleResults]
+        : visibleResults,
     focusedPostEntry,
   };
+}
+
+function searchResultReference(result: BuildCollaborationSearchResult) {
+  switch (result.resultType) {
+    case "comment":
+      return { entityId: result.commentId ?? result.id, entityKind: "comment" };
+    case "actionItem":
+      return {
+        entityId: result.actionItemId ?? result.id,
+        entityKind: "actionItem",
+      };
+    case "asset":
+      return {
+        entityId: result.entityId ?? result.id,
+        entityKind: result.entityKind ?? "evidenceAsset",
+      };
+    case "reference":
+      return {
+        entityId: result.entityId ?? result.id,
+        entityKind: result.entityKind ?? "milestone",
+      };
+    default:
+      return { entityId: result.postId, entityKind: "post" };
+  }
 }
 
 function collaborationReferencesForEditor(

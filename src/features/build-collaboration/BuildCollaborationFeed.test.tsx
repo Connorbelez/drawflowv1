@@ -76,6 +76,11 @@ const mocks = vi.hoisted(() => ({
     | "Exhausted"
     | "LoadingFirstPage"
     | "LoadingMore",
+  searchResponse: {
+    continueCursor: null,
+    isDone: true,
+    page: [] as Array<Record<string, unknown>>,
+  },
   workflowAssignmentMode: "direct" as "direct" | "request",
   workflowCanAccept: false,
   workflowTransitions: [
@@ -342,6 +347,12 @@ vi.mock("convex/react", () => ({
       "build_collaboration_focus:getFocusedBuildCollaborationPostContext"
     ) {
       return args === "skip" ? undefined : mocks.focusedPostContext;
+    }
+    if (
+      functionName ===
+      "build_collaboration_search:searchBuildCollaboration"
+    ) {
+      return args === "skip" ? undefined : mocks.searchResponse;
     }
     if (
       functionName ===
@@ -728,6 +739,7 @@ afterEach(() => {
   mocks.preferenceChannels = ["in_app", "email"];
   mocks.pushSubscription = null;
   mocks.queueStatus = "Exhausted";
+  mocks.searchResponse = { continueCursor: null, isDone: true, page: [] };
   mocks.workflowAssignmentMode = "direct";
   mocks.workflowCanAccept = false;
   mocks.workflowTransitions = ["in_progress", "blocked", "cancelled"];
@@ -910,6 +922,68 @@ describe("BuildCollaborationFeed", () => {
         name: "Foundation completion photo",
       }),
     ).toBeNull();
+  });
+
+  test("routes every searchable entity kind through its exact authorized deep link", async () => {
+    const entityKinds = [
+      "participant",
+      "milestone",
+      "submilestone",
+      "draw",
+      "evidencePackage",
+      "evidenceAsset",
+      "siteVisit",
+      "document",
+      "material",
+      "actionItem",
+    ];
+    mocks.searchResponse = {
+      continueCursor: null,
+      isDone: true,
+      page: entityKinds.map((entityKind) => ({
+        audienceMode: "build_wide",
+        createdAt: 1,
+        entityId: `entity-${entityKind}`,
+        entityKind,
+        excerpt: `Authorized ${entityKind} result`,
+        hasAttachments: false,
+        href: `/role-safe/${entityKind}`,
+        id: `reference-${entityKind}`,
+        matchKind: "keyword",
+        postId: "post-1",
+        resolutionState: "open",
+        resultType: "reference",
+        score: 10,
+        status: "open",
+        title: `Search ${entityKind}`,
+        updatedAt: 1,
+      })),
+    };
+    render(
+      <BuildCollaborationFeed
+        buildId="build-1"
+        onOpenReference={mocks.onOpenReference}
+        organizationId="org-1"
+      />,
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "Search all authorized Build collaboration",
+      }),
+      { target: { value: "foundation" } },
+    );
+
+    await screen.findByRole("button", { name: "Open Search participant" });
+    for (const entityKind of entityKinds) {
+      fireEvent.click(
+        screen.getByRole("button", { name: `Open Search ${entityKind}` }),
+      );
+      expect(mocks.onOpenReference).toHaveBeenLastCalledWith({
+        entityId: `entity-${entityKind}`,
+        entityKind,
+        href: `/role-safe/${entityKind}`,
+      });
+    }
   });
 
   test("shows the viewer's authorized cross-Build assignment queue", () => {
@@ -1432,7 +1506,7 @@ describe("BuildCollaborationFeed", () => {
         .getByTestId("collaboration-post-post-outside-first-page")
         .getAttribute("data-focused")
     ).toBe("true");
-    expect(screen.queryByText("Foundation evidence is ready for review.")).toBeNull();
+    expect(screen.getByText("Foundation evidence is ready for review.")).toBeTruthy();
   });
 
   test("keeps revoked focused posts disclosure-safe", async () => {
@@ -1450,7 +1524,9 @@ describe("BuildCollaborationFeed", () => {
         "This focused post is unavailable or your access was revoked."
       )
     ).toBeTruthy();
-    expect(screen.queryByText("Foundation evidence is ready for review.")).toBeNull();
+    expect(
+      screen.getAllByText("Foundation evidence is ready for review.").length
+    ).toBeGreaterThan(0);
   });
 
   test("opens a focused detail sheet for any Build participant role", async () => {
@@ -1630,7 +1706,7 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Loading discussion…")).toBeTruthy();
   });
 
-  test("announces focused discussion hydration before replacing ordinary rows", () => {
+  test("announces focused discussion hydration without replacing ordinary rows", () => {
     mocks.comments = [
       commentRowFixture("comment-ordinary", "Ordinary loaded reply"),
     ];
@@ -1644,7 +1720,9 @@ describe("BuildCollaborationFeed", () => {
     );
 
     expect(screen.getByText("Loading focused discussion…")).toBeTruthy();
-    expect(screen.queryByText("Ordinary loaded reply")).toBeNull();
+    expect(screen.getAllByText("Ordinary loaded reply").length).toBeGreaterThan(
+      0
+    );
   });
 
   test("keeps focused hydration live while the containing post paginates in", async () => {
@@ -1669,7 +1747,9 @@ describe("BuildCollaborationFeed", () => {
     );
 
     expect(screen.getByText("Loading focused discussion…")).toBeTruthy();
-    expect(screen.queryByText("Ordinary loaded reply")).toBeNull();
+    expect(screen.getAllByText("Ordinary loaded reply").length).toBeGreaterThan(
+      0
+    );
     await waitFor(() => expect(mocks.loadMore).toHaveBeenCalledWith(20));
   });
 

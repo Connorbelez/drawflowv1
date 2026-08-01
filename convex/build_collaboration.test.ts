@@ -4955,6 +4955,466 @@ describe("Build collaboration canonical reference authorization", () => {
   });
 });
 
+
+describe("Build collaboration authorized search", () => {
+  test("searches every readable record kind and applies all server-side filters", async () => {
+    const fixture = await seedActiveBuild();
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Site Contractor",
+      role: "contractor",
+      subject: "user_contractor",
+    });
+    const contractor = withIdentity(fixture.base, {
+      roles: ["contractor"],
+      subject: "user_contractor",
+    });
+    const publicPostId = await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [
+          {
+            assigneeWorkosUserId: "user_contractor",
+            descriptionPlainText: "Upload the revised structural report.",
+            descriptionTiptapJson: collaborationDocument(
+              "Upload the revised structural report.",
+            ),
+            title: "Confirm structural review",
+          },
+        ],
+        attachmentAssetIds: [],
+        audienceMode: "build_wide",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Footings site visit is complete.",
+        postType: "update",
+        references: [
+          {
+            entityId: "user_contractor",
+            entityKind: "participant",
+            label: "Site Contractor",
+            summary: "Contractor on this Build",
+          },
+        ],
+        requestedReaderIds: [],
+        tiptapJson: collaborationDocument("Footings site visit is complete."),
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_threads.addBuildCollaborationComment,
+      {
+        attachmentAssetIds: [],
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "The engineer seal was uploaded.",
+        postId: publicPostId,
+        references: [],
+        tiptapJson: collaborationDocument("The engineer seal was uploaded."),
+      },
+    );
+    const assetId = await createPublishedAssetFixture(fixture);
+
+    const search = (query: string, filters?: Record<string, unknown>) =>
+      contractor.query(
+        (api as any).build_collaboration_search.searchBuildCollaboration,
+        {
+          buildId: fixture.buildId,
+          filters,
+          organizationId: ORGANIZATION_ID,
+          query,
+        },
+      );
+    const semantic = await contractor.query(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        query: "foundation inspection",
+        searchMode: "semantic",
+      },
+    );
+    expect(semantic.page).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: publicPostId,
+          matchKind: "semantic",
+          resultType: "post",
+        }),
+      ]),
+    );
+    expect((await search("engineer seal")).page).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          resultType: "comment",
+          title: "Reply by user_admin@example.com",
+        }),
+      ]),
+    );
+    const actionItemResults = await search("structural review", {
+      assigneeWorkosUserIds: ["user_contractor"],
+      audienceModes: ["build_wide"],
+      resolutionStates: ["open"],
+      statuses: ["todo"],
+      types: ["actionItem"],
+    });
+    expect(actionItemResults.page).toEqual([
+      expect.objectContaining({
+        assigneeWorkosUserId: "user_contractor",
+        resultType: "actionItem",
+        title: "Confirm structural review",
+      }),
+    ]);
+    expect(
+      (
+        await search("Site Contractor", {
+          authorWorkosUserIds: ["user_admin"],
+          createdFrom: 0,
+          createdTo: Date.now() + 1_000,
+          entityKinds: ["participant"],
+          types: ["reference"],
+        })
+      ).page,
+    ).toEqual([
+      expect.objectContaining({
+        entityId: "user_contractor",
+        entityKind: "participant",
+        resultType: "reference",
+      }),
+    ]);
+    expect(
+      (
+        await search("reader txt", {
+          attachmentPresence: "with",
+          authorWorkosUserIds: ["user_admin"],
+          types: ["asset"],
+        })
+      ).page,
+    ).toEqual([
+      expect.objectContaining({
+        entityId: assetId,
+        entityKind: "evidenceAsset",
+        resultType: "asset",
+      }),
+    ]);
+  });
+
+  test("keeps restricted, tombstoned, and cross-Build content out of results and stable cursors", async () => {
+    const fixture = await seedActiveBuild();
+    await addBuildParticipant(fixture.base, {
+      buildId: fixture.buildId,
+      displayName: "Site Contractor",
+      role: "contractor",
+      subject: "user_contractor",
+    });
+    const contractor = withIdentity(fixture.base, {
+      roles: ["contractor"],
+      subject: "user_contractor",
+    });
+    const secretPostId = await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        ...collaborationPublicationFixture({
+          buildId: fixture.buildId,
+          plainText: "Aquamarine lender reserve is confidential.",
+        }),
+        audienceMode: "author_tier_and_higher",
+      },
+    );
+    for (const label of ["one", "two", "three"]) {
+      await fixture.admin.mutation(
+        (api as any).build_collaboration
+          .approveAndPublishBuildCollaborationBundle,
+        collaborationPublicationFixture({
+          buildId: fixture.buildId,
+          plainText: `Pagination search record ${label}.`,
+        }),
+      );
+    }
+
+    const contractorSecret = await contractor.query(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        query: "aquamarine",
+      },
+    );
+    expect(contractorSecret).toEqual({
+      continueCursor: null,
+      isDone: true,
+      page: [],
+    });
+    expect(
+      (
+        await fixture.admin.query(
+          (api as any).build_collaboration_search.searchBuildCollaboration,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            query: "aquamarine",
+          },
+        )
+      ).page,
+    ).toEqual([
+      expect.objectContaining({ id: secretPostId, resultType: "post" }),
+    ]);
+    await fixture.admin.mutation(
+      (api as any).build_collaboration_editing.tombstoneBuildCollaborationPost,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        postId: secretPostId,
+      },
+    );
+    expect(
+      (
+        await fixture.admin.query(
+          (api as any).build_collaboration_search.searchBuildCollaboration,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            query: "aquamarine",
+          },
+        )
+      ).page,
+    ).toEqual([]);
+
+    const firstPage = await contractor.query(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        limit: 2,
+        organizationId: ORGANIZATION_ID,
+        query: "pagination",
+      },
+    );
+    expect(firstPage.page).toHaveLength(2);
+    expect(firstPage.continueCursor).toEqual(expect.any(String));
+    const secondPage = await contractor.query(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        cursor: firstPage.continueCursor,
+        limit: 2,
+        organizationId: ORGANIZATION_ID,
+        query: "pagination",
+      },
+    );
+    expect(secondPage.page).toHaveLength(1);
+    expect(
+      new Set([...firstPage.page, ...secondPage.page].map((row: any) => row.id))
+        .size,
+    ).toBe(3);
+    await expect(
+      contractor.query(
+        (api as any).build_collaboration_search.searchBuildCollaboration,
+        {
+          buildId: fixture.buildId,
+          cursor: firstPage.continueCursor,
+          organizationId: ORGANIZATION_ID,
+          query: "different query",
+        },
+      ),
+    ).rejects.toThrow(/cursor/i);
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration_search.searchBuildCollaboration,
+        {
+          buildId: fixture.buildId,
+          cursor: firstPage.continueCursor,
+          organizationId: ORGANIZATION_ID,
+          query: "pagination",
+        },
+      ),
+    ).rejects.toThrow(/cursor/i);
+
+    const secondBuildId = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Active Build fixture is unavailable.");
+      }
+      const { _creationTime: _ignoredTime, _id: _ignoredId, ...copy } = build;
+      return await ctx.db.insert("activeBuilds", {
+        ...copy,
+        buildName: "Second isolated Build",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      contractor.query(
+        (api as any).build_collaboration_search.searchBuildCollaboration,
+        {
+          buildId: secondBuildId,
+          organizationId: ORGANIZATION_ID,
+          query: "pagination",
+        },
+      ),
+    ).rejects.toThrow(/forbidden|participant|access/i);
+    expect(
+      (
+        await fixture.admin.query(
+          (api as any).build_collaboration_search.searchBuildCollaboration,
+          {
+            buildId: secondBuildId,
+            organizationId: ORGANIZATION_ID,
+            query: "pagination",
+          },
+        )
+      ).page,
+    ).toEqual([]);
+  });
+
+  test("returns role-safe results for every collaboration role", async () => {
+    const fixture = await seedActiveBuild();
+    const roles = [
+      ["principle-broker", "/backoffice/builds"],
+      ["broker", "/backoffice/builds"],
+      ["builder", "/builder/builds"],
+      ["broker-staff", "/backoffice/builds"],
+      ["builder-staff", "/builder-staff/builds"],
+      ["homeowner", "/homeowner/builds"],
+      ["contractor", "/contractor/builds"],
+    ] as const;
+    for (const [role] of roles) {
+      await addBuildParticipant(fixture.base, {
+        buildId: fixture.buildId,
+        displayName: `Search ${role}`,
+        role,
+        subject: `search_${role}`,
+      });
+    }
+    const postId = await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      collaborationPublicationFixture({
+        buildId: fixture.buildId,
+        plainText: "Role complete search beacon.",
+      }),
+    );
+
+    const viewers = [
+      [fixture.admin, "/backoffice/builds"],
+      ...roles.map(
+        ([role, prefix]) =>
+          [
+            withIdentity(fixture.base, {
+              roles: [role],
+              subject: `search_${role}`,
+            }),
+            prefix,
+          ] as const,
+      ),
+    ] as const;
+    for (const [viewer, prefix] of viewers) {
+      const response = await viewer.query(
+        (api as any).build_collaboration_search.searchBuildCollaboration,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          query: "role complete search beacon",
+        },
+      );
+      expect(response.page).toEqual([
+        expect.objectContaining({
+          href: expect.stringContaining(`${prefix}/${fixture.buildId}`),
+          id: postId,
+          resultType: "post",
+        }),
+      ]);
+    }
+  });
+
+  test("searches every currently readable canonical reference kind with focused deep links", async () => {
+    const fixture = await seedActiveBuild();
+    const entities = await seedCollaborationReferenceEntities(fixture);
+    const references = [
+      ["participant", "user_admin"],
+      ["milestone", entities.milestoneId],
+      ["submilestone", entities.submilestoneId],
+      ["draw", entities.drawId],
+      ["evidencePackage", entities.evidencePackageId],
+      ["evidenceAsset", entities.evidenceAssetId],
+      ["siteVisit", entities.siteVisitId],
+      ["document", entities.documentId],
+      ["material", entities.materialId],
+      ["actionItem", entities.actionItemId],
+    ] as const;
+    await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        actionItems: [],
+        audienceMode: "author_tier_and_higher",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        plainText: "Canonical reference search fixture.",
+        postType: "update",
+        references: references.map(([entityKind, entityId]) => ({
+          entityId,
+          entityKind,
+          label: `Untrusted ${entityKind}`,
+        })),
+        requestedReaderIds: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: references.map(([entityKind, entityId]) => ({
+                attrs: {
+                  id: entityId,
+                  kind:
+                    entityKind === "actionItem"
+                      ? "action_item"
+                      : entityKind === "evidenceAsset" ||
+                          entityKind === "evidencePackage"
+                        ? "evidence"
+                        : entityKind === "siteVisit"
+                          ? "site_visit"
+                          : entityKind,
+                  label: `Untrusted ${entityKind}`,
+                },
+                type: "collaborationMention",
+              })),
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      },
+    );
+
+    const response = await fixture.admin.query(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        filters: { types: ["reference"] },
+        limit: 50,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(new Set(response.page.map((row: any) => row.entityKind))).toEqual(
+      new Set(references.map(([entityKind]) => entityKind)),
+    );
+    for (const [entityKind, entityId] of references) {
+      expect(response.page).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            entityId,
+            entityKind,
+            href: expect.stringContaining(
+              `focus=${encodeURIComponent(`${entityKind}:${entityId}`)}`,
+            ),
+            resultType: "reference",
+          }),
+        ]),
+      );
+    }
+  });
+});
+
 async function deleteCollaborationTenantSetting(
   t: ReturnType<typeof convexTest>,
 ) {

@@ -319,7 +319,7 @@ export const getFocusedBuildCollaborationCommentContext = authenticatedQuery
   })
   .public();
 
-async function projectThreadComments(
+export async function projectThreadComments(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
   comments: Doc<"buildCollaborationComments">[]
