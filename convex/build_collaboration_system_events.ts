@@ -12,6 +12,10 @@ import {
   resetBuildActionItemDeadlineSchedule,
 } from "./build_action_item_deadline_model";
 import { recordBuildActionItemRevision } from "./build_action_item_history";
+import {
+  linkBuildActionItemToPost,
+  syncLinkedActionItemPostCounts,
+} from "./build_action_item_post_links";
 import { stableContentHash } from "./build_collaboration";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import { collaborationRoleTier } from "./build_collaboration_model";
@@ -680,6 +684,20 @@ async function createDeterministicRemediationActionItem(
     (item) => item.status !== "done" && item.status !== "cancelled"
   );
   if (existingOpenObligation) {
+    await linkBuildActionItemToPost(ctx, {
+      actionItemId: existingOpenObligation._id,
+      brokerageId: input.authorization.brokerage._id,
+      buildId: input.authorization.build._id,
+      createdAt: input.now,
+      linkKind: "policy_obligation",
+      organizationId: input.authorization.organizationId,
+      postId: input.postId,
+    });
+    await syncLinkedActionItemPostCounts(ctx, {
+      actionItemId: existingOpenObligation._id,
+      actorWorkosUserId: "system",
+      now: input.now,
+    });
     return existingOpenObligation._id;
   }
   const requestId = `system-policy:${policyKey}:${input.idempotencyKey}`;
@@ -734,6 +752,15 @@ async function createDeterministicRemediationActionItem(
     title,
     updatedAt: input.now,
     workKind: input.remediation.workKind,
+  });
+  await linkBuildActionItemToPost(ctx, {
+    actionItemId,
+    brokerageId: input.authorization.brokerage._id,
+    buildId: input.authorization.build._id,
+    createdAt: input.now,
+    linkKind: "originating",
+    organizationId: input.authorization.organizationId,
+    postId: input.postId,
   });
   await ctx.db.insert("buildActionItemEvents", {
     actionItemId,
@@ -834,10 +861,10 @@ async function createDeterministicRemediationActionItem(
       relatedEntityType: "buildActionItem",
       status: "pending",
     }),
-    ctx.db.patch(input.postId, {
-      latestActivityActorWorkosUserId: "system",
-      openActionItemCount: 1,
-      updatedAt: input.now,
+    syncLinkedActionItemPostCounts(ctx, {
+      actionItemId,
+      actorWorkosUserId: "system",
+      now: input.now,
     }),
   ]);
   return actionItemId;

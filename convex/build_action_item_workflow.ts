@@ -8,6 +8,7 @@ import {
 } from "./build_action_item_deadline_model";
 import { actionItemRequiresAcceptance } from "./build_action_item_governance";
 import { recordBuildActionItemRevision } from "./build_action_item_history";
+import { syncLinkedActionItemPostCounts } from "./build_action_item_post_links";
 import { syncBuildActionItemReferenceQueueSortAt } from "./build_action_item_queue_projection";
 import {
   authorizeBuildActionItemOperation,
@@ -28,7 +29,6 @@ import {
 } from "./build_collaboration_validators";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
-const MAX_ACTION_ITEMS_PER_POST = 2000;
 const MAX_WORKFLOW_PARTICIPANTS = 2000;
 
 const workflowContextValidator = v.union(
@@ -855,12 +855,11 @@ async function recordWorkflowChange(
       status: "pending",
     }),
     insertWorkflowDelivery(ctx, input),
-    updateOriginatingPost(
-      ctx,
-      input.item.originatingPostId,
-      input.authorization,
-      input.now
-    ),
+    syncLinkedActionItemPostCounts(ctx, {
+      actionItemId: input.item._id,
+      actorWorkosUserId: input.authorization.viewer.subject,
+      now: input.now,
+    }),
   ]);
 }
 
@@ -920,28 +919,6 @@ function workflowNotificationTitle(eventType: string) {
     default:
       return "Action Item updated";
   }
-}
-
-async function updateOriginatingPost(
-  ctx: MutationCtx,
-  postId: Id<"buildCollaborationPosts">,
-  authorization: ActiveBuildAuthorization,
-  now: number
-) {
-  const items = await ctx.db
-    .query("buildActionItems")
-    .withIndex("by_originatingPostId_and_status", (query) =>
-      query.eq("originatingPostId", postId)
-    )
-    .take(MAX_ACTION_ITEMS_PER_POST);
-  await ctx.db.patch(postId, {
-    lastMeaningfulActivityAt: now,
-    latestActivityActorWorkosUserId: authorization.viewer.subject,
-    openActionItemCount: items.filter(
-      (item) => item.status !== "done" && item.status !== "cancelled"
-    ).length,
-    updatedAt: now,
-  });
 }
 
 function workflowState(item: Doc<"buildActionItems">) {

@@ -3717,6 +3717,17 @@ export default defineSchema({
     ])
     .index("by_dueAt", ["dueAt"])
     .index("by_buildId_and_dueAt", ["buildId", "dueAt"]),
+  buildActionItemPostLinks: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.id("buildCollaborationPosts"),
+    actionItemId: v.id("buildActionItems"),
+    linkKind: v.union(v.literal("originating"), v.literal("policy_obligation")),
+    createdAt: v.number(),
+  })
+    .index("by_postId_and_actionItemId", ["postId", "actionItemId"])
+    .index("by_actionItemId_and_postId", ["actionItemId", "postId"]),
   buildActionItemEvents: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -4117,6 +4128,7 @@ export default defineSchema({
     submilestoneKey: v.optional(v.string()),
     contractorIds: v.optional(v.array(v.id("contractorProfiles"))),
     clientEvidenceId: v.optional(v.string()),
+    clientEvidenceFingerprint: v.optional(v.string()),
     collaborationEventRevision: v.optional(v.number()),
     siteVisitId: v.optional(v.id("buildSiteVisits")),
     locationVerified: v.boolean(),
@@ -4569,6 +4581,7 @@ export default defineSchema({
     completedAt: v.optional(v.string()),
     collaborationEventRevision: v.optional(v.number()),
     scheduleIdempotencyKey: v.optional(v.string()),
+    scheduleRequestFingerprint: v.optional(v.string()),
     locationAttempt: v.optional(siteVisitLocationAttemptValidator),
     missingPrerequisites: v.optional(v.array(v.string())),
     prerequisiteException: v.optional(siteVisitPrerequisiteExceptionValidator),

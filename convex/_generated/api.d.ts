@@ -21,6 +21,7 @@ import type * as build_action_item_deadline_model from "../build_action_item_dea
 import type * as build_action_item_details from "../build_action_item_details.js";
 import type * as build_action_item_governance from "../build_action_item_governance.js";
 import type * as build_action_item_history from "../build_action_item_history.js";
+import type * as build_action_item_post_links from "../build_action_item_post_links.js";
 import type * as build_action_item_queue_projection from "../build_action_item_queue_projection.js";
 import type * as build_action_item_queues from "../build_action_item_queues.js";
 import type * as build_action_item_rbac from "../build_action_item_rbac.js";
@@ -71,6 +72,7 @@ import type * as build_collaboration_rollout from "../build_collaboration_rollou
 import type * as build_collaboration_system_events from "../build_collaboration_system_events.js";
 import type * as build_collaboration_threads from "../build_collaboration_threads.js";
 import type * as build_collaboration_validators from "../build_collaboration_validators.js";
+import type * as build_operational_idempotency from "../build_operational_idempotency.js";
 import type * as build_participant_activation from "../build_participant_activation.js";
 import type * as build_participant_revocation from "../build_participant_revocation.js";
 import type * as build_participant_revocation_notifications from "../build_participant_revocation_notifications.js";
@@ -129,6 +131,7 @@ declare const fullApi: ApiFromModules<{
   build_action_item_details: typeof build_action_item_details;
   build_action_item_governance: typeof build_action_item_governance;
   build_action_item_history: typeof build_action_item_history;
+  build_action_item_post_links: typeof build_action_item_post_links;
   build_action_item_queue_projection: typeof build_action_item_queue_projection;
   build_action_item_queues: typeof build_action_item_queues;
   build_action_item_rbac: typeof build_action_item_rbac;
@@ -179,6 +182,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_system_events: typeof build_collaboration_system_events;
   build_collaboration_threads: typeof build_collaboration_threads;
   build_collaboration_validators: typeof build_collaboration_validators;
+  build_operational_idempotency: typeof build_operational_idempotency;
   build_participant_activation: typeof build_participant_activation;
   build_participant_revocation: typeof build_participant_revocation;
   build_participant_revocation_notifications: typeof build_participant_revocation_notifications;

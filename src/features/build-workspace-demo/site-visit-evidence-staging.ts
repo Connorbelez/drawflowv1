@@ -207,7 +207,7 @@ export async function uploadSiteVisitStagedEvidence({
       throw new Error(`Unable to upload ${fileName}.`);
     }
     const { storageId } = await response.json();
-    await registerFile({
+    const registration = await registerFile({
       buildId,
       clientEvidenceId: item.evidence.id,
       fileName,
@@ -218,6 +218,16 @@ export async function uploadSiteVisitStagedEvidence({
       targetSubmilestoneKey: item.evidence.targetSubmilestoneKey,
       token,
     });
+    if (
+      registration &&
+      typeof registration === "object" &&
+      "status" in registration &&
+      registration.status === "rejected"
+    ) {
+      throw new Error(
+        `Unable to register ${fileName}: its upload ID was already used for different evidence.`
+      );
+    }
     onUploadedItem?.(item);
   }
 

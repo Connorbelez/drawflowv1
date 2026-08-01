@@ -301,6 +301,7 @@ export const buildActionItemValidator = v.object({
   parentActionItemId: v.optional(v.id("buildActionItems")),
   previousActiveStatus: v.optional(buildActionItemStatusValidator),
   policyDueAt: v.optional(v.number()),
+  policyObligationKey: v.optional(v.string()),
   primaryReferenceId: v.optional(v.string()),
   primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
   priority: buildActionItemPriorityValidator,

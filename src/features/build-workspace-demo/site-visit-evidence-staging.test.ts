@@ -199,4 +199,38 @@ describe("site visit evidence staging", () => {
       }),
     ]);
   });
+
+  test("keeps staged evidence when the server rejects an idempotency conflict", async () => {
+    const uploaded: string[] = [];
+    const stagedEvidence = buildStagedEvidence({
+      id: "photo-conflict",
+      mimeType: "image/jpeg",
+      name: "foundation-conflict.jpg",
+      sizeBytes: 1_000,
+      targetMilestoneKey: "foundation",
+    });
+    const file = new File(["image"], "foundation-conflict.jpg", {
+      type: "image/jpeg",
+    });
+
+    await expect(
+      uploadSiteVisitStagedEvidence({
+        buildId: "demo-timeline-steady-maple-ab12",
+        generateUploadUrl: async () => "https://upload.example.test",
+        onUploadedItem: (item) => uploaded.push(item.evidence.id),
+        registerFile: async () => ({
+          reason: "idempotency_conflict",
+          status: "rejected",
+          storageDisposition: "deleted_unowned_upload",
+        }),
+        stagedItems: [{ evidence: stagedEvidence, file }],
+        token: "token-123",
+        upload: async () => ({
+          json: async () => ({ storageId: "storage-conflict" }),
+          ok: true,
+        }),
+      })
+    ).rejects.toThrow(/upload ID was already used/i);
+    expect(uploaded).toEqual([]);
+  });
 });

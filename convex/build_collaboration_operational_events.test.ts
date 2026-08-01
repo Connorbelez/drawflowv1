@@ -522,6 +522,44 @@ describe("Build Collaboration operational events", () => {
       afterReject.posts.length + 1
     );
     expect(afterSecondMaterialReject.actionItems).toHaveLength(1);
+    const priorPostIds = new Set(afterReject.posts.map((post) => post._id));
+    const secondRejectPost = afterSecondMaterialReject.posts.find(
+      (post) => !priorPostIds.has(post._id)
+    );
+    expect(secondRejectPost?.openActionItemCount).toBe(1);
+    const linkedActionItems = await fixture.admin.query(
+      (api as any).build_action_items.listBuildActionItems,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: secondRejectPost!._id,
+      }
+    );
+    expect(linkedActionItems).toHaveLength(1);
+    expect(linkedActionItems[0]?.item._id).toBe(
+      afterSecondMaterialReject.actionItems[0]?._id
+    );
+    await fixture.admin.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: afterSecondMaterialReject.actionItems[0]!._id,
+        buildId: fixture.buildId,
+        expectedRevision:
+          afterSecondMaterialReject.actionItems[0]!.currentRevision,
+        nextStatus: "cancelled",
+        organizationId: ORGANIZATION_ID,
+        reason: "Evidence was resolved through the authoritative review.",
+      }
+    );
+    const afterObligationCancellation = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId)
+    );
+    expect(
+      afterObligationCancellation.posts
+        .filter((post) => post.postType === "issue")
+        .map((post) => post.openActionItemCount)
+    ).toEqual([0, 0]);
 
     await fixture.admin.mutation(
       (api as any).production_proposals.reviewActiveBuildEvidence,
@@ -576,6 +614,20 @@ describe("Build Collaboration operational events", () => {
       }
     );
     expect(scheduleReplay.visitId).toBe(scheduled.visitId);
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.scheduleActiveBuildSiteVisit,
+        {
+          buildId: fixture.buildId,
+          idempotencyKey: "operational-foundation-site-visit",
+          milestoneKey: "foundation",
+          note: "Inspect footing forms.",
+          requestedDay: 14,
+          requestedTime: "09:00",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/idempotency key was already used/i);
     const afterScheduleReplay = await collaborationSnapshot(
       fixture.base,
       String(fixture.buildId)
@@ -641,10 +693,10 @@ describe("Build Collaboration operational events", () => {
         accuracyMeters: 10,
         attempted: true,
         attemptedAt: 1_722_222_222_222,
-        latitude: 43.2557,
-        longitude: -79.8711,
+        latitude: 43.3,
+        longitude: -79.9,
         permissionOutcome: "granted" as const,
-        verified: true,
+        verified: false,
       },
       mimeType: "image/webp",
       sizeBytes: 128_000,
@@ -652,23 +704,31 @@ describe("Build Collaboration operational events", () => {
       targetMilestoneKey: "foundation",
       token: scheduled.visitId,
     };
-    await fixture.base.mutation(
+    const registered = await fixture.base.mutation(
       (api as any).production_proposals.registerActiveBuildSiteVisitFile,
       registration
     );
+    expect(registered.status).toBe("registered");
     const afterRegistration = await collaborationSnapshot(
       fixture.base,
       String(fixture.buildId)
     );
-    expect(afterRegistration.posts).toHaveLength(afterReschedule.posts.length + 1);
+    expect(afterRegistration.posts).toHaveLength(afterReschedule.posts.length + 2);
     expect(afterRegistration.posts.map((post) => post.systemEventKey)).toEqual(
-      expect.arrayContaining([expect.stringMatching(/:submitted$/)])
+      expect.arrayContaining([
+        expect.stringMatching(/:submitted$/),
+        expect.stringMatching(/:location-unverified$/),
+      ])
     );
-    expect(afterRegistration.actionItems).toHaveLength(0);
-    await fixture.base.mutation(
+    expect(afterRegistration.actionItems).toHaveLength(1);
+    const replayed = await fixture.base.mutation(
       (api as any).production_proposals.registerActiveBuildSiteVisitFile,
       registration
     );
+    expect(replayed).toEqual({
+      assetId: registered.assetId,
+      status: "replayed",
+    });
     const afterRegistrationReplay = await collaborationSnapshot(
       fixture.base,
       String(fixture.buildId)
@@ -682,6 +742,27 @@ describe("Build Collaboration operational events", () => {
     expect(afterRegistrationReplay.actionItems).toHaveLength(
       afterRegistration.actionItems.length
     );
+    const conflictingStorageId = await fixture.base.run(async (ctx) =>
+      ctx.storage.store(
+        new Blob(["conflicting site visit evidence"], { type: "image/webp" })
+      )
+    );
+    const conflict = await fixture.base.mutation(
+      (api as any).production_proposals.registerActiveBuildSiteVisitFile,
+      {
+        ...registration,
+        fileName: "different-file.webp",
+        storageId: conflictingStorageId,
+      }
+    );
+    expect(conflict).toMatchObject({
+      reason: "idempotency_conflict",
+      status: "rejected",
+      storageDisposition: "deleted_unowned_upload",
+    });
+    expect(
+      await fixture.base.run((ctx) => ctx.storage.get(conflictingStorageId))
+    ).toBeNull();
 
     await fixture.base.mutation(
       (api as any).production_proposals.submitActiveBuildTokenizedSiteVisitReport,
@@ -713,7 +794,7 @@ describe("Build Collaboration operational events", () => {
       fixture.base,
       String(fixture.buildId)
     );
-    expect(afterSubmission.posts).toHaveLength(afterRegistration.posts.length + 3);
+    expect(afterSubmission.posts).toHaveLength(afterRegistration.posts.length + 2);
     expect(afterSubmission.actionItems).toHaveLength(2);
     expect(afterSubmission.posts.map((post) => post.systemEventKey)).toEqual(
       expect.arrayContaining([

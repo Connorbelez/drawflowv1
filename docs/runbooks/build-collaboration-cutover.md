@@ -211,6 +211,8 @@ these Build-local canaries:
    one Visit and flag another; both must deep-link to the existing focused Site
    Visit detail and only contractors assigned to that Visit's milestone scope
    may read or receive the event.
+   Reuse the schedule key with different request fields and confirm the request
+   is rejected without creating another Visit or post.
 4. Submit a tokenized Site Visit report outside the configured geofence.
    Confirm the original Evidence Asset and bytes remain present, its canonical
    location attempt and failure fields are preserved, and lender/admin review
@@ -227,6 +229,12 @@ these Build-local canaries:
    exception while its Action Item remains open and confirm the existing
    obligation is reused with a policy due date, active deadline schedule, and
    governed completion acceptance.
+8. Retry a tokenized Site Visit Evidence registration with the same client ID
+   and identical payload; confirm the original asset is returned. Reuse the ID
+   with different file, scope, location, or storage metadata and confirm the
+   registration is rejected and the unowned upload is deleted. Submitting the
+   report with an unchanged unverified location attempt must not emit a second
+   Evidence blocker; a material location change must emit one.
 
 Monitor `build.collaboration.system_event.published` and
 `build.collaboration.action_item.policy_created` audit/outbox events by tenant

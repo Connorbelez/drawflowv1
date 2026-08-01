@@ -8,6 +8,7 @@ import {
 } from "./build_action_item_deadline_model";
 import { actionItemRequiresAcceptance } from "./build_action_item_governance";
 import { recordBuildActionItemRevision } from "./build_action_item_history";
+import { actionItemsLinkedToPost } from "./build_action_item_post_links";
 import { syncBuildActionItemReferenceQueueSortAt } from "./build_action_item_queue_projection";
 import {
   authorizeBuildActionItemOperation,
@@ -351,12 +352,7 @@ export const listBuildActionItems = authenticatedQuery
     );
     const postId = args.postId;
     const items = postId
-      ? await ctx.db
-          .query("buildActionItems")
-          .withIndex("by_originatingPostId_and_status", (query) =>
-            query.eq("originatingPostId", postId)
-          )
-          .take(MAX_ACTION_ITEMS_PER_BUILD)
+      ? await actionItemsLinkedToPost(ctx, postId)
       : await ctx.db
           .query("buildActionItems")
           .withIndex("by_buildId_and_status_and_updatedAt", (query) =>

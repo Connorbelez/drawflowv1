@@ -37,6 +37,11 @@ import {
   publishSiteVisitScheduledCollaborationEvent,
 } from "./build_collaboration_operational_events";
 import {
+  evidenceLocationMateriallyChanged,
+  normalizeOperationalIdempotencyKey,
+  operationalRequestFingerprint,
+} from "./build_operational_idempotency";
+import {
   type coerceSiteVisitGuidanceInput,
   defaultSiteVisitGuidance,
   guidanceHtmlExceedsMaxLength,
@@ -9613,23 +9618,10 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       args.workosOrganizationId
     );
     requireBackofficeActiveBuildWrite(auth);
-    const idempotencyKey = args.idempotencyKey.trim();
-    if (!idempotencyKey || idempotencyKey.length > 240) {
-      throw new Error(
-        "Site Visit schedule idempotency key must be 1 to 240 characters."
-      );
-    }
-    const existingVisit = await ctx.db
-      .query("buildSiteVisits")
-      .withIndex("by_build_schedule_idempotency", (query) =>
-        query
-          .eq("buildId", args.buildId)
-          .eq("scheduleIdempotencyKey", idempotencyKey)
-      )
-      .unique();
-    if (existingVisit) {
-      return activeBuildSiteVisitScheduleResponse(existingVisit);
-    }
+    const idempotencyKey = normalizeOperationalIdempotencyKey(
+      args.idempotencyKey,
+      "Site Visit schedule idempotency key"
+    );
     const milestone = await getActiveBuildMilestoneOrThrow(
       ctx,
       args.buildId,
@@ -9641,8 +9633,39 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       args.siteVisitGuidance,
       args.submilestoneKeys
     );
-    const now = Date.now();
     const requestedDay = Math.max(0, Math.round(args.requestedDay));
+    const requestedTime = normalizeOptionalString(args.requestedTime);
+    const note = normalizeOptionalString(args.note);
+    const scheduleRequestFingerprint = await operationalRequestFingerprint({
+      milestoneKey: milestone.key,
+      note: note ?? null,
+      requestedDay,
+      requestedTime: requestedTime ?? null,
+      siteVisitGuidance: configuration.siteVisitGuidance,
+      submilestoneKeys: [...configuration.submilestoneKeys].sort(),
+    });
+    const existingVisit = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_build_schedule_idempotency", (query) =>
+        query
+          .eq("buildId", args.buildId)
+          .eq("scheduleIdempotencyKey", idempotencyKey)
+      )
+      .unique();
+    if (existingVisit) {
+      if (
+        existingVisit.scheduleRequestFingerprint !== scheduleRequestFingerprint
+      ) {
+        throw new ConvexError({
+          code: "SITE_VISIT_SCHEDULE_IDEMPOTENCY_CONFLICT",
+          message:
+            "This Site Visit schedule idempotency key was already used for a different request.",
+          recoverable: true,
+        });
+      }
+      return activeBuildSiteVisitScheduleResponse(existingVisit);
+    }
+    const now = Date.now();
     const visitId = `active_visit_${args.milestoneKey}_${now}`;
     const workOrderId = `WO-${visitId}`;
     const evidencePackageId = `EP-${String(args.buildId)}-${args.milestoneKey}`;
@@ -9650,10 +9673,10 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       evidencePackageId,
       scopeBoundAt: now,
       workOrderId,
-      note: args.note,
+      note,
       requestedAt: new Date(now).toISOString(),
       requestedDay,
-      requestedTime: normalizeOptionalString(args.requestedTime),
+      requestedTime,
       siteVisitGuidance: configuration.siteVisitGuidance,
       status: "requested",
       submilestoneKeys: configuration.submilestoneKeys,
@@ -9670,13 +9693,14 @@ export const scheduleActiveBuildSiteVisit = authenticatedMutation
       evidencePackageId,
       scopeBoundAt: now,
       workOrderId,
-      milestoneKey: args.milestoneKey,
-      note: args.note,
+      milestoneKey: milestone.key,
+      note,
       organizationId: args.workosOrganizationId,
       requestedAt: siteVisit.requestedAt,
       requestedDay,
       requestedTime: siteVisit.requestedTime,
       scheduleIdempotencyKey: idempotencyKey,
+      scheduleRequestFingerprint,
       siteVisitGuidance: configuration.siteVisitGuidance,
       status: "requested",
       submilestoneKeys: configuration.submilestoneKeys,
@@ -17322,7 +17346,26 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     token: v.string(),
     locationAttempt: v.optional(siteVisitLocationAttemptValidator),
   })
-  .returns(v.null())
+  .returns(
+    v.union(
+      v.object({
+        assetId: v.id("buildEvidenceAssets"),
+        status: v.literal("registered"),
+      }),
+      v.object({
+        assetId: v.id("buildEvidenceAssets"),
+        status: v.literal("replayed"),
+      }),
+      v.object({
+        reason: v.literal("idempotency_conflict"),
+        storageDisposition: v.union(
+          v.literal("deleted_unowned_upload"),
+          v.literal("preserved_existing_upload")
+        ),
+        status: v.literal("rejected"),
+      })
+    )
+  )
   .handler(async (ctx, args) => {
     const state = await getActiveBuildSiteVisitTokenState(
       ctx,
@@ -17344,17 +17387,22 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     if (!(build && visit) || visit.buildId !== buildId) {
       throw new Error("Site visit token is invalid.");
     }
-    const existing = await ctx.db
-      .query("buildEvidenceAssets")
-      .withIndex("by_site_visit_client", (q) =>
-        q
-          .eq("siteVisitId", visit._id)
-          .eq("clientEvidenceId", args.clientEvidenceId)
-      )
-      .unique();
-    if (existing) {
-      return null;
+    const clientEvidenceId = normalizeOperationalIdempotencyKey(
+      args.clientEvidenceId,
+      "Site Visit Evidence client ID"
+    );
+    const fileName = args.fileName.trim();
+    const mimeType = args.mimeType.trim().toLowerCase();
+    if (!fileName || !mimeType) {
+      throw new Error(
+        "Site Visit Evidence file name and MIME type are required."
+      );
     }
+    const sizeBytes = Math.max(0, Math.round(args.sizeBytes));
+    const targetMilestoneKey = normalizeOptionalString(args.targetMilestoneKey);
+    const targetSubmilestoneKey = normalizeOptionalString(
+      args.targetSubmilestoneKey
+    );
     const resolvedLocationAttempt = args.locationAttempt
       ? resolveSiteVisitGeofenceAttempt({
           locationAttempt: args.locationAttempt,
@@ -17362,17 +17410,51 @@ export const registerActiveBuildSiteVisitFile = publicMutation
           siteLongitude: build.locationLongitude,
         })
       : undefined;
+    const clientEvidenceFingerprint = await operationalRequestFingerprint({
+      clientEvidenceId,
+      contractorIds: (args.contractorIds ?? []).map(String).sort(),
+      fileName,
+      locationAttempt: resolvedLocationAttempt ?? null,
+      mimeType,
+      sizeBytes,
+      storageId: String(args.storageId),
+      targetMilestoneKey: targetMilestoneKey ?? null,
+      targetSubmilestoneKey: targetSubmilestoneKey ?? null,
+    });
+    const existing = await ctx.db
+      .query("buildEvidenceAssets")
+      .withIndex("by_site_visit_client", (q) =>
+        q.eq("siteVisitId", visit._id).eq("clientEvidenceId", clientEvidenceId)
+      )
+      .unique();
+    if (existing) {
+      if (existing.clientEvidenceFingerprint === clientEvidenceFingerprint) {
+        return { assetId: existing._id, status: "replayed" as const };
+      }
+      const isExistingStorage = existing.storageId === args.storageId;
+      if (!isExistingStorage) {
+        await ctx.storage.delete(args.storageId);
+      }
+      return {
+        reason: "idempotency_conflict" as const,
+        status: "rejected" as const,
+        storageDisposition: isExistingStorage
+          ? ("preserved_existing_upload" as const)
+          : ("deleted_unowned_upload" as const),
+      };
+    }
     const now = Date.now();
     const assetId = await ctx.db.insert("buildEvidenceAssets", {
       brokerageId: build.brokerageId,
       buildId,
-      clientEvidenceId: args.clientEvidenceId,
+      clientEvidenceFingerprint,
+      clientEvidenceId,
       collaborationEventRevision: 1,
       contractorIds: args.contractorIds,
       createdAt: now,
-      evidenceKey: `site-visit-${args.token}-${now}`,
-      fileName: args.fileName,
-      label: args.fileName,
+      evidenceKey: `site-visit-${args.token}-${clientEvidenceId}`,
+      fileName,
+      label: fileName,
       locationVerified: resolvedLocationAttempt?.verified ?? false,
       ...(resolvedLocationAttempt?.accuracyMeters === undefined
         ? {}
@@ -17392,15 +17474,15 @@ export const registerActiveBuildSiteVisitFile = publicMutation
             locationGeofenceRadiusMeters:
               resolvedLocationAttempt.geofenceRadiusMeters,
           }),
-      milestoneKey: args.targetMilestoneKey ?? visit.milestoneKey,
-      mimeType: args.mimeType,
+      milestoneKey: targetMilestoneKey ?? visit.milestoneKey,
+      mimeType,
       organizationId: build.organizationId,
       proposalId: build.proposalId,
-      sizeBytes: Math.max(0, Math.round(args.sizeBytes)),
+      sizeBytes,
       siteVisitId: visit._id,
-      source: `active_build_site_visit:${args.token}:${args.targetSubmilestoneKey ?? ""}`,
+      source: `active_build_site_visit:${args.token}:${targetSubmilestoneKey ?? ""}`,
       storageId: args.storageId,
-      submilestoneKey: args.targetSubmilestoneKey,
+      submilestoneKey: targetSubmilestoneKey,
       tag: "Site visit evidence",
       updatedAt: now,
     });
@@ -17416,7 +17498,7 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       asset: persistedAsset,
       revision: 1,
     });
-    return null;
+    return { assetId, status: "registered" as const };
   })
   .public();
 
@@ -17523,10 +17605,13 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
       revision: number;
     }> = [];
     for (const asset of visitEvidence) {
-      const collaborationEventRevision =
-        submissionContext.locationAttempt.verified
-          ? asset.collaborationEventRevision
-          : (asset.collaborationEventRevision ?? 1) + 1;
+      const locationChanged = evidenceLocationMateriallyChanged(
+        asset,
+        submissionContext.locationAttempt
+      );
+      const collaborationEventRevision = locationChanged
+        ? (asset.collaborationEventRevision ?? 1) + 1
+        : asset.collaborationEventRevision;
       const evidencePatch = {
         collaborationEventRevision,
         locationVerified: submissionContext.locationAttempt.verified,
@@ -17559,7 +17644,7 @@ export const submitActiveBuildTokenizedSiteVisitReport = publicMutation
         updatedAt: Date.now(),
       };
       await ctx.db.patch(asset._id, evidencePatch);
-      if (!submissionContext.locationAttempt.verified) {
+      if (!submissionContext.locationAttempt.verified && locationChanged) {
         unverifiedEvidence.push({
           asset: { ...asset, ...evidencePatch },
           revision: collaborationEventRevision ?? 1,
