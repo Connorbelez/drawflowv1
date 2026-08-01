@@ -202,6 +202,23 @@ http.route({
           status: 410,
         });
       }
+      if (authorized.content) {
+        return new Response(authorized.content, {
+          headers: {
+            ...corsHeaders,
+            "Cache-Control": "private, no-store, max-age=0",
+            "Content-Type": "application/x-ndjson",
+            "X-Content-SHA256": authorized.contentHashSha256,
+            "X-Content-Type-Options": "nosniff",
+          },
+          status: 200,
+        });
+      }
+      if (!authorized.storageId) {
+        return new Response("Collaboration archive chunk is unavailable.", {
+          status: 404,
+        });
+      }
       const storageUrl = await ctx.storage.getUrl(authorized.storageId);
       if (!storageUrl) {
         return new Response("Collaboration archive chunk is unavailable.", {

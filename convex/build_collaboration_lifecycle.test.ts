@@ -170,13 +170,66 @@ describe("Build collaboration export and lifecycle governance", () => {
     ).rejects.toThrow("expired");
   });
 
+  test("creates a bounded full-archive shell before incrementally planning a near-limit Build", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    await fixture.base.run(async (ctx) => {
+      const template = await ctx.db.get(fixture.sharedPostId);
+      if (!template) {
+        throw new Error("Expected archive planning post template.");
+      }
+      const { _creationTime, _id, currentRevisionId, ...post } = template;
+      for (let index = 0; index < 1990; index += 1) {
+        await ctx.db.insert("buildCollaborationPosts", {
+          ...post,
+          createdAt: BASE_TIME - index - 1,
+          updatedAt: BASE_TIME - index - 1,
+        });
+      }
+    });
+
+    const created = await fixture.principal.mutation(
+      (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        scope: "build",
+      },
+    );
+    const shell = await fixture.base.run(async (ctx) => ({
+      exportRow: await ctx.db.get(
+        created.exportId as Id<"buildCollaborationExports">,
+      ),
+      planRecords: await ctx.db
+        .query("buildCollaborationExportArchivePlanRecords")
+        .withIndex("by_exportId_and_ordinal", (query) =>
+          query.eq("exportId", created.exportId),
+        )
+        .collect(),
+    }));
+    expect(shell.exportRow).toMatchObject({
+      archivePlanNextOrdinal: 0,
+      archivePlanPhase: "posts",
+      archivePlannedPostCount: 0,
+      recordCount: 0,
+      state: "building",
+    });
+    expect(JSON.parse(shell.exportRow!.manifestJson)).toMatchObject({
+      planning: true,
+      scope: "full_archive",
+    });
+    expect(shell.planRecords).toEqual([]);
+  });
+
   test("snapshots the exact post entity and asset attachment ACL decisions", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
     const fixture = await seedLifecycleFixture();
     await fixture.base.run(async (ctx) => {
-      await ctx.db.patch(fixture.secretPostId, {
+      await ctx.db.patch(fixture.sharedPostId, {
         primaryReferenceKind: "draw",
+        primaryReferenceId: "draw-fixture",
         source: "system",
       });
       const asset = await ctx.db.get(fixture.assetId);
@@ -209,21 +262,34 @@ describe("Build collaboration export and lifecycle governance", () => {
       },
     );
     const acl = JSON.parse(downloaded.aclSnapshotJson);
+    expect(acl).toMatchObject({ decisionsInArchive: true });
+    const archiveRecords = (await readArchiveText(
+      fixture.base,
+      created.exportId,
+    ))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const postDecision = archiveRecords.find(
+      (record) =>
+        record.kind === "post" &&
+        record.section === "core" &&
+        record.aclDecision?.postId === fixture.sharedPostId,
+    )?.aclDecision;
     expect(
-      acl.postDecisions.find(
-        (decision: any) => decision.postId === fixture.secretPostId,
-      ),
+      postDecision,
     ).toMatchObject({
       decision: "authorized",
       entityAclAuthorized: true,
       entityAclDecision: { basis: "role", role: "admin" },
       entityAclRequired: true,
     });
-    expect(
-      acl.assetDecisions.find(
-        (decision: any) => decision.assetId === fixture.assetId,
-      ),
-    ).toMatchObject({
+    const assetDecision = archiveRecords.find(
+      (record) =>
+        record.kind === "asset" &&
+        record.aclDecision?.assetId === fixture.assetId,
+    )?.aclDecision;
+    expect(assetDecision).toMatchObject({
       basis: "published_reader_snapshot_and_attachment_acl",
       decision: "authorized",
       postId: fixture.sharedPostId,
@@ -843,6 +909,43 @@ describe("Build collaboration export and lifecycle governance", () => {
         );
         await ctx.db.patch(postId, { currentRevisionId: revisionId });
       }
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Expected bounded archive residue Build.");
+      }
+      const exportId = await ctx.db.insert("buildCollaborationExports", {
+        accessCount: 0,
+        aclSnapshotJson: "{}",
+        brokerageId: build.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: BASE_TIME,
+        expiresAt: BASE_TIME + 60_000,
+        manifestJson: "{}",
+        organizationId: ORGANIZATION_ID,
+        recordCount: 0,
+        requestedByRole: "admin",
+        requestedByWorkosUserId: "user_admin",
+        scope: "full_archive",
+        state: "active",
+        tokenHash: "bounded-archive-residue",
+      });
+      for (let index = 0; index < 205; index += 1) {
+        await ctx.db.insert("buildCollaborationExportArchiveChunks", {
+          brokerageId: build.brokerageId,
+          buildId: fixture.buildId,
+          byteLength: 1,
+          content: new Uint8Array([index % 255]).buffer,
+          contentHashSha256: `bounded-${index}`,
+          createdAt: BASE_TIME,
+          exportId,
+          organizationId: ORGANIZATION_ID,
+          partIndex: 0,
+          recordIndex: index,
+          sequence: index,
+          state: "stored",
+          storedAt: BASE_TIME,
+        });
+      }
     });
     await fixture.admin.mutation(
       (api as any).build_collaboration_retention
@@ -909,6 +1012,22 @@ describe("Build collaboration export and lifecycle governance", () => {
       "build.collaboration.retention_purge.batch_completed",
     ]);
 
+    const second = await fixture.admin.mutation(
+      (api as any).build_collaboration_retention
+        .purgeExpiredBuildCollaborationContent,
+      args,
+    );
+    expect(second).toMatchObject({
+      complete: false,
+      deletedPostCount: 12,
+      hasRemainingPosts: false,
+    });
+    const third = await fixture.admin.mutation(
+      (api as any).build_collaboration_retention
+        .purgeExpiredBuildCollaborationContent,
+      args,
+    );
+    expect(third).toMatchObject({ complete: false, deletedPostCount: 12 });
     const completed = await fixture.admin.mutation(
       (api as any).build_collaboration_retention
         .purgeExpiredBuildCollaborationContent,
@@ -1131,14 +1250,13 @@ describe("Build collaboration export and lifecycle governance", () => {
           query.eq("exportId", created.exportId).eq("sequence", 0),
         )
         .unique();
-      if (!chunk?.storageId) {
+      if (!chunk?.content) {
         throw new Error("Expected first archive chunk.");
       }
-      const body = await ctx.storage.get(chunk.storageId);
-      if (!body) {
-        throw new Error("Expected first archive chunk body.");
-      }
-      return { hash: chunk.contentHashSha256, text: await body.text() };
+      return {
+        hash: chunk.contentHashSha256,
+        text: new TextDecoder().decode(chunk.content),
+      };
     });
     const chunkDownloadUrl = new URL(
       manifest.archive.chunkUrlTemplate.replace("%7BchunkIndex%7D", "0"),
@@ -1175,14 +1293,10 @@ describe("Build collaboration export and lifecycle governance", () => {
         .collect();
       let ndjson = "";
       for (const chunk of chunks.sort((a, b) => a.sequence - b.sequence)) {
-        if (!chunk.storageId) {
-          throw new Error("Expected persisted archive chunk storage.");
+        if (!chunk.content) {
+          throw new Error("Expected persisted archive chunk content.");
         }
-        const body = await ctx.storage.get(chunk.storageId);
-        if (!body) {
-          throw new Error("Expected persisted archive chunk body.");
-        }
-        ndjson += await body.text();
+        ndjson += new TextDecoder().decode(chunk.content);
       }
       return ndjson
         .trim()
@@ -1204,9 +1318,7 @@ describe("Build collaboration export and lifecycle governance", () => {
     const receipts = sectionRows("receipts");
     const moderation = sectionRows("moderation");
     const actionItems = sectionRows("action_items");
-    expect(revisions.map((entry: any) => entry.revision.revision)).toEqual([
-      1, 2,
-    ]);
+    expect(revisions.map((entry: any) => entry.revision)).toEqual([1, 2]);
     expect(follows.map((entry: any) => entry.workosUserId)).toEqual([
       "user_principle_broker",
     ]);
@@ -1219,7 +1331,7 @@ describe("Build collaboration export and lifecycle governance", () => {
       "user_broker",
     ]);
     const moderationSnapshot = JSON.parse(
-      moderation[0].case.evidenceSnapshotJson,
+      moderation[0].evidenceSnapshotJson,
     );
     expect(
       moderationSnapshot.receiptSnapshots.map(
@@ -1248,7 +1360,14 @@ describe("Build collaboration export and lifecycle governance", () => {
     }
     for (const section of [
       "acknowledgements",
+      "acknowledgement_events",
       "moderation",
+      "moderation_events",
+      "post_revision_attachments",
+      "post_revision_audience_snapshots",
+      "post_revision_references",
+      "comment_revision_attachments",
+      "comment_revision_references",
       "receipts",
       "references",
       "thread_events",
@@ -1256,13 +1375,21 @@ describe("Build collaboration export and lifecycle governance", () => {
       expect(sectionRows(section)).toEqual(expect.any(Array));
     }
     expect(
-      archiveRecords.find((entry: any) => entry.kind === "build_history").data,
-    ).toEqual(
-      expect.objectContaining({
-        closureWaivers: expect.any(Array),
-        lifecycleEvents: expect.any(Array),
-      }),
-    );
+      archiveRecords.some(
+        (entry: any) =>
+          entry.kind === "build_history" &&
+          entry.section === "closure_waivers" &&
+          Array.isArray(entry.data),
+      ),
+    ).toBe(true);
+    expect(
+      archiveRecords.some(
+        (entry: any) =>
+          entry.kind === "build_history" &&
+          entry.section === "lifecycle_events" &&
+          Array.isArray(entry.data),
+      ),
+    ).toBe(true);
   });
 
   test("paginates large thread bodies before serialization and cleans expired archive blobs", async () => {
@@ -1403,9 +1530,9 @@ describe("Build collaboration export and lifecycle governance", () => {
           query.eq("exportId", created.exportId),
         )
         .first();
-      return { expiresAt: row?.expiresAt, storageId: chunk?.storageId };
+      return { content: chunk?.content, expiresAt: row?.expiresAt };
     });
-    if (!(beforeCleanup.expiresAt && beforeCleanup.storageId)) {
+    if (!(beforeCleanup.expiresAt && beforeCleanup.content)) {
       throw new Error("Expected generated archive cleanup fixture.");
     }
     vi.setSystemTime(beforeCleanup.expiresAt + 1);
@@ -1414,6 +1541,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         .cleanupExpiredBuildCollaborationExportArchives,
       {},
     );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
     const cleaned = await fixture.base.run(async (ctx) => ({
       chunks: await ctx.db
         .query("buildCollaborationExportArchiveChunks")
@@ -1421,14 +1549,97 @@ describe("Build collaboration export and lifecycle governance", () => {
           query.eq("exportId", created.exportId),
         )
         .collect(),
+      planPosts: await ctx.db
+        .query("buildCollaborationExportArchivePlanPosts")
+        .withIndex("by_exportId_and_postId", (query) =>
+          query.eq("exportId", created.exportId),
+        )
+        .collect(),
+      planRecords: await ctx.db
+        .query("buildCollaborationExportArchivePlanRecords")
+        .withIndex("by_exportId_and_ordinal", (query) =>
+          query.eq("exportId", created.exportId),
+        )
+        .collect(),
       row: await ctx.db.get(
         created.exportId as Id<"buildCollaborationExports">,
       ),
-      storageExists: Boolean(await ctx.storage.get(beforeCleanup.storageId!)),
     }));
     expect(cleaned.chunks).toEqual([]);
+    expect(cleaned.planPosts).toEqual([]);
+    expect(cleaned.planRecords).toEqual([]);
     expect(cleaned.row?.state).toBe("expired");
-    expect(cleaned.storageExists).toBe(false);
+  });
+
+  test("marks failed archive cleanup terminal so later failures cannot starve", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Expected failed cleanup Build.");
+      }
+      for (let index = 0; index < 25; index += 1) {
+        await ctx.db.insert("buildCollaborationExports", {
+          accessCount: 0,
+          aclSnapshotJson: "{}",
+          archiveFailure: "fixture failure",
+          brokerageId: build.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: BASE_TIME + index,
+          expiresAt: BASE_TIME + 60_000,
+          manifestJson: "{}",
+          organizationId: ORGANIZATION_ID,
+          recordCount: 0,
+          requestedByRole: "principle-broker",
+          requestedByWorkosUserId: "user_principle_broker",
+          scope: "full_archive",
+          state: "failed",
+          tokenHash: `failed-cleanup-${index}`,
+        });
+      }
+    });
+    const cleanup = () =>
+      fixture.base.mutation(
+        (internal as any).build_collaboration_export_archive
+          .cleanupExpiredBuildCollaborationExportArchives,
+        {},
+      );
+    await cleanup();
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const firstPass = await fixture.base.run(async (ctx) => ({
+      failed: (
+        await ctx.db
+          .query("buildCollaborationExports")
+          .withIndex("by_state_and_expiresAt", (query) =>
+            query.eq("state", "failed"),
+          )
+          .collect()
+      ).length,
+      terminal: (
+        await ctx.db
+          .query("buildCollaborationExports")
+          .withIndex("by_state_and_expiresAt", (query) =>
+            query.eq("state", "cleanup_complete"),
+          )
+          .collect()
+      ).length,
+    }));
+    expect(firstPass).toEqual({ failed: 5, terminal: 20 });
+    await cleanup();
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const terminalCount = await fixture.base.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("buildCollaborationExports")
+          .withIndex("by_state_and_expiresAt", (query) =>
+            query.eq("state", "cleanup_complete"),
+          )
+          .collect()
+      ).length,
+    );
+    expect(terminalCount).toBe(25);
   });
 
   test("freezes archive revisions and core projection at request time", async () => {
@@ -1496,12 +1707,12 @@ describe("Build collaboration export and lifecycle governance", () => {
           Array.isArray(record.data),
       )
       .flatMap((record) => record.data)
-      .filter((entry) => entry.revision.postId === fixture.sharedPostId);
+      .filter((entry) => entry.postId === fixture.sharedPostId);
     expect(core.data[0]).toMatchObject({
       currentRevisionId: expect.any(String),
       revision: 1,
     });
-    expect(revisionRows.map((entry) => entry.revision.revision)).toEqual([1]);
+    expect(revisionRows.map((entry) => entry.revision)).toEqual([1]);
   });
 
   test("claims archive chunks before storage and replays completed claims idempotently", async () => {
@@ -1532,18 +1743,16 @@ describe("Build collaboration export and lifecycle governance", () => {
       );
     await expect(reserve("claim-a")).resolves.toEqual({ state: "owned" });
     await expect(reserve("claim-b")).resolves.toEqual({ state: "busy" });
-    const storageId = await fixture.base.run((ctx) =>
-      ctx.storage.store(new Blob(["archive"], { type: "text/plain" })),
-    );
+    const content = new TextEncoder().encode("archive").buffer;
     await expect(
       fixture.base.mutation(
         (internal as any).build_collaboration_export_archive
           .completeBuildCollaborationArchiveChunk,
         {
           claimToken: "claim-a",
+          content,
           exportId: created.exportId,
           sequence: 999,
-          storageId,
         },
       ),
     ).resolves.toEqual({ accepted: true });
@@ -2419,14 +2628,17 @@ async function readArchiveText(
     for (const chunk of chunks.sort(
       (left, right) => left.sequence - right.sequence,
     )) {
-      if (!chunk.storageId) {
-        throw new Error("Expected persisted archive chunk storage.");
+      if (chunk.content) {
+        text += new TextDecoder().decode(chunk.content);
+      } else if (chunk.storageId) {
+        const body = await ctx.storage.get(chunk.storageId);
+        if (!body) {
+          throw new Error("Expected persisted archive chunk body.");
+        }
+        text += await body.text();
+      } else {
+        throw new Error("Expected persisted archive chunk content.");
       }
-      const body = await ctx.storage.get(chunk.storageId);
-      if (!body) {
-        throw new Error("Expected persisted archive chunk body.");
-      }
-      text += await body.text();
     }
     return text;
   });

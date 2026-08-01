@@ -8,14 +8,13 @@ import { canReadCollaborationPost } from "./build_collaboration_access";
 import {
   canReadCollaborationAsset,
   isCleanCollaborationAsset,
-  resolveCollaborationAssetReadDecision,
 } from "./build_collaboration_asset_access";
+import {
+  buildCollaborationExportAssetAclDecision,
+  buildCollaborationExportPostAclDecision,
+} from "./build_collaboration_export_acl";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import {
-  isDrawSystemPost,
-  resolveDrawSystemEventReadDecision,
-} from "./build_collaboration_system_event_access";
 import type { Doc, Id, MutationCtx } from "./types";
 
 const EXPORT_TTL_MS = 15 * 60_000;
@@ -73,9 +72,10 @@ const exportAssetAuthorizationValidator = v.object({
 
 const exportArchiveChunkAuthorizationValidator = v.object({
   byteLength: v.number(),
+  content: v.optional(v.bytes()),
   contentHashSha256: v.string(),
   expiresAt: v.number(),
-  storageId: v.id("_storage"),
+  storageId: v.optional(v.id("_storage")),
 });
 
 export const requestBuildCollaborationExport = authenticatedMutation
@@ -98,13 +98,16 @@ export const requestBuildCollaborationExport = authenticatedMutation
     await enforceExportBurstLimit(ctx, authorization);
 
     const generatedAt = Date.now();
-    const snapshot = await buildExportSnapshot(ctx, {
-      assetId: args.assetId,
-      authorization,
-      generatedAt,
-      postId: args.postId,
-      scope,
-    });
+    const snapshot =
+      scope === "full_archive"
+        ? buildFullArchivePlanningSnapshot(authorization, generatedAt)
+        : await buildExportSnapshot(ctx, {
+            assetId: args.assetId,
+            authorization,
+            generatedAt,
+            postId: args.postId,
+            scope,
+          });
     const token = `${crypto.randomUUID()}-${crypto.randomUUID()}`;
     const tokenHash = await sha256Hex(token);
     const expiresAt = generatedAt + EXPORT_TTL_MS;
@@ -114,6 +117,10 @@ export const requestBuildCollaborationExport = authenticatedMutation
       aclSnapshotJson: JSON.stringify(snapshot.aclSnapshot),
       archiveNextRecordIndex: scope === "full_archive" ? 0 : undefined,
       archiveNextSequence: scope === "full_archive" ? 0 : undefined,
+      archivePlanNextOrdinal: scope === "full_archive" ? 0 : undefined,
+      archivePlannedAssetCount: scope === "full_archive" ? 0 : undefined,
+      archivePlannedPostCount: scope === "full_archive" ? 0 : undefined,
+      archivePlanPhase: scope === "full_archive" ? "posts" : undefined,
       archiveRecordCount: scope === "full_archive" ? 0 : undefined,
       assetId: args.assetId,
       brokerageId: authorization.brokerage._id,
@@ -161,14 +168,43 @@ export const requestBuildCollaborationExport = authenticatedMutation
     if (scope === "full_archive") {
       await ctx.scheduler.runAfter(
         0,
-        internal.build_collaboration_export_archive
-          .generateBuildCollaborationFullArchive,
+        internal.build_collaboration_export_plan
+          .planBuildCollaborationFullArchive,
         { exportId }
       );
     }
     return { expiresAt, exportId, scope, state, token };
   })
   .public();
+
+function buildFullArchivePlanningSnapshot(
+  authorization: ActiveBuildAuthorization,
+  generatedAt: number
+) {
+  return {
+    aclSnapshot: {
+      decisionsInArchive: true,
+      effectiveRole: authorization.effectiveRole.role,
+      generatedAt,
+      organizationId: authorization.organizationId,
+      planning: true,
+      roles: authorization.roles,
+      scope: "full_archive" as const,
+      viewerWorkosUserId: authorization.viewer.subject,
+    },
+    manifest: {
+      archiveSnapshotAt: generatedAt,
+      build: {
+        buildId: authorization.build._id,
+        buildName: authorization.build.buildName,
+      },
+      exportedAt: generatedAt,
+      planning: true,
+      scope: "full_archive" as const,
+    },
+    recordCount: 0,
+  };
+}
 
 export const downloadBuildCollaborationExport = authenticatedMutation
   .input({
@@ -336,7 +372,7 @@ export const authorizeBuildCollaborationExportArchiveChunkDownload =
         )
         .unique();
       if (
-        !chunk?.storageId ||
+        !(chunk?.content || chunk?.storageId) ||
         chunk.organizationId !== row.organizationId ||
         chunk.brokerageId !== row.brokerageId ||
         chunk.buildId !== row.buildId
@@ -349,6 +385,7 @@ export const authorizeBuildCollaborationExportArchiveChunkDownload =
       });
       return {
         byteLength: chunk.byteLength,
+        content: chunk.content,
         contentHashSha256: chunk.contentHashSha256,
         expiresAt: row.expiresAt,
         storageId: chunk.storageId,
@@ -392,6 +429,11 @@ async function requireAuthorizedExport(
     throw new Error("Collaboration export link has expired.");
   }
   assertCurrentExportScope(authorization, row.scope);
+  if (authorization.effectiveRole.role !== row.requestedByRole) {
+    throw new Error(
+      "Collaboration export access changed; request a new authorized export."
+    );
+  }
   const manifest = JSON.parse(row.manifestJson) as {
     archive?: {
       chunkCount: number;
@@ -700,89 +742,26 @@ async function buildExportAclSnapshot(
     assetDecisions: await Promise.all(
       input.assets.map(
         async (asset) =>
-          await buildExportAssetAclDecision(ctx, input.authorization, asset)
+          await buildCollaborationExportAssetAclDecision(
+            ctx,
+            input.authorization,
+            asset
+          )
       )
     ),
     postDecisions: await Promise.all(
-      input.posts.map(async (post) => {
-        const customMembership =
-          post.audienceMode === "custom"
-            ? await ctx.db
-                .query("buildCollaborationAudienceMembers")
-                .withIndex("by_postId_and_workosUserId", (query) =>
-                  query
-                    .eq("postId", post._id)
-                    .eq("workosUserId", input.authorization.viewer.subject)
-                )
-                .unique()
-            : null;
-        const roleTierAuthorized =
-          input.authorization.effectiveRole.tier >= post.audienceFloorTier;
-        const entityAclRequired = isDrawSystemPost(post);
-        const entityAclDecision = entityAclRequired
-          ? await resolveDrawSystemEventReadDecision(ctx, {
-              buildId: input.authorization.build._id,
-              role: input.authorization.effectiveRole.role,
-              workosUserId: input.authorization.viewer.subject,
-            })
-          : { basis: "not_required" as const };
-        return {
-          audienceFloorTier: post.audienceFloorTier,
-          audienceMode: post.audienceMode,
-          basis: roleTierAuthorized
-            ? "role_tier"
-            : post.audienceMode === "build_wide"
-              ? "build_wide"
-              : "custom_audience_membership",
-          customAudienceMembershipId: customMembership?._id,
-          customAudienceAddedAt: customMembership?.createdAt,
-          customAudienceAddedByWorkosUserId:
-            customMembership?.addedByWorkosUserId,
-          decision: "authorized",
-          entityAclAuthorized: Boolean(entityAclDecision),
-          entityAclDecision,
-          entityAclRequired,
-          organizationMatches:
-            post.organizationId === input.authorization.organizationId,
-          buildMatches: post.buildId === input.authorization.build._id,
-          postId: post._id,
-          viewerRoleTier: input.authorization.effectiveRole.tier,
-        };
-      })
+      input.posts.map(
+        async (post) =>
+          await buildCollaborationExportPostAclDecision(
+            ctx,
+            input.authorization,
+            post
+          )
+      )
     ),
     roles: input.authorization.roles,
     scope: input.scope,
     viewerWorkosUserId: input.authorization.viewer.subject,
-  };
-}
-
-async function buildExportAssetAclDecision(
-  ctx: MutationCtx,
-  authorization: ActiveBuildAuthorization,
-  asset: Doc<"buildCollaborationAssets">
-) {
-  const authorizationDecision = await resolveCollaborationAssetReadDecision(
-    ctx,
-    { asset, authorization }
-  );
-  if (!authorizationDecision) {
-    throw new Error("An exported asset is no longer authorized.");
-  }
-  return {
-    assetId: asset._id,
-    ...authorizationDecision,
-    brokerageMatches: asset.brokerageId === authorization.brokerage._id,
-    buildMatches: asset.buildId === authorization.build._id,
-    cleanAssetRequired: true,
-    cleanAssetSatisfied: isCleanCollaborationAsset(asset),
-    decision: "authorized",
-    maximumAudienceMode: asset.maximumAudienceMode,
-    organizationMatches: asset.organizationId === authorization.organizationId,
-    originatingPostId: asset.originatingPostId,
-    readerSnapshotIncludedViewer: asset.readerWorkosUserIds
-      ? asset.readerWorkosUserIds.includes(authorization.viewer.subject)
-      : undefined,
-    readerSnapshotRestrictionPresent: Boolean(asset.readerWorkosUserIds),
   };
 }
 

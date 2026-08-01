@@ -374,10 +374,38 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
       };
     }
 
-    const deletedAssetCount = await deleteBuildResidue(
-      ctx,
-      authorization.build._id
-    );
+    const residue = await deleteBuildResidue(ctx, authorization.build._id);
+    if (!residue.complete) {
+      const residueBatchCount = batchCount + 1;
+      await ctx.db.patch(purge._id, {
+        batchCount: residueBatchCount,
+        deletedPostCount,
+        updatedAt: now,
+      });
+      await recordGovernanceAudit(ctx, {
+        authorization,
+        command: "purgeExpiredBuildCollaborationContent",
+        entityId: purge._id,
+        entityType: "buildCollaborationRetentionPurge",
+        eventType: "build.collaboration.retention_purge.batch_completed",
+        newState: JSON.stringify({
+          batchCount: residueBatchCount,
+          deletedPostCount,
+          hasRemainingArchiveResidue: true,
+          state: "in_progress",
+        }),
+        now,
+        reason,
+      });
+      return {
+        complete: false,
+        deletedAssetCount: purge.deletedAssetCount,
+        deletedPostCount,
+        hasRemainingPosts: false,
+      };
+    }
+    const deletedAssetCount =
+      purge.deletedAssetCount + residue.deletedAssetCount;
     const revision = lifecycle.revision + 1;
     await ctx.db.patch(lifecycle._id, {
       purgeReason: reason,
@@ -965,6 +993,10 @@ async function deleteBuildResidue(
   ctx: MutationCtx,
   buildId: Id<"activeBuilds">
 ) {
+  if (!(await deleteArchiveResidueBatch(ctx, buildId))) {
+    return { complete: false, deletedAssetCount: 0 };
+  }
+
   const assets = await boundedAt(
     ctx.db
       .query("buildCollaborationAssets")
@@ -1038,6 +1070,55 @@ async function deleteBuildResidue(
     }
     await ctx.db.delete(session._id);
   }
+  return await deleteRemainingBuildResidue(ctx, buildId, assets.length);
+}
+
+async function deleteArchiveResidueBatch(
+  ctx: MutationCtx,
+  buildId: Id<"activeBuilds">
+) {
+  const [archiveChunks, archivePlanRecords, archivePlanPosts] =
+    await Promise.all([
+      ctx.db
+        .query("buildCollaborationExportArchiveChunks")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .take(101),
+      ctx.db
+        .query("buildCollaborationExportArchivePlanRecords")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .take(101),
+      ctx.db
+        .query("buildCollaborationExportArchivePlanPosts")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .take(101),
+    ]);
+  for (const chunk of archiveChunks.slice(0, 100)) {
+    if (chunk.storageId) {
+      await ctx.storage.delete(chunk.storageId);
+    }
+    await ctx.db.delete(chunk._id);
+  }
+  for (const row of [
+    ...archivePlanRecords.slice(0, 100),
+    ...archivePlanPosts.slice(0, 100),
+  ]) {
+    await ctx.db.delete(row._id);
+  }
+  if (
+    archiveChunks.length > 100 ||
+    archivePlanRecords.length > 100 ||
+    archivePlanPosts.length > 100
+  ) {
+    return false;
+  }
+  return true;
+}
+
+async function deleteRemainingBuildResidue(
+  ctx: MutationCtx,
+  buildId: Id<"activeBuilds">,
+  deletedAssetCount: number
+) {
   for (const tableRows of [
     await boundedAt(
       ctx.db
@@ -1149,20 +1230,6 @@ async function deleteBuildResidue(
     5000,
     "exports"
   );
-  const archiveChunks = await boundedAt(
-    ctx.db
-      .query("buildCollaborationExportArchiveChunks")
-      .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
-      .take(5001),
-    5000,
-    "export archive chunks"
-  );
-  for (const chunk of archiveChunks) {
-    if (chunk.storageId) {
-      await ctx.storage.delete(chunk.storageId);
-    }
-    await ctx.db.delete(chunk._id);
-  }
   for (const row of exports) {
     await ctx.db.patch(row._id, {
       aclSnapshotJson: JSON.stringify({ purged: true }),
@@ -1172,7 +1239,7 @@ async function deleteBuildResidue(
     });
   }
   await assertBuildCollaborationResidueRemoved(ctx, buildId);
-  return assets.length;
+  return { complete: true, deletedAssetCount };
 }
 
 async function assertBuildCollaborationResidueRemoved(
@@ -1202,6 +1269,27 @@ async function assertBuildCollaborationResidueRemoved(
       "assets",
       await ctx.db
         .query("buildCollaborationAssets")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .first(),
+    ],
+    [
+      "export archive chunks",
+      await ctx.db
+        .query("buildCollaborationExportArchiveChunks")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .first(),
+    ],
+    [
+      "export archive plan records",
+      await ctx.db
+        .query("buildCollaborationExportArchivePlanRecords")
+        .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+        .first(),
+    ],
+    [
+      "export archive post snapshots",
+      await ctx.db
+        .query("buildCollaborationExportArchivePlanPosts")
         .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
         .first(),
     ],

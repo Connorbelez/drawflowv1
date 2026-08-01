@@ -3330,12 +3330,23 @@ export default defineSchema({
       v.literal("building"),
       v.literal("active"),
       v.literal("failed"),
+      v.literal("cleanup_complete"),
       v.literal("expired"),
       v.literal("revoked")
     ),
     archiveChunkCount: v.optional(v.number()),
     archiveCompletedAt: v.optional(v.number()),
     archiveFailure: v.optional(v.string()),
+    archivePlanPhase: v.optional(
+      v.union(v.literal("posts"), v.literal("assets"), v.literal("complete"))
+    ),
+    archivePlanCursor: v.optional(v.string()),
+    archivePlanCompletedAt: v.optional(v.number()),
+    archivePlanNextOrdinal: v.optional(v.number()),
+    archivePlannedAssetCount: v.optional(v.number()),
+    archivePlannedPostCount: v.optional(v.number()),
+    archiveHeartbeatAt: v.optional(v.number()),
+    archiveCleanupCompletedAt: v.optional(v.number()),
     archiveCursor: v.optional(v.string()),
     archiveNextRecordIndex: v.optional(v.number()),
     archiveNextSequence: v.optional(v.number()),
@@ -3369,6 +3380,7 @@ export default defineSchema({
     partIndex: v.number(),
     byteLength: v.number(),
     contentHashSha256: v.string(),
+    content: v.optional(v.bytes()),
     state: v.optional(v.union(v.literal("reserved"), v.literal("stored"))),
     claimToken: v.optional(v.string()),
     reservedAt: v.optional(v.number()),
@@ -3377,6 +3389,40 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_exportId_and_sequence", ["exportId", "sequence"])
+    .index("by_buildId", ["buildId"]),
+  buildCollaborationExportArchivePlanRecords: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    exportId: v.id("buildCollaborationExports"),
+    ordinal: v.number(),
+    recordKey: v.string(),
+    kind: v.union(
+      v.literal("build_history"),
+      v.literal("post"),
+      v.literal("asset")
+    ),
+    section: v.optional(v.string()),
+    postId: v.optional(v.id("buildCollaborationPosts")),
+    assetId: v.optional(v.id("buildCollaborationAssets")),
+    snapshotJson: v.string(),
+    aclDecisionJson: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_exportId_and_ordinal", ["exportId", "ordinal"])
+    .index("by_exportId_and_recordKey", ["exportId", "recordKey"])
+    .index("by_buildId", ["buildId"]),
+  buildCollaborationExportArchivePlanPosts: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    exportId: v.id("buildCollaborationExports"),
+    postId: v.id("buildCollaborationPosts"),
+    snapshotJson: v.string(),
+    aclDecisionJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_exportId_and_postId", ["exportId", "postId"])
     .index("by_buildId", ["buildId"]),
   buildCollaborationRetentionPurges: defineTable({
     organizationId: v.string(),
