@@ -19,6 +19,8 @@ afterEach(() => {
 
 describe("Build collaboration export and lifecycle governance", () => {
   test("enforces every role's export scope and omits restricted records", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
     const fixture = await seedLifecycleFixture();
     const expectedBuildScopes: Array<
       [
@@ -33,32 +35,43 @@ describe("Build collaboration export and lifecycle governance", () => {
       [fixture.builder, "authorized_build", undefined],
       [fixture.brokerStaff, "authorized_build", undefined],
     ];
-    for (const [actor, expectedScope, visibleRestrictedText] of expectedBuildScopes) {
+    for (const [
+      actor,
+      expectedScope,
+      visibleRestrictedText,
+    ] of expectedBuildScopes) {
       const created = await actor.mutation(
-        (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+        (api as any).build_collaboration_exports
+          .requestBuildCollaborationExport,
         {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
           scope: "build",
-        }
+        },
       );
       expect(created.scope).toBe(expectedScope);
+      if (created.state === "building") {
+        await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+      }
       const downloaded = await actor.mutation(
-        (api as any).build_collaboration_exports.downloadBuildCollaborationExport,
+        (api as any).build_collaboration_exports
+          .downloadBuildCollaborationExport,
         {
           buildId: fixture.buildId,
           exportId: created.exportId,
           organizationId: ORGANIZATION_ID,
           token: created.token,
-        }
+        },
       );
-      expect(downloaded.manifestJson).not.toContain("restricted_placeholder");
+      const exportText =
+        expectedScope === "full_archive"
+          ? await readArchiveText(fixture.base, created.exportId)
+          : downloaded.manifestJson;
+      expect(exportText).not.toContain("restricted_placeholder");
       if (visibleRestrictedText) {
-        expect(downloaded.manifestJson).toContain(visibleRestrictedText);
+        expect(exportText).toContain(visibleRestrictedText);
       } else {
-        expect(downloaded.manifestJson).not.toContain(
-          "Admin-only retained record"
-        );
+        expect(exportText).not.toContain("Admin-only retained record");
       }
       expect(JSON.parse(downloaded.aclSnapshotJson)).toMatchObject({
         effectiveRole: expect.any(String),
@@ -69,24 +82,26 @@ describe("Build collaboration export and lifecycle governance", () => {
 
     for (const actor of [fixture.builderStaff, fixture.homeowner]) {
       const threadExport = await actor.mutation(
-        (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+        (api as any).build_collaboration_exports
+          .requestBuildCollaborationExport,
         {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
           postId: fixture.sharedPostId,
           scope: "thread",
-        }
+        },
       );
       expect(threadExport.scope).toBe("thread");
       await expect(
         actor.mutation(
-          (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+          (api as any).build_collaboration_exports
+            .requestBuildCollaborationExport,
           {
             buildId: fixture.buildId,
             organizationId: ORGANIZATION_ID,
             scope: "build",
-          }
-        )
+          },
+        ),
       ).rejects.toThrow("individual visible record");
     }
 
@@ -97,33 +112,34 @@ describe("Build collaboration export and lifecycle governance", () => {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         scope: "asset",
-      }
+      },
     );
     expect(contractorAsset.scope).toBe("asset");
     await expect(
       fixture.contractor.mutation(
-        (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+        (api as any).build_collaboration_exports
+          .requestBuildCollaborationExport,
         {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
           postId: fixture.sharedPostId,
           scope: "thread",
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("Contractors may export only");
 
     const audits = await fixture.base.run(async (ctx) =>
       ctx.db
         .query("auditEvents")
         .withIndex("by_entity", (query) =>
-          query.eq("entityType", "buildCollaborationExport")
+          query.eq("entityType", "buildCollaborationExport"),
         )
-        .collect()
+        .collect(),
     );
     expect(audits).toHaveLength(8);
-    expect(audits.every((audit) => audit.organizationId === ORGANIZATION_ID)).toBe(
-      true
-    );
+    expect(
+      audits.every((audit) => audit.organizationId === ORGANIZATION_ID),
+    ).toBe(true);
   });
 
   test("rejects expired export links without disclosing their manifest", async () => {
@@ -136,20 +152,81 @@ describe("Build collaboration export and lifecycle governance", () => {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         scope: "build",
-      }
+      },
     );
     vi.setSystemTime(created.expiresAt + 1);
     await expect(
       fixture.builder.mutation(
-        (api as any).build_collaboration_exports.downloadBuildCollaborationExport,
+        (api as any).build_collaboration_exports
+          .downloadBuildCollaborationExport,
         {
           buildId: fixture.buildId,
           exportId: created.exportId,
           organizationId: ORGANIZATION_ID,
           token: created.token,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("expired");
+  });
+
+  test("snapshots the exact post entity and asset attachment ACL decisions", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.secretPostId, {
+        primaryReferenceKind: "draw",
+        source: "system",
+      });
+      const asset = await ctx.db.get(fixture.assetId);
+      if (!asset) {
+        throw new Error("Expected export ACL asset fixture.");
+      }
+      await ctx.db.patch(asset._id, {
+        readerWorkosUserIds: [
+          ...(asset.readerWorkosUserIds ?? []),
+          "user_admin",
+        ],
+      });
+    });
+    const created = await fixture.admin.mutation(
+      (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        scope: "build",
+      },
+    );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const downloaded = await fixture.admin.mutation(
+      (api as any).build_collaboration_exports.downloadBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        exportId: created.exportId,
+        organizationId: ORGANIZATION_ID,
+        token: created.token,
+      },
+    );
+    const acl = JSON.parse(downloaded.aclSnapshotJson);
+    expect(
+      acl.postDecisions.find(
+        (decision: any) => decision.postId === fixture.secretPostId,
+      ),
+    ).toMatchObject({
+      decision: "authorized",
+      entityAclAuthorized: true,
+      entityAclRequired: true,
+    });
+    expect(
+      acl.assetDecisions.find(
+        (decision: any) => decision.assetId === fixture.assetId,
+      ),
+    ).toMatchObject({
+      basis: "published_reader_snapshot_and_attachment_acl",
+      decision: "authorized",
+      postId: fixture.sharedPostId,
+      readerSnapshotIncludedViewer: true,
+    });
   });
 
   test("revalidates export scope and every exported asset download", async () => {
@@ -162,7 +239,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         scope: "build",
-      }
+      },
     );
     const downloaded = await fixture.brokerStaff.mutation(
       (api as any).build_collaboration_exports.downloadBuildCollaborationExport,
@@ -171,17 +248,24 @@ describe("Build collaboration export and lifecycle governance", () => {
         exportId: created.exportId,
         organizationId: ORGANIZATION_ID,
         token: created.token,
-      }
+      },
     );
     expect(downloaded.assets).toHaveLength(1);
     expect(downloaded.assets[0]?.url).toContain(
-      "/api/build-collaboration/export-asset"
+      "/api/build-collaboration/export-asset",
     );
     expect(downloaded.assets[0]?.url).not.toContain("/api/storage/");
+    expect(
+      JSON.parse(downloaded.aclSnapshotJson).assetDecisions[0],
+    ).toMatchObject({
+      assetId: fixture.assetId,
+      basis: "published_reader_snapshot_and_attachment_acl",
+      postId: fixture.sharedPostId,
+    });
 
     const assetDownloadUrl = new URL(
       downloaded.assets[0]!.url,
-      "https://some.convex.site"
+      "https://some.convex.site",
     );
     const assetDownloadPath = `${assetDownloadUrl.pathname}${assetDownloadUrl.search}`;
     const preflight = await fixture.base.fetch(assetDownloadPath, {
@@ -194,16 +278,16 @@ describe("Build collaboration export and lifecycle governance", () => {
     });
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(
-      "http://localhost:3000"
+      "http://localhost:3000",
     );
     expect(preflight.headers.get("Access-Control-Allow-Headers")).toContain(
-      "Authorization"
+      "Authorization",
     );
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response("archive evidence", {
         headers: { "Content-Type": "text/plain" },
         status: 200,
-      })
+      }),
     );
     const assetResponse = await fixture.brokerStaff.fetch(assetDownloadPath, {
       headers: {
@@ -213,7 +297,7 @@ describe("Build collaboration export and lifecycle governance", () => {
     });
     expect(assetResponse.status).toBe(200);
     expect(assetResponse.headers.get("Access-Control-Allow-Origin")).toBe(
-      "http://localhost:3000"
+      "http://localhost:3000",
     );
     expect(assetResponse.headers.get("Cache-Control")).toContain("no-store");
     expect(await assetResponse.text()).toBe("archive evidence");
@@ -227,7 +311,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         exportId: created.exportId,
         organizationId: ORGANIZATION_ID,
         token: created.token,
-      }
+      },
     );
     expect(authorizedAsset).toMatchObject({
       expiresAt: created.expiresAt,
@@ -241,7 +325,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         .withIndex("by_buildId_and_workosUserId", (query) =>
           query
             .eq("buildId", fixture.buildId)
-            .eq("workosUserId", "user_broker_staff")
+            .eq("workosUserId", "user_broker_staff"),
         )
         .unique();
       if (!participant) {
@@ -255,7 +339,7 @@ describe("Build collaboration export and lifecycle governance", () => {
     const demoted = withIdentity(
       fixture.base,
       "builder-staff",
-      "user_broker_staff"
+      "user_broker_staff",
     );
     await expect(
       demoted.mutation(
@@ -266,8 +350,8 @@ describe("Build collaboration export and lifecycle governance", () => {
           exportId: created.exportId,
           organizationId: ORGANIZATION_ID,
           token: created.token,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("scope changed");
 
     vi.setSystemTime(created.expiresAt + 1);
@@ -281,8 +365,8 @@ describe("Build collaboration export and lifecycle governance", () => {
           exportId: created.exportId,
           organizationId: ORGANIZATION_ID,
           token: created.token,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("expired");
   });
 
@@ -296,8 +380,8 @@ describe("Build collaboration export and lifecycle governance", () => {
           expectedRevision: 0,
           organizationId: ORGANIZATION_ID,
           reason: "Broker attempted closure.",
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("Admin or Principal Broker");
     await expect(
       fixture.admin.mutation(
@@ -307,8 +391,8 @@ describe("Build collaboration export and lifecycle governance", () => {
           expectedRevision: 0,
           organizationId: ORGANIZATION_ID,
           reason: "Operational work is complete.",
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("Action Item");
 
     await fixture.admin.mutation(
@@ -324,10 +408,10 @@ describe("Build collaboration export and lifecycle governance", () => {
             reason: "Accepted as a documented post-close exception.",
           },
         ],
-      }
+      },
     );
     await expect(
-      publishAsBuilder(fixture, "Closed Builds reject shared writes.")
+      publishAsBuilder(fixture, "Closed Builds reject shared writes."),
     ).rejects.toThrow("closed and read-only");
     await expect(
       fixture.builder.mutation(
@@ -339,8 +423,8 @@ describe("Build collaboration export and lifecycle governance", () => {
           postId: fixture.sharedPostId,
           references: [],
           tiptapJson: textDocument("Closed reply."),
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("closed and read-only");
     await expect(
       fixture.builder.mutation(
@@ -351,8 +435,8 @@ describe("Build collaboration export and lifecycle governance", () => {
           expectedRevision: 1,
           nextStatus: "in_progress",
           organizationId: ORGANIZATION_ID,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("closed and read-only");
     await expect(
       fixture.builder.mutation(
@@ -365,8 +449,8 @@ describe("Build collaboration export and lifecycle governance", () => {
           mimeType: "text/plain",
           organizationId: ORGANIZATION_ID,
           sizeBytes: 12,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("closed and read-only");
     await expect(
       fixture.base.mutation(
@@ -379,8 +463,8 @@ describe("Build collaboration export and lifecycle governance", () => {
           plainText: "Closed system event.",
           postType: "update",
           systemLabel: "DrawFlow",
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("closed and read-only");
 
     const archivedExport = await fixture.homeowner.mutation(
@@ -390,7 +474,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         organizationId: ORGANIZATION_ID,
         postId: fixture.sharedPostId,
         scope: "thread",
-      }
+      },
     );
     expect(archivedExport.scope).toBe("thread");
     const searchResponse = await fixture.builder.action(
@@ -399,7 +483,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         query: "foundation",
-      }
+      },
     );
     expect(searchResponse).toHaveProperty("page");
 
@@ -411,8 +495,8 @@ describe("Build collaboration export and lifecycle governance", () => {
           expectedRevision: 1,
           organizationId: ORGANIZATION_ID,
           reason: "Broker attempted reopen.",
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("Admin or Principal Broker");
     await fixture.principal.mutation(
       (api as any).build_collaboration_lifecycle.reopenBuildCollaboration,
@@ -421,23 +505,55 @@ describe("Build collaboration export and lifecycle governance", () => {
         expectedRevision: 1,
         organizationId: ORGANIZATION_ID,
         reason: "Additional governed coordination is required.",
-      }
+      },
     );
     await expect(
-      publishAsBuilder(fixture, "Reopened Builds accept shared writes.")
+      publishAsBuilder(fixture, "Reopened Builds accept shared writes."),
     ).resolves.toBeDefined();
     const history = await fixture.base.run((ctx) =>
       ctx.db
         .query("buildCollaborationBuildLifecycleEvents")
         .withIndex("by_buildId_and_createdAt", (query) =>
-          query.eq("buildId", fixture.buildId)
+          query.eq("buildId", fixture.buildId),
         )
-        .collect()
+        .collect(),
     );
     expect(history.map((event) => event.eventType)).toEqual([
       "closed",
       "reopened",
     ]);
+  });
+
+  test("refuses closure until an active retention policy can be snapshotted", async () => {
+    const fixture = await seedLifecycleFixture();
+    await fixture.base.run(async (ctx) => {
+      const policies = await ctx.db
+        .query("buildCollaborationRetentionPolicies")
+        .withIndex("by_organizationId_and_state", (query) =>
+          query.eq("organizationId", ORGANIZATION_ID).eq("state", "active"),
+        )
+        .collect();
+      for (const policy of policies) {
+        await ctx.db.delete(policy._id);
+      }
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_lifecycle.closeBuildCollaboration,
+        {
+          buildId: fixture.buildId,
+          expectedRevision: 0,
+          organizationId: ORGANIZATION_ID,
+          reason: "Attempt closure without a durable retention contract.",
+          waivers: [
+            {
+              actionItemId: fixture.actionItemId,
+              reason: "Administrative archive exception.",
+            },
+          ],
+        },
+      ),
+    ).rejects.toThrow("retention policy before closure");
   });
 
   test("applies tenant retention, blocks purge under legal hold, and retains audit history", async () => {
@@ -453,7 +569,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         policyKey: "regulatory-30-day-test",
         reason: "Tenant regulatory archive policy.",
         retentionDays: 30,
-      }
+      },
     );
     const pendingStorageId = await fixture.base.run(async (ctx) => {
       const build = await ctx.db.get(fixture.buildId);
@@ -461,7 +577,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         throw new Error("Expected lifecycle Build fixture.");
       }
       const storageId = await ctx.storage.store(
-        new Blob(["unfinalized upload"], { type: "text/plain" })
+        new Blob(["unfinalized upload"], { type: "text/plain" }),
       );
       await ctx.db.insert("buildCollaborationAssetStagingSessions", {
         brokerageId: build.brokerageId,
@@ -490,28 +606,31 @@ describe("Build collaboration export and lifecycle governance", () => {
             reason: "Final exception accepted by Admin.",
           },
         ],
-      }
+      },
     );
     const closedState = await fixture.base.run(async (ctx) =>
       ctx.db
         .query("buildCollaborationBuildStates")
-        .withIndex("by_buildId", (query) => query.eq("buildId", fixture.buildId))
-        .unique()
+        .withIndex("by_buildId", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .unique(),
     );
     expect(closedState).toMatchObject({
       retentionEligibleAt: BASE_TIME + 30 * 86_400_000,
       retentionPolicyId: expect.any(String),
-      retentionPolicyVersion: 1,
+      retentionPolicyVersion: 2,
       state: "closed",
     });
     const holdId = await fixture.admin.mutation(
-      (api as any).build_collaboration_retention.placeBuildCollaborationLegalHold,
+      (api as any).build_collaboration_retention
+        .placeBuildCollaborationLegalHold,
       {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         reason: "Preserve records for pending legal review.",
         reference: "LEGAL-2026-001",
-      }
+      },
     );
     vi.setSystemTime(BASE_TIME + 31 * 86_400_000);
     await expect(
@@ -523,11 +642,11 @@ describe("Build collaboration export and lifecycle governance", () => {
           expectedLifecycleRevision: 1,
           organizationId: ORGANIZATION_ID,
           reason: "Execute expired retention policy.",
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("Legal hold blocks");
     expect(
-      await fixture.base.run((ctx) => ctx.db.get(fixture.sharedPostId))
+      await fixture.base.run((ctx) => ctx.db.get(fixture.sharedPostId)),
     ).not.toBeNull();
 
     await fixture.principal.mutation(
@@ -538,7 +657,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         holdId,
         organizationId: ORGANIZATION_ID,
         reason: "Counsel released the preservation requirement.",
-      }
+      },
     );
     const purged = await fixture.admin.mutation(
       (api as any).build_collaboration_retention
@@ -548,27 +667,29 @@ describe("Build collaboration export and lifecycle governance", () => {
         expectedLifecycleRevision: 1,
         organizationId: ORGANIZATION_ID,
         reason: "Execute expired retention policy.",
-      }
+      },
     );
     expect(purged).toMatchObject({ complete: true });
     const retained = await fixture.base.run(async (ctx) => ({
       audit: await ctx.db
         .query("auditEvents")
         .withIndex("by_entity", (query) =>
-          query.eq("entityType", "buildCollaborationBuildState")
+          query.eq("entityType", "buildCollaborationBuildState"),
         )
         .collect(),
       lifecycle: await ctx.db
         .query("buildCollaborationBuildLifecycleEvents")
         .withIndex("by_buildId_and_createdAt", (query) =>
-          query.eq("buildId", fixture.buildId)
+          query.eq("buildId", fixture.buildId),
         )
         .collect(),
       post: await ctx.db.get(fixture.sharedPostId),
       pendingStorageUrl: await ctx.storage.getUrl(pendingStorageId),
       state: await ctx.db
         .query("buildCollaborationBuildStates")
-        .withIndex("by_buildId", (query) => query.eq("buildId", fixture.buildId))
+        .withIndex("by_buildId", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
         .unique(),
     }));
     expect(retained.post).toBeNull();
@@ -627,7 +748,7 @@ describe("Build collaboration export and lifecycle governance", () => {
             postId,
             revision: 1,
             tiptapJson: textDocument(`Purge batch ${index}`),
-          }
+          },
         );
         await ctx.db.patch(postId, { currentRevisionId: revisionId });
       }
@@ -641,7 +762,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         policyKey: "bounded-purge-test",
         reason: "Exercise durable bounded purge progress.",
         retentionDays: 30,
-      }
+      },
     );
     await fixture.admin.mutation(
       (api as any).build_collaboration_lifecycle.closeBuildCollaboration,
@@ -656,7 +777,7 @@ describe("Build collaboration export and lifecycle governance", () => {
             reason: "Administrative archive exception.",
           },
         ],
-      }
+      },
     );
     vi.setSystemTime(BASE_TIME + 31 * 86_400_000);
     const args = {
@@ -668,7 +789,7 @@ describe("Build collaboration export and lifecycle governance", () => {
     const first = await fixture.admin.mutation(
       (api as any).build_collaboration_retention
         .purgeExpiredBuildCollaborationContent,
-      args
+      args,
     );
     expect(first).toMatchObject({
       complete: false,
@@ -679,18 +800,18 @@ describe("Build collaboration export and lifecycle governance", () => {
       ctx.db
         .query("buildCollaborationRetentionPurges")
         .withIndex("by_buildId_and_state", (query) =>
-          query.eq("buildId", fixture.buildId).eq("state", "in_progress")
+          query.eq("buildId", fixture.buildId).eq("state", "in_progress"),
         )
-        .unique()
+        .unique(),
     );
     expect(progress).toMatchObject({ batchCount: 1, deletedPostCount: 10 });
     const progressAudits = await fixture.base.run(async (ctx) =>
       ctx.db
         .query("auditEvents")
         .withIndex("by_entity", (query) =>
-          query.eq("entityType", "buildCollaborationRetentionPurge")
+          query.eq("entityType", "buildCollaborationRetentionPurge"),
         )
-        .collect()
+        .collect(),
     );
     expect(progressAudits.map((event) => event.eventType)).toEqual([
       "build.collaboration.retention_purge.started",
@@ -700,7 +821,7 @@ describe("Build collaboration export and lifecycle governance", () => {
     const completed = await fixture.admin.mutation(
       (api as any).build_collaboration_retention
         .purgeExpiredBuildCollaborationContent,
-      args
+      args,
     );
     expect(completed).toMatchObject({
       complete: true,
@@ -710,12 +831,14 @@ describe("Build collaboration export and lifecycle governance", () => {
     const replay = await fixture.admin.mutation(
       (api as any).build_collaboration_retention
         .purgeExpiredBuildCollaborationContent,
-      args
+      args,
     );
     expect(replay).toEqual(completed);
   });
 
   test("exports immutable full-archive history instead of only current projections", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
     const fixture = await seedLifecycleFixture();
     await fixture.base.run(async (ctx) => {
       const post = await ctx.db.get(fixture.sharedPostId);
@@ -731,50 +854,239 @@ describe("Build collaboration export and lifecycle governance", () => {
         _id: _ignoredId,
         ...revisionFields
       } = current;
-      const revisionId = await ctx.db.insert("buildCollaborationPostRevisions", {
-        ...revisionFields,
-        contentHash: "full-archive-revision-2",
-        createdAt: current.createdAt + 1,
-        plainText: "Immutable second revision.",
-        revision: 2,
-        tiptapJson: textDocument("Immutable second revision."),
-      });
+      const revisionId = await ctx.db.insert(
+        "buildCollaborationPostRevisions",
+        {
+          ...revisionFields,
+          contentHash: "full-archive-revision-2",
+          createdAt: current.createdAt + 1,
+          plainText: "Immutable second revision.",
+          revision: 2,
+          tiptapJson: textDocument("Immutable second revision."),
+        },
+      );
       await ctx.db.patch(post._id, {
         currentRevisionId: revisionId,
         revision: 2,
       });
+      for (const workosUserId of ["user_principle_broker", "user_broker"]) {
+        await ctx.db.insert("buildCollaborationFollows", {
+          active: true,
+          brokerageId: post.brokerageId,
+          buildId: post.buildId,
+          createdAt: BASE_TIME,
+          organizationId: post.organizationId,
+          postId: post._id,
+          reason: "manual",
+          updatedAt: BASE_TIME,
+          workosUserId,
+        });
+        await ctx.db.insert("buildCollaborationPins", {
+          brokerageId: post.brokerageId,
+          buildId: post.buildId,
+          createdAt: BASE_TIME,
+          kind: "personal",
+          organizationId: post.organizationId,
+          postId: post._id,
+          workosUserId,
+        });
+      }
+      for (const [workosUserId, viewerRole] of [
+        ["user_admin", "admin"],
+        ["user_principle_broker", "principle-broker"],
+        ["user_broker", "broker"],
+      ] as const) {
+        await ctx.db.insert("buildCollaborationReceipts", {
+          brokerageId: post.brokerageId,
+          buildId: post.buildId,
+          firstViewedAt: BASE_TIME,
+          lastViewedAt: BASE_TIME,
+          latestRevisionViewed: 2,
+          organizationId: post.organizationId,
+          postId: post._id,
+          viewerRole,
+          workosUserId,
+        });
+      }
+      await ctx.db.insert("buildCollaborationModerationCases", {
+        appealReviewerMinimumTier: 4,
+        brokerageId: post.brokerageId,
+        buildId: post.buildId,
+        contentAuthorRole: post.authorRole ?? "builder",
+        contentAuthorWorkosUserId: post.authorWorkosUserId ?? "user_builder",
+        createdAt: BASE_TIME,
+        currentReason: "Preserve the permission-filtered evidence snapshot.",
+        entityId: post._id,
+        entityKind: "post",
+        evidenceSnapshotJson: JSON.stringify({
+          attachmentIds: [],
+          receiptSnapshots: [
+            {
+              buildId: post.buildId,
+              displayNameSnapshot: "admin-secret-receipt",
+              firstViewedAt: BASE_TIME,
+              lastViewedAt: BASE_TIME,
+              organizationId: post.organizationId,
+              postId: post._id,
+              viewerRole: "admin",
+              workosUserId: "user_admin",
+            },
+            {
+              buildId: post.buildId,
+              displayNameSnapshot: "broker-visible-receipt",
+              firstViewedAt: BASE_TIME,
+              lastViewedAt: BASE_TIME,
+              organizationId: post.organizationId,
+              postId: post._id,
+              viewerRole: "broker",
+              workosUserId: "user_broker",
+            },
+          ],
+          referenceIds: [],
+        }),
+        moderatorRole: "principle-broker",
+        moderatorTier: 4,
+        moderatorWorkosUserId: "user_principle_broker",
+        organizationId: post.organizationId,
+        postId: post._id,
+        status: "moderated",
+        updatedAt: BASE_TIME,
+      });
     });
-    const created = await fixture.admin.mutation(
+    const created = await fixture.principal.mutation(
       (api as any).build_collaboration_exports.requestBuildCollaborationExport,
       {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
         scope: "build",
-      }
+      },
     );
-    const downloaded = await fixture.admin.mutation(
+    expect(created.state).toBe("building");
+    await expect(
+      fixture.principal.mutation(
+        (api as any).build_collaboration_exports
+          .downloadBuildCollaborationExport,
+        {
+          buildId: fixture.buildId,
+          exportId: created.exportId,
+          organizationId: ORGANIZATION_ID,
+          token: created.token,
+        },
+      ),
+    ).rejects.toThrow("still generating");
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const downloaded = await fixture.principal.mutation(
       (api as any).build_collaboration_exports.downloadBuildCollaborationExport,
       {
         buildId: fixture.buildId,
         exportId: created.exportId,
         organizationId: ORGANIZATION_ID,
         token: created.token,
-      }
+      },
     );
     const manifest = JSON.parse(downloaded.manifestJson);
-    const archivedPost = manifest.fullArchive.posts.find(
-      (entry: any) => entry.post._id === fixture.sharedPostId
+    expect(JSON.stringify(manifest).length).toBeLessThan(100_000);
+    expect(manifest.archive).toEqual(
+      expect.objectContaining({
+        chunkCount: expect.any(Number),
+        chunkUrlTemplate: expect.stringContaining("%7BchunkIndex%7D"),
+        format: "application/x-ndjson",
+        schemaVersion: 1,
+      }),
     );
-    expect(archivedPost.revisions.map((entry: any) => entry.revision.revision)).toEqual([
-      1, 2,
+    const firstChunk = await fixture.base.run(async (ctx) => {
+      const chunk = await ctx.db
+        .query("buildCollaborationExportArchiveChunks")
+        .withIndex("by_exportId_and_sequence", (query) =>
+          query.eq("exportId", created.exportId).eq("sequence", 0),
+        )
+        .unique();
+      if (!chunk) {
+        throw new Error("Expected first archive chunk.");
+      }
+      const body = await ctx.storage.get(chunk.storageId);
+      if (!body) {
+        throw new Error("Expected first archive chunk body.");
+      }
+      return { hash: chunk.contentHashSha256, text: await body.text() };
+    });
+    const chunkDownloadUrl = new URL(
+      manifest.archive.chunkUrlTemplate.replace("%7BchunkIndex%7D", "0"),
+      "https://some.convex.site",
+    );
+    const chunkDownloadPath = `${chunkDownloadUrl.pathname}${chunkDownloadUrl.search}`;
+    const chunkPreflight = await fixture.base.fetch(chunkDownloadPath, {
+      headers: {
+        "Access-Control-Request-Headers": "Authorization",
+        "Access-Control-Request-Method": "GET",
+        Origin: "http://localhost:3000",
+      },
+      method: "OPTIONS",
+    });
+    expect(chunkPreflight.status).toBe(204);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(firstChunk.text, { status: 200 }),
+    );
+    const chunkResponse = await fixture.principal.fetch(chunkDownloadPath, {
+      headers: {
+        Authorization: "Bearer test-auth-token",
+        Origin: "http://localhost:3000",
+      },
+    });
+    expect(chunkResponse.status).toBe(200);
+    expect(chunkResponse.headers.get("X-Content-SHA256")).toBe(firstChunk.hash);
+    expect(await chunkResponse.text()).toBe(firstChunk.text);
+    const archiveRecords = await fixture.base.run(async (ctx) => {
+      const chunks = await ctx.db
+        .query("buildCollaborationExportArchiveChunks")
+        .withIndex("by_exportId_and_sequence", (query) =>
+          query.eq("exportId", created.exportId),
+        )
+        .collect();
+      let ndjson = "";
+      for (const chunk of chunks.sort((a, b) => a.sequence - b.sequence)) {
+        const body = await ctx.storage.get(chunk.storageId);
+        if (!body) {
+          throw new Error("Expected persisted archive chunk body.");
+        }
+        ndjson += await body.text();
+      }
+      return ndjson
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+    });
+    const archivedPost = archiveRecords.find(
+      (entry: any) =>
+        entry.kind === "post" && entry.data.post._id === fixture.sharedPostId,
+    ).data;
+    expect(
+      archivedPost.revisions.map((entry: any) => entry.revision.revision),
+    ).toEqual([1, 2]);
+    expect(
+      archivedPost.follows.map((entry: any) => entry.workosUserId),
+    ).toEqual(["user_principle_broker"]);
+    expect(archivedPost.pins.map((entry: any) => entry.workosUserId)).toEqual([
+      "user_principle_broker",
     ]);
+    expect(
+      archivedPost.receipts.map((entry: any) => entry.workosUserId),
+    ).toEqual(["user_broker"]);
+    const moderationSnapshot = JSON.parse(
+      archivedPost.moderation[0].case.evidenceSnapshotJson,
+    );
+    expect(
+      moderationSnapshot.receiptSnapshots.map(
+        (entry: any) => entry.displayNameSnapshot,
+      ),
+    ).toEqual(["broker-visible-receipt"]);
     expect(archivedPost.actionItems[0]).toEqual(
       expect.objectContaining({
         events: expect.any(Array),
         revisions: expect.any(Array),
         checklist: expect.any(Array),
         relations: expect.any(Array),
-      })
+      }),
     );
     expect(archivedPost).toEqual(
       expect.objectContaining({
@@ -783,13 +1095,15 @@ describe("Build collaboration export and lifecycle governance", () => {
         receipts: expect.any(Array),
         references: expect.any(Array),
         threadEvents: expect.any(Array),
-      })
+      }),
     );
-    expect(manifest.fullArchive.buildHistory).toEqual(
+    expect(
+      archiveRecords.find((entry: any) => entry.kind === "build_history").data,
+    ).toEqual(
       expect.objectContaining({
         closureWaivers: expect.any(Array),
         lifecycleEvents: expect.any(Array),
-      })
+      }),
     );
   });
 
@@ -806,7 +1120,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         policyKey: "ten-year-archive",
         reason: "Preserve the closure-time regulatory window.",
         retentionDays: 3650,
-      }
+      },
     );
     await fixture.admin.mutation(
       (api as any).build_collaboration_lifecycle.closeBuildCollaboration,
@@ -821,7 +1135,7 @@ describe("Build collaboration export and lifecycle governance", () => {
             reason: "Administrative archive exception.",
           },
         ],
-      }
+      },
     );
     await fixture.admin.mutation(
       (api as any).build_collaboration_retention
@@ -832,7 +1146,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         policyKey: "new-thirty-day-policy",
         reason: "Apply a shorter policy only to future closures.",
         retentionDays: 30,
-      }
+      },
     );
     vi.setSystemTime(BASE_TIME + 31 * 86_400_000);
     await expect(
@@ -844,21 +1158,21 @@ describe("Build collaboration export and lifecycle governance", () => {
           expectedLifecycleRevision: 1,
           organizationId: ORGANIZATION_ID,
           reason: "Attempt premature purge under replacement policy.",
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("not yet eligible");
     expect(
       await fixture.base.run(async (ctx) =>
         ctx.db
           .query("buildCollaborationBuildStates")
           .withIndex("by_buildId", (query) =>
-            query.eq("buildId", fixture.buildId)
+            query.eq("buildId", fixture.buildId),
           )
-          .unique()
-      )
+          .unique(),
+      ),
     ).toMatchObject({
       retentionEligibleAt: BASE_TIME + 3650 * 86_400_000,
-      retentionPolicyVersion: 1,
+      retentionPolicyVersion: 2,
       state: "closed",
     });
   });
@@ -905,7 +1219,7 @@ describe("Build collaboration export and lifecycle governance", () => {
         policyKey: "residue-test",
         reason: "Verify destructive completion integrity.",
         retentionDays: 30,
-      }
+      },
     );
     await fixture.admin.mutation(
       (api as any).build_collaboration_lifecycle.closeBuildCollaboration,
@@ -920,7 +1234,7 @@ describe("Build collaboration export and lifecycle governance", () => {
             reason: "Administrative archive exception.",
           },
         ],
-      }
+      },
     );
     vi.setSystemTime(BASE_TIME + 31 * 86_400_000);
     await fixture.admin.mutation(
@@ -931,31 +1245,300 @@ describe("Build collaboration export and lifecycle governance", () => {
         expectedLifecycleRevision: 1,
         organizationId: ORGANIZATION_ID,
         reason: "Execute residue-safe purge.",
-      }
+      },
     );
     const residue = await fixture.base.run(async (ctx) => ({
       activity: await ctx.db
         .query("buildCollaborationActivityProjections")
         .withIndex("by_buildId_and_projectionKey", (query) =>
-          query.eq("buildId", fixture.buildId)
+          query.eq("buildId", fixture.buildId),
         )
         .collect(),
       requests: await ctx.db
         .query("buildActionItemCreationRequests")
         .withIndex("by_buildId", (query) =>
-          query.eq("buildId", fixture.buildId)
+          query.eq("buildId", fixture.buildId),
         )
         .collect(),
       state: await ctx.db
         .query("buildCollaborationBuildStates")
         .withIndex("by_buildId", (query) =>
-          query.eq("buildId", fixture.buildId)
+          query.eq("buildId", fixture.buildId),
         )
         .unique(),
     }));
     expect(residue.activity).toEqual([]);
     expect(residue.requests).toEqual([]);
     expect(residue.state).toMatchObject({ state: "purged" });
+  });
+
+  test("refuses to reopen after a destructive retention purge has started", async () => {
+    const fixture = await seedLifecycleFixture();
+    await closeLifecycleFixture(fixture, "Close before destructive purge.");
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      const lifecycle = await ctx.db
+        .query("buildCollaborationBuildStates")
+        .withIndex("by_buildId", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .unique();
+      if (!(build && lifecycle?.retentionPolicyId)) {
+        throw new Error("Expected closed lifecycle purge fixture.");
+      }
+      await ctx.db.insert("buildCollaborationRetentionPurges", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        deletedAssetCount: 1,
+        deletedPostCount: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Partial destructive batch already committed.",
+        requestedByRole: "admin",
+        requestedByWorkosUserId: "user_admin",
+        retainedAuditEventCount: 1,
+        retentionPolicyId: lifecycle.retentionPolicyId,
+        startedAt: Date.now(),
+        state: "in_progress",
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_lifecycle.reopenBuildCollaboration,
+        {
+          buildId: fixture.buildId,
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Attempt reopening after destructive work began.",
+        },
+      ),
+    ).rejects.toThrow("purge is in progress");
+  });
+
+  test("keeps asset scan and staging maintenance read-only after Build closure", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    const maintenance = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      const sourceAsset = await ctx.db.get(fixture.assetId);
+      if (!(build && sourceAsset)) {
+        throw new Error("Expected asset maintenance fixture.");
+      }
+      const pendingStorageId = await ctx.storage.store(
+        new Blob(["pending-private-upload"], { type: "text/plain" }),
+      );
+      const pendingSessionId = await ctx.db.insert(
+        "buildCollaborationAssetStagingSessions",
+        {
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          contextKind: "composer",
+          createdAt: BASE_TIME - 10,
+          expiresAt: BASE_TIME - 1,
+          organizationId: ORGANIZATION_ID,
+          ownerWorkosUserId: "user_builder",
+          pendingStorageId,
+          state: "open",
+          updatedAt: BASE_TIME - 10,
+        },
+      );
+      const scanStorageId = await ctx.storage.store(
+        new Blob(["quarantined-private-upload"], { type: "text/plain" }),
+      );
+      const scanSessionId = await ctx.db.insert(
+        "buildCollaborationAssetStagingSessions",
+        {
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          contextKind: "composer",
+          createdAt: BASE_TIME - 10,
+          expiresAt: BASE_TIME + 86_400_000,
+          organizationId: ORGANIZATION_ID,
+          ownerWorkosUserId: "user_builder",
+          state: "finalized",
+          updatedAt: BASE_TIME - 10,
+        },
+      );
+      const {
+        _creationTime: _ignoredCreationTime,
+        _id: _ignoredId,
+        ...assetFields
+      } = sourceAsset;
+      const scanAssetId = await ctx.db.insert("buildCollaborationAssets", {
+        ...assetFields,
+        contentHashSha256: "closed-scan-hash",
+        createdAt: BASE_TIME - 10,
+        fileName: "closed-scan.txt",
+        originatingPostId: undefined,
+        publishedAt: undefined,
+        publishedOwnerKind: undefined,
+        publishedOwnerRecordId: undefined,
+        readerWorkosUserIds: undefined,
+        scanCompletedAt: undefined,
+        scanState: "pending",
+        stagingSessionId: scanSessionId,
+        state: "quarantined",
+        storageId: scanStorageId,
+        updatedAt: BASE_TIME - 10,
+      });
+      await ctx.db.patch(scanSessionId, { assetId: scanAssetId });
+      return {
+        pendingSessionId,
+        pendingStorageId,
+        scanAssetId,
+        scanSessionId,
+        scanStorageId,
+      };
+    });
+    await closeLifecycleFixture(fixture, "Freeze asset maintenance state.");
+    expect(
+      await fixture.base.query(
+        (internal as any).build_collaboration_asset_maintenance
+          .getBuildCollaborationAssetScanInput,
+        { assetId: maintenance.scanAssetId },
+      ),
+    ).toBeNull();
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId: maintenance.scanAssetId,
+        computedHashSha256: "closed-scan-hash",
+        outcome: "clean",
+        provider: "test-scanner",
+      },
+    );
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .expireBuildCollaborationAssetStagingSession,
+      { stagingSessionId: maintenance.pendingSessionId },
+    );
+    const frozen = await fixture.base.run(async (ctx) => ({
+      pendingSession: await ctx.db.get(maintenance.pendingSessionId),
+      pendingStorageExists: Boolean(
+        await ctx.storage.get(maintenance.pendingStorageId),
+      ),
+      scanAsset: await ctx.db.get(maintenance.scanAssetId),
+      scanSession: await ctx.db.get(maintenance.scanSessionId),
+      scanStorageExists: Boolean(
+        await ctx.storage.get(maintenance.scanStorageId),
+      ),
+    }));
+    expect(frozen.pendingSession?.state).toBe("open");
+    expect(frozen.pendingStorageExists).toBe(true);
+    expect(frozen.scanAsset).toMatchObject({
+      scanState: "pending",
+      state: "quarantined",
+    });
+    expect(frozen.scanSession?.state).toBe("finalized");
+    expect(frozen.scanStorageExists).toBe(true);
+  });
+
+  test("snapshots the exact private asset authorization path", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    const privateAssets = await fixture.base.run(async (ctx) => {
+      const sourceAsset = await ctx.db.get(fixture.assetId);
+      if (!sourceAsset) {
+        throw new Error("Expected source asset fixture.");
+      }
+      const {
+        _creationTime: _ignoredCreationTime,
+        _id: _ignoredId,
+        ...assetFields
+      } = sourceAsset;
+      const draftId = await ctx.db.insert("buildCollaborationDrafts", {
+        approvalOwnerWorkosUserId: "user_builder",
+        brokerageId: sourceAsset.brokerageId,
+        buildId: sourceAsset.buildId,
+        bundleHash: "private-approval-draft",
+        bundleJson: "{}",
+        createdAt: BASE_TIME,
+        organizationId: ORGANIZATION_ID,
+        ownerWorkosUserId: "user_broker",
+        revision: 1,
+        state: "active",
+        updatedAt: BASE_TIME,
+      });
+      const makePrivateAsset = async (
+        contextKind: "composer" | "draft",
+        ownerWorkosUserId: string,
+        contextRecordId?: string,
+      ) => {
+        const storageId = await ctx.storage.store(
+          new Blob([`${contextKind}-private`], { type: "text/plain" }),
+        );
+        const sessionId = await ctx.db.insert(
+          "buildCollaborationAssetStagingSessions",
+          {
+            brokerageId: sourceAsset.brokerageId,
+            buildId: sourceAsset.buildId,
+            contextKind,
+            contextRecordId,
+            createdAt: BASE_TIME,
+            expiresAt: BASE_TIME + 86_400_000,
+            organizationId: ORGANIZATION_ID,
+            ownerWorkosUserId,
+            state: "finalized",
+            updatedAt: BASE_TIME,
+          },
+        );
+        const assetId = await ctx.db.insert("buildCollaborationAssets", {
+          ...assetFields,
+          contentHashSha256: `${contextKind}-private-hash`,
+          createdAt: BASE_TIME,
+          fileName: `${contextKind}-private.txt`,
+          originatingPostId: undefined,
+          publishedAt: undefined,
+          publishedOwnerKind: undefined,
+          publishedOwnerRecordId: undefined,
+          readerWorkosUserIds: undefined,
+          stagingSessionId: sessionId,
+          storageId,
+          updatedAt: BASE_TIME,
+        });
+        await ctx.db.patch(sessionId, { assetId });
+        return assetId;
+      };
+      return {
+        approvalAssetId: await makePrivateAsset(
+          "draft",
+          "user_broker",
+          draftId,
+        ),
+        ownerAssetId: await makePrivateAsset("composer", "user_builder"),
+      };
+    });
+    for (const [assetId, expectedBasis] of [
+      [privateAssets.ownerAssetId, "staging_session_owner"],
+      [privateAssets.approvalAssetId, "draft_approval_owner"],
+    ] as const) {
+      const created = await fixture.builder.mutation(
+        (api as any).build_collaboration_exports
+          .requestBuildCollaborationExport,
+        {
+          assetId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          scope: "asset",
+        },
+      );
+      const downloaded = await fixture.builder.mutation(
+        (api as any).build_collaboration_exports
+          .downloadBuildCollaborationExport,
+        {
+          buildId: fixture.buildId,
+          exportId: created.exportId,
+          organizationId: ORGANIZATION_ID,
+          token: created.token,
+        },
+      );
+      expect(
+        JSON.parse(downloaded.aclSnapshotJson).assetDecisions[0],
+      ).toMatchObject({ assetId, basis: expectedBasis });
+    }
   });
 
   test("prevents internal prominence and deadline jobs from mutating a closed archive", async () => {
@@ -988,13 +1571,13 @@ describe("Build collaboration export and lifecycle governance", () => {
             reason: "Administrative archive exception.",
           },
         ],
-      }
+      },
     );
     const before = await fixture.base.run(async (ctx) => ({
       events: await ctx.db
         .query("buildActionItemEvents")
         .withIndex("by_actionItemId_and_createdAt", (query) =>
-          query.eq("actionItemId", fixture.actionItemId)
+          query.eq("actionItemId", fixture.actionItemId),
         )
         .collect(),
       item: await ctx.db.get(fixture.actionItemId),
@@ -1006,7 +1589,7 @@ describe("Build collaboration export and lifecycle governance", () => {
       {
         announcementExpiresAt: BASE_TIME,
         postId: fixture.sharedPostId,
-      }
+      },
     );
     await fixture.base.mutation(
       (internal as any).build_action_item_queues
@@ -1017,18 +1600,18 @@ describe("Build collaboration export and lifecycle governance", () => {
         dueAt: BASE_TIME + 86_400_000,
         organizationId: ORGANIZATION_ID,
         policyKey: "closed-archive-policy",
-      }
+      },
     );
     await fixture.base.mutation(
       (internal as any).build_action_item_queues
         .processOneBuildActionItemDeadline,
-      { actionItemId: fixture.actionItemId, asOf: BASE_TIME }
+      { actionItemId: fixture.actionItemId, asOf: BASE_TIME },
     );
     const after = await fixture.base.run(async (ctx) => ({
       events: await ctx.db
         .query("buildActionItemEvents")
         .withIndex("by_actionItemId_and_createdAt", (query) =>
-          query.eq("actionItemId", fixture.actionItemId)
+          query.eq("actionItemId", fixture.actionItemId),
         )
         .collect(),
       item: await ctx.db.get(fixture.actionItemId),
@@ -1050,7 +1633,7 @@ describe("Build collaboration export and lifecycle governance", () => {
 function withIdentity(
   t: ReturnType<typeof convexTest>,
   role: BuildCollaborationRole,
-  subject = `user_${role.replace("-", "_")}`
+  subject = `user_${role.replace("-", "_")}`,
 ) {
   return t.withIdentity({
     email: `${subject}@example.com`,
@@ -1069,7 +1652,7 @@ async function seedLifecycleFixture() {
   const admin = withIdentity(base, "admin");
   const foundation = await admin.mutation(
     (api as any).production_proposals.dev_seedProductionFoundation,
-    { workosOrganizationId: ORGANIZATION_ID }
+    { workosOrganizationId: ORGANIZATION_ID },
   );
   const seeded = await admin.run(async (ctx) => {
     const now = Date.now();
@@ -1106,7 +1689,7 @@ async function seedLifecycleFixture() {
         settings: {},
         version: 1,
         workflowRuleId: foundation.workflowRuleId,
-      }
+      },
     );
     const buildId = await ctx.db.insert("activeBuilds", {
       brokerageId: foundation.brokerageId,
@@ -1122,7 +1705,10 @@ async function seedLifecycleFixture() {
       updatedAt: now,
       workflowRuleSnapshotId,
     });
-    await ctx.db.patch(proposalId, { activeBuildId: buildId, workflowRuleSnapshotId });
+    await ctx.db.patch(proposalId, {
+      activeBuildId: buildId,
+      workflowRuleSnapshotId,
+    });
     await ctx.db.insert("buildCollaborationTenantSettings", {
       activatedAt: now,
       activatedByWorkosUserId: "user_admin",
@@ -1133,6 +1719,18 @@ async function seedLifecycleFixture() {
       organizationId: ORGANIZATION_ID,
       status: "active",
       updatedAt: now,
+    });
+    await ctx.db.insert("buildCollaborationRetentionPolicies", {
+      brokerageId: foundation.brokerageId,
+      createdAt: now,
+      createdByRole: "admin",
+      createdByWorkosUserId: "user_admin",
+      organizationId: ORGANIZATION_ID,
+      policyKey: "fixture-default",
+      reason: "Provide a purgeable closure baseline for lifecycle tests.",
+      retentionDays: 3650,
+      state: "active",
+      version: 1,
     });
     const participants: Array<[string, BuildCollaborationRole]> = [
       ["user_principle_broker", "principle-broker"],
@@ -1198,7 +1796,7 @@ async function seedLifecycleFixture() {
         postId: sharedPostId,
         revision: 1,
         tiptapJson: textDocument("Foundation archive update"),
-      }
+      },
     );
     await ctx.db.patch(sharedPostId, { currentRevisionId: sharedRevisionId });
     const secretPostId = await ctx.db.insert("buildCollaborationPosts", {
@@ -1240,7 +1838,7 @@ async function seedLifecycleFixture() {
         postId: secretPostId,
         revision: 1,
         tiptapJson: textDocument("Admin-only retained record"),
-      }
+      },
     );
     await ctx.db.patch(secretPostId, { currentRevisionId: secretRevisionId });
     const actionItemId = await ctx.db.insert("buildActionItems", {
@@ -1262,7 +1860,7 @@ async function seedLifecycleFixture() {
       updatedAt: now,
     });
     const storageId = await ctx.storage.store(
-      new Blob(["archive evidence"], { type: "text/plain" })
+      new Blob(["archive evidence"], { type: "text/plain" }),
     );
     const assetId = await ctx.db.insert("buildCollaborationAssets", {
       brokerageId: foundation.brokerageId,
@@ -1298,7 +1896,13 @@ async function seedLifecycleFixture() {
       ownerKind: "postRevision",
       ownerRecordId: sharedRevisionId,
     });
-    return { actionItemId, assetId, buildId, sharedPostId };
+    return {
+      actionItemId,
+      assetId,
+      buildId,
+      secretPostId,
+      sharedPostId,
+    };
   });
   return {
     admin,
@@ -1316,7 +1920,7 @@ async function seedLifecycleFixture() {
 
 async function publishAsBuilder(
   fixture: Awaited<ReturnType<typeof seedLifecycleFixture>>,
-  text: string
+  text: string,
 ) {
   return await fixture.builder.mutation(
     (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
@@ -1330,8 +1934,54 @@ async function publishAsBuilder(
       references: [],
       requestedReaderIds: [],
       tiptapJson: textDocument(text),
-    }
+    },
   );
+}
+
+async function closeLifecycleFixture(
+  fixture: Awaited<ReturnType<typeof seedLifecycleFixture>>,
+  reason: string,
+) {
+  await fixture.admin.mutation(
+    (api as any).build_collaboration_lifecycle.closeBuildCollaboration,
+    {
+      buildId: fixture.buildId,
+      expectedRevision: 0,
+      organizationId: ORGANIZATION_ID,
+      reason,
+      waivers: [
+        {
+          actionItemId: fixture.actionItemId,
+          reason: "Administrative archive exception.",
+        },
+      ],
+    },
+  );
+}
+
+async function readArchiveText(
+  base: Awaited<ReturnType<typeof seedLifecycleFixture>>["base"],
+  exportId: Id<"buildCollaborationExports">,
+) {
+  return await base.run(async (ctx) => {
+    const chunks = await ctx.db
+      .query("buildCollaborationExportArchiveChunks")
+      .withIndex("by_exportId_and_sequence", (query) =>
+        query.eq("exportId", exportId),
+      )
+      .collect();
+    let text = "";
+    for (const chunk of chunks.sort(
+      (left, right) => left.sequence - right.sequence,
+    )) {
+      const body = await ctx.storage.get(chunk.storageId);
+      if (!body) {
+        throw new Error("Expected persisted archive chunk body.");
+      }
+      text += await body.text();
+    }
+    return text;
+  });
 }
 
 function textDocument(text: string) {

@@ -1,19 +1,15 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
-import type { Doc, MutationCtx } from "./types";
+import { canSeeCollaborationReceipt } from "./build_collaboration_access";
+import type { Doc, QueryCtx } from "./types";
 
 const ARCHIVE_ROW_LIMIT = 2000;
 
-export async function buildFullBuildCollaborationArchive(
-  ctx: MutationCtx,
+export async function buildBuildCollaborationHistoryArchive(
+  ctx: QueryCtx,
   input: {
     authorization: ActiveBuildAuthorization;
-    posts: Doc<"buildCollaborationPosts">[];
   }
 ) {
-  const postArchives: Awaited<ReturnType<typeof archivePost>>[] = [];
-  for (const post of input.posts) {
-    postArchives.push(await archivePost(ctx, post));
-  }
   const lifecycle = await ctx.db
     .query("buildCollaborationBuildStates")
     .withIndex("by_buildId", (query) =>
@@ -51,22 +47,17 @@ export async function buildFullBuildCollaborationArchive(
         "Build lifecycle audit events"
       )
     : [];
-  return {
-    buildHistory: {
-      closureWaivers,
-      lifecycle,
-      lifecycleAudit,
-      lifecycleEvents,
-    },
-    posts: postArchives,
-    schemaVersion: 1,
-  };
+  return { closureWaivers, lifecycle, lifecycleAudit, lifecycleEvents };
 }
 
-async function archivePost(
-  ctx: MutationCtx,
-  post: Doc<"buildCollaborationPosts">
+export async function buildCollaborationPostArchive(
+  ctx: QueryCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    post: Doc<"buildCollaborationPosts">;
+  }
 ) {
+  const { authorization, post } = input;
   const revisions = await limited(
     ctx.db
       .query("buildCollaborationPostRevisions")
@@ -127,17 +118,25 @@ async function archivePost(
     }
     commentHistory.push({
       comment,
-      moderation: await moderationHistory(ctx, "comment", comment._id),
-      pins: await limited(
-        ctx.db
-          .query("buildCollaborationPins")
-          .withIndex(
-            "by_postId_and_commentId_and_workosUserId_and_kind",
-            (query) => query.eq("postId", post._id).eq("commentId", comment._id)
-          )
-          .take(ARCHIVE_ROW_LIMIT + 1),
-        "comment pins"
+      moderation: await moderationHistory(
+        ctx,
+        authorization,
+        "comment",
+        comment._id
       ),
+      pins: (
+        await limited(
+          ctx.db
+            .query("buildCollaborationPins")
+            .withIndex(
+              "by_postId_and_commentId_and_workosUserId_and_kind",
+              (query) =>
+                query.eq("postId", post._id).eq("commentId", comment._id)
+            )
+            .take(ARCHIVE_ROW_LIMIT + 1),
+          "comment pins"
+        )
+      ).filter((pin) => pin.workosUserId === authorization.viewer.subject),
       reactions: await limited(
         ctx.db
           .query("buildCollaborationReactions")
@@ -216,25 +215,29 @@ async function archivePost(
         .take(ARCHIVE_ROW_LIMIT + 1),
       "decision outcome revisions"
     ),
-    follows: await limited(
-      ctx.db
-        .query("buildCollaborationFollows")
-        .withIndex("by_postId_and_workosUserId", (query) =>
-          query.eq("postId", post._id)
-        )
-        .take(ARCHIVE_ROW_LIMIT + 1),
-      "post follows"
-    ),
-    moderation: await moderationHistory(ctx, "post", post._id),
-    pins: await limited(
-      ctx.db
-        .query("buildCollaborationPins")
-        .withIndex("by_postId_and_workosUserId_and_kind", (query) =>
-          query.eq("postId", post._id)
-        )
-        .take(ARCHIVE_ROW_LIMIT + 1),
-      "post pins"
-    ),
+    follows: (
+      await limited(
+        ctx.db
+          .query("buildCollaborationFollows")
+          .withIndex("by_postId_and_workosUserId", (query) =>
+            query.eq("postId", post._id)
+          )
+          .take(ARCHIVE_ROW_LIMIT + 1),
+        "post follows"
+      )
+    ).filter((follow) => follow.workosUserId === authorization.viewer.subject),
+    moderation: await moderationHistory(ctx, authorization, "post", post._id),
+    pins: (
+      await limited(
+        ctx.db
+          .query("buildCollaborationPins")
+          .withIndex("by_postId_and_workosUserId_and_kind", (query) =>
+            query.eq("postId", post._id)
+          )
+          .take(ARCHIVE_ROW_LIMIT + 1),
+        "post pins"
+      )
+    ).filter((pin) => pin.workosUserId === authorization.viewer.subject),
     post,
     reactions: await limited(
       ctx.db
@@ -245,15 +248,17 @@ async function archivePost(
         .take(ARCHIVE_ROW_LIMIT + 1),
       "post reactions"
     ),
-    receipts: await limited(
-      ctx.db
-        .query("buildCollaborationReceipts")
-        .withIndex("by_postId_and_workosUserId", (query) =>
-          query.eq("postId", post._id)
-        )
-        .take(ARCHIVE_ROW_LIMIT + 1),
-      "post receipts"
-    ),
+    receipts: (
+      await limited(
+        ctx.db
+          .query("buildCollaborationReceipts")
+          .withIndex("by_postId_and_workosUserId", (query) =>
+            query.eq("postId", post._id)
+          )
+          .take(ARCHIVE_ROW_LIMIT + 1),
+        "post receipts"
+      )
+    ).filter((receipt) => canSeeCollaborationReceipt(authorization, receipt)),
     references: await limited(
       ctx.db
         .query("buildCollaborationReferences")
@@ -274,10 +279,7 @@ async function archivePost(
   };
 }
 
-async function archiveActionItem(
-  ctx: MutationCtx,
-  item: Doc<"buildActionItems">
-) {
+async function archiveActionItem(ctx: QueryCtx, item: Doc<"buildActionItems">) {
   const relations = [
     ...(await limited(
       ctx.db
@@ -361,7 +363,8 @@ async function archiveActionItem(
 }
 
 async function moderationHistory(
-  ctx: MutationCtx,
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
   entityKind: "comment" | "post",
   entityId: string
 ) {
@@ -377,7 +380,13 @@ async function moderationHistory(
   const history: Record<string, unknown>[] = [];
   for (const moderationCase of cases) {
     history.push({
-      case: moderationCase,
+      case: {
+        ...moderationCase,
+        evidenceSnapshotJson: sanitizeModerationEvidenceSnapshot(
+          authorization,
+          moderationCase.evidenceSnapshotJson
+        ),
+      },
       events: await limited(
         ctx.db
           .query("buildCollaborationModerationEvents")
@@ -392,8 +401,49 @@ async function moderationHistory(
   return history;
 }
 
+function sanitizeModerationEvidenceSnapshot(
+  authorization: ActiveBuildAuthorization,
+  value: string
+) {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const receiptSnapshots = Array.isArray(parsed.receiptSnapshots)
+      ? parsed.receiptSnapshots.filter(
+          (
+            receipt
+          ): receipt is {
+            viewerRole: Doc<"buildCollaborationReceipts">["viewerRole"];
+            workosUserId: string;
+          } =>
+            Boolean(
+              receipt &&
+                typeof receipt === "object" &&
+                typeof (receipt as Record<string, unknown>).workosUserId ===
+                  "string" &&
+                typeof (receipt as Record<string, unknown>).viewerRole ===
+                  "string" &&
+                canSeeCollaborationReceipt(
+                  authorization,
+                  receipt as {
+                    viewerRole: Doc<"buildCollaborationReceipts">["viewerRole"];
+                    workosUserId: string;
+                  }
+                )
+            )
+        )
+      : [];
+    return JSON.stringify({ ...parsed, receiptSnapshots });
+  } catch {
+    return JSON.stringify({
+      attachmentIds: [],
+      receiptSnapshots: [],
+      referenceIds: [],
+    });
+  }
+}
+
 async function ownerAttachments(
-  ctx: MutationCtx,
+  ctx: QueryCtx,
   ownerKind: Doc<"buildCollaborationAttachments">["ownerKind"],
   ownerRecordId: string
 ) {
@@ -409,7 +459,7 @@ async function ownerAttachments(
 }
 
 async function ownerReferences(
-  ctx: MutationCtx,
+  ctx: QueryCtx,
   ownerKind: Doc<"buildCollaborationReferences">["ownerKind"],
   ownerRecordId: string
 ) {

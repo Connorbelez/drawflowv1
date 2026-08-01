@@ -88,9 +88,13 @@ export const closeBuildCollaboration = authenticatedMutation
     const now = Date.now();
     const revision = (current?.revision ?? 0) + 1;
     const retentionPolicy = await activeRetentionPolicy(ctx, authorization);
-    const retentionEligibleAt = retentionPolicy
-      ? now + retentionPolicy.retentionDays * 86_400_000
-      : undefined;
+    if (!retentionPolicy) {
+      throw new Error(
+        "Configure an active Build collaboration retention policy before closure."
+      );
+    }
+    const retentionEligibleAt =
+      now + retentionPolicy.retentionDays * 86_400_000;
     const stateId = current
       ? current._id
       : await ctx.db.insert("buildCollaborationBuildStates", {
@@ -173,6 +177,17 @@ export const reopenBuildCollaboration = authenticatedMutation
     }
     if (current.state === "purged") {
       throw new Error(BUILD_COLLABORATION_PURGED_ERROR);
+    }
+    const activePurge = await ctx.db
+      .query("buildCollaborationRetentionPurges")
+      .withIndex("by_buildId_and_state", (query) =>
+        query.eq("buildId", authorization.build._id).eq("state", "in_progress")
+      )
+      .first();
+    if (activePurge) {
+      throw new Error(
+        "Build collaboration cannot be reopened while retention purge is in progress."
+      );
     }
     const now = Date.now();
     const revision = current.revision + 1;

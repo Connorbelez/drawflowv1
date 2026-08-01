@@ -1149,6 +1149,18 @@ async function deleteBuildResidue(
     5000,
     "exports"
   );
+  const archiveChunks = await boundedAt(
+    ctx.db
+      .query("buildCollaborationExportArchiveChunks")
+      .withIndex("by_buildId", (query) => query.eq("buildId", buildId))
+      .take(5001),
+    5000,
+    "export archive chunks"
+  );
+  for (const chunk of archiveChunks) {
+    await ctx.storage.delete(chunk.storageId);
+    await ctx.db.delete(chunk._id);
+  }
   for (const row of exports) {
     await ctx.db.patch(row._id, {
       aclSnapshotJson: JSON.stringify({ purged: true }),

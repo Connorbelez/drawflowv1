@@ -60,13 +60,23 @@ export async function canReadCollaborationAsset(
     authorization: ActiveBuildAuthorization;
   }
 ) {
+  return Boolean(await resolveCollaborationAssetReadDecision(ctx, input));
+}
+
+export async function resolveCollaborationAssetReadDecision(
+  ctx: QueryCtx,
+  input: {
+    asset: Doc<"buildCollaborationAssets">;
+    authorization: ActiveBuildAuthorization;
+  }
+) {
   if (
     input.asset.organizationId !== input.authorization.organizationId ||
     input.asset.brokerageId !== input.authorization.brokerage._id ||
     input.asset.buildId !== input.authorization.build._id ||
     !isCleanCollaborationAsset(input.asset)
   ) {
-    return false;
+    return null;
   }
   if (
     input.asset.readerWorkosUserIds &&
@@ -74,7 +84,7 @@ export async function canReadCollaborationAsset(
       input.authorization.viewer.subject
     )
   ) {
-    return false;
+    return null;
   }
   const attachments = await ctx.db
     .query("buildCollaborationAttachments")
@@ -91,21 +101,41 @@ export async function canReadCollaborationAsset(
       post &&
       (await canReadCollaborationPost(ctx, input.authorization, post))
     ) {
-      return true;
+      return {
+        attachmentId: attachment._id,
+        basis: input.asset.readerWorkosUserIds
+          ? ("published_reader_snapshot_and_attachment_acl" as const)
+          : ("attachment_acl" as const),
+        postId: post._id,
+      };
     }
   }
   const session = input.asset.stagingSessionId
     ? await ctx.db.get(input.asset.stagingSessionId)
     : null;
-  return Boolean(
-    session &&
-      session.organizationId === input.authorization.organizationId &&
-      session.buildId === input.authorization.build._id &&
-      (session.ownerWorkosUserId === input.authorization.viewer.subject ||
-        (await isDraftApprovalOwner(ctx, input.authorization, session))) &&
-      session.state === "finalized" &&
-      session.expiresAt > Date.now()
-  );
+  if (
+    !session ||
+    session.organizationId !== input.authorization.organizationId ||
+    session.buildId !== input.authorization.build._id ||
+    session.state !== "finalized" ||
+    session.expiresAt <= Date.now()
+  ) {
+    return null;
+  }
+  if (session.ownerWorkosUserId === input.authorization.viewer.subject) {
+    return {
+      basis: "staging_session_owner" as const,
+      stagingSessionId: session._id,
+    };
+  }
+  if (await isDraftApprovalOwner(ctx, input.authorization, session)) {
+    return {
+      basis: "draft_approval_owner" as const,
+      draftId: session.contextRecordId,
+      stagingSessionId: session._id,
+    };
+  }
+  return null;
 }
 
 async function isDraftApprovalOwner(

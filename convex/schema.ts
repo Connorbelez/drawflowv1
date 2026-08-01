@@ -3327,10 +3327,17 @@ export default defineSchema({
     tokenHash: v.string(),
     expiresAt: v.number(),
     state: v.union(
+      v.literal("building"),
       v.literal("active"),
+      v.literal("failed"),
       v.literal("expired"),
       v.literal("revoked")
     ),
+    archiveChunkCount: v.optional(v.number()),
+    archiveCompletedAt: v.optional(v.number()),
+    archiveFailure: v.optional(v.string()),
+    archiveNextRecordIndex: v.optional(v.number()),
+    archiveNextSequence: v.optional(v.number()),
     aclSnapshotJson: v.string(),
     manifestJson: v.string(),
     recordCount: v.number(),
@@ -3349,6 +3356,21 @@ export default defineSchema({
       "requestedByWorkosUserId",
       "createdAt",
     ]),
+  buildCollaborationExportArchiveChunks: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    exportId: v.id("buildCollaborationExports"),
+    sequence: v.number(),
+    recordIndex: v.number(),
+    partIndex: v.number(),
+    byteLength: v.number(),
+    contentHashSha256: v.string(),
+    storageId: v.id("_storage"),
+    createdAt: v.number(),
+  })
+    .index("by_exportId_and_sequence", ["exportId", "sequence"])
+    .index("by_buildId", ["buildId"]),
   buildCollaborationRetentionPurges: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

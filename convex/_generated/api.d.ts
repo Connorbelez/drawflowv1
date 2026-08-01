@@ -34,6 +34,7 @@ import type * as build_collaboration from "../build_collaboration.js";
 import type * as build_collaboration_access from "../build_collaboration_access.js";
 import type * as build_collaboration_acknowledgements from "../build_collaboration_acknowledgements.js";
 import type * as build_collaboration_actor from "../build_collaboration_actor.js";
+import type * as build_collaboration_archive from "../build_collaboration_archive.js";
 import type * as build_collaboration_asset_access from "../build_collaboration_asset_access.js";
 import type * as build_collaboration_asset_actions from "../build_collaboration_asset_actions.js";
 import type * as build_collaboration_asset_maintenance from "../build_collaboration_asset_maintenance.js";
@@ -51,6 +52,7 @@ import type * as build_collaboration_delivery_transport from "../build_collabora
 import type * as build_collaboration_delivery_transport_provider from "../build_collaboration_delivery_transport_provider.js";
 import type * as build_collaboration_drafts from "../build_collaboration_drafts.js";
 import type * as build_collaboration_editing from "../build_collaboration_editing.js";
+import type * as build_collaboration_export_archive from "../build_collaboration_export_archive.js";
 import type * as build_collaboration_exports from "../build_collaboration_exports.js";
 import type * as build_collaboration_focus from "../build_collaboration_focus.js";
 import type * as build_collaboration_hash from "../build_collaboration_hash.js";
@@ -165,6 +167,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_access: typeof build_collaboration_access;
   build_collaboration_acknowledgements: typeof build_collaboration_acknowledgements;
   build_collaboration_actor: typeof build_collaboration_actor;
+  build_collaboration_archive: typeof build_collaboration_archive;
   build_collaboration_asset_access: typeof build_collaboration_asset_access;
   build_collaboration_asset_actions: typeof build_collaboration_asset_actions;
   build_collaboration_asset_maintenance: typeof build_collaboration_asset_maintenance;
@@ -182,6 +185,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_delivery_transport_provider: typeof build_collaboration_delivery_transport_provider;
   build_collaboration_drafts: typeof build_collaboration_drafts;
   build_collaboration_editing: typeof build_collaboration_editing;
+  build_collaboration_export_archive: typeof build_collaboration_export_archive;
   build_collaboration_exports: typeof build_collaboration_exports;
   build_collaboration_focus: typeof build_collaboration_focus;
   build_collaboration_hash: typeof build_collaboration_hash;

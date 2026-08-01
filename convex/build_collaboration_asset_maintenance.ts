@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
+import { isBuildCollaborationWritableByBuildId } from "./build_collaboration_lifecycle_state";
 import { internalAction, internalMutation, internalQuery } from "./fluent";
 import type { ActionCtx, Doc, Id, MutationCtx } from "./types";
 
@@ -34,6 +35,14 @@ export const getBuildCollaborationAssetScanInput = internalQuery
     ) {
       return null;
     }
+    if (
+      !(await isBuildCollaborationWritableByBuildId(ctx, {
+        buildId: asset.buildId,
+        organizationId: asset.organizationId,
+      }))
+    ) {
+      return null;
+    }
     const fileUrl = await ctx.storage.getUrl(asset.storageId);
     if (!fileUrl) {
       return null;
@@ -64,6 +73,14 @@ export const recordBuildCollaborationAssetScanResult = internalMutation
       asset.state !== "quarantined" ||
       asset.scanState === "clean" ||
       asset.scanState === "rejected"
+    ) {
+      return null;
+    }
+    if (
+      !(await isBuildCollaborationWritableByBuildId(ctx, {
+        buildId: asset.buildId,
+        organizationId: asset.organizationId,
+      }))
     ) {
       return null;
     }
@@ -232,6 +249,14 @@ export const abandonBuildCollaborationAssetUploadAfterFailure = internalMutation
     ) {
       return null;
     }
+    if (
+      !(await isBuildCollaborationWritableByBuildId(ctx, {
+        buildId: session.buildId,
+        organizationId: session.organizationId,
+      }))
+    ) {
+      return null;
+    }
     const [boundAsset, boundSessions] = await Promise.all([
       ctx.db
         .query("buildCollaborationAssets")
@@ -287,6 +312,14 @@ export const expireBuildCollaborationAssetStagingSession = internalMutation
     ) {
       return null;
     }
+    if (
+      !(await isBuildCollaborationWritableByBuildId(ctx, {
+        buildId: session.buildId,
+        organizationId: session.organizationId,
+      }))
+    ) {
+      return null;
+    }
     await expireStagingSession(ctx, session, Date.now());
     return null;
   })
@@ -305,10 +338,20 @@ export const expireBuildCollaborationAssetStagingSessions = internalMutation
         query.eq("state", args.state).lt("expiresAt", now)
       )
       .take(100);
+    let expiredCount = 0;
     for (const session of sessions) {
+      if (
+        !(await isBuildCollaborationWritableByBuildId(ctx, {
+          buildId: session.buildId,
+          organizationId: session.organizationId,
+        }))
+      ) {
+        continue;
+      }
       await expireStagingSession(ctx, session, now);
+      expiredCount += 1;
     }
-    return sessions.length;
+    return expiredCount;
   })
   .internal();
 
