@@ -568,30 +568,34 @@ export const processOneBuildActionItemDeadline = internalMutation
     ) {
       return null;
     }
-    if (
-      !(await claimBuildCollaborationWriteByBuildId(ctx, {
-        buildId: item.buildId,
-        organizationId: item.organizationId,
-      }))
-    ) {
-      return null;
-    }
-    if (
-      item.dueAt === undefined ||
-      item.deadlineNextStage === undefined ||
-      isClosedActionItem(item)
-    ) {
-      await ctx.db.patch(
-        item._id,
-        resetBuildActionItemDeadlineSchedule(
-          item.dueAt,
-          item.status,
-          item.deadlineScheduleGeneration
-        )
-      );
-      return null;
-    }
     try {
+      const build = await ctx.db.get(item.buildId);
+      if (!build || build.organizationId !== item.organizationId) {
+        throw new Error("Action Item Build scope integrity check failed.");
+      }
+      if (
+        !(await claimBuildCollaborationWriteByBuildId(ctx, {
+          buildId: item.buildId,
+          organizationId: item.organizationId,
+        }))
+      ) {
+        return null;
+      }
+      if (
+        item.dueAt === undefined ||
+        item.deadlineNextStage === undefined ||
+        isClosedActionItem(item)
+      ) {
+        await ctx.db.patch(
+          item._id,
+          resetBuildActionItemDeadlineSchedule(
+            item.dueAt,
+            item.status,
+            item.deadlineScheduleGeneration
+          )
+        );
+        return null;
+      }
       const stages = dueBuildActionItemDeadlineStages({
         asOf: args.asOf,
         dueAt: item.dueAt,

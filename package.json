@@ -136,6 +136,7 @@
     "test:e2e": "playwright test",
     "prepare:e2e:build-collaboration": "bun scripts/prepare-build-collaboration-e2e.ts",
     "test:e2e:build-collaboration": "playwright test --config=playwright.build-collaboration.config.ts tests/e2e/build-collaboration-participants.spec.ts --project=chromium",
+    "certify:build-collaboration-cutover": "bun scripts/build-collaboration-cutover-certification.ts",
     "verify:build-warnings": "bun scripts/verify-build-warnings.mjs",
     "verify:convex-deployment": "bun scripts/verify-convex-deployment.mjs",
     "perf:backoffice": "bun scripts/measure-backoffice-performance.mjs",

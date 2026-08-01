@@ -251,6 +251,33 @@ Rollback is UI/configuration-only:
   and re-run the idempotent import and parity checks. Prior passing evidence is
   deliberately invalid after rollback.
 
+## Deployment Record Certification
+
+Copy
+`docs/runbooks/build-collaboration-deployment-record.template.json` into the
+release evidence directory and replace every placeholder with the retained
+production artifact, result, version, actor, and monitoring link. Artifact paths
+may be absolute or relative to the manifest. Record their SHA-256 digests after
+the artifacts are finalized.
+
+The record is intentionally fail-closed. It requires all eight approved role
+journeys, every automated and manual release gate, v2 migration parity, an
+audited human activation, monitoring coverage, and a rollback rehearsal whose
+post, revision, asset, receipt, and audit counts are unchanged. Certify it with:
+
+```sh
+bun run certify:build-collaboration-cutover -- \
+  --manifest '<release-evidence-dir>/cutover-evidence.json' \
+  --output '<release-evidence-dir>/deployment-record.certified.json'
+```
+
+The command verifies every referenced artifact hash before atomically writing
+the certified deployment record with its certification timestamp and source
+manifest digest. A template, partial record, failed command, missing role,
+placeholder, mismatched hash, stale parity result, non-human activation, or
+data-changing rollback rehearsal fails certification. Do not treat a local or
+development preflight as production activation evidence.
+
 ## Governed Asset Activation
 
 Configure the production Convex deployment before enabling collaboration

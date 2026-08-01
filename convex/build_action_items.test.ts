@@ -2313,7 +2313,12 @@ describe("Build Action Item server authorization", () => {
         )
       ).rejects.toThrow("Forbidden:");
 
-      await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await (
+        fixture.base.finishAllScheduledFunctions as (
+          advanceTimers: () => void,
+          maxIterations: number
+        ) => Promise<void>
+      )(() => vi.runAllTimers(), 500);
       const activated = await fixture.base.run(async (ctx) => ({
         audits: (await ctx.db.query("auditEvents").collect())
           .filter((event) => event.entityId === participantId)

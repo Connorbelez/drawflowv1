@@ -101,7 +101,6 @@ const MUTATION_ACTION_KEYS = [
   "cancel_proposal_reminder",
   "set_calendar_target_date",
   "update_active_build_details",
-  "add_active_build_note",
   "add_active_build_document",
   "delete_active_build",
   "create_active_build_cost_item",
@@ -4916,13 +4915,6 @@ async function applyCatalogDomainMutation(
           workosOrganizationId: org,
         }
       );
-    case "add_active_build_note":
-      return await runDomainMutation(ctx, "addActiveBuildNote", {
-        body: input.body ?? input.note,
-        buildId: input.buildId,
-        visibility: input.visibility ?? "internal",
-        workosOrganizationId: org,
-      });
     case "delete_active_build":
       return await runDomainMutation(ctx, "deleteActiveBuild", {
         buildId: input.buildId,

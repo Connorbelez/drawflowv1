@@ -47,6 +47,68 @@ const probes = [
     },
     name: "build_collaboration_drafts:listMyBuildCollaborationDrafts",
   },
+  {
+    args: {
+      buildId: "__deployment_parity_probe__",
+      organizationId: "__deployment_parity_probe__",
+    },
+    name: "build_collaboration_rollout:getBuildCollaborationRolloutState",
+  },
+  {
+    args: {
+      buildId: "__deployment_parity_probe__",
+      organizationId: "__deployment_parity_probe__",
+    },
+    name: "build_collaboration_search:getBuildCollaborationSearchReadiness",
+  },
+  {
+    args: {
+      buildId: "__deployment_parity_probe__",
+      organizationId: "__deployment_parity_probe__",
+    },
+    name: "build_collaboration_lifecycle:getBuildCollaborationLifecycleState",
+  },
+  {
+    args: {
+      buildId: "__deployment_parity_probe__",
+      organizationId: "__deployment_parity_probe__",
+    },
+    name: "build_collaboration_retention:getBuildCollaborationRetentionState",
+  },
+  {
+    args: {
+      buildId: "__deployment_parity_probe__",
+      entityId: "__deployment_parity_probe__",
+      entityKind: "post",
+      organizationId: "__deployment_parity_probe__",
+    },
+    name: "build_collaboration_moderation:getBuildCollaborationModerationContext",
+  },
+  {
+    args: {
+      buildId: "__deployment_parity_probe__",
+      organizationId: "__deployment_parity_probe__",
+    },
+    name: "build_collaboration_webhooks:listBuildCollaborationWebhookEndpoints",
+  },
+  {
+    args: {
+      buildId: "__deployment_parity_probe__",
+      organizationId: "__deployment_parity_probe__",
+      paginationOpts: { cursor: null, numItems: 1 },
+      phase: "builds",
+    },
+    name: "build_collaboration_legacy_note_plan:previewBuildCollaborationLegacyNoteMigrationPage",
+  },
+  {
+    args: {
+      buildId: "__deployment_parity_probe__",
+      evidenceId: "__deployment_parity_probe__",
+      organizationId: "__deployment_parity_probe__",
+      paginationOpts: { cursor: null, numItems: 1 },
+    },
+    name: "build_collaboration_legacy_note_parity:getBuildCollaborationLegacyNoteMigrationParityReport",
+  },
 ];
 
 const client = new ConvexHttpClient(deploymentUrl);

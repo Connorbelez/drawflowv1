@@ -5720,12 +5720,14 @@ describe("production proposal foundation", () => {
       },
     );
 
-    await t.mutation((api as any).production_proposals.addActiveBuildNote, {
-      body: "Internal lender note for the production workspace.",
-      buildId: closing.buildId,
-      visibility: "internal",
-      workosOrganizationId: ORG,
-    });
+    await expect(
+      t.mutation((api as any).production_proposals.addActiveBuildNote, {
+        body: "Internal lender note for the production workspace.",
+        buildId: closing.buildId,
+        visibility: "internal",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Public/Internal Notes are retired");
     await t.mutation((api as any).production_proposals.addActiveBuildDocument, {
       buildId: closing.buildId,
       clientOperationId: "active-build-document-inspection-scope",
@@ -6032,10 +6034,7 @@ describe("production proposal foundation", () => {
     expect(workspace.documents.map((doc: any) => doc.fileName)).toEqual(
       expect.arrayContaining(["workspace-permit.pdf", "inspection-scope.pdf"]),
     );
-    expect(workspace.notes.internal[0]).toMatchObject({
-      body: "Internal lender note for the production workspace.",
-      visibility: "internal",
-    });
+    expect(workspace).not.toHaveProperty("notes");
     expect(workspace.contractors[0]).toMatchObject({
       name: "Site Lead Builders",
       role: "Foundation contractor",
@@ -6117,7 +6116,6 @@ describe("production proposal foundation", () => {
         "active_build.created",
         "active_build.facility_change.requested",
         "active_build.facility_change.reviewed",
-        "active_build.note.created",
         "active_build.document.created",
         "active_build.contractor.attached",
         "active_build.draw.requested",
