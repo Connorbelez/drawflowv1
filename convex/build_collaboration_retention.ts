@@ -2,7 +2,10 @@ import { v } from "convex/values";
 
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { authorizeLifecycleAuthority } from "./build_collaboration_lifecycle";
-import { getStoredBuildCollaborationState } from "./build_collaboration_lifecycle_state";
+import {
+  assertNoActiveBuildCollaborationArchiveSnapshot,
+  getStoredBuildCollaborationState,
+} from "./build_collaboration_lifecycle_state";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Doc, Id, MutationCtx } from "./types";
 
@@ -541,6 +544,7 @@ async function requireEligiblePurgeContext(
       "Retention purge requires the current explicitly closed Build collaboration revision."
     );
   }
+  assertNoActiveBuildCollaborationArchiveSnapshot(lifecycle);
   const policy = lifecycle.retentionPolicyId
     ? await ctx.db.get(lifecycle.retentionPolicyId)
     : input.purge

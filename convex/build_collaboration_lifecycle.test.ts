@@ -906,6 +906,96 @@ describe("Build collaboration export and lifecycle governance", () => {
     expect(retained.audit.length).toBeGreaterThanOrEqual(2);
   });
 
+  test("excludes retention purge and full-archive capture in both race orderings", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const archiveFirst = await seedLifecycleFixture();
+    await closeLifecycleFixtureForRetention(archiveFirst);
+    vi.setSystemTime(BASE_TIME + 31 * 86_400_000);
+
+    const archive = await archiveFirst.principal.mutation(
+      (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+      {
+        buildId: archiveFirst.buildId,
+        organizationId: ORGANIZATION_ID,
+        scope: "build",
+      },
+    );
+    await expect(
+      archiveFirst.admin.mutation(
+        (api as any).build_collaboration_retention
+          .purgeExpiredBuildCollaborationContent,
+        {
+          buildId: archiveFirst.buildId,
+          expectedLifecycleRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Purge must wait for the governed archive snapshot.",
+        },
+      ),
+    ).rejects.toThrow("archive snapshot");
+    await archiveFirst.base.finishAllScheduledFunctions(() =>
+      vi.runAllTimers(),
+    );
+    expect(
+      await archiveFirst.base.run(
+        async (ctx) => (await ctx.db.get(archive.exportId))?.state,
+      ),
+    ).toBe("active");
+    await expect(
+      archiveFirst.admin.mutation(
+        (api as any).build_collaboration_retention
+          .purgeExpiredBuildCollaborationContent,
+        {
+          buildId: archiveFirst.buildId,
+          expectedLifecycleRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Purge proceeds after the archive lease releases.",
+        },
+      ),
+    ).resolves.toMatchObject({ complete: true });
+
+    vi.setSystemTime(BASE_TIME);
+    const purgeFirst = await seedLifecycleFixture();
+    for (let index = 0; index < 12; index += 1) {
+      await publishAsBuilder(purgeFirst, `Retention batch post ${index + 1}.`);
+    }
+    await closeLifecycleFixtureForRetention(purgeFirst);
+    vi.setSystemTime(BASE_TIME + 31 * 86_400_000);
+    await expect(
+      purgeFirst.admin.mutation(
+        (api as any).build_collaboration_retention
+          .purgeExpiredBuildCollaborationContent,
+        {
+          buildId: purgeFirst.buildId,
+          expectedLifecycleRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Start a bounded retention purge.",
+        },
+      ),
+    ).resolves.toMatchObject({ complete: false });
+    await expect(
+      purgeFirst.principal.mutation(
+        (api as any).build_collaboration_exports
+          .requestBuildCollaborationExport,
+        {
+          buildId: purgeFirst.buildId,
+          organizationId: ORGANIZATION_ID,
+          scope: "build",
+        },
+      ),
+    ).rejects.toThrow("retention purge is in progress");
+    expect(
+      await purgeFirst.base.run(async (ctx) =>
+        ctx.db
+          .query("buildCollaborationExports")
+          .withIndex("by_buildId_and_createdAt", (query) =>
+            query.eq("buildId", purgeFirst.buildId),
+          )
+          .collect(),
+      ),
+    ).toEqual([]);
+  });
+
   test("persists cumulative audited progress across bounded purge retries", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
@@ -2828,6 +2918,26 @@ async function publishAsBuilder(
       requestedReaderIds: [],
       tiptapJson: textDocument(text),
     },
+  );
+}
+
+async function closeLifecycleFixtureForRetention(
+  fixture: Awaited<ReturnType<typeof seedLifecycleFixture>>,
+) {
+  await fixture.admin.mutation(
+    (api as any).build_collaboration_retention
+      .setBuildCollaborationRetentionPolicy,
+    {
+      buildId: fixture.buildId,
+      organizationId: ORGANIZATION_ID,
+      policyKey: "archive-purge-exclusion",
+      reason: "Govern archive and purge exclusion coverage.",
+      retentionDays: 30,
+    },
+  );
+  await closeLifecycleFixture(
+    fixture,
+    "Close the Build for archive and purge exclusion coverage.",
   );
 }
 

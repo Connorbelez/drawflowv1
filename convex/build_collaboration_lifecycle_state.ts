@@ -1,10 +1,12 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { buildCollaborationValidationError } from "./build_collaboration_validation";
-import type { Id, MutationCtx, QueryCtx } from "./types";
+import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 export const BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS = 15 * 60_000;
 export const BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_ERROR =
   "This Build is temporarily read-only while a governed archive snapshot is captured.";
+export const BUILD_COLLABORATION_RETENTION_PURGE_ERROR =
+  "This Build cannot start a governed archive while retention purge is in progress.";
 
 export const BUILD_COLLABORATION_CLOSED_ERROR =
   "This Build's collaboration archive is closed and read-only.";
@@ -153,6 +155,17 @@ export async function beginBuildCollaborationArchiveSnapshot(
       });
     }
   }
+  const activePurge = await ctx.db
+    .query("buildCollaborationRetentionPurges")
+    .withIndex("by_buildId_and_state", (query) =>
+      query.eq("buildId", authorization.build._id).eq("state", "in_progress")
+    )
+    .first();
+  if (activePurge) {
+    throw buildCollaborationValidationError(
+      BUILD_COLLABORATION_RETENTION_PURGE_ERROR
+    );
+  }
   if (!state) {
     const stateId = await ctx.db.insert("buildCollaborationBuildStates", {
       brokerageId: authorization.brokerage._id,
@@ -177,6 +190,20 @@ export async function beginBuildCollaborationArchiveSnapshot(
     updatedAt: now,
   });
   return state.contentRevision ?? 0;
+}
+
+export function assertNoActiveBuildCollaborationArchiveSnapshot(
+  state: Doc<"buildCollaborationBuildStates"> | null,
+  now = Date.now()
+) {
+  if (
+    state?.archiveSnapshotExportId &&
+    (state.archiveSnapshotLeaseExpiresAt ?? 0) > now
+  ) {
+    throw buildCollaborationValidationError(
+      BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_ERROR
+    );
+  }
 }
 
 export async function renewBuildCollaborationArchiveSnapshot(

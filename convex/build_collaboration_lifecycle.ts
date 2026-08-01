@@ -4,7 +4,7 @@ import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
-  BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_ERROR,
+  assertNoActiveBuildCollaborationArchiveSnapshot,
   BUILD_COLLABORATION_PURGED_ERROR,
   getStoredBuildCollaborationState,
 } from "./build_collaboration_lifecycle_state";
@@ -61,7 +61,7 @@ export const closeBuildCollaboration = authenticatedMutation
     const authorization = await authorizeLifecycleAuthority(ctx, args);
     const reason = requiredReason(args.reason, "A Build closure reason");
     const current = await getStoredBuildCollaborationState(ctx, authorization);
-    assertNoArchiveSnapshot(current);
+    assertNoActiveBuildCollaborationArchiveSnapshot(current);
     assertLifecycleRevision(current, args.expectedRevision);
     if (current?.state === "closed") {
       throw new Error("Build collaboration is already closed.");
@@ -174,7 +174,7 @@ export const reopenBuildCollaboration = authenticatedMutation
     const authorization = await authorizeLifecycleAuthority(ctx, args);
     const reason = requiredReason(args.reason, "A reopening reason");
     const current = await getStoredBuildCollaborationState(ctx, authorization);
-    assertNoArchiveSnapshot(current);
+    assertNoActiveBuildCollaborationArchiveSnapshot(current);
     assertLifecycleRevision(current, args.expectedRevision);
     if (!current || current.state === "open") {
       throw new Error("Build collaboration is already open.");
@@ -221,17 +221,6 @@ export const reopenBuildCollaboration = authenticatedMutation
     return current._id;
   })
   .public();
-
-function assertNoArchiveSnapshot(
-  state: Doc<"buildCollaborationBuildStates"> | null
-) {
-  if (
-    state?.archiveSnapshotExportId &&
-    (state.archiveSnapshotLeaseExpiresAt ?? 0) > Date.now()
-  ) {
-    throw new Error(BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_ERROR);
-  }
-}
 
 function projectLifecycleState(
   state: Doc<"buildCollaborationBuildStates"> | null
