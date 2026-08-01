@@ -130,6 +130,35 @@ describe("DrawFlow frontend RBAC policy", () => {
       })
     ).toMatchObject({ status: "allowed" });
 
+    for (const role of [
+      "admin",
+      "principle-broker",
+      "broker",
+      "broker-staff",
+      "builder",
+      "builder-staff",
+    ]) {
+      expect(
+        getWorkspaceAccessDecision({
+          isAuthenticated: true,
+          organizationId: "org_123",
+          pathname: "/contractor/builds/build_01",
+          roles: [role],
+          workspace: "contractor",
+        })
+      ).toMatchObject({ status: "allowed" });
+    }
+
+    expect(
+      getWorkspaceAccessDecision({
+        isAuthenticated: true,
+        organizationId: "org_123",
+        pathname: "/contractor/builds",
+        roles: ["admin"],
+        workspace: "contractor",
+      })
+    ).toMatchObject({ status: "forbidden", reason: "no-workspace-access" });
+
     expect(
       getWorkspaceAccessDecision({
         isAuthenticated: true,

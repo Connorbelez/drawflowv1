@@ -36,7 +36,8 @@ export interface ProposalPlanningSnapshot {
   capitalEvents: Array<{
     amountCents: number;
     capitalEventKey: string;
-    eventKind: "cashInfusion" | "cost";
+    eventKind: "cashInfusion" | "cost" | "homeEquityTakeout";
+    interestAnnualBps?: number;
     label: string;
     order: number;
     x: number;
@@ -511,6 +512,7 @@ export async function captureProposalPlanningSnapshot(
       amountCents: event.amountCents,
       capitalEventKey: event.capitalEventKey,
       eventKind: event.eventKind,
+      interestAnnualBps: event.interestAnnualBps,
       label: event.label,
       order: event.order,
       x: event.x,
@@ -579,7 +581,7 @@ export async function captureProposalPlanningSnapshot(
       timelineCurrentDay: proposal.timelineCurrentDay,
       timelineProgressValue: proposal.timelineProgressValue,
       timelineRangeMax: proposal.timelineRangeMax,
-      timelineRangeMin: proposal.timelineRangeMin,
+      timelineRangeMin: -30,
       timelineRouteState: proposal.timelineRouteState,
       timelineStartingCashCents: proposal.timelineStartingCashCents,
       totalBudgetCents: proposal.totalBudgetCents,
@@ -707,6 +709,7 @@ export async function restoreProposalPlanningSnapshot(
       capitalEventKey: event.capitalEventKey,
       createdAt: now,
       eventKind: event.eventKind,
+      interestAnnualBps: event.interestAnnualBps,
       label: event.label,
       order: event.order,
       organizationId: auth.proposal.organizationId,
@@ -724,7 +727,7 @@ export async function restoreProposalPlanningSnapshot(
     timelineCurrentDay: snapshot.proposal.timelineCurrentDay,
     timelineProgressValue: snapshot.proposal.timelineProgressValue,
     timelineRangeMax: snapshot.proposal.timelineRangeMax,
-    timelineRangeMin: snapshot.proposal.timelineRangeMin,
+    timelineRangeMin: -30,
     timelineRouteState: snapshot.proposal.timelineRouteState,
     timelineStartingCashCents: snapshot.proposal.timelineStartingCashCents,
     totalBudgetCents: snapshot.proposal.totalBudgetCents,

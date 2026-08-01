@@ -337,6 +337,8 @@ A Build Proposal includes:
 - edited milestones,
 - proposed dependency graph,
 - borrower working-capital input,
+- proposal capital events, including borrower cash infusions, capital costs, and
+  interest-bearing Home Equity Takeouts,
 - generated Draw Plan options,
 - selected proposed plan,
 - warnings and anomalies,
@@ -483,6 +485,36 @@ Borrower Starting Cash affects:
 
 Borrower Starting Cash, Required Working Capital, and Lender Draw Policy Limit are three distinct concepts and must be stored, calculated, and displayed separately.
 
+### 7.10.1 Proposal Capital Events and Home Equity Takeouts
+
+The Build Proposal timeline begins at **T−30** and uses **T0** as the proposed
+construction start. Proposal capital events may be scheduled from T−30 through
+the modeled project end. Construction milestones and construction-loan draws
+must remain at T0 or later.
+
+A **Home Equity Takeout** represents a secondary loan facility funded against
+the builder's residence or another property, such as a HELOC or second
+mortgage. Its full principal becomes available cash on its proposal timeline
+date without increasing the construction Budget. Each takeout requires:
+
+- a positive funded principal,
+- an explicit annual interest rate between 0 and 10,000 basis points,
+- a timeline date between T−30 and the modeled project end,
+- and a stable source capital-event key.
+
+Planning interest compounds daily from the takeout date through the selected
+probe date or modeled project end. Multiple takeouts accrue independently.
+Construction-loan interest and Home Equity Takeout interest must be displayed
+as separate components, while **Total interest** and total financing cost use
+their combined sum.
+
+At closing, every approved proposal capital event is copied to the active
+Build. Each Home Equity Takeout becomes a distinct, organization-scoped
+secondary loan facility linked to its capital event. The construction facility
+must be selected by facility type, never array position. Approved secondary
+facility terms are immutable in the active Build; later changes require a
+separate post-closing workflow.
+
 ## 7.11 Lender Draw Policy Limit
 
 The Lender Draw Policy Limit is a lender-controlled policy constraint.
@@ -564,7 +596,9 @@ No v1 workflow should allow proactive advance funding before work completion. A 
 
 ## 8.2 Interest Accrual
 
-Interest accrual begins only after a draw is released.
+Construction-loan interest accrual begins only after a construction draw is
+released. Home Equity Takeout interest begins on the takeout's funded timeline
+date.
 
 The interest model is lender-configurable.
 
@@ -710,6 +744,8 @@ Required inputs:
 - site visit lag assumptions,
 - milestone template variance thresholds,
 - current actual progress for active builds.
+- all proposal capital events, including Home Equity Takeouts and their
+  individual annual interest rates.
 
 ## 9.3 Optimization Outputs
 
@@ -722,7 +758,9 @@ Each generated plan should output:
 - estimated draw eligibility dates,
 - estimated release dates,
 - expected draw fees,
-- estimated interest cost,
+- estimated construction-loan interest,
+- estimated Home Equity Takeout interest,
+- combined estimated interest cost,
 - total estimated financing cost,
 - peak unreimbursed borrower exposure,
 - working-capital feasibility,
@@ -750,7 +788,20 @@ This plan minimizes total estimated borrower financing cost while respecting:
 
 The plan should explain when it bundles milestones because the saved draw fee exceeds the incremental interest cost, and when it splits milestones because the incremental fee is cheaper than drawing a larger amount earlier.
 
-## 9.5 Fastest Plan
+## 9.5 Exact Three-Draw Mode
+
+The proposal workspace exposes a **3-draw** action beside the general Optimize
+action. Both actions use the same optimizer and atomic schedule-replacement
+mutation with identical authorization and locking rules.
+
+Exact three-draw mode must produce exactly three positive construction-loan
+draws on distinct chronological dates. It must respect reimbursement
+availability, minimum cash reserve, lender draw limits, and every proposal
+capital event. It may not create zero-value placeholder draws. If no feasible
+exact-three schedule exists, the optimizer must return an actionable
+infeasibility explanation and leave the persisted schedule unchanged.
+
+## 9.6 Fastest Plan
 
 The Fastest Plan minimizes expected construction timeline.
 
@@ -764,7 +815,7 @@ It should:
 
 A fastest plan that exceeds borrower working capital should be marked infeasible or conditionally feasible, not presented as an executable plan.
 
-## 9.6 Capital-Constrained Plan
+## 9.7 Capital-Constrained Plan
 
 The Capital-Constrained Plan is not a secondary vanity mode. It is central to v1 because all draws are reimbursement-based.
 
@@ -776,7 +827,7 @@ This plan answers:
 - Which draw grouping keeps the build feasible under the builder’s cash-on-hand limit?
 - What is the cost of reducing borrower capital pressure?
 
-## 9.7 Plan Comparison
+## 9.8 Plan Comparison
 
 The Build Workspace and Draw Plan Comparison screen should allow users to compare:
 
@@ -980,19 +1031,24 @@ The product should avoid splitting roadmap, draw, evidence, and approval state i
 4. Builder uploads required permits and documents.
 5. Builder enters requested loan amount or total build budget.
 6. Builder enters Borrower Starting Cash.
-7. Builder selects a milestone template.
-8. System generates default milestones, cost percentages, duration assumptions, and default dependencies.
-9. Builder edits milestones, costs, durations, and dependencies.
-10. Builder removes irrelevant milestones.
-11. Builder adds milestones from autocomplete or creates custom milestones.
-12. System validates dependency graph.
-13. System flags abnormal costs, abnormal durations, suspicious dependencies, missing expected milestones, and infeasible working-capital assumptions.
-14. System generates Draw Plan options.
-15. Builder reviews Cheapest Feasible, Fastest, and Capital-Constrained plans.
-16. Builder selects preferred plan or accepts system recommendation.
-17. Builder submits Build Proposal.
-18. Lender admin reviews and approves/rejects/requests changes.
-19. Approved proposal becomes an active Build.
+7. Builder may add proposal capital events between T−30 and the modeled end,
+   including Home Equity Takeouts with explicit funded principal and interest
+   rate.
+8. Builder selects a milestone template.
+9. System generates default milestones, cost percentages, duration assumptions, and default dependencies.
+10. Builder edits milestones, costs, durations, and dependencies.
+11. Builder removes irrelevant milestones.
+12. Builder adds milestones from autocomplete or creates custom milestones.
+13. System validates dependency graph.
+14. System flags abnormal costs, abnormal durations, suspicious dependencies, missing expected milestones, and infeasible working-capital assumptions.
+15. System generates Draw Plan options and can generate an exact three-draw
+    schedule when feasible.
+16. Builder reviews Cheapest Feasible, Fastest, and Capital-Constrained plans.
+17. Builder selects preferred plan or accepts system recommendation.
+18. Builder submits Build Proposal.
+19. Lender admin reviews and approves/rejects/requests changes.
+20. Approved proposal becomes an active Build with proposal capital events and
+    secondary facilities preserved.
 
 ## 11.2 Lender Admin Proposal Review Flow
 
@@ -2272,7 +2328,8 @@ The following events should be audited:
 The MVP is complete when:
 
 1. A builder can create and submit a Build Proposal with build location, permits, budget, working-capital input, milestones, dependencies, and selected draw plan.
-2. The system can generate Cheapest Feasible, Fastest, and Capital-Constrained plans.
+2. The system can generate Cheapest Feasible, Fastest, Capital-Constrained, and
+   exact three-draw plans while including all proposal capital events.
 3. The Build Workspace displays milestone cards, Gantt roadmap, parallel tasks, draw group bounding boxes, status, warnings, costs, durations, and role-specific actions.
 4. A lender admin can review, approve, reject, or request changes on a proposal.
 5. An approved proposal becomes an active Build.

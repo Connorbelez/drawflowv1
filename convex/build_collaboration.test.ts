@@ -42,8 +42,7 @@ function withIdentity(
     role: roles[0],
     roles,
     subject,
-    tokenIdentifier:
-      tokenIdentifier ?? `https://api.workos.com/|${subject}`,
+    tokenIdentifier: tokenIdentifier ?? `https://api.workos.com/|${subject}`,
     ...(actorKind === null
       ? {}
       : { "https://fairlend.ca/actor_kind": actorKind }),
@@ -195,8 +194,7 @@ async function seedCollaborationReferenceEntities(
   fixture: Awaited<ReturnType<typeof seedActiveBuild>>,
 ) {
   const seedPostId = await fixture.admin.mutation(
-    (api as any).build_collaboration
-      .approveAndPublishBuildCollaborationBundle,
+    (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
     {
       actionItems: [],
       audienceMode: "author_tier_and_higher",
@@ -794,9 +792,7 @@ describe("Build collaboration publication and feed", () => {
           tiptapJson: JSON.stringify({
             content: [
               {
-                content: [
-                  { text: "Build-local publication.", type: "text" },
-                ],
+                content: [{ text: "Build-local publication.", type: "text" }],
                 type: "paragraph",
               },
             ],
@@ -830,8 +826,7 @@ describe("Build collaboration publication and feed", () => {
       subject: "svc-opaque-2847",
     });
     const preparedDraft = await agent.mutation(
-      (api as any).build_collaboration_drafts
-        .saveMyBuildCollaborationDraft,
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
       {
         acknowledgementRequired: false,
         actionItems: [],
@@ -861,8 +856,7 @@ describe("Build collaboration publication and feed", () => {
     );
     const draftId = preparedDraft.draftId as Id<"buildCollaborationDrafts">;
     const draftsAwaitingHuman = await admin.query(
-      (api as any).build_collaboration_drafts
-        .listMyBuildCollaborationDrafts,
+      (api as any).build_collaboration_drafts.listMyBuildCollaborationDrafts,
       { buildId, organizationId: ORGANIZATION_ID },
     );
     expect(draftsAwaitingHuman).toEqual(
@@ -886,9 +880,7 @@ describe("Build collaboration publication and feed", () => {
         .query("buildCollaborationPublicationApprovals")
         .collect();
       return {
-        approvals: approvals.filter(
-          (approval) => approval.draftId === draftId,
-        ),
+        approvals: approvals.filter((approval) => approval.draftId === draftId),
         post,
       };
     });
@@ -984,8 +976,7 @@ describe("Build collaboration publication and feed", () => {
       subject: "svc-opaque-tamper",
     });
     const preparedDraft = await agent.mutation(
-      (api as any).build_collaboration_drafts
-        .saveMyBuildCollaborationDraft,
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
       {
         actionItems: [],
         approvalOwnerWorkosUserId: "user_admin",
@@ -1123,8 +1114,7 @@ describe("Build collaboration publication and feed", () => {
     ).rejects.toThrow(humanRequired);
     await expect(
       agentPrefixedService.mutation(
-        (api as any).build_collaboration_threads
-          .addBuildCollaborationComment,
+        (api as any).build_collaboration_threads.addBuildCollaborationComment,
         {
           buildId,
           organizationId: ORGANIZATION_ID,
@@ -1444,13 +1434,11 @@ describe("Build collaboration publication and feed", () => {
       },
     );
     await contractor.mutation(
-      (api as any).build_collaboration_threads
-        .markBuildCollaborationPostViewed,
+      (api as any).build_collaboration_threads.markBuildCollaborationPostViewed,
       { buildId, organizationId: ORGANIZATION_ID, postId },
     );
     await admin.mutation(
-      (api as any).build_collaboration_threads
-        .markBuildCollaborationPostViewed,
+      (api as any).build_collaboration_threads.markBuildCollaborationPostViewed,
       { buildId, organizationId: ORGANIZATION_ID, postId },
     );
 
@@ -1497,20 +1485,19 @@ describe("Build collaboration governed assets", () => {
         sizeBytes: 22,
       },
     );
-    const storageId = await base.run(async (ctx) =>
-      await ctx.storage.store(
-        new Blob(["scanner action fixture"], { type: "text/plain" }),
-      ),
+    const storageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["scanner action fixture"], { type: "text/plain" }),
+        ),
     );
     const hash = "a".repeat(64);
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({ clean: true, sha256: hash }),
-        {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ clean: true, sha256: hash }), {
           headers: { "Content-Type": "application/json" },
           status: 200,
-        },
-      ),
+        }),
     );
     vi.stubEnv(
       "BUILD_COLLABORATION_ASSET_SCAN_URL",
@@ -1566,12 +1553,13 @@ describe("Build collaboration governed assets", () => {
         mimeType: "image/jpeg",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 22,
-      }
+      },
     );
-    const storageId = await base.run(async (ctx) =>
-      await ctx.storage.store(
-        new Blob(["governed footing photo"], { type: "image/jpeg" })
-      )
+    const storageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["governed footing photo"], { type: "image/jpeg" }),
+        ),
     );
     const hash = "d".repeat(64);
     const assetId: Id<"buildCollaborationAssets"> = await admin.mutation(
@@ -1585,7 +1573,7 @@ describe("Build collaboration governed assets", () => {
         organizationId: ORGANIZATION_ID,
         stagingSessionId: staged.stagingSessionId,
         storageId,
-      }
+      },
     );
     const publication = {
       actionItems: [],
@@ -1607,20 +1595,22 @@ describe("Build collaboration governed assets", () => {
         type: "doc",
       }),
     };
-    const postsBefore = await base.run(async (ctx) =>
-      (await ctx.db.query("buildCollaborationPosts").collect()).length
+    const postsBefore = await base.run(
+      async (ctx) =>
+        (await ctx.db.query("buildCollaborationPosts").collect()).length,
     );
     await expect(
       admin.mutation(
         (api as any).build_collaboration
           .approveAndPublishBuildCollaborationBundle,
-        publication
-      )
+        publication,
+      ),
     ).rejects.toThrow("asset is unavailable");
     expect(
-      await base.run(async (ctx) =>
-        (await ctx.db.query("buildCollaborationPosts").collect()).length
-      )
+      await base.run(
+        async (ctx) =>
+          (await ctx.db.query("buildCollaborationPosts").collect()).length,
+      ),
     ).toBe(postsBefore);
 
     await base.mutation(
@@ -1631,17 +1621,17 @@ describe("Build collaboration governed assets", () => {
         computedHashSha256: hash,
         outcome: "clean",
         provider: "test-scanner",
-      }
+      },
     );
     const postId: Id<"buildCollaborationPosts"> = await admin.mutation(
       (api as any).build_collaboration
         .approveAndPublishBuildCollaborationBundle,
-      publication
+      publication,
     );
     const downloadUrl = await admin.mutation(
       (api as any).build_collaboration_assets
         .authorizeBuildCollaborationAssetDownload,
-      { assetId, buildId, organizationId: ORGANIZATION_ID }
+      { assetId, buildId, organizationId: ORGANIZATION_ID },
     );
     expect(downloadUrl).toContain("http");
     await base.run(async (ctx) => {
@@ -1658,12 +1648,13 @@ describe("Build collaboration governed assets", () => {
         mimeType: "image/jpeg",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 26,
-      }
+      },
     );
-    const replacementStorageId = await base.run(async (ctx) =>
-      await ctx.storage.store(
-        new Blob(["new governed footing photo"], { type: "image/jpeg" })
-      )
+    const replacementStorageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["new governed footing photo"], { type: "image/jpeg" }),
+        ),
     );
     const replacementHash = "e".repeat(64);
     const replacementId: Id<"buildCollaborationAssets"> = await admin.mutation(
@@ -1678,7 +1669,7 @@ describe("Build collaboration governed assets", () => {
         stagingSessionId: replacementSession.stagingSessionId,
         storageId: replacementStorageId,
         supersedesAssetId: assetId,
-      }
+      },
     );
     await base.mutation(
       (internal as any).build_collaboration_asset_maintenance
@@ -1688,7 +1679,7 @@ describe("Build collaboration governed assets", () => {
         computedHashSha256: replacementHash,
         outcome: "clean",
         provider: "test-scanner",
-      }
+      },
     );
 
     const beforeReplacementPublication = await base.run(async (ctx) => ({
@@ -1703,7 +1694,9 @@ describe("Build collaboration governed assets", () => {
       state: "available",
       version: 2,
     });
-    expect(beforeReplacementPublication.replacement?.publishedAt).toBeUndefined();
+    expect(
+      beforeReplacementPublication.replacement?.publishedAt,
+    ).toBeUndefined();
     const conflictingSession = await admin.mutation(
       (api as any).build_collaboration_assets
         .beginBuildCollaborationAssetUpload,
@@ -1714,10 +1707,13 @@ describe("Build collaboration governed assets", () => {
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 11,
-      }
+      },
     );
-    const conflictingStorageId = await base.run(async (ctx) =>
-      await ctx.storage.store(new Blob(["conflicting"], { type: "text/plain" }))
+    const conflictingStorageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["conflicting"], { type: "text/plain" }),
+        ),
     );
     await admin.mutation(
       (api as any).build_collaboration_assets
@@ -1727,7 +1723,7 @@ describe("Build collaboration governed assets", () => {
         organizationId: ORGANIZATION_ID,
         stagingSessionId: conflictingSession.stagingSessionId,
         storageId: conflictingStorageId,
-      }
+      },
     );
     await expect(
       admin.action(
@@ -1742,8 +1738,8 @@ describe("Build collaboration governed assets", () => {
           stagingSessionId: conflictingSession.stagingSessionId,
           storageId: conflictingStorageId,
           supersedesAssetId: assetId,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("newer asset version");
     const conflictingCleanup = await base.run(async (ctx) => ({
       session: await ctx.db.get(conflictingSession.stagingSessionId),
@@ -1761,22 +1757,20 @@ describe("Build collaboration governed assets", () => {
         postId,
         references: [],
         tiptapJson: collaborationDocument(
-          "Published the governed replacement."
+          "Published the governed replacement.",
         ),
-      }
+      },
     );
 
     const state = await base.run(async (ctx) => {
       const audits = await ctx.db.query("auditEvents").collect();
       const attachments = await ctx.db
         .query("buildCollaborationAttachments")
-        .withIndex(
-          "by_buildId_and_attachmentKind_and_attachmentId",
-          (query) =>
-            query
-              .eq("buildId", buildId)
-              .eq("attachmentKind", "collaborationAsset")
-              .eq("attachmentId", assetId)
+        .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
+          query
+            .eq("buildId", buildId)
+            .eq("attachmentKind", "collaborationAsset")
+            .eq("attachmentId", assetId),
         )
         .collect();
       return {
@@ -1801,7 +1795,7 @@ describe("Build collaboration governed assets", () => {
         "build.collaboration.asset.scan_passed",
         "build.collaboration.asset.published",
         "build.collaboration.asset.download_authorized",
-      ])
+      ]),
     );
     expect(postId).toBeDefined();
   });
@@ -1829,10 +1823,11 @@ describe("Build collaboration governed assets", () => {
         sizeBytes: 18,
       },
     );
-    const commentStorageId = await base.run(async (ctx) =>
-      await ctx.storage.store(
-        new Blob(["comment attachment"], { type: "application/pdf" }),
-      ),
+    const commentStorageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["comment attachment"], { type: "application/pdf" }),
+        ),
     );
     const commentHash = "3".repeat(64);
     const commentAssetId = await admin.mutation(
@@ -1867,14 +1862,11 @@ describe("Build collaboration governed assets", () => {
         plainText: "The governed report is attached.",
         postId,
         references: [],
-        tiptapJson: collaborationDocument(
-          "The governed report is attached.",
-        ),
+        tiptapJson: collaborationDocument("The governed report is attached."),
       },
     );
     const comments = await admin.query(
-      (api as any).build_collaboration_threads
-        .listBuildCollaborationComments,
+      (api as any).build_collaboration_threads.listBuildCollaborationComments,
       { buildId, organizationId: ORGANIZATION_ID, postId },
     );
     expect(comments).toHaveLength(1);
@@ -1924,10 +1916,11 @@ describe("Build collaboration governed assets", () => {
         sizeBytes: 24,
       },
     );
-    const draftStorageId = await base.run(async (ctx) =>
-      await ctx.storage.store(
-        new Blob(["private draft attachment"], { type: "image/jpeg" }),
-      ),
+    const draftStorageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["private draft attachment"], { type: "image/jpeg" }),
+        ),
     );
     const draftHash = "4".repeat(64);
     const draftAssetId = (await admin.mutation(
@@ -1973,12 +1966,13 @@ describe("Build collaboration governed assets", () => {
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 17,
-      }
+      },
     );
-    const openStorageId = await base.run(async (ctx) =>
-      await ctx.storage.store(
-        new Blob(["unfinished upload"], { type: "text/plain" })
-      )
+    const openStorageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["unfinished upload"], { type: "text/plain" }),
+        ),
     );
     await admin.mutation(
       (api as any).build_collaboration_assets
@@ -1988,19 +1982,17 @@ describe("Build collaboration governed assets", () => {
         organizationId: ORGANIZATION_ID,
         stagingSessionId: openSession.stagingSessionId,
         storageId: openStorageId,
-      }
+      },
     );
     const beforeDiscard = await base.run(async (ctx) => ({
       asset: await ctx.db.get(draftAssetId),
       attachments: await ctx.db
         .query("buildCollaborationAttachments")
-        .withIndex(
-          "by_buildId_and_attachmentKind_and_attachmentId",
-          (query) =>
-            query
-              .eq("buildId", buildId)
-              .eq("attachmentKind", "collaborationAsset")
-              .eq("attachmentId", draftAssetId),
+        .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
+          query
+            .eq("buildId", buildId)
+            .eq("attachmentKind", "collaborationAsset")
+            .eq("attachmentId", draftAssetId),
         )
         .collect(),
     }));
@@ -2024,7 +2016,7 @@ describe("Build collaboration governed assets", () => {
           (audit) =>
             audit.entityId === draftAssetId &&
             audit.eventType === "build.collaboration.asset.abandoned",
-          ),
+        ),
         openStagingSession,
         openStorage: await ctx.db.system.get(openStorageId),
         session,
@@ -2044,7 +2036,7 @@ describe("Build collaboration governed assets", () => {
         computedHashSha256: draftHash,
         outcome: "clean",
         provider: "late-test-scanner",
-      }
+      },
     );
     const afterLateScan = await base.run(async (ctx) => ({
       asset: await ctx.db.get(draftAssetId),
@@ -2105,12 +2097,13 @@ describe("Build collaboration governed assets", () => {
         mimeType: "application/pdf",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 12,
-      }
+      },
     );
-    const storageId = await base.run(async (ctx) =>
-      await ctx.storage.store(
-        new Blob(["unsafe bytes"], { type: "application/pdf" })
-      )
+    const storageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["unsafe bytes"], { type: "application/pdf" }),
+        ),
     );
     const assetId = await admin.mutation(
       (api as any).build_collaboration_assets
@@ -2123,7 +2116,7 @@ describe("Build collaboration governed assets", () => {
         organizationId: ORGANIZATION_ID,
         stagingSessionId: session.stagingSessionId,
         storageId,
-      }
+      },
     );
     await base.mutation(
       (internal as any).build_collaboration_asset_maintenance
@@ -2133,14 +2126,14 @@ describe("Build collaboration governed assets", () => {
         computedHashSha256: "0".repeat(64),
         outcome: "clean",
         provider: "test-scanner",
-      }
+      },
     );
     await expect(
       admin.mutation(
         (api as any).build_collaboration_assets
           .authorizeBuildCollaborationAssetDownload,
-        { assetId, buildId, organizationId: ORGANIZATION_ID }
-      )
+        { assetId, buildId, organizationId: ORGANIZATION_ID },
+      ),
     ).rejects.toThrow("unavailable");
     await expect(
       admin.mutation(
@@ -2153,8 +2146,8 @@ describe("Build collaboration governed assets", () => {
           mimeType: "text/plain",
           organizationId: "org_forged",
           sizeBytes: 1,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow();
 
     const orphanId = await base.run(async (ctx) => {
@@ -2163,7 +2156,7 @@ describe("Build collaboration governed assets", () => {
         throw new Error("Build fixture is unavailable.");
       }
       const orphanStorageId = await ctx.storage.store(
-        new Blob(["orphan"], { type: "text/plain" })
+        new Blob(["orphan"], { type: "text/plain" }),
       );
       const now = Date.now();
       return await ctx.db.insert("buildCollaborationAssets", {
@@ -2207,8 +2200,8 @@ describe("Build collaboration governed assets", () => {
             ],
             type: "doc",
           }),
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("orphaned");
 
     const publishedAssetId = await createPublishedAssetFixture({
@@ -2224,18 +2217,21 @@ describe("Build collaboration governed assets", () => {
           assetId: publishedAssetId,
           buildId,
           organizationId: ORGANIZATION_ID,
-        }
-      )
+        },
+      ),
     ).resolves.toContain("http");
     await base.run(async (ctx) => {
       const participant = await ctx.db
         .query("buildParticipants")
         .withIndex("by_buildId_and_workosUserId", (query) =>
-          query.eq("buildId", buildId).eq("workosUserId", "user_asset_reader")
+          query.eq("buildId", buildId).eq("workosUserId", "user_asset_reader"),
         )
         .unique();
       if (participant) {
-        await ctx.db.patch(participant._id, { status: "removed", updatedAt: Date.now() });
+        await ctx.db.patch(participant._id, {
+          status: "removed",
+          updatedAt: Date.now(),
+        });
       }
     });
     await expect(
@@ -2246,8 +2242,8 @@ describe("Build collaboration governed assets", () => {
           assetId: publishedAssetId,
           buildId,
           organizationId: ORGANIZATION_ID,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow();
   });
 
@@ -2258,8 +2254,8 @@ describe("Build collaboration governed assets", () => {
       base,
       buildId,
     });
-    const publishedAsset = await base.run(async (ctx) =>
-      await ctx.db.get(publishedAssetId)
+    const publishedAsset = await base.run(
+      async (ctx) => await ctx.db.get(publishedAssetId),
     );
     if (!publishedAsset) {
       throw new Error("Published asset fixture unavailable.");
@@ -2274,7 +2270,7 @@ describe("Build collaboration governed assets", () => {
         mimeType: publishedAsset.mimeType,
         organizationId: ORGANIZATION_ID,
         sizeBytes: publishedAsset.sizeBytes,
-      }
+      },
     );
     await expect(
       admin.action(
@@ -2288,13 +2284,13 @@ describe("Build collaboration governed assets", () => {
           organizationId: ORGANIZATION_ID,
           stagingSessionId: attackerSession.stagingSessionId,
           storageId: publishedAsset.storageId,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("already been finalized");
     expect(
-      await base.run(async (ctx) =>
-        await ctx.db.system.get(publishedAsset.storageId)
-      )
+      await base.run(
+        async (ctx) => await ctx.db.system.get(publishedAsset.storageId),
+      ),
     ).not.toBeNull();
 
     const ownerSession = await admin.mutation(
@@ -2307,10 +2303,11 @@ describe("Build collaboration governed assets", () => {
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 5,
-      }
+      },
     );
-    const ownerStorageId = await base.run(async (ctx) =>
-      await ctx.storage.store(new Blob(["owned"], { type: "text/plain" }))
+    const ownerStorageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(new Blob(["owned"], { type: "text/plain" })),
     );
     await admin.mutation(
       (api as any).build_collaboration_assets
@@ -2320,7 +2317,7 @@ describe("Build collaboration governed assets", () => {
         organizationId: ORGANIZATION_ID,
         stagingSessionId: ownerSession.stagingSessionId,
         storageId: ownerStorageId,
-      }
+      },
     );
     const secondSession = await admin.mutation(
       (api as any).build_collaboration_assets
@@ -2332,7 +2329,7 @@ describe("Build collaboration governed assets", () => {
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 5,
-      }
+      },
     );
     await expect(
       admin.action(
@@ -2346,8 +2343,8 @@ describe("Build collaboration governed assets", () => {
           organizationId: ORGANIZATION_ID,
           stagingSessionId: secondSession.stagingSessionId,
           storageId: ownerStorageId,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("another session");
     const retained = await base.run(async (ctx) => ({
       ownerSession: await ctx.db.get(ownerSession.stagingSessionId),
@@ -2375,7 +2372,7 @@ describe("Build collaboration governed assets", () => {
     };
     const draft = await agent.mutation(
       (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
-      draftBundle
+      draftBundle,
     );
     const staging = await agent.mutation(
       (api as any).build_collaboration_assets
@@ -2388,12 +2385,13 @@ describe("Build collaboration governed assets", () => {
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 20,
-      }
+      },
     );
-    const storageId = await base.run(async (ctx) =>
-      await ctx.storage.store(
-        new Blob(["agent prepared asset"], { type: "text/plain" })
-      )
+    const storageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["agent prepared asset"], { type: "text/plain" }),
+        ),
     );
     const hash = "8".repeat(64);
     const assetId: Id<"buildCollaborationAssets"> = await agent.mutation(
@@ -2407,7 +2405,7 @@ describe("Build collaboration governed assets", () => {
         organizationId: ORGANIZATION_ID,
         stagingSessionId: staging.stagingSessionId,
         storageId,
-      }
+      },
     );
     await base.mutation(
       (internal as any).build_collaboration_asset_maintenance
@@ -2417,7 +2415,7 @@ describe("Build collaboration governed assets", () => {
         computedHashSha256: hash,
         outcome: "clean",
         provider: "test-scanner",
-      }
+      },
     );
     await agent.mutation(
       (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
@@ -2426,7 +2424,7 @@ describe("Build collaboration governed assets", () => {
         attachmentAssetIds: [assetId],
         draftId: draft.draftId,
         expectedRevision: draft.revision,
-      }
+      },
     );
     await expect(
       agent.mutation(
@@ -2436,8 +2434,8 @@ describe("Build collaboration governed assets", () => {
           buildId,
           draftId: draft.draftId,
           organizationId: ORGANIZATION_ID,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow();
 
     const approvalOwnerStaging = await admin.mutation(
@@ -2451,7 +2449,7 @@ describe("Build collaboration governed assets", () => {
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 1,
-      }
+      },
     );
     expect(approvalOwnerStaging.stagingSessionId).toBeDefined();
 
@@ -2462,7 +2460,7 @@ describe("Build collaboration governed assets", () => {
         assetIds: [assetId],
         buildId,
         organizationId: ORGANIZATION_ID,
-      }
+      },
     );
     expect(approvalOwnerStatuses).toEqual([
       expect.objectContaining({
@@ -2480,8 +2478,8 @@ describe("Build collaboration governed assets", () => {
           assetId,
           buildId,
           organizationId: ORGANIZATION_ID,
-        }
-      )
+        },
+      ),
     ).resolves.toContain("http");
 
     const postId: Id<"buildCollaborationPosts"> = await admin.mutation(
@@ -2491,7 +2489,7 @@ describe("Build collaboration governed assets", () => {
         buildId,
         draftId: draft.draftId,
         organizationId: ORGANIZATION_ID,
-      }
+      },
     );
     const published = await base.run(async (ctx) => ({
       asset: await ctx.db.get(assetId),
@@ -2510,8 +2508,8 @@ describe("Build collaboration governed assets", () => {
       base,
       buildId,
     });
-    const original = await base.run(async (ctx) =>
-      await ctx.db.get(originalAssetId)
+    const original = await base.run(
+      async (ctx) => await ctx.db.get(originalAssetId),
     );
     if (!original?.originatingPostId) {
       throw new Error("Published asset fixture has no originating post.");
@@ -2528,12 +2526,13 @@ describe("Build collaboration governed assets", () => {
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 15,
-      }
+      },
     );
-    const rejectedStorageId = await base.run(async (ctx) =>
-      await ctx.storage.store(
-        new Blob(["bad replacement"], { type: "text/plain" })
-      )
+    const rejectedStorageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["bad replacement"], { type: "text/plain" }),
+        ),
     );
     const rejectedAssetId: Id<"buildCollaborationAssets"> =
       await admin.mutation(
@@ -2548,7 +2547,7 @@ describe("Build collaboration governed assets", () => {
           stagingSessionId: rejectedSession.stagingSessionId,
           storageId: rejectedStorageId,
           supersedesAssetId: originalAssetId,
-        }
+        },
       );
     await base.mutation(
       (internal as any).build_collaboration_asset_maintenance
@@ -2558,17 +2557,16 @@ describe("Build collaboration governed assets", () => {
         message: "Rejected fixture",
         outcome: "rejected",
         provider: "test-scanner",
-      }
+      },
     );
     await admin.mutation(
-      (api as any).build_collaboration_assets
-        .abandonMyBuildCollaborationAssets,
+      (api as any).build_collaboration_assets.abandonMyBuildCollaborationAssets,
       {
         assetIds: [rejectedAssetId],
         buildId,
         organizationId: ORGANIZATION_ID,
         reason: "Retry with a corrected replacement.",
-      }
+      },
     );
 
     const retrySession = await admin.mutation(
@@ -2582,12 +2580,13 @@ describe("Build collaboration governed assets", () => {
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 16,
-      }
+      },
     );
-    const retryStorageId = await base.run(async (ctx) =>
-      await ctx.storage.store(
-        new Blob(["good replacement"], { type: "text/plain" })
-      )
+    const retryStorageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["good replacement"], { type: "text/plain" }),
+        ),
     );
     const retryHash = "c".repeat(64);
     const retryAssetId: Id<"buildCollaborationAssets"> = await admin.mutation(
@@ -2602,7 +2601,7 @@ describe("Build collaboration governed assets", () => {
         stagingSessionId: retrySession.stagingSessionId,
         storageId: retryStorageId,
         supersedesAssetId: originalAssetId,
-      }
+      },
     );
     await base.mutation(
       (internal as any).build_collaboration_asset_maintenance
@@ -2612,7 +2611,7 @@ describe("Build collaboration governed assets", () => {
         computedHashSha256: retryHash,
         outcome: "clean",
         provider: "test-scanner",
-      }
+      },
     );
     await admin.mutation(
       (api as any).build_collaboration_threads.addBuildCollaborationComment,
@@ -2624,7 +2623,7 @@ describe("Build collaboration governed assets", () => {
         postId: original.originatingPostId,
         references: [],
         tiptapJson: collaborationDocument("Corrected replacement published."),
-      }
+      },
     );
 
     const lineage = await base.run(async (ctx) => ({
@@ -2656,8 +2655,8 @@ describe("Build collaboration governed assets", () => {
           mimeType: "application/octet-stream",
           organizationId: ORGANIZATION_ID,
           sizeBytes: 100 * 1024 * 1024 + 1,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow("100 MB");
 
     const pendingStaging = await admin.mutation(
@@ -2670,10 +2669,13 @@ describe("Build collaboration governed assets", () => {
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 14,
-      }
+      },
     );
-    const pendingStorageId = await base.run(async (ctx) =>
-      await ctx.storage.store(new Blob(["pending upload"], { type: "text/plain" }))
+    const pendingStorageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["pending upload"], { type: "text/plain" }),
+        ),
     );
     await admin.mutation(
       (api as any).build_collaboration_assets
@@ -2683,7 +2685,7 @@ describe("Build collaboration governed assets", () => {
         organizationId: ORGANIZATION_ID,
         stagingSessionId: pendingStaging.stagingSessionId,
         storageId: pendingStorageId,
-      }
+      },
     );
     await base.run(async (ctx) => {
       await ctx.db.patch(pendingStaging.stagingSessionId, {
@@ -2693,10 +2695,10 @@ describe("Build collaboration governed assets", () => {
     await base.mutation(
       (internal as any).build_collaboration_asset_maintenance
         .expireBuildCollaborationAssetStagingSession,
-      { stagingSessionId: pendingStaging.stagingSessionId }
+      { stagingSessionId: pendingStaging.stagingSessionId },
     );
     expect(
-      await base.run(async (ctx) => await ctx.db.system.get(pendingStorageId))
+      await base.run(async (ctx) => await ctx.db.system.get(pendingStorageId)),
     ).toBeNull();
 
     const staging = await admin.mutation(
@@ -2709,10 +2711,13 @@ describe("Build collaboration governed assets", () => {
         mimeType: "text/plain",
         organizationId: ORGANIZATION_ID,
         sizeBytes: 13,
-      }
+      },
     );
-    const storageId = await base.run(async (ctx) =>
-      await ctx.storage.store(new Blob(["expired asset"], { type: "text/plain" }))
+    const storageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["expired asset"], { type: "text/plain" }),
+        ),
     );
     const assetId = await admin.mutation(
       (api as any).build_collaboration_assets
@@ -2725,7 +2730,7 @@ describe("Build collaboration governed assets", () => {
         organizationId: ORGANIZATION_ID,
         stagingSessionId: staging.stagingSessionId,
         storageId,
-      }
+      },
     );
     await base.run(async (ctx) => {
       await ctx.db.patch(staging.stagingSessionId, {
@@ -2735,7 +2740,7 @@ describe("Build collaboration governed assets", () => {
     await base.mutation(
       (internal as any).build_collaboration_asset_maintenance
         .expireBuildCollaborationAssetStagingSession,
-      { stagingSessionId: staging.stagingSessionId }
+      { stagingSessionId: staging.stagingSessionId },
     );
     const expired = await base.run(async (ctx) => ({
       asset: await ctx.db.get(assetId),
@@ -2766,10 +2771,13 @@ async function createPublishedAssetFixture(input: {
       mimeType: "text/plain",
       organizationId: ORGANIZATION_ID,
       sizeBytes: 12,
-    }
+    },
   );
-  const storageId = await input.base.run(async (ctx) =>
-    await ctx.storage.store(new Blob(["reader asset"], { type: "text/plain" }))
+  const storageId = await input.base.run(
+    async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["reader asset"], { type: "text/plain" }),
+      ),
   );
   const hash = "2".repeat(64);
   const assetId: Id<"buildCollaborationAssets"> = await input.admin.mutation(
@@ -2783,7 +2791,7 @@ async function createPublishedAssetFixture(input: {
       organizationId: ORGANIZATION_ID,
       stagingSessionId: staging.stagingSessionId,
       storageId,
-    }
+    },
   );
   await input.base.mutation(
     (internal as any).build_collaboration_asset_maintenance
@@ -2793,11 +2801,10 @@ async function createPublishedAssetFixture(input: {
       computedHashSha256: hash,
       outcome: "clean",
       provider: "test-scanner",
-    }
+    },
   );
   await input.admin.mutation(
-    (api as any).build_collaboration
-      .approveAndPublishBuildCollaborationBundle,
+    (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
     {
       actionItems: [],
       attachmentAssetIds: [assetId],
@@ -2817,7 +2824,7 @@ async function createPublishedAssetFixture(input: {
         ],
         type: "doc",
       }),
-    }
+    },
   );
   return assetId;
 }
@@ -2873,14 +2880,11 @@ describe("Build collaboration tenant rollout", () => {
       status: "disabled",
     });
     await expect(
-      admin.query(
-        (api as any).build_collaboration.listBuildCollaborationFeed,
-        {
-          buildId,
-          organizationId: ORGANIZATION_ID,
-          paginationOpts: { cursor: null, numItems: 20 },
-        },
-      ),
+      admin.query((api as any).build_collaboration.listBuildCollaborationFeed, {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }),
     ).rejects.toThrow(
       "Build collaboration is unavailable until this tenant is active.",
     );
@@ -3303,14 +3307,11 @@ describe("Build collaboration tenant rollout", () => {
     );
 
     await expect(
-      admin.query(
-        (api as any).build_collaboration.listBuildCollaborationFeed,
-        {
-          buildId,
-          organizationId: ORGANIZATION_ID,
-          paginationOpts: { cursor: null, numItems: 20 },
-        },
-      ),
+      admin.query((api as any).build_collaboration.listBuildCollaborationFeed, {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }),
     ).rejects.toThrow(
       "Build collaboration is unavailable until this tenant is active.",
     );
@@ -3360,7 +3361,8 @@ describe("Build collaboration canonical reference authorization", () => {
       subject: "user_contractor",
     });
     const postId = await fixture.admin.mutation(
-      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
       {
         actionItems: [],
         audienceMode: "custom",
@@ -3379,7 +3381,7 @@ describe("Build collaboration canonical reference authorization", () => {
           ],
           type: "doc",
         }),
-      }
+      },
     );
 
     await expect(
@@ -3390,8 +3392,8 @@ describe("Build collaboration canonical reference authorization", () => {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
           postId,
-        }
-      )
+        },
+      ),
     ).resolves.toEqual(
       expect.objectContaining({
         entry: expect.objectContaining({
@@ -3402,7 +3404,7 @@ describe("Build collaboration canonical reference authorization", () => {
           }),
         }),
         state: "visible",
-      })
+      }),
     );
 
     const contractor = withIdentity(fixture.base, {
@@ -3417,8 +3419,8 @@ describe("Build collaboration canonical reference authorization", () => {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
           postId,
-        }
-      )
+        },
+      ),
     ).resolves.toEqual({ state: "revoked" });
     await expect(
       fixture.admin.query(
@@ -3428,8 +3430,8 @@ describe("Build collaboration canonical reference authorization", () => {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
           postId: "forged-post-id",
-        }
-      )
+        },
+      ),
     ).resolves.toEqual({ state: "revoked" });
   });
 
@@ -3445,8 +3447,7 @@ describe("Build collaboration canonical reference authorization", () => {
 
     await expect(
       fixture.admin.query(
-        (api as any).build_collaboration_focus
-          .getFocusedBuildActionItemContext,
+        (api as any).build_collaboration_focus.getFocusedBuildActionItemContext,
         {
           actionItemId: entities.actionItemId,
           buildId: fixture.buildId,
@@ -3457,7 +3458,7 @@ describe("Build collaboration canonical reference authorization", () => {
       expect.objectContaining({
         actionItemId: entities.actionItemId,
         postId: expect.any(String),
-      })
+      }),
     );
 
     const contractor = withIdentity(fixture.base, {
@@ -3466,8 +3467,7 @@ describe("Build collaboration canonical reference authorization", () => {
     });
     await expect(
       contractor.query(
-        (api as any).build_collaboration_focus
-          .getFocusedBuildActionItemContext,
+        (api as any).build_collaboration_focus.getFocusedBuildActionItemContext,
         {
           actionItemId: entities.actionItemId,
           buildId: fixture.buildId,
@@ -3477,8 +3477,7 @@ describe("Build collaboration canonical reference authorization", () => {
     ).resolves.toBeNull();
     await expect(
       fixture.admin.query(
-        (api as any).build_collaboration_focus
-          .getFocusedBuildActionItemContext,
+        (api as any).build_collaboration_focus.getFocusedBuildActionItemContext,
         {
           actionItemId: "forged-action-item-id",
           buildId: fixture.buildId,
@@ -3487,6 +3486,7 @@ describe("Build collaboration canonical reference authorization", () => {
       ),
     ).resolves.toBeNull();
   });
+
   test("resolves an exact authorized entity focus without autocomplete enumeration", async () => {
     const fixture = await seedActiveBuild();
     const entities = await seedCollaborationReferenceEntities(fixture);
@@ -3523,7 +3523,6 @@ describe("Build collaboration canonical reference authorization", () => {
     ).resolves.toEqual({ state: "revoked" });
   });
 
-
   test("indexes every canonical kind while omitting restricted fields and entities for lower roles", async () => {
     const fixture = await seedActiveBuild();
     await addBuildParticipant(fixture.base, {
@@ -3548,7 +3547,9 @@ describe("Build collaboration canonical reference authorization", () => {
         organizationId: ORGANIZATION_ID,
       },
     );
-    expect(new Set(adminOptions.map((option: any) => option.entityKind))).toEqual(
+    expect(
+      new Set(adminOptions.map((option: any) => option.entityKind)),
+    ).toEqual(
       new Set([
         "actionItem",
         "document",
@@ -3690,9 +3691,7 @@ describe("Build collaboration canonical reference authorization", () => {
         tiptapJson: JSON.stringify({
           content: [
             {
-              content: [
-                { text: "Legacy reference container.", type: "text" },
-              ],
+              content: [{ text: "Legacy reference container.", type: "text" }],
               type: "paragraph",
             },
           ],
@@ -3732,8 +3731,7 @@ describe("Build collaboration canonical reference authorization", () => {
       },
     );
     const legacyEntry = contractorFeed.page.find(
-      (entry: any) =>
-        entry.kind === "post" && entry.post._id === legacyPostId,
+      (entry: any) => entry.kind === "post" && entry.post._id === legacyPostId,
     );
     expect(JSON.stringify(legacyEntry)).not.toContain("SECRET");
     expect(legacyEntry.references).toEqual([
@@ -3844,11 +3842,7 @@ describe("Build collaboration canonical reference authorization", () => {
       role: "broker",
       subject: "user_broker",
     });
-    const mentionDocument = (
-      id: string,
-      label: string,
-      kind = "participant",
-    ) =>
+    const mentionDocument = (id: string, label: string, kind = "participant") =>
       JSON.stringify({
         content: [
           {
@@ -3891,9 +3885,7 @@ describe("Build collaboration canonical reference authorization", () => {
       },
     );
     const revision = await fixture.base.run(async (ctx) => {
-      const post = await ctx.db.get(
-        postId as Id<"buildCollaborationPosts">,
-      );
+      const post = await ctx.db.get(postId as Id<"buildCollaborationPosts">);
       return post?.currentRevisionId
         ? await ctx.db.get(post.currentRevisionId)
         : null;
@@ -3959,8 +3951,7 @@ describe("Build collaboration canonical reference authorization", () => {
     });
     await expect(
       fixture.admin.mutation(
-        (api as any).build_collaboration_threads
-          .addBuildCollaborationComment,
+        (api as any).build_collaboration_threads.addBuildCollaborationComment,
         {
           buildId: fixture.buildId,
           organizationId: ORGANIZATION_ID,
@@ -4105,9 +4096,7 @@ describe("Build collaboration canonical reference authorization", () => {
           tiptapJson: JSON.stringify({
             content: [
               {
-                content: [
-                  { text: "Adversarial reference.", type: "text" },
-                ],
+                content: [{ text: "Adversarial reference.", type: "text" }],
                 type: "paragraph",
               },
             ],
@@ -4515,7 +4504,9 @@ describe("Build collaboration canonical reference authorization", () => {
       },
     );
     await base.run(async (ctx) => {
-      for (const delivery of await ctx.db.query("recipientDeliveries").collect()) {
+      for (const delivery of await ctx.db
+        .query("recipientDeliveries")
+        .collect()) {
         await ctx.db.delete(delivery._id);
       }
     });
@@ -4647,13 +4638,16 @@ describe("Build collaboration canonical reference authorization", () => {
       subject: "user_broker",
     });
     await base.run(async (ctx) => {
-      for (const delivery of await ctx.db.query("recipientDeliveries").collect()) {
+      for (const delivery of await ctx.db
+        .query("recipientDeliveries")
+        .collect()) {
         await ctx.db.delete(delivery._id);
       }
     });
 
     await admin.mutation(
-      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
       {
         actionItems: [],
         audienceMode: "build_wide",
@@ -4700,7 +4694,8 @@ describe("Build collaboration canonical reference authorization", () => {
     );
 
     await admin.mutation(
-      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
       {
         actionItems: [],
         audienceMode: "build_wide",
@@ -4762,7 +4757,8 @@ describe("Build collaboration canonical reference authorization", () => {
       subject: "user_contractor",
     });
     const restrictedPostId = await admin.mutation(
-      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
       {
         actionItems: [],
         audienceMode: "author_tier_and_higher",
@@ -4893,7 +4889,8 @@ describe("Build collaboration canonical reference authorization", () => {
       });
     }
     const postId = await admin.mutation(
-      (api as any).build_collaboration.approveAndPublishBuildCollaborationBundle,
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
       {
         actionItems: [],
         audienceMode: "build_wide",
@@ -4938,7 +4935,9 @@ describe("Build collaboration canonical reference authorization", () => {
       if (!build) {
         throw new Error("Active Build fixture is unavailable.");
       }
-      for (const delivery of await ctx.db.query("recipientDeliveries").collect()) {
+      for (const delivery of await ctx.db
+        .query("recipientDeliveries")
+        .collect()) {
         await ctx.db.delete(delivery._id);
       }
       for (const [index, recipient] of recipients.entries()) {
@@ -5038,7 +5037,9 @@ describe("Build collaboration canonical reference authorization", () => {
       if (!membership) {
         throw new Error("Admin WorkOS membership fixture is unavailable.");
       }
-      for (const delivery of await ctx.db.query("recipientDeliveries").collect()) {
+      for (const delivery of await ctx.db
+        .query("recipientDeliveries")
+        .collect()) {
         await ctx.db.delete(delivery._id);
       }
       return membership.workosMembershipId;

@@ -127,16 +127,16 @@ import {
   type MilestoneSheetData,
 } from "./MilestoneDetailSheet";
 import {
-  MilestoneStartDialog,
-  type MilestoneStartConfirmation,
-  type MilestoneStartDialogRequest,
-  type MilestoneStartSource,
-} from "./MilestoneStartDialog.tsx";
-import {
   type KanbanCardData,
   type KanbanColumn,
   MilestoneKanban,
 } from "./MilestoneKanban";
+import {
+  type MilestoneStartConfirmation,
+  MilestoneStartDialog,
+  type MilestoneStartDialogRequest,
+  type MilestoneStartSource,
+} from "./MilestoneStartDialog.tsx";
 import { SitePhotoCarousel } from "./SitePhotoCarousel";
 import {
   type SiteVisitGuidance,
@@ -195,6 +195,14 @@ export interface ProductionBuildDetailActions {
   cancelSiteVisit?: (input: {
     reason: string;
     visitId: string;
+  }) => Promise<unknown> | unknown;
+  correctMilestoneStart?: (input: {
+    actualStartedAt: number;
+    idempotencyKey: string;
+    milestoneKey: string;
+    reason: string;
+    source: MilestoneStartSource;
+    submilestoneKey?: string;
   }) => Promise<unknown> | unknown;
   createAndAssignContractor?: (input: {
     assignmentCost?: ContractorAssignmentCostDraft;
@@ -310,6 +318,13 @@ export interface ProductionBuildDetailActions {
     requestedTime?: string;
     visitId: string;
   }) => Promise<unknown> | unknown;
+  retractMilestoneStart?: (input: {
+    idempotencyKey: string;
+    milestoneKey: string;
+    reason: string;
+    source: MilestoneStartSource;
+    submilestoneKey?: string;
+  }) => Promise<unknown> | unknown;
   reviewBudgetRevision?: (input: {
     note: string;
     requestId: string;
@@ -382,21 +397,6 @@ export interface ProductionBuildDetailActions {
     milestoneKey: string;
     source: MilestoneStartSource;
     startParent?: boolean;
-    submilestoneKey?: string;
-  }) => Promise<unknown> | unknown;
-  correctMilestoneStart?: (input: {
-    actualStartedAt: number;
-    idempotencyKey: string;
-    milestoneKey: string;
-    reason: string;
-    source: MilestoneStartSource;
-    submilestoneKey?: string;
-  }) => Promise<unknown> | unknown;
-  retractMilestoneStart?: (input: {
-    idempotencyKey: string;
-    milestoneKey: string;
-    reason: string;
-    source: MilestoneStartSource;
     submilestoneKey?: string;
   }) => Promise<unknown> | unknown;
   submitDrawForAdmin?: (draw: ProductionDraw) => Promise<unknown> | unknown;
@@ -495,6 +495,7 @@ export interface ProductionBuildDetail {
 
 interface ProductionMilestone {
   _id: string;
+  actualStartedAt?: number;
   budgetCents: number;
   completedSubmilestoneCount?: number;
   completionClaim?: Record<string, unknown>;
@@ -519,12 +520,11 @@ interface ProductionMilestone {
   }>;
   reconciliationState?: "consistent" | "warning";
   siteVisitGuidance?: SiteVisitGuidance;
-  actualStartedAt?: number;
   startEventId?: string;
+  startedAt?: number;
+  startedByWorkosUserId?: string;
   startReportedAt?: number;
   startSource?: MilestoneStartSource;
-  startedByWorkosUserId?: string;
-  startedAt?: number;
   status: ProductionMilestoneStatus;
   totalSubmilestoneCount?: number;
   updatedAt?: number;
@@ -533,6 +533,7 @@ interface ProductionMilestone {
 interface ProductionSubmilestone {
   _id: string;
   actualCostCents?: number;
+  actualStartedAt?: number;
   budgetCents?: number;
   completedAt?: number;
   completedByWorkosUserId?: string;
@@ -543,11 +544,10 @@ interface ProductionSubmilestone {
   name: string;
   order: number;
   startDay?: number;
-  actualStartedAt?: number;
   startEventId?: string;
+  startedByWorkosUserId?: string;
   startReportedAt?: number;
   startSource?: MilestoneStartSource;
-  startedByWorkosUserId?: string;
   status: ProductionMilestoneStatus;
 }
 
@@ -1359,18 +1359,6 @@ export function ProductionBuildDetailSurface({
               : undefined
           }
           key={activeMilestoneKey ?? "milestone-sheet"}
-          onAssignContractor={
-            actions?.assignContractorToMilestone ||
-            actions?.createAndAssignContractor
-              ? (milestoneKey, submilestoneKey) =>
-                  setAssignContractorTarget({
-                    milestoneKey,
-                    ...(submilestoneKey
-                      ? { submilestoneKeys: [submilestoneKey] }
-                      : {}),
-                  })
-              : undefined
-          }
           onAmendStart={
             actions?.correctMilestoneStart || actions?.retractMilestoneStart
               ? (action, milestoneKey, submilestoneKey) =>
@@ -1384,17 +1372,29 @@ export function ProductionBuildDetailSurface({
                   )
               : undefined
           }
-          onClose={() => setActiveMilestoneKey(null)}
-          onStartWork={
-            actions?.startMilestoneWork
-              ? (milestoneKey) =>
-                  openMilestoneStart(milestoneKey, "milestone_detail")
+          onAssignContractor={
+            actions?.assignContractorToMilestone ||
+            actions?.createAndAssignContractor
+              ? (milestoneKey, submilestoneKey) =>
+                  setAssignContractorTarget({
+                    milestoneKey,
+                    ...(submilestoneKey
+                      ? { submilestoneKeys: [submilestoneKey] }
+                      : {}),
+                  })
               : undefined
           }
+          onClose={() => setActiveMilestoneKey(null)}
           onStartSubmilestone={
             actions?.startMilestoneWork
               ? (milestoneKey, submilestoneKey, source) =>
                   openMilestoneStart(milestoneKey, source, submilestoneKey)
+              : undefined
+          }
+          onStartWork={
+            actions?.startMilestoneWork
+              ? (milestoneKey) =>
+                  openMilestoneStart(milestoneKey, "milestone_detail")
               : undefined
           }
           onSubmitCompletion={
@@ -6319,16 +6319,16 @@ function ProductionBuildMaterialsTab({
     <MaterialPlanningTab
       actions={actions}
       budgetTreatmentEnabled
-      items={detail.costItems ?? []}
-      lockBudgetTreatment
-      milestones={milestones}
-      panelLayout="stacked"
-      readOnly={!actions}
       focusedItemId={
         focusedReference?.startsWith("material:")
           ? focusedReference.slice("material:".length)
           : undefined
       }
+      items={detail.costItems ?? []}
+      lockBudgetTreatment
+      milestones={milestones}
+      panelLayout="stacked"
+      readOnly={!actions}
       scopeLabel="Active Build"
     />
   );

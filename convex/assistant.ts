@@ -6211,10 +6211,15 @@ function capitalEventInput(input: AssistantActionInput) {
       input.capitalEventKey ?? input.eventKey,
       "capitalEventKey"
     ),
-    eventKind: input.eventKind === "cashInfusion" ? "cashInfusion" : "cost",
+    eventKind:
+      input.eventKind === "cashInfusion" ||
+      input.eventKind === "homeEquityTakeout"
+        ? input.eventKind
+        : "cost",
+    interestAnnualBps: optionalNumber(input.interestAnnualBps),
     label: requiredString(input.label ?? input.capitalEventKey, "label"),
     order: optionalNumber(input.order),
-    x: requiredNonNegativeDay(input.x ?? input.timingDay, "x"),
+    x: requiredProposalTimelineDay(input.x ?? input.timingDay, "x"),
   });
 }
 
@@ -6226,9 +6231,12 @@ function capitalEventPatchInput(input: AssistantActionInput) {
       "capitalEventKey"
     ),
     eventKind:
-      input.eventKind === "cashInfusion" || input.eventKind === "cost"
+      input.eventKind === "cashInfusion" ||
+      input.eventKind === "cost" ||
+      input.eventKind === "homeEquityTakeout"
         ? input.eventKind
         : undefined,
+    interestAnnualBps: optionalNumber(input.interestAnnualBps),
     label: optionalString(input.label),
     order: optionalNumber(input.order),
     x: optionalNumber(input.x ?? input.timingDay),
@@ -6636,6 +6644,14 @@ function requiredNonNegativeDay(value: unknown, field: string) {
   const day = Math.round(requiredNumber(value, field));
   if (day < 0) {
     throw new Error(`${field} cannot be negative.`);
+  }
+  return day;
+}
+
+function requiredProposalTimelineDay(value: unknown, field: string) {
+  const day = Math.round(requiredNumber(value, field));
+  if (day < -30) {
+    throw new Error(`${field} cannot be earlier than T-30.`);
   }
   return day;
 }

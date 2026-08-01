@@ -1015,16 +1015,13 @@ describe("production proposal foundation", () => {
       },
     );
     await expect(
-      t.mutation(
-        (api as any).production_proposals.updateActiveBuildCostItem,
-        {
-          budgetTreatment: "logOnly",
-          buildId: closing.buildId,
-          itemId: addedItemId,
-          reason: "Attempting to change planning treatment after closing.",
-          workosOrganizationId: ORG,
-        },
-      ),
+      t.mutation((api as any).production_proposals.updateActiveBuildCostItem, {
+        budgetTreatment: "logOnly",
+        buildId: closing.buildId,
+        itemId: addedItemId,
+        reason: "Attempting to change planning treatment after closing.",
+        workosOrganizationId: ORG,
+      }),
     ).rejects.toThrow(
       "Budget treatment can only be changed during proposal planning",
     );
@@ -1119,53 +1116,44 @@ describe("production proposal foundation", () => {
     );
 
     await expect(
-      t.mutation(
-        (api as any).production_proposals.createProposalCostItem,
-        {
-          budgetTreatment: "add",
-          costCents: 1_000_000,
-          itemType: "material",
-          milestoneKey: "foundation",
-          proposalId,
-          quantity: 1,
-          relevantSubmilestoneKeys: ["forms"],
-          title: "Untargeted added package",
-          workosOrganizationId: ORG,
-        },
-      ),
-    ).rejects.toThrow("Add requires one budget sub-milestone target");
-    await expect(
-      t.mutation(
-        (api as any).production_proposals.createProposalCostItem,
-        {
-          budgetTreatment: "maintain",
-          costCents: 1_000_000,
-          itemType: "material",
-          milestoneKey: "foundation",
-          proposalId,
-          quantity: 1,
-          relevantSubmilestoneKeys: ["forms"],
-          title: "Untargeted maintained package",
-          workosOrganizationId: ORG,
-        },
-      ),
-    ).rejects.toThrow("Maintain requires one budget sub-milestone target");
-
-    await t.mutation(
-      (api as any).production_proposals.createProposalCostItem,
-      {
-        budgetSubmilestoneKey: "forms",
-        budgetTreatment: "logOnly",
-        costCents: 2_000_000,
+      t.mutation((api as any).production_proposals.createProposalCostItem, {
+        budgetTreatment: "add",
+        costCents: 1_000_000,
         itemType: "material",
         milestoneKey: "foundation",
         proposalId,
         quantity: 1,
         relevantSubmilestoneKeys: ["forms"],
-        title: "Logged quote",
+        title: "Untargeted added package",
         workosOrganizationId: ORG,
-      },
-    );
+      }),
+    ).rejects.toThrow("Add requires one budget sub-milestone target");
+    await expect(
+      t.mutation((api as any).production_proposals.createProposalCostItem, {
+        budgetTreatment: "maintain",
+        costCents: 1_000_000,
+        itemType: "material",
+        milestoneKey: "foundation",
+        proposalId,
+        quantity: 1,
+        relevantSubmilestoneKeys: ["forms"],
+        title: "Untargeted maintained package",
+        workosOrganizationId: ORG,
+      }),
+    ).rejects.toThrow("Maintain requires one budget sub-milestone target");
+
+    await t.mutation((api as any).production_proposals.createProposalCostItem, {
+      budgetSubmilestoneKey: "forms",
+      budgetTreatment: "logOnly",
+      costCents: 2_000_000,
+      itemType: "material",
+      milestoneKey: "foundation",
+      proposalId,
+      quantity: 1,
+      relevantSubmilestoneKeys: ["forms"],
+      title: "Logged quote",
+      workosOrganizationId: ORG,
+    });
     const maintainedItemId = await t.mutation(
       (api as any).production_proposals.createProposalCostItem,
       {
@@ -1223,16 +1211,13 @@ describe("production proposal foundation", () => {
         ?.budgetSubmilestoneKey,
     ).toBeUndefined();
 
-    await t.mutation(
-      (api as any).production_proposals.updateProposalCostItem,
-      {
-        budgetSubmilestoneKey: "forms",
-        budgetTreatment: "maintain",
-        itemId: additiveItemId,
-        proposalId,
-        workosOrganizationId: ORG,
-      },
-    );
+    await t.mutation((api as any).production_proposals.updateProposalCostItem, {
+      budgetSubmilestoneKey: "forms",
+      budgetTreatment: "maintain",
+      itemId: additiveItemId,
+      proposalId,
+      workosOrganizationId: ORG,
+    });
     detail = await t.query(
       (api as any).production_proposals.getProposalDetail,
       { proposalId, workosOrganizationId: ORG },
@@ -1274,31 +1259,25 @@ describe("production proposal foundation", () => {
     ).rejects.toThrow("Maintained cost items exceed the forms budget");
 
     await expect(
-      t.mutation(
-        (api as any).production_proposals.createProposalCostItem,
-        {
-          budgetSubmilestoneKey: "forms",
-          budgetTreatment: "maintain",
-          costCents: 13_000_001,
-          itemType: "material",
-          milestoneKey: "foundation",
-          proposalId,
-          quantity: 1,
-          relevantSubmilestoneKeys: ["forms"],
-          title: "Over-allocated package",
-          workosOrganizationId: ORG,
-        },
-      ),
+      t.mutation((api as any).production_proposals.createProposalCostItem, {
+        budgetSubmilestoneKey: "forms",
+        budgetTreatment: "maintain",
+        costCents: 13_000_001,
+        itemType: "material",
+        milestoneKey: "foundation",
+        proposalId,
+        quantity: 1,
+        relevantSubmilestoneKeys: ["forms"],
+        title: "Over-allocated package",
+        workosOrganizationId: ORG,
+      }),
     ).rejects.toThrow("Maintained cost items exceed");
 
-    await t.mutation(
-      (api as any).production_proposals.deleteProposalCostItem,
-      {
-        itemId: maintainedItemId,
-        proposalId,
-        workosOrganizationId: ORG,
-      },
-    );
+    await t.mutation((api as any).production_proposals.deleteProposalCostItem, {
+      itemId: maintainedItemId,
+      proposalId,
+      workosOrganizationId: ORG,
+    });
     detail = await t.query(
       (api as any).production_proposals.getProposalDetail,
       { proposalId, workosOrganizationId: ORG },
@@ -3644,8 +3623,7 @@ describe("production proposal foundation", () => {
     const proposalId = await broker.mutation(
       (api as any).production_proposals.createBrokerDraftProposal,
       {
-        assignedBrokerWorkosUserId:
-          context.defaultAssignedBrokerWorkosUserId,
+        assignedBrokerWorkosUserId: context.defaultAssignedBrokerWorkosUserId,
         buildName: "Fallback broker build",
         location: "22 Membership Recovery Road",
         workosOrganizationId: ORG,
@@ -4492,59 +4470,56 @@ describe("production proposal foundation", () => {
     );
 
     await expect(
-      t.mutation(
-        (api as any).production_proposals.saveDraftProposalPackage,
-        {
-          borrowerCoPayBps: 2_000,
-          borrowerWorkingCapitalLimitCents: 25_000_000,
-          costItems: [
-            {
-              budgetSubmilestoneKey: "forms",
-              budgetTreatment: "add",
-              costCents: 12_500_000,
-              itemType: "material",
-              milestoneKey: "foundation",
-              quantity: 1,
-              relevantSubmilestoneKeys: ["forms"],
-              title: "Added concrete package",
-            },
-          ],
-          draws: [
-            {
-              amountCents: 50_000_000,
-              drawKey: "foundation-draw",
-              label: "Foundation reimbursement",
-              milestoneKey: "foundation",
-              order: 1,
-              timingDay: 20,
-            },
-          ],
-          lenderDrawPolicyLimitCents: 80_000_000,
-          milestones: [
-            {
-              budgetCents: 50_000_000,
-              dayEnd: 20,
-              dayStart: 0,
-              dependencyKeys: [],
-              durationDays: 20,
-              key: "foundation",
-              name: "Foundation",
-              order: 1,
-              submilestones: [
-                {
-                  budgetCents: 50_000_000,
-                  durationDays: 20,
-                  key: "forms",
-                  name: "Forms and pour",
-                  order: 1,
-                },
-              ],
-            },
-          ],
-          proposalId,
-          workosOrganizationId: ORG,
-        },
-      ),
+      t.mutation((api as any).production_proposals.saveDraftProposalPackage, {
+        borrowerCoPayBps: 2_000,
+        borrowerWorkingCapitalLimitCents: 25_000_000,
+        costItems: [
+          {
+            budgetSubmilestoneKey: "forms",
+            budgetTreatment: "add",
+            costCents: 12_500_000,
+            itemType: "material",
+            milestoneKey: "foundation",
+            quantity: 1,
+            relevantSubmilestoneKeys: ["forms"],
+            title: "Added concrete package",
+          },
+        ],
+        draws: [
+          {
+            amountCents: 50_000_000,
+            drawKey: "foundation-draw",
+            label: "Foundation reimbursement",
+            milestoneKey: "foundation",
+            order: 1,
+            timingDay: 20,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 80_000_000,
+        milestones: [
+          {
+            budgetCents: 50_000_000,
+            dayEnd: 20,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 20,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [
+              {
+                budgetCents: 50_000_000,
+                durationDays: 20,
+                key: "forms",
+                name: "Forms and pour",
+                order: 1,
+              },
+            ],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      }),
     ).resolves.toEqual({ warnings: [] });
 
     const detail = await t.query(
@@ -4704,7 +4679,7 @@ describe("production proposal foundation", () => {
     expect(workspace.plan).toMatchObject({
       borrowerCoPayBps: 2_000,
       currentDay: 0,
-      rangeMin: 0,
+      rangeMin: -30,
       startingCashCents: 25_000_000,
     });
     expect(workspace.plan.rangeMax).toBeGreaterThanOrEqual(58);
@@ -5757,18 +5732,24 @@ describe("production proposal foundation", () => {
       },
     );
     await unlockActiveBuildMilestoneForDraw(t, closing.buildId);
-    const drawReceipt = await t.mutation((api as any).production_proposals.requestActiveBuildDraw, {
-      amountCents: 20_000_000,
-      buildId: closing.buildId,
-      drawKey: "draw-01",
-      note: "Foundation reimbursement requested.",
-      workosOrganizationId: ORG,
-    });
-    await t.mutation((api as any).production_proposals.startActiveBuildDrawReview, {
-      buildId: closing.buildId,
-      drawKey: drawReceipt.requestKey,
-      workosOrganizationId: ORG,
-    });
+    const drawReceipt = await t.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      {
+        amountCents: 20_000_000,
+        buildId: closing.buildId,
+        drawKey: "draw-01",
+        note: "Foundation reimbursement requested.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.startActiveBuildDrawReview,
+      {
+        buildId: closing.buildId,
+        drawKey: drawReceipt.requestKey,
+        workosOrganizationId: ORG,
+      },
+    );
     await t.mutation(
       (api as any).production_proposals.submitActiveBuildDrawForAdmin,
       {
@@ -5944,9 +5925,7 @@ describe("production proposal foundation", () => {
         .unique();
       return await ctx.db
         .query("buildEvidenceAssets")
-        .withIndex("by_site_visit", (q: any) =>
-          q.eq("siteVisitId", visit._id),
-        )
+        .withIndex("by_site_visit", (q: any) => q.eq("siteVisitId", visit._id))
         .unique();
     });
     expect(persistedVisitEvidence).toMatchObject({
@@ -5955,9 +5934,7 @@ describe("production proposal foundation", () => {
       locationGeofenceRadiusMeters: 250,
       locationVerified: true,
     });
-    expect(persistedVisitEvidence).not.toHaveProperty(
-      "locationFailureReason",
-    );
+    expect(persistedVisitEvidence).not.toHaveProperty("locationFailureReason");
     const replacementRequest = await t.mutation(
       (api as any).production_proposals
         .requestActiveBuildSiteVisitReplacementLink,
@@ -6024,12 +6001,12 @@ describe("production proposal foundation", () => {
 
     expect(workspace.sitePhotos).toEqual(
       expect.arrayContaining([
-      expect.objectContaining({
-        caption: "Foundation site photo",
-        evidenceKey: "foundation-site-photo",
-        locationVerified: true,
-      }),
-      ])
+        expect.objectContaining({
+          caption: "Foundation site photo",
+          evidenceKey: "foundation-site-photo",
+          locationVerified: true,
+        }),
+      ]),
     );
     expect(workspace.documents.map((doc: any) => doc.fileName)).toEqual(
       expect.arrayContaining(["workspace-permit.pdf", "inspection-scope.pdf"]),
@@ -6727,7 +6704,9 @@ describe("production proposal foundation", () => {
         source: "milestone_detail",
       });
       expect(
-        outboxEvents.filter((event: any) => event.eventType === "milestone.started"),
+        outboxEvents.filter(
+          (event: any) => event.eventType === "milestone.started",
+        ),
       ).toHaveLength(1);
     });
 
@@ -6866,7 +6845,9 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.getActiveBuildDetailByString,
       { buildId: String(closing.buildId), workosOrganizationId: ORG },
     );
-    expect(detail.milestones.find((row: any) => row.key === "framing")).toMatchObject({
+    expect(
+      detail.milestones.find((row: any) => row.key === "framing"),
+    ).toMatchObject({
       actualStartedAt,
       dayStart: 11,
       status: "in_progress",
@@ -6875,7 +6856,9 @@ describe("production proposal foundation", () => {
       detail.milestones.find((row: any) => row.key === "framing")
         .progressPercent,
     ).toBeUndefined();
-    expect(detail.milestones.find((row: any) => row.key === "foundation")).toMatchObject({
+    expect(
+      detail.milestones.find((row: any) => row.key === "foundation"),
+    ).toMatchObject({
       dayStart: 0,
       status: "planned",
     });
@@ -6950,9 +6933,7 @@ describe("production proposal foundation", () => {
     const fallback = await admin.run(async (ctx: any) =>
       ctx.db
         .query("operationsQueueHandoffs")
-        .filter((query: any) =>
-          query.eq(query.field("organizationId"), ORG),
-        )
+        .filter((query: any) => query.eq(query.field("organizationId"), ORG))
         .first(),
     );
     expect(fallback).toMatchObject({
@@ -7052,9 +7033,7 @@ describe("production proposal foundation", () => {
       const milestone = await ctx.db
         .query("buildMilestones")
         .withIndex("by_build_key", (query: any) =>
-          query
-            .eq("buildId", closing.buildId)
-            .eq("key", "foundation"),
+          query.eq("buildId", closing.buildId).eq("key", "foundation"),
         )
         .unique();
       const submilestones = await ctx.db
@@ -7102,13 +7081,13 @@ describe("production proposal foundation", () => {
         milestoneKey: "foundation",
         source: "milestone_detail",
         workosOrganizationId: ORG,
-      }
+      },
     );
     await admin.run(async (ctx: any) => {
       const milestone = await ctx.db
         .query("buildMilestones")
         .withIndex("by_build_key", (query: any) =>
-          query.eq("buildId", closing.buildId).eq("key", "foundation")
+          query.eq("buildId", closing.buildId).eq("key", "foundation"),
         )
         .unique();
       await ctx.db.patch(milestone._id, { status: "complete" });
@@ -7126,21 +7105,21 @@ describe("production proposal foundation", () => {
     await expect(
       builder.mutation(
         (api as any).production_proposals.correctActiveBuildMilestoneStart,
-        correction
-      )
+        correction,
+      ),
     ).rejects.toThrow(/only Lender Admin/i);
     await admin.mutation(
       (api as any).production_proposals.correctActiveBuildMilestoneStart,
-      correction
+      correction,
     );
 
     const milestone = await admin.run(async (ctx: any) =>
       ctx.db
         .query("buildMilestones")
         .withIndex("by_build_key", (query: any) =>
-          query.eq("buildId", closing.buildId).eq("key", "foundation")
+          query.eq("buildId", closing.buildId).eq("key", "foundation"),
         )
-        .unique()
+        .unique(),
     );
     expect(milestone).toMatchObject({
       actualStartedAt: correction.actualStartedAt,
@@ -7202,31 +7181,29 @@ describe("production proposal foundation", () => {
 
     await builder.mutation(
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
-      input
+      input,
     );
     await builder.mutation(
       (api as any).production_proposals.submitActiveBuildMilestoneCompletion,
-      input
+      input,
     );
 
     const state = await admin.run(async (ctx: any) => {
       const milestone = await ctx.db
         .query("buildMilestones")
         .withIndex("by_build_key", (query: any) =>
-          query.eq("buildId", closing.buildId).eq("key", "foundation")
+          query.eq("buildId", closing.buildId).eq("key", "foundation"),
         )
         .unique();
       const starts = await ctx.db
         .query("milestoneStartEvents")
         .withIndex("by_build", (query: any) =>
-          query.eq("buildId", closing.buildId)
+          query.eq("buildId", closing.buildId),
         )
         .collect();
       const outbox = await ctx.db
         .query("eventOutbox")
-        .filter((query: any) =>
-          query.eq(query.field("organizationId"), ORG)
-        )
+        .filter((query: any) => query.eq(query.field("organizationId"), ORG))
         .collect();
       return { milestone, outbox, starts };
     });
@@ -7241,8 +7218,8 @@ describe("production proposal foundation", () => {
     expect(state.starts).toHaveLength(1);
     expect(
       state.outbox.filter(
-        (event: any) => event.eventType === "milestone.started"
-      )
+        (event: any) => event.eventType === "milestone.started",
+      ),
     ).toHaveLength(1);
   });
 
@@ -9715,15 +9692,12 @@ describe("production proposal foundation", () => {
       },
     );
     await expect(
-      staff.mutation(
-        (api as any).production_proposals.approveActiveBuildDraw,
-        {
-          buildId: closing.buildId,
-          drawKey: receipt.requestKey,
-          note: "Staff cannot make the final release decision.",
-          workosOrganizationId: ORG,
-        },
-      ),
+      staff.mutation((api as any).production_proposals.approveActiveBuildDraw, {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Staff cannot make the final release decision.",
+        workosOrganizationId: ORG,
+      }),
     ).rejects.toThrow("Forbidden: role");
     await admin.mutation(
       (api as any).production_proposals.approveActiveBuildDraw,
@@ -9842,16 +9816,13 @@ describe("production proposal foundation", () => {
       workOrderKey: "DRWO-0042",
     });
     await expect(
-      admin.mutation(
-        (api as any).production_proposals.requestActiveBuildDraw,
-        {
-          amountCents: 1_000_000,
-          buildId: closing.buildId,
-          clientOperationId: "blocked-until-attributed",
-          drawKey: "draw-01",
-          workosOrganizationId: ORG,
-        },
-      ),
+      admin.mutation((api as any).production_proposals.requestActiveBuildDraw, {
+        amountCents: 1_000_000,
+        buildId: closing.buildId,
+        clientOperationId: "blocked-until-attributed",
+        drawKey: "draw-01",
+        workosOrganizationId: ORG,
+      }),
     ).rejects.toThrow("run the active-build draw attribution migration");
 
     const migrationReason =
@@ -9898,8 +9869,7 @@ describe("production proposal foundation", () => {
           )
           .collect()
       ).filter(
-        (event: any) =>
-          event.command === "migrateActiveBuildDrawRequests",
+        (event: any) => event.command === "migrateActiveBuildDrawRequests",
       ),
       request: await ctx.db.get(legacyRequestId),
     }));
@@ -9921,11 +9891,11 @@ describe("production proposal foundation", () => {
 
     const applied = await admin.mutation(
       (api as any).production_proposals.migrateActiveBuildDrawRequests,
-        {
-          buildId: closing.buildId,
-          dryRun: false,
-          expectedPlanToken: migrationPlan.planToken,
-          reason: "Execute legacy Draw Release Work Order attribution.",
+      {
+        buildId: closing.buildId,
+        dryRun: false,
+        expectedPlanToken: migrationPlan.planToken,
+        reason: "Execute legacy Draw Release Work Order attribution.",
         workosOrganizationId: ORG,
       },
     );
@@ -10024,8 +9994,7 @@ describe("production proposal foundation", () => {
           )
           .collect()
       ).filter(
-        (event: any) =>
-          event.command === "migrateActiveBuildDrawRequests",
+        (event: any) => event.command === "migrateActiveBuildDrawRequests",
       ),
     }));
     expect(afterReplay.allocations).toHaveLength(1);
@@ -10048,9 +10017,7 @@ describe("production proposal foundation", () => {
     const legacy = await admin.run(async (ctx: any) => {
       const row = await ctx.db
         .query("plannedDrawScheduleRows")
-        .withIndex("by_build", (q: any) =>
-          q.eq("buildId", closing.buildId),
-        )
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
         .unique();
       if (!row) throw new Error("Test planned draw row not found.");
       const proposalRow = await ctx.db.get(row.proposalDrawScheduleRowId);
@@ -10096,9 +10063,7 @@ describe("production proposal foundation", () => {
     const dryRunState = await admin.run(async (ctx: any) => ({
       requests: await ctx.db
         .query("activeBuildDrawRequests")
-        .withIndex("by_build", (q: any) =>
-          q.eq("buildId", closing.buildId),
-        )
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
         .collect(),
       row: await ctx.db.get(legacy.rowId),
     }));
@@ -10138,23 +10103,17 @@ describe("production proposal foundation", () => {
     const migratedState = await admin.run(async (ctx: any) => ({
       allocations: await ctx.db
         .query("activeBuildDrawRequestAllocations")
-        .withIndex("by_build", (q: any) =>
-          q.eq("buildId", closing.buildId),
-        )
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
         .collect(),
       capitalEvents: (
         await ctx.db
           .query("capitalEvents")
-          .withIndex("by_build", (q: any) =>
-            q.eq("buildId", closing.buildId),
-          )
+          .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
           .collect()
       ).filter((event: any) => event.eventType === "draw_release"),
       requests: await ctx.db
         .query("activeBuildDrawRequests")
-        .withIndex("by_build", (q: any) =>
-          q.eq("buildId", closing.buildId),
-        )
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
         .collect(),
       row: await ctx.db.get(legacy.rowId),
     }));
@@ -10199,9 +10158,7 @@ describe("production proposal foundation", () => {
     const replayCounts = await admin.run(async (ctx: any) => ({
       allocations: await ctx.db
         .query("activeBuildDrawRequestAllocations")
-        .withIndex("by_build", (q: any) =>
-          q.eq("buildId", closing.buildId),
-        )
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
         .collect(),
       migrationAudits: (
         await ctx.db
@@ -10213,14 +10170,11 @@ describe("production proposal foundation", () => {
           )
           .collect()
       ).filter(
-        (event: any) =>
-          event.command === "migrateActiveBuildDrawRequests",
+        (event: any) => event.command === "migrateActiveBuildDrawRequests",
       ),
       requests: await ctx.db
         .query("activeBuildDrawRequests")
-        .withIndex("by_build", (q: any) =>
-          q.eq("buildId", closing.buildId),
-        )
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
         .collect(),
     }));
     expect(replayCounts.requests).toHaveLength(1);
@@ -10234,9 +10188,7 @@ describe("production proposal foundation", () => {
     const legacyRowId = await admin.run(async (ctx: any) => {
       const row = await ctx.db
         .query("plannedDrawScheduleRows")
-        .withIndex("by_build", (q: any) =>
-          q.eq("buildId", closing.buildId),
-        )
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
         .unique();
       if (!row) throw new Error("Test planned draw row not found.");
       await ctx.db.patch(row._id, {
@@ -10275,15 +10227,11 @@ describe("production proposal foundation", () => {
     const state = await admin.run(async (ctx: any) => ({
       allocations: await ctx.db
         .query("activeBuildDrawRequestAllocations")
-        .withIndex("by_build", (q: any) =>
-          q.eq("buildId", closing.buildId),
-        )
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
         .collect(),
       requests: await ctx.db
         .query("activeBuildDrawRequests")
-        .withIndex("by_build", (q: any) =>
-          q.eq("buildId", closing.buildId),
-        )
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
         .collect(),
     }));
     expect(state.requests).toHaveLength(0);
@@ -11265,7 +11213,9 @@ describe("draft builder assignment and deletion", () => {
       { workosOrganizationId: ORG },
     );
     expect(
-      builders.find((builder: any) => builder.displayName === "Connor Beleznay"),
+      builders.find(
+        (builder: any) => builder.displayName === "Connor Beleznay",
+      ),
     ).toMatchObject({ email: "c.beleznay@humanfeedback.com" });
   });
 
@@ -11399,9 +11349,8 @@ describe("draft builder assignment and deletion", () => {
     const assignments = await admin.run((ctx: any) =>
       ctx.db
         .query("builderBrokerAssignments")
-        .withIndex(
-          "by_builderProfileId_and_status_and_effectiveAt",
-          (q: any) => q.eq("builderProfileId", seed.builderProfileId),
+        .withIndex("by_builderProfileId_and_status_and_effectiveAt", (q: any) =>
+          q.eq("builderProfileId", seed.builderProfileId),
         )
         .collect(),
     );
@@ -11420,15 +11369,12 @@ describe("draft builder assignment and deletion", () => {
 
     const broker = withIdentity(base, ["broker"], "user_broker");
     await expect(
-      broker.mutation(
-        (api as any).production_proposals.assignProposalBroker,
-        {
-          assignedBrokerWorkosUserId: "user_admin",
-          proposalId,
-          reason: "Attempt a broker reassignment without principal authority.",
-          workosOrganizationId: ORG,
-        },
-      ),
+      broker.mutation((api as any).production_proposals.assignProposalBroker, {
+        assignedBrokerWorkosUserId: "user_admin",
+        proposalId,
+        reason: "Attempt a broker reassignment without principal authority.",
+        workosOrganizationId: ORG,
+      }),
     ).rejects.toThrow(/Forbidden: role/);
   });
 
@@ -12229,5 +12175,343 @@ describe("integration operations", () => {
       lenderDrawPolicyLimitCents: 58_000_000,
       version: 2,
     });
+  });
+
+  test("preserves T−30 Home Equity Takeouts through atomic three-draw replacement and closing", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const proposalId = await t.mutation(
+      (api as any).production_proposals.createDraftProposal,
+      {
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        buildName: "T−30 takeout proposal",
+        location: "30 Equity Lane",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await t.mutation(
+      (api as any).production_proposals.saveDraftProposalPackage,
+      {
+        borrowerCoPayBps: 2_000,
+        borrowerStartingCashCents: 5_000_000,
+        documents: [
+          {
+            documentType: "permit",
+            fileName: "permit.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 512,
+          },
+        ],
+        lenderDrawPolicyLimitCents: 80_000_000,
+        milestones: [
+          {
+            budgetCents: 100_000_000,
+            dayEnd: 30,
+            dayStart: 0,
+            dependencyKeys: [],
+            durationDays: 30,
+            key: "foundation",
+            name: "Foundation",
+            order: 1,
+            submilestones: [],
+          },
+        ],
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.createProductionTimelineCapitalEvent,
+        {
+          amountCents: 12_500_000,
+          capitalEventKey: "missing-rate",
+          eventKind: "homeEquityTakeout",
+          label: "Missing rate",
+          proposalId,
+          workosOrganizationId: ORG,
+          x: -30,
+        },
+      ),
+    ).rejects.toThrow(/interest rate/i);
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.createProductionTimelineCapitalEvent,
+        {
+          amountCents: 12_500_000,
+          capitalEventKey: "too-early",
+          eventKind: "homeEquityTakeout",
+          interestAnnualBps: 875,
+          label: "Too early",
+          proposalId,
+          workosOrganizationId: ORG,
+          x: -31,
+        },
+      ),
+    ).rejects.toThrow(/between T−30/i);
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.createProductionTimelineCapitalEvent,
+        {
+          amountCents: 12_500_000,
+          capitalEventKey: "past-modeled-end",
+          eventKind: "homeEquityTakeout",
+          interestAnnualBps: 875,
+          label: "Past modeled end",
+          proposalId,
+          workosOrganizationId: ORG,
+          x: 61,
+        },
+      ),
+    ).rejects.toThrow(/T\+60/i);
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.createProductionTimelineCapitalEvent,
+        {
+          amountCents: 0,
+          capitalEventKey: "zero-principal",
+          eventKind: "homeEquityTakeout",
+          interestAnnualBps: 875,
+          label: "Zero principal",
+          proposalId,
+          workosOrganizationId: ORG,
+          x: -30,
+        },
+      ),
+    ).rejects.toThrow(/greater than zero/i);
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.updateProductionTimelineMilestone,
+        {
+          dayStart: -1,
+          milestoneKey: "foundation",
+          proposalId,
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/on or after T0/i);
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.createProductionTimelineDraw,
+        {
+          amountCents: 1_000_000,
+          drawKey: "pre-start-draw",
+          label: "Pre-start draw",
+          proposalId,
+          workosOrganizationId: ORG,
+          x: -1,
+        },
+      ),
+    ).rejects.toThrow(/on or after T0/i);
+
+    await t.mutation(
+      (api as any).production_proposals.createProductionTimelineCapitalEvent,
+      {
+        amountCents: 12_500_000,
+        capitalEventKey: "builder-residence-heloc",
+        eventKind: "homeEquityTakeout",
+        interestAnnualBps: 875,
+        label: "Builder residence HELOC",
+        proposalId,
+        workosOrganizationId: ORG,
+        x: -30,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.updateProductionTimelinePlanState,
+      {
+        currentDay: 0,
+        minimumCashReserveCents: 1_000_000,
+        progressValue: 0,
+        proposalId,
+        rangeMax: 120,
+        rangeMin: 0,
+        routeState: {
+          selectedPanelOpen: true,
+          straightLine: true,
+        },
+        startingCashCents: 5_000_000,
+        workosOrganizationId: ORG,
+      },
+    );
+    await builder.mutation(
+      (api as any).production_proposals.selectProposalPlan,
+      {
+        metrics: {
+          drawCount: 1,
+          drawFeesCents: 50_000,
+          interestCostCents: 100_000,
+          minimumCashReserveCents: 1_000_000,
+          projectedDurationDays: 120,
+          requiredWorkingCapitalCents: 5_000_000,
+          startingCashCents: 5_000_000,
+          totalCostCents: 150_000,
+          totalDrawAmountCents: 80_000_000,
+        },
+        planKey: "capitalConstrained",
+        proposalId,
+        recommendationReason:
+          "Exact three-draw plan includes the pre-start secondary facility.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await t.mutation(
+      (api as any).production_proposals.replaceProductionTimelineDrawSchedule,
+      {
+        draws: [
+          {
+            amountCents: 20_000_000,
+            customDate: true,
+            drawKey: "optimized-draw-1",
+            label: "Draw 01",
+            order: 1,
+            x: 34,
+          },
+          {
+            amountCents: 25_000_000,
+            customDate: true,
+            drawKey: "optimized-draw-2",
+            label: "Draw 02",
+            order: 2,
+            x: 64,
+          },
+          {
+            amountCents: 35_000_000,
+            customDate: true,
+            drawKey: "optimized-draw-3",
+            label: "Draw 03",
+            order: 3,
+            x: 94,
+          },
+        ],
+        metrics: {
+          drawCount: 3,
+          drawFeesCents: 150_000,
+          interestCostCents: 725_000,
+          totalCostCents: 875_000,
+          totalDrawAmountCents: 80_000_000,
+        },
+        proposalId,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const workspace = await t.query(
+      (api as any).production_proposals.getProductionTimelineWorkspace,
+      { proposalId, workosOrganizationId: ORG },
+    );
+    expect(workspace.plan.rangeMin).toBe(-30);
+    expect(workspace.capitalEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          amountCents: 12_500_000,
+          capitalEventKey: "builder-residence-heloc",
+          eventKind: "homeEquityTakeout",
+          interestAnnualBps: 875,
+          x: -30,
+        }),
+      ]),
+    );
+    expect(workspace.draws).toHaveLength(3);
+    expect(workspace.proposal.selectedPlan.metrics).toMatchObject({
+      drawCount: 3,
+      interestCostCents: 725_000,
+      totalCostCents: 875_000,
+    });
+
+    const replacementAudit = await t.run(async (ctx: any) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "buildProposal")
+            .eq("entityId", String(proposalId)),
+        )
+        .filter((q: any) =>
+          q.eq(q.field("command"), "replaceProductionTimelineDrawSchedule"),
+        )
+        .collect(),
+    );
+    expect(replacementAudit).toHaveLength(1);
+
+    await submitProposalForTest(t, proposalId);
+    await t.mutation((api as any).production_proposals.approveProposal, {
+      proposalId,
+      reason: "Approved with documented secondary takeout.",
+      workosOrganizationId: ORG,
+    });
+    const closing = await t.mutation(
+      (api as any).production_proposals.recordOfflineClosing,
+      {
+        buildStartDate: "2026-08-01",
+        loanFacility: {
+          interestAnnualBps: 925,
+          principalCents: 80_000_000,
+        },
+        proposalId,
+        reason: "Closed with approved secondary facility.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const closedState = await t.run(async (ctx: any) => ({
+      capitalEvents: await ctx.db
+        .query("capitalEvents")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .collect(),
+      facilities: await ctx.db
+        .query("loanFacilities")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .collect(),
+    }));
+    expect(closedState.facilities).toHaveLength(2);
+    expect(closedState.facilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          facilityKind: "construction",
+          principalCents: 80_000_000,
+        }),
+        expect.objectContaining({
+          facilityKind: "homeEquityTakeout",
+          interestAccrualStartDate: "2026-07-02",
+          interestAnnualBps: 875,
+          principalCents: 12_500_000,
+          sourceCapitalEventKey: "builder-residence-heloc",
+        }),
+      ]),
+    );
+    expect(closedState.capitalEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capitalEventKey: "builder-residence-heloc",
+          eventDate: "2026-07-02",
+          eventType: "home_equity_takeout",
+          loanFacilityId: expect.anything(),
+        }),
+      ]),
+    );
+
+    const activeWorkspace = await t.query(
+      (api as any).production_proposals.getActiveBuildTimelineWorkspace,
+      { buildId: closing.buildId, workosOrganizationId: ORG },
+    );
+    expect(activeWorkspace.plan.rangeMin).toBe(-30);
+    expect(activeWorkspace.loanFacilities[0]).toMatchObject({
+      facilityKind: "construction",
+      principalCents: 80_000_000,
+    });
+    expect(activeWorkspace.capitalEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capitalEventKey: "builder-residence-heloc",
+          eventKind: "homeEquityTakeout",
+          interestAnnualBps: 875,
+          x: -30,
+        }),
+      ]),
+    );
   });
 });

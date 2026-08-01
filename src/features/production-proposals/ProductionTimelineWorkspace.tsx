@@ -119,6 +119,9 @@ export function ProductionTimelineWorkspace({
   const deleteDraw = useMutation(
     api.production_proposals.deleteProductionTimelineDraw
   );
+  const replaceDrawSchedule = useMutation(
+    api.production_proposals.replaceProductionTimelineDrawSchedule
+  );
   const createCapitalEvent = useMutation(
     api.production_proposals.createProductionTimelineCapitalEvent
   );
@@ -335,6 +338,16 @@ export function ProductionTimelineWorkspace({
           : Promise.reject(
               new Error("Collaboration participant is view-only.")
             ),
+      replaceDrawSchedule: (input) =>
+        collaborationCanEdit && canCreateDraw && canDeleteDraw
+          ? replaceDrawSchedule({
+              ...input,
+              proposalId,
+              workosOrganizationId,
+            })
+          : Promise.reject(
+              new Error("Collaboration participant is view-only.")
+            ),
       submitPlan: () =>
         collaborationCanEdit
           ? submitProposal({
@@ -428,6 +441,7 @@ export function ProductionTimelineWorkspace({
       updateEvidenceAsset,
       updateMilestone,
       updatePlanState,
+      replaceDrawSchedule,
       workosOrganizationId,
     ]
   );

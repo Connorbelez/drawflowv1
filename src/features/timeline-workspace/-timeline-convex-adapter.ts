@@ -22,7 +22,8 @@ export interface ConvexTimelineWorkspace {
   capitalEvents: {
     amountCents: number;
     capitalEventKey: string;
-    eventKind?: "cashInfusion" | "cost";
+    eventKind?: "cashInfusion" | "cost" | "homeEquityTakeout";
+    interestAnnualBps?: number;
     label: string;
     x: number;
   }[];
@@ -198,8 +199,14 @@ export function convexWorkspaceToTimelineState(
         (event): DemoCapitalSpike => ({
           amount: centsToDollars(event.amountCents),
           eventKind:
-            event.eventKind === "cashInfusion" ? "cashInfusion" : "cost",
+            event.eventKind === "cashInfusion" ||
+            event.eventKind === "homeEquityTakeout"
+              ? event.eventKind
+              : "cost",
           id: event.capitalEventKey,
+          ...(event.interestAnnualBps === undefined
+            ? {}
+            : { interestAnnualBps: event.interestAnnualBps }),
           label: event.label,
           x: event.x,
         })

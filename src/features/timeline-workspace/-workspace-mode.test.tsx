@@ -13,6 +13,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { TimelineItem } from "#/components/roadmap/AnimatedCurvedTimeline.tsx";
 import {
   buildCashUseSummary,
+  formatTimelineDay,
   toDemoTimelinePlanStateMutationInput,
   TimelineWorkspace,
   type TimelineWorkspaceProps,
@@ -211,6 +212,12 @@ test("cash use summary uses actual milestone spend when completion cost is filed
     lenderCashUsed: 96_000,
     totalPlannedSpend: 90_000,
   });
+});
+
+test("formats proposal days relative to T0", () => {
+  expect(formatTimelineDay(-30)).toBe("T−30");
+  expect(formatTimelineDay(0)).toBe("T0");
+  expect(formatTimelineDay(12)).toBe("T+12");
 });
 
 test("clusters cash risk and hover-probe metrics before static plan totals", () => {
@@ -491,6 +498,119 @@ describe("TimelineWorkspace mode split", () => {
       }),
     );
     expect(createDraw.mock.calls[0]?.[0].x).toBeLessThan(25);
+  });
+
+  test("persists an exact three-draw replacement atomically", async () => {
+    const replaceDrawSchedule = vi.fn().mockResolvedValue(undefined);
+    const baseline = timelineState({ milestoneAmount: 0 });
+    const initialState: TimelineShareState = {
+      ...baseline,
+      capitalSpikes: [
+        { amount: 50, id: "cost-one", label: "Cost one", x: 10 },
+        { amount: 50, id: "cost-two", label: "Cost two", x: 20 },
+        { amount: 50, id: "cost-three", label: "Cost three", x: 30 },
+      ],
+      draws: [],
+      items: baseline.items.map((item) => ({
+        ...item,
+        data: {
+          ...item.data,
+          amount: 0,
+          drawAvailabilityAmount: 300,
+          durationDays: 1,
+        } satisfies DemoMilestone,
+      })),
+      range: { max: 40, min: -30, unit: "days" },
+      startingCash: 0,
+    };
+
+    renderWorkspace({
+      initialState,
+      persistence: { replaceDrawSchedule },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-optimize-three-draw"));
+
+    await waitFor(() => expect(replaceDrawSchedule).toHaveBeenCalledTimes(1));
+    const replacement = replaceDrawSchedule.mock.calls[0]?.[0];
+    expect(replacement.draws).toHaveLength(3);
+    expect(replacement.draws.every((entry: any) => entry.amountCents > 0)).toBe(
+      true,
+    );
+    expect(new Set(replacement.draws.map((entry: any) => entry.x)).size).toBe(3);
+    expect(replacement.metrics).toMatchObject({
+      drawCount: 3,
+      totalDrawAmountCents: 15_000,
+    });
+  });
+
+  test("leaves the current schedule untouched when exact three draws are infeasible", () => {
+    const replaceDrawSchedule = vi.fn().mockResolvedValue(undefined);
+    const baseline = timelineState({ milestoneAmount: 0 });
+    const initialState: TimelineShareState = {
+      ...baseline,
+      capitalSpikes: [
+        { amount: 50, id: "single-cost", label: "Single cost", x: 10 },
+      ],
+      items: baseline.items.map((item) => ({
+        ...item,
+        data: {
+          ...item.data,
+          amount: 0,
+          drawAvailabilityAmount: 300,
+          durationDays: 1,
+        } satisfies DemoMilestone,
+      })),
+      range: { max: 40, min: -30, unit: "days" },
+      startingCash: 0,
+    };
+
+    renderWorkspace({
+      initialState,
+      persistence: { replaceDrawSchedule },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(screen.getByTestId("timeline-optimize-three-draw"));
+
+    expect(replaceDrawSchedule).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      expect.stringContaining("exactly 3"),
+    );
+  });
+
+  test("creates a Home Equity Takeout from the proposal insertion menu with explicit terms", async () => {
+    const createCapitalEvent = vi.fn().mockResolvedValue(undefined);
+
+    renderWorkspace({
+      persistence: { createCapitalEvent },
+      status: "draft",
+      workspaceMode: "proposal",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add Home Equity Takeout" }),
+    );
+    fireEvent.change(screen.getByLabelText("Takeout amount"), {
+      target: { value: "125000" },
+    });
+    fireEvent.change(screen.getByLabelText("Annual interest rate"), {
+      target: { value: "8.75" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => expect(createCapitalEvent).toHaveBeenCalledTimes(1));
+    expect(createCapitalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountCents: 12_500_000,
+        eventKind: "homeEquityTakeout",
+        interestAnnualBps: 875,
+        x: 10,
+      }),
+    );
   });
 
   test("optimizes when same-day borrower cash funds milestone deposits", () => {
