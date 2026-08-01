@@ -791,6 +791,94 @@ describe("Build collaboration scheduled publication", () => {
     expect(state.draft).toMatchObject({ state: "active" });
   });
 
+  test("pauses when a newer replacement asset publishes after approval", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const originalAssetId = await stageCleanSchedulingAsset(fixture, {
+      content: "original governed footing evidence",
+      fileName: "footing-v1.jpg",
+      hashCharacter: "1",
+    });
+    await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        ...publicationBundle("Published original governed evidence."),
+        attachmentAssetIds: [originalAssetId],
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const approvedReplacementId = await stageCleanSchedulingAsset(fixture, {
+      content: "approved replacement evidence",
+      fileName: "footing-v2.jpg",
+      hashCharacter: "2",
+      supersedesAssetId: originalAssetId,
+    });
+    const scheduledFor = BASE_TIME + 60_000;
+    const draft = await fixture.admin.mutation(
+      (api as any).build_collaboration_drafts.saveMyBuildCollaborationDraft,
+      {
+        ...publicationBundle("Scheduled approved replacement evidence."),
+        attachmentAssetIds: [approvedReplacementId],
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const approvalId = (await fixture.admin.mutation(
+      (api as any).build_collaboration_scheduling
+        .approveAndScheduleBuildCollaborationDraft,
+      {
+        buildId: fixture.buildId,
+        draftId: draft.draftId,
+        expectedRevision: draft.revision,
+        organizationId: ORGANIZATION_ID,
+        scheduledFor,
+      }
+    )) as Id<"buildCollaborationPublicationApprovals">;
+
+    await fixture.base.run(async (ctx) => {
+      const original = await ctx.db.get(originalAssetId);
+      if (!original) {
+        throw new Error("Original scheduling asset fixture is unavailable.");
+      }
+      const { _creationTime: _ignoredCreationTime, _id: _ignoredId, ...fields } =
+        original;
+      await ctx.db.insert("buildCollaborationAssets", {
+        ...fields,
+        contentHashSha256: "3".repeat(64),
+        fileName: "footing-v3.jpg",
+        lineageRootAssetId: originalAssetId,
+        publishedAt: BASE_TIME + 30_000,
+        supersedesAssetId: approvedReplacementId,
+        updatedAt: BASE_TIME + 30_000,
+        version: 3,
+      });
+    });
+
+    vi.setSystemTime(scheduledFor + 1);
+    await fixture.base.action(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledBuildCollaborationPublication,
+      { approvalId }
+    );
+
+    const state = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      draft: await ctx.db.get(draft.draftId),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(state.posts).toHaveLength(1);
+    expect(state.approval).toMatchObject({
+      conflictReason: expect.stringMatching(
+        /current published asset version changed|newer asset version/i
+      ),
+      state: "paused",
+    });
+    expect(state.draft).toMatchObject({ state: "active" });
+  });
+
   test("pauses when an approved shared mutation has a stale expected revision", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
@@ -1113,6 +1201,58 @@ function publicationBundle(
       type: "doc",
     }),
   };
+}
+
+async function stageCleanSchedulingAsset(
+  fixture: Awaited<ReturnType<typeof seedSchedulingBuild>>,
+  input: {
+    content: string;
+    fileName: string;
+    hashCharacter: string;
+    supersedesAssetId?: Id<"buildCollaborationAssets">;
+  }
+) {
+  const blob = new Blob([input.content], { type: "image/jpeg" });
+  const staged = await fixture.admin.mutation(
+    (api as any).build_collaboration_assets.beginBuildCollaborationAssetUpload,
+    {
+      buildId: fixture.buildId,
+      contextKind: "composer",
+      fileName: input.fileName,
+      mimeType: "image/jpeg",
+      organizationId: ORGANIZATION_ID,
+      sizeBytes: blob.size,
+    }
+  );
+  const storageId = await fixture.base.run(
+    async (ctx) => await ctx.storage.store(blob)
+  );
+  const contentHashSha256 = input.hashCharacter.repeat(64);
+  const assetId = (await fixture.admin.mutation(
+    (api as any).build_collaboration_assets
+      .finalizeBuildCollaborationAssetUpload,
+    {
+      buildId: fixture.buildId,
+      contentHashSha256,
+      fileName: input.fileName,
+      mimeType: "image/jpeg",
+      organizationId: ORGANIZATION_ID,
+      stagingSessionId: staged.stagingSessionId,
+      storageId,
+      supersedesAssetId: input.supersedesAssetId,
+    }
+  )) as Id<"buildCollaborationAssets">;
+  await fixture.base.mutation(
+    (internal as any).build_collaboration_asset_maintenance
+      .recordBuildCollaborationAssetScanResult,
+    {
+      assetId,
+      computedHashSha256: contentHashSha256,
+      outcome: "clean",
+      provider: "test-scanner",
+    }
+  );
+  return assetId;
 }
 
 async function seedSchedulingBuild() {

@@ -3,6 +3,7 @@ import {
   canUseCollaborationAssetForPost,
   isCleanCollaborationAsset,
 } from "./build_collaboration_asset_access";
+import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import type { Doc, Id, MutationCtx } from "./types";
 
 type AssetOwnerKind = "postRevision" | "commentRevision" | "actionItem";
@@ -30,7 +31,7 @@ export async function persistGovernedCollaborationAssetAttachments(
 ) {
   const assetIds = [...new Set(input.assetIds)];
   if (assetIds.length > input.maxAttachments) {
-    throw new Error(
+    throw buildCollaborationValidationError(
       `This publication may contain at most ${input.maxAttachments} attachments.`
     );
   }
@@ -51,7 +52,7 @@ export async function persistGovernedCollaborationAssetAttachments(
         post: input.post,
       }))
     ) {
-      throw new Error(input.unavailableMessage);
+      throw buildCollaborationValidationError(input.unavailableMessage);
     }
     assets.push(asset);
   }
@@ -98,14 +99,18 @@ async function activateAssetPublication(
     session.brokerageId !== input.authorization.brokerage._id ||
     session.buildId !== input.authorization.build._id
   ) {
-    throw new Error("The collaboration asset staging session is unavailable.");
+    throw buildCollaborationValidationError(
+      "The collaboration asset staging session is unavailable."
+    );
   }
 
   let supersededAssetId: Id<"buildCollaborationAssets"> | undefined;
   if (asset.supersedesAssetId) {
     const lineageRootAssetId = asset.lineageRootAssetId;
     if (!lineageRootAssetId) {
-      throw new Error("The replacement asset lineage is invalid.");
+      throw buildCollaborationValidationError(
+        "The replacement asset lineage is invalid."
+      );
     }
     const indexedLineage = await ctx.db
       .query("buildCollaborationAssets")
@@ -123,7 +128,9 @@ async function activateAssetPublication(
         : []),
     ].sort((left, right) => right.version - left.version);
     if (lineage.length > 100) {
-      throw new Error("This asset has reached its 100-version limit.");
+      throw buildCollaborationValidationError(
+        "This asset has reached its 100-version limit."
+      );
     }
     const currentPublished = lineage.find(
       (candidate) =>
@@ -138,7 +145,7 @@ async function activateAssetPublication(
       currentPublished.buildId !== input.authorization.build._id ||
       currentPublished.version >= asset.version
     ) {
-      throw new Error(
+      throw buildCollaborationValidationError(
         "The current published asset version changed; refresh before publishing this replacement."
       );
     }
@@ -149,7 +156,7 @@ async function activateAssetPublication(
         candidate.version >= asset.version
     );
     if (conflictingPublishedSuccessor) {
-      throw new Error(
+      throw buildCollaborationValidationError(
         "A newer asset version has already been published; refresh and try again."
       );
     }
