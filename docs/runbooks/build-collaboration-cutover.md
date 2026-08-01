@@ -329,6 +329,8 @@ one enabled Build:
    move to `paused`; its draft must return to active with a disclosure-safe
    conflict reason and require a fresh exact human approval. Lifecycle and
    deterministic validation failures must never enter the recovery loop.
+   Corrupt a fixture approval by removing its target time and confirm that it
+   follows this same material-conflict path instead of retrying indefinitely.
 4. Force the direct scheduler invocation to fail, then run the five-minute
    recovery sweep. Confirm a due approval is retried without duplicate effects
    and that `executionAttemptCount` and `lastExecutionAt` remain observable.

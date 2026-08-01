@@ -326,7 +326,15 @@ export const publishScheduledBuildCollaborationDraft = internalMutation
       return null;
     }
     const now = Date.now();
-    if (!approval.scheduledFor || approval.scheduledFor > now) {
+    if (
+      !(approval.scheduledFor && Number.isFinite(approval.scheduledFor)) ||
+      approval.scheduledFor <= 0
+    ) {
+      throw scheduledPublicationMaterialConflict(
+        new Error("The approved publication target is missing or invalid.")
+      );
+    }
+    if (approval.scheduledFor > now) {
       throw scheduledPublicationOperationalFailure(
         "The approved publication is not due yet."
       );

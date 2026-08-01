@@ -172,6 +172,39 @@ describe("Build collaboration scheduled publication", () => {
     expect(recovered.approval).not.toHaveProperty("lastExecutionError");
   });
 
+  test("pauses an approved record with a missing publication target", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const scheduledFor = BASE_TIME + 60_000;
+    const { approvalId, draftId } = await saveAndSchedule(fixture, {
+      plainText: "Corrupt scheduled target requires renewed approval.",
+      scheduledFor,
+    });
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(approvalId, { scheduledFor: undefined });
+    });
+    vi.setSystemTime(scheduledFor + 1);
+
+    await fixture.base.action(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledBuildCollaborationPublication,
+      { approvalId }
+    );
+
+    const state = await fixture.base.run(async (ctx) => ({
+      approval: await ctx.db.get(approvalId),
+      draft: await ctx.db.get(draftId),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(state.posts).toEqual([]);
+    expect(state.approval).toMatchObject({ state: "paused" });
+    expect(state.draft).toMatchObject({ state: "active" });
+    expect(state.approval?.conflictReason).toContain(
+      "publication target is missing or invalid"
+    );
+  });
+
   test("recovers an untyped transient publication failure without pausing approval", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
