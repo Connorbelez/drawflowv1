@@ -17,6 +17,7 @@ import {
   syncLinkedActionItemPostCounts,
 } from "./build_action_item_post_links";
 import { stableContentHash } from "./build_collaboration_hash";
+import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import {
@@ -136,6 +137,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     return null;
   }
   const { authorization, build, participants } = scope;
+  await requireBuildCollaborationWritable(ctx, authorization);
   const submittedReferences = normalizeSystemReferences(input);
   const primaryReferenceKind = submittedReferences.find(
     (reference) => reference.primary
@@ -467,7 +469,7 @@ async function systemEventReaders(
     participants: ActiveBuildParticipantProjection[];
     primaryReferenceId?: string;
     primaryReferenceKind?: BuildCollaborationSystemEventInput["primaryReferenceKind"];
-  },
+  }
 ) {
   if (input.primaryReferenceKind === "draw") {
     const readerDecisions = await Promise.all(
@@ -478,7 +480,7 @@ async function systemEventReaders(
           workosUserId: participant.workosUserId,
         }),
         participant,
-      })),
+      }))
     );
     return readerDecisions
       .filter((decision) => decision.allowed)

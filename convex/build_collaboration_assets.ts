@@ -407,7 +407,8 @@ export const authorizeBuildCollaborationAssetDownload = authenticatedMutation
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildCollaborationPreparerAccess(
       ctx,
-      args
+      args,
+      { allowClosed: true }
     );
     const asset = await ctx.db.get(args.assetId);
     if (

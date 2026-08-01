@@ -8,6 +8,7 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
+import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
 import {
   type CanonicalBuildCollaborationReference,
   resolveCurrentBuildCollaborationReference,
@@ -738,6 +739,7 @@ async function requireManageablePost(
   authorization: ActiveBuildAuthorization,
   postId: Id<"buildCollaborationPosts">
 ) {
+  await requireBuildCollaborationWritable(ctx, authorization);
   const post = await requireReadablePost(ctx, authorization, postId);
   if (post.contentState !== "active" || !canManageThread(authorization, post)) {
     throw new Error("Forbidden: collaboration thread management");

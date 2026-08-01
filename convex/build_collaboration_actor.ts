@@ -1,4 +1,5 @@
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
+import { requireBuildCollaborationWritable } from "./build_collaboration_lifecycle_state";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import type { Id } from "./types";
 
@@ -14,6 +15,7 @@ export async function authorizeActiveBuildHumanCollaborationAccess(
     input
   );
   await requireHumanCollaborationActor(ctx, authorization);
+  await requireBuildCollaborationWritable(ctx, authorization);
   return authorization;
 }
 
@@ -22,7 +24,8 @@ export async function authorizeActiveBuildCollaborationPreparerAccess(
   input: {
     buildId: Id<"activeBuilds">;
     organizationId: string;
-  }
+  },
+  options: { allowClosed?: boolean } = {}
 ) {
   const authorization = await authorizeActiveBuildCollaborationAccess(
     ctx,
@@ -35,6 +38,9 @@ export async function authorizeActiveBuildCollaborationPreparerAccess(
     throw new Error(
       "Collaboration preparation requires a trusted human or agent actor."
     );
+  }
+  if (!options.allowClosed) {
+    await requireBuildCollaborationWritable(ctx, authorization);
   }
   return authorization;
 }

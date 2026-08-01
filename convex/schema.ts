@@ -2659,6 +2659,7 @@ export default defineSchema({
     title: v.string(),
     updatedAt: v.number(),
   })
+    .index("by_collaborationBuildId", ["collaborationBuildId"])
     .index("by_recipient", [
       "organizationId",
       "recipientWorkosUserId",
@@ -2687,6 +2688,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_buildId", ["buildId"])
     .index("by_providerIdempotencyKey", ["providerIdempotencyKey"])
     .index("by_organizationId_and_recipientWorkosUserId_and_createdAt", [
       "organizationId",
@@ -3220,6 +3222,38 @@ export default defineSchema({
     "organizationId",
     "verifiedAt",
   ]),
+  buildCollaborationRetentionPolicies: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    policyKey: v.string(),
+    version: v.number(),
+    retentionDays: v.number(),
+    state: v.union(v.literal("active"), v.literal("superseded")),
+    createdByWorkosUserId: v.string(),
+    createdByRole: buildCollaborationRoleValidator,
+    reason: v.string(),
+    createdAt: v.number(),
+    supersededAt: v.optional(v.number()),
+  })
+    .index("by_organizationId_and_state", ["organizationId", "state"])
+    .index("by_organizationId_and_version", ["organizationId", "version"]),
+  buildCollaborationLegalHolds: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    state: v.union(v.literal("active"), v.literal("released")),
+    reason: v.string(),
+    reference: v.optional(v.string()),
+    placedByWorkosUserId: v.string(),
+    placedByRole: buildCollaborationRoleValidator,
+    placedAt: v.number(),
+    releasedByWorkosUserId: v.optional(v.string()),
+    releasedByRole: v.optional(buildCollaborationRoleValidator),
+    releaseReason: v.optional(v.string()),
+    releasedAt: v.optional(v.number()),
+  })
+    .index("by_buildId_and_state", ["buildId", "state"])
+    .index("by_organizationId_and_state", ["organizationId", "state"]),
   buildCollaborationBuildStates: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -3243,6 +3277,89 @@ export default defineSchema({
   })
     .index("by_buildId", ["buildId"])
     .index("by_organizationId_and_state", ["organizationId", "state"]),
+  buildCollaborationBuildLifecycleEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    eventType: v.union(
+      v.literal("closed"),
+      v.literal("reopened"),
+      v.literal("purged")
+    ),
+    revision: v.number(),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    priorState: v.string(),
+    newState: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  }).index("by_buildId_and_createdAt", ["buildId", "createdAt"]),
+  buildCollaborationClosureWaivers: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    lifecycleRevision: v.number(),
+    reason: v.string(),
+    waivedByWorkosUserId: v.string(),
+    waivedByRole: buildCollaborationRoleValidator,
+    createdAt: v.number(),
+  })
+    .index("by_buildId_and_lifecycleRevision", ["buildId", "lifecycleRevision"])
+    .index("by_actionItemId", ["actionItemId"]),
+  buildCollaborationExports: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    requestedByWorkosUserId: v.string(),
+    requestedByRole: buildCollaborationRoleValidator,
+    scope: v.union(
+      v.literal("full_archive"),
+      v.literal("authorized_build"),
+      v.literal("thread"),
+      v.literal("asset")
+    ),
+    postId: v.optional(v.id("buildCollaborationPosts")),
+    assetId: v.optional(v.id("buildCollaborationAssets")),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+    state: v.union(
+      v.literal("active"),
+      v.literal("expired"),
+      v.literal("revoked")
+    ),
+    aclSnapshotJson: v.string(),
+    manifestJson: v.string(),
+    recordCount: v.number(),
+    createdAt: v.number(),
+    lastAccessedAt: v.optional(v.number()),
+    accessCount: v.number(),
+  })
+    .index("by_tokenHash", ["tokenHash"])
+    .index("by_buildId_and_createdAt", ["buildId", "createdAt"])
+    .index("by_requestedByWorkosUserId_and_createdAt", [
+      "requestedByWorkosUserId",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_requestedByWorkosUserId_and_createdAt", [
+      "organizationId",
+      "requestedByWorkosUserId",
+      "createdAt",
+    ]),
+  buildCollaborationRetentionPurges: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    retentionPolicyId: v.id("buildCollaborationRetentionPolicies"),
+    requestedByWorkosUserId: v.string(),
+    requestedByRole: buildCollaborationRoleValidator,
+    reason: v.string(),
+    state: v.union(v.literal("completed"), v.literal("blocked")),
+    deletedPostCount: v.number(),
+    deletedAssetCount: v.number(),
+    retainedAuditEventCount: v.number(),
+    completedAt: v.number(),
+  }).index("by_buildId_and_completedAt", ["buildId", "completedAt"]),
   buildCollaborationPosts: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -4084,6 +4201,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_buildId", ["buildId"])
     .index("by_buildId_and_state_and_createdAt", [
       "buildId",
       "state",
@@ -4113,6 +4231,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_buildId", ["buildId"])
     .index("by_buildId_and_ownerWorkosUserId_and_state", [
       "buildId",
       "ownerWorkosUserId",
@@ -4163,6 +4282,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_buildId", ["buildId"])
     .index("by_buildId_and_ownerWorkosUserId_and_state", [
       "buildId",
       "ownerWorkosUserId",
@@ -4200,6 +4320,7 @@ export default defineSchema({
     postId: v.optional(v.id("buildCollaborationPosts")),
     publishedAt: v.optional(v.number()),
   })
+    .index("by_buildId", ["buildId"])
     .index("by_draftId_and_state", ["draftId", "state"])
     .index("by_buildId_and_scheduledFor_and_state", [
       "buildId",
@@ -4263,6 +4384,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_buildId", ["buildId"])
     .index("by_status_and_scheduledFor", ["status", "scheduledFor"])
     .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
     .index("by_providerOutboxId", ["providerOutboxId"])

@@ -4,14 +4,21 @@
 
 **Blocked by:** 08 — Add hierarchical moderation and appeal; 14 — Deliver personal/entity queues, reminders, and escalation; 17 — Govern collaboration assets and attachments; 20 — Implement authorized Build-local search and deep-link hydration.
 
-**Status:** ready-for-agent
+**Status:** complete
 
 **Source contracts:** Build Collaboration Product Contract §14; Build Collaboration Production Implementation Plan — Task 14; Build Collaboration Cutover Runbook — Rollback and Verification; Build Collaboration Implementation Gap Analysis — Operational integration and lifecycle gaps.
 
-- [ ] Admin/Principal Broker, Broker/Builder/Broker Staff, Builder Staff/Homeowner, and Contractor exports match the approved scope for each role.
-- [ ] Exports omit restricted placeholders, capture the effective ACL snapshot, use expiring links, and record an audit event.
-- [ ] Tenant retention policy governs eligible purge while legal hold prevents destructive retention actions.
-- [ ] Build completion does not lock collaboration until Admin or Principal Broker explicitly closes it.
-- [ ] Closure is blocked until open Action Items are completed, cancelled, or waived with appropriate authority.
-- [ ] Closed Builds are read-only but remain searchable/exportable to authorized users; reopening requires authority, reason, and audit.
-- [ ] Tests cover every role's export, restricted content, expired links, legal hold, closure blockers, reopen authority, and retained history.
+- [x] Admin/Principal Broker, Broker/Builder/Broker Staff, Builder Staff/Homeowner, and Contractor exports match the approved scope for each role.
+- [x] Exports omit restricted placeholders, capture the effective ACL snapshot, use expiring links, and record an audit event.
+- [x] Tenant retention policy governs eligible purge while legal hold prevents destructive retention actions.
+- [x] Build completion does not lock collaboration until Admin or Principal Broker explicitly closes it.
+- [x] Closure is blocked until open Action Items are completed, cancelled, or waived with appropriate authority.
+- [x] Closed Builds are read-only but remain searchable/exportable to authorized users; reopening requires authority, reason, and audit.
+- [x] Tests cover every role's export, restricted content, expired links, legal hold, closure blockers, reopen authority, and retained history.
+
+## Implementation record
+
+- Added isolated fluent-convex domains for lifecycle, role-scoped exports, versioned tenant retention policies, Build legal holds, and bounded destructive purge. Export manifests contain only request-time authorized records, retain an effective ACL snapshot, and require the requesting human's expiring token plus current Build authorization on every download.
+- Added explicit optimistic-concurrency close/reopen state. Only Admin or Principal Broker can transition it; open Action Items must be terminal or individually waived with a reason. Shared human, agent-prepared, scheduled, Action Item, moderation, asset-upload, and system-event mutation paths now fail closed after closure while search, authorized export, and asset download remain available.
+- Retention purge requires an explicitly closed revision, the active versioned tenant policy to have elapsed, and no active legal hold. It deletes bounded post trees and stored assets, revokes content-bearing export manifests, and preserves lifecycle, legal-hold, purge, and audit history.
+- Added role-matrix, restricted-content, expiry, closure, waiver, archive-read, reopen, legal-hold, purge, and retained-history Convex coverage in `convex/build_collaboration_lifecycle.test.ts`; scheduled-publication coverage also proves a post approved before closure is paused rather than published.
