@@ -21,9 +21,9 @@ import {
 import { reopenQuestionForUnavailableAcceptedAnswer } from "./build_collaboration_resolution";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import {
-  rebuildBuildCollaborationSearchRecordsForOwner,
-  rebuildBuildCollaborationSearchRecordsForPost,
-} from "./build_collaboration_search_index";
+  queueBuildCollaborationSearchOwnerRebuild,
+  queueBuildCollaborationSearchPostRemoval,
+} from "./build_collaboration_search_maintenance";
 import {
   buildCollaborationReferenceKindValidator,
   buildCollaborationRoleValidator,
@@ -133,7 +133,7 @@ export const editBuildCollaborationPost = authenticatedMutation
       reason: normalizeReason(args.editReason),
       timestamp: now,
     });
-    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
       authorization,
       owner: { id: post._id, kind: "post" },
       postId: post._id,
@@ -231,7 +231,7 @@ export const editBuildCollaborationComment = authenticatedMutation
       reason: normalizeReason(args.editReason),
       timestamp: now,
     });
-    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
       authorization,
       owner: { id: comment._id, kind: "comment" },
       postId: post._id,
@@ -348,7 +348,7 @@ export const tombstoneBuildCollaborationPost = authenticatedMutation
       priorRevision: post.revision,
       timestamp: now,
     });
-    await rebuildBuildCollaborationSearchRecordsForPost(ctx, {
+    await queueBuildCollaborationSearchPostRemoval(ctx, {
       authorization,
       postId: post._id,
     });
@@ -404,7 +404,7 @@ export const tombstoneBuildCollaborationComment = authenticatedMutation
       priorRevision: comment.revision,
       timestamp: now,
     });
-    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
       authorization,
       owner: { id: comment._id, kind: "comment" },
       postId: post._id,

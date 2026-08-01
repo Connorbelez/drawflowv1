@@ -7,6 +7,7 @@ import {
 } from "./activeBuildAccess";
 import { reconcilePermissionConflictedActionItemRelations } from "./build_action_item_structure";
 import { collaborationRoleTier } from "./build_collaboration_model";
+import { queueBuildCollaborationSearchBuildRebuild } from "./build_collaboration_search_maintenance";
 import { internalMutation } from "./fluent";
 import type { Doc, Id, MutationCtx } from "./types";
 
@@ -96,6 +97,7 @@ async function processBuildParticipantActivationBatch(
     priorStatus: input.cursor === null ? "invited" : "pending_activation",
     status: "active",
   });
+  await queueBuildCollaborationSearchBuildRebuild(ctx, { authorization });
   return { complete: true };
 }
 

@@ -1,9 +1,14 @@
 import { paginationOptsValidator } from "convex/server";
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
-import { authenticatedAction, requireAuthenticated } from "./authz";
+import {
+  type AuthorizedViewer,
+  authenticatedAction,
+  authenticatedQuery,
+  requireAuthenticated,
+} from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
 import { projectCollaborationAssetAttachments } from "./build_collaboration_asset_projection";
@@ -16,13 +21,14 @@ import {
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { buildCollaborationSearchReaderFingerprint } from "./build_collaboration_search_readers";
 import { projectThreadComments } from "./build_collaboration_threads";
 import {
   buildCollaborationAudienceModeValidator,
   buildCollaborationReferenceKindValidator,
 } from "./build_collaboration_validators";
 import { internalQuery } from "./fluent";
-import type { Doc, Id, QueryCtx } from "./types";
+import type { ActionCtx, Doc, Id, QueryCtx } from "./types";
 
 const MAX_REFERENCES_PER_OWNER = 100;
 const MAX_SEARCH_ACTION_ITEMS_PER_POST = 2000;
@@ -145,14 +151,48 @@ const authorizedSearchIndexPageValidator = v.object({
   continueCursor: v.string(),
   isDone: v.boolean(),
   page: v.array(searchCandidateValidator),
+  stale: v.boolean(),
+});
+
+const searchReadinessValidator = v.object({
+  generation: v.number(),
+  ready: v.boolean(),
 });
 
 const authenticatedInternalQuery = internalQuery.use(requireAuthenticated);
+
+interface SearchActionResponse {
+  continueCursor: string | null;
+  generation: number;
+  indexing: boolean;
+  isDone: boolean;
+  page: Infer<typeof searchResultValidator>[];
+}
+
+export const getBuildCollaborationSearchReadiness = authenticatedQuery
+  .input({
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+  })
+  .returns(searchReadinessValidator)
+  .handler(async (ctx, args) => await loadSearchReadiness(ctx, args))
+  .public();
+
+export const getAuthorizedBuildCollaborationSearchReadiness =
+  authenticatedInternalQuery
+    .input({
+      buildId: v.id("activeBuilds"),
+      organizationId: v.string(),
+    })
+    .returns(searchReadinessValidator)
+    .handler(async (ctx, args) => await loadSearchReadiness(ctx, args))
+    .internal();
 
 export const searchAuthorizedBuildCollaborationIndexPage =
   authenticatedInternalQuery
     .input({
       buildId: v.id("activeBuilds"),
+      generation: v.number(),
       indexQuery: v.optional(v.string()),
       organizationId: v.string(),
       paginationOpts: paginationOptsValidator,
@@ -164,6 +204,18 @@ export const searchAuthorizedBuildCollaborationIndexPage =
         ctx,
         args
       );
+      const readiness = await loadSearchReadinessForAuthorization(
+        ctx,
+        authorization
+      );
+      if (!(readiness.ready && readiness.generation === args.generation)) {
+        return {
+          continueCursor: "",
+          isDone: true,
+          page: [],
+          stale: true,
+        };
+      }
       const readerPartitionKey = searchPartitionKey(
         args.partitionKind,
         authorization
@@ -204,6 +256,7 @@ export const searchAuthorizedBuildCollaborationIndexPage =
         continueCursor: sourcePage.continueCursor,
         isDone: sourcePage.isDone,
         page,
+        stale: false,
       };
     })
     .internal();
@@ -223,21 +276,50 @@ export const searchBuildCollaboration = authenticatedAction
   .returns(
     v.object({
       continueCursor: v.union(v.string(), v.null()),
+      generation: v.number(),
+      indexing: v.boolean(),
       isDone: v.boolean(),
       page: v.array(searchResultValidator),
     })
   )
-  .handler(async (ctx, args) => {
+  .handler(async (ctx, args): Promise<SearchActionResponse> => {
+    const readiness: Infer<typeof searchReadinessValidator> =
+      await ctx.runQuery(
+        internal.build_collaboration_search
+          .getAuthorizedBuildCollaborationSearchReadiness,
+        { buildId: args.buildId, organizationId: args.organizationId }
+      );
+    if (!readiness.ready) {
+      await ctx.runMutation(
+        internal.build_collaboration_search_maintenance
+          .ensureBuildCollaborationSearchMaintenance,
+        { buildId: args.buildId, organizationId: args.organizationId }
+      );
+      return {
+        continueCursor: null,
+        generation: readiness.generation,
+        indexing: true,
+        isDone: true,
+        page: [],
+      };
+    }
     const query = (args.query ?? "").trim().slice(0, MAX_QUERY_LENGTH);
     const filters = normalizeFilters(args.filters);
     if (!(query || hasActiveSearchFilter(filters))) {
-      return { continueCursor: null, isDone: true, page: [] };
+      return {
+        continueCursor: null,
+        generation: readiness.generation,
+        indexing: false,
+        isDone: true,
+        page: [],
+      };
     }
     const searchMode = args.searchMode ?? "hybrid";
     const fingerprint = stableContentHash(
       JSON.stringify({
         buildId: args.buildId,
         filters,
+        generation: readiness.generation,
         organizationId: args.organizationId,
         query: normalizeText(query),
         roles: [...ctx.viewer.roles].sort(),
@@ -253,50 +335,32 @@ export const searchBuildCollaboration = authenticatedAction
     const indexQuery = query
       ? buildSearchIndexQuery(query, searchMode)
       : undefined;
-    const candidates: SearchCandidate[] = [];
     const seenHashes = new Set(cursor.seenHashes);
-    let nextPartition = cursor.nextPartition;
-    for (
-      let attempt = 0;
-      attempt < 2 && candidates.length === 0;
-      attempt += 1
-    ) {
-      const partitionKind = nextPartition;
-      if (!cursor.sourceDone[partitionKind]) {
-        let sourcePagesRead = 0;
-        while (
-          !cursor.sourceDone[partitionKind] &&
-          candidates.length < limit &&
-          sourcePagesRead < MAX_INDEX_PAGES_PER_REQUEST
-        ) {
-          const sourcePage: AuthorizedSearchIndexPage = await ctx.runQuery(
-            internal.build_collaboration_search
-              .searchAuthorizedBuildCollaborationIndexPage,
-            {
-              buildId: args.buildId,
-              indexQuery,
-              organizationId: args.organizationId,
-              paginationOpts: {
-                cursor: cursor.sourceCursors[partitionKind],
-                numItems: limit,
-              },
-              partitionKind,
-            }
-          );
-          candidates.push(
-            ...sourcePage.page.filter(
-              (candidate) =>
-                !seenHashes.has(searchCandidateHash(candidate)) &&
-                candidateMatchesFilters(candidate, filters)
-            )
-          );
-          cursor.sourceCursors[partitionKind] = sourcePage.continueCursor;
-          cursor.sourceDone[partitionKind] = sourcePage.isDone;
-          sourcePagesRead += 1;
-        }
-      }
-      nextPartition = otherSearchPartition(partitionKind);
+    const collected = await collectAuthorizedSearchCandidates(ctx, {
+      buildId: args.buildId,
+      cursor,
+      filters,
+      generation: readiness.generation,
+      indexQuery,
+      limit,
+      organizationId: args.organizationId,
+      seenHashes,
+    });
+    if (collected.stale) {
+      await ctx.runMutation(
+        internal.build_collaboration_search_maintenance
+          .ensureBuildCollaborationSearchMaintenance,
+        { buildId: args.buildId, organizationId: args.organizationId }
+      );
+      return {
+        continueCursor: null,
+        generation: readiness.generation,
+        indexing: true,
+        isDone: true,
+        page: [],
+      };
     }
+    const { candidates, nextPartition } = collected;
     const ranked = deduplicateCandidates(candidates)
       .map((candidate) => rankCandidate(candidate, query, searchMode))
       .filter(
@@ -322,8 +386,10 @@ export const searchBuildCollaboration = authenticatedAction
             seenHashes: [...seenHashes],
             sourceCursors: cursor.sourceCursors,
             sourceDone: cursor.sourceDone,
-            version: 4,
+            version: 5,
           }),
+      generation: readiness.generation,
+      indexing: false,
       isDone,
       page: page.map(({ candidate, matchKind, score }) => ({
         actionItemId: candidate.actionItemId,
@@ -430,6 +496,101 @@ interface AuthorizedSearchIndexPage {
   continueCursor: string;
   isDone: boolean;
   page: SearchCandidate[];
+  stale: boolean;
+}
+
+async function collectAuthorizedSearchCandidates(
+  ctx: ActionCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    cursor: ReturnType<typeof parseSearchCursor>;
+    filters: NormalizedSearchFilters;
+    generation: number;
+    indexQuery?: string;
+    limit: number;
+    organizationId: string;
+    seenHashes: Set<string>;
+  }
+) {
+  const candidates: SearchCandidate[] = [];
+  let nextPartition = input.cursor.nextPartition;
+  for (let attempt = 0; attempt < 2 && candidates.length === 0; attempt += 1) {
+    const partitionKind = nextPartition;
+    if (!input.cursor.sourceDone[partitionKind]) {
+      let sourcePagesRead = 0;
+      while (
+        !input.cursor.sourceDone[partitionKind] &&
+        candidates.length < input.limit &&
+        sourcePagesRead < MAX_INDEX_PAGES_PER_REQUEST
+      ) {
+        const sourcePage: AuthorizedSearchIndexPage = await ctx.runQuery(
+          internal.build_collaboration_search
+            .searchAuthorizedBuildCollaborationIndexPage,
+          {
+            buildId: input.buildId,
+            generation: input.generation,
+            indexQuery: input.indexQuery,
+            organizationId: input.organizationId,
+            paginationOpts: {
+              cursor: input.cursor.sourceCursors[partitionKind],
+              numItems: input.limit,
+            },
+            partitionKind,
+          }
+        );
+        if (sourcePage.stale) {
+          return { candidates: [], nextPartition, stale: true };
+        }
+        candidates.push(
+          ...sourcePage.page.filter(
+            (candidate) =>
+              !input.seenHashes.has(searchCandidateHash(candidate)) &&
+              candidateMatchesFilters(candidate, input.filters)
+          )
+        );
+        input.cursor.sourceCursors[partitionKind] = sourcePage.continueCursor;
+        input.cursor.sourceDone[partitionKind] = sourcePage.isDone;
+        sourcePagesRead += 1;
+      }
+    }
+    nextPartition = otherSearchPartition(partitionKind);
+  }
+  return { candidates, nextPartition, stale: false };
+}
+
+async function loadSearchReadiness(
+  ctx: QueryCtx & { viewer: AuthorizedViewer },
+  input: { buildId: Id<"activeBuilds">; organizationId: string }
+) {
+  const authorization = await authorizeActiveBuildCollaborationAccess(
+    ctx,
+    input
+  );
+  return await loadSearchReadinessForAuthorization(ctx, authorization);
+}
+
+async function loadSearchReadinessForAuthorization(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization
+) {
+  const state = await ctx.db
+    .query("buildCollaborationSearchStates")
+    .withIndex("by_buildId", (query) =>
+      query.eq("buildId", authorization.build._id)
+    )
+    .unique();
+  if (!state) {
+    return { generation: 0, ready: false };
+  }
+  const readerFingerprint = await buildCollaborationSearchReaderFingerprint(
+    ctx,
+    authorization
+  );
+  return {
+    generation: state.generation,
+    ready:
+      state.status === "ready" && state.readerFingerprint === readerFingerprint,
+  };
 }
 
 function searchPartitionKey(
@@ -517,7 +678,7 @@ function parseSearchCursor(cursor: string | undefined, fingerprint: string) {
       version?: unknown;
     };
     if (
-      parsed.version !== 4 ||
+      parsed.version !== 5 ||
       parsed.fingerprint !== fingerprint ||
       !isSearchPartitionKind(parsed.nextPartition) ||
       !isSearchSeenHashes(parsed.seenHashes) ||

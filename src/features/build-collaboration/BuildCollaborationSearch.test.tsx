@@ -9,19 +9,25 @@ const mocks = vi.hoisted(() => ({
   lastArgs: undefined as Record<string, unknown> | "skip" | undefined,
   nextResponse: {
     continueCursor: null,
+    generation: 1,
+    indexing: false,
     isDone: true,
     page: [] as Array<Record<string, unknown>>,
   },
   response: {
     continueCursor: null,
+    generation: 1,
+    indexing: false,
     isDone: true,
     page: [] as Array<Record<string, unknown>>,
   },
   search: vi.fn(),
+  readiness: { generation: 1, ready: true },
 }));
 
 vi.mock("convex/react", () => ({
   useAction: () => runSearchAction,
+  useQuery: () => mocks.readiness,
 }));
 
 import {
@@ -74,8 +80,21 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   mocks.lastArgs = undefined;
-  mocks.nextResponse = { continueCursor: null, isDone: true, page: [] };
-  mocks.response = { continueCursor: null, isDone: true, page: [] };
+  mocks.nextResponse = {
+    continueCursor: null,
+    generation: 1,
+    indexing: false,
+    isDone: true,
+    page: [],
+  };
+  mocks.response = {
+    continueCursor: null,
+    generation: 1,
+    indexing: false,
+    isDone: true,
+    page: [],
+  };
+  mocks.readiness = { generation: 1, ready: true };
   mocks.search.mockClear();
   runSearchAction.mockReset();
 });
@@ -84,6 +103,8 @@ describe("BuildCollaborationSearch", () => {
   test("queries the authorized Build corpus and opens the exact returned deep link", async () => {
     mocks.response = {
       continueCursor: null,
+      generation: 1,
+      indexing: false,
       isDone: true,
       page: [result],
     };
@@ -122,11 +143,15 @@ describe("BuildCollaborationSearch", () => {
   test("continues a stable server cursor and appends the next authorized page", async () => {
     mocks.response = {
       continueCursor: "cursor-page-2",
+      generation: 1,
+      indexing: false,
       isDone: false,
       page: [result],
     };
     mocks.nextResponse = {
       continueCursor: null,
+      generation: 1,
+      indexing: false,
       isDone: true,
       page: [
         {
@@ -167,11 +192,15 @@ describe("BuildCollaborationSearch", () => {
   test("continues an authorized index cursor when a filtered page is empty", async () => {
     mocks.response = {
       continueCursor: "cursor-after-filtered-page",
+      generation: 1,
+      indexing: false,
       isDone: false,
       page: [],
     };
     mocks.nextResponse = {
       continueCursor: null,
+      generation: 1,
+      indexing: false,
       isDone: true,
       page: [result],
     };
@@ -198,6 +227,53 @@ describe("BuildCollaborationSearch", () => {
     expect(mocks.search).toHaveBeenLastCalledWith(
       expect.objectContaining({ cursor: "cursor-after-filtered-page" }),
     );
+  });
+
+  test("clears cached results when the reactive search generation changes", async () => {
+    mocks.response = {
+      continueCursor: null,
+      generation: 1,
+      indexing: false,
+      isDone: true,
+      page: [result],
+    };
+    const view = render(
+      <BuildCollaborationSearch
+        buildId={"build-1" as never}
+        onOpen={vi.fn()}
+        organizationId="org-1"
+        participants={participants}
+      />,
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "Search all authorized Build collaboration",
+      }),
+      { target: { value: "foundation" } },
+    );
+    await screen.findByRole("button", { name: `Open ${result.title}` });
+
+    mocks.readiness = { generation: 2, ready: false };
+    mocks.response = {
+      continueCursor: null,
+      generation: 2,
+      indexing: true,
+      isDone: true,
+      page: [],
+    };
+    view.rerender(
+      <BuildCollaborationSearch
+        buildId={"build-1" as never}
+        onOpen={vi.fn()}
+        organizationId="org-1"
+        participants={participants}
+      />,
+    );
+
+    await screen.findByText("Search index is refreshing…");
+    expect(
+      screen.queryByRole("button", { name: `Open ${result.title}` }),
+    ).toBeNull();
   });
 
   test("exposes and serializes every supported server filter", () => {

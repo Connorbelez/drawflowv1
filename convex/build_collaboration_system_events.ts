@@ -28,7 +28,7 @@ import {
   resolveCanonicalBuildCollaborationReferences,
 } from "./build_collaboration_references";
 import { BUILD_COLLABORATION_UNAVAILABLE_ERROR } from "./build_collaboration_rollout";
-import { rebuildBuildCollaborationSearchRecordsForPost } from "./build_collaboration_search_index";
+import { queueBuildCollaborationSearchBuildRebuild } from "./build_collaboration_search_maintenance";
 import { canReadDrawSystemEvent } from "./build_collaboration_system_event_access";
 import {
   buildCollaborationNotificationKindValidator,
@@ -323,10 +323,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
       status: "pending",
     }),
   ]);
-  await rebuildBuildCollaborationSearchRecordsForPost(ctx, {
-    authorization,
-    postId,
-  });
+  await queueBuildCollaborationSearchBuildRebuild(ctx, { authorization });
   return postId;
 }
 

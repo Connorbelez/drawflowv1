@@ -56,7 +56,7 @@ import {
   authorizeActiveBuildCollaborationAccess,
   BUILD_COLLABORATION_UNAVAILABLE_ERROR,
 } from "./build_collaboration_rollout";
-import { rebuildBuildCollaborationSearchRecordsForOwner } from "./build_collaboration_search_index";
+import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
 import {
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
@@ -471,7 +471,7 @@ export const replaceBuildActionItemReferences = authenticatedMutation
       reason,
       references,
     });
-    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
       authorization,
       owner: { id: item._id, kind: "actionItem" },
       postId: post._id,

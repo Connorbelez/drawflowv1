@@ -35,7 +35,7 @@ import {
 } from "./build_collaboration_publication_bundle";
 import { resolveCanonicalBuildCollaborationReferences } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import { rebuildBuildCollaborationSearchRecordsForPost } from "./build_collaboration_search_index";
+import { queueBuildCollaborationSearchPostTreeRebuild } from "./build_collaboration_search_maintenance";
 import type { Doc, Id, MutationCtx } from "./types";
 
 const MAX_PLAIN_TEXT_LENGTH = 50_000;
@@ -395,7 +395,7 @@ export async function publishBuildCollaborationBundle(
     referenceCount: bundle.references.length,
     now,
   });
-  await rebuildBuildCollaborationSearchRecordsForPost(ctx, {
+  await queueBuildCollaborationSearchPostTreeRebuild(ctx, {
     authorization,
     postId,
   });

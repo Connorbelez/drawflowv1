@@ -23,7 +23,7 @@ import {
 } from "./build_collaboration_references";
 import { reopenQuestionForUnavailableAcceptedAnswer } from "./build_collaboration_resolution";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import { rebuildBuildCollaborationSearchRecordsForOwner } from "./build_collaboration_search_index";
+import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
 import {
   buildCollaborationAttachmentKindValidator,
   buildCollaborationReferenceKindValidator,
@@ -347,7 +347,7 @@ export const moderateBuildCollaborationContent = authenticatedMutation
       recipientWorkosUserId: content.authorWorkosUserId,
       title: "Build collaboration content moderated",
     });
-    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
       authorization,
       owner: {
         id: entity.entityKind === "post" ? entity.post._id : entity.comment._id,
@@ -507,7 +507,7 @@ export const resolveBuildCollaborationModerationAppeal = authenticatedMutation
         ? "Build collaboration content restored"
         : "Build collaboration moderation retained",
     });
-    await rebuildBuildCollaborationSearchRecordsForOwner(ctx, {
+    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
       authorization,
       owner: {
         id: entity.entityKind === "post" ? entity.post._id : entity.comment._id,

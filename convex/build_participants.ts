@@ -5,6 +5,7 @@ import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { queueBuildCollaborationSearchBuildRebuild } from "./build_collaboration_search_maintenance";
 import {
   buildCollaborationRoleValidator,
   buildParticipantStatusValidator,
@@ -327,6 +328,13 @@ export const removeBuildParticipant = authenticatedMutation
         status: participant.status,
       }),
       reason,
+    });
+    const updatedAuthorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
+    await queueBuildCollaborationSearchBuildRebuild(ctx, {
+      authorization: updatedAuthorization,
     });
     return participant._id;
   })

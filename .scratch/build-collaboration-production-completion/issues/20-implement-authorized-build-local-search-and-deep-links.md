@@ -15,3 +15,11 @@
 - [x] Deep links hydrate the focused record and surrounding context without moving the user's live-feed scroll position.
 - [x] Every reference kind opens its existing focused detail sheet or the correct page/tab and record focus.
 - [x] Tests cover every role, restricted content, cross-Build attempts, pagination stability, deep links, revoked access, and semantic leakage.
+
+Implementation note: search records are activated behind a Build-local
+generation/readiness gate. Origin mutations enqueue coalesced owner or Build
+jobs; scheduled internal mutations page record retirement, exact-reader
+materialization, and activation. Active clients subscribe to the generation,
+clear cached rows on change, and never query stale partitions while maintenance
+or backfill is incomplete. The cutover status query in the Build Collaboration
+Cutover Runbook is the activation gate.

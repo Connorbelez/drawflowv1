@@ -3439,6 +3439,7 @@ export default defineSchema({
     contentState: v.union(v.literal("active"), v.literal("retired")),
     sourceUpdatedAt: v.number(),
     indexedAt: v.number(),
+    maintenanceJobId: v.optional(v.id("buildCollaborationSearchJobs")),
   })
     .index("by_postId", ["postId"])
     .index("by_postId_and_ownerKind_and_ownerId", [
@@ -3454,6 +3455,10 @@ export default defineSchema({
       "sourceUpdatedAt",
     ])
     .index("by_buildId_and_reader", ["buildId", "readerPartitionKey"])
+    .index("by_maintenanceJobId_and_contentState", [
+      "maintenanceJobId",
+      "contentState",
+    ])
     .searchIndex("search_searchText", {
       searchField: "searchText",
       filterFields: [
@@ -3463,6 +3468,68 @@ export default defineSchema({
         "contentState",
       ],
     }),
+  buildCollaborationSearchStates: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    generation: v.number(),
+    status: v.union(v.literal("building"), v.literal("ready")),
+    readerFingerprint: v.optional(v.string()),
+    targetReaderFingerprint: v.optional(v.string()),
+    requestedAt: v.number(),
+    readyAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_buildId", ["buildId"]),
+  buildCollaborationSearchJobs: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    postId: v.optional(v.id("buildCollaborationPosts")),
+    ownerKind: v.optional(
+      v.union(v.literal("post"), v.literal("comment"), v.literal("actionItem"))
+    ),
+    ownerId: v.optional(v.string()),
+    scope: v.union(
+      v.literal("owner"),
+      v.literal("post"),
+      v.literal("post_tree"),
+      v.literal("build")
+    ),
+    generation: v.number(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("complete")
+    ),
+    phase: v.union(
+      v.literal("retire"),
+      v.literal("tier"),
+      v.literal("readers"),
+      v.literal("activate"),
+      v.literal("enumerate_posts"),
+      v.literal("enumerate_comments"),
+      v.literal("enumerate_actions"),
+      v.literal("complete")
+    ),
+    readerOffset: v.optional(v.number()),
+    candidateOffset: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_status", ["buildId", "status"])
+    .index("by_buildId_and_scope_and_status", ["buildId", "scope", "status"])
+    .index("by_buildId_and_postId_and_scope_and_status", [
+      "buildId",
+      "postId",
+      "scope",
+      "status",
+    ])
+    .index("by_buildId_and_ownerKind_and_ownerId", [
+      "buildId",
+      "ownerKind",
+      "ownerId",
+    ]),
   buildCollaborationModerationCases: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

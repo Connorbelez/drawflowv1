@@ -1,6 +1,6 @@
 "use client";
 
-import { useAction } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import {
   Filter,
   ListChecks,
@@ -110,6 +110,8 @@ export interface BuildCollaborationSearchResult {
 
 interface SearchResponse {
   continueCursor: string | null;
+  generation: number;
+  indexing: boolean;
   isDone: boolean;
   page: BuildCollaborationSearchResult[];
 }
@@ -173,6 +175,10 @@ export function BuildCollaborationSearch({
   const runSearch = useAction(
     api.build_collaboration_search.searchBuildCollaboration
   );
+  const readiness = useQuery(
+    api.build_collaboration_search.getBuildCollaborationSearchReadiness,
+    organizationId ? { buildId, organizationId } : "skip"
+  );
   const request = useMemo(
     () =>
       organizationId && active
@@ -188,7 +194,7 @@ export function BuildCollaborationSearch({
     [active, buildId, deferredQuery, organizationId, requestFilters]
   );
   const { loadMore, loadingMore, response, searchError } =
-    useAuthorizedBuildSearch({ request, runSearch });
+    useAuthorizedBuildSearch({ readiness, request, runSearch });
 
   return (
     <div className="space-y-3">
@@ -291,6 +297,13 @@ function SearchResultsBody({
       </div>
     );
   }
+  if (response.indexing) {
+    return (
+      <div className="py-8 text-center text-muted-foreground text-sm">
+        Search index is refreshing…
+      </div>
+    );
+  }
   if (response.page.length === 0) {
     return (
       <div className="grid justify-items-center gap-3 py-8 text-center text-muted-foreground text-sm">
@@ -339,9 +352,11 @@ function SearchResultsBody({
 }
 
 function useAuthorizedBuildSearch({
+  readiness,
   request,
   runSearch,
 }: {
+  readiness?: { generation: number; ready: boolean };
   request: SearchRequest | null;
   runSearch: (request: SearchRequest) => Promise<SearchResponse>;
 }) {
@@ -349,7 +364,8 @@ function useAuthorizedBuildSearch({
   const [response, setResponse] = useState<SearchResponse>();
   const [searchError, setSearchError] = useState<string>();
   const [loadingMore, setLoadingMore] = useState(false);
-
+  const readinessGeneration = readiness?.generation;
+  const readinessReady = readiness?.ready;
   useEffect(() => {
     const generation = ++requestGeneration.current;
     setLoadingMore(false);
@@ -358,7 +374,17 @@ function useAuthorizedBuildSearch({
       setResponse(undefined);
       return;
     }
-    setResponse(undefined);
+    setResponse(
+      readinessGeneration !== undefined && readinessReady === false
+        ? {
+            continueCursor: null,
+            generation: readinessGeneration,
+            indexing: true,
+            isDone: true,
+            page: [],
+          }
+        : undefined
+    );
     runSearch(request)
       .then((next) => {
         if (requestGeneration.current === generation) {
@@ -368,10 +394,16 @@ function useAuthorizedBuildSearch({
       .catch(() => {
         if (requestGeneration.current === generation) {
           setSearchError("Search could not load. Try again.");
-          setResponse({ continueCursor: null, isDone: true, page: [] });
+          setResponse({
+            continueCursor: null,
+            generation: readinessGeneration ?? 0,
+            indexing: false,
+            isDone: true,
+            page: [],
+          });
         }
       });
-  }, [request, runSearch]);
+  }, [readinessGeneration, readinessReady, request, runSearch]);
 
   const loadMore = async () => {
     if (!(request && response?.continueCursor) || loadingMore) {
@@ -388,10 +420,16 @@ function useAuthorizedBuildSearch({
       if (requestGeneration.current !== generation) {
         return;
       }
+      if (next.indexing || next.generation !== response.generation) {
+        setResponse(next);
+        return;
+      }
       setResponse((current) =>
         current
           ? {
               continueCursor: next.continueCursor,
+              generation: next.generation,
+              indexing: next.indexing,
               isDone: next.isDone,
               page: mergeSearchResults(current.page, next.page),
             }
@@ -420,11 +458,7 @@ function mergeSearchResults(
   );
   for (const result of next) {
     const key = searchResultKey(result);
-    const existing = merged.get(key);
-    merged.set(
-      key,
-      existing?.hasAttachments && !result.hasAttachments ? existing : result
-    );
+    merged.set(key, result);
   }
   return [...merged.values()];
 }

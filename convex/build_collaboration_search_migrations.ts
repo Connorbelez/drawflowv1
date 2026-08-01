@@ -1,35 +1,76 @@
 import { internal } from "./_generated/api.js";
 import { authorizeActiveBuildAccessForViewer } from "./activeBuildAccess";
-import { rebuildBuildCollaborationSearchRecordsForPost } from "./build_collaboration_search_index";
+import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
 import { migrations } from "./migrations";
+import type { Id, MutationCtx } from "./types";
 
-export const backfillBuildCollaborationSearchRecords = migrations.define({
+export const backfillBuildCollaborationPostSearchRecords = migrations.define({
   batchSize: 1,
   table: "buildCollaborationPosts",
   migrateOne: async (ctx, post) => {
-    const authorization = await authorizeActiveBuildAccessForViewer(
-      ctx,
-      {
-        actorKind: "system",
-        capability: "authenticated",
-        organizationId: post.organizationId,
-        roles: ["admin"],
-        subject: "build-collaboration-search-migration",
-        tokenIdentifier: "build-collaboration-search-migration",
-      },
-      {
-        buildId: post.buildId,
-        organizationId: post.organizationId,
-      }
-    );
-    await rebuildBuildCollaborationSearchRecordsForPost(ctx, {
+    const authorization = await searchMigrationAuthorization(ctx, post);
+    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
       authorization,
+      owner: { id: post._id, kind: "post" },
       postId: post._id,
+    });
+  },
+});
+
+export const backfillBuildCollaborationCommentSearchRecords = migrations.define(
+  {
+    batchSize: 1,
+    table: "buildCollaborationComments",
+    migrateOne: async (ctx, comment) => {
+      const authorization = await searchMigrationAuthorization(ctx, comment);
+      await queueBuildCollaborationSearchOwnerRebuild(ctx, {
+        authorization,
+        owner: { id: comment._id, kind: "comment" },
+        postId: comment.postId,
+      });
+    },
+  }
+);
+
+export const backfillBuildActionItemSearchRecords = migrations.define({
+  batchSize: 1,
+  table: "buildActionItems",
+  migrateOne: async (ctx, item) => {
+    const authorization = await searchMigrationAuthorization(ctx, item);
+    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
+      authorization,
+      owner: { id: item._id, kind: "actionItem" },
+      postId: item.originatingPostId,
     });
   },
 });
 
 export const runBuildCollaborationSearchRecordBackfill = migrations.runner([
   internal.build_collaboration_search_migrations
-    .backfillBuildCollaborationSearchRecords,
+    .backfillBuildCollaborationPostSearchRecords,
+  internal.build_collaboration_search_migrations
+    .backfillBuildCollaborationCommentSearchRecords,
+  internal.build_collaboration_search_migrations
+    .backfillBuildActionItemSearchRecords,
 ]);
+
+async function searchMigrationAuthorization(
+  ctx: MutationCtx,
+  row: { buildId: Id<"activeBuilds">; organizationId: string }
+) {
+  return await authorizeActiveBuildAccessForViewer(
+    ctx,
+    {
+      actorKind: "system",
+      capability: "authenticated",
+      organizationId: row.organizationId,
+      roles: ["admin"],
+      subject: "build-collaboration-search-migration",
+      tokenIdentifier: "build-collaboration-search-migration",
+    },
+    {
+      buildId: row.buildId,
+      organizationId: row.organizationId,
+    }
+  );
+}

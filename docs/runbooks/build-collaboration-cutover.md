@@ -46,16 +46,36 @@ every legacy post has been imported:
 bun x convex run --prod build_collaboration_search_migrations:runBuildCollaborationSearchRecordBackfill
 ```
 
-This backfill is idempotent and processes one post per transaction. It replaces
-only that post's derived search records, resolves the current audience and
-entity/asset ACLs before writing, and keeps reader-specific references and
-assets out of shared role-tier partitions. Re-run it after an interrupted
-deployment; the migration component resumes from its recorded cursor. Before
-activation, verify that every active collaboration post is searchable by each
-current authorized reader, tombstoned or moderated content produces no search
-result, and a lower-tier canary cannot search or infer a restricted post,
-reference, Action Item, or asset. Search must page the authorized index; it
-must not fall back to scanning the Build's post, comment, or Action Item corpus.
+This backfill is idempotent and enqueues one post, comment, or Action Item owner
+per migration transaction. The originating transaction writes only a bounded
+maintenance job and marks the Build's search generation `building`. Scheduled
+internal mutations retire old rows, materialize role and exact-reader
+partitions, and activate staged rows in bounded pages. Search serves no rows
+from that Build while the generation is building, so a partial or interrupted
+backfill cannot expose stale ACLs or silently incomplete results.
+
+Re-run the command after an interrupted deployment; the migration component
+resumes from its recorded cursor and duplicate owner jobs coalesce. After the
+migration runner reports completion, inspect every Build until the status is
+`ready`, `hasPendingJobs` is false, and `readerFingerprintCurrent` is true:
+
+```sh
+bun x convex run --prod build_collaboration_search_maintenance:inspectBuildCollaborationSearchMaintenance '{"organizationId":"<workos-organization-id>","buildId":"<active-build-id>"}'
+```
+
+Do not activate the tenant while any Build reports `missing` or `building`.
+Participant activation/removal, organization-wide Admin or Principal Broker
+membership drift, post/comment/Action Item edits, moderation/tombstones, asset
+publication, and authoritative workflow system events invalidate the current
+generation and run the same bounded maintenance path. Open clients subscribe
+to that generation and discard cached results immediately when it changes.
+
+Before activation, verify that every active collaboration post is searchable
+by each current authorized reader, tombstoned or moderated content produces no
+search result, and a lower-tier canary cannot search or infer a restricted
+post, reference, Action Item, asset, result count, or pagination topology.
+Search must page only a ready authorized index; it must not fall back to
+scanning the Build's post, comment, or Action Item corpus.
 
 Before enabling external delivery, cancel any pre-remediation unsent delivery
 that cannot prove the exact post/comment revision that created it. Run each
