@@ -13,6 +13,20 @@ The GitHub `build-collaboration-e2e` environment must define:
 - one base64-encoded Playwright storage-state secret for each variable named in
   `scripts/prepare-build-collaboration-e2e.ts`
 
+The fixture must exercise the canonical production shell for every persona:
+
+| Production shell | Personas |
+| --- | --- |
+| `/backoffice/builds/$buildId` | Admin, Principal Broker, Broker, Broker Staff |
+| `/builder/builds/$buildId` | Builder, Builder Staff |
+| `/homeowner/builds/$buildId` | Homeowner with an active Build grant |
+| `/contractor/builds/$buildId` | Contractor with an active Build grant or qualifying assignment |
+
+The preparation and cutover-certification validators reject a persona routed
+through any other shell. The shared collaboration module still derives its
+effective role and permissions from server-side organization and Build access;
+the URL never grants authority.
+
 The setup endpoint receives `POST {"baseUrl": string, "runId": string}` with
 the control token as a Bearer token. It must idempotently seed one active Build,
 the approved eight personas, visible and restricted posts, a focused Action

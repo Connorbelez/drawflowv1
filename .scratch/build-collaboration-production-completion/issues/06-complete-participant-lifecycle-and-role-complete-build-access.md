@@ -15,3 +15,4 @@
 - [x] Open assignments become `Unassigned — participant removed` and coordinators are notified instead of assignments being silently transferred.
 - [x] The same production collaboration module is available through the authorized lender, Builder, Builder Staff, Homeowner, and Contractor Build surfaces.
 - [x] Persona E2E tests prove each role's visible posts, placeholders, actions, receipts, references, and revocation behaviour.
+- [x] Cutover evidence binds every persona to the canonical `/backoffice`, `/builder`, `/homeowner`, or `/contractor` Build route and rejects mislabeled cross-shell journeys.

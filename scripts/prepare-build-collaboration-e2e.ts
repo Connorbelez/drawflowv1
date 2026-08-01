@@ -1,17 +1,14 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const PERSONA_ROLES = [
-  "admin",
-  "principle-broker",
-  "broker",
-  "builder",
-  "broker-staff",
-  "builder-staff",
-  "homeowner",
-  "contractor",
-] as const;
-type PersonaRole = (typeof PERSONA_ROLES)[number];
+import {
+  BUILD_COLLABORATION_ROUTE_PREFIX_BY_ROLE,
+  type BuildCollaborationPersonaRole,
+  REQUIRED_BUILD_COLLABORATION_ROLES,
+} from "./build-collaboration-personas";
+
+const PERSONA_ROLES = REQUIRED_BUILD_COLLABORATION_ROLES;
+type PersonaRole = BuildCollaborationPersonaRole;
 
 const AUTH_ENV_BY_ROLE: Record<PersonaRole, string> = {
   admin: "BUILD_COLLABORATION_E2E_AUTH_ADMIN_B64",
@@ -22,16 +19,6 @@ const AUTH_ENV_BY_ROLE: Record<PersonaRole, string> = {
   "builder-staff": "BUILD_COLLABORATION_E2E_AUTH_BUILDER_STAFF_B64",
   homeowner: "BUILD_COLLABORATION_E2E_AUTH_HOMEOWNER_B64",
   contractor: "BUILD_COLLABORATION_E2E_AUTH_CONTRACTOR_B64",
-};
-const ROUTE_PREFIX_BY_ROLE: Record<PersonaRole, string> = {
-  admin: "backoffice",
-  "principle-broker": "backoffice",
-  broker: "backoffice",
-  builder: "builder",
-  "broker-staff": "backoffice",
-  "builder-staff": "builder-staff",
-  homeowner: "homeowner",
-  contractor: "contractor",
 };
 const PLACEHOLDER_PATTERN =
   /ACTIVE_BUILD_ID|ACTION_ITEM_ID|REPLACE(?:D|_ME)?|PLACEHOLDER|EXAMPLE|TODO|YOUR[_-]/i;
@@ -244,7 +231,7 @@ function validateSetupResponse(
       parsedBaseUrl !== null &&
       parsedBuildUrl.origin === parsedBaseUrl.origin &&
       parsedBuildUrl.pathname.startsWith(
-        `/${ROUTE_PREFIX_BY_ROLE[role]}/builds/`
+        `/${BUILD_COLLABORATION_ROUTE_PREFIX_BY_ROLE[role]}/builds/`
       ) &&
       parsedBuildUrl.pathname.split("/").at(-1) === buildId &&
       !PLACEHOLDER_PATTERN.test(decodeURIComponent(buildUrl)) &&

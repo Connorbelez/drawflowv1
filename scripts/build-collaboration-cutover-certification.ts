@@ -21,17 +21,7 @@ import {
   isProductionConvexDeployment,
   serializeCommand,
 } from "./build-collaboration-cutover-gates";
-
-export const REQUIRED_BUILD_COLLABORATION_ROLES = [
-  "admin",
-  "principle-broker",
-  "broker",
-  "builder",
-  "broker-staff",
-  "builder-staff",
-  "homeowner",
-  "contractor",
-] as const;
+import { REQUIRED_BUILD_COLLABORATION_ROLES } from "./build-collaboration-personas";
 
 export const REQUIRED_BUILD_COLLABORATION_CUTOVER_COMMANDS =
   BUILD_COLLABORATION_CUTOVER_GATES;

@@ -3,17 +3,14 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
 import type { BuildCollaborationCutoverGateContext } from "./build-collaboration-cutover-gates";
+import {
+  buildCollaborationBuildPath,
+  isBuildCollaborationPersonaRole,
+  REQUIRED_BUILD_COLLABORATION_ROLES,
+} from "./build-collaboration-personas";
 
-const ROLES = [
-  "admin",
-  "principle-broker",
-  "broker",
-  "builder",
-  "broker-staff",
-  "builder-staff",
-  "homeowner",
-  "contractor",
-] as const;
+const ROLES = REQUIRED_BUILD_COLLABORATION_ROLES;
+const TRAILING_SLASHES_PATTERN = /\/+$/;
 
 interface FixturePersona {
   buildUrl: string;
@@ -83,18 +80,25 @@ export function validateBuildCollaborationE2EFixture(
   }
   const storageStates = fixture.personas.map((persona) => {
     const url = new URL(persona.buildUrl, applicationOrigin);
+    const expectedPath = isBuildCollaborationPersonaRole(persona.role)
+      ? buildCollaborationBuildPath(persona.role, context.representativeBuildId)
+      : null;
+    const normalizedPath = url.pathname.replace(TRAILING_SLASHES_PATTERN, "");
     if (
       url.origin !== applicationOrigin ||
-      url.pathname.split("/").at(-1) !== context.representativeBuildId
+      expectedPath === null ||
+      normalizedPath !== expectedPath
     ) {
       throw new Error(
-        `E2E ${persona.role} journey is not scoped to the manifest application and Build.`
+        `E2E ${persona.role} journey must use its canonical production route for the manifest application and Build.`
       );
     }
     const storage = readEvidenceFile(persona.storageState);
     return { path: storage.path, role: persona.role, sha256: storage.sha256 };
   });
-  if (new Set(storageStates.map((state) => state.sha256)).size !== ROLES.length) {
+  if (
+    new Set(storageStates.map((state) => state.sha256)).size !== ROLES.length
+  ) {
     throw new Error(
       "Authenticated E2E fixture must use a distinct storage state for every WorkOS user."
     );

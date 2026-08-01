@@ -8,7 +8,6 @@ import { describe, expect, test } from "vitest";
 import {
   REQUIRED_BUILD_COLLABORATION_CUTOVER_COMMANDS,
   REQUIRED_BUILD_COLLABORATION_MONITORS,
-  REQUIRED_BUILD_COLLABORATION_ROLES,
   type BuildCollaborationCutoverLiveState,
   validateBuildCollaborationCutoverEvidence,
 } from "./build-collaboration-cutover-certification";
@@ -23,6 +22,10 @@ import {
   serializeCommand,
   type BuildCollaborationCutoverGate,
 } from "./build-collaboration-cutover-gates";
+import {
+  buildCollaborationBuildPath,
+  REQUIRED_BUILD_COLLABORATION_ROLES,
+} from "./build-collaboration-personas";
 
 const context = {
   applicationUrl: "https://drawflow.example.com",
@@ -321,7 +324,7 @@ function e2eEvidence(directory: string) {
     buildId: context.representativeBuildId,
     organizationId: context.organizationId,
     personas: roles.map((role, index) => ({
-      buildUrl: `${context.applicationUrl}/backoffice/builds/${context.representativeBuildId}?focus=actionItem:action_${index}`,
+      buildUrl: `${context.applicationUrl}${buildCollaborationBuildPath(role, context.representativeBuildId)}?focus=actionItem:action_${index}`,
       role,
       storageState: storageStates[index].path,
       workosUserId: `user_${role.replaceAll("-", "_")}`,

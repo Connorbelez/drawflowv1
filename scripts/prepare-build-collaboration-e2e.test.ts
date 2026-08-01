@@ -38,7 +38,7 @@ const routePrefixByRole = {
   broker: "backoffice",
   builder: "builder",
   "broker-staff": "backoffice",
-  "builder-staff": "builder-staff",
+  "builder-staff": "builder",
   homeowner: "homeowner",
   contractor: "contractor",
 } as const;

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { validateBuildCollaborationE2EFixture } from "./build-collaboration-cutover-fixture";
+import { buildCollaborationBuildPath } from "./build-collaboration-personas";
 
 const roles = [
   "admin",
@@ -29,6 +30,7 @@ const context = {
 function fixture(overrides?: {
   duplicateStorage?: boolean;
   duplicateWorkosUser?: boolean;
+  wrongRouteRole?: (typeof roles)[number];
 }) {
   const directory = mkdtempSync(join(tmpdir(), "drawflow-e2e-fixture-"));
   const storagePaths = roles.map((role, index) => {
@@ -55,7 +57,10 @@ function fixture(overrides?: {
       buildId: context.representativeBuildId,
       organizationId: context.organizationId,
       personas: roles.map((role, index) => ({
-        buildUrl: `${context.applicationUrl}/backoffice/builds/${context.representativeBuildId}`,
+        buildUrl: `${context.applicationUrl}${buildCollaborationBuildPath(
+          overrides?.wrongRouteRole === role ? "admin" : role,
+          context.representativeBuildId
+        )}`,
         role,
         storageState: storagePaths[index],
         workosUserId: overrides?.duplicateWorkosUser
@@ -90,5 +95,14 @@ describe("Build Collaboration production E2E fixture", () => {
         fixture({ duplicateStorage: true })
       )
     ).toThrow(/distinct storage state/i);
+  });
+
+  test("rejects a persona journey through the wrong production shell", () => {
+    expect(() =>
+      validateBuildCollaborationE2EFixture(
+        context,
+        fixture({ wrongRouteRole: "homeowner" })
+      )
+    ).toThrow(/canonical production route/i);
   });
 });
