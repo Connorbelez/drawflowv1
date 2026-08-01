@@ -522,14 +522,10 @@ export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
       window.removeEventListener("offline", markOffline);
     };
   }, []);
-  // Do not flash offline during the client's first clean connection attempt.
-  // Once it has connected or retried, require a live socket before any shared
-  // mutation/action can leave the private-draft boundary.
-  const convexWriteReady =
-    connectionState.isWebSocketConnected ||
-    (!connectionState.hasEverConnected &&
-      connectionState.connectionRetries === 0);
-  const isOnline = browserOnline && convexWriteReady;
+  // Convex queues writes while disconnected, even when browser networking is
+  // reachable. Every shared effect therefore requires a live WebSocket,
+  // including the first connection attempt; cold/captive sessions stay private.
+  const isOnline = browserOnline && connectionState.isWebSocketConnected;
   return (
     <BuildCollaborationMutationGate sharedMutationsAllowed={isOnline}>
       <BuildCollaborationFeedContent {...props} isOnline={isOnline} />

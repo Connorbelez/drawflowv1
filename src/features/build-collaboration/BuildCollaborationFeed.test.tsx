@@ -2613,6 +2613,45 @@ describe("BuildCollaborationFeed", () => {
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
+  test("keeps a cold never-connected Convex session private", async () => {
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value: true,
+    });
+    mocks.convexConnectionState = {
+      connectionCount: 0,
+      connectionRetries: 0,
+      hasEverConnected: false,
+      hasInflightRequests: false,
+      inflightActions: 0,
+      inflightMutations: 0,
+      isWebSocketConnected: false,
+      timeOfOldestInflightRequest: null,
+    };
+    offlineDraftMocks.saveDraft.mockImplementation(async (input) => ({
+      ...input,
+      updatedAt: Date.now(),
+      version: 1,
+    }));
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    expect(screen.getByText("Private offline mode")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "What should people involved in this Build know?",
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save privately on device" })
+    );
+
+    await waitFor(() => expect(offlineDraftMocks.saveDraft).toHaveBeenCalled());
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
   test("reconnects an offline edit against the exact server draft revision", async () => {
     const bundle = collaborationDraftBundleFixture(
       "Offline edit awaiting reconciliation."

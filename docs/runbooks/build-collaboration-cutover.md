@@ -332,6 +332,9 @@ one enabled Build:
 4. Force the direct scheduler invocation to fail, then run the five-minute
    recovery sweep. Confirm a due approval is retried without duplicate effects
    and that `executionAttemptCount` and `lastExecutionAt` remain observable.
+   Repeat with an untyped `runMutation`/backend failure after the approval is
+   due; it must remain `approved`, publish exactly once on recovery, and never
+   be converted into a material conflict.
 5. Edit one private draft from two sessions. The stale writer must retain its
    local editor state, receive a revision conflict, and see the latest server
    revision beside it. It must not overwrite the newer draft.
@@ -351,15 +354,55 @@ Monitor `build.collaboration.publication.scheduled`,
 `build.collaboration.publication.schedule_paused` audit/outbox events. Also
 monitor `build.collaboration.publication.schedule_retryable_failure`; these
 approvals intentionally remain `approved` for the five-minute recovery sweep,
-but only explicitly typed operational failures are retryable. Material approval,
-authorization, lifecycle, tenancy, and revalidation conflicts move to `paused`;
-unknown failures fail closed as conflicts. Alert on
+for explicitly typed operational conditions and untyped action/runtime failures.
+Material-tagged approval, authorization, lifecycle, tenancy, and revalidation
+conflicts move to `paused`. Alert on
 overdue approved schedules, repeated execution attempts, approval-hash failures,
 paused-volume spikes, or any scheduled post whose author differs from the
 approving human. Private offline drafts are browser-local and must never be
 counted as shared collaboration state. For revision-controlled shared effects,
 verify `build_collaboration.shared_revision_precondition.applied` records both
 the approved `expectedRevision` and transactionally observed revision.
+
+## Export, retention, legal hold, and Build closure
+
+1. Configure the tenant's versioned collaboration retention policy before any
+   Build is closed. Record the policy key, retention days, approving Admin or
+   Principal Broker, and reason. Never infer a policy from an application
+   default.
+2. Run the close preflight. Every open Action Item must be Done, Cancelled, or
+   explicitly waived by the closing Admin/Principal Broker with an individual
+   reason. Use the current lifecycle revision; a stale close or reopen must fail
+   rather than overwrite a concurrent decision.
+3. Confirm the closed Build rejects posts, comments, edits, reactions,
+   moderation, Action Item changes, uploads, scheduled publications, and system
+   events. Confirm authorized search, individual asset download, and exports
+   remain available. A scheduled approval that predates closure must pause and
+   require fresh human approval after reopening.
+4. Exercise the export role matrix: Admin/Principal Broker full authorized
+   archive; Broker/Builder/Broker Staff authorized bulk archive; Builder Staff
+   and Homeowner one visible thread or asset; Contractor one contractor-visible
+   asset only. Inspect the manifest and ACL snapshot for zero restricted
+   placeholders, then prove both token expiry and current authorization are
+   enforced at download time.
+5. Before retention purge, query the Build legal-hold state again. An active
+   hold is an absolute stop. Purge only the current explicitly closed lifecycle
+   revision after the active tenant policy's retention interval. Repeat bounded
+   purge calls until `complete: true`; do not mark the Build purged while posts
+   remain.
+6. After purge, verify post/revision/search content and stored collaboration
+   assets are gone, content-bearing export manifests are revoked, and lifecycle,
+   legal-hold, purge, and `auditEvents` history remains readable.
+
+Monitor `build.collaboration.export.created`,
+`build.collaboration.export.burst_detected`,
+`build.collaboration.retention_policy.changed`,
+`build.collaboration.legal_hold.placed`,
+`build.collaboration.legal_hold.released`, `build.collaboration.closed`,
+`build.collaboration.reopened`, and `build.collaboration.purged`. Any export of
+a restricted placeholder, purge under legal hold, write after closure, or
+closure without terminal/waived Action Items is a disclosure or integrity
+incident and blocks cutover.
 
 ## Verification
 
