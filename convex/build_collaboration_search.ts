@@ -524,7 +524,8 @@ async function collectAuthorizedSearchCandidates(
     sourcePagesRead < MAX_INDEX_PAGES_PER_REQUEST
   ) {
     const sourcePage: AuthorizedSearchIndexPage = await ctx.runQuery(
-      internal.build_collaboration_search.searchAuthorizedBuildCollaborationIndexPage,
+      internal.build_collaboration_search
+        .searchAuthorizedBuildCollaborationIndexPage,
       {
         buildId: input.buildId,
         generation: input.generation,
