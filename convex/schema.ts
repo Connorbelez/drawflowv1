@@ -1708,6 +1708,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_builder", ["builderProfileId"])
+    .index("by_brokerageId_and_updatedAt", ["brokerageId", "updatedAt"])
     .index("by_builder_assigned_email", ["builderProfileId", "assignedEmail"])
     .index("by_assigned_email", ["assignedEmail"])
     .index("by_user", ["workosUserId"])
@@ -3152,7 +3153,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_proposal", ["proposalId"])
-    .index("by_brokerage", ["brokerageId"]),
+    .index("by_brokerage", ["brokerageId"])
+    .index("by_organizationId", ["organizationId"]),
   buildParticipants: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -3481,7 +3483,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_buildId", ["buildId"])
-    .index("by_brokerageId_and_status", ["brokerageId", "status"]),
+    .index("by_brokerageId_and_status", ["brokerageId", "status"])
+    .index("by_organizationId_and_status", ["organizationId", "status"]),
   buildCollaborationSearchJobs: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -3530,6 +3533,7 @@ export default defineSchema({
   })
     .index("by_buildId_and_status", ["buildId", "status"])
     .index("by_brokerageId_and_status", ["brokerageId", "status"])
+    .index("by_organizationId_and_status", ["organizationId", "status"])
     .index("by_buildId_and_scope_and_status", ["buildId", "scope", "status"])
     .index("by_buildId_and_postId_and_scope_and_status", [
       "buildId",
@@ -3550,16 +3554,28 @@ export default defineSchema({
       v.literal("blocked"),
       v.literal("ready")
     ),
+    authorityCursor: v.optional(v.union(v.string(), v.null())),
+    authorityProjectionComplete: v.optional(v.boolean()),
     cursor: v.optional(v.union(v.string(), v.null())),
     buildCount: v.number(),
     readyBuildCount: v.number(),
     latestBuildCreationTime: v.optional(v.number()),
     authorityReaderFingerprint: v.optional(v.string()),
+    implicitReaderSourceFingerprint: v.optional(v.string()),
     failureReason: v.optional(v.string()),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_organizationId", ["organizationId"]),
+  buildCollaborationSearchAuthorities: defineTable({
+    organizationId: v.string(),
+    workosMembershipId: v.string(),
+    workosUserId: v.string(),
+    role: v.union(v.literal("admin"), v.literal("principle-broker")),
+    updatedAt: v.number(),
+  })
+    .index("by_workosMembershipId", ["workosMembershipId"])
+    .index("by_organizationId_and_role", ["organizationId", "role"]),
   buildCollaborationModerationCases: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -4326,7 +4342,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_build_contractor", ["buildId", "contractorId"]),
+    .index("by_build_contractor", ["buildId", "contractorId"])
+    .index("by_organizationId_and_updatedAt", ["organizationId", "updatedAt"]),
   milestoneContractorAssignments: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -4388,7 +4405,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_broker", ["brokerageId", "assignedBrokerWorkosUserId"]),
+    .index("by_broker", ["brokerageId", "assignedBrokerWorkosUserId"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   loanFacilities: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

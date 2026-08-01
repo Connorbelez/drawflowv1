@@ -1,5 +1,4 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
-import { normalizeRoleSlugs } from "./authz";
 import { stableContentHash } from "./build_collaboration_hash";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import type { MutationCtx, QueryCtx } from "./types";
@@ -86,15 +85,10 @@ async function resolveOrganizationSearchAuthorities(
     authorityMemberships(ctx, organizationId, "principle-broker"),
   ]);
   const authorities = new Map<string, BuildCollaborationSearchReader>();
-  for (const membership of [...principalBrokers, ...admins]) {
-    const roles = normalizeRoleSlugs([
-      membership.roleSlug,
-      ...(membership.roleSlugs ?? []),
-    ]);
-    const role = roles.includes("admin") ? "admin" : "principle-broker";
-    authorities.set(membership.workosUserId, {
-      role,
-      workosUserId: membership.workosUserId,
+  for (const authority of [...principalBrokers, ...admins]) {
+    authorities.set(authority.workosUserId, {
+      role: authority.role,
+      workosUserId: authority.workosUserId,
     });
   }
   return [...authorities.values()].sort((left, right) =>
@@ -107,19 +101,16 @@ async function authorityMemberships(
   organizationId: string,
   roleSlug: "admin" | "principle-broker"
 ) {
-  const memberships = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_organization_and_status_and_roleSlug", (query) =>
-      query
-        .eq("workosOrganizationId", organizationId)
-        .eq("status", "active")
-        .eq("roleSlug", roleSlug)
+  const authorities = await ctx.db
+    .query("buildCollaborationSearchAuthorities")
+    .withIndex("by_organizationId_and_role", (query) =>
+      query.eq("organizationId", organizationId).eq("role", roleSlug)
     )
     .take(MAX_ORGANIZATION_AUTHORITIES_PER_ROLE + 1);
-  if (memberships.length > MAX_ORGANIZATION_AUTHORITIES_PER_ROLE) {
+  if (authorities.length > MAX_ORGANIZATION_AUTHORITIES_PER_ROLE) {
     throw new Error(
       `Build collaboration search maintenance exceeded its bounded ${roleSlug} authority limit.`
     );
   }
-  return memberships;
+  return authorities;
 }

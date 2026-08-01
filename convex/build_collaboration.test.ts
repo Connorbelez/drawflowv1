@@ -6,6 +6,7 @@ import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
+import { syncBuildCollaborationSearchAuthority } from "./build_collaboration_search_authority_projection";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -59,6 +60,16 @@ async function seedActiveBuild() {
     (api as any).production_proposals.dev_seedProductionFoundation,
     { workosOrganizationId: ORGANIZATION_ID },
   );
+  await admin.run(async (ctx) => {
+    const memberships = (
+      await ctx.db.query("workosOrganizationMemberships").collect()
+    ).filter(
+      (membership) => membership.workosOrganizationId === ORGANIZATION_ID,
+    );
+    for (const membership of memberships) {
+      await syncBuildCollaborationSearchAuthority(ctx, membership);
+    }
+  });
   const buildId = await admin.run(async (ctx) => {
     const now = Date.now();
     const proposalId = await ctx.db.insert("buildProposals", {
@@ -2997,6 +3008,66 @@ describe("Build collaboration tenant rollout", () => {
     );
   });
 
+  test("rejects activation when an implicit Build reader changes after verification", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await deleteCollaborationTenantSetting(base);
+    await admin.mutation(
+      (api as any).build_collaboration_rollout
+        .recordBuildCollaborationMigrationParityEvidence,
+      {
+        buildId,
+        importedPostCount: 0,
+        mismatchCount: 0,
+        organizationId: ORGANIZATION_ID,
+        reason: "Empty Build parity fixture.",
+        reportHash: "sha256:implicit-reader-drift",
+        sourceRecordCount: 0,
+      },
+    );
+    await admin.mutation(
+      (api as any).build_collaboration_rollout
+        .transitionBuildCollaborationTenantStatus,
+      {
+        buildId,
+        expectedStatus: "disabled",
+        nextStatus: "migration_ready",
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    await prepareSearchCutover(base, buildId);
+    await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) {
+        throw new Error("Active Build fixture is unavailable.");
+      }
+      const now = Date.now() + 1;
+      await ctx.db.insert("builderAccountLinks", {
+        brokerageId: build.brokerageId,
+        builderProfileId: build.builderProfileId,
+        createdAt: now,
+        role: "staff",
+        status: "active",
+        updatedAt: now,
+        workosUserId: "user_reader_added_after_cutover",
+      });
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_rollout
+          .transitionBuildCollaborationTenantStatus,
+        {
+          buildId,
+          expectedStatus: "migration_ready",
+          nextStatus: "active",
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(
+      "Collaboration search readiness changed after verification; run verification again.",
+    );
+  });
+
   test("rejects activation without passing parity, illegal transitions, and cross-tenant commands", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     await base.run(async (ctx) => {
@@ -5659,7 +5730,8 @@ describe("Build collaboration authorized search", () => {
         data: {
           id: "membership_late_search_admin",
           organization_id: ORGANIZATION_ID,
-          role: { slug: "admin" },
+          role: { slug: "broker" },
+          roles: [{ slug: "admin" }],
           status: "active",
           user_id: "user_late_search_admin",
         },
@@ -5668,7 +5740,7 @@ describe("Build collaboration authorized search", () => {
       },
     );
     const lateAdmin = withIdentity(fixture.base, {
-      roles: ["admin"],
+      roles: ["broker", "admin"],
       subject: "user_late_search_admin",
     });
     const rebuilding = await lateAdmin.action(
@@ -5693,6 +5765,49 @@ describe("Build collaboration authorized search", () => {
     expect(ready.page).toEqual([
       expect.objectContaining({ id: postId, resultType: "post" }),
     ]);
+  });
+
+  test("preserves a failed maintenance job's retry backoff under search traffic", async () => {
+    const fixture = await seedActiveBuild();
+    await fixture.admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      collaborationPublicationFixture({
+        buildId: fixture.buildId,
+        plainText: "Backed off search maintenance beacon.",
+      }),
+    );
+    const futureLeaseExpiresAt = Date.now() + 60_000;
+    const failedJobId = await fixture.base.run(async (ctx) => {
+      const job = await ctx.db
+        .query("buildCollaborationSearchJobs")
+        .withIndex("by_buildId_and_status", (query) =>
+          query.eq("buildId", fixture.buildId).eq("status", "queued"),
+        )
+        .first();
+      if (!job) {
+        throw new Error("Queued search maintenance fixture is unavailable.");
+      }
+      await ctx.db.patch(job._id, {
+        failureCount: 2,
+        lastError: "Injected deterministic failure.",
+        leaseExpiresAt: futureLeaseExpiresAt,
+        status: "failed",
+      });
+      return job._id;
+    });
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .ensureBuildCollaborationSearchMaintenance,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    await expect(
+      fixture.base.run(async (ctx) => await ctx.db.get(failedJobId)),
+    ).resolves.toMatchObject({
+      leaseExpiresAt: futureLeaseExpiresAt,
+      status: "failed",
+    });
   });
 
   test("recovers an expired failed maintenance job instead of wedging the Build", async () => {
@@ -5982,31 +6097,24 @@ async function prepareSearchCutover(
       .ensureBuildCollaborationSearchMaintenance,
     { buildId, organizationId: ORGANIZATION_ID },
   );
-  const jobId = await t.run(async (ctx) => {
-    const job = (await ctx.db.query("buildCollaborationSearchJobs").collect()).find(
-      (candidate) =>
-        candidate.buildId === buildId && candidate.status === "queued",
-    );
-    if (!job) {
-      throw new Error("Search cutover maintenance fixture is unavailable.");
-    }
-    return job._id;
-  });
-  await t.mutation(
-    (internal as any).build_collaboration_search_maintenance
-      .processBuildCollaborationSearchJob,
-    { jobId },
-  );
+  await finishSearchMaintenance(t);
   const checkId = await t.mutation(
     (internal as any).build_collaboration_search_maintenance
       .startBuildCollaborationSearchCutoverVerification,
     { buildId, organizationId: ORGANIZATION_ID },
   );
-  await t.mutation(
-    (internal as any).build_collaboration_search_maintenance
-      .processBuildCollaborationSearchCutoverVerification,
-    { checkId },
-  );
+  for (let iteration = 0; iteration < 100; iteration += 1) {
+    await t.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .processBuildCollaborationSearchCutoverVerification,
+      { checkId },
+    );
+    const status = await t.run(async (ctx) => (await ctx.db.get(checkId))?.status);
+    if (status !== "building") {
+      return;
+    }
+  }
+  throw new Error("Search cutover verification did not finish within the test bound.");
 }
 
 async function deleteCollaborationTenantSetting(

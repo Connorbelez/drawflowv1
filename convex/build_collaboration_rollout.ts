@@ -6,6 +6,7 @@ import {
 } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
+import { buildCollaborationImplicitReaderSourceFingerprint } from "./build_collaboration_search_reader_sources";
 import { buildCollaborationOrganizationAuthorityFingerprint } from "./build_collaboration_search_readers";
 import { buildCollaborationTenantStatusValidator } from "./build_collaboration_validators";
 import type { Id, MutationCtx, QueryCtx } from "./types";
@@ -228,21 +229,26 @@ async function requireReadyCollaborationSearchCutover(
   }
   const latestBuild = await ctx.db
     .query("activeBuilds")
-    .withIndex("by_brokerage", (query) =>
-      query.eq("brokerageId", authorization.brokerage._id)
+    .withIndex("by_organizationId", (query) =>
+      query.eq("organizationId", authorization.organizationId)
     )
     .order("desc")
-    .filter((query) =>
-      query.eq(query.field("organizationId"), authorization.organizationId)
-    )
     .first();
-  if (
-    latestBuild?._creationTime !== check.latestBuildCreationTime ||
-    check.authorityReaderFingerprint !==
-      (await buildCollaborationOrganizationAuthorityFingerprint(
+  const [authorityReaderFingerprint, implicitReaderSourceFingerprint] =
+    await Promise.all([
+      buildCollaborationOrganizationAuthorityFingerprint(
         ctx,
         authorization.organizationId
-      ))
+      ),
+      buildCollaborationImplicitReaderSourceFingerprint(ctx, {
+        brokerageId: authorization.brokerage._id,
+        organizationId: authorization.organizationId,
+      }),
+    ]);
+  if (
+    latestBuild?._creationTime !== check.latestBuildCreationTime ||
+    check.authorityReaderFingerprint !== authorityReaderFingerprint ||
+    check.implicitReaderSourceFingerprint !== implicitReaderSourceFingerprint
   ) {
     throw new Error(
       "Collaboration search readiness changed after verification; run verification again."
@@ -251,18 +257,18 @@ async function requireReadyCollaborationSearchCutover(
   const [buildingState, queuedJob, runningJob, failedJob] = await Promise.all([
     ctx.db
       .query("buildCollaborationSearchStates")
-      .withIndex("by_brokerageId_and_status", (query) =>
+      .withIndex("by_organizationId_and_status", (query) =>
         query
-          .eq("brokerageId", authorization.brokerage._id)
+          .eq("organizationId", authorization.organizationId)
           .eq("status", "building")
       )
       .first(),
     ...(["queued", "running", "failed"] as const).map((status) =>
       ctx.db
         .query("buildCollaborationSearchJobs")
-        .withIndex("by_brokerageId_and_status", (query) =>
+        .withIndex("by_organizationId_and_status", (query) =>
           query
-            .eq("brokerageId", authorization.brokerage._id)
+            .eq("organizationId", authorization.organizationId)
             .eq("status", status)
         )
         .first()

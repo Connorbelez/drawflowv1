@@ -4,10 +4,12 @@ import { internal } from "./_generated/api";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authorizeActiveBuildAccessForViewer } from "./activeBuildAccess";
 import type { AuthorizedViewer } from "./authz";
+import { syncBuildCollaborationSearchAuthority } from "./build_collaboration_search_authority_projection";
 import {
   type BuildCollaborationSearchOwner,
   materializeBuildCollaborationSearchReaderRecords,
 } from "./build_collaboration_search_index";
+import { buildCollaborationImplicitReaderSourceFingerprint } from "./build_collaboration_search_reader_sources";
 import {
   buildCollaborationOrganizationAuthorityFingerprint,
   buildCollaborationSearchReaderFingerprint,
@@ -22,6 +24,7 @@ const SEARCH_JOB_RETRY_BASE_MS = 1000;
 const SEARCH_JOB_MAX_RETRY_MS = 60_000;
 const MAX_SEARCH_JOB_ERROR_LENGTH = 500;
 const CUTOVER_BUILD_BATCH_SIZE = 5;
+const CUTOVER_AUTHORITY_BATCH_SIZE = 50;
 
 export async function queueBuildCollaborationSearchOwnerRebuild(
   ctx: MutationCtx,
@@ -96,11 +99,7 @@ export const ensureBuildCollaborationSearchMaintenance = internalMutation
   .handler(async (ctx, args) => {
     const pending = await firstPendingSearchJob(ctx, args.buildId);
     if (pending) {
-      if (
-        pending.status === "failed" ||
-        !pending.leaseExpiresAt ||
-        pending.leaseExpiresAt <= Date.now()
-      ) {
+      if (!pending.leaseExpiresAt || pending.leaseExpiresAt <= Date.now()) {
         await scheduleSearchJob(ctx, pending._id);
       }
       return null;
@@ -178,12 +177,15 @@ export const startBuildCollaborationSearchCutoverVerification = internalMutation
       .unique();
     const now = Date.now();
     const fields = {
+      authorityCursor: null,
+      authorityProjectionComplete: false,
       authorityReaderFingerprint: undefined,
       brokerageId: authorization.brokerage._id,
       buildCount: 0,
       completedAt: undefined,
       cursor: null,
       failureReason: undefined,
+      implicitReaderSourceFingerprint: undefined,
       latestBuildCreationTime: undefined,
       organizationId: authorization.organizationId,
       readyBuildCount: 0,
@@ -255,10 +257,81 @@ export const processBuildCollaborationSearchCutoverVerification =
       if (!check || check.status !== "building") {
         return null;
       }
+      if (!check.authorityProjectionComplete) {
+        const authorityPage = await ctx.db
+          .query("workosOrganizationMemberships")
+          .withIndex("by_organization", (query) =>
+            query.eq("workosOrganizationId", check.organizationId)
+          )
+          .paginate({
+            cursor: check.authorityCursor ?? null,
+            numItems: CUTOVER_AUTHORITY_BATCH_SIZE,
+          });
+        for (const membership of authorityPage.page) {
+          await syncBuildCollaborationSearchAuthority(ctx, membership);
+        }
+        await ctx.db.patch(check._id, {
+          authorityCursor: authorityPage.isDone
+            ? null
+            : authorityPage.continueCursor,
+          authorityProjectionComplete: authorityPage.isDone,
+          updatedAt: Date.now(),
+        });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.build_collaboration_search_maintenance
+            .processBuildCollaborationSearchCutoverVerification,
+          { checkId: check._id }
+        );
+        return null;
+      }
+      const [authorityReaderFingerprint, implicitReaderSourceFingerprint] =
+        await Promise.all([
+          buildCollaborationOrganizationAuthorityFingerprint(
+            ctx,
+            check.organizationId
+          ),
+          buildCollaborationImplicitReaderSourceFingerprint(ctx, {
+            brokerageId: check.brokerageId,
+            organizationId: check.organizationId,
+          }),
+        ]);
+      if (
+        !(
+          check.authorityReaderFingerprint &&
+          check.implicitReaderSourceFingerprint
+        )
+      ) {
+        await ctx.db.patch(check._id, {
+          authorityReaderFingerprint,
+          implicitReaderSourceFingerprint,
+          updatedAt: Date.now(),
+        });
+        await ctx.scheduler.runAfter(
+          0,
+          internal.build_collaboration_search_maintenance
+            .processBuildCollaborationSearchCutoverVerification,
+          { checkId: check._id }
+        );
+        return null;
+      }
+      if (
+        check.authorityReaderFingerprint !== authorityReaderFingerprint ||
+        check.implicitReaderSourceFingerprint !==
+          implicitReaderSourceFingerprint
+      ) {
+        await ctx.db.patch(check._id, {
+          failureReason:
+            "Collaboration reader authority changed during search verification; restart the verification.",
+          status: "blocked",
+          updatedAt: Date.now(),
+        });
+        return null;
+      }
       const page = await ctx.db
         .query("activeBuilds")
-        .withIndex("by_brokerage", (query) =>
-          query.eq("brokerageId", check.brokerageId)
+        .withIndex("by_organizationId", (query) =>
+          query.eq("organizationId", check.organizationId)
         )
         .paginate({
           cursor: check.cursor ?? null,
@@ -268,9 +341,6 @@ export const processBuildCollaborationSearchCutoverVerification =
       let latestBuildCreationTime = check.latestBuildCreationTime;
       let readyBuildCount = check.readyBuildCount;
       for (const build of page.page) {
-        if (build.organizationId !== check.organizationId) {
-          continue;
-        }
         buildCount += 1;
         latestBuildCreationTime = Math.max(
           latestBuildCreationTime ?? 0,
@@ -308,11 +378,6 @@ export const processBuildCollaborationSearchCutoverVerification =
       }
       const now = Date.now();
       await ctx.db.patch(check._id, {
-        authorityReaderFingerprint:
-          await buildCollaborationOrganizationAuthorityFingerprint(
-            ctx,
-            check.organizationId
-          ),
         buildCount,
         completedAt: now,
         cursor: null,

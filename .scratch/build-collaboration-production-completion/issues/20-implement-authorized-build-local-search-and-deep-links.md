@@ -22,8 +22,10 @@ jobs; scheduled internal mutations page record retirement, exact-reader
 materialization, and activation. Active clients subscribe to the generation,
 clear cached rows on change, and never query stale partitions while maintenance
 or backfill is incomplete. Durable retry leases and watchdogs recover failed or
-orphaned continuations. The tenant cutover verifier includes empty Builds and
-activation atomically rejects stale reader fingerprints, pending jobs, and
-incomplete Build coverage. Contractor and Homeowner deep links hydrate every
-typed entity into the reusable detail sheets before offering canonical page/tab
-navigation.
+orphaned continuations without allowing search traffic to bypass backoff. A
+bounded WorkOS-derived authority projection preserves secondary Admin and
+Principal Broker roles. The tenant cutover verifier includes empty Builds, and
+activation atomically rejects stale authority or implicit-reader fingerprints,
+pending jobs, and incomplete Build coverage using organization-scoped indexes.
+Contractor and Homeowner deep links hydrate every typed entity into the reusable
+detail sheets before offering canonical page/tab navigation.

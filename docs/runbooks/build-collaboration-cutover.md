@@ -58,7 +58,8 @@ backfill cannot expose stale ACLs or silently incomplete results.
 Each scheduled job has a durable failure counter, retry lease, and watchdog.
 Application failures are recorded and retried with bounded backoff; an expired
 queued/running lease is rescheduled instead of leaving the Build permanently
-`building`. Re-run the command after an interrupted deployment; the migration
+`building`. Search traffic does not bypass a failed job's future retry lease.
+Re-run the command after an interrupted deployment; the migration
 component resumes from its recorded cursor and duplicate owner jobs coalesce. After the
 migration runner reports completion, inspect every Build until the status is
 `ready`, `hasPendingJobs` is false, and `readerFingerprintCurrent` is true:
@@ -82,11 +83,16 @@ bun x convex run --prod build_collaboration_search_maintenance:startBuildCollabo
 bun x convex run --prod build_collaboration_search_maintenance:inspectBuildCollaborationSearchCutoverVerification '{"organizationId":"<workos-organization-id>","buildId":"<any-active-build-id>"}'
 ```
 
-The activation mutation enforces this verification atomically. It rejects a
+The verifier first pages every WorkOS membership into the bounded collaboration
+authority projection, including `admin` or `principle-broker` roles present as
+secondary roles. The activation mutation enforces this verification atomically.
+It rejects a
 missing, blocked, or stale check; unequal Build counts; a Build created after
-verification; changed organization-wide Admin/Principal Broker membership; any
-Build in `building`; and every queued, running, or failed maintenance job. The
-operator cannot bypass this gate with the status-transition API.
+verification; changed organization-wide Admin/Principal Broker membership;
+changes to builder-account, Build-broker, or Build-contractor reader sources;
+any Build in `building`; and every queued, running, or failed maintenance job.
+All activation checks use organization-scoped indexes. The operator cannot
+bypass this gate with the status-transition API.
 
 Before activation, verify that every active collaboration post is searchable
 by each current authorized reader, tombstoned or moderated content produces no
