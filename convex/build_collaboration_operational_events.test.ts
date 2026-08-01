@@ -1802,6 +1802,39 @@ describe("Build Collaboration operational events", () => {
         updatedAt: Date.now(),
       });
       await ctx.db.patch(rehearsalId, {
+        status: "disabled_verified",
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.addActiveBuildDocument,
+        {
+          buildId: fixture.buildId,
+          clientOperationId: "frozen-disabled-verified-permit",
+          documentType: "permit",
+          fileName: "Frozen disabled-verified permit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/temporarily frozen for a rollback rehearsal snapshot/i);
+    expect(
+      await fixture.base.run(async (ctx) =>
+        (
+          await ctx.db
+            .query("buildDocuments")
+            .withIndex("by_build", (query) =>
+              query.eq("buildId", fixture.buildId)
+            )
+            .collect()
+        ).length
+      )
+    ).toBe(0);
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(rehearsalId, {
         status: "capturing_after",
         updatedAt: Date.now(),
       });

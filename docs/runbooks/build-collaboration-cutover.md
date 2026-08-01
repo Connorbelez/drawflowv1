@@ -273,7 +273,9 @@ disable or reactivation boundary. Canonical Milestone, Draw, Document,
 Evidence, and Site Visit publishers also fail their originating Convex
 transaction during this freeze. Operators must retry those operational
 transitions after the rehearsal completes; no source transition may commit
-without its Build-local collaboration event:
+without its Build-local collaboration event. The maintenance lock remains
+continuous across `capturing_before`, `before_ready`, `disabled_verified`, and
+`capturing_after`:
 
 ```sh
 REHEARSAL=$(bun x convex run --deployment '<production-convex-deployment>' --identity "$OPERATOR_IDENTITY_JSON" build_collaboration_cutover_rehearsals:beginBuildCollaborationRollbackRehearsal '{"organizationId":"<workos-organization-id>","buildId":"<active-build-id>","gitCommit":"<40-character-git-sha>","applicationVersion":"<application-version>","applicationUrl":"https://<production-host>","convexDeployment":"<production-convex-deployment>","convexUrl":"https://<production-convex-url>"}')

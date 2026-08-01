@@ -354,6 +354,7 @@ export async function isBuildCollaborationCutoverFrozen(
   return (
     rehearsal?.status === "capturing_before" ||
     rehearsal?.status === "before_ready" ||
+    rehearsal?.status === "disabled_verified" ||
     rehearsal?.status === "capturing_after"
   );
 }

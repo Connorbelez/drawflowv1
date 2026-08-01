@@ -51,7 +51,9 @@
   storage states, so role labels cannot attest themselves.
 - Operational Milestone, Draw, Document, Evidence, and Site Visit transitions
   now fail and atomically roll back during a rehearsal snapshot freeze instead
-  of committing without their canonical Build-local collaboration event.
+  of committing without their canonical Build-local collaboration event. The
+  maintenance lock remains continuous through the denial-canary
+  `disabled_verified` phase and releases only after the after-snapshot phase.
 - Local release gates on 2026-08-01: Convex codegen/typecheck passed; 206 test
   files and 1,725 tests passed; application typecheck and production build
   passed; 78 HTML interaction snippets passed; the warning regression check
