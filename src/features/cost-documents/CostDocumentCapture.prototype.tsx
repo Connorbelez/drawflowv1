@@ -106,6 +106,7 @@ type GuidedStep = (typeof STEPS)[number];
 
 interface GuidedDocumentDraft {
   category: "Labour" | "Materials";
+  complete: boolean;
   description: string;
   documentNumber: string;
   envelopeAllocation: number;
@@ -122,6 +123,7 @@ interface GuidedDocumentDraft {
 const INITIAL_GUIDED_DOCUMENTS: GuidedDocumentDraft[] = [
   {
     category: "Materials",
+    complete: false,
     description:
       "Supply and delivery of exterior insulation, fasteners, and membrane accessories.",
     documentNumber: "NL-10492",
@@ -137,6 +139,7 @@ const INITIAL_GUIDED_DOCUMENTS: GuidedDocumentDraft[] = [
   },
   {
     category: "Materials",
+    complete: false,
     description: "Ready-mix concrete delivery tickets for foundation walls.",
     documentNumber: "RC-7781",
     envelopeAllocation: 0,
@@ -151,6 +154,7 @@ const INITIAL_GUIDED_DOCUMENTS: GuidedDocumentDraft[] = [
   },
   {
     category: "Labour",
+    complete: false,
     description: "Electrical rough-in crew labour and site coordination.",
     documentNumber: "ME-2218",
     envelopeAllocation: 3280,
@@ -401,7 +405,7 @@ function GuidedCapture({
     );
   };
   const onStepChange = (step: GuidedStep) => {
-    updateDocument(activeDocument.id, { step });
+    updateDocument(activeDocument.id, { complete: false, step });
   };
   const captureState: CaptureState = {
     allocated:
@@ -429,6 +433,21 @@ function GuidedCapture({
   const stepIndex = STEPS.indexOf(step);
   const previous = STEPS[Math.max(0, stepIndex - 1)] ?? "Capture & confirm";
   const next = STEPS[Math.min(STEPS.length - 1, stepIndex + 1)] ?? "Freeze";
+  const completedDocuments = documents.filter(
+    (document) => document.complete
+  ).length;
+  const allDocumentsComplete = completedDocuments === documents.length;
+  const activeDocumentCanComplete =
+    captureState.grossTotal > 0 &&
+    captureState.remaining === 0 &&
+    scenario === "ready";
+  const continueActiveDocument = () => {
+    if (step === "Freeze") {
+      updateDocument(activeDocument.id, { complete: true });
+      return;
+    }
+    onStepChange(next);
+  };
   const addDocument = () => {
     const existing = documents.find(
       (document) => document.id === "city-tool-rental"
@@ -439,6 +458,7 @@ function GuidedCapture({
     }
     const document: GuidedDocumentDraft = {
       category: "Materials",
+      complete: false,
       description: "Rental receipt awaiting confirmation.",
       documentNumber: "Pending",
       envelopeAllocation: 0,
@@ -488,6 +508,15 @@ function GuidedCapture({
               </p>
             </div>
             <GuidedStepRail onStepChange={onStepChange} step={step} />
+            <GuidedDocumentActions
+              canComplete={activeDocumentCanComplete}
+              complete={activeDocument.complete}
+              onBack={() => onStepChange(previous)}
+              onContinue={continueActiveDocument}
+              step={step}
+              stepIndex={stepIndex}
+              vendor={activeDocument.vendor}
+            />
             {step === "Balance & allocate" ? (
               <Frame>
                 <FrameHeader className="gap-4 border-b sm:flex sm:flex-row sm:items-center sm:justify-between">
@@ -546,31 +575,81 @@ function GuidedCapture({
         </div>
       </SheetPanel>
       <SheetFooter className="pb-20 sm:pb-16">
-        <div className="mr-auto hidden items-center gap-2 text-sm lg:flex">
+        <div className="mr-auto flex min-w-0 items-center gap-2 text-sm">
           <LockKeyhole className="size-4 text-muted-foreground" />
-          <span>
-            {documents.length} documents in this private batch · progress saves
-            independently
+          <span className="truncate">
+            {completedDocuments} of {documents.length} complete
+            <span className="hidden sm:inline">
+              {allDocumentsComplete
+                ? " · batch ready to submit"
+                : " · complete every document to submit"}
+            </span>
           </span>
         </div>
-        <Button
-          disabled={stepIndex === 0}
-          onClick={() => onStepChange(previous)}
-          variant="outline"
-        >
-          <ArrowLeft /> Back
-        </Button>
-        <Button
-          disabled={step === "Freeze" && captureState.remaining !== 0}
-          onClick={() => onStepChange(next)}
-        >
-          {step === "Freeze"
-            ? "Submit and freeze this document"
-            : "Continue this document"}
-          {step === "Freeze" ? <LockKeyhole /> : <ArrowRight />}
+        <Button disabled={!allDocumentsComplete}>
+          <CheckCircle2 /> Submit {documents.length} cost documents
         </Button>
       </SheetFooter>
     </>
+  );
+}
+
+function GuidedDocumentActions({
+  canComplete,
+  complete,
+  onBack,
+  onContinue,
+  step,
+  stepIndex,
+  vendor,
+}: {
+  canComplete: boolean;
+  complete: boolean;
+  onBack: () => void;
+  onContinue: () => void;
+  step: GuidedStep;
+  stepIndex: number;
+  vendor: string;
+}) {
+  const isFinalStep = step === "Freeze";
+  return (
+    <Frame>
+      <FramePanel className="flex flex-col gap-3 bg-muted/20 p-3 sm:flex-row sm:items-center">
+        <div className="mr-auto min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate font-medium text-sm">{vendor} workflow</p>
+            {complete ? <Badge variant="success">Complete</Badge> : null}
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Step {stepIndex + 1} of {STEPS.length} · progress belongs to this
+            Cost Document
+          </p>
+        </div>
+        <fieldset className="flex w-full items-center gap-2 sm:w-auto">
+          <legend className="sr-only">{vendor} workflow controls</legend>
+          <Button
+            className="flex-1 sm:flex-none"
+            disabled={stepIndex === 0}
+            onClick={onBack}
+            variant="outline"
+          >
+            <ArrowLeft /> Back
+          </Button>
+          <Button
+            className="flex-1 sm:flex-none"
+            disabled={complete || (isFinalStep && !canComplete)}
+            onClick={onContinue}
+          >
+            {complete
+              ? "Document complete"
+              : isFinalStep
+                ? "Complete document"
+                : "Continue"}
+            {complete || isFinalStep ? <Check /> : <ArrowRight />}
+          </Button>
+        </fieldset>
+      </FramePanel>
+    </Frame>
   );
 }
 
@@ -609,7 +688,9 @@ function GuidedDocumentQueue({
                 "min-w-64 text-left transition-colors lg:min-w-0",
                 isActive
                   ? "border-primary bg-primary/5 ring-1 ring-primary"
-                  : "hover:bg-muted/50"
+                  : document.complete
+                    ? "border-success/50 bg-success/5 hover:bg-success/10"
+                    : "hover:bg-muted/50"
               )}
               key={document.id}
               onClick={() => onDocumentChange(document.id)}
@@ -635,13 +716,27 @@ function GuidedDocumentQueue({
                 </div>
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-2 text-xs">
-                    <span className="font-medium">{document.step}</span>
+                    <span
+                      className={cn(
+                        "flex items-center gap-1 font-medium",
+                        document.complete && "text-success"
+                      )}
+                    >
+                      {document.complete ? (
+                        <CheckCircle2 className="size-3.5" />
+                      ) : null}
+                      {document.complete ? "Complete" : document.step}
+                    </span>
                     <span className="text-muted-foreground">
                       {documentStepIndex + 1}/{STEPS.length}
                     </span>
                   </div>
                   <div
-                    aria-label={`${document.step}, step ${documentStepIndex + 1} of ${STEPS.length}`}
+                    aria-label={
+                      document.complete
+                        ? "Complete, 4 of 4 steps"
+                        : `${document.step}, step ${documentStepIndex + 1} of ${STEPS.length}`
+                    }
                     aria-valuemax={STEPS.length}
                     aria-valuemin={1}
                     aria-valuenow={documentStepIndex + 1}
@@ -1767,7 +1862,7 @@ function FreezeManifest({
         "Allocations",
         `${formatMoney(captureState.allocated)} across 2 Sub-milestones`,
       ],
-      ["Provenance", "Submitted by Connor Belezney as Builder Owner"],
+      ["Provenance", "Prepared by Connor Belezney as Builder Owner"],
     ],
     [captureState]
   );
