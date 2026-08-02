@@ -97,14 +97,73 @@ const SCENARIOS: {
 ];
 
 const STEPS = [
-  "Capture",
-  "Confirm",
-  "Balance",
-  "Allocate",
+  "Capture & confirm",
+  "Balance & allocate",
   "Share",
   "Freeze",
 ] as const;
 type GuidedStep = (typeof STEPS)[number];
+
+interface GuidedDocumentDraft {
+  category: "Labour" | "Materials";
+  description: string;
+  documentNumber: string;
+  envelopeAllocation: number;
+  foundationAllocation: number;
+  grossTotal: number;
+  id: string;
+  kind: "Invoice" | "Receipt";
+  pages: number;
+  step: GuidedStep;
+  title: string;
+  vendor: string;
+}
+
+const INITIAL_GUIDED_DOCUMENTS: GuidedDocumentDraft[] = [
+  {
+    category: "Materials",
+    description:
+      "Supply and delivery of exterior insulation, fasteners, and membrane accessories.",
+    documentNumber: "NL-10492",
+    envelopeAllocation: 6820,
+    foundationAllocation: 11_600,
+    grossTotal: 18_420,
+    id: "northline-insulation",
+    kind: "Invoice",
+    pages: 2,
+    step: "Capture & confirm",
+    title: "Northline insulation package",
+    vendor: "Northline Supply Co.",
+  },
+  {
+    category: "Materials",
+    description: "Ready-mix concrete delivery tickets for foundation walls.",
+    documentNumber: "RC-7781",
+    envelopeAllocation: 0,
+    foundationAllocation: 7940,
+    grossTotal: 7940,
+    id: "redwood-concrete",
+    kind: "Invoice",
+    pages: 3,
+    step: "Balance & allocate",
+    title: "Foundation concrete deliveries",
+    vendor: "Redwood Concrete",
+  },
+  {
+    category: "Labour",
+    description: "Electrical rough-in crew labour and site coordination.",
+    documentNumber: "ME-2218",
+    envelopeAllocation: 3280,
+    foundationAllocation: 0,
+    grossTotal: 3280,
+    id: "mckay-electrical",
+    kind: "Receipt",
+    pages: 1,
+    step: "Capture & confirm",
+    title: "Electrical rough-in labour",
+    vendor: "McKay Electrical",
+  },
+];
 
 const LEDGER_ROWS = [
   "Source",
@@ -145,7 +204,6 @@ export function CostDocumentCapturePrototype({
   const [grossTotal, setGrossTotal] = useState(18_420);
   const [foundationAllocation, setFoundationAllocation] = useState(11_600);
   const [envelopeAllocation, setEnvelopeAllocation] = useState(6820);
-  const [step, setStep] = useState<GuidedStep>("Capture");
   const [ledgerRow, setLedgerRow] = useState<LedgerRow>("Source");
   const [sourcebenchSection, setSourcebenchSection] =
     useState<SourcebenchSection>("Facts");
@@ -190,12 +248,7 @@ export function CostDocumentCapturePrototype({
             variant={variant}
           />
           {variant === "capture-guided" ? (
-            <GuidedCapture
-              captureState={captureState}
-              onStepChange={setStep}
-              scenario={scenario}
-              step={step}
-            />
+            <GuidedCapture scenario={scenario} />
           ) : null}
           {variant === "capture-ledger" ? (
             <LedgerCapture
@@ -252,7 +305,11 @@ function CaptureHeader({
           </Button>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <SheetTitle>New cost document</SheetTitle>
+              <SheetTitle>
+                {variant === "capture-guided"
+                  ? "New cost documents"
+                  : "New cost document"}
+              </SheetTitle>
               <Badge variant="secondary">Private draft</Badge>
               <Badge variant="outline">Prototype</Badge>
             </div>
@@ -317,75 +374,156 @@ interface CaptureState {
 }
 
 function GuidedCapture({
-  captureState,
-  onStepChange,
   scenario,
-  step,
 }: {
-  captureState: CaptureState;
-  onStepChange: (step: GuidedStep) => void;
   scenario: CostDocumentCapturePrototypeScenario;
-  step: GuidedStep;
 }) {
+  const [documents, setDocuments] = useState(INITIAL_GUIDED_DOCUMENTS);
+  const [activeDocumentId, setActiveDocumentId] = useState(
+    INITIAL_GUIDED_DOCUMENTS[0]?.id ?? ""
+  );
+  const activeDocument =
+    documents.find((document) => document.id === activeDocumentId) ??
+    documents[0];
+
+  if (!activeDocument) {
+    return null;
+  }
+
+  const updateDocument = (
+    documentId: string,
+    patch: Partial<GuidedDocumentDraft>
+  ) => {
+    setDocuments((current) =>
+      current.map((document) =>
+        document.id === documentId ? { ...document, ...patch } : document
+      )
+    );
+  };
+  const onStepChange = (step: GuidedStep) => {
+    updateDocument(activeDocument.id, { step });
+  };
+  const captureState: CaptureState = {
+    allocated:
+      activeDocument.foundationAllocation + activeDocument.envelopeAllocation,
+    description: activeDocument.description,
+    envelopeAllocation: activeDocument.envelopeAllocation,
+    foundationAllocation: activeDocument.foundationAllocation,
+    grossTotal: activeDocument.grossTotal,
+    remaining:
+      activeDocument.grossTotal -
+      activeDocument.foundationAllocation -
+      activeDocument.envelopeAllocation,
+    setDescription: (description) =>
+      updateDocument(activeDocument.id, { description }),
+    setEnvelopeAllocation: (envelopeAllocation) =>
+      updateDocument(activeDocument.id, { envelopeAllocation }),
+    setFoundationAllocation: (foundationAllocation) =>
+      updateDocument(activeDocument.id, { foundationAllocation }),
+    setGrossTotal: (grossTotal) =>
+      updateDocument(activeDocument.id, { grossTotal }),
+    setTitle: (title) => updateDocument(activeDocument.id, { title }),
+    title: activeDocument.title,
+  };
+  const step = activeDocument.step;
   const stepIndex = STEPS.indexOf(step);
-  const previous = STEPS[Math.max(0, stepIndex - 1)] ?? "Capture";
+  const previous = STEPS[Math.max(0, stepIndex - 1)] ?? "Capture & confirm";
   const next = STEPS[Math.min(STEPS.length - 1, stepIndex + 1)] ?? "Freeze";
+  const addDocument = () => {
+    const existing = documents.find(
+      (document) => document.id === "city-tool-rental"
+    );
+    if (existing) {
+      setActiveDocumentId(existing.id);
+      return;
+    }
+    const document: GuidedDocumentDraft = {
+      category: "Materials",
+      description: "Rental receipt awaiting confirmation.",
+      documentNumber: "Pending",
+      envelopeAllocation: 0,
+      foundationAllocation: 0,
+      grossTotal: 0,
+      id: "city-tool-rental",
+      kind: "Receipt",
+      pages: 2,
+      step: "Capture & confirm",
+      title: "Untitled cost document",
+      vendor: "City Tool Rental",
+    };
+    setDocuments((current) => [...current, document]);
+    setActiveDocumentId(document.id);
+  };
 
   return (
     <>
-      <div className="border-b bg-muted/30 px-4 py-3 sm:px-6">
-        <div className="mx-auto flex max-w-6xl items-center gap-1 overflow-x-auto">
-          {STEPS.map((item, index) => (
-            <button
-              className={cn(
-                "flex min-w-fit items-center gap-2 border-b-2 px-3 py-2 text-sm transition-colors",
-                item === step
-                  ? "border-primary font-semibold text-foreground"
-                  : index < stepIndex
-                    ? "border-transparent text-foreground"
-                    : "border-transparent text-muted-foreground"
-              )}
-              key={item}
-              onClick={() => onStepChange(item)}
-              type="button"
-            >
-              <span
-                className={cn(
-                  "grid size-6 place-items-center rounded-full border text-xs",
-                  index < stepIndex &&
-                    "border-primary bg-primary text-primary-foreground",
-                  item === step && "border-primary text-primary"
-                )}
-              >
-                {index < stepIndex ? <Check className="size-3" /> : index + 1}
-              </span>
-              {item}
-            </button>
-          ))}
-        </div>
-      </div>
       <SheetPanel className="p-3 sm:p-5">
-        <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(19rem,0.8fr)_minmax(24rem,1.2fr)]">
-          <SourcePreview compact={step !== "Capture"} scenario={scenario} />
-          <Frame>
-            <FrameHeader>
-              <FrameTitle className="text-base">{step}</FrameTitle>
-              <FrameDescription>{guidedStepDescription(step)}</FrameDescription>
-            </FrameHeader>
-            <FramePanel className="min-h-[25rem] p-4 sm:p-6">
-              <GuidedStepBody
-                captureState={captureState}
+        <div className="mx-auto grid max-w-[90rem] gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+          <GuidedDocumentQueue
+            activeDocumentId={activeDocument.id}
+            documents={documents}
+            onAddDocument={addDocument}
+            onDocumentChange={setActiveDocumentId}
+          />
+          <div className="min-w-0 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate font-semibold text-lg">
+                    {activeDocument.vendor}
+                  </h2>
+                  <Badge variant="outline">{activeDocument.kind}</Badge>
+                  <Badge variant="secondary">{activeDocument.category}</Badge>
+                </div>
+                <p className="mt-1 text-muted-foreground text-sm">
+                  {activeDocument.pages}{" "}
+                  {activeDocument.pages === 1 ? "page" : "pages"} ·{" "}
+                  {activeDocument.documentNumber}
+                </p>
+              </div>
+              <p className="font-semibold text-sm tabular-nums">
+                {activeDocument.grossTotal > 0
+                  ? formatMoney(activeDocument.grossTotal)
+                  : "Total required"}
+              </p>
+            </div>
+            <GuidedStepRail onStepChange={onStepChange} step={step} />
+            <div className="grid gap-4 xl:grid-cols-[minmax(20rem,0.82fr)_minmax(26rem,1.18fr)]">
+              <SourcePreview
+                compact={step !== "Capture & confirm"}
+                document={activeDocument}
                 scenario={scenario}
-                step={step}
               />
-            </FramePanel>
-          </Frame>
+              <Frame>
+                <FrameHeader>
+                  <FrameTitle className="text-base">{step}</FrameTitle>
+                  <FrameDescription>
+                    {guidedStepDescription(step)}
+                  </FrameDescription>
+                </FrameHeader>
+                <FramePanel className="min-h-[25rem] p-4 sm:p-6">
+                  <GuidedStepBody
+                    captureState={captureState}
+                    document={activeDocument}
+                    onDocumentUpdate={(patch) =>
+                      updateDocument(activeDocument.id, patch)
+                    }
+                    scenario={scenario}
+                    step={step}
+                  />
+                </FramePanel>
+              </Frame>
+            </div>
+          </div>
         </div>
       </SheetPanel>
       <SheetFooter className="pb-20 sm:pb-16">
-        <div className="mr-auto hidden items-center gap-2 text-sm sm:flex">
+        <div className="mr-auto hidden items-center gap-2 text-sm lg:flex">
           <LockKeyhole className="size-4 text-muted-foreground" />
-          <span>Private draft · only explicit collaborators can edit</span>
+          <span>
+            {documents.length} documents in this private batch · progress saves
+            independently
+          </span>
         </div>
         <Button
           disabled={stepIndex === 0}
@@ -398,7 +536,9 @@ function GuidedCapture({
           disabled={step === "Freeze" && captureState.remaining !== 0}
           onClick={() => onStepChange(next)}
         >
-          {step === "Freeze" ? "Submit and freeze document" : "Continue"}
+          {step === "Freeze"
+            ? "Submit and freeze this document"
+            : "Continue this document"}
           {step === "Freeze" ? <LockKeyhole /> : <ArrowRight />}
         </Button>
       </SheetFooter>
@@ -406,16 +546,147 @@ function GuidedCapture({
   );
 }
 
+function GuidedDocumentQueue({
+  activeDocumentId,
+  documents,
+  onAddDocument,
+  onDocumentChange,
+}: {
+  activeDocumentId: string;
+  documents: GuidedDocumentDraft[];
+  onAddDocument: () => void;
+  onDocumentChange: (documentId: string) => void;
+}) {
+  return (
+    <Frame className="min-w-0 lg:sticky lg:top-0 lg:max-h-[calc(100dvh-15rem)]">
+      <FrameHeader className="gap-3">
+        <div>
+          <FrameTitle>Cost documents</FrameTitle>
+          <FrameDescription>
+            {documents.length} independent records in this batch
+          </FrameDescription>
+        </div>
+        <Button className="w-full" onClick={onAddDocument} size="sm">
+          <Plus /> Add documents
+        </Button>
+      </FrameHeader>
+      <FramePanel className="flex gap-2 overflow-x-auto p-2 lg:grid lg:overflow-y-auto">
+        {documents.map((document) => {
+          const documentStepIndex = STEPS.indexOf(document.step);
+          const isActive = document.id === activeDocumentId;
+          return (
+            <Card
+              aria-current={isActive ? "step" : undefined}
+              className={cn(
+                "min-w-64 text-left transition-colors lg:min-w-0",
+                isActive
+                  ? "border-primary bg-primary/5 ring-1 ring-primary"
+                  : "hover:bg-muted/50"
+              )}
+              key={document.id}
+              onClick={() => onDocumentChange(document.id)}
+              render={<button type="button" />}
+            >
+              <CardPanel className="grid gap-3 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-sm">
+                      {document.vendor}
+                    </p>
+                    <p className="mt-0.5 truncate text-muted-foreground text-xs">
+                      {document.kind} · {document.category} · {document.pages}p
+                    </p>
+                  </div>
+                  {document.grossTotal > 0 ? (
+                    <span className="font-medium text-xs tabular-nums">
+                      {formatMoney(document.grossTotal)}
+                    </span>
+                  ) : (
+                    <Badge variant="warning">New</Badge>
+                  )}
+                </div>
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+                    <span className="font-medium">{document.step}</span>
+                    <span className="text-muted-foreground">
+                      {documentStepIndex + 1}/{STEPS.length}
+                    </span>
+                  </div>
+                  <div
+                    aria-label={`${document.step}, step ${documentStepIndex + 1} of ${STEPS.length}`}
+                    aria-valuemax={STEPS.length}
+                    aria-valuemin={1}
+                    aria-valuenow={documentStepIndex + 1}
+                    className="grid grid-cols-4 gap-1"
+                    role="progressbar"
+                  >
+                    {STEPS.map((step, index) => (
+                      <span
+                        className={cn(
+                          "h-1 rounded-full bg-muted",
+                          index <= documentStepIndex && "bg-primary"
+                        )}
+                        key={step}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </CardPanel>
+            </Card>
+          );
+        })}
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function GuidedStepRail({
+  onStepChange,
+  step,
+}: {
+  onStepChange: (step: GuidedStep) => void;
+  step: GuidedStep;
+}) {
+  const stepIndex = STEPS.indexOf(step);
+  return (
+    <div className="flex items-center gap-1 overflow-x-auto border-b">
+      {STEPS.map((item, index) => (
+        <button
+          className={cn(
+            "flex min-w-fit items-center gap-2 border-b-2 px-3 py-2.5 text-sm transition-colors",
+            item === step
+              ? "border-primary font-semibold text-foreground"
+              : index < stepIndex
+                ? "border-transparent text-foreground"
+                : "border-transparent text-muted-foreground"
+          )}
+          key={item}
+          onClick={() => onStepChange(item)}
+          type="button"
+        >
+          <span
+            className={cn(
+              "grid size-6 place-items-center rounded-full border text-xs",
+              index < stepIndex &&
+                "border-primary bg-primary text-primary-foreground",
+              item === step && "border-primary text-primary"
+            )}
+          >
+            {index < stepIndex ? <Check className="size-3" /> : index + 1}
+          </span>
+          {item}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function guidedStepDescription(step: GuidedStep) {
   switch (step) {
-    case "Capture":
-      return "Photograph or choose every page of this invoice or receipt.";
-    case "Confirm":
-      return "Confirm the required document facts; extracted values remain suggestions.";
-    case "Balance":
-      return "Enter the tax-inclusive gross total and optionally reconcile its components.";
-    case "Allocate":
-      return "Assign the exact gross total across relevant Sub-milestones.";
+    case "Capture & confirm":
+      return "Add every page, then confirm the required facts for this invoice or receipt.";
+    case "Balance & allocate":
+      return "Reconcile the gross total and assign that exact amount across relevant Sub-milestones.";
     case "Share":
       return "Keep the Draft private or invite eligible Builder-side collaborators.";
     case "Freeze":
@@ -425,14 +696,18 @@ function guidedStepDescription(step: GuidedStep) {
 
 function GuidedStepBody({
   captureState,
+  document,
+  onDocumentUpdate,
   scenario,
   step,
 }: {
   captureState: CaptureState;
+  document: GuidedDocumentDraft;
+  onDocumentUpdate: (patch: Partial<GuidedDocumentDraft>) => void;
   scenario: CostDocumentCapturePrototypeScenario;
   step: GuidedStep;
 }) {
-  if (step === "Capture") {
+  if (step === "Capture & confirm") {
     return (
       <div className="grid gap-4">
         <div className="grid gap-2 sm:grid-cols-2">
@@ -461,20 +736,49 @@ function GuidedStepBody({
         </div>
         <ScenarioNotice scenario={scenario} />
         <p className="text-muted-foreground text-xs">
-          Every page must belong to the same source document. Supporting
-          evidence is attached separately after submission.
+          This record is one Cost Document. Add every page belonging to this
+          invoice or receipt here; add a separate row for each additional Cost
+          Document. Supporting evidence is attached separately after submission.
         </p>
+        <div className="border-t pt-5">
+          <div className="mb-4">
+            <p className="font-semibold">Confirm document facts</p>
+            <p className="text-muted-foreground text-xs">
+              Extracted values are suggestions until you confirm them.
+            </p>
+          </div>
+          <DocumentFactsFields
+            captureState={captureState}
+            document={document}
+            onDocumentUpdate={onDocumentUpdate}
+          />
+        </div>
       </div>
     );
   }
-  if (step === "Confirm") {
-    return <DocumentFactsFields captureState={captureState} />;
-  }
-  if (step === "Balance") {
-    return <GrossReconciliation captureState={captureState} />;
-  }
-  if (step === "Allocate") {
-    return <AllocationEditor captureState={captureState} scenario={scenario} />;
+  if (step === "Balance & allocate") {
+    return (
+      <div className="grid gap-8 2xl:grid-cols-2">
+        <section className="min-w-0">
+          <div className="mb-4 border-b pb-3">
+            <p className="font-semibold">1. Reconcile gross</p>
+            <p className="text-muted-foreground text-xs">
+              Confirm the tax-inclusive amount represented by this document.
+            </p>
+          </div>
+          <GrossReconciliation captureState={captureState} />
+        </section>
+        <section className="min-w-0">
+          <div className="mb-4 border-b pb-3">
+            <p className="font-semibold">2. Allocate exact total</p>
+            <p className="text-muted-foreground text-xs">
+              Resolve the same gross amount to one or more Sub-milestones.
+            </p>
+          </div>
+          <AllocationEditor captureState={captureState} scenario={scenario} />
+        </section>
+      </div>
+    );
   }
   if (step === "Share") {
     return <CollaborationEditor />;
@@ -827,14 +1131,21 @@ function SourcebenchSectionBody({
 
 function SourcePreview({
   compact = false,
+  document,
   scenario,
   sourcebench = false,
 }: {
   compact?: boolean;
+  document?: GuidedDocumentDraft;
   scenario: CostDocumentCapturePrototypeScenario;
   sourcebench?: boolean;
 }) {
   const isUploading = scenario === "uploading";
+  const grossTotal = document?.grossTotal ?? 18_420;
+  const subtotal = Math.round((grossTotal / 1.13) * 100) / 100;
+  const tax = grossTotal - subtotal;
+  const primaryLine = Math.round(subtotal * 0.7 * 100) / 100;
+  const secondaryLine = subtotal - primaryLine;
   return (
     <Card className={cn("overflow-hidden", sourcebench && "mx-auto max-w-3xl")}>
       <CardPanel
@@ -850,12 +1161,18 @@ function SourcePreview({
           <div className="border-lime-500 border-b-4 bg-slate-950 px-5 py-4 text-white">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="font-bold text-lg">NORTHLINE SUPPLY CO.</p>
+                <p className="font-bold text-lg">
+                  {(document?.vendor ?? "Northline Supply Co.").toUpperCase()}
+                </p>
                 <p className="text-slate-300 text-xs">
-                  Building envelope materials
+                  {document
+                    ? `${document.category} cost document`
+                    : "Building envelope materials"}
                 </p>
               </div>
-              <p className="font-semibold text-xl">INVOICE</p>
+              <p className="font-semibold text-xl">
+                {(document?.kind ?? "Invoice").toUpperCase()}
+              </p>
             </div>
           </div>
           <div className="grid gap-5 p-5 text-xs sm:grid-cols-2">
@@ -869,7 +1186,10 @@ function SourcePreview({
             </div>
             <div className="sm:text-right">
               <p>
-                <span className="text-slate-500">Invoice:</span> NL-10492
+                <span className="text-slate-500">
+                  {document?.kind ?? "Invoice"}:
+                </span>{" "}
+                {document?.documentNumber ?? "NL-10492"}
               </p>
               <p>
                 <span className="text-slate-500">Issued:</span> July 18, 2026
@@ -881,26 +1201,26 @@ function SourcePreview({
           </div>
           <div className="mx-5 border-y py-3 text-xs">
             <div className="grid grid-cols-[1fr_auto] gap-3 font-semibold">
-              <span>Exterior insulation package</span>
-              <span>$12,900.00</span>
+              <span>{document?.title ?? "Exterior insulation package"}</span>
+              <span>{formatMoney(primaryLine)}</span>
             </div>
             <div className="mt-2 grid grid-cols-[1fr_auto] gap-3">
-              <span>Fasteners and membrane accessories</span>
-              <span>$3,400.00</span>
+              <span>Additional documented charges</span>
+              <span>{formatMoney(secondaryLine)}</span>
             </div>
           </div>
           <div className="ml-auto grid w-64 gap-1 p-5 text-xs">
             <div className="flex justify-between">
               <span>Subtotal</span>
-              <span>$16,300.00</span>
+              <span>{formatMoney(subtotal)}</span>
             </div>
             <div className="flex justify-between">
               <span>HST</span>
-              <span>$2,120.00</span>
+              <span>{formatMoney(tax)}</span>
             </div>
             <div className="mt-2 flex justify-between border-t pt-2 font-bold text-base">
               <span>Total</span>
-              <span>$18,420.00</span>
+              <span>{formatMoney(grossTotal)}</span>
             </div>
           </div>
           {isUploading ? (
@@ -929,7 +1249,12 @@ function SourcePreview({
                 : "SHA-256 verified · scan clean · durable"}
             </span>
           </div>
-          <div className="flex gap-1">
+          <div className="flex items-center gap-1">
+            {document ? (
+              <span className="mr-1 text-muted-foreground">
+                Page 1 of {document.pages}
+              </span>
+            ) : null}
             <Button size="xs" variant="outline">
               <Plus /> Add page
             </Button>
@@ -943,16 +1268,42 @@ function SourcePreview({
   );
 }
 
-function DocumentFactsFields({ captureState }: { captureState: CaptureState }) {
+function DocumentFactsFields({
+  captureState,
+  document,
+  onDocumentUpdate,
+}: {
+  captureState: CaptureState;
+  document?: GuidedDocumentDraft;
+  onDocumentUpdate?: (patch: Partial<GuidedDocumentDraft>) => void;
+}) {
   return (
     <div className="grid gap-4">
       <div className="grid grid-cols-2 gap-2">
-        <ToggleChoice active icon={<FileText />} label="Invoice" />
-        <ToggleChoice icon={<ReceiptText />} label="Receipt" />
+        <ToggleChoice
+          active={!document || document.kind === "Invoice"}
+          icon={<FileText />}
+          label="Invoice"
+          onClick={() => onDocumentUpdate?.({ kind: "Invoice" })}
+        />
+        <ToggleChoice
+          active={document?.kind === "Receipt"}
+          icon={<ReceiptText />}
+          label="Receipt"
+          onClick={() => onDocumentUpdate?.({ kind: "Receipt" })}
+        />
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <ToggleChoice active label="Materials" />
-        <ToggleChoice label="Labour" />
+        <ToggleChoice
+          active={!document || document.category === "Materials"}
+          label="Materials"
+          onClick={() => onDocumentUpdate?.({ category: "Materials" })}
+        />
+        <ToggleChoice
+          active={document?.category === "Labour"}
+          label="Labour"
+          onClick={() => onDocumentUpdate?.({ category: "Labour" })}
+        />
       </div>
       <Field>
         <FieldLabel>Title</FieldLabel>
@@ -975,7 +1326,13 @@ function DocumentFactsFields({ captureState }: { captureState: CaptureState }) {
       <div className="grid gap-4 sm:grid-cols-2">
         <Field>
           <FieldLabel>Vendor</FieldLabel>
-          <Input defaultValue="Northline Supply Co." />
+          <Input
+            defaultValue={document?.vendor ?? "Northline Supply Co."}
+            key={document?.id}
+            onChange={(event) =>
+              onDocumentUpdate?.({ vendor: event.target.value })
+            }
+          />
         </Field>
         <Field>
           <FieldLabel>Document date</FieldLabel>
@@ -990,13 +1347,19 @@ function ToggleChoice({
   active = false,
   icon,
   label,
+  onClick,
 }: {
   active?: boolean;
   icon?: React.ReactNode;
   label: string;
+  onClick?: () => void;
 }) {
   return (
-    <Button className="justify-start" variant={active ? "default" : "outline"}>
+    <Button
+      className="justify-start"
+      onClick={onClick}
+      variant={active ? "default" : "outline"}
+    >
       {icon}
       {label}
       {active ? <Check className="ml-auto" /> : null}
@@ -1005,7 +1368,10 @@ function ToggleChoice({
 }
 
 function GrossReconciliation({ captureState }: { captureState: CaptureState }) {
-  const subtotal = 16_300;
+  const subtotal =
+    captureState.grossTotal === 18_420
+      ? 16_300
+      : Math.round((captureState.grossTotal / 1.13) * 100) / 100;
   const tax = captureState.grossTotal - subtotal;
   return (
     <div className="grid gap-5">
