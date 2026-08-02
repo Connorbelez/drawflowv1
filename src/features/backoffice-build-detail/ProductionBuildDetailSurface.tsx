@@ -1166,142 +1166,141 @@ export function ProductionBuildDetailSurface({
       data-testid="production-build-detail-route"
     >
       <section className="flex min-w-0 flex-col gap-3 px-0 py-3 sm:gap-4 sm:py-4 md:gap-5 md:py-0">
-        <ProductionBuildHeader
-          breadcrumbRootHref={breadcrumbRootHref}
-          breadcrumbRootLabel={breadcrumbRootLabel}
-          breadcrumbSectionHref={breadcrumbSectionHref}
-          breadcrumbSectionLabel={breadcrumbSectionLabel}
-          detail={detail}
-          eventCount={eventCount}
-          onOpenEvents={() => onChangeRail("open")}
-          permit={permit}
-        />
-        <BuildDetailTabBar
-          activeTab={activeTab}
-          onChangeTab={onChangeTab}
-          tabs={visibleTabs}
-        />
-        <section
-          aria-label={`${activeTabLabel} workspace`}
-          className="min-w-0"
-          data-testid="active-build-workspace-section"
-        >
-          {activeTab === "details" ? (
-            <ProductionDetailsTab
-              actions={actions}
-              currentDay={currentDay}
-              detail={detail}
-              focusedReference={effectiveFocusedReference}
-              fundingWorkspaceEnabled={fundingWorkspaceEnabled}
-              onChangeTab={onChangeTab}
-              onFocusReference={setLocalFocusedReference}
-              onOpenMilestone={setActiveMilestoneKey}
-              projection={projection}
-              viewerRole={viewerRole}
-              workosOrganizationId={workosOrganizationId}
-            />
-          ) : null}
-          {activeTab === "documents" ? (
-            <ProductionDocumentsTab actions={actions} detail={detail} />
-          ) : null}
-          {activeTab === "milestones" ? (
-            <ProductionMilestonesTab
-              currentDay={currentDay}
-              detail={detail}
-              onAssignContractor={
-                actions?.assignContractorToMilestone ||
-                actions?.createAndAssignContractor
-                  ? (card) =>
-                      setAssignContractorTarget({
-                        milestoneKey: card.milestoneKey,
-                      })
-                  : undefined
-              }
-              onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
-              onStartWork={
-                viewerRole === "builder" && actions?.startMilestoneWork
-                  ? (milestoneKey) =>
-                      openMilestoneStart(milestoneKey, "milestone_card")
-                  : undefined
-              }
-              projection={projection}
-              viewerRole={viewerRole}
-            />
-          ) : null}
-          {activeTab === "contractors" ? (
-            <ProductionContractorsTab
-              actions={actions}
-              contractorDetailHrefFor={contractorDetailHrefFor}
-              detail={detail}
-              viewerRole={viewerRole}
-            />
-          ) : null}
-          {activeTab === "timeline" ? (
-            <ProductionTimelineTab
-              actions={actions}
-              activeBuildId={activeBuildId}
-              detail={detail}
-              onRequestSiteVisit={requestSiteVisit}
-              timelineWorkspace={timelineWorkspace}
-              viewerRole={viewerRole}
-              workosOrganizationId={workosOrganizationId}
-            />
-          ) : null}
-          {activeTab === "evidence" ? (
-            <ProductionEvidenceTab
-              actions={actions}
-              detail={detail}
-              focusedReference={effectiveFocusedReference}
-              onOpenMilestone={(milestoneKey) =>
-                setActiveMilestoneKey(milestoneKey)
-              }
-              projection={projection}
-            />
-          ) : null}
-          {activeTab === "materials" ? (
-            <ProductionBuildMaterialsTab
-              actions={actions?.materialPlanning}
-              detail={detail}
-              focusedReference={effectiveFocusedReference}
-            />
-          ) : null}
-          {activeTab === "staff" ? staff : null}
-          {activeTab === "calendar" ? (
-            <ProductionCalendarTab
-              actions={actions}
-              calendarTimeframe={calendarTimeframe}
-              calendarWorkspace={calendarWorkspace}
-              detail={detail}
-              focusedReference={effectiveFocusedReference}
-              onChangeCalendarTimeframe={onChangeCalendarTimeframe}
-              onChangeTab={onChangeTab}
-              onRequestSiteVisit={requestSiteVisit}
-              onStartWork={
-                viewerRole === "builder" && actions?.startMilestoneWork
-                  ? (milestoneKey) =>
-                      openMilestoneStart(milestoneKey, "calendar")
-                  : undefined
-              }
-              workosOrganizationId={workosOrganizationId}
-            />
-          ) : null}
-          {activeTab === "gantt" ? (
-            <ProductionGanttTab
-              actions={actions}
-              activeBuildId={activeBuildId}
-              detail={detail}
-              onRequestSiteVisit={requestSiteVisit}
-              onStartWork={
-                viewerRole === "builder" && actions?.startMilestoneWork
-                  ? (milestoneKey) => openMilestoneStart(milestoneKey, "gantt")
-                  : undefined
-              }
-              timelineWorkspace={timelineWorkspace}
-              viewerRole={viewerRole}
-              workosOrganizationId={workosOrganizationId}
-            />
-          ) : null}
-        </section>
+      <ProductionBuildHeader
+        breadcrumbRootHref={breadcrumbRootHref}
+        breadcrumbRootLabel={breadcrumbRootLabel}
+        breadcrumbSectionHref={breadcrumbSectionHref}
+        breadcrumbSectionLabel={breadcrumbSectionLabel}
+        detail={detail}
+        eventCount={eventCount}
+        onOpenEvents={() => onChangeRail("open")}
+        permit={permit}
+      />
+      <BuildDetailTabBar
+        activeTab={activeTab}
+        onChangeTab={onChangeTab}
+        tabs={visibleTabs}
+      />
+      <section
+        aria-label={`${activeTabLabel} workspace`}
+        className="min-w-0"
+        data-testid="active-build-workspace-section"
+      >
+        {activeTab === "details" ? (
+          <ProductionDetailsTab
+            actions={actions}
+            currentDay={currentDay}
+            detail={detail}
+            focusedReference={effectiveFocusedReference}
+            fundingWorkspaceEnabled={fundingWorkspaceEnabled}
+            onChangeTab={onChangeTab}
+            onFocusReference={setLocalFocusedReference}
+            onOpenMilestone={setActiveMilestoneKey}
+            projection={projection}
+            viewerRole={viewerRole}
+            workosOrganizationId={workosOrganizationId}
+          />
+        ) : null}
+        {activeTab === "documents" ? (
+          <ProductionDocumentsTab actions={actions} detail={detail} />
+        ) : null}
+        {activeTab === "milestones" ? (
+          <ProductionMilestonesTab
+            currentDay={currentDay}
+            detail={detail}
+            onAssignContractor={
+              actions?.assignContractorToMilestone ||
+              actions?.createAndAssignContractor
+                ? (card) =>
+                    setAssignContractorTarget({
+                      milestoneKey: card.milestoneKey,
+                    })
+                : undefined
+            }
+            onCardClick={(card) => setActiveMilestoneKey(card.milestoneKey)}
+            onStartWork={
+              viewerRole === "builder" && actions?.startMilestoneWork
+                ? (milestoneKey) =>
+                    openMilestoneStart(milestoneKey, "milestone_card")
+                : undefined
+            }
+            projection={projection}
+            viewerRole={viewerRole}
+          />
+        ) : null}
+        {activeTab === "contractors" ? (
+          <ProductionContractorsTab
+            actions={actions}
+            contractorDetailHrefFor={contractorDetailHrefFor}
+            detail={detail}
+            viewerRole={viewerRole}
+          />
+        ) : null}
+        {activeTab === "timeline" ? (
+          <ProductionTimelineTab
+            actions={actions}
+            activeBuildId={activeBuildId}
+            detail={detail}
+            onRequestSiteVisit={requestSiteVisit}
+            timelineWorkspace={timelineWorkspace}
+            viewerRole={viewerRole}
+            workosOrganizationId={workosOrganizationId}
+          />
+        ) : null}
+        {activeTab === "evidence" ? (
+          <ProductionEvidenceTab
+            actions={actions}
+            detail={detail}
+            focusedReference={effectiveFocusedReference}
+            onOpenMilestone={(milestoneKey) =>
+              setActiveMilestoneKey(milestoneKey)
+            }
+            projection={projection}
+          />
+        ) : null}
+        {activeTab === "materials" ? (
+          <ProductionBuildMaterialsTab
+            actions={actions?.materialPlanning}
+            detail={detail}
+            focusedReference={effectiveFocusedReference}
+          />
+        ) : null}
+        {activeTab === "staff" ? staff : null}
+        {activeTab === "calendar" ? (
+          <ProductionCalendarTab
+            actions={actions}
+            calendarTimeframe={calendarTimeframe}
+            calendarWorkspace={calendarWorkspace}
+            detail={detail}
+            focusedReference={effectiveFocusedReference}
+            onChangeCalendarTimeframe={onChangeCalendarTimeframe}
+            onChangeTab={onChangeTab}
+            onRequestSiteVisit={requestSiteVisit}
+            onStartWork={
+              viewerRole === "builder" && actions?.startMilestoneWork
+                ? (milestoneKey) => openMilestoneStart(milestoneKey, "calendar")
+                : undefined
+            }
+            workosOrganizationId={workosOrganizationId}
+          />
+        ) : null}
+        {activeTab === "gantt" ? (
+          <ProductionGanttTab
+            actions={actions}
+            activeBuildId={activeBuildId}
+            detail={detail}
+            onRequestSiteVisit={requestSiteVisit}
+            onStartWork={
+              viewerRole === "builder" && actions?.startMilestoneWork
+                ? (milestoneKey) => openMilestoneStart(milestoneKey, "gantt")
+                : undefined
+            }
+            timelineWorkspace={timelineWorkspace}
+            viewerRole={viewerRole}
+            workosOrganizationId={workosOrganizationId}
+          />
+        ) : null}
+      </section>
       </section>
       <EventRailSheet
         auditEvents={detail.auditEvents ?? []}

@@ -2884,6 +2884,9 @@ function CollaborationPostCard({
   const [moderationTarget, setModerationTarget] =
     useState<BuildCollaborationModerationEntity | null>(null);
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
+  const participants = tagOptions.filter(
+    (option) => option.kind === "participant"
+  );
   const markViewed = useBuildCollaborationMutation(
     api.build_collaboration_threads.markBuildCollaborationPostViewed
   );
@@ -3247,6 +3250,7 @@ function CollaborationPostCard({
                   }
                 }}
                 onOpen={onOpenActionItem}
+                participants={participants}
               />
             </CardPanel>
           ) : null}

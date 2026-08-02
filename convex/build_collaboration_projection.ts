@@ -182,6 +182,8 @@ export async function projectReadableBuildCollaborationPost(
     actionItems: actionItems.map((item) => ({
       _creationTime: item._creationTime,
       _id: item._id,
+      assigneeWorkosUserId: item.assigneeWorkosUserId,
+      assignmentState: item.assignmentState,
       currentRevision: item.currentRevision,
       priority: item.priority,
       status: item.status,

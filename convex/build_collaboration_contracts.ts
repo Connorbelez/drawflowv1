@@ -68,6 +68,8 @@ export const collaborationPostRevisionSummaryValidator = v.object({
 export const collaborationActionItemSummaryValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("buildActionItems"),
+  assigneeWorkosUserId: v.optional(v.string()),
+  assignmentState: buildActionAssignmentStateValidator,
   currentRevision: v.number(),
   priority: buildActionItemPriorityValidator,
   status: buildActionItemStatusValidator,

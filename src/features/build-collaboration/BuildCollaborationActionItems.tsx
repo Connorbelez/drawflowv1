@@ -1,4 +1,4 @@
-import { ArrowUpRight, Flag, Plus } from "lucide-react";
+import { ArrowUpRight, Flag, Plus, UserRound } from "lucide-react";
 import { type Dispatch, type SetStateAction, useState } from "react";
 import { toast } from "sonner";
 
@@ -20,6 +20,7 @@ import type {
   ActionStatus,
   CollaborationActionItem,
   CollaborationActionItemQueueRow,
+  ReferenceOption,
 } from "./model.ts";
 
 type MoveActionItem = (
@@ -210,6 +211,7 @@ export function BuildCollaborationActionItems({
   onCreate,
   onMove,
   onOpen,
+  participants,
 }: {
   actionView: "board" | "list";
   items: CollaborationActionItem[];
@@ -217,6 +219,7 @@ export function BuildCollaborationActionItems({
   onCreate: () => void;
   onMove: MoveActionItem;
   onOpen: (actionItemId: Id<"buildActionItems">) => void;
+  participants: ReferenceOption[];
 }) {
   const columns: Array<{ label: string; status: ActionStatus }> = [
     { label: "To do", status: "todo" },
@@ -264,6 +267,7 @@ export function BuildCollaborationActionItems({
                         mutationsAllowed={mutationsAllowed}
                         onMove={onMove}
                         onOpen={onOpen}
+                        participants={participants}
                       />
                     ))}
                 </div>
@@ -280,6 +284,7 @@ export function BuildCollaborationActionItems({
               mutationsAllowed={mutationsAllowed}
               onMove={onMove}
               onOpen={onOpen}
+              participants={participants}
             />
           ))}
         </div>
@@ -293,16 +298,30 @@ function ActionItemCard({
   mutationsAllowed,
   onMove,
   onOpen,
+  participants,
 }: {
   item: CollaborationActionItem;
   mutationsAllowed: boolean;
   onMove: MoveActionItem;
   onOpen: (actionItemId: Id<"buildActionItems">) => void;
+  participants: ReferenceOption[];
 }) {
   const [pendingTerminalStatus, setPendingTerminalStatus] = useState<
     "blocked" | "cancelled" | null
   >(null);
   const [reason, setReason] = useState("");
+  const assignee = participants.find(
+    (participant) => participant.id === item.assigneeWorkosUserId
+  );
+  const assigneeLabel =
+    assignee?.label ??
+    (item.assigneeWorkosUserId ? "Assigned participant" : "No assignee");
+  const assignmentStateLabel =
+    item.assignmentState === "requested"
+      ? "Acceptance requested"
+      : item.assignmentState === "assigned"
+        ? "Assigned"
+        : "Unassigned";
 
   const selectStatus = (status: ActionStatus) => {
     if (status === "blocked" || status === "cancelled") {
@@ -336,79 +355,93 @@ function ActionItemCard({
     setReason("");
   };
 
+  const renderTerminalReasonEditor = () =>
+    pendingTerminalStatus ? (
+      <div className="space-y-2 rounded-lg border bg-muted/20 p-2">
+        <Input
+          aria-label={
+            pendingTerminalStatus === "cancelled"
+              ? `Cancellation reason for ${item.title}`
+              : `Blocked reason for ${item.title}`
+          }
+          onChange={(event) => setReason(event.target.value)}
+          placeholder={
+            pendingTerminalStatus === "cancelled"
+              ? "Why is this being cancelled?"
+              : "What is blocking this work?"
+          }
+          value={reason}
+        />
+        <div className="flex justify-end gap-2">
+          <Button
+            onClick={() => setPendingTerminalStatus(null)}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Cancel
+          </Button>
+          <Button onClick={confirmReasonedTransition} size="sm" type="button">
+            Confirm
+          </Button>
+        </div>
+      </div>
+    ) : null;
+
   return (
     <Card
       className="rounded-xl"
       data-collaboration-focus={`actionItem:${item._id}`}
     >
-      <CardPanel className="space-y-2 p-3">
-        <div className="flex items-start justify-between gap-2">
+
+      <CardPanel className="space-y-3 p-3">
+        <div className="flex items-start justify-between gap-3">
           <p className="font-medium text-sm">{item.title}</p>
           <Badge variant="outline">{item.priority}</Badge>
         </div>
-        <Button
-          className="w-full justify-between"
-          onClick={() => onOpen(item._id)}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          Open details
-          <ArrowUpRight aria-hidden="true" className="size-4" />
-        </Button>
-        <Select
-          disabled={!mutationsAllowed}
-          onValueChange={(value) => selectStatus(value as ActionStatus)}
-          value={item.status}
-        >
-          <SelectTrigger aria-label={`Status for ${item.title}`} size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todo">To do</SelectItem>
-            <SelectItem value="in_progress">In progress</SelectItem>
-            <SelectItem value="in_review">In review</SelectItem>
-            <SelectItem value="blocked">Blocked</SelectItem>
-            <SelectItem value="done">Done</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-        {pendingTerminalStatus ? (
-          <div className="space-y-2 rounded-lg border bg-muted/20 p-2">
-            <Input
-              aria-label={
-                pendingTerminalStatus === "cancelled"
-                  ? `Cancellation reason for ${item.title}`
-                  : `Blocked reason for ${item.title}`
-              }
-              onChange={(event) => setReason(event.target.value)}
-              placeholder={
-                pendingTerminalStatus === "cancelled"
-                  ? "Why is this being cancelled?"
-                  : "What is blocking this work?"
-              }
-              value={reason}
-            />
-            <div className="flex justify-end gap-2">
-              <Button
-                onClick={() => setPendingTerminalStatus(null)}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={confirmReasonedTransition}
-                size="sm"
-                type="button"
-              >
-                Confirm
-              </Button>
-            </div>
-          </div>
-        ) : null}
+        <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2.5 py-2 text-xs">
+          <span className="text-muted-foreground">Assignee</span>
+          <span className="flex min-w-0 items-center gap-1.5 font-medium">
+            <UserRound aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="truncate">{assigneeLabel}</span>
+            <Badge variant="outline">{assignmentStateLabel}</Badge>
+          </span>
+        </div>
+        <div className="grid gap-2 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,0.72fr)]">
+          <Button
+            className="w-full justify-between"
+            onClick={() => onOpen(item._id)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Open details
+            <ArrowUpRight aria-hidden="true" className="size-4" />
+          </Button>
+          <Select
+            disabled={!mutationsAllowed}
+            onValueChange={(value) => selectStatus(value as ActionStatus)}
+            value={item.status}
+          >
+            <SelectTrigger
+              aria-label={`Status for ${item.title}`}
+              size="sm"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todo">To do</SelectItem>
+              <SelectItem value="in_progress">In progress</SelectItem>
+              <SelectItem value="in_review">In review</SelectItem>
+              <SelectItem value="blocked">Blocked</SelectItem>
+              <SelectItem value="done">Done</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {renderTerminalReasonEditor()}
       </CardPanel>
+
     </Card>
   );
 }

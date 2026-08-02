@@ -345,7 +345,8 @@ vi.mock("convex/react", () => ({
         actionItems: [
           {
             _id: "action-1",
-            assignmentState: "unassigned",
+            assigneeWorkosUserId: "user-broker",
+            assignmentState: "assigned",
             currentRevision: 1,
             priority: "high",
             requiresAcceptance: false,
@@ -932,6 +933,18 @@ describe("BuildCollaborationFeed", () => {
     expect(feed.getAttribute("data-viewer-workos-user-id")).toBe(
       "user_admin"
     );
+  });
+
+  test("shows the current Action Item assignee from the authorized participant catalog", () => {
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+
+    expect(screen.getByText("Assignee")).toBeTruthy();
+    expect(screen.getByText("Priya Raman")).toBeTruthy();
+    expect(screen.getByText("Assigned")).toBeTruthy();
   });
 
   test("keeps shared controls closed until the Build lifecycle resolves", () => {

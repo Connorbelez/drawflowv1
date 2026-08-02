@@ -737,6 +737,22 @@ describe("Build collaboration publication and feed", () => {
         title: "Upload engineer seal",
       }),
     ]);
+    const assignedFeed = await admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      },
+    );
+    expect(assignedFeed.page[0]).toMatchObject({
+      actionItems: [
+        expect.objectContaining({
+          assigneeWorkosUserId: "user_broker",
+          assignmentState: "assigned",
+        }),
+      ],
+    });
     expect(persisted.references).toEqual([
       expect.objectContaining({
         entityId: "user_broker",
