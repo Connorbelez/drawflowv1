@@ -47,6 +47,14 @@ const workflowContextValidator = v.union(
     state: v.literal("visible"),
     viewerCanAcceptAssignment: v.boolean(),
     viewerCanEditFields: v.boolean(),
+    viewerEditAuthority: v.union(
+      v.literal("reader"),
+      v.literal("creator"),
+      v.literal("assignee"),
+      v.literal("assigning_authority"),
+      v.literal("coordinator")
+    ),
+    viewerRequiresEditReason: v.boolean(),
     viewerCanUnassign: v.boolean(),
     viewerWorkosUserId: v.string(),
   })
@@ -100,6 +108,11 @@ export const getBuildActionItemWorkflowContext = authenticatedQuery
         ];
       }
     );
+    const editFieldsDecision = operationDecision(
+      authorization,
+      item,
+      "edit_fields"
+    );
     return {
       assignableParticipants,
       availableTransitions: availableTransitions(authorization, item),
@@ -109,8 +122,11 @@ export const getBuildActionItemWorkflowContext = authenticatedQuery
         item,
         "accept_assignment"
       ).allowed,
-      viewerCanEditFields: operationDecision(authorization, item, "edit_fields")
-        .allowed,
+      viewerCanEditFields: editFieldsDecision.allowed,
+      viewerEditAuthority: editFieldsDecision.authority,
+      viewerRequiresEditReason:
+        editFieldsDecision.allowed &&
+        editFieldsDecision.authority === "coordinator",
       viewerCanUnassign: operationDecision(authorization, item, "assign", {
         targetAssignee: null,
       }).allowed,
@@ -226,6 +242,89 @@ export const acceptBuildActionItemAssignment = authenticatedMutation
   })
   .public();
 
+async function emitDependencyUnblockedNotifications(
+  ctx: MutationCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    completed: Doc<"buildActionItems">;
+    now: number;
+  }
+) {
+  const outgoing = await ctx.db
+    .query("buildActionItemRelations")
+    .withIndex("by_sourceActionItemId_and_status", (query) =>
+      query.eq("sourceActionItemId", input.completed._id).eq("status", "active")
+    )
+    .take(500);
+  for (const relation of outgoing) {
+    if (
+      relation.kind !== "blocks" ||
+      relation.organizationId !== input.authorization.organizationId ||
+      relation.buildId !== input.authorization.build._id
+    ) {
+      continue;
+    }
+    let dependent: Doc<"buildActionItems">;
+    try {
+      dependent = await requireReadableActionItem(
+        ctx,
+        input.authorization,
+        relation.targetActionItemId
+      );
+    } catch {
+      continue;
+    }
+    const incoming = await ctx.db
+      .query("buildActionItemRelations")
+      .withIndex("by_targetActionItemId_and_status", (query) =>
+        query.eq("targetActionItemId", dependent._id).eq("status", "active")
+      )
+      .take(500);
+    let stillBlocked = false;
+    for (const dependency of incoming) {
+      if (dependency.kind !== "blocks") {
+        continue;
+      }
+      const source = await ctx.db.get(dependency.sourceActionItemId);
+      if (!source || source.status !== "done") {
+        stillBlocked = true;
+        break;
+      }
+    }
+    if (stillBlocked) {
+      continue;
+    }
+    const readers = await activeActionItemReaders(
+      ctx,
+      input.authorization,
+      dependent
+    );
+    for (const recipientWorkosUserId of new Set(
+      [dependent.creatorWorkosUserId, dependent.assigneeWorkosUserId].filter(
+        (value): value is string => Boolean(value)
+      )
+    )) {
+      await emitCanonicalBuildCollaborationNotification(ctx, {
+        actionItemId: dependent._id,
+        actionLabel: "Open Action Item",
+        authorization: input.authorization,
+        body: `${dependent.title} is unblocked because ${input.completed.title} is Done.`,
+        dedupeKey: `build-action-item:${dependent._id}:dependency-unblocked:${input.completed._id}:${recipientWorkosUserId}`,
+        entityId: dependent._id,
+        entityLabel: dependent.title,
+        entityType: "buildActionItem",
+        href: `/backoffice/builds/${input.authorization.build._id}?tab=details&focus=actionItem%3A${dependent._id}`,
+        kind: "ordinary_activity",
+        now: input.now,
+        postId: dependent.originatingPostId,
+        readerIds: readers,
+        recipientWorkosUserId,
+        title: "Action Item dependency unblocked",
+      });
+    }
+  }
+}
+
 export const transitionBuildActionItem = authenticatedMutation
   .input({
     actionItemId: v.id("buildActionItems"),
@@ -247,6 +346,12 @@ export const transitionBuildActionItem = authenticatedMutation
       args.actionItemId
     );
     assertExpectedRevision(item, args.expectedRevision);
+    await assertDependencyCompletionPreconditions(
+      ctx,
+      authorization,
+      item,
+      args.nextStatus
+    );
     assertWorkflowTransitionPreconditions(authorization, item, args.nextStatus);
     const operation = statusOperation(item, args.nextStatus);
     const decision = operationDecision(authorization, item, operation, {
@@ -291,6 +396,13 @@ export const transitionBuildActionItem = authenticatedMutation
       recipientWorkosUserId,
       updated,
     });
+    if (item.status !== "done" && updated.status === "done") {
+      await emitDependencyUnblockedNotifications(ctx, {
+        authorization,
+        completed: updated,
+        now,
+      });
+    }
     return item._id;
   })
   .public();
@@ -402,6 +514,42 @@ function assertWorkflowTransitionPreconditions(
     throw new Error(
       "Governed work must be submitted for review before Done is accepted."
     );
+  }
+}
+
+async function assertDependencyCompletionPreconditions(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  item: Doc<"buildActionItems">,
+  nextStatus: Doc<"buildActionItems">["status"]
+) {
+  if (nextStatus !== "done") {
+    return;
+  }
+  const incoming = await ctx.db
+    .query("buildActionItemRelations")
+    .withIndex("by_targetActionItemId_and_status", (query) =>
+      query.eq("targetActionItemId", item._id).eq("status", "active")
+    )
+    .take(501);
+  if (incoming.length > 500) {
+    throw new Error("Action Item dependencies exceed the supported limit.");
+  }
+  for (const relation of incoming) {
+    if (
+      relation.kind !== "blocks" ||
+      relation.organizationId !== authorization.organizationId ||
+      relation.brokerageId !== authorization.brokerage._id ||
+      relation.buildId !== authorization.build._id
+    ) {
+      continue;
+    }
+    const dependency = await ctx.db.get(relation.sourceActionItemId);
+    if (!dependency || dependency.status !== "done") {
+      throw new Error(
+        "Every dependency must be Done before this Action Item can move to Done."
+      );
+    }
   }
 }
 
@@ -647,14 +795,7 @@ function requiredTransitionReason(
   submittedReason: string | undefined
 ) {
   const reason = submittedReason?.trim();
-  if (
-    (nextStatus === "blocked" ||
-      nextStatus === "cancelled" ||
-      item.status === "blocked" ||
-      item.status === "cancelled" ||
-      item.status === "done") &&
-    !reason
-  ) {
+  if ((nextStatus === "blocked" || item.status === "done") && !reason) {
     throw new Error("This Action Item transition requires a reason.");
   }
   return reason;

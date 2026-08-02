@@ -2676,6 +2676,12 @@ export default defineSchema({
       "organizationId",
       "recipientWorkosUserId",
       "dedupeKey",
+    ])
+    .index("by_recipient_actionItem_status", [
+      "organizationId",
+      "recipientWorkosUserId",
+      "collaborationActionItemId",
+      "status",
     ]),
   buildCollaborationDeliveryBatches: defineTable({
     organizationId: v.string(),
@@ -4562,8 +4568,30 @@ export default defineSchema({
     authorRole: buildCollaborationRoleValidator,
     tiptapJson: v.string(),
     plainText: v.string(),
+    parentCommentId: v.optional(v.id("buildActionItemComments")),
     createdAt: v.number(),
-  }).index("by_actionItemId_and_createdAt", ["actionItemId", "createdAt"]),
+  })
+    .index("by_actionItemId_and_createdAt", ["actionItemId", "createdAt"])
+    .index("by_parentCommentId_and_createdAt", [
+      "parentCommentId",
+      "createdAt",
+    ]),
+  buildActionItemCommentReactions: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    actionItemId: v.id("buildActionItems"),
+    commentId: v.id("buildActionItemComments"),
+    workosUserId: v.string(),
+    reaction: buildCollaborationReactionValidator,
+    createdAt: v.number(),
+  })
+    .index("by_commentId", ["commentId"])
+    .index("by_commentId_and_workosUserId_and_reaction", [
+      "commentId",
+      "workosUserId",
+      "reaction",
+    ]),
   buildActionItemCreationRequests: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

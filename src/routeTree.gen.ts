@@ -25,6 +25,7 @@ import { Route as BuilderIndexRouteImport } from './routes/builder/index'
 import { Route as BuilderStaffIndexRouteImport } from './routes/builder-staff/index'
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
 import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
+import { Route as PrototypeActionItemsRouteImport } from './routes/prototype/action-items'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
 import { Route as DemoWorkosRouteImport } from './routes/demo/workos'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
@@ -181,6 +182,11 @@ const PrototypeBuildCollaborationRoute =
     path: '/prototype/build-collaboration',
     getParentRoute: () => rootRouteImport,
   } as any)
+const PrototypeActionItemsRoute = PrototypeActionItemsRouteImport.update({
+  id: '/prototype/action-items',
+  path: '/prototype/action-items',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProposalClaimClaimTokenRoute = ProposalClaimClaimTokenRouteImport.update({
   id: '/proposal-claim/$claimToken',
   path: '/proposal-claim/$claimToken',
@@ -625,6 +631,7 @@ export interface FileRoutesByFullPath {
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
+  '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
@@ -704,6 +711,7 @@ export interface FileRoutesByTo {
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
+  '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/backoffice': typeof BackofficeIndexRoute
   '/builder-staff': typeof BuilderStaffIndexRoute
@@ -791,6 +799,7 @@ export interface FileRoutesById {
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/demo/workos': typeof DemoWorkosRoute
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
+  '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
@@ -885,6 +894,7 @@ export interface FileRouteTypes {
     | '/demo/tanstack-query'
     | '/demo/workos'
     | '/proposal-claim/$claimToken'
+    | '/prototype/action-items'
     | '/prototype/build-collaboration'
     | '/backoffice/'
     | '/builder-staff/'
@@ -964,6 +974,7 @@ export interface FileRouteTypes {
     | '/demo/tanstack-query'
     | '/demo/workos'
     | '/proposal-claim/$claimToken'
+    | '/prototype/action-items'
     | '/prototype/build-collaboration'
     | '/backoffice'
     | '/builder-staff'
@@ -1050,6 +1061,7 @@ export interface FileRouteTypes {
     | '/demo/tanstack-query'
     | '/demo/workos'
     | '/proposal-claim/$claimToken'
+    | '/prototype/action-items'
     | '/prototype/build-collaboration'
     | '/backoffice/'
     | '/builder-staff/'
@@ -1120,6 +1132,7 @@ export interface RootRouteChildren {
   ProtectedAccessRoute: typeof ProtectedAccessRoute
   ApiReleaseRoute: typeof ApiReleaseRoute
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
+  PrototypeActionItemsRoute: typeof PrototypeActionItemsRoute
   PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
@@ -1238,6 +1251,13 @@ declare module '@tanstack/react-router' {
       path: '/prototype/build-collaboration'
       fullPath: '/prototype/build-collaboration'
       preLoaderRoute: typeof PrototypeBuildCollaborationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prototype/action-items': {
+      id: '/prototype/action-items'
+      path: '/prototype/action-items'
+      fullPath: '/prototype/action-items'
+      preLoaderRoute: typeof PrototypeActionItemsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/proposal-claim/$claimToken': {
@@ -2166,6 +2186,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProtectedAccessRoute: ProtectedAccessRoute,
   ApiReleaseRoute: ApiReleaseRoute,
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
+  PrototypeActionItemsRoute: PrototypeActionItemsRoute,
   PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,

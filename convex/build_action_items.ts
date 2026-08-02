@@ -15,6 +15,7 @@ import {
   type BuildActionItemAuthorizationDecision,
   type BuildActionItemOperation,
 } from "./build_action_item_rbac";
+import { canonicalBuildActionItemTags } from "./build_action_item_tags";
 import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
@@ -524,13 +525,16 @@ export const updateBuildActionItem = authenticatedMutation
     descriptionTiptapJson: v.optional(v.string()),
     dueAt: v.optional(v.union(v.number(), v.null())),
     expectedRevision: v.optional(v.number()),
+    labels: v.optional(v.array(v.string())),
     organizationId: v.string(),
     priority: v.optional(buildActionItemPriorityValidator),
+    references: v.optional(v.array(referenceInputValidator)),
     reason: v.optional(v.string()),
     requiresAcceptance: v.optional(v.boolean()),
     title: v.optional(v.string()),
   })
   .returns(v.id("buildActionItems"))
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Task-definition updates intentionally keep authority, concurrency, taxonomy, references, and audit persistence in one transaction.
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildHumanCollaborationAccess(
       ctx,
@@ -541,14 +545,6 @@ export const updateBuildActionItem = authenticatedMutation
       authorization,
       args.actionItemId
     );
-    if (
-      args.expectedRevision !== undefined &&
-      args.expectedRevision !== item.currentRevision
-    ) {
-      throw new Error(
-        "This Action Item changed since you opened it. Refresh and try again."
-      );
-    }
     assertCompletionAcceptanceChange(
       authorization,
       item,
@@ -562,6 +558,8 @@ export const updateBuildActionItem = authenticatedMutation
       args.title !== undefined ||
       args.descriptionPlainText !== undefined ||
       args.descriptionTiptapJson !== undefined ||
+      args.references !== undefined ||
+      args.labels !== undefined ||
       args.priority !== undefined ||
       args.dueAt !== undefined ||
       args.requiresAcceptance !== undefined
@@ -573,11 +571,58 @@ export const updateBuildActionItem = authenticatedMutation
     if (decisions.length === 0) {
       throw new Error("No Action Item changes were submitted.");
     }
+    const editDecision = decisions[0];
+    if (editDecision?.authority === "coordinator" && !args.reason?.trim()) {
+      throw new Error(
+        "Manager task-definition overrides require an override reason."
+      );
+    }
+    const staleHigherAuthorityOverride = await permitsStaleDescriptionOverride(
+      ctx,
+      {
+        authorization,
+        currentRevision: item.currentRevision,
+        expectedRevision: args.expectedRevision,
+        hasDescriptionChange:
+          args.descriptionPlainText !== undefined ||
+          args.descriptionTiptapJson !== undefined ||
+          args.references !== undefined,
+        item,
+      }
+    );
     const now = Date.now();
     const patch: Partial<Doc<"buildActionItems">> = {
       currentRevision: item.currentRevision + 1,
       updatedAt: now,
     };
+    let canonicalDescriptionReferences:
+      | CanonicalBuildCollaborationReference[]
+      | undefined;
+    let descriptionPost: Doc<"buildCollaborationPosts"> | undefined;
+    let descriptionReaderIds: string[] | undefined;
+    if (args.references !== undefined) {
+      descriptionPost = (await ctx.db.get(item.originatingPostId)) ?? undefined;
+      if (!descriptionPost) {
+        throw new Error("Action Item parent post is unavailable.");
+      }
+      descriptionReaderIds = await resolveCurrentCollaborationPostReaderIds(
+        ctx,
+        authorization,
+        descriptionPost
+      );
+      canonicalDescriptionReferences =
+        await resolveCanonicalBuildCollaborationReferences(ctx, {
+          authorization,
+          readerIds: descriptionReaderIds,
+          references: args.references,
+        });
+      const canonicalContent = canonicalizeTiptapReferences(
+        args.descriptionTiptapJson ?? item.descriptionTiptapJson,
+        canonicalDescriptionReferences
+      );
+      patch.descriptionPlainText = canonicalContent.plainText;
+      patch.descriptionTiptapJson = canonicalContent.tiptapJson;
+    }
     if (args.title !== undefined) {
       const title = args.title.trim();
       if (!title) {
@@ -588,7 +633,10 @@ export const updateBuildActionItem = authenticatedMutation
     if (args.descriptionPlainText !== undefined) {
       patch.descriptionPlainText = args.descriptionPlainText.trim();
     }
-    if (args.descriptionTiptapJson !== undefined) {
+    if (
+      args.descriptionTiptapJson !== undefined &&
+      canonicalDescriptionReferences === undefined
+    ) {
       validateTiptapJson(args.descriptionTiptapJson);
       patch.descriptionTiptapJson = args.descriptionTiptapJson;
     }
@@ -598,6 +646,36 @@ export const updateBuildActionItem = authenticatedMutation
     applyManualDueDatePatch(item, args.dueAt, patch);
     if (args.requiresAcceptance !== undefined) {
       patch.requiresAcceptance = args.requiresAcceptance;
+    }
+    if (args.labels !== undefined) {
+      await replaceBuildActionItemLabels(ctx, {
+        actionItemId: item._id,
+        authorization,
+        labels: args.labels,
+        now,
+      });
+    }
+    if (canonicalDescriptionReferences !== undefined && descriptionPost) {
+      const existingReferences = await ctx.db
+        .query("buildCollaborationReferences")
+        .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+          query.eq("ownerKind", "actionItem").eq("ownerRecordId", item._id)
+        )
+        .take(100);
+      for (const reference of existingReferences) {
+        await ctx.db.delete(reference._id);
+      }
+      await persistBuildActionItemReferences(ctx, {
+        actionItemId: item._id,
+        authorization,
+        now,
+        postId: descriptionPost._id,
+        queueSortAt:
+          patch.queueSortAt ??
+          item.queueSortAt ??
+          buildActionItemQueueSortAt(item.dueAt, item.status),
+        references: canonicalDescriptionReferences,
+      });
     }
     await ctx.db.patch(item._id, patch);
     if (patch.queueSortAt !== undefined) {
@@ -626,9 +704,12 @@ export const updateBuildActionItem = authenticatedMutation
       revision: item.currentRevision + 1,
       warnings: [
         ...new Set(
-          decisions
-            .map((decision) => decision.warning)
-            .filter((warning): warning is string => Boolean(warning))
+          [
+            ...decisions.map((decision) => decision.warning),
+            staleHigherAuthorityOverride
+              ? "higher_authority_concurrent_override"
+              : undefined,
+          ].filter((warning): warning is string => Boolean(warning))
         ),
       ],
       priorState: JSON.stringify(actionItemAuditState(item)),
@@ -644,9 +725,86 @@ export const updateBuildActionItem = authenticatedMutation
       owner: { id: item._id, kind: "actionItem" },
       postId: item.originatingPostId,
     });
+    if (
+      canonicalDescriptionReferences !== undefined &&
+      descriptionPost &&
+      descriptionReaderIds
+    ) {
+      for (const mentionedWorkosUserId of new Set(
+        canonicalDescriptionReferences
+          .filter((reference) => reference.entityKind === "participant")
+          .map((reference) => reference.entityId)
+      )) {
+        await emitCanonicalBuildCollaborationNotification(ctx, {
+          actionItemId: item._id,
+          actionLabel: "Open Action Item",
+          authorization,
+          body: patch.descriptionPlainText ?? updatedItem.descriptionPlainText,
+          dedupeKey: `build-action-item:${item._id}:revision:${updatedItem.currentRevision}:mention:${mentionedWorkosUserId}`,
+          entityId: item._id,
+          entityLabel: updatedItem.title,
+          entityType: "buildActionItem",
+          href: buildCollaborationDeepLink({
+            buildId: authorization.build._id,
+            focus: `actionItem:${item._id}`,
+            recipientRole: authorization.participants.find(
+              (participant) =>
+                participant.workosUserId === mentionedWorkosUserId
+            )?.role,
+          }),
+          kind: "direct_mention",
+          now,
+          postId: descriptionPost._id,
+          readerIds: descriptionReaderIds,
+          recipientWorkosUserId: mentionedWorkosUserId,
+          title: "Mentioned in an Action Item",
+        });
+      }
+    }
     return item._id;
   })
   .public();
+
+async function permitsStaleDescriptionOverride(
+  ctx: MutationCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    currentRevision: number;
+    expectedRevision?: number;
+    hasDescriptionChange: boolean;
+    item: Doc<"buildActionItems">;
+  }
+) {
+  if (
+    input.expectedRevision === undefined ||
+    input.expectedRevision === input.currentRevision
+  ) {
+    return false;
+  }
+  if (!input.hasDescriptionChange) {
+    throw new Error(
+      "This Action Item changed since you opened it. Refresh and try again."
+    );
+  }
+  const latestRevision = await ctx.db
+    .query("buildActionItemRevisions")
+    .withIndex("by_actionItemId_and_revision", (query) =>
+      query
+        .eq("actionItemId", input.item._id)
+        .eq("revision", input.currentRevision)
+    )
+    .unique();
+  const currentTier = input.authorization.effectiveRole.tier;
+  const latestTier = latestRevision
+    ? collaborationRoleTier(latestRevision.actorRole)
+    : collaborationRoleTier(input.item.creatorRole ?? "contractor");
+  if (currentTier > latestTier) {
+    return true;
+  }
+  throw new Error(
+    "Description conflict: another editor saved first. Your text was not overwritten; refresh before retrying."
+  );
+}
 
 function applyManualDueDatePatch(
   item: Doc<"buildActionItems">,
@@ -1020,19 +1178,9 @@ async function persistBuildActionItemLabels(
     now: number;
   }
 ) {
-  const labelByNormalizedValue = new Map<string, string>();
-  for (const submittedLabel of input.labels) {
-    const label = submittedLabel.trim();
+  const labels = canonicalBuildActionItemTags(input.labels);
+  for (const label of labels) {
     const normalizedLabel = label.toLocaleLowerCase();
-    if (label && !labelByNormalizedValue.has(normalizedLabel)) {
-      labelByNormalizedValue.set(normalizedLabel, label);
-    }
-  }
-  const labels = [...labelByNormalizedValue.entries()].slice(0, 20);
-  for (const [normalizedLabel, label] of labels) {
-    if (label.length > 80) {
-      throw new Error("Action Item labels may not exceed 80 characters.");
-    }
     await ctx.db.insert("buildActionItemLabels", {
       actionItemId: input.actionItemId,
       brokerageId: input.authorization.brokerage._id,
@@ -1044,6 +1192,26 @@ async function persistBuildActionItemLabels(
       organizationId: input.authorization.organizationId,
     });
   }
+}
+
+async function replaceBuildActionItemLabels(
+  ctx: MutationCtx,
+  input: Parameters<typeof persistBuildActionItemLabels>[1]
+) {
+  const existing = await ctx.db
+    .query("buildActionItemLabels")
+    .withIndex("by_actionItemId_and_normalizedLabel", (query) =>
+      query.eq("actionItemId", input.actionItemId)
+    )
+    .take(101);
+  if (existing.length > 100) {
+    throw new Error("Action Item tags exceed the supported limit.");
+  }
+  const canonical = canonicalBuildActionItemTags(input.labels);
+  for (const row of existing) {
+    await ctx.db.delete(row._id);
+  }
+  await persistBuildActionItemLabels(ctx, { ...input, labels: canonical });
 }
 
 async function persistBuildActionItemAttachments(

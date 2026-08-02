@@ -12,6 +12,18 @@ import {
 import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+const localStorageValues = new Map<string, string>();
+Object.defineProperty(window, "localStorage", {
+  configurable: true,
+  value: {
+    clear: () => localStorageValues.clear(),
+    getItem: (key: string) => localStorageValues.get(key) ?? null,
+    removeItem: (key: string) => localStorageValues.delete(key),
+    setItem: (key: string, value: string) =>
+      localStorageValues.set(key, String(value)),
+  },
+});
+
 const searchAction = vi.hoisted(() => vi.fn());
 const offlineDraftMocks = vi.hoisted(() => ({
   deleteDraft: vi.fn().mockResolvedValue(undefined),
@@ -345,13 +357,18 @@ vi.mock("convex/react", () => ({
         actionItems: [
           {
             _id: "action-1",
+            actionableUnreadCount: 3,
             assigneeWorkosUserId: "user-broker",
             assignmentState: "assigned",
+            createdAt: Date.parse("2026-07-28T12:00:00.000Z"),
             currentRevision: 1,
+            dependencyCount: 2,
             priority: "high",
             requiresAcceptance: false,
             status: "todo",
             title: "Upload engineer seal",
+            unblocksCount: 1,
+            unreadCommentCount: 2,
           },
         ],
         following: true,
@@ -493,6 +510,8 @@ vi.mock("convex/react", () => ({
         comments: [],
         item: {
           actionItemId: "action-1",
+          assigneeDisplayName: "Alex Chen",
+          assigneeWorkosUserId: "user-builder",
           assignmentState: mocks.actionItemAssignmentState,
           audienceMode: "build_wide",
           createdAt: now,
@@ -838,6 +857,7 @@ vi.mock(
 
 import {
   buildActionItemQueueHref,
+  buildActionItemSheetHref,
   BuildCollaborationFeed,
   minimumScheduledPublicationTimestamp,
 } from "./BuildCollaborationFeed";
@@ -850,6 +870,8 @@ afterEach(() => {
     value: undefined,
   });
   cleanup();
+  window.localStorage.clear();
+  window.history.replaceState(window.history.state, "", "/");
   Object.defineProperty(navigator, "onLine", {
     configurable: true,
     value: true,
@@ -921,6 +943,22 @@ afterEach(() => {
 });
 
 describe("BuildCollaborationFeed", () => {
+  test("keeps Action Item sheet URLs addressable without discarding other search state", () => {
+    expect(
+      buildActionItemSheetHref(
+        "https://drawflow.test/builder/builds/build-1?tab=details&filter=mine",
+        "action-9"
+      )
+    ).toBe(
+      "/builder/builds/build-1?tab=details&filter=mine&focus=actionItem%3Aaction-9"
+    );
+    expect(
+      buildActionItemSheetHref(
+        "https://drawflow.test/builder/builds/build-1?tab=details&focus=actionItem%3Aaction-9&filter=mine"
+      )
+    ).toBe("/builder/builds/build-1?tab=details&filter=mine");
+  });
+
   test("renders the server-derived viewer binding for production persona verification", () => {
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
@@ -933,18 +971,93 @@ describe("BuildCollaborationFeed", () => {
     expect(feed.getAttribute("data-viewer-workos-user-id")).toBe(
       "user_admin"
     );
+    expect(feed.classList.contains("build-collaboration-layout")).toBe(true);
+    expect(feed.parentElement?.getAttribute("data-slot")).toBe("frame");
+    expect(
+      feed.querySelector(".build-collaboration-main")?.getAttribute("data-slot")
+    ).toBe("frame-panel");
+    expect(
+      feed
+        .querySelector('aside[aria-label="My collaboration work"]')
+        ?.classList.contains("build-collaboration-rail")
+    ).toBe(true);
+    expect(
+      feed
+        .querySelector('aside[aria-label="Build collaboration context"]')
+        ?.classList.contains("build-collaboration-context-rail")
+    ).toBe(true);
   });
 
-  test("shows the current Action Item assignee from the authorized participant catalog", () => {
+  test("distills list Action Items into a clickable card with compact metadata", () => {
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" })
+    );
 
-    expect(screen.getByText("Assignee")).toBeTruthy();
-    expect(screen.getByText("Priya Raman")).toBeTruthy();
-    expect(screen.getByText("Assigned")).toBeTruthy();
+    const actionItemCard = screen.getByRole("button", {
+      name: "Open Action Item: Upload engineer seal",
+    });
+    expect(actionItemCard.getAttribute("data-slot")).toBe("card");
+    expect(
+      actionItemCard.querySelector('[aria-label="Assignee: Priya Raman"]')
+    ).toBeTruthy();
+    expect(within(actionItemCard).getByText("Blocked by 2")).toBeTruthy();
+    expect(within(actionItemCard).getByText("Blocking 1")).toBeTruthy();
+    expect(
+      within(actionItemCard).getByLabelText("2 unread comments")
+    ).toBeTruthy();
+    expect(
+      within(actionItemCard).getByLabelText("1 other unread updates")
+    ).toBeTruthy();
+    expect(screen.queryByText("Assignee")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open details" })).toBeNull();
+    expect(
+      screen.getByRole("combobox", {
+        name: "Status for Upload engineer seal",
+      })
+    ).toBeTruthy();
+  });
+
+  test("uses the board column as status context and opens the whole Action Item card", async () => {
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    expect(
+      screen.queryByRole("combobox", {
+        name: "Status for Upload engineer seal",
+      })
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open details" })).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open Action Item: Upload engineer seal",
+      })
+    );
+
+    expect(await screen.findByText("Structured work")).toBeTruthy();
+  });
+
+  test("restores the last browser-only Action Item view preference", () => {
+    window.localStorage.setItem(
+      "drawflow:build-collaboration:action-item-view",
+      "list"
+    );
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    expect(
+      screen.getByRole("combobox", {
+        name: "Status for Upload engineer seal",
+      })
+    ).toBeTruthy();
   });
 
   test("keeps shared controls closed until the Build lifecycle resolves", () => {
@@ -990,7 +1103,9 @@ describe("BuildCollaborationFeed", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Open details" })
+      await screen.findByRole("button", {
+        name: "Open Action Item: Upload engineer seal",
+      })
     );
 
     expect(await screen.findByText("Structured work")).toBeTruthy();
@@ -1713,9 +1828,8 @@ describe("BuildCollaborationFeed", () => {
     fireEvent.click(screen.getByRole("button", {
       name: "Mock Action Item description",
     }));
-    fireEvent.change(screen.getByLabelText("Action Item labels"), {
-      target: { value: "Evidence, Draw 3" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Evidence" }));
+    fireEvent.click(screen.getByRole("button", { name: "Draw" }));
     fireEvent.click(
       screen.getByRole("button", { name: "Create Action Item" }),
     );
@@ -1725,7 +1839,7 @@ describe("BuildCollaborationFeed", () => {
         expect.objectContaining({
           buildId: "build-1",
           descriptionPlainText: "Useful accountable work.",
-          labels: ["Evidence", "Draw 3"],
+          labels: ["Evidence", "Draw"],
           organizationId: "org-1",
           postId: "post-1",
           priority: "none",
@@ -1807,16 +1921,36 @@ describe("BuildCollaborationFeed", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Open details" }),
+      await screen.findByRole("button", {
+        name: "Open Action Item: Upload engineer seal",
+      }),
     );
 
     expect(
       await screen.findByRole("heading", { name: "Upload engineer seal" }),
     ).toBeTruthy();
+    expect(screen.getByText("Visible to all")).toBeTruthy();
+    expect(screen.queryByText("Audience inherited from the post")).toBeNull();
+    expect(
+      screen.getByRole("combobox", { name: "Assign Action Item" }).textContent,
+    ).toContain("Alex Chen");
+    expect(
+      screen.getByRole("combobox", { name: "Assign Action Item" }).textContent,
+    ).not.toContain("user-builder");
+    const collaborationRecord = screen
+      .getByRole("heading", { name: "Discussion" })
+      .closest('[data-slot="frame"]');
+    expect(collaborationRecord).toBeTruthy();
+    expect(
+      within(collaborationRecord as HTMLElement).getByText("Revision history"),
+    ).toBeTruthy();
+    expect(
+      within(collaborationRecord as HTMLElement).getByText("Activity"),
+    ).toBeTruthy();
     expect(screen.getByText("Revision history")).toBeTruthy();
     expect(screen.getByText("Activity")).toBeTruthy();
     fireEvent.click(
-      screen.getByRole("button", { name: /Foundation completion photo/ })
+      screen.getAllByRole("button", { name: /Foundation completion photo/ })[0]
     );
     expect(
       screen.getByRole("heading", { name: "Foundation completion photo" })
@@ -1830,13 +1964,18 @@ describe("BuildCollaborationFeed", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Open details" }),
+      screen.getByRole("button", { name: "Show Action Items as a list" })
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Upload engineer seal",
+      }),
     );
 
     expect(screen.getByText("Structured work")).toBeTruthy();
     expect(screen.getByText("Collect engineer seal")).toBeTruthy();
     expect(screen.getByText("Confirm file naming")).toBeTruthy();
-    expect(screen.getByText("Release Draw 3")).toBeTruthy();
+    expect(screen.getAllByText("Release Draw 3").length).toBeGreaterThan(0);
     expect(screen.getByText("Permission conflict")).toBeTruthy();
 
     mocks.mutate.mockClear();
@@ -1908,11 +2047,21 @@ describe("BuildCollaborationFeed", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Open details" })
+      await screen.findByRole("button", {
+        name: "Open Action Item: Upload engineer seal",
+      })
     );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "in progress" })
+    mocks.mutate.mockClear();
+    fireEvent.change(
+      await screen.findByRole("combobox", {
+        name: "Change Action Item status",
+      }),
+      { target: { value: "in_progress" } }
     );
+    expect(
+      screen.getByRole("combobox", { name: "Change Action Item status" })
+        .textContent
+    ).toContain("In progress");
 
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith({
@@ -1922,6 +2071,27 @@ describe("BuildCollaborationFeed", () => {
         nextStatus: "in_progress",
         organizationId: "org-1",
         reason: undefined,
+      })
+    );
+
+    mocks.mutate.mockClear();
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Change Action Item status" }),
+      { target: { value: "blocked" } }
+    );
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Action Item transition reason"), {
+      target: { value: "Waiting for the engineer seal" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Blocked" }));
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        actionItemId: "action-1",
+        buildId: "build-1",
+        expectedRevision: 1,
+        nextStatus: "blocked",
+        organizationId: "org-1",
+        reason: "Waiting for the engineer seal",
       })
     );
   });
@@ -1938,7 +2108,9 @@ describe("BuildCollaborationFeed", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Open details" })
+      await screen.findByRole("button", {
+        name: "Open Action Item: Upload engineer seal",
+      })
     );
 
     expect(screen.getByText("Governed completion")).toBeTruthy();
@@ -1954,8 +2126,10 @@ describe("BuildCollaborationFeed", () => {
       })
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Submit for review" })
+    mocks.mutate.mockClear();
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Change Action Item status" }),
+      { target: { value: "in_review" } }
     );
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith(
@@ -1977,13 +2151,15 @@ describe("BuildCollaborationFeed", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Open details" })
+      await screen.findByRole("button", {
+        name: "Open Action Item: Upload engineer seal",
+      })
     );
 
     expect(screen.getByText("Ordinary work")).toBeTruthy();
     expect(screen.getByText("Governed completion")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Submit for review" })
+      screen.getByRole("combobox", { name: "Change Action Item status" })
     ).toBeTruthy();
   });
 
@@ -2810,6 +2986,9 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.queryByRole("button", { name: "Write a reply…" })).toBeNull();
     expect(screen.getByText(/archived discussion is available to read/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" })
+    );
     expect(
       (await screen.findByRole("button", {
         name: "Add Action Item",

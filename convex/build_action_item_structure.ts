@@ -382,9 +382,12 @@ export const toggleBuildActionItemChecklistItem = authenticatedMutation
 export const linkBuildActionItems = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
+    expectedGoverningRevision: v.optional(v.number()),
     expectedSourceRevision: v.optional(v.number()),
+    governingActionItemId: v.optional(v.id("buildActionItems")),
     kind: buildActionRelationKindValidator,
     organizationId: v.string(),
+    reason: v.optional(v.string()),
     sourceActionItemId: v.id("buildActionItems"),
     targetActionItemId: v.id("buildActionItems"),
   })
@@ -401,7 +404,26 @@ export const linkBuildActionItems = authenticatedMutation
     if (source._id === target._id) {
       throw new Error("An Action Item cannot relate to itself.");
     }
-    const decision = assertOperation(authorization, source, "link_relation");
+    const governing = args.governingActionItemId
+      ? args.governingActionItemId === source._id
+        ? source
+        : args.governingActionItemId === target._id
+          ? target
+          : null
+      : source;
+    if (!governing) {
+      throw new Error(
+        "The governing Action Item must be one endpoint of the relationship."
+      );
+    }
+    const decision = assertOperation(authorization, governing, "link_relation");
+    if (decision.authority === "coordinator" && !args.reason?.trim()) {
+      throw new Error(
+        "Manager dependency overrides require an override reason."
+      );
+    }
+    const expectedGoverningRevision =
+      args.expectedGoverningRevision ?? args.expectedSourceRevision;
     const relationshipKey = actionItemRelationshipKey(
       args.kind,
       source._id,
@@ -420,12 +442,12 @@ export const linkBuildActionItems = authenticatedMutation
     });
     if (existing) {
       if (existing.relationshipKey !== relationshipKey) {
-        assertExpectedRevision(source, args.expectedSourceRevision);
+        assertExpectedRevision(governing, expectedGoverningRevision);
         await ctx.db.patch(existing._id, { relationshipKey });
       }
       return existing._id;
     }
-    assertExpectedRevision(source, args.expectedSourceRevision);
+    assertExpectedRevision(governing, expectedGoverningRevision);
     await assertRelationshipReaderCompatibility(ctx, {
       authorization,
       kind: args.kind,
@@ -463,11 +485,89 @@ export const linkBuildActionItems = authenticatedMutation
       decision,
       eventType: "relation_linked",
       now,
+      reason: args.reason?.trim(),
       relationId,
       sourceActionItemId: source._id,
       targetActionItemId: target._id,
     });
     return relationId;
+  })
+  .public();
+
+export const unlinkBuildActionItemRelation = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    expectedGoverningRevision: v.optional(v.number()),
+    governingActionItemId: v.id("buildActionItems"),
+    organizationId: v.string(),
+    reason: v.optional(v.string()),
+    relationId: v.id("buildActionItemRelations"),
+  })
+  .returns(v.id("buildActionItemRelations"))
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
+      ctx,
+      args
+    );
+    const relation = await ctx.db.get(args.relationId);
+    if (
+      !relation ||
+      relation.status !== "active" ||
+      relation.buildId !== authorization.build._id ||
+      relation.organizationId !== authorization.organizationId ||
+      relation.brokerageId !== authorization.brokerage._id
+    ) {
+      throw new Error("The Action Item relationship is unavailable.");
+    }
+    if (
+      relation.sourceActionItemId !== args.governingActionItemId &&
+      relation.targetActionItemId !== args.governingActionItemId
+    ) {
+      throw new Error(
+        "The governing Action Item must be one endpoint of the relationship."
+      );
+    }
+    const governing = await requireReadableActionItem(
+      ctx,
+      authorization,
+      args.governingActionItemId
+    );
+    await Promise.all([
+      requireReadableActionItem(
+        ctx,
+        authorization,
+        relation.sourceActionItemId
+      ),
+      requireReadableActionItem(
+        ctx,
+        authorization,
+        relation.targetActionItemId
+      ),
+    ]);
+    assertExpectedRevision(governing, args.expectedGoverningRevision);
+    const decision = assertOperation(authorization, governing, "link_relation");
+    if (decision.authority === "coordinator" && !args.reason?.trim()) {
+      throw new Error(
+        "Manager dependency overrides require an override reason."
+      );
+    }
+    const now = Date.now();
+    await ctx.db.patch(relation._id, {
+      status: "superseded",
+      supersededAt: now,
+      updatedAt: now,
+    });
+    await recordRelationLifecycle(ctx, {
+      authorization,
+      decision,
+      eventType: "relation_unlinked",
+      now,
+      reason: args.reason?.trim(),
+      relationId: relation._id,
+      sourceActionItemId: relation.sourceActionItemId,
+      targetActionItemId: relation.targetActionItemId,
+    });
+    return relation._id;
   })
   .public();
 

@@ -3,8 +3,20 @@
 import type { JSONContent } from "@tiptap/react";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { History, MessageCircle, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpRight,
+  CalendarClock,
+  ChevronRight,
+  Clock3,
+  History,
+  MessageCircle,
+  ShieldCheck,
+  UserRound,
+  X,
+} from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "#/components/ui/badge.tsx";
@@ -14,6 +26,10 @@ import { Checkbox } from "#/components/ui/checkbox.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Label } from "#/components/ui/label.tsx";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "#/components/ui/native-select.tsx";
 import {
   Select,
   SelectContent,
@@ -33,12 +49,17 @@ import {
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
+  BUILD_ACTION_ITEM_TAGS,
+  type BuildActionItemTag,
+} from "../../../convex/build_action_item_tags";
+import {
   BuildCollaborationAssetList,
   type BuildCollaborationAssetSummary,
 } from "./BuildCollaborationAssetList.tsx";
 import {
   useBuildCollaborationAction,
   useBuildCollaborationMutation,
+  useBuildCollaborationReadMutation,
 } from "./BuildCollaborationMutationGate.tsx";
 import { BuildCollaborationReferenceChip } from "./BuildCollaborationReference.tsx";
 import {
@@ -92,6 +113,7 @@ export function BuildActionItemDetailSheet({
   onCreated,
   onOpenChange,
   onReferenceOpen,
+  onTargetChange,
   open,
   organizationId,
   readOnly = false,
@@ -103,6 +125,7 @@ export function BuildActionItemDetailSheet({
   onCreated?: (actionItemId: Id<"buildActionItems">) => void;
   onOpenChange: (open: boolean) => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
+  onTargetChange?: (target: BuildActionItemSheetTarget) => void;
   open: boolean;
   organizationId: string;
   readOnly?: boolean;
@@ -115,9 +138,49 @@ export function BuildActionItemDetailSheet({
     api.build_action_item_details.getBuildActionItemDetail,
     open && actionItemId ? { actionItemId, buildId, organizationId } : "skip"
   ) as ActionItemDetail | undefined;
+  const [history, setHistory] = useState<Id<"buildActionItems">[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const navigatingHistory = useRef(false);
+  useEffect(() => {
+    if (!(open && actionItemId)) {
+      if (!open) {
+        setHistory([]);
+        setHistoryIndex(-1);
+      }
+      return;
+    }
+    if (navigatingHistory.current) {
+      navigatingHistory.current = false;
+      return;
+    }
+    setHistory((current) => {
+      if (current[historyIndex] === actionItemId) {
+        return current;
+      }
+      const next = [...current.slice(0, historyIndex + 1), actionItemId];
+      setHistoryIndex(next.length - 1);
+      return next;
+    });
+  }, [actionItemId, historyIndex, open]);
+  const navigateHistory = (offset: -1 | 1) => {
+    const nextIndex = historyIndex + offset;
+    const nextActionItemId = history[nextIndex];
+    if (!nextActionItemId) {
+      return;
+    }
+    navigatingHistory.current = true;
+    setHistoryIndex(nextIndex);
+    onTargetChange?.({ actionItemId: nextActionItemId, kind: "detail" });
+  };
   return (
-    <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetPopup side="right" variant="inset">
+    <Sheet modal={false} onOpenChange={onOpenChange} open={open}>
+      <SheetPopup
+        backdropClassName="hidden"
+        className="pointer-events-auto h-svh max-h-svh w-full max-w-none shadow-2xl sm:w-[min(34vw,32rem)] sm:min-w-[24rem]"
+        showCloseButton={false}
+        side="right"
+        viewportClassName="pointer-events-none"
+      >
         {target?.kind === "create" ? (
           <ActionItemCreatePanel
             buildId={buildId}
@@ -130,8 +193,14 @@ export function BuildActionItemDetailSheet({
         ) : (
           <ActionItemDetailPanel
             buildId={buildId}
+            canGoBack={historyIndex > 0}
+            canGoForward={
+              historyIndex >= 0 && historyIndex < history.length - 1
+            }
             detail={detail}
             focusedAssetId={focusedAssetId}
+            onGoBack={() => navigateHistory(-1)}
+            onGoForward={() => navigateHistory(1)}
             onOpenChange={onOpenChange}
             onReferenceOpen={onReferenceOpen}
             organizationId={organizationId}
@@ -141,6 +210,58 @@ export function BuildActionItemDetailSheet({
         )}
       </SheetPopup>
     </Sheet>
+  );
+}
+
+function DetailSheetHeader({
+  canGoBack,
+  canGoForward,
+  children,
+  onClose,
+  onGoBack,
+  onGoForward,
+}: {
+  canGoBack: boolean;
+  canGoForward: boolean;
+  children: ReactNode;
+  onClose: () => void;
+  onGoBack: () => void;
+  onGoForward: () => void;
+}) {
+  return (
+    <SheetHeader className="sticky top-0 z-20 border-b bg-background/96 backdrop-blur-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-1">
+          <Button
+            aria-label="Previous linked Action Item"
+            disabled={!canGoBack}
+            onClick={onGoBack}
+            size="icon-sm"
+            variant="ghost"
+          >
+            <ArrowLeft aria-hidden="true" className="size-4" />
+          </Button>
+          <Button
+            aria-label="Next linked Action Item"
+            disabled={!canGoForward}
+            onClick={onGoForward}
+            size="icon-sm"
+            variant="ghost"
+          >
+            <ArrowRight aria-hidden="true" className="size-4" />
+          </Button>
+        </div>
+        <Button
+          aria-label="Close Action Item detail"
+          onClick={onClose}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <X aria-hidden="true" className="size-4" />
+        </Button>
+      </div>
+      {children}
+    </SheetHeader>
   );
 }
 
@@ -189,7 +310,7 @@ function ActionItemCreatePanel({
   const [priority, setPriority] = useState<ActionPriority>("none");
   const [workKind, setWorkKind] = useState<ActionWorkKind>("ordinary");
   const [dueDate, setDueDate] = useState("");
-  const [labels, setLabels] = useState("");
+  const [labels, setLabels] = useState<BuildActionItemTag[]>([]);
   const [assigneeWorkosUserId, setAssigneeWorkosUserId] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [requestId] = useState(() => newActionItemRequestId());
@@ -229,10 +350,7 @@ function ActionItemCreatePanel({
         descriptionTiptapJson: JSON.stringify(document),
         dueAt: dueDate ? new Date(`${dueDate}T12:00:00`).getTime() : undefined,
         expectedParentRevision,
-        labels: labels
-          .split(",")
-          .map((label) => label.trim())
-          .filter(Boolean),
+        labels,
         organizationId,
         parentActionItemId,
         postId,
@@ -351,14 +469,7 @@ function ActionItemCreatePanel({
             </SelectContent>
           </Select>
         </Field>
-        <Field label="Labels">
-          <Input
-            aria-label="Action Item labels"
-            onChange={(event) => setLabels(event.target.value)}
-            placeholder="Evidence, Draw 3"
-            value={labels}
-          />
-        </Field>
+        <TagTaxonomyPicker labels={labels} onChange={setLabels} />
         <Field label="Attachments">
           <Input
             aria-label="Action Item attachments"
@@ -388,18 +499,26 @@ function ActionItemCreatePanel({
 
 function ActionItemDetailPanel({
   buildId,
+  canGoBack,
+  canGoForward,
   detail,
   focusedAssetId,
   onOpenChange,
+  onGoBack,
+  onGoForward,
   onReferenceOpen,
   organizationId,
   readOnly,
   tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
+  canGoBack: boolean;
+  canGoForward: boolean;
   detail: ActionItemDetail | undefined;
   focusedAssetId?: Id<"buildCollaborationAssets">;
   onOpenChange: (open: boolean) => void;
+  onGoBack: () => void;
+  onGoForward: () => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   organizationId: string;
   readOnly: boolean;
@@ -408,10 +527,16 @@ function ActionItemDetailPanel({
   if (detail === undefined) {
     return (
       <>
-        <SheetHeader>
+        <DetailSheetHeader
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onClose={() => onOpenChange(false)}
+          onGoBack={onGoBack}
+          onGoForward={onGoForward}
+        >
           <SheetTitle>Action Item</SheetTitle>
           <SheetDescription>Loading accountable work…</SheetDescription>
-        </SheetHeader>
+        </DetailSheetHeader>
         <SheetPanel>
           <Frame>
             <FramePanel aria-live="polite">Loading Action Item…</FramePanel>
@@ -423,12 +548,18 @@ function ActionItemDetailPanel({
   if (detail.state === "revoked") {
     return (
       <>
-        <SheetHeader>
+        <DetailSheetHeader
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onClose={() => onOpenChange(false)}
+          onGoBack={onGoBack}
+          onGoForward={onGoForward}
+        >
           <SheetTitle>Action Item unavailable</SheetTitle>
           <SheetDescription>
             The item was removed or its originating post is restricted.
           </SheetDescription>
-        </SheetHeader>
+        </DetailSheetHeader>
         <SheetFooter>
           <Button onClick={() => onOpenChange(false)}>Close</Button>
         </SheetFooter>
@@ -438,8 +569,12 @@ function ActionItemDetailPanel({
   return (
     <VisibleActionItemDetail
       buildId={buildId}
+      canGoBack={canGoBack}
+      canGoForward={canGoForward}
       detail={detail}
       focusedAssetId={focusedAssetId}
+      onGoBack={onGoBack}
+      onGoForward={onGoForward}
       onOpenChange={onOpenChange}
       onReferenceOpen={onReferenceOpen}
       organizationId={organizationId}
@@ -449,20 +584,29 @@ function ActionItemDetailPanel({
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The detail sheet intentionally coordinates one live Action Item transaction surface so permissions and revision state never split across parallel editors.
 function VisibleActionItemDetail({
   buildId,
+  canGoBack,
+  canGoForward,
   detail,
   focusedAssetId,
   onOpenChange,
+  onGoBack,
+  onGoForward,
   onReferenceOpen,
   organizationId,
   readOnly,
   tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
+  canGoBack: boolean;
+  canGoForward: boolean;
   detail: VisibleActionItemDetail;
   focusedAssetId?: Id<"buildCollaborationAssets">;
   onOpenChange: (open: boolean) => void;
+  onGoBack: () => void;
+  onGoForward: () => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   organizationId: string;
   readOnly: boolean;
@@ -473,6 +617,12 @@ function VisibleActionItemDetail({
   );
   const addComment = useBuildCollaborationMutation(
     api.build_action_item_details.addBuildActionItemComment
+  );
+  const toggleCommentReaction = useBuildCollaborationMutation(
+    api.build_action_item_details.toggleBuildActionItemCommentReaction
+  );
+  const markActivityRead = useBuildCollaborationReadMutation(
+    api.build_collaboration_inbox.markBuildActionItemActivityRead
   );
   const addReplacementComment = useBuildCollaborationMutation(
     api.build_collaboration_threads.addBuildCollaborationComment
@@ -511,6 +661,32 @@ function VisibleActionItemDetail({
   const [title, setTitle] = useState(detail.item.title);
   const [priority, setPriority] = useState(detail.item.priority);
   const [dueDate, setDueDate] = useState(dateInputValue(detail.item.dueAt));
+  const [labels, setLabels] = useState<BuildActionItemTag[]>(
+    detail.labels.filter((label): label is BuildActionItemTag =>
+      BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag)
+    )
+  );
+  const [briefDocument, setBriefDocument] = useState<JSONContent>(() =>
+    parseDocument(detail.item.descriptionTiptapJson)
+  );
+  const [briefReferences, setBriefReferences] = useState<
+    CollaborationTagReference[]
+  >(() =>
+    detail.references
+      .map((reference) =>
+        tagOptions.find(
+          (option) =>
+            option.id === reference.entityId &&
+            option.kind === toEditorReferenceKind(reference.entityKind)
+        )
+      )
+      .filter((option): option is CollaborationTagOption => Boolean(option))
+  );
+  const [briefDirty, setBriefDirty] = useState(false);
+  const [briefSaveState, setBriefSaveState] = useState<
+    "idle" | "saving" | "saved" | "conflict"
+  >("idle");
+  const [definitionReason, setDefinitionReason] = useState("");
   const [commentHtml, setCommentHtml] = useState("");
   const [commentDocument, setCommentDocument] = useState<JSONContent>(
     emptyDocument()
@@ -518,6 +694,10 @@ function VisibleActionItemDetail({
   const [commentReferences, setCommentReferences] = useState<
     CollaborationTagReference[]
   >([]);
+  const [commentFiles, setCommentFiles] = useState<File[]>([]);
+  const [replyingTo, setReplyingTo] = useState<
+    Id<"buildActionItemComments"> | undefined
+  >();
   const [saving, setSaving] = useState(false);
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [transitionReason, setTransitionReason] = useState("");
@@ -578,7 +758,78 @@ function VisibleActionItemDetail({
     setTitle(detail.item.title);
     setPriority(detail.item.priority);
     setDueDate(dateInputValue(detail.item.dueAt));
-  }, [detail.item.dueAt, detail.item.priority, detail.item.title]);
+    setLabels(
+      detail.labels.filter((label): label is BuildActionItemTag =>
+        BUILD_ACTION_ITEM_TAGS.includes(label as BuildActionItemTag)
+      )
+    );
+  }, [
+    detail.item.dueAt,
+    detail.item.priority,
+    detail.item.title,
+    detail.labels,
+  ]);
+
+  useEffect(() => {
+    markActivityRead({
+      actionItemId: detail.item.actionItemId,
+      buildId,
+      organizationId,
+    }).catch(() => undefined);
+  }, [buildId, detail.item.actionItemId, markActivityRead, organizationId]);
+
+  useEffect(() => {
+    if (
+      !briefDirty ||
+      readOnly ||
+      workflow?.state !== "visible" ||
+      !workflow.viewerCanEditFields ||
+      (workflow.viewerRequiresEditReason && !definitionReason.trim())
+    ) {
+      return;
+    }
+    const timeoutId = window.setTimeout(async () => {
+      setBriefSaveState("saving");
+      try {
+        await updateActionItem({
+          actionItemId: detail.item.actionItemId,
+          buildId,
+          descriptionPlainText: plainTextFromDocument(briefDocument),
+          descriptionTiptapJson: JSON.stringify(briefDocument),
+          expectedRevision: detail.item.currentRevision,
+          organizationId,
+          reason: definitionReason.trim() || undefined,
+          references: briefReferences.map((reference, index) => ({
+            entityId: reference.id,
+            entityKind: toBackendReferenceKind(reference.kind),
+            label: reference.label,
+            primary: index === 0,
+            summary: reference.summary,
+          })),
+        });
+        setBriefDirty(false);
+        setBriefSaveState("saved");
+      } catch (error) {
+        setBriefSaveState("conflict");
+        toast.error(
+          error instanceof Error ? error.message : "Unable to save the brief."
+        );
+      }
+    }, 700);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    briefDirty,
+    briefDocument,
+    briefReferences,
+    buildId,
+    definitionReason,
+    detail.item.actionItemId,
+    detail.item.currentRevision,
+    organizationId,
+    readOnly,
+    updateActionItem,
+    workflow,
+  ]);
 
   const save = async () => {
     if (detail.item.workKind !== "ordinary" && !dueDate) {
@@ -592,8 +843,10 @@ function VisibleActionItemDetail({
         buildId,
         dueAt: dueDate ? new Date(`${dueDate}T12:00:00`).getTime() : null,
         expectedRevision: detail.item.currentRevision,
+        labels,
         organizationId,
         priority,
+        reason: definitionReason.trim() || undefined,
         title,
       });
       toast.success("Action Item updated.");
@@ -606,14 +859,27 @@ function VisibleActionItemDetail({
     }
   };
   const comment = async () => {
-    if (!plainTextFromDocument(commentDocument)) {
+    if (!(plainTextFromDocument(commentDocument) || commentFiles.length)) {
       return;
     }
+    let uploadedAssetIds: Id<"buildCollaborationAssets">[] = [];
     try {
+      uploadedAssetIds = await uploadGovernedCollaborationAssets(commentFiles, {
+        abandonAssets: abandonReplacementAssets,
+        beginUpload: beginReplacementUpload,
+        buildId,
+        contextKind: "actionItem",
+        contextRecordId: detail.item.actionItemId,
+        finalizeAndScan: finalizeAndScanReplacement,
+        organizationId,
+        registerUpload: registerReplacementUpload,
+      });
       await addComment({
         actionItemId: detail.item.actionItemId,
+        attachmentAssetIds: uploadedAssetIds,
         buildId,
         organizationId,
+        parentCommentId: replyingTo,
         references: commentReferences.map((reference, index) => ({
           entityId: reference.id,
           entityKind: toBackendReferenceKind(reference.kind),
@@ -626,8 +892,17 @@ function VisibleActionItemDetail({
       setCommentDocument(emptyDocument());
       setCommentHtml("");
       setCommentReferences([]);
-      toast.success("Comment added.");
+      setCommentFiles([]);
+      setReplyingTo(undefined);
+      toast.success(replyingTo ? "Reply added." : "Comment added.");
     } catch (error) {
+      await abandonGovernedCollaborationAssets({
+        abandonAssets: abandonReplacementAssets,
+        assetIds: uploadedAssetIds,
+        buildId,
+        organizationId,
+        reason: "Action Item comment failed after asset upload.",
+      });
       toast.error(
         error instanceof Error ? error.message : "Unable to add comment."
       );
@@ -698,22 +973,46 @@ function VisibleActionItemDetail({
 
   return (
     <>
-      <SheetHeader>
+      <DetailSheetHeader
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        onClose={() => onOpenChange(false)}
+        onGoBack={onGoBack}
+        onGoForward={onGoForward}
+      >
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">{detail.item.status}</Badge>
-          <Badge variant="secondary">{detail.item.priority}</Badge>
-          <Badge variant="outline">
-            Revision {detail.item.currentRevision}
-          </Badge>
+          <Badge variant="outline">{statusLabel(detail.item.status)}</Badge>
+          {detail.labels.map((label) => (
+            <Badge key={label} variant="secondary">
+              {label}
+            </Badge>
+          ))}
         </div>
         <SheetTitle>{detail.item.title}</SheetTitle>
         <SheetDescription>
-          Created by {detail.item.creatorDisplayName} ·{" "}
-          {detail.item.assigneeDisplayName
-            ? `assigned to ${detail.item.assigneeDisplayName}`
-            : "unassigned"}
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="inline-flex items-center gap-1">
+              <UserRound aria-hidden="true" className="size-3.5" />
+              {detail.item.assigneeDisplayName ?? "Unassigned"}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Clock3 aria-hidden="true" className="size-3.5" />
+              {actionItemAge(detail.item.createdAt)}
+            </span>
+            {detail.item.dueAt ? (
+              <span className="inline-flex items-center gap-1">
+                <CalendarClock aria-hidden="true" className="size-3.5" />
+                Due {formatCompactDate(detail.item.dueAt)}
+              </span>
+            ) : null}
+          </span>
         </SheetDescription>
-      </SheetHeader>
+        {detail.item.status === "blocked" && detail.item.blockedReason ? (
+          <p className="rounded-md border border-destructive/30 bg-destructive/8 px-3 py-2 text-destructive text-xs">
+            Blocked: {detail.item.blockedReason}
+          </p>
+        ) : null}
+      </DetailSheetHeader>
       <SheetPanel className="space-y-6">
         <AudienceInheritanceNotice audienceMode={detail.item.audienceMode} />
         {readOnly ? (
@@ -781,12 +1080,76 @@ function VisibleActionItemDetail({
               />
             </dl>
           )}
-          <CollaborationRichTextPreview
-            ariaLabel="Action Item description"
-            onReferenceOpen={onReferenceOpen}
-            tagOptions={tagOptions}
-            value={parseDocument(detail.item.descriptionTiptapJson)}
-          />
+          {!readOnly &&
+          workflow?.state === "visible" &&
+          workflow.viewerCanEditFields ? (
+            <div className="space-y-2">
+              <CollaborationRichTextEditor
+                ariaLabel="Action Item canonical brief"
+                editorMinHeightClass="[&_.ProseMirror]:min-h-32"
+                onChange={(_html, nextReferences) => {
+                  setBriefReferences(nextReferences);
+                  setBriefDirty(true);
+                  setBriefSaveState("idle");
+                }}
+                onDocumentChange={(nextDocument) => {
+                  setBriefDocument(nextDocument);
+                  setBriefDirty(true);
+                  setBriefSaveState("idle");
+                }}
+                placeholder="Define the canonical brief. Type @ to link people, Action Items, and files."
+                tagOptions={tagOptions}
+                value={briefDocument}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span
+                  aria-live="polite"
+                  className={
+                    briefSaveState === "conflict"
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                  }
+                >
+                  {briefSaveState === "saving"
+                    ? "Saving brief…"
+                    : briefSaveState === "saved"
+                      ? "Brief saved"
+                      : briefSaveState === "conflict"
+                        ? "Save conflict — your draft is preserved here."
+                        : briefDirty
+                          ? workflow.viewerRequiresEditReason &&
+                            !definitionReason.trim()
+                            ? "Add an override reason to save this manager edit."
+                            : "Unsaved changes"
+                          : "Canonical brief"}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <CollaborationRichTextPreview
+              ariaLabel="Action Item description"
+              onReferenceOpen={onReferenceOpen}
+              tagOptions={tagOptions}
+              value={parseDocument(detail.item.descriptionTiptapJson)}
+            />
+          )}
+          {!readOnly &&
+          workflow?.state === "visible" &&
+          workflow.viewerCanEditFields ? (
+            <TagTaxonomyPicker labels={labels} onChange={setLabels} />
+          ) : null}
+          {!readOnly &&
+          workflow?.state === "visible" &&
+          workflow.viewerRequiresEditReason ? (
+            <Field label="Manager override reason">
+              <Input
+                aria-label="Manager task-definition override reason"
+                onChange={(event) => setDefinitionReason(event.target.value)}
+                placeholder="Why is this override necessary?"
+                value={definitionReason}
+              />
+            </Field>
+          ) : null}
           {!readOnly &&
           workflow?.state === "visible" &&
           workflow.viewerCanEditFields !== false ? (
@@ -802,7 +1165,6 @@ function VisibleActionItemDetail({
           onReferenceOpen={onReferenceOpen}
           onReplaceAsset={readOnly ? undefined : replaceAsset}
           organizationId={organizationId}
-          readOnly={readOnly}
           tagOptions={tagOptions}
         />
         <ActionItemStructurePanel
@@ -810,54 +1172,129 @@ function VisibleActionItemDetail({
           detail={detail}
           onReferenceOpen={onReferenceOpen}
           organizationId={organizationId}
+          overrideReason={definitionReason}
           readOnly={readOnly}
           tagOptions={tagOptions}
         />
-        <section className="space-y-3">
-          <div className="flex items-center gap-2">
-            <MessageCircle aria-hidden="true" className="size-4 text-primary" />
-            <h3 className="font-semibold text-base leading-snug">Discussion</h3>
-          </div>
-          {detail.comments.map((entry) => (
-            <Card key={entry.commentId}>
-              <CardPanel className="space-y-1 p-3">
-                <p className="font-medium text-xs">
-                  {entry.authorDisplayName} ·{" "}
-                  <span className="text-muted-foreground">
-                    {formatTimestamp(entry.createdAt)}
-                  </span>
-                </p>
-                <CollaborationRichTextPreview
-                  ariaLabel="Action Item comment"
-                  onReferenceOpen={onReferenceOpen}
+        <Frame className="bg-muted/60">
+          <FramePanel className="space-y-4 p-4">
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <MessageCircle
+                    aria-hidden="true"
+                    className="size-4 text-primary"
+                  />
+                  <h3 className="font-semibold text-base leading-snug">
+                    Discussion
+                  </h3>
+                </div>
+                <Badge variant="outline">{detail.comments.length}</Badge>
+              </div>
+              {detail.comments
+                .filter((entry) => !entry.parentCommentId)
+                .map((entry) => (
+                  <div className="space-y-2" key={entry.commentId}>
+                    <ActionItemCommentCard
+                      buildId={buildId}
+                      entry={entry}
+                      onReact={async (reaction) => {
+                        await toggleCommentReaction({
+                          actionItemId: detail.item.actionItemId,
+                          buildId,
+                          commentId: entry.commentId,
+                          organizationId,
+                          reaction,
+                        });
+                      }}
+                      onReferenceOpen={onReferenceOpen}
+                      onReply={() => setReplyingTo(entry.commentId)}
+                      organizationId={organizationId}
+                      readOnly={readOnly}
+                      tagOptions={tagOptions}
+                    />
+                    {detail.comments
+                      .filter(
+                        (reply) => reply.parentCommentId === entry.commentId
+                      )
+                      .map((reply) => (
+                        <div
+                          className="ml-5 border-l pl-3"
+                          key={reply.commentId}
+                        >
+                          <ActionItemCommentCard
+                            buildId={buildId}
+                            entry={reply}
+                            onReact={async (reaction) => {
+                              await toggleCommentReaction({
+                                actionItemId: detail.item.actionItemId,
+                                buildId,
+                                commentId: reply.commentId,
+                                organizationId,
+                                reaction,
+                              });
+                            }}
+                            onReferenceOpen={onReferenceOpen}
+                            onReply={() => setReplyingTo(entry.commentId)}
+                            organizationId={organizationId}
+                            readOnly={readOnly}
+                            tagOptions={tagOptions}
+                          />
+                        </div>
+                      ))}
+                  </div>
+                ))}
+              {replyingTo ? (
+                <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2 text-xs">
+                  <span>Replying in thread</span>
+                  <Button
+                    onClick={() => setReplyingTo(undefined)}
+                    size="xs"
+                    variant="ghost"
+                  >
+                    Cancel reply
+                  </Button>
+                </div>
+              ) : null}
+              {readOnly ? null : (
+                <CollaborationRichTextEditor
+                  ariaLabel="Comment on Action Item"
+                  editorMinHeightClass="[&_.ProseMirror]:min-h-24"
+                  onChange={(nextHtml, nextReferences) => {
+                    setCommentHtml(nextHtml);
+                    setCommentReferences(nextReferences);
+                  }}
+                  onDocumentChange={setCommentDocument}
+                  placeholder="Add context. Type @ to link Build work."
                   tagOptions={tagOptions}
-                  value={parseDocument(entry.tiptapJson)}
+                  value={commentHtml}
                 />
-              </CardPanel>
-            </Card>
-          ))}
-          {!readOnly ? (
-            <CollaborationRichTextEditor
-              ariaLabel="Comment on Action Item"
-              editorMinHeightClass="[&_.ProseMirror]:min-h-24"
-              onChange={(nextHtml, nextReferences) => {
-                setCommentHtml(nextHtml);
-                setCommentReferences(nextReferences);
-              }}
-              onDocumentChange={setCommentDocument}
-              placeholder="Add context. Type @ to link Build work."
-              tagOptions={tagOptions}
-              value={commentHtml}
-            />
-          ) : null}
-          {!readOnly ? (
-            <Button onClick={comment} size="sm">
-              Add comment
-            </Button>
-          ) : null}
-        </section>
-        <RevisionHistory detail={detail} />
-        <ActivityHistory detail={detail} />
+              )}
+              {readOnly ? null : (
+                <Input
+                  aria-label="Attach files to Action Item comment"
+                  multiple
+                  nativeInput
+                  onChange={(event) =>
+                    setCommentFiles(Array.from(event.target.files ?? []))
+                  }
+                  type="file"
+                />
+              )}
+              {readOnly ? null : (
+                <Button onClick={comment} size="sm">
+                  {replyingTo ? "Add reply" : "Add comment"}
+                </Button>
+              )}
+            </section>
+          </FramePanel>
+          <FramePanel className="p-4">
+            <RevisionHistory detail={detail} />
+          </FramePanel>
+          <FramePanel className="p-4">
+            <ActivityHistory detail={detail} />
+          </FramePanel>
+        </Frame>
       </SheetPanel>
       <SheetFooter>
         <Button onClick={() => onOpenChange(false)} variant="outline">
@@ -865,6 +1302,121 @@ function VisibleActionItemDetail({
         </Button>
       </SheetFooter>
     </>
+  );
+}
+
+const ACTION_ITEM_REACTIONS = ["acknowledged", "agree", "question"] as const;
+
+function ActionItemCommentCard({
+  buildId,
+  entry,
+  onReact,
+  onReferenceOpen,
+  onReply,
+  organizationId,
+  readOnly,
+  tagOptions,
+}: {
+  buildId: Id<"activeBuilds">;
+  entry: VisibleActionItemDetail["comments"][number];
+  onReact: (reaction: (typeof ACTION_ITEM_REACTIONS)[number]) => Promise<void>;
+  onReferenceOpen: (reference: CollaborationTagReference) => void;
+  onReply: () => void;
+  organizationId: string;
+  readOnly: boolean;
+  tagOptions: CollaborationTagOption[];
+}) {
+  return (
+    <Card>
+      <CardPanel className="space-y-2 p-3">
+        <p className="font-medium text-xs">
+          {entry.authorDisplayName} ·{" "}
+          <span className="text-muted-foreground">
+            {formatTimestamp(entry.createdAt)}
+          </span>
+        </p>
+        <CollaborationRichTextPreview
+          ariaLabel="Action Item comment"
+          onReferenceOpen={onReferenceOpen}
+          tagOptions={tagOptions}
+          value={parseDocument(entry.tiptapJson)}
+        />
+        {entry.attachments.length ? (
+          <BuildCollaborationAssetList
+            assets={entry.attachments}
+            buildId={buildId}
+            organizationId={organizationId}
+          />
+        ) : null}
+        <div className="flex flex-wrap items-center gap-1">
+          {ACTION_ITEM_REACTIONS.map((reaction) => {
+            const summary = entry.reactions.find(
+              (candidate) => candidate.reaction === reaction
+            );
+            return (
+              <Button
+                aria-pressed={summary?.viewerHasReacted ?? false}
+                disabled={readOnly}
+                key={reaction}
+                onClick={async () => {
+                  await onReact(reaction);
+                }}
+                size="xs"
+                variant={summary?.viewerHasReacted ? "secondary" : "ghost"}
+              >
+                {reaction === "acknowledged"
+                  ? "✓"
+                  : reaction === "agree"
+                    ? "👍"
+                    : "?"}
+                {summary?.count ? ` ${summary.count}` : ""}
+              </Button>
+            );
+          })}
+          {readOnly ? null : (
+            <Button onClick={onReply} size="xs" variant="ghost">
+              Reply
+            </Button>
+          )}
+        </div>
+      </CardPanel>
+    </Card>
+  );
+}
+
+function TagTaxonomyPicker({
+  labels,
+  onChange,
+}: {
+  labels: BuildActionItemTag[];
+  onChange: (labels: BuildActionItemTag[]) => void;
+}) {
+  return (
+    <Field label="Tags">
+      <div className="flex flex-wrap gap-1.5">
+        {BUILD_ACTION_ITEM_TAGS.map((label) => {
+          const selected = labels.includes(label);
+          return (
+            <Button
+              aria-pressed={selected}
+              key={label}
+              onClick={() =>
+                onChange(
+                  selected
+                    ? labels.filter((candidate) => candidate !== label)
+                    : [...labels, label]
+                )
+              }
+              size="xs"
+              type="button"
+              variant={selected ? "secondary" : "outline"}
+            >
+              {label}
+            </Button>
+          );
+        })}
+      </div>
+    </Field>
   );
 }
 
@@ -887,6 +1439,7 @@ function ActionItemWorkflowPanel({
   reason: string;
   workflow: WorkflowContext | undefined;
 }) {
+  const [pendingStatus, setPendingStatus] = useState<ActionStatus | null>(null);
   if (workflow === undefined) {
     return (
       <Frame>
@@ -900,13 +1453,45 @@ function ActionItemWorkflowPanel({
     return null;
   }
   const visibleWorkflow = workflow as VisibleWorkflowContext;
-  const reasonRelevant =
-    detail.item.status === "blocked" ||
-    detail.item.status === "cancelled" ||
-    detail.item.status === "done" ||
-    visibleWorkflow.availableTransitions.some(
-      (status) => status === "blocked" || status === "cancelled"
+  const assignmentStateLabel =
+    detail.item.assignmentState === "requested"
+      ? "Acceptance requested"
+      : detail.item.assignmentState === "assigned"
+        ? "Assigned"
+        : "Unassigned";
+  const statusOptions = Array.from(
+    new Set([detail.item.status, ...visibleWorkflow.availableTransitions])
+  );
+  const transitionNeedsReason = (nextStatus: ActionStatus) =>
+    nextStatus === "blocked" ||
+    (detail.item.status === "done" && nextStatus !== "done");
+  const selectedAssigneeLabel = (value: unknown) => {
+    if (!value || value === "__unassigned") {
+      return "Unassigned";
+    }
+    const participant = visibleWorkflow.assignableParticipants.find(
+      (candidate) => candidate.workosUserId === value
     );
+    return (
+      participant?.displayName ??
+      detail.item.assigneeDisplayName ??
+      "Assigned participant"
+    );
+  };
+  const chooseStatus = (nextStatus: ActionStatus) => {
+    if (nextStatus === detail.item.status) {
+      setPendingStatus(null);
+      onReasonChange("");
+      return;
+    }
+    if (transitionNeedsReason(nextStatus)) {
+      setPendingStatus(nextStatus);
+      onReasonChange("");
+      return;
+    }
+    setPendingStatus(null);
+    onTransition(nextStatus);
+  };
   return (
     <Frame>
       <FramePanel className="space-y-4 p-4">
@@ -914,17 +1499,14 @@ function ActionItemWorkflowPanel({
           <Badge variant="secondary">
             {workKindLabel(detail.item.workKind)}
           </Badge>
-          <Badge variant="outline">{detail.item.assignmentState}</Badge>
-          {detail.item.assignmentState === "requested" ? (
-            <Badge>Assignment requested</Badge>
-          ) : null}
+          <Badge variant="outline">{assignmentStateLabel}</Badge>
           {detail.item.requiresAcceptance ? (
             <Badge variant="outline">Governed completion</Badge>
           ) : null}
         </div>
         {visibleWorkflow.assignableParticipants.length > 0 ||
         visibleWorkflow.viewerCanUnassign ? (
-          <Field label="Assignment">
+          <Field label="Assignee">
             <Select
               disabled={busy}
               onValueChange={(value) => {
@@ -936,7 +1518,9 @@ function ActionItemWorkflowPanel({
               value={detail.item.assigneeWorkosUserId ?? "__unassigned"}
             >
               <SelectTrigger aria-label="Assign Action Item">
-                <SelectValue placeholder="Unassigned" />
+                <SelectValue placeholder="Unassigned">
+                  {(value) => selectedAssigneeLabel(value)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {visibleWorkflow.viewerCanUnassign ? (
@@ -962,27 +1546,70 @@ function ActionItemWorkflowPanel({
             Accept assignment
           </Button>
         ) : null}
-        {reasonRelevant ? (
-          <Input
-            aria-label="Action Item transition reason"
-            onChange={(event) => onReasonChange(event.target.value)}
-            placeholder="Reason for blocking, cancellation, or reopening"
-            value={reason}
-          />
+        <Field label="Status">
+          <NativeSelect
+            aria-label="Change Action Item status"
+            className="w-full [&_[data-slot=native-select]]:h-9 [&_[data-slot=native-select]]:rounded-lg [&_[data-slot=native-select]]:bg-background [&_[data-slot=native-select]]:text-sm"
+            disabled={busy || visibleWorkflow.availableTransitions.length === 0}
+            onChange={(event) => {
+              chooseStatus(event.currentTarget.value as ActionStatus);
+            }}
+            value={pendingStatus ?? detail.item.status}
+          >
+            {statusOptions.map((status) => (
+              <NativeSelectOption key={status} value={status}>
+                {statusLabel(status)}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </Field>
+        {pendingStatus ? (
+          <Frame>
+            <FramePanel className="space-y-3 bg-muted/20 p-3">
+              <Field
+                label={
+                  pendingStatus === "blocked"
+                    ? "Blocking reason"
+                    : "Reopening reason"
+                }
+              >
+                <Input
+                  aria-label="Action Item transition reason"
+                  onChange={(event) => onReasonChange(event.target.value)}
+                  placeholder={
+                    pendingStatus === "blocked"
+                      ? "What is preventing progress?"
+                      : "Why should this Action Item be reopened?"
+                  }
+                  value={reason}
+                />
+              </Field>
+              <div className="flex justify-end gap-2">
+                <Button
+                  disabled={busy}
+                  onClick={() => {
+                    setPendingStatus(null);
+                    onReasonChange("");
+                  }}
+                  size="sm"
+                  variant="ghost"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={busy || !reason.trim()}
+                  onClick={() => {
+                    onTransition(pendingStatus);
+                    setPendingStatus(null);
+                  }}
+                  size="sm"
+                >
+                  {transitionLabel(detail, pendingStatus)}
+                </Button>
+              </div>
+            </FramePanel>
+          </Frame>
         ) : null}
-        <div className="flex flex-wrap gap-2">
-          {visibleWorkflow.availableTransitions.map((status) => (
-            <Button
-              disabled={busy}
-              key={status}
-              onClick={() => onTransition(status)}
-              size="sm"
-              variant={status === "done" ? "default" : "outline"}
-            >
-              {transitionLabel(detail, status)}
-            </Button>
-          ))}
-        </div>
       </FramePanel>
     </Frame>
   );
@@ -1055,6 +1682,7 @@ function ActionItemStructurePanel({
   detail,
   onReferenceOpen,
   organizationId,
+  overrideReason,
   readOnly,
   tagOptions,
 }: {
@@ -1062,6 +1690,7 @@ function ActionItemStructurePanel({
   detail: VisibleActionItemDetail;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   organizationId: string;
+  overrideReason: string;
   readOnly: boolean;
   tagOptions: CollaborationTagOption[];
 }) {
@@ -1082,14 +1711,19 @@ function ActionItemStructurePanel({
   const linkActionItems = useBuildCollaborationMutation(
     api.build_action_item_structure.linkBuildActionItems
   );
+  const unlinkActionItems = useBuildCollaborationMutation(
+    api.build_action_item_structure.unlinkBuildActionItemRelation
+  );
   const repairRelation = useBuildCollaborationMutation(
     api.build_action_item_structure.repairBuildActionItemRelation
   );
   const [checklistLabel, setChecklistLabel] = useState("");
-  const [relationKind, setRelationKind] = useState<
-    "blocks" | "duplicate" | "related"
-  >("blocks");
+  const [relationKind, setRelationKind] = useState<"duplicate" | "related">(
+    "related"
+  );
   const [relatedActionItemId, setRelatedActionItemId] = useState("");
+  const [dependsOnActionItemId, setDependsOnActionItemId] = useState("");
+  const [unblocksActionItemId, setUnblocksActionItemId] = useState("");
   const [repairReason, setRepairReason] = useState("");
   const [creatingChild, setCreatingChild] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1150,9 +1784,12 @@ function ActionItemStructurePanel({
     try {
       await linkActionItems({
         buildId,
+        expectedGoverningRevision: detail.item.currentRevision,
         expectedSourceRevision: detail.item.currentRevision,
+        governingActionItemId: detail.item.actionItemId,
         kind: relationKind,
         organizationId,
+        reason: overrideReason.trim() || undefined,
         sourceActionItemId: detail.item.actionItemId,
         targetActionItemId: relatedActionItemId as Id<"buildActionItems">,
       });
@@ -1165,6 +1802,83 @@ function ActionItemStructurePanel({
     } finally {
       setBusy(false);
     }
+  };
+  const linkDependency = async (direction: "depends_on" | "unblocks") => {
+    const otherId =
+      direction === "depends_on" ? dependsOnActionItemId : unblocksActionItemId;
+    if (!(otherId && !busy)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await linkActionItems({
+        buildId,
+        expectedGoverningRevision: detail.item.currentRevision,
+        governingActionItemId: detail.item.actionItemId,
+        kind: "blocks",
+        organizationId,
+        reason: overrideReason.trim() || undefined,
+        sourceActionItemId:
+          direction === "depends_on"
+            ? (otherId as Id<"buildActionItems">)
+            : detail.item.actionItemId,
+        targetActionItemId:
+          direction === "depends_on"
+            ? detail.item.actionItemId
+            : (otherId as Id<"buildActionItems">),
+      });
+      if (direction === "depends_on") {
+        setDependsOnActionItemId("");
+      } else {
+        setUnblocksActionItemId("");
+      }
+      toast.success("Dependency added.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to add dependency."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const unlinkDependency = async (
+    relationId: Id<"buildActionItemRelations">
+  ) => {
+    setBusy(true);
+    try {
+      await unlinkActionItems({
+        buildId,
+        expectedGoverningRevision: detail.item.currentRevision,
+        governingActionItemId: detail.item.actionItemId,
+        organizationId,
+        reason: overrideReason.trim() || undefined,
+        relationId,
+      });
+      toast.success("Dependency removed.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to remove dependency."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openRelatedActionItem = (
+    actionItemId: Id<"buildActionItems">,
+    title: string
+  ) => {
+    const option = relatedOptions.find(
+      (candidate) => candidate.id === actionItemId
+    );
+    onReferenceOpen(
+      option ?? {
+        eyebrow: "Action Item",
+        id: actionItemId,
+        kind: "action_item",
+        label: title,
+        summary: "Linked Action Item",
+      }
+    );
   };
   return (
     <section className="space-y-4">
@@ -1294,77 +2008,119 @@ function ActionItemStructurePanel({
         </FramePanel>
       </Frame>
 
+      <div className="grid gap-3">
+        <DependencyDisclosure
+          busy={busy}
+          label="Depends on"
+          onAdd={() => linkDependency("depends_on")}
+          onOpen={openRelatedActionItem}
+          onRemove={unlinkDependency}
+          onSelectionChange={setDependsOnActionItemId}
+          options={relatedOptions}
+          readOnly={readOnly || !visibleStructure.viewerCanLinkRelation}
+          relations={visibleStructure.relations.filter(
+            (relation) =>
+              relation.kind === "blocks" && relation.direction === "incoming"
+          )}
+          selection={dependsOnActionItemId}
+        />
+        <DependencyDisclosure
+          busy={busy}
+          label="Unblocks"
+          onAdd={() => linkDependency("unblocks")}
+          onOpen={openRelatedActionItem}
+          onRemove={unlinkDependency}
+          onSelectionChange={setUnblocksActionItemId}
+          options={relatedOptions}
+          readOnly={readOnly || !visibleStructure.viewerCanLinkRelation}
+          relations={visibleStructure.relations.filter(
+            (relation) =>
+              relation.kind === "blocks" && relation.direction === "outgoing"
+          )}
+          selection={unblocksActionItemId}
+        />
+      </div>
+
       <Frame>
         <FramePanel className="space-y-3 p-4">
           <p className="font-medium text-sm">
-            Relationships · {visibleStructure.relations.length}
+            Related ·{" "}
+            {
+              visibleStructure.relations.filter(
+                (relation) => relation.kind !== "blocks"
+              ).length
+            }
           </p>
-          {visibleStructure.relations.map((relation) => (
-            <Card key={relation.relationId}>
-              <CardPanel className="space-y-2 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">
-                    {relationDirectionLabel(relation)}
-                  </Badge>
-                  <span className="font-medium text-sm">
-                    {relation.otherActionItemTitle ?? "Restricted Action Item"}
-                  </span>
-                  {relation.status === "suspended" ? (
-                    <Badge variant="destructive">Permission conflict</Badge>
-                  ) : null}
-                </div>
-                {relation.status === "suspended" &&
-                !readOnly &&
-                relation.sourceRevision !== undefined &&
-                visibleStructure.viewerCanRepairRelations ? (
-                  <div className="flex gap-2">
-                    <Input
-                      aria-label="Relationship repair reason"
-                      onChange={(event) => setRepairReason(event.target.value)}
-                      placeholder="How was access repaired?"
-                      value={repairReason}
-                    />
-                    <Button
-                      disabled={busy || !repairReason.trim()}
-                      onClick={async () => {
-                        setBusy(true);
-                        try {
-                          await repairRelation({
-                            buildId,
-                            expectedSourceRevision: relation.sourceRevision,
-                            organizationId,
-                            reason: repairReason.trim(),
-                            relationId: relation.relationId,
-                          });
-                          setRepairReason("");
-                          toast.success("Relationship restored.");
-                        } catch (error) {
-                          toast.error(
-                            error instanceof Error
-                              ? error.message
-                              : "Unable to repair relationship."
-                          );
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                      size="sm"
-                    >
-                      Restore
-                    </Button>
+          {visibleStructure.relations
+            .filter((relation) => relation.kind !== "blocks")
+            .map((relation) => (
+              <Card key={relation.relationId}>
+                <CardPanel className="space-y-2 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">
+                      {relationDirectionLabel(relation)}
+                    </Badge>
+                    <span className="font-medium text-sm">
+                      {relation.otherActionItemTitle ??
+                        "Restricted Action Item"}
+                    </span>
+                    {relation.status === "suspended" ? (
+                      <Badge variant="destructive">Permission conflict</Badge>
+                    ) : null}
                   </div>
-                ) : null}
-              </CardPanel>
-            </Card>
-          ))}
+                  {relation.status === "suspended" &&
+                  !readOnly &&
+                  relation.sourceRevision !== undefined &&
+                  visibleStructure.viewerCanRepairRelations ? (
+                    <div className="flex gap-2">
+                      <Input
+                        aria-label="Relationship repair reason"
+                        onChange={(event) =>
+                          setRepairReason(event.target.value)
+                        }
+                        placeholder="How was access repaired?"
+                        value={repairReason}
+                      />
+                      <Button
+                        disabled={busy || !repairReason.trim()}
+                        onClick={async () => {
+                          setBusy(true);
+                          try {
+                            await repairRelation({
+                              buildId,
+                              expectedSourceRevision:
+                                relation.sourceRevision as number,
+                              organizationId,
+                              reason: repairReason.trim(),
+                              relationId: relation.relationId,
+                            });
+                            setRepairReason("");
+                            toast.success("Relationship restored.");
+                          } catch (error) {
+                            toast.error(
+                              error instanceof Error
+                                ? error.message
+                                : "Unable to repair relationship."
+                            );
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                        size="sm"
+                      >
+                        Restore
+                      </Button>
+                    </div>
+                  ) : null}
+                </CardPanel>
+              </Card>
+            ))}
           {!readOnly && visibleStructure.viewerCanLinkRelation ? (
             <div className="grid gap-2 sm:grid-cols-[0.8fr_1.2fr_auto]">
               <Select
                 onValueChange={(value) => {
                   if (value) {
-                    setRelationKind(
-                      value as "blocks" | "duplicate" | "related"
-                    );
+                    setRelationKind(value as "duplicate" | "related");
                   }
                 }}
                 value={relationKind}
@@ -1373,7 +2129,6 @@ function ActionItemStructurePanel({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="blocks">Blocks</SelectItem>
                   <SelectItem value="related">Related</SelectItem>
                   <SelectItem value="duplicate">Duplicate</SelectItem>
                 </SelectContent>
@@ -1422,6 +2177,133 @@ function ActionItemStructurePanel({
         </Frame>
       ) : null}
     </section>
+  );
+}
+
+function DependencyDisclosure({
+  busy,
+  label,
+  onAdd,
+  onOpen,
+  onRemove,
+  onSelectionChange,
+  options,
+  readOnly,
+  relations,
+  selection,
+}: {
+  busy: boolean;
+  label: string;
+  onAdd: () => void;
+  onOpen: (actionItemId: Id<"buildActionItems">, title: string) => void;
+  onRemove: (relationId: Id<"buildActionItemRelations">) => void;
+  onSelectionChange: (value: string) => void;
+  options: CollaborationTagOption[];
+  readOnly: boolean;
+  relations: VisibleStructureContext["relations"];
+  selection: string;
+}) {
+  const visible = relations.slice(0, 2);
+  const hiddenCount = Math.max(0, relations.length - visible.length);
+  return (
+    <Frame>
+      <FramePanel className="p-0">
+        <details className="group">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
+            <ChevronRight
+              aria-hidden="true"
+              className="size-4 shrink-0 transition-transform group-open:rotate-90"
+            />
+            <span className="shrink-0 font-medium text-sm">
+              {label} · {relations.length}
+            </span>
+            <span className="flex min-w-0 items-center gap-1 overflow-hidden group-open:hidden">
+              {visible.map((relation) => (
+                <Badge className="max-w-32 truncate" key={relation.relationId}>
+                  {relation.otherActionItemTitle ?? "Restricted Action Item"}
+                </Badge>
+              ))}
+              {hiddenCount ? (
+                <Badge
+                  aria-label={`${hiddenCount} more dependencies`}
+                  variant="outline"
+                >
+                  …
+                </Badge>
+              ) : null}
+            </span>
+          </summary>
+          <div className="space-y-2 border-t p-3">
+            <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+              {relations.length === 0 ? (
+                <p className="px-1 py-2 text-muted-foreground text-xs">
+                  No linked Action Items.
+                </p>
+              ) : (
+                relations.map((relation) => (
+                  <div
+                    className="flex items-center gap-2 rounded-md border px-3 py-2"
+                    key={relation.relationId}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {relation.otherActionItemTitle ??
+                        "Restricted Action Item"}
+                    </span>
+                    {relation.otherActionItemId ? (
+                      <Button
+                        onClick={() =>
+                          onOpen(
+                            relation.otherActionItemId as Id<"buildActionItems">,
+                            relation.otherActionItemTitle ?? "Action Item"
+                          )
+                        }
+                        size="xs"
+                        variant="ghost"
+                      >
+                        Open
+                        <ArrowUpRight aria-hidden="true" className="size-3.5" />
+                      </Button>
+                    ) : null}
+                    {!readOnly && relation.status === "active" ? (
+                      <Button
+                        disabled={busy}
+                        onClick={() => onRemove(relation.relationId)}
+                        size="xs"
+                        variant="ghost"
+                      >
+                        Remove
+                      </Button>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+            {readOnly ? null : (
+              <div className="flex gap-2">
+                <Select
+                  onValueChange={(value) => onSelectionChange(value ?? "")}
+                  value={selection}
+                >
+                  <SelectTrigger aria-label={`Add ${label} dependency`}>
+                    <SelectValue placeholder="Choose Action Item" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {options.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button disabled={busy || !selection} onClick={onAdd} size="sm">
+                  Add
+                </Button>
+              </div>
+            )}
+          </div>
+        </details>
+      </FramePanel>
+    </Frame>
   );
 }
 
@@ -1484,23 +2366,20 @@ function AudienceInheritanceNotice({
 }: {
   audienceMode?: "author_tier_and_higher" | "build_wide" | "custom";
 }) {
+  const visibilityLabel =
+    audienceMode === "custom"
+      ? "Restricted visibility"
+      : audienceMode === "author_tier_and_higher"
+        ? "Visible to the post’s role tier and above"
+        : "Visible to all";
   return (
-    <Frame>
-      <FramePanel className="p-3">
-        <p className="flex items-center gap-2 font-medium text-xs">
-          <ShieldCheck aria-hidden="true" className="size-4 text-primary" />
-          Audience inherited from the post
-        </p>
-        <p className="mt-1 text-muted-foreground text-xs">
-          {audienceMode === "custom"
-            ? "Restricted to the post’s current readers."
-            : audienceMode === "author_tier_and_higher"
-              ? "Visible to the author’s role tier and every higher tier."
-              : "Visible to everyone who can read the parent post."}{" "}
-          This Action Item cannot widen visibility.
-        </p>
-      </FramePanel>
-    </Frame>
+    <p
+      aria-label={`Visibility: ${visibilityLabel}`}
+      className="flex items-center gap-2 text-muted-foreground text-xs"
+    >
+      <ShieldCheck aria-hidden="true" className="size-4 text-success" />
+      {visibilityLabel}
+    </p>
   );
 }
 
@@ -1613,6 +2492,24 @@ function dateInputValue(timestamp?: number) {
   return timestamp ? new Date(timestamp).toISOString().slice(0, 10) : "";
 }
 
+function actionItemAge(createdAt: number) {
+  const days = Math.max(0, Math.floor((Date.now() - createdAt) / 86_400_000));
+  if (days === 0) {
+    return "Today";
+  }
+  if (days === 1) {
+    return "1 day old";
+  }
+  return `${days} days old`;
+}
+
+function formatCompactDate(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+  }).format(timestamp);
+}
+
 function workKindLabel(workKind: ActionWorkKind) {
   switch (workKind) {
     case "ordinary":
@@ -1625,6 +2522,23 @@ function workKindLabel(workKind: ActionWorkKind) {
       return "Site Visit remediation";
     case "draw_blocker":
       return "Draw blocker";
+  }
+}
+
+function statusLabel(status: ActionStatus) {
+  switch (status) {
+    case "todo":
+      return "To do";
+    case "in_progress":
+      return "In progress";
+    case "in_review":
+      return "In review";
+    case "blocked":
+      return "Blocked";
+    case "done":
+      return "Done";
+    case "cancelled":
+      return "Cancelled";
   }
 }
 
@@ -1672,9 +2586,9 @@ function transitionLabel(
       detail.item.status === "done") &&
     status !== "cancelled"
   ) {
-    return `Reopen to ${status.replaceAll("_", " ")}`;
+    return `Reopen to ${statusLabel(status)}`;
   }
-  return status.replaceAll("_", " ");
+  return statusLabel(status);
 }
 
 function newActionItemRequestId() {

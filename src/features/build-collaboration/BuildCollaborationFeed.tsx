@@ -101,6 +101,7 @@ import {
   type BuildCollaborationSearchResult,
 } from "./BuildCollaborationSearch.tsx";
 import { BuildCollaborationThreadSheet } from "./BuildCollaborationThreadSheet.tsx";
+import "./build-collaboration.css";
 import {
   abandonGovernedCollaborationAssets,
   uploadGovernedCollaborationAssets,
@@ -223,6 +224,20 @@ export function buildActionItemQueueHref(
   url.searchParams.set("tab", "details");
   url.searchParams.set("focus", `actionItem:${actionItemId}`);
   return `${url.pathname}${url.search}`;
+}
+
+export function buildActionItemSheetHref(
+  currentHref: string,
+  actionItemId?: string
+) {
+  const url = new URL(currentHref, "http://localhost");
+  if (actionItemId) {
+    url.searchParams.set("tab", "details");
+    url.searchParams.set("focus", `actionItem:${actionItemId}`);
+  } else if (url.searchParams.get("focus")?.startsWith("actionItem:")) {
+    url.searchParams.delete("focus");
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function focusedActionItemIdFromReference(reference?: string) {
@@ -515,6 +530,19 @@ interface BuildCollaborationFeedProps {
   organizationId?: string;
 }
 
+const ACTION_ITEM_VIEW_STORAGE_KEY =
+  "drawflow:build-collaboration:action-item-view";
+
+function readActionItemViewPreference(): "board" | "list" {
+  try {
+    return window.localStorage.getItem(ACTION_ITEM_VIEW_STORAGE_KEY) === "list"
+      ? "list"
+      : "board";
+  } catch {
+    return "board";
+  }
+}
+
 export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
   const { user } = useAuth();
   const connectionState = useConvexConnectionState();
@@ -544,11 +572,11 @@ export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
   );
   const collaborationWritable = lifecycleState?.state === "open";
   const sharedMutationsAllowed = isOnline && collaborationWritable;
-  const sharedBlockedMessage = !isOnline
-    ? "Reconnect before changing shared Build collaboration state. Offline work stays private."
-    : lifecycleState === undefined
+  const sharedBlockedMessage = isOnline
+    ? lifecycleState === undefined
       ? "Collaboration access is still loading. Try again in a moment."
-      : "This Build collaboration archive is read-only.";
+      : "This Build collaboration archive is read-only."
+    : "Reconnect before changing shared Build collaboration state. Offline work stays private.";
   return (
     <BuildCollaborationMutationGate
       personalMutationsAllowed={isOnline}
@@ -853,6 +881,43 @@ function BuildCollaborationFeedContent({
     useState<FocusedReference | null>(null);
   const [actionItemSheetTarget, setActionItemSheetTarget] =
     useState<BuildActionItemSheetTarget | null>(null);
+  const openActionItemSheet = (
+    actionItemId: Id<"buildActionItems">,
+    historyMode: "push" | "replace" = "push"
+  ) => {
+    setActionItemSheetTarget({ actionItemId, kind: "detail" });
+    const href = buildActionItemSheetHref(window.location.href, actionItemId);
+    window.history[historyMode === "push" ? "pushState" : "replaceState"](
+      window.history.state,
+      "",
+      href
+    );
+  };
+  const closeActionItemSheet = () => {
+    setActionItemSheetTarget(null);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      buildActionItemSheetHref(window.location.href)
+    );
+  };
+  useEffect(() => {
+    const handlePopState = () => {
+      const actionItemId = focusedActionItemIdFromReference(
+        new URL(window.location.href).searchParams.get("focus") ?? undefined
+      );
+      setActionItemSheetTarget(
+        actionItemId
+          ? {
+              actionItemId: actionItemId as Id<"buildActionItems">,
+              kind: "detail",
+            }
+          : null
+      );
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
   const focusedEntityActionItems = usePaginatedQuery(
     api.build_action_item_queues.listBuildActionItemQueue,
     focusedEntityQueueArgs({
@@ -913,9 +978,11 @@ function BuildCollaborationFeedContent({
     if (!option) {
       return;
     }
-    if (option.entityKind !== "actionItem") {
-      setActionItemSheetTarget(null);
+    if (option.entityKind === "actionItem") {
+      openActionItemSheet(option.id as Id<"buildActionItems">);
+      return;
     }
+    closeActionItemSheet();
     focusReference(option);
   };
   const participants = tagOptions.filter(
@@ -1559,19 +1626,11 @@ function BuildCollaborationFeedContent({
     );
   }
 
-  return (
-    <section
-      aria-label="Build collaboration"
-      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]"
-      data-build-id={viewerBinding?.buildId}
-      data-organization-id={viewerBinding?.organizationId}
-      data-testid="build-collaboration-feed"
-      data-viewer-role={viewerBinding?.role}
-      data-viewer-workos-user-id={viewerBinding?.workosUserId}
-    >
+  const collaborationSurfaceContent = (
+    <>
       <aside
         aria-label="My collaboration work"
-        className="order-first xl:order-none xl:col-start-2 xl:row-start-1"
+        className="build-collaboration-rail build-collaboration-personal-rail order-first xl:order-none"
       >
         <BuildCollaborationActionItemQueue
           compactOnNarrow
@@ -1582,10 +1641,7 @@ function BuildCollaborationFeedContent({
           onLoadMore={personalQueue.loadMore}
           onOpen={(row) => {
             if (row.buildId === activeBuildId) {
-              setActionItemSheetTarget({
-                actionItemId: row.item._id,
-                kind: "detail",
-              });
+              openActionItemSheet(row.item._id);
               return;
             }
             window.location.assign(
@@ -1601,7 +1657,7 @@ function BuildCollaborationFeedContent({
         />
       </aside>
 
-      <div className="min-w-0 space-y-4 xl:col-start-1 xl:row-span-2 xl:row-start-1">
+      <FramePanel className="build-collaboration-main space-y-4 p-4">
         {connectionOnline ? null : (
           <Frame data-testid="build-collaboration-offline-banner">
             <FramePanel
@@ -1633,7 +1689,7 @@ function BuildCollaborationFeedContent({
               </p>
             </FramePanel>
           </Frame>
-        ) : collaborationState !== "open" ? (
+        ) : collaborationState === "open" ? null : (
           <Frame data-testid="build-collaboration-read-only-banner">
             <FramePanel aria-live="polite" role="status">
               <p className="font-medium text-sm">Collaboration is read-only</p>
@@ -1644,7 +1700,7 @@ function BuildCollaborationFeedContent({
               </p>
             </FramePanel>
           </Frame>
-        ) : null}
+        )}
         {offlineDraft ? (
           <Frame data-testid="build-collaboration-offline-draft">
             <FramePanel className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -2019,7 +2075,7 @@ function BuildCollaborationFeedContent({
                     tagOptions={tagOptions}
                     value={html}
                   />
-                  {autosaveStatus !== "idle" ? (
+                  {autosaveStatus === "idle" ? null : (
                     <p
                       aria-live="polite"
                       className={cn(
@@ -2036,7 +2092,7 @@ function BuildCollaborationFeedContent({
                           ? "Private draft autosaved. Publishing still requires you."
                           : "Autosave could not finish. Keep this composer open and retry Save draft."}
                     </p>
-                  ) : null}
+                  )}
                   <Collapsible
                     onOpenChange={setComposerExtrasOpen}
                     open={composerExtrasOpen}
@@ -2261,7 +2317,7 @@ function BuildCollaborationFeedContent({
               }
               onFocusReference={focusReference}
               onOpenActionItem={(actionItemId) =>
-                setActionItemSheetTarget({ actionItemId, kind: "detail" })
+                openActionItemSheet(actionItemId)
               }
               organizationId={organizationId}
               referenceByKey={referenceByKey}
@@ -2286,11 +2342,11 @@ function BuildCollaborationFeedContent({
             </FramePanel>
           </Frame>
         ) : null}
-      </div>
+      </FramePanel>
 
       <aside
         aria-label="Build collaboration context"
-        className="space-y-3 xl:col-start-2 xl:row-start-2"
+        className="build-collaboration-context-rail build-collaboration-rail"
       >
         <SummaryCard
           description="Important threads for this Build"
@@ -2308,12 +2364,7 @@ function BuildCollaborationFeedContent({
           loading={buildQueue.loading}
           loadingMore={buildQueue.loadingMore}
           onLoadMore={buildQueue.loadMore}
-          onOpen={(row) =>
-            setActionItemSheetTarget({
-              actionItemId: row.item._id,
-              kind: "detail",
-            })
-          }
+          onOpen={(row) => openActionItemSheet(row.item._id)}
           rows={buildQueue.rows}
           title="Build Action Items"
         />
@@ -2338,10 +2389,17 @@ function BuildCollaborationFeedContent({
         })}
         onOpenChange={(open) => {
           if (!open) {
-            setActionItemSheetTarget(null);
+            closeActionItemSheet();
           }
         }}
         onReferenceOpen={openActionItemSheetReference}
+        onTargetChange={(nextTarget) => {
+          if (nextTarget.kind === "detail") {
+            openActionItemSheet(nextTarget.actionItemId);
+          } else {
+            setActionItemSheetTarget(nextTarget);
+          }
+        }}
         open={Boolean(actionItemSheetTarget)}
         organizationId={organizationId}
         readOnly={!isOnline}
@@ -2362,7 +2420,7 @@ function BuildCollaborationFeedContent({
         onLoadMoreActionItems={entityQueue.loadMore}
         onOpenActionItem={(actionItemId) => {
           setFocusedReference(null);
-          setActionItemSheetTarget({ actionItemId, kind: "detail" });
+          openActionItemSheet(actionItemId);
         }}
         onOpenChange={(open) => {
           if (!open) {
@@ -2389,7 +2447,27 @@ function BuildCollaborationFeedContent({
         }}
         reference={focusedReference}
       />
-    </section>
+    </>
+  );
+
+  const collaborationSurfaceAttributes = {
+    "aria-label": "Build collaboration",
+    "data-build-id": viewerBinding?.buildId,
+    "data-organization-id": viewerBinding?.organizationId,
+    "data-testid": "build-collaboration-feed",
+    "data-viewer-role": viewerBinding?.role,
+    "data-viewer-workos-user-id": viewerBinding?.workosUserId,
+  } as const;
+
+  return (
+    <Frame>
+      <section
+        {...collaborationSurfaceAttributes}
+        className="build-collaboration-layout"
+      >
+        {collaborationSurfaceContent}
+      </section>
+    </Frame>
   );
 }
 
@@ -2877,7 +2955,9 @@ function CollaborationPostCard({
   const [tab, setTab] = useState<"actions" | "discussion" | null>(() =>
     focusedCommentId ? "discussion" : null
   );
-  const [actionView, setActionView] = useState<"board" | "list">("list");
+  const [actionView, setActionView] = useState<"board" | "list">(
+    readActionItemViewPreference
+  );
   const [editTarget, setEditTarget] = useState<CollaborationEditTarget | null>(
     null
   );
@@ -2922,6 +3002,14 @@ function CollaborationPostCard({
       setTab("discussion");
     }
   }, [focusedReference]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ACTION_ITEM_VIEW_STORAGE_KEY, actionView);
+    } catch {
+      // Browser storage is an optional personal convenience only.
+    }
+  }, [actionView]);
 
   useEffect(() => {
     if (

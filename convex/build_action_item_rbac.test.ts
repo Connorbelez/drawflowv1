@@ -61,14 +61,14 @@ describe("Build Action Item operation RBAC", () => {
           item: existingItem,
           operation: "transition",
         }).allowed
-      ).toBe(false);
+      ).toBe(mayCoordinateAdminWork);
       expect(
         authorizeBuildActionItemOperation({
           actor: actor(role),
           item: existingItem,
           operation: "complete",
         }).allowed
-      ).toBe(false);
+      ).toBe(mayCoordinateAdminWork);
     }
   );
 
@@ -205,6 +205,30 @@ describe("Build Action Item operation RBAC", () => {
         operation: "complete",
       })
     ).toMatchObject({ allowed: true, authority: "assigning_authority" });
+  });
+
+  test("creator, assignee, and authorized managers can move status without granting task-definition edits to the assignee", () => {
+    for (const [role, workosUserId, authority] of [
+      ["builder", "creator", "creator"],
+      ["contractor", "assignee", "assignee"],
+      ["admin", "admin-manager", "coordinator"],
+    ] as const) {
+      expect(
+        authorizeBuildActionItemOperation({
+          actor: actor(role, workosUserId),
+          item: baseItem,
+          nextStatus: "in_review",
+          operation: "transition",
+        })
+      ).toMatchObject({ allowed: true, authority });
+    }
+    expect(
+      authorizeBuildActionItemOperation({
+        actor: actor("contractor", "assignee"),
+        item: baseItem,
+        operation: "edit_fields",
+      }).allowed
+    ).toBe(false);
   });
 
   test("reopen authority is limited to the creator or a strictly higher-tier coordinator", () => {

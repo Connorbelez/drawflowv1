@@ -179,16 +179,11 @@ export async function projectReadableBuildCollaborationPost(
           required: true,
         }
       : { acknowledged: false, required: false },
-    actionItems: actionItems.map((item) => ({
-      _creationTime: item._creationTime,
-      _id: item._id,
-      assigneeWorkosUserId: item.assigneeWorkosUserId,
-      assignmentState: item.assignmentState,
-      currentRevision: item.currentRevision,
-      priority: item.priority,
-      status: item.status,
-      title: item.title,
-    })),
+    actionItems: await Promise.all(
+      actionItems.map((item) =>
+        projectActionItemSummary(ctx, authorization, item)
+      )
+    ),
     attachments,
     following: follows.some((follow) => follow.active),
     kind: "post" as const,
@@ -265,6 +260,72 @@ export async function projectReadableBuildCollaborationPost(
       revision: revision.revision,
       tiptapJson: revision.tiptapJson,
     },
+  };
+}
+
+async function projectActionItemSummary(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  item: Doc<"buildActionItems">
+) {
+  const [labels, incoming, outgoing, unread] = await Promise.all([
+    ctx.db
+      .query("buildActionItemLabels")
+      .withIndex("by_actionItemId_and_normalizedLabel", (query) =>
+        query.eq("actionItemId", item._id)
+      )
+      .take(100),
+    ctx.db
+      .query("buildActionItemRelations")
+      .withIndex("by_targetActionItemId_and_status", (query) =>
+        query.eq("targetActionItemId", item._id).eq("status", "active")
+      )
+      .take(101),
+    ctx.db
+      .query("buildActionItemRelations")
+      .withIndex("by_sourceActionItemId_and_status", (query) =>
+        query.eq("sourceActionItemId", item._id).eq("status", "active")
+      )
+      .take(101),
+    ctx.db
+      .query("recipientDeliveries")
+      .withIndex("by_recipient_actionItem_status", (query) =>
+        query
+          .eq("organizationId", authorization.organizationId)
+          .eq("recipientWorkosUserId", authorization.viewer.subject)
+          .eq("collaborationActionItemId", item._id)
+          .eq("status", "unread")
+      )
+      .take(100),
+  ]);
+  const isScopedBlock = (relation: Doc<"buildActionItemRelations">) =>
+    relation.kind === "blocks" &&
+    relation.organizationId === authorization.organizationId &&
+    relation.brokerageId === authorization.brokerage._id &&
+    relation.buildId === authorization.build._id;
+  return {
+    _creationTime: item._creationTime,
+    _id: item._id,
+    actionableUnreadCount: unread.filter(
+      (delivery) => delivery.inAppVisible !== false
+    ).length,
+    assigneeWorkosUserId: item.assigneeWorkosUserId,
+    assignmentState: item.assignmentState,
+    blockedReason: item.blockedReason,
+    createdAt: item.createdAt,
+    currentRevision: item.currentRevision,
+    dependencyCount: incoming.filter(isScopedBlock).length,
+    dueAt: item.dueAt,
+    labels: labels.map((row) => row.label).sort((a, b) => a.localeCompare(b)),
+    priority: item.priority,
+    status: item.status,
+    title: item.title,
+    unblocksCount: outgoing.filter(isScopedBlock).length,
+    unreadCommentCount: unread.filter(
+      (delivery) =>
+        delivery.inAppVisible !== false &&
+        delivery.entityType === "buildActionItemComment"
+    ).length,
   };
 }
 

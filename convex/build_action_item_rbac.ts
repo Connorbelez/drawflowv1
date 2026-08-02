@@ -117,20 +117,10 @@ export function authorizeBuildActionItemOperation(input: {
     >,
     readonly BuildActionItemAuthority[]
   > = {
-    add_checklist: [
-      "creator",
-      "assignee",
-      "assigning_authority",
-      "coordinator",
-    ],
-    create_child: ["creator", "assignee", "assigning_authority", "coordinator"],
+    add_checklist: ["creator", "coordinator"],
+    create_child: ["creator", "coordinator"],
     edit_fields: ["creator", "coordinator"],
-    link_relation: [
-      "creator",
-      "assignee",
-      "assigning_authority",
-      "coordinator",
-    ],
+    link_relation: ["creator", "coordinator"],
     repair_relation: ["coordinator"],
     toggle_checklist: [
       "creator",
@@ -186,8 +176,7 @@ function authorizeTransition(
     input.item.assigneeWorkosUserId === input.actor.workosUserId;
   return {
     allowed:
-      isAssignee ||
-      (authority === "creator" && !input.item.assigneeWorkosUserId),
+      isAssignee || authority === "creator" || authority === "coordinator",
     authority: isAssignee ? "assignee" : authority,
   };
 }
@@ -230,8 +219,7 @@ function authorizeCompletion(
     input.item.assigneeWorkosUserId === input.actor.workosUserId;
   return {
     allowed:
-      isAssignee ||
-      (authority === "creator" && !input.item.assigneeWorkosUserId),
+      isAssignee || authority === "creator" || authority === "coordinator",
     authority: isAssignee ? "assignee" : authority,
   };
 }

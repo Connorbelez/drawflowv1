@@ -295,7 +295,7 @@ describe("Build Action Item server authorization", () => {
       buildId: fixture.buildId,
       descriptionTiptapJson: description,
       dueAt: 1_800_000_000_000,
-      labels: ["Evidence", "Draw 3", "evidence"],
+      labels: ["Evidence", "Draw", "evidence"],
       organizationId: ORGANIZATION_ID,
       postId: fixture.postId,
       priority: "high",
@@ -361,7 +361,7 @@ describe("Build Action Item server authorization", () => {
         priority: "high",
         title: "Upload engineer seal",
       },
-      labels: ["Draw 3", "Evidence"],
+      labels: ["Draw", "Evidence"],
       references: [
         {
           entityId: "user_contractor_creator",
@@ -399,7 +399,7 @@ describe("Build Action Item server authorization", () => {
       });
     });
 
-    await fixture.reader.mutation(
+    const commentId = await fixture.reader.mutation(
       (api as any).build_action_item_details.addBuildActionItemComment,
       {
         actionItemId,
@@ -433,6 +433,37 @@ describe("Build Action Item server authorization", () => {
         }),
       }
     );
+    const replyId = await fixture.creator.mutation(
+      (api as any).build_action_item_details.addBuildActionItemComment,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        parentCommentId: commentId,
+        references: [],
+        tiptapJson: JSON.stringify({
+          content: [
+            {
+              content: [{ text: "Thanks — use the signed copy.", type: "text" }],
+              type: "paragraph",
+            },
+          ],
+          type: "doc",
+        }),
+      }
+    );
+    expect(replyId).toBeTruthy();
+    await fixture.reader.mutation(
+      (api as any).build_action_item_details
+        .toggleBuildActionItemCommentReaction,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        commentId,
+        organizationId: ORGANIZATION_ID,
+        reaction: "acknowledged",
+      }
+    );
     await fixture.creator.mutation(
       (api as any).build_action_items.updateBuildActionItem,
       {
@@ -453,6 +484,7 @@ describe("Build Action Item server authorization", () => {
     );
     expect(detail.comments).toMatchObject([
       {
+        attachments: [],
         authorDisplayName: "user_contractor_reader",
         plainText: expect.stringContaining("I will upload this with"),
         references: [
@@ -461,8 +493,84 @@ describe("Build Action Item server authorization", () => {
             entityKind: "participant",
           },
         ],
+        reactions: [
+          {
+            count: 1,
+            reaction: "acknowledged",
+            viewerHasReacted: true,
+          },
+        ],
+      },
+      {
+        parentCommentId: commentId,
+        plainText: "Thanks — use the signed copy.",
       },
     ]);
+    const actionItemDeliveries = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("recipientDeliveries").collect()).filter(
+        (delivery) => delivery.collaborationActionItemId === actionItemId
+      )
+    );
+    expect(
+      actionItemDeliveries.some(
+        (delivery) => delivery.collaborationEventKind === "direct_mention"
+      )
+    ).toBe(true);
+    expect(
+      actionItemDeliveries.some(
+        (delivery) => delivery.collaborationEventKind === "followed_reply"
+      )
+    ).toBe(true);
+    const unreadFeed = await fixture.reader.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }
+    );
+    const unreadActionItem = unreadFeed.page
+      .filter((entry: any) => entry.kind === "post")
+      .flatMap((entry: any) => entry.actionItems)
+      .find((entry: any) => entry._id === actionItemId);
+    expect(unreadActionItem).toMatchObject({
+      actionableUnreadCount: 1,
+      unreadCommentCount: 1,
+    });
+    await fixture.reader.mutation(
+      (api as any).build_collaboration_inbox.markBuildActionItemActivityRead,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const readerDeliveries = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("recipientDeliveries").collect()).filter(
+        (delivery) =>
+          delivery.collaborationActionItemId === actionItemId &&
+          delivery.recipientWorkosUserId === "user_contractor_reader"
+      )
+    );
+    expect(readerDeliveries.every((delivery) => delivery.status === "read")).toBe(
+      true
+    );
+    const readFeed = await fixture.reader.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }
+    );
+    const readActionItem = readFeed.page
+      .filter((entry: any) => entry.kind === "post")
+      .flatMap((entry: any) => entry.actionItems)
+      .find((entry: any) => entry._id === actionItemId);
+    expect(readActionItem).toMatchObject({
+      actionableUnreadCount: 0,
+      unreadCommentCount: 0,
+    });
     expect(detail.revisions.map((revision: any) => revision.revision)).toEqual([
       2, 1,
     ]);
@@ -3285,18 +3393,6 @@ describe("Build Action Item server authorization", () => {
         reason: "Waiting on material",
       }
     );
-    await expect(
-      fixture.creator.mutation(
-        (api as any).build_action_item_workflow.transitionBuildActionItem,
-        {
-          actionItemId: exceptionalItemId,
-          buildId: fixture.buildId,
-          expectedRevision: 3,
-          nextStatus: "cancelled",
-          organizationId: ORGANIZATION_ID,
-        }
-      )
-    ).rejects.toThrow("requires a reason");
     await fixture.creator.mutation(
       (api as any).build_action_item_workflow.transitionBuildActionItem,
       {
@@ -3305,7 +3401,6 @@ describe("Build Action Item server authorization", () => {
         expectedRevision: 3,
         nextStatus: "cancelled",
         organizationId: ORGANIZATION_ID,
-        reason: "Supplier cancelled the order",
       }
     );
     await fixture.creator.mutation(
@@ -3326,4 +3421,239 @@ describe("Build Action Item server authorization", () => {
     });
     expect(restored.item?.previousActiveStatus).toBeUndefined();
   });
+
+  test("hard-gates Done on every active incoming dependency until the blocker is Done", async () => {
+    const fixture = await seedActionItemBuild();
+    const blockerId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Receive stamped permit",
+      }
+    );
+    const dependentId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        assigneeWorkosUserId: "user_contractor_reader",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Start framing",
+      }
+    );
+    const relationId = await fixture.creator.mutation(
+      (api as any).build_action_item_structure.linkBuildActionItems,
+      {
+        buildId: fixture.buildId,
+        expectedSourceRevision: 1,
+        kind: "blocks",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: blockerId,
+        targetActionItemId: dependentId,
+      }
+    );
+    const dependentStartRevision =
+      (await readActionItem(fixture, dependentId)).item?.currentRevision ?? 1;
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: dependentId,
+        buildId: fixture.buildId,
+        expectedRevision: dependentStartRevision,
+        nextStatus: "in_progress",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_item_workflow.transitionBuildActionItem,
+        {
+          actionItemId: dependentId,
+          buildId: fixture.buildId,
+          expectedRevision: dependentStartRevision + 1,
+          nextStatus: "done",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("dependency must be Done");
+    const blockerRevision =
+      (await readActionItem(fixture, blockerId)).item?.currentRevision ?? 1;
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: blockerId,
+        buildId: fixture.buildId,
+        expectedRevision: blockerRevision,
+        nextStatus: "in_progress",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: blockerId,
+        buildId: fixture.buildId,
+        expectedRevision: blockerRevision + 1,
+        nextStatus: "done",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const unblockedDeliveries = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("recipientDeliveries").collect()).filter(
+        (delivery) => delivery.collaborationActionItemId === dependentId
+      )
+    );
+    expect(unblockedDeliveries.map((delivery) => delivery.title)).toContain(
+      "Action Item dependency unblocked"
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: dependentId,
+        buildId: fixture.buildId,
+        expectedRevision: dependentStartRevision + 1,
+        nextStatus: "done",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect((await readActionItem(fixture, dependentId)).item?.status).toBe(
+      "done"
+    );
+    const dependentRevision =
+      (await readActionItem(fixture, dependentId)).item?.currentRevision ?? 1;
+    await fixture.creator.mutation(
+      (api as any).build_action_item_structure.unlinkBuildActionItemRelation,
+      {
+        buildId: fixture.buildId,
+        expectedGoverningRevision: dependentRevision,
+        governingActionItemId: dependentId,
+        organizationId: ORGANIZATION_ID,
+        relationId,
+      }
+    );
+    expect(
+      await fixture.base.run(
+        async (ctx) =>
+          (
+            await ctx.db.get(
+              relationId as Id<"buildActionItemRelations">
+            )
+          )?.status
+      )
+    ).toBe("superseded");
+  });
+
+  test("enforces the global preset tag taxonomy and replaces tags through creator-owned task definition edits", async () => {
+    const fixture = await seedActionItemBuild();
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_items.createBuildActionItem,
+        {
+          buildId: fixture.buildId,
+          labels: ["Custom one-off"],
+          organizationId: ORGANIZATION_ID,
+          postId: fixture.postId,
+          title: "Invalid custom tag",
+        }
+      )
+    ).rejects.toThrow("preset Action Item tags");
+    const actionItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        labels: ["Budget", "Permit"],
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Controlled tags",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_items.updateBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        labels: ["Schedule", "Evidence"],
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const detail = await fixture.creator.query(
+      (api as any).build_action_item_details.getBuildActionItemDetail,
+      { actionItemId, buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(detail.labels).toEqual(["Evidence", "Schedule"]);
+  });
+
+  test("requires a manager override reason and lets a stale higher-authority description beat a lower-authority edit", async () => {
+    const fixture = await seedActionItemBuild();
+    const actionItemId = await fixture.creator.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: fixture.postId,
+        title: "Concurrent brief",
+      }
+    );
+    await fixture.creator.mutation(
+      (api as any).build_action_items.updateBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        descriptionPlainText: "Creator saved first.",
+        descriptionTiptapJson: JSON.stringify({
+          content: [{ content: [{ text: "Creator saved first.", type: "text" }], type: "paragraph" }],
+          type: "doc",
+        }),
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).build_action_items.updateBuildActionItem,
+        {
+          actionItemId,
+          buildId: fixture.buildId,
+          descriptionPlainText: "Manager correction.",
+          descriptionTiptapJson: JSON.stringify({ content: [], type: "doc" }),
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("override reason");
+    await fixture.builder.mutation(
+      (api as any).build_action_items.updateBuildActionItem,
+      {
+        actionItemId,
+        buildId: fixture.buildId,
+        descriptionPlainText: "Manager correction.",
+        descriptionTiptapJson: JSON.stringify({ content: [], type: "doc" }),
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Corrected the governing inspection brief.",
+      }
+    );
+    const persisted = await readActionItem(fixture, actionItemId);
+    expect(persisted.item).toMatchObject({
+      currentRevision: 3,
+      descriptionPlainText: "Manager correction.",
+    });
+    await expect(
+      fixture.creator.mutation(
+        (api as any).build_action_items.updateBuildActionItem,
+        {
+          actionItemId,
+          buildId: fixture.buildId,
+          descriptionPlainText: "Late equal/lower authority edit.",
+          descriptionTiptapJson: JSON.stringify({ content: [], type: "doc" }),
+          expectedRevision: 2,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("another editor saved first");
+  });
+
 });

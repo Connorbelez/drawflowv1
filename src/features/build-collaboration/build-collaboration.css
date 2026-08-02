@@ -1,0 +1,63 @@
+.build-collaboration-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem;
+  width: 100%;
+}
+
+.build-collaboration-main {
+  min-width: 0;
+}
+
+.build-collaboration-context-rail {
+  display: grid;
+  align-content: start;
+  gap: 0;
+}
+
+.build-collaboration-rail [data-slot="frame"],
+.build-collaboration-rail [data-slot="card"] {
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.build-collaboration-rail [data-slot="frame-panel"] {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.build-collaboration-rail [data-slot="frame-panel"]::before {
+  box-shadow: none !important;
+}
+
+.build-collaboration-context-rail > * + * {
+  border-top: 1px solid var(--border) !important;
+}
+
+@media (min-width: 80rem) {
+  .build-collaboration-layout {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    grid-template-rows: auto 1fr;
+  }
+
+  .build-collaboration-main {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .build-collaboration-personal-rail {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .build-collaboration-context-rail {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}

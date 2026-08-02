@@ -7,7 +7,11 @@ import { buildCollaborationValidationError } from "./build_collaboration_validat
 import { emitBuildCollaborationWebhookEvent } from "./build_collaboration_webhooks";
 import type { Doc, Id, MutationCtx } from "./types";
 
-type AssetOwnerKind = "postRevision" | "commentRevision" | "actionItem";
+type AssetOwnerKind =
+  | "postRevision"
+  | "commentRevision"
+  | "actionItem"
+  | "actionItemComment";
 
 /**
  * Publishes governed assets and attaches them to collaboration content in the

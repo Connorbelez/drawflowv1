@@ -70,10 +70,18 @@ export const collaborationActionItemSummaryValidator = v.object({
   _id: v.id("buildActionItems"),
   assigneeWorkosUserId: v.optional(v.string()),
   assignmentState: buildActionAssignmentStateValidator,
+  actionableUnreadCount: v.number(),
+  blockedReason: v.optional(v.string()),
+  createdAt: v.number(),
   currentRevision: v.number(),
+  dependencyCount: v.number(),
+  dueAt: v.optional(v.number()),
+  labels: v.array(v.string()),
   priority: buildActionItemPriorityValidator,
   status: buildActionItemStatusValidator,
   title: v.string(),
+  unblocksCount: v.number(),
+  unreadCommentCount: v.number(),
 });
 
 export const collaborationReferenceSummaryValidator = v.object({

@@ -9,7 +9,10 @@ import {
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { canUseCollaborationAssetForPost } from "./build_collaboration_asset_access";
+import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
+import { buildCollaborationDeepLink } from "./build_collaboration_links";
+import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
 import { canonicalizeTiptapReferences } from "./build_collaboration_publication_bundle";
 import {
   type CanonicalBuildCollaborationReference,
@@ -24,6 +27,7 @@ import {
   buildActionItemWorkKindValidator,
   buildCollaborationAssetStateValidator,
   buildCollaborationAudienceModeValidator,
+  buildCollaborationReactionValidator,
   buildCollaborationReferenceKindValidator,
   buildCollaborationRoleValidator,
 } from "./build_collaboration_validators";
@@ -33,6 +37,7 @@ const MAX_DETAIL_EVENTS = 500;
 const MAX_DETAIL_REVISIONS = 250;
 const MAX_DETAIL_COMMENTS = 500;
 const MAX_COMMENT_REFERENCES = 50;
+const MAX_COMMENT_ATTACHMENTS = 20;
 const MAX_COMMENT_TEXT_LENGTH = 25_000;
 
 const referenceInputValidator = v.object({
@@ -77,11 +82,29 @@ const detailValidator = v.union(
     ),
     comments: v.array(
       v.object({
+        attachments: v.array(
+          v.object({
+            assetId: v.id("buildCollaborationAssets"),
+            fileName: v.string(),
+            mimeType: v.string(),
+            sizeBytes: v.number(),
+            state: buildCollaborationAssetStateValidator,
+            version: v.number(),
+          })
+        ),
         authorDisplayName: v.string(),
         authorRole: buildCollaborationRoleValidator,
         commentId: v.id("buildActionItemComments"),
         createdAt: v.number(),
         plainText: v.string(),
+        parentCommentId: v.optional(v.id("buildActionItemComments")),
+        reactions: v.array(
+          v.object({
+            count: v.number(),
+            reaction: buildCollaborationReactionValidator,
+            viewerHasReacted: v.boolean(),
+          })
+        ),
         references: v.array(referenceSummaryValidator),
         tiptapJson: v.string(),
       })
@@ -92,6 +115,7 @@ const detailValidator = v.union(
       assigneeWorkosUserId: v.optional(v.string()),
       assignmentState: buildActionAssignmentStateValidator,
       audienceMode: buildCollaborationAudienceModeValidator,
+      blockedReason: v.optional(v.string()),
       completedAt: v.optional(v.number()),
       completedByWorkosUserId: v.optional(v.string()),
       completionAcceptedByWorkosUserId: v.optional(v.string()),
@@ -241,14 +265,31 @@ export const getBuildActionItemDetail = authenticatedQuery
     );
     const commentRows = await Promise.all(
       comments.map(async (comment) => {
-        const commentReferences = await ctx.db
-          .query("buildCollaborationReferences")
-          .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
-            query
-              .eq("ownerKind", "actionItemComment")
-              .eq("ownerRecordId", comment._id)
-          )
-          .take(MAX_COMMENT_REFERENCES);
+        const [commentReferences, commentAttachments, commentReactions] =
+          await Promise.all([
+            ctx.db
+              .query("buildCollaborationReferences")
+              .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+                query
+                  .eq("ownerKind", "actionItemComment")
+                  .eq("ownerRecordId", comment._id)
+              )
+              .take(MAX_COMMENT_REFERENCES),
+            ctx.db
+              .query("buildCollaborationAttachments")
+              .withIndex("by_ownerKind_and_ownerRecordId", (query) =>
+                query
+                  .eq("ownerKind", "actionItemComment")
+                  .eq("ownerRecordId", comment._id)
+              )
+              .take(MAX_COMMENT_ATTACHMENTS),
+            ctx.db
+              .query("buildActionItemCommentReactions")
+              .withIndex("by_commentId", (query) =>
+                query.eq("commentId", comment._id)
+              )
+              .take(500),
+          ]);
         const projectedReferences = await projectActionItemReferences(ctx, {
           authorization,
           references: commentReferences,
@@ -257,12 +298,63 @@ export const getBuildActionItemDetail = authenticatedQuery
           references: projectedReferences.canonical,
           tiptapJson: comment.tiptapJson,
         });
+        const projectedAttachments = await Promise.all(
+          commentAttachments.map(async (attachment) => {
+            if (attachment.attachmentKind !== "collaborationAsset") {
+              return null;
+            }
+            const asset = await ctx.db.get(
+              attachment.attachmentId as Id<"buildCollaborationAssets">
+            );
+            if (
+              !asset ||
+              (asset.state !== "available" && asset.state !== "superseded") ||
+              !(await canUseCollaborationAssetForPost(ctx, {
+                asset,
+                authorization,
+                post,
+              }))
+            ) {
+              return null;
+            }
+            return {
+              assetId: asset._id,
+              fileName: asset.fileName,
+              mimeType: asset.mimeType,
+              sizeBytes: asset.sizeBytes,
+              state: asset.state,
+              version: asset.version,
+            };
+          })
+        );
+        const reactions = new Map<
+          Doc<"buildActionItemCommentReactions">["reaction"],
+          { count: number; viewerHasReacted: boolean }
+        >();
+        for (const reaction of commentReactions) {
+          const current = reactions.get(reaction.reaction) ?? {
+            count: 0,
+            viewerHasReacted: false,
+          };
+          current.count += 1;
+          current.viewerHasReacted ||=
+            reaction.workosUserId === authorization.viewer.subject;
+          reactions.set(reaction.reaction, current);
+        }
         return {
+          attachments: projectedAttachments.filter(
+            (row): row is NonNullable<typeof row> => Boolean(row)
+          ),
           authorDisplayName: comment.authorDisplayNameSnapshot,
           authorRole: comment.authorRole,
           commentId: comment._id,
           createdAt: comment.createdAt,
           plainText: projectedContent.plainText,
+          parentCommentId: comment.parentCommentId,
+          reactions: [...reactions.entries()].map(([reaction, summary]) => ({
+            reaction,
+            ...summary,
+          })),
           references: projectedReferences.summaries,
           tiptapJson: projectedContent.tiptapJson,
         };
@@ -301,6 +393,7 @@ export const getBuildActionItemDetail = authenticatedQuery
         assigneeWorkosUserId: item.assigneeWorkosUserId,
         assignmentState: item.assignmentState,
         audienceMode: post.audienceMode,
+        blockedReason: item.blockedReason,
         completedAt: item.completedAt,
         completedByWorkosUserId: item.completedByWorkosUserId,
         completionAcceptedByWorkosUserId: item.completionAcceptedByWorkosUserId,
@@ -334,8 +427,10 @@ export const getBuildActionItemDetail = authenticatedQuery
 export const addBuildActionItemComment = authenticatedMutation
   .input({
     actionItemId: v.id("buildActionItems"),
+    attachmentAssetIds: v.optional(v.array(v.id("buildCollaborationAssets"))),
     buildId: v.id("activeBuilds"),
     organizationId: v.string(),
+    parentCommentId: v.optional(v.id("buildActionItemComments")),
     references: v.array(referenceInputValidator),
     tiptapJson: v.string(),
   })
@@ -359,6 +454,15 @@ export const addBuildActionItemComment = authenticatedMutation
       authorization,
       post
     );
+    const parentComment = args.parentCommentId
+      ? await ctx.db.get(args.parentCommentId)
+      : null;
+    if (
+      args.parentCommentId &&
+      (!parentComment || parentComment.actionItemId !== item._id)
+    ) {
+      throw new Error("The reply target is unavailable for this Action Item.");
+    }
     const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
       authorization,
       readerIds,
@@ -386,6 +490,7 @@ export const addBuildActionItemComment = authenticatedMutation
       buildId: authorization.build._id,
       createdAt: now,
       organizationId: authorization.organizationId,
+      parentCommentId: parentComment?._id,
       plainText: content.plainText,
       tiptapJson: content.tiptapJson,
     });
@@ -395,6 +500,19 @@ export const addBuildActionItemComment = authenticatedMutation
       now,
       postId: post._id,
       references,
+    });
+    await persistGovernedCollaborationAssetAttachments(ctx, {
+      assetIds: args.attachmentAssetIds ?? [],
+      authorization,
+      command: "add_build_action_item_comment",
+      maxAttachments: MAX_COMMENT_ATTACHMENTS,
+      now,
+      ownerKind: "actionItemComment",
+      ownerRecordId: commentId,
+      post,
+      readerWorkosUserIds: readerIds,
+      unavailableMessage:
+        "One or more Action Item comment attachments are unavailable.",
     });
     await Promise.all([
       ctx.db.insert("buildActionItemEvents", {
@@ -416,7 +534,98 @@ export const addBuildActionItemComment = authenticatedMutation
         updatedAt: now,
       }),
     ]);
+    const mentionedIds = new Set(
+      references
+        .filter((reference) => reference.entityKind === "participant")
+        .map((reference) => reference.entityId)
+    );
+    const recipients = new Set(
+      [
+        item.creatorWorkosUserId,
+        item.assigneeWorkosUserId,
+        parentComment?.authorWorkosUserId,
+        ...mentionedIds,
+      ].filter((value): value is string => Boolean(value))
+    );
+    for (const recipientWorkosUserId of recipients) {
+      const kind = mentionedIds.has(recipientWorkosUserId)
+        ? "direct_mention"
+        : parentComment?.authorWorkosUserId === recipientWorkosUserId
+          ? "followed_reply"
+          : "ordinary_activity";
+      await emitCanonicalBuildCollaborationNotification(ctx, {
+        actionItemId: item._id,
+        actionLabel: "Open Action Item",
+        authorization,
+        body: content.plainText,
+        dedupeKey: `action-item-comment:${commentId}:${kind}:${recipientWorkosUserId}`,
+        entityId: String(commentId),
+        entityLabel: item.title,
+        entityType: "buildActionItemComment",
+        href: buildCollaborationDeepLink({
+          buildId: authorization.build._id,
+          focus: `actionItem:${item._id}`,
+          recipientRole: authorization.participants.find(
+            (participant) => participant.workosUserId === recipientWorkosUserId
+          )?.role,
+        }),
+        kind,
+        now,
+        postId: post._id,
+        readerIds,
+        recipientWorkosUserId,
+        title: parentComment
+          ? "New Action Item reply"
+          : "New Action Item comment",
+      });
+    }
     return commentId;
+  })
+  .public();
+
+export const toggleBuildActionItemCommentReaction = authenticatedMutation
+  .input({
+    actionItemId: v.id("buildActionItems"),
+    buildId: v.id("activeBuilds"),
+    commentId: v.id("buildActionItemComments"),
+    organizationId: v.string(),
+    reaction: buildCollaborationReactionValidator,
+  })
+  .returns(v.boolean())
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeActiveBuildHumanCollaborationAccess(
+      ctx,
+      args
+    );
+    await requireReadableActionItem(ctx, authorization, args.actionItemId);
+    const comment = await ctx.db.get(args.commentId);
+    if (!comment || comment.actionItemId !== args.actionItemId) {
+      throw new Error("Action Item comment is unavailable.");
+    }
+    const existing = await ctx.db
+      .query("buildActionItemCommentReactions")
+      .withIndex("by_commentId_and_workosUserId_and_reaction", (query) =>
+        query
+          .eq("commentId", comment._id)
+          .eq("workosUserId", authorization.viewer.subject)
+          .eq("reaction", args.reaction)
+      )
+      .first();
+    if (existing) {
+      await ctx.db.delete(existing._id);
+      return false;
+    }
+    await ctx.db.insert("buildActionItemCommentReactions", {
+      actionItemId: args.actionItemId,
+      brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
+      commentId: comment._id,
+      createdAt: Date.now(),
+      organizationId: authorization.organizationId,
+      reaction: args.reaction,
+      workosUserId: authorization.viewer.subject,
+    });
+    return true;
   })
   .public();
 

@@ -5,7 +5,7 @@ import {
 import { v } from "convex/values";
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import type { AuthorizedViewer } from "./authz";
-import { authenticatedQuery } from "./authz";
+import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { requireReadableActionItem } from "./build_action_items";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
@@ -87,6 +87,46 @@ export const listRecipientInbox = authenticatedQuery
       }
     }
     return { ...records, page: deliveries };
+  })
+  .public();
+
+export const markBuildActionItemActivityRead = authenticatedMutation
+  .input({
+    actionItemId: v.id("buildActionItems"),
+    buildId: v.id("activeBuilds"),
+    organizationId: v.string(),
+  })
+  .returns(v.number())
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeActiveBuildCollaborationAccess(
+      ctx,
+      args
+    );
+    await requireReadableActionItem(ctx, authorization, args.actionItemId);
+    const unread = await ctx.db
+      .query("recipientDeliveries")
+      .withIndex("by_recipient_actionItem_status", (query) =>
+        query
+          .eq("organizationId", authorization.organizationId)
+          .eq("recipientWorkosUserId", authorization.viewer.subject)
+          .eq("collaborationActionItemId", args.actionItemId)
+          .eq("status", "unread")
+      )
+      .take(501);
+    if (unread.length > 500) {
+      throw new Error("Action Item unread activity exceeds the safe limit.");
+    }
+    const now = Date.now();
+    for (const delivery of unread) {
+      if (
+        delivery.brokerageId === authorization.brokerage._id &&
+        delivery.collaborationBuildId === authorization.build._id &&
+        delivery.inAppVisible !== false
+      ) {
+        await ctx.db.patch(delivery._id, { status: "read", updatedAt: now });
+      }
+    }
+    return unread.length;
   })
   .public();
 

@@ -28,6 +28,7 @@ import type * as build_action_item_queues from "../build_action_item_queues.js";
 import type * as build_action_item_rbac from "../build_action_item_rbac.js";
 import type * as build_action_item_structure from "../build_action_item_structure.js";
 import type * as build_action_item_structure_model from "../build_action_item_structure_model.js";
+import type * as build_action_item_tags from "../build_action_item_tags.js";
 import type * as build_action_item_workflow from "../build_action_item_workflow.js";
 import type * as build_action_items from "../build_action_items.js";
 import type * as build_collaboration from "../build_collaboration.js";
@@ -175,6 +176,7 @@ declare const fullApi: ApiFromModules<{
   build_action_item_rbac: typeof build_action_item_rbac;
   build_action_item_structure: typeof build_action_item_structure;
   build_action_item_structure_model: typeof build_action_item_structure_model;
+  build_action_item_tags: typeof build_action_item_tags;
   build_action_item_workflow: typeof build_action_item_workflow;
   build_action_items: typeof build_action_items;
   build_collaboration: typeof build_collaboration;

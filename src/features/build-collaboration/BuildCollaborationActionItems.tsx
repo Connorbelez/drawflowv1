@@ -1,7 +1,17 @@
-import { ArrowUpRight, Flag, Plus, UserRound } from "lucide-react";
+import {
+  Bell,
+  CalendarClock,
+  Clock3,
+  Flag,
+  Link2,
+  MessageCircle,
+  Plus,
+  UserRound,
+} from "lucide-react";
 import { type Dispatch, type SetStateAction, useState } from "react";
 import { toast } from "sonner";
 
+import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardPanel } from "#/components/ui/card.tsx";
@@ -16,11 +26,12 @@ import {
 } from "#/components/ui/select.tsx";
 import { cn } from "#/lib/utils.ts";
 import type { Id } from "../../../convex/_generated/dataModel";
-import type {
-  ActionStatus,
-  CollaborationActionItem,
-  CollaborationActionItemQueueRow,
-  ReferenceOption,
+import {
+  type ActionStatus,
+  type CollaborationActionItem,
+  type CollaborationActionItemQueueRow,
+  initials,
+  type ReferenceOption,
 } from "./model.ts";
 
 type MoveActionItem = (
@@ -29,6 +40,20 @@ type MoveActionItem = (
   reason?: string,
   expectedRevision?: number
 ) => Promise<void>;
+
+function actionItemQueueVisibleCount({
+  compactOnNarrow,
+  mobileExpanded,
+  rowCount,
+  visibleCount,
+}: {
+  compactOnNarrow: boolean;
+  mobileExpanded: boolean;
+  rowCount: number;
+  visibleCount: number;
+}) {
+  return compactOnNarrow && mobileExpanded ? rowCount : visibleCount;
+}
 
 export function BuildCollaborationActionItemQueue({
   compactOnNarrow = false,
@@ -55,7 +80,12 @@ export function BuildCollaborationActionItemQueue({
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const visibleRows = rows.slice(
     0,
-    compactOnNarrow && mobileExpanded ? rows.length : visibleCount
+    actionItemQueueVisibleCount({
+      compactOnNarrow,
+      mobileExpanded,
+      rowCount: rows.length,
+      visibleCount,
+    })
   );
   const remainingCount = Math.max(0, rows.length - visibleRows.length);
   return (
@@ -108,7 +138,7 @@ export function BuildCollaborationActionItemQueue({
                 }
               >
                 <CardPanel className="space-y-2 p-3 max-xl:flex max-xl:items-center max-xl:gap-2 max-xl:p-2">
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex w-full items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate font-medium text-sm">
                         {row.item.title}
@@ -121,10 +151,6 @@ export function BuildCollaborationActionItemQueue({
                       <Badge variant="destructive">Overdue</Badge>
                     ) : null}
                   </div>
-                  <span className="flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-sm max-xl:w-auto max-xl:border-0 max-xl:p-0">
-                    <span className="max-xl:sr-only">Open details</span>
-                    <ArrowUpRight aria-hidden="true" className="size-4" />
-                  </span>
                 </CardPanel>
               </Card>
             ))}
@@ -225,6 +251,7 @@ export function BuildCollaborationActionItems({
     { label: "To do", status: "todo" },
     { label: "In progress", status: "in_progress" },
     { label: "In review", status: "in_review" },
+    { label: "Blocked", status: "blocked" },
     { label: "Done", status: "done" },
   ];
 
@@ -252,7 +279,7 @@ export function BuildCollaborationActionItems({
           </FramePanel>
         </Frame>
       ) : actionView === "board" ? (
-        <div className="grid gap-2 lg:grid-cols-4">
+        <div className="grid min-w-[68rem] grid-cols-5 gap-2 overflow-x-auto pb-2">
           {columns.map((column) => (
             <Frame key={column.status}>
               <FramePanel className="h-full bg-muted/20 p-2">
@@ -268,6 +295,7 @@ export function BuildCollaborationActionItems({
                         onMove={onMove}
                         onOpen={onOpen}
                         participants={participants}
+                        view="board"
                       />
                     ))}
                 </div>
@@ -285,6 +313,7 @@ export function BuildCollaborationActionItems({
               onMove={onMove}
               onOpen={onOpen}
               participants={participants}
+              view="list"
             />
           ))}
         </div>
@@ -299,15 +328,17 @@ function ActionItemCard({
   onMove,
   onOpen,
   participants,
+  view,
 }: {
   item: CollaborationActionItem;
   mutationsAllowed: boolean;
   onMove: MoveActionItem;
   onOpen: (actionItemId: Id<"buildActionItems">) => void;
   participants: ReferenceOption[];
+  view: "board" | "list";
 }) {
   const [pendingTerminalStatus, setPendingTerminalStatus] = useState<
-    "blocked" | "cancelled" | null
+    "blocked" | null
   >(null);
   const [reason, setReason] = useState("");
   const assignee = participants.find(
@@ -322,9 +353,14 @@ function ActionItemCard({
       : item.assignmentState === "assigned"
         ? "Assigned"
         : "Unassigned";
+  const unreadCommentCount = item.unreadCommentCount ?? 0;
+  const otherUnreadCount = Math.max(
+    0,
+    (item.actionableUnreadCount ?? 0) - unreadCommentCount
+  );
 
   const selectStatus = (status: ActionStatus) => {
-    if (status === "blocked" || status === "cancelled") {
+    if (status === "blocked") {
       setPendingTerminalStatus(status);
       setReason("");
       return;
@@ -338,11 +374,7 @@ function ActionItemCard({
   const confirmReasonedTransition = () => {
     const normalizedReason = reason.trim();
     if (!(pendingTerminalStatus && normalizedReason)) {
-      toast.error(
-        pendingTerminalStatus === "cancelled"
-          ? "Explain why this Action Item is being cancelled."
-          : "Explain what is blocking this Action Item."
-      );
+      toast.error("Explain what is blocking this Action Item.");
       return;
     }
     onMove(
@@ -357,91 +389,210 @@ function ActionItemCard({
 
   const renderTerminalReasonEditor = () =>
     pendingTerminalStatus ? (
-      <div className="space-y-2 rounded-lg border bg-muted/20 p-2">
-        <Input
-          aria-label={
-            pendingTerminalStatus === "cancelled"
-              ? `Cancellation reason for ${item.title}`
-              : `Blocked reason for ${item.title}`
-          }
-          onChange={(event) => setReason(event.target.value)}
-          placeholder={
-            pendingTerminalStatus === "cancelled"
-              ? "Why is this being cancelled?"
-              : "What is blocking this work?"
-          }
-          value={reason}
-        />
-        <div className="flex justify-end gap-2">
-          <Button
-            onClick={() => setPendingTerminalStatus(null)}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Cancel
-          </Button>
-          <Button onClick={confirmReasonedTransition} size="sm" type="button">
-            Confirm
-          </Button>
-        </div>
-      </div>
+      <Frame>
+        <FramePanel className="space-y-2 bg-muted/20 p-2">
+          <Input
+            aria-label={`Blocked reason for ${item.title}`}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="What is blocking this work?"
+            value={reason}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              onClick={() => setPendingTerminalStatus(null)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Cancel
+            </Button>
+            <Button onClick={confirmReasonedTransition} size="sm" type="button">
+              Confirm
+            </Button>
+          </div>
+        </FramePanel>
+      </Frame>
     ) : null;
 
-  return (
+  const actionItemCard = (
     <Card
-      className="rounded-xl"
+      aria-label={`Open Action Item: ${item.title}`}
+      className={cn(
+        "w-full rounded-lg text-left shadow-none transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        view === "board" && "min-h-24"
+      )}
       data-collaboration-focus={`actionItem:${item._id}`}
+      onClick={() => onOpen(item._id)}
+      render={<button type="button" />}
     >
-
-      <CardPanel className="space-y-3 p-3">
-        <div className="flex items-start justify-between gap-3">
-          <p className="font-medium text-sm">{item.title}</p>
-          <Badge variant="outline">{item.priority}</Badge>
+      <CardPanel
+        className={cn(
+          "gap-3 p-3",
+          view === "board"
+            ? "grid min-h-24 content-between"
+            : "flex min-h-12 items-center justify-between"
+        )}
+      >
+        <div className="flex min-w-0 items-start justify-between gap-2">
+          <p className="min-w-0 flex-1 break-words font-medium text-sm leading-5 [overflow-wrap:anywhere]">
+            {item.title}
+          </p>
         </div>
-        <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-2.5 py-2 text-xs">
-          <span className="text-muted-foreground">Assignee</span>
-          <span className="flex min-w-0 items-center gap-1.5 font-medium">
-            <UserRound aria-hidden="true" className="size-3.5 shrink-0" />
-            <span className="truncate">{assigneeLabel}</span>
-            <Badge variant="outline">{assignmentStateLabel}</Badge>
-          </span>
-        </div>
-        <div className="grid gap-2 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,0.72fr)]">
-          <Button
-            className="w-full justify-between"
-            onClick={() => onOpen(item._id)}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Open details
-            <ArrowUpRight aria-hidden="true" className="size-4" />
-          </Button>
-          <Select
-            disabled={!mutationsAllowed}
-            onValueChange={(value) => selectStatus(value as ActionStatus)}
-            value={item.status}
-          >
-            <SelectTrigger
-              aria-label={`Status for ${item.title}`}
-              size="sm"
+        {item.dependencyCount > 0 ||
+        item.unblocksCount > 0 ||
+        unreadCommentCount > 0 ||
+        otherUnreadCount > 0 ? (
+          <div className="flex min-w-0 flex-wrap gap-1">
+            {item.dependencyCount > 0 ? (
+              <Badge variant="warning">
+                <Link2 aria-hidden="true" />
+                Blocked by {item.dependencyCount}
+              </Badge>
+            ) : null}
+            {item.unblocksCount > 0 ? (
+              <Badge variant="secondary">
+                <Link2 aria-hidden="true" />
+                Blocking {item.unblocksCount}
+              </Badge>
+            ) : null}
+            {unreadCommentCount > 0 ? (
+              <Badge
+                aria-label={`${unreadCommentCount} unread comments`}
+                variant="info"
+              >
+                <MessageCircle aria-hidden="true" />
+                {unreadCommentCount} unread
+              </Badge>
+            ) : null}
+            {otherUnreadCount > 0 ? (
+              <Badge
+                aria-label={`${otherUnreadCount} other unread updates`}
+                variant="outline"
+              >
+                <Bell aria-hidden="true" />
+                {otherUnreadCount}
+              </Badge>
+            ) : null}
+          </div>
+        ) : null}
+        {(item.labels ?? []).length > 0 ? (
+          <div className="flex min-w-0 flex-wrap gap-1">
+            {(item.labels ?? []).map((label) => (
+              <Badge key={label} variant="outline">
+                {label}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+        {item.status === "blocked" && item.blockedReason ? (
+          <p className="line-clamp-2 rounded-md bg-amber-500/10 px-2 py-1.5 text-amber-900 text-xs dark:text-amber-200">
+            {item.blockedReason}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground text-xs">
+          <div className="flex items-center gap-2">
+            <Avatar
+              aria-label={`Assignee: ${assigneeLabel}`}
+              className="size-6 border text-xs"
+              title={`${assigneeLabel} · ${assignmentStateLabel}`}
             >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todo">To do</SelectItem>
-              <SelectItem value="in_progress">In progress</SelectItem>
-              <SelectItem value="in_review">In review</SelectItem>
-              <SelectItem value="blocked">Blocked</SelectItem>
-              <SelectItem value="done">Done</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
+              <AvatarFallback className="bg-muted">
+                {assignee ? (
+                  initials(assigneeLabel)
+                ) : (
+                  <UserRound aria-hidden="true" className="size-3.5" />
+                )}
+              </AvatarFallback>
+            </Avatar>
+            <span className="flex items-center gap-1">
+              <Clock3 aria-hidden="true" className="size-3.5" />
+              {actionItemAge(item.createdAt)}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {item.dueAt ? (
+              <span className="flex items-center gap-1">
+                <CalendarClock aria-hidden="true" className="size-3.5" />
+                {actionItemDueLabel(item.dueAt)}
+              </span>
+            ) : null}
+          </div>
         </div>
-        {renderTerminalReasonEditor()}
       </CardPanel>
-
     </Card>
   );
+
+  if (view === "board") {
+    return actionItemCard;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex min-w-0 items-stretch gap-2">
+        {actionItemCard}
+        <Select
+          disabled={!mutationsAllowed}
+          onValueChange={(value) => selectStatus(value as ActionStatus)}
+          value={item.status}
+        >
+          <SelectTrigger
+            aria-label={`Status for ${item.title}`}
+            className="h-auto w-36 shrink-0"
+            size="sm"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todo">To do</SelectItem>
+            <SelectItem value="in_progress">In progress</SelectItem>
+            <SelectItem value="in_review">In review</SelectItem>
+            <SelectItem value="blocked">Blocked</SelectItem>
+            <SelectItem value="done">Done</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {renderTerminalReasonEditor()}
+    </div>
+  );
+}
+
+function actionItemAge(createdAt: number) {
+  const elapsed = Math.max(0, Date.now() - createdAt);
+  const days = Math.floor(elapsed / 86_400_000);
+  if (days > 0) {
+    return `${days}d`;
+  }
+  const hours = Math.floor(elapsed / 3_600_000);
+  if (hours > 0) {
+    return `${hours}h`;
+  }
+  return `${Math.max(1, Math.floor(elapsed / 60_000))}m`;
+}
+
+function actionItemDueLabel(dueAt: number) {
+  const today = new Date();
+  const due = new Date(dueAt);
+  const dayDelta = Math.round(
+    (new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime() -
+      new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate()
+      ).getTime()) /
+      86_400_000
+  );
+  if (dayDelta === 0) {
+    return "Due today";
+  }
+  if (dayDelta === 1) {
+    return "Due tomorrow";
+  }
+  if (dayDelta < 0) {
+    return `${Math.abs(dayDelta)}d overdue`;
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+  }).format(due);
 }

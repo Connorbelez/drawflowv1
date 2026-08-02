@@ -9,7 +9,12 @@ import {
   EditorImageSelector,
   EditorLinkSelector,
   EditorNodeBulletList,
+  EditorNodeHeading1,
+  EditorNodeHeading2,
+  EditorNodeHeading3,
   EditorNodeOrderedList,
+  EditorNodeTable,
+  EditorNodeTaskList,
   EditorProvider,
   type EditorProviderProps,
 } from "#/components/kibo-ui/editor/index.tsx";
@@ -152,8 +157,13 @@ function FieldRichTextToolbar() {
     <div className="flex flex-wrap items-center gap-px border-b bg-muted/30 p-1">
       <EditorFormatBold hideName />
       <EditorFormatItalic hideName />
+      <EditorNodeHeading1 hideName />
+      <EditorNodeHeading2 hideName />
+      <EditorNodeHeading3 hideName />
       <EditorNodeBulletList hideName />
       <EditorNodeOrderedList hideName />
+      <EditorNodeTaskList hideName />
+      <EditorNodeTable hideName />
       <EditorLinkSelector onOpenChange={setLinkOpen} open={linkOpen} />
       <EditorImageSelector onOpenChange={setImageOpen} open={imageOpen} />
       <EditorClearFormatting hideName />
