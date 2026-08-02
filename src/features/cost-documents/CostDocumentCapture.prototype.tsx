@@ -488,20 +488,20 @@ function GuidedCapture({
               </p>
             </div>
             <GuidedStepRail onStepChange={onStepChange} step={step} />
-            <div className="grid gap-4 xl:grid-cols-[minmax(20rem,0.82fr)_minmax(26rem,1.18fr)]">
-              <SourcePreview
-                compact={step !== "Capture & confirm"}
-                document={activeDocument}
-                scenario={scenario}
-              />
+            {step === "Balance & allocate" ? (
               <Frame>
-                <FrameHeader>
-                  <FrameTitle className="text-base">{step}</FrameTitle>
-                  <FrameDescription>
-                    {guidedStepDescription(step)}
-                  </FrameDescription>
+                <FrameHeader className="gap-4 border-b sm:flex sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <FrameTitle className="text-base">{step}</FrameTitle>
+                    <FrameDescription>
+                      {guidedStepDescription(step)}
+                    </FrameDescription>
+                  </div>
+                  <Button className="w-fit" size="sm" variant="outline">
+                    <FileText /> View {activeDocument.pages}-page source
+                  </Button>
                 </FrameHeader>
-                <FramePanel className="min-h-[25rem] p-4 sm:p-6">
+                <FramePanel className="min-h-[25rem] p-4 sm:p-6 lg:p-8">
                   <GuidedStepBody
                     captureState={captureState}
                     document={activeDocument}
@@ -513,7 +513,35 @@ function GuidedCapture({
                   />
                 </FramePanel>
               </Frame>
-            </div>
+            ) : (
+              <div className="grid gap-4 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(26rem,1.05fr)]">
+                <SourcePreview
+                  compact={step !== "Capture & confirm"}
+                  document={activeDocument}
+                  managePages={step === "Capture & confirm"}
+                  scenario={scenario}
+                />
+                <Frame>
+                  <FrameHeader>
+                    <FrameTitle className="text-base">{step}</FrameTitle>
+                    <FrameDescription>
+                      {guidedStepDescription(step)}
+                    </FrameDescription>
+                  </FrameHeader>
+                  <FramePanel className="min-h-[25rem] p-4 sm:p-6">
+                    <GuidedStepBody
+                      captureState={captureState}
+                      document={activeDocument}
+                      onDocumentUpdate={(patch) =>
+                        updateDocument(activeDocument.id, patch)
+                      }
+                      scenario={scenario}
+                      step={step}
+                    />
+                  </FramePanel>
+                </Frame>
+              </div>
+            )}
           </div>
         </div>
       </SheetPanel>
@@ -709,56 +737,27 @@ function GuidedStepBody({
 }) {
   if (step === "Capture & confirm") {
     return (
-      <div className="grid gap-4">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Button className="h-24 justify-start px-5" size="lg">
-            <Camera className="size-6" />
-            <span className="text-left">
-              <span className="block font-semibold">Take photo</span>
-              <span className="block font-normal text-primary-foreground/70 text-xs">
-                Camera-first on mobile
-              </span>
-            </span>
-          </Button>
-          <Button
-            className="h-24 justify-start px-5"
-            size="lg"
-            variant="outline"
-          >
-            <UploadCloud className="size-6" />
-            <span className="text-left">
-              <span className="block font-semibold">Choose files</span>
-              <span className="block font-normal text-muted-foreground text-xs">
-                PDF, JPG, PNG · up to 20 MB
-              </span>
-            </span>
-          </Button>
+      <div className="grid gap-5">
+        {scenario === "duplicate" || scenario === "stale-assignment" ? (
+          <ScenarioNotice scenario={scenario} />
+        ) : null}
+        <div>
+          <p className="font-semibold">Confirm document facts</p>
+          <p className="text-muted-foreground text-xs">
+            Extracted values are suggestions until you confirm them.
+          </p>
         </div>
-        <ScenarioNotice scenario={scenario} />
-        <p className="text-muted-foreground text-xs">
-          This record is one Cost Document. Add every page belonging to this
-          invoice or receipt here; add a separate row for each additional Cost
-          Document. Supporting evidence is attached separately after submission.
-        </p>
-        <div className="border-t pt-5">
-          <div className="mb-4">
-            <p className="font-semibold">Confirm document facts</p>
-            <p className="text-muted-foreground text-xs">
-              Extracted values are suggestions until you confirm them.
-            </p>
-          </div>
-          <DocumentFactsFields
-            captureState={captureState}
-            document={document}
-            onDocumentUpdate={onDocumentUpdate}
-          />
-        </div>
+        <DocumentFactsFields
+          captureState={captureState}
+          document={document}
+          onDocumentUpdate={onDocumentUpdate}
+        />
       </div>
     );
   }
   if (step === "Balance & allocate") {
     return (
-      <div className="grid gap-8 2xl:grid-cols-2">
+      <div className="grid gap-10">
         <section className="min-w-0">
           <div className="mb-4 border-b pb-3">
             <p className="font-semibold">1. Reconcile gross</p>
@@ -766,16 +765,20 @@ function GuidedStepBody({
               Confirm the tax-inclusive amount represented by this document.
             </p>
           </div>
-          <GrossReconciliation captureState={captureState} />
+          <GrossReconciliation captureState={captureState} prominent />
         </section>
-        <section className="min-w-0">
+        <section className="min-w-0 border-t pt-8">
           <div className="mb-4 border-b pb-3">
             <p className="font-semibold">2. Allocate exact total</p>
             <p className="text-muted-foreground text-xs">
               Resolve the same gross amount to one or more Sub-milestones.
             </p>
           </div>
-          <AllocationEditor captureState={captureState} scenario={scenario} />
+          <AllocationEditor
+            captureState={captureState}
+            roomy
+            scenario={scenario}
+          />
         </section>
       </div>
     );
@@ -1132,11 +1135,13 @@ function SourcebenchSectionBody({
 function SourcePreview({
   compact = false,
   document,
+  managePages = false,
   scenario,
   sourcebench = false,
 }: {
   compact?: boolean;
   document?: GuidedDocumentDraft;
+  managePages?: boolean;
   scenario: CostDocumentCapturePrototypeScenario;
   sourcebench?: boolean;
 }) {
@@ -1236,35 +1241,94 @@ function SourcePreview({
             </div>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            {isUploading ? (
-              <RefreshCw className="size-4 animate-spin text-warning" />
-            ) : (
-              <ShieldCheck className="size-4 text-success" />
-            )}
-            <span>
-              {isUploading
-                ? "Uploading · verification and scan pending"
-                : "SHA-256 verified · scan clean · durable"}
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            {document ? (
-              <span className="mr-1 text-muted-foreground">
-                Page 1 of {document.pages}
-              </span>
-            ) : null}
-            <Button size="xs" variant="outline">
-              <Plus /> Add page
-            </Button>
-            <Button size="xs" variant="ghost">
-              <ScanLine /> Replace
-            </Button>
-          </div>
-        </div>
+        <SourcePageControls
+          document={document}
+          isUploading={isUploading}
+          managePages={managePages}
+        />
       </CardPanel>
     </Card>
+  );
+}
+
+function SourcePageControls({
+  document,
+  isUploading,
+  managePages,
+}: {
+  document?: GuidedDocumentDraft;
+  isUploading: boolean;
+  managePages: boolean;
+}) {
+  const status = (
+    <div className="flex items-center gap-2">
+      {isUploading ? (
+        <RefreshCw className="size-4 animate-spin text-warning" />
+      ) : (
+        <ShieldCheck className="size-4 text-success" />
+      )}
+      <span>
+        {isUploading
+          ? "Uploading · verification and scan pending"
+          : "SHA-256 verified · scan clean · durable"}
+      </span>
+    </div>
+  );
+
+  if (document && managePages) {
+    return (
+      <div className="grid gap-3 border-t pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="font-semibold text-sm">Source pages</p>
+            <p className="text-muted-foreground text-xs">
+              {document.pages} pages in this Cost Document
+            </p>
+          </div>
+          <span className="text-muted-foreground text-xs">
+            Page 1 of {document.pages}
+          </span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button className="justify-start" size="sm">
+            <Camera /> Take photo
+          </Button>
+          <Button className="justify-start" size="sm" variant="outline">
+            <UploadCloud /> Choose files
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          {status}
+          <Button size="xs" variant="ghost">
+            <ScanLine /> Replace current page
+          </Button>
+        </div>
+        <p className="text-muted-foreground text-xs">
+          Every page added here belongs to this Cost Document. Use “Add
+          documents” in the register for another invoice or receipt.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+      {status}
+      {document ? (
+        <Button size="xs" variant="outline">
+          <FileText /> View {document.pages} pages
+        </Button>
+      ) : (
+        <div className="flex items-center gap-1">
+          <Button size="xs" variant="outline">
+            <Plus /> Add page
+          </Button>
+          <Button size="xs" variant="ghost">
+            <ScanLine /> Replace
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1367,22 +1431,43 @@ function ToggleChoice({
   );
 }
 
-function GrossReconciliation({ captureState }: { captureState: CaptureState }) {
+function GrossReconciliation({
+  captureState,
+  prominent = false,
+}: {
+  captureState: CaptureState;
+  prominent?: boolean;
+}) {
   const subtotal =
     captureState.grossTotal === 18_420
       ? 16_300
       : Math.round((captureState.grossTotal / 1.13) * 100) / 100;
   const tax = captureState.grossTotal - subtotal;
   return (
-    <div className="grid gap-5">
+    <div
+      className={cn(
+        "grid gap-5",
+        prominent &&
+          "lg:grid-cols-[minmax(22rem,0.9fr)_minmax(20rem,1.1fr)] lg:items-start lg:gap-8"
+      )}
+    >
       <Field>
         <FieldLabel>Tax-inclusive gross total</FieldLabel>
         <div className="relative w-full">
-          <span className="absolute inset-y-0 left-3 grid place-items-center text-muted-foreground">
+          <span
+            className={cn(
+              "pointer-events-none absolute inset-y-0 left-3 z-10 grid place-items-center text-muted-foreground",
+              prominent && "left-4 font-semibold text-lg"
+            )}
+          >
             $
           </span>
           <Input
-            className="pl-7 text-lg tabular-nums"
+            className={cn(
+              "pl-7 text-lg tabular-nums",
+              prominent &&
+                "h-16 font-semibold text-2xl [&_[data-slot=input]]:h-16 [&_[data-slot=input]]:pr-16 [&_[data-slot=input]]:pl-10 [&_[data-slot=input]]:text-2xl"
+            )}
             min={0}
             onChange={(event) =>
               captureState.setGrossTotal(Number(event.target.value))
@@ -1390,7 +1475,12 @@ function GrossReconciliation({ captureState }: { captureState: CaptureState }) {
             type="number"
             value={captureState.grossTotal}
           />
-          <span className="absolute inset-y-0 right-3 grid place-items-center text-muted-foreground text-xs">
+          <span
+            className={cn(
+              "absolute inset-y-0 right-3 grid place-items-center text-muted-foreground text-xs",
+              prominent && "right-4 font-medium"
+            )}
+          >
             CAD
           </span>
         </div>
@@ -1398,32 +1488,40 @@ function GrossReconciliation({ captureState }: { captureState: CaptureState }) {
           Build currency is inherited and cannot be changed here.
         </FieldDescription>
       </Field>
-      <div className="border-y py-4">
-        <div className="grid grid-cols-[1fr_auto] gap-x-5 gap-y-3 text-sm">
-          <span>Subtotal</span>
-          <span className="tabular-nums">{formatMoney(subtotal)}</span>
-          <span>HST</span>
-          <span className="tabular-nums">{formatMoney(tax)}</span>
-          <span className="border-t pt-3 font-semibold">Calculated gross</span>
-          <span className="border-t pt-3 font-semibold tabular-nums">
-            {formatMoney(subtotal + tax)}
-          </span>
-          <span className="text-muted-foreground">Reconciliation delta</span>
-          <span className="font-semibold text-success tabular-nums">$0.00</span>
+      <div className="grid gap-4">
+        <div className="border-y py-4">
+          <div className="grid grid-cols-[1fr_auto] gap-x-5 gap-y-3 text-sm">
+            <span>Subtotal</span>
+            <span className="tabular-nums">{formatMoney(subtotal)}</span>
+            <span>HST</span>
+            <span className="tabular-nums">{formatMoney(tax)}</span>
+            <span className="border-t pt-3 font-semibold">
+              Calculated gross
+            </span>
+            <span className="border-t pt-3 font-semibold tabular-nums">
+              {formatMoney(subtotal + tax)}
+            </span>
+            <span className="text-muted-foreground">Reconciliation delta</span>
+            <span className="font-semibold text-success tabular-nums">
+              $0.00
+            </span>
+          </div>
         </div>
+        <Button className="w-fit" size="sm" variant="outline">
+          <Plus /> Add tax, fee, or discount
+        </Button>
       </div>
-      <Button className="w-fit" size="sm" variant="outline">
-        <Plus /> Add tax, fee, or discount
-      </Button>
     </div>
   );
 }
 
 function AllocationEditor({
   captureState,
+  roomy = false,
   scenario,
 }: {
   captureState: CaptureState;
+  roomy?: boolean;
   scenario: CostDocumentCapturePrototypeScenario;
 }) {
   return (
@@ -1443,18 +1541,23 @@ function AllocationEditor({
           <TableHeader>
             <TableRow>
               <TableHead>Milestone / Sub-milestone</TableHead>
-              <TableHead className="w-44 text-right">Amount</TableHead>
+              <TableHead
+                className={cn("text-right", roomy ? "w-52 sm:w-64" : "w-44")}
+              >
+                Amount
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow>
-              <TableCell>
+              <TableCell className={cn(roomy && "py-4")}>
                 <p className="font-medium">Foundation · Waterproofing</p>
                 <p className="text-muted-foreground text-xs">Selected scope</p>
               </TableCell>
-              <TableCell>
+              <TableCell className={cn(roomy && "py-4")}>
                 <MoneyTableInput
                   onChange={captureState.setFoundationAllocation}
+                  prominent={roomy}
                   value={captureState.foundationAllocation}
                 />
               </TableCell>
@@ -1462,7 +1565,7 @@ function AllocationEditor({
             <TableRow
               className={cn(scenario === "stale-assignment" && "bg-warning/8")}
             >
-              <TableCell>
+              <TableCell className={cn(roomy && "py-4")}>
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium">Envelope · Exterior insulation</p>
                   {scenario === "stale-assignment" ? (
@@ -1471,9 +1574,10 @@ function AllocationEditor({
                 </div>
                 <p className="text-muted-foreground text-xs">Selected scope</p>
               </TableCell>
-              <TableCell>
+              <TableCell className={cn(roomy && "py-4")}>
                 <MoneyTableInput
                   onChange={captureState.setEnvelopeAllocation}
+                  prominent={roomy}
                   value={captureState.envelopeAllocation}
                 />
               </TableCell>
@@ -1520,18 +1624,24 @@ function AllocationEditor({
 
 function MoneyTableInput({
   onChange,
+  prominent = false,
   value,
 }: {
   onChange: (value: number) => void;
+  prominent?: boolean;
   value: number;
 }) {
   return (
     <div className="relative">
-      <span className="absolute inset-y-0 left-3 grid place-items-center text-muted-foreground">
+      <span className="pointer-events-none absolute inset-y-0 left-3 z-10 grid place-items-center text-muted-foreground">
         $
       </span>
       <Input
-        className="pl-7 text-right tabular-nums"
+        className={cn(
+          "pl-7 text-right tabular-nums",
+          prominent &&
+            "h-12 min-w-56 font-semibold text-base [&_[data-slot=input]]:h-12 [&_[data-slot=input]]:pr-4 [&_[data-slot=input]]:pl-7 [&_[data-slot=input]]:text-base"
+        )}
         onChange={(event) => onChange(Number(event.target.value))}
         type="number"
         value={value}
