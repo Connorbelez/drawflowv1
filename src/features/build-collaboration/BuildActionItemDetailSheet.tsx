@@ -33,13 +33,13 @@ import {
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
-  useBuildCollaborationAction,
-  useBuildCollaborationMutation,
-} from "./BuildCollaborationMutationGate.tsx";
-import {
   BuildCollaborationAssetList,
   type BuildCollaborationAssetSummary,
 } from "./BuildCollaborationAssetList.tsx";
+import {
+  useBuildCollaborationAction,
+  useBuildCollaborationMutation,
+} from "./BuildCollaborationMutationGate.tsx";
 import { BuildCollaborationReferenceChip } from "./BuildCollaborationReference.tsx";
 import {
   abandonGovernedCollaborationAssets,
@@ -94,6 +94,7 @@ export function BuildActionItemDetailSheet({
   onReferenceOpen,
   open,
   organizationId,
+  readOnly = false,
   tagOptions,
   target,
 }: {
@@ -104,6 +105,7 @@ export function BuildActionItemDetailSheet({
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   open: boolean;
   organizationId: string;
+  readOnly?: boolean;
   tagOptions: CollaborationTagOption[];
   target: BuildActionItemSheetTarget | null;
 }) {
@@ -133,6 +135,7 @@ export function BuildActionItemDetailSheet({
             onOpenChange={onOpenChange}
             onReferenceOpen={onReferenceOpen}
             organizationId={organizationId}
+            readOnly={readOnly}
             tagOptions={tagOptions}
           />
         )}
@@ -390,6 +393,7 @@ function ActionItemDetailPanel({
   onOpenChange,
   onReferenceOpen,
   organizationId,
+  readOnly,
   tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
@@ -398,6 +402,7 @@ function ActionItemDetailPanel({
   onOpenChange: (open: boolean) => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   organizationId: string;
+  readOnly: boolean;
   tagOptions: CollaborationTagOption[];
 }) {
   if (detail === undefined) {
@@ -438,6 +443,7 @@ function ActionItemDetailPanel({
       onOpenChange={onOpenChange}
       onReferenceOpen={onReferenceOpen}
       organizationId={organizationId}
+      readOnly={readOnly}
       tagOptions={tagOptions}
     />
   );
@@ -450,6 +456,7 @@ function VisibleActionItemDetail({
   onOpenChange,
   onReferenceOpen,
   organizationId,
+  readOnly,
   tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
@@ -458,6 +465,7 @@ function VisibleActionItemDetail({
   onOpenChange: (open: boolean) => void;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   organizationId: string;
+  readOnly: boolean;
   tagOptions: CollaborationTagOption[];
 }) {
   const updateActionItem = useBuildCollaborationMutation(
@@ -708,56 +716,93 @@ function VisibleActionItemDetail({
       </SheetHeader>
       <SheetPanel className="space-y-6">
         <AudienceInheritanceNotice audienceMode={detail.item.audienceMode} />
-        <ActionItemWorkflowPanel
-          busy={workflowBusy}
-          detail={detail}
-          onAccept={accept}
-          onAssign={assign}
-          onReasonChange={setTransitionReason}
-          onTransition={transition}
-          reason={transitionReason}
-          workflow={workflow}
-        />
+        {readOnly ? (
+          <Frame>
+            <FramePanel className="text-muted-foreground text-sm">
+              This archived Action Item is available to read; assignment and
+              status changes are disabled.
+            </FramePanel>
+          </Frame>
+        ) : (
+          <ActionItemWorkflowPanel
+            busy={workflowBusy}
+            detail={detail}
+            onAccept={accept}
+            onAssign={assign}
+            onReasonChange={setTransitionReason}
+            onTransition={transition}
+            reason={transitionReason}
+            workflow={workflow}
+          />
+        )}
         <section className="space-y-3">
-          <h3 className="font-semibold text-sm">Work definition</h3>
-          <Field label="Title">
-            <Input
-              aria-label="Edit Action Item title"
-              onChange={(event) => setTitle(event.target.value)}
-              value={title}
-            />
-          </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Priority">
-              <PrioritySelect onChange={setPriority} value={priority} />
-            </Field>
-            <Field label="Due date">
-              <Input
-                aria-label="Edit Action Item due date"
-                nativeInput
-                onChange={(event) => setDueDate(event.target.value)}
-                type="date"
-                value={dueDate}
+          <h3 className="font-semibold text-base leading-snug">
+            Work definition
+          </h3>
+          {!readOnly &&
+          workflow?.state === "visible" &&
+          workflow.viewerCanEditFields !== false ? (
+            <>
+              <Field label="Title">
+                <Input
+                  aria-label="Edit Action Item title"
+                  onChange={(event) => setTitle(event.target.value)}
+                  value={title}
+                />
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Priority">
+                  <PrioritySelect onChange={setPriority} value={priority} />
+                </Field>
+                <Field label="Due date">
+                  <Input
+                    aria-label="Edit Action Item due date"
+                    nativeInput
+                    onChange={(event) => setDueDate(event.target.value)}
+                    type="date"
+                    value={dueDate}
+                  />
+                </Field>
+              </div>
+            </>
+          ) : (
+            <dl className="grid gap-3 text-sm sm:grid-cols-3">
+              <ReadOnlyField label="Title" value={detail.item.title} />
+              <ReadOnlyField label="Priority" value={detail.item.priority} />
+              <ReadOnlyField
+                label="Due date"
+                value={
+                  detail.item.dueAt
+                    ? new Intl.DateTimeFormat(undefined, {
+                        dateStyle: "medium",
+                      }).format(detail.item.dueAt)
+                    : "Not set"
+                }
               />
-            </Field>
-          </div>
+            </dl>
+          )}
           <CollaborationRichTextPreview
             ariaLabel="Action Item description"
             onReferenceOpen={onReferenceOpen}
             tagOptions={tagOptions}
             value={parseDocument(detail.item.descriptionTiptapJson)}
           />
-          <Button disabled={saving} onClick={save} size="sm">
-            {saving ? "Saving…" : "Save changes"}
-          </Button>
+          {!readOnly &&
+          workflow?.state === "visible" &&
+          workflow.viewerCanEditFields !== false ? (
+            <Button disabled={saving} onClick={save} size="sm">
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          ) : null}
         </section>
         <DetailContext
           buildId={buildId}
           detail={detail}
           focusedAssetId={focusedAssetId}
           onReferenceOpen={onReferenceOpen}
-          onReplaceAsset={replaceAsset}
+          onReplaceAsset={readOnly ? undefined : replaceAsset}
           organizationId={organizationId}
+          readOnly={readOnly}
           tagOptions={tagOptions}
         />
         <ActionItemStructurePanel
@@ -765,12 +810,13 @@ function VisibleActionItemDetail({
           detail={detail}
           onReferenceOpen={onReferenceOpen}
           organizationId={organizationId}
+          readOnly={readOnly}
           tagOptions={tagOptions}
         />
         <section className="space-y-3">
           <div className="flex items-center gap-2">
             <MessageCircle aria-hidden="true" className="size-4 text-primary" />
-            <h3 className="font-semibold text-sm">Discussion</h3>
+            <h3 className="font-semibold text-base leading-snug">Discussion</h3>
           </div>
           {detail.comments.map((entry) => (
             <Card key={entry.commentId}>
@@ -790,21 +836,25 @@ function VisibleActionItemDetail({
               </CardPanel>
             </Card>
           ))}
-          <CollaborationRichTextEditor
-            ariaLabel="Comment on Action Item"
-            editorMinHeightClass="[&_.ProseMirror]:min-h-24"
-            onChange={(nextHtml, nextReferences) => {
-              setCommentHtml(nextHtml);
-              setCommentReferences(nextReferences);
-            }}
-            onDocumentChange={setCommentDocument}
-            placeholder="Add context. Type @ to link Build work."
-            tagOptions={tagOptions}
-            value={commentHtml}
-          />
-          <Button onClick={comment} size="sm">
-            Add comment
-          </Button>
+          {!readOnly ? (
+            <CollaborationRichTextEditor
+              ariaLabel="Comment on Action Item"
+              editorMinHeightClass="[&_.ProseMirror]:min-h-24"
+              onChange={(nextHtml, nextReferences) => {
+                setCommentHtml(nextHtml);
+                setCommentReferences(nextReferences);
+              }}
+              onDocumentChange={setCommentDocument}
+              placeholder="Add context. Type @ to link Build work."
+              tagOptions={tagOptions}
+              value={commentHtml}
+            />
+          ) : null}
+          {!readOnly ? (
+            <Button onClick={comment} size="sm">
+              Add comment
+            </Button>
+          ) : null}
         </section>
         <RevisionHistory detail={detail} />
         <ActivityHistory detail={detail} />
@@ -951,7 +1001,7 @@ function DetailContext({
   detail: VisibleActionItemDetail;
   focusedAssetId?: Id<"buildCollaborationAssets">;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
-  onReplaceAsset: (
+  onReplaceAsset?: (
     asset: BuildCollaborationAssetSummary,
     file: File
   ) => Promise<void>;
@@ -960,7 +1010,7 @@ function DetailContext({
 }) {
   return (
     <section className="space-y-3">
-      <h3 className="font-semibold text-sm">Build context</h3>
+      <h3 className="font-semibold text-base leading-snug">Build context</h3>
       <div className="flex flex-wrap gap-2">
         {detail.labels.map((label) => (
           <Badge key={label} variant="outline">
@@ -1005,12 +1055,14 @@ function ActionItemStructurePanel({
   detail,
   onReferenceOpen,
   organizationId,
+  readOnly,
   tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
   detail: VisibleActionItemDetail;
   onReferenceOpen: (reference: CollaborationTagReference) => void;
   organizationId: string;
+  readOnly: boolean;
   tagOptions: CollaborationTagOption[];
 }) {
   const structure = useQuery(
@@ -1045,6 +1097,12 @@ function ActionItemStructurePanel({
     (option) =>
       option.kind === "action_item" && option.id !== detail.item.actionItemId
   );
+
+  useEffect(() => {
+    if (readOnly) {
+      setCreatingChild(false);
+    }
+  }, [readOnly]);
 
   if (structure === undefined) {
     return (
@@ -1112,12 +1170,15 @@ function ActionItemStructurePanel({
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="font-semibold text-sm">Structured work</h3>
+          <h3 className="font-semibold text-base leading-snug">
+            Structured work
+          </h3>
           <p className="text-muted-foreground text-xs">
             First-class children carry ownership; checklist steps do not.
           </p>
         </div>
-        {visibleStructure.viewerCanCreateChild &&
+        {!readOnly &&
+        visibleStructure.viewerCanCreateChild &&
         !detail.item.parentActionItemId ? (
           <Button
             onClick={() => setCreatingChild(true)}
@@ -1188,8 +1249,11 @@ function ActionItemStructurePanel({
               <Checkbox
                 aria-label={`Mark ${row.label} ${row.completed ? "incomplete" : "complete"}`}
                 checked={row.completed}
-                disabled={busy}
+                disabled={busy || readOnly}
                 onCheckedChange={async () => {
+                  if (readOnly) {
+                    return;
+                  }
                   setBusy(true);
                   try {
                     await toggleChecklistItem({
@@ -1214,7 +1278,7 @@ function ActionItemStructurePanel({
               </span>
             </div>
           ))}
-          {visibleStructure.viewerCanAddChecklist ? (
+          {!readOnly && visibleStructure.viewerCanAddChecklist ? (
             <div className="flex gap-2">
               <Input
                 aria-label="New checklist step"
@@ -1250,6 +1314,7 @@ function ActionItemStructurePanel({
                   ) : null}
                 </div>
                 {relation.status === "suspended" &&
+                !readOnly &&
                 relation.sourceRevision !== undefined &&
                 visibleStructure.viewerCanRepairRelations ? (
                   <div className="flex gap-2">
@@ -1292,7 +1357,7 @@ function ActionItemStructurePanel({
               </CardPanel>
             </Card>
           ))}
-          {visibleStructure.viewerCanLinkRelation ? (
+          {!readOnly && visibleStructure.viewerCanLinkRelation ? (
             <div className="grid gap-2 sm:grid-cols-[0.8fr_1.2fr_auto]">
               <Select
                 onValueChange={(value) => {
@@ -1340,20 +1405,22 @@ function ActionItemStructurePanel({
         </FramePanel>
       </Frame>
 
-      <Sheet onOpenChange={setCreatingChild} open={creatingChild}>
-        <SheetPopup side="right" variant="inset">
-          <ActionItemCreatePanel
-            buildId={buildId}
-            expectedParentRevision={detail.item.currentRevision}
-            onOpenChange={setCreatingChild}
-            organizationId={organizationId}
-            parentActionItemId={detail.item.actionItemId}
-            parentTitle={detail.item.title}
-            postId={detail.item.originatingPostId}
-            tagOptions={tagOptions}
-          />
-        </SheetPopup>
-      </Sheet>
+      {!readOnly && creatingChild ? (
+        <Frame>
+          <FramePanel className="p-0">
+            <ActionItemCreatePanel
+              buildId={buildId}
+              expectedParentRevision={detail.item.currentRevision}
+              onOpenChange={setCreatingChild}
+              organizationId={organizationId}
+              parentActionItemId={detail.item.actionItemId}
+              parentTitle={detail.item.title}
+              postId={detail.item.originatingPostId}
+              tagOptions={tagOptions}
+            />
+          </FramePanel>
+        </Frame>
+      ) : null}
     </section>
   );
 }
@@ -1363,7 +1430,9 @@ function RevisionHistory({ detail }: { detail: VisibleActionItemDetail }) {
     <section className="space-y-3">
       <div className="flex items-center gap-2">
         <History aria-hidden="true" className="size-4 text-primary" />
-        <h3 className="font-semibold text-sm">Revision history</h3>
+        <h3 className="font-semibold text-base leading-snug">
+          Revision history
+        </h3>
       </div>
       {detail.revisions.map((revision) => {
         const snapshot = parseSnapshot(revision.snapshotJson);
@@ -1391,7 +1460,7 @@ function RevisionHistory({ detail }: { detail: VisibleActionItemDetail }) {
 function ActivityHistory({ detail }: { detail: VisibleActionItemDetail }) {
   return (
     <section className="space-y-3">
-      <h3 className="font-semibold text-sm">Activity</h3>
+      <h3 className="font-semibold text-base leading-snug">Activity</h3>
       <div className="space-y-3 border-l pl-4">
         {detail.activity.map((activity) => (
           <div className="text-sm" key={activity.eventId}>
@@ -1515,6 +1584,15 @@ function Field({
     <div className="space-y-1.5">
       <Label>{label}</Label>
       {children}
+    </div>
+  );
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <dt className="text-muted-foreground text-xs">{label}</dt>
+      <dd className="break-words font-medium">{value}</dd>
     </div>
   );
 }

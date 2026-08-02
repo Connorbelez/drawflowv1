@@ -46,6 +46,7 @@ const workflowContextValidator = v.union(
     availableTransitions: v.array(buildActionItemStatusValidator),
     state: v.literal("visible"),
     viewerCanAcceptAssignment: v.boolean(),
+    viewerCanEditFields: v.boolean(),
     viewerCanUnassign: v.boolean(),
     viewerWorkosUserId: v.string(),
   })
@@ -108,6 +109,8 @@ export const getBuildActionItemWorkflowContext = authenticatedQuery
         item,
         "accept_assignment"
       ).allowed,
+      viewerCanEditFields: operationDecision(authorization, item, "edit_fields")
+        .allowed,
       viewerCanUnassign: operationDecision(authorization, item, "assign", {
         targetAssignee: null,
       }).allowed,

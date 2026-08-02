@@ -21,7 +21,7 @@ import {
 } from "#/components/ui/select.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { useBuildCollaborationMutation } from "./BuildCollaborationMutationGate.tsx";
+import { useBuildCollaborationPersonalMutation } from "./BuildCollaborationMutationGate.tsx";
 
 function pushApplicationServerKey(value?: string) {
   if (!value?.trim()) {
@@ -154,15 +154,15 @@ function useBuildCollaborationNotificationControls(input: {
       : browserEndpoint === null
         ? null
         : storedPushSubscription;
-  const updatePreferences = useBuildCollaborationMutation(
+  const updatePreferences = useBuildCollaborationPersonalMutation(
     api.build_collaboration_notifications
       .updateMyBuildCollaborationNotificationPreferences
   );
-  const registerPush = useBuildCollaborationMutation(
+  const registerPush = useBuildCollaborationPersonalMutation(
     api.build_collaboration_delivery_api
       .registerMyBuildCollaborationPushSubscription
   );
-  const revokePush = useBuildCollaborationMutation(
+  const revokePush = useBuildCollaborationPersonalMutation(
     api.build_collaboration_delivery_api
       .revokeMyBuildCollaborationPushSubscription
   );

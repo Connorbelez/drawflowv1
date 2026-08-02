@@ -73,6 +73,7 @@ export function ContractorBuildDetail() {
     {
       buildId: buildId as Id<"activeBuilds">,
       organizationId: routeContext.organizationId ?? undefined,
+      workspaceRole: "contractor",
     }
   );
   const hasLegacyContractorProfile =
@@ -120,6 +121,22 @@ export function ContractorBuildDetail() {
     );
   }
 
+  if (!participationScope) {
+    return (
+      <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
+        <Frame className="mx-auto w-full max-w-5xl">
+          <FramePanel>
+            <p className="font-medium text-sm">Build unavailable</p>
+            <p className="mt-1 text-muted-foreground text-sm">
+              This Build is not assigned to your contractor workspace. Return to
+              your Build list and choose an assigned Build.
+            </p>
+          </FramePanel>
+        </Frame>
+      </main>
+    );
+  }
+
   if (!hasLegacyContractorProfile) {
     return (
       <ContractorCollaborationSurface
@@ -132,7 +149,19 @@ export function ContractorBuildDetail() {
   }
 
   if (!detail) {
-    return null;
+    return (
+      <main className="min-h-svh bg-muted/30 p-4 sm:p-6">
+        <Frame className="mx-auto w-full max-w-5xl">
+          <FramePanel>
+            <p className="font-medium text-sm">Build unavailable</p>
+            <p className="mt-1 text-muted-foreground text-sm">
+              This contractor assignment could not be loaded. Return to your
+              Build list and try again.
+            </p>
+          </FramePanel>
+        </Frame>
+      </main>
+    );
   }
 
   if (!detail.build) {
@@ -147,7 +176,7 @@ export function ContractorBuildDetail() {
                   {detail.availability.message}
                 </p>
               </div>
-              <p className="font-mono text-muted-foreground text-xs">
+              <p className="font-medium text-muted-foreground text-xs">
                 Support reference: {detail.availability.reference}
               </p>
               <Button render={<Link to="/contractor/work" />} variant="outline">

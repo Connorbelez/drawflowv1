@@ -193,7 +193,7 @@ export function BuildCollaborationSearch({
         : null,
     [active, buildId, deferredQuery, organizationId, requestFilters]
   );
-  const { loadMore, loadingMore, response, searchError } =
+  const { loadMore, loadingMore, response, retry, searchError } =
     useAuthorizedBuildSearch({ readiness, request, runSearch });
 
   return (
@@ -225,6 +225,7 @@ export function BuildCollaborationSearch({
         loadingMore={loadingMore}
         onLoadMore={loadMore}
         onOpen={onOpen}
+        onRetry={retry}
         response={response}
         searchError={searchError}
       />
@@ -237,6 +238,7 @@ function SearchResultsPanel({
   loadingMore,
   onLoadMore,
   onOpen,
+  onRetry,
   response,
   searchError,
 }: {
@@ -244,6 +246,7 @@ function SearchResultsPanel({
   loadingMore: boolean;
   onLoadMore: () => Promise<void>;
   onOpen: (result: BuildCollaborationSearchResult) => void;
+  onRetry: () => void;
   response?: SearchResponse;
   searchError?: string;
 }) {
@@ -268,6 +271,7 @@ function SearchResultsPanel({
           loadingMore={loadingMore}
           onLoadMore={onLoadMore}
           onOpen={onOpen}
+          onRetry={onRetry}
           response={response}
           searchError={searchError}
         />
@@ -280,19 +284,31 @@ function SearchResultsBody({
   loadingMore,
   onLoadMore,
   onOpen,
+  onRetry,
   response,
   searchError,
 }: Omit<Parameters<typeof SearchResultsPanel>[0], "active">) {
   if (searchError && response?.page.length === 0) {
     return (
-      <div className="py-8 text-center text-destructive text-sm">
-        {searchError}
+      <div
+        aria-live="polite"
+        className="grid justify-items-center gap-3 py-8 text-center"
+        role="status"
+      >
+        <p className="text-destructive text-sm">{searchError}</p>
+        <Button onClick={onRetry} type="button" variant="outline">
+          Retry search
+        </Button>
       </div>
     );
   }
   if (!response) {
     return (
-      <div className="py-8 text-center text-muted-foreground text-sm">
+      <div
+        aria-live="polite"
+        className="py-8 text-center text-muted-foreground text-sm"
+        role="status"
+      >
         Searching this Build…
       </div>
     );
@@ -364,6 +380,7 @@ function useAuthorizedBuildSearch({
   const [response, setResponse] = useState<SearchResponse>();
   const [searchError, setSearchError] = useState<string>();
   const [loadingMore, setLoadingMore] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const readinessGeneration = readiness?.generation;
   const readinessReady = readiness?.ready;
   useEffect(() => {
@@ -403,7 +420,7 @@ function useAuthorizedBuildSearch({
           });
         }
       });
-  }, [readinessGeneration, readinessReady, request, runSearch]);
+  }, [readinessGeneration, readinessReady, request, retryToken, runSearch]);
 
   const loadMore = async () => {
     if (!(request && response?.continueCursor) || loadingMore) {
@@ -446,7 +463,13 @@ function useAuthorizedBuildSearch({
     }
   };
 
-  return { loadMore, loadingMore, response, searchError };
+  return {
+    loadMore,
+    loadingMore,
+    response,
+    retry: () => setRetryToken((current) => current + 1),
+    searchError,
+  };
 }
 
 function mergeSearchResults(

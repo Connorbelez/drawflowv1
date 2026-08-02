@@ -126,7 +126,10 @@ export function CollaborationRichTextEditor({
   return (
     <FieldRichTextEditor
       ariaLabel={ariaLabel}
-      className={className}
+      className={cn(
+        "[&_.ProseMirror]:max-w-[75ch] [&_.ProseMirror]:break-words [&_.ProseMirror]:text-base [&_.ProseMirror]:leading-6",
+        className
+      )}
       editorMinHeightClass={editorMinHeightClass}
       extensions={[tagExtension]}
       onChange={(nextValue) =>
@@ -160,7 +163,10 @@ export function CollaborationRichTextPreview({
   return (
     <FieldRichTextPreview
       ariaLabel={ariaLabel}
-      className={className}
+      className={cn(
+        "[&_.ProseMirror]:max-w-[75ch] [&_.ProseMirror]:break-words [&_.ProseMirror]:text-base [&_.ProseMirror]:leading-6",
+        className
+      )}
       extensions={[tagExtension]}
       value={value}
     />
@@ -234,7 +240,7 @@ function createTagExtension(
         mergeAttributes(
           {
             class:
-              "rounded bg-primary/10 px-1 font-medium text-primary ring-1 ring-primary/15",
+              "rounded bg-primary/10 px-1 font-medium text-foreground ring-1 ring-primary/25",
             "data-type": "collaboration-reference",
           },
           HTMLAttributes
@@ -371,7 +377,7 @@ function TagNodeView({
             <button
               aria-label={`Open ${reference.eyebrow}: ${reference.label}`}
               className={cn(
-                "inline-flex items-center gap-1 rounded bg-primary/10 px-1 font-medium text-primary ring-1 ring-primary/15 transition-colors",
+                "inline-flex items-center gap-1 rounded bg-primary/10 px-1 font-medium text-foreground ring-1 ring-primary/25 transition-colors",
                 interactive &&
                   "cursor-pointer hover:bg-primary/15 hover:ring-primary/30"
               )}
@@ -396,7 +402,7 @@ function TagNodeView({
             </div>
           </div>
           {interactive ? (
-            <p className="mt-3 flex items-center gap-1 border-t pt-2 font-medium text-primary">
+            <p className="mt-3 flex items-center gap-1 border-t pt-2 font-medium text-foreground">
               <ExternalLink className="size-3" />
               Click the reference to open its detail
             </p>

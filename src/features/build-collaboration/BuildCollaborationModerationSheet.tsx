@@ -339,7 +339,9 @@ function ModerationEvidenceDossier({
   return (
     <section className="space-y-2">
       <div>
-        <h3 className="font-semibold text-sm">Evidence under review</h3>
+        <h3 className="font-semibold text-base leading-snug">
+          Evidence under review
+        </h3>
         <p className="text-muted-foreground text-xs">
           Immutable publication evidence, projected through your current
           permissions.
@@ -358,7 +360,7 @@ function ModerationEvidenceDossier({
               <p className="font-medium text-xs">Referenced work</p>
               {evidence.references.map((reference) => (
                 <a
-                  className="block text-primary text-sm hover:underline"
+                  className="block text-foreground text-sm underline-offset-4 hover:underline"
                   href={reference.href}
                   key={`${reference.entityKind}:${reference.href}`}
                 >
@@ -376,7 +378,7 @@ function ModerationEvidenceDossier({
               {evidence.attachments.map((attachment) =>
                 attachment.href ? (
                   <a
-                    className="block text-primary text-sm hover:underline"
+                    className="block text-foreground text-sm underline-offset-4 hover:underline"
                     href={attachment.href}
                     key={`${attachment.attachmentKind}:${attachment.href}`}
                   >
@@ -471,7 +473,7 @@ function ModerationHistory({
   }
   return (
     <section className="space-y-2">
-      <h3 className="font-semibold text-sm">Case history</h3>
+      <h3 className="font-semibold text-base leading-snug">Case history</h3>
       <div className="space-y-2">
         {events.map((event) => (
           <Frame

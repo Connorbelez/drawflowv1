@@ -86,12 +86,14 @@ export function BuildCollaborationThreadSheet({
   open,
   organizationId,
   postId,
+  readOnly = false,
 }: {
   buildId: Id<"activeBuilds">;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   organizationId: string;
   postId: Id<"buildCollaborationPosts"> | null;
+  readOnly?: boolean;
 }) {
   const context = useQuery(
     api.build_collaboration_resolution.getBuildCollaborationThreadContext,
@@ -246,6 +248,7 @@ export function BuildCollaborationThreadSheet({
           onReopenReasonChange={setReopenReason}
           onResolutionSummaryChange={setResolutionSummary}
           reopenReason={reopenReason}
+          readOnly={readOnly}
           resolutionSummary={resolutionSummary}
         />
         <ThreadSheetActions
@@ -255,6 +258,7 @@ export function BuildCollaborationThreadSheet({
           onReopen={reopen}
           onResolve={resolve}
           onSaveExpiration={saveExpiration}
+          readOnly={readOnly}
           submitting={submitting}
         />
       </SheetPopup>
@@ -275,6 +279,7 @@ function ThreadSheetPanel({
   onReopenReasonChange,
   onResolutionSummaryChange,
   reopenReason,
+  readOnly,
   resolutionSummary,
 }: {
   acceptedCommentId: string;
@@ -289,6 +294,7 @@ function ThreadSheetPanel({
   onReopenReasonChange: (value: string) => void;
   onResolutionSummaryChange: (value: string) => void;
   reopenReason: string;
+  readOnly: boolean;
   resolutionSummary: string;
 }) {
   if (!context) {
@@ -305,7 +311,7 @@ function ThreadSheetPanel({
   return (
     <SheetPanel className="space-y-4">
       <ThreadStateSummary context={context} />
-      {context.threadState === "open" && context.canResolve ? (
+      {!readOnly && context.threadState === "open" && context.canResolve ? (
         <ResolutionFields
           acceptedCommentId={acceptedCommentId}
           context={context}
@@ -318,7 +324,7 @@ function ThreadSheetPanel({
           resolutionSummary={resolutionSummary}
         />
       ) : null}
-      {context.threadState === "resolved" && context.canReopen ? (
+      {!readOnly && context.threadState === "resolved" && context.canReopen ? (
         <div className="space-y-2">
           <Label htmlFor="thread-reopen-reason">Reopening reason</Label>
           <Textarea
@@ -329,7 +335,7 @@ function ThreadSheetPanel({
           />
         </div>
       ) : null}
-      {context.canManageAnnouncementExpiration ? (
+      {!readOnly && context.canManageAnnouncementExpiration ? (
         <AnnouncementExpiration
           expiresAt={context.announcementExpiresAt}
           onChange={onExpirationChange}
@@ -350,6 +356,7 @@ function ThreadSheetActions({
   onReopen,
   onResolve,
   onSaveExpiration,
+  readOnly,
   submitting,
 }: {
   context: ThreadContext | undefined;
@@ -358,6 +365,7 @@ function ThreadSheetActions({
   onReopen: () => void;
   onResolve: () => void;
   onSaveExpiration: (clear?: boolean) => void;
+  readOnly: boolean;
   submitting: boolean;
 }) {
   return (
@@ -365,7 +373,7 @@ function ThreadSheetActions({
       <Button onClick={onClose} type="button" variant="ghost">
         Close
       </Button>
-      {context?.canManageAnnouncementExpiration ? (
+      {!readOnly && context?.canManageAnnouncementExpiration ? (
         <>
           {context.announcementExpiresAt ? (
             <Button
@@ -387,13 +395,13 @@ function ThreadSheetActions({
           </Button>
         </>
       ) : null}
-      {context?.threadState === "open" && context.canResolve ? (
+      {!readOnly && context?.threadState === "open" && context.canResolve ? (
         <Button disabled={submitting} onClick={onResolve} type="button">
           <CheckCircle2 aria-hidden="true" className="size-4" />
           {context.postType === "question" ? "Accept answer" : "Resolve thread"}
         </Button>
       ) : null}
-      {context?.threadState === "resolved" && context.canReopen ? (
+      {!readOnly && context?.threadState === "resolved" && context.canReopen ? (
         <Button disabled={submitting} onClick={onReopen} type="button">
           <RotateCcw aria-hidden="true" className="size-4" />
           Reopen thread

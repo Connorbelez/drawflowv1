@@ -9,6 +9,7 @@ import {
 } from "convex/react";
 import {
   CalendarClock,
+  ChevronDown,
   Flag,
   List,
   LockKeyhole,
@@ -38,6 +39,11 @@ import {
   CardPanel,
   CardTitle,
 } from "#/components/ui/card.tsx";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "#/components/ui/collapsible.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +89,7 @@ import {
   BuildCollaborationMutationGate,
   useBuildCollaborationAction,
   useBuildCollaborationMutation,
+  useBuildCollaborationPersonalMutation,
 } from "./BuildCollaborationMutationGate.tsx";
 import { BuildCollaborationNotificationCard } from "./BuildCollaborationNotificationControls.tsx";
 import {
@@ -528,11 +535,31 @@ export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
   // reachable. Every shared effect therefore requires a live WebSocket,
   // including the first connection attempt; cold/captive sessions stay private.
   const isOnline = browserOnline && connectionState.isWebSocketConnected;
+  const lifecycleState = useQuery(
+    api.build_collaboration_lifecycle.getBuildCollaborationLifecycleState,
+    buildCollaborationScopeArgs(
+      props.buildId as Id<"activeBuilds">,
+      props.organizationId
+    )
+  );
+  const collaborationWritable = lifecycleState?.state === "open";
+  const sharedMutationsAllowed = isOnline && collaborationWritable;
+  const sharedBlockedMessage = !isOnline
+    ? "Reconnect before changing shared Build collaboration state. Offline work stays private."
+    : lifecycleState === undefined
+      ? "Collaboration access is still loading. Try again in a moment."
+      : "This Build collaboration archive is read-only.";
   return (
-    <BuildCollaborationMutationGate sharedMutationsAllowed={isOnline}>
+    <BuildCollaborationMutationGate
+      personalMutationsAllowed={isOnline}
+      sharedBlockedMessage={sharedBlockedMessage}
+      sharedMutationsAllowed={sharedMutationsAllowed}
+    >
       <BuildCollaborationFeedContent
         {...props}
-        isOnline={isOnline}
+        collaborationState={lifecycleState?.state}
+        connectionOnline={isOnline}
+        isOnline={sharedMutationsAllowed}
         sessionWorkosUserId={user?.id}
       />
     </BuildCollaborationMutationGate>
@@ -541,12 +568,16 @@ export function BuildCollaborationFeed(props: BuildCollaborationFeedProps) {
 
 function BuildCollaborationFeedContent({
   buildId,
+  collaborationState,
+  connectionOnline,
   focusedReference: focusedEntityReference,
   isOnline,
   organizationId,
   onOpenReference,
   sessionWorkosUserId,
 }: BuildCollaborationFeedProps & {
+  collaborationState?: "closed" | "open" | "purged";
+  connectionOnline: boolean;
   isOnline: boolean;
   sessionWorkosUserId?: string;
 }) {
@@ -559,6 +590,14 @@ function BuildCollaborationFeedContent({
   const viewerBinding = useQuery(
     api.build_collaboration_viewer.getBuildCollaborationViewerBinding,
     buildCollaborationScopeArgs(activeBuildId, organizationId)
+  );
+  const viewerRole = viewerBinding?.role;
+  const canPublishAnnouncements = Boolean(
+    viewerRole &&
+      !["builder-staff", "homeowner", "contractor"].includes(viewerRole)
+  );
+  const canCustomizeAudience = Boolean(
+    viewerRole && !["homeowner", "contractor"].includes(viewerRole)
   );
   const rawTagOptions = useQuery(
     api.build_collaboration_references.listBuildCollaborationTagOptions,
@@ -705,6 +744,7 @@ function BuildCollaborationFeedContent({
   );
   const [filter, setFilter] = useState<FeedFilter>("all");
   const [composerOpen, setComposerOpen] = useState(false);
+  const [composerExtrasOpen, setComposerExtrasOpen] = useState(false);
   const [postType, setPostType] = useState<PostType>("update");
   const [audienceMode, setAudienceMode] = useState<AudienceMode>("build_wide");
   const [requestedReaderIds, setRequestedReaderIds] = useState<string[]>([]);
@@ -769,6 +809,9 @@ function BuildCollaborationFeedContent({
   const [draftConflictMessage, setDraftConflictMessage] = useState<
     string | null
   >(null);
+  const [autosaveStatus, setAutosaveStatus] = useState<
+    "error" | "idle" | "saved" | "saving"
+  >("idle");
   const [reviewingDraftId, setReviewingDraftId] =
     useState<Id<"buildCollaborationDrafts"> | null>(null);
   const offlineDraftKey =
@@ -962,6 +1005,8 @@ function BuildCollaborationFeedContent({
     setScheduledForInput("");
     setOfflineCapturedAt(null);
     setDraftConflictMessage(null);
+    setAutosaveStatus("idle");
+    setComposerExtrasOpen(false);
     setComposerOpen(false);
   };
 
@@ -1052,6 +1097,103 @@ function BuildCollaborationFeedContent({
       );
     }
   };
+
+  const autosaveBundle = buildComposerBundle();
+  const autosaveFingerprint = autosaveBundle
+    ? JSON.stringify({
+        bundle: autosaveBundle,
+        files: composerFiles.map((file) => ({
+          lastModified: file.lastModified,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+        })),
+        scheduledForInput,
+      })
+    : "";
+  const lastAutosavedFingerprintRef = useRef("");
+  const autosaveInFlightRef = useRef(false);
+  const autosaveNowRef = useRef<() => Promise<void>>(async () => undefined);
+  autosaveNowRef.current = async () => {
+    if (
+      !(
+        autosaveBundle &&
+        autosaveFingerprint &&
+        offlineDraftKey &&
+        organizationId
+      ) ||
+      autosaveInFlightRef.current ||
+      autosaveFingerprint === lastAutosavedFingerprintRef.current
+    ) {
+      return;
+    }
+    autosaveInFlightRef.current = true;
+    setAutosaveStatus("saving");
+    const capturedAt = Date.now();
+    try {
+      const privateDraft = await saveBuildCollaborationOfflineDraft({
+        bundle: autosaveBundle,
+        capturedAt,
+        draftId: editingHumanDraftId ?? undefined,
+        expectedRevision: editingHumanDraftRevision ?? undefined,
+        files: composerFiles,
+        key: offlineDraftKey,
+        scheduledFor: scheduledForInput
+          ? new Date(scheduledForInput).getTime()
+          : undefined,
+      });
+      setOfflineCapturedAt(capturedAt);
+      if (!isOnline) {
+        setOfflineDraft(privateDraft);
+      }
+      if (
+        isOnline &&
+        sessionWorkosUserId &&
+        draftIdentity?.workosUserId === sessionWorkosUserId
+      ) {
+        const saved = await saveDraft({
+          ...autosaveBundle,
+          buildId: activeBuildId,
+          draftId: editingHumanDraftId ?? undefined,
+          expectedRevision: editingHumanDraftRevision ?? undefined,
+          offlineCapturedAt: capturedAt,
+          organizationId,
+          preparedByAgent: false,
+          scheduledFor: scheduledForInput
+            ? new Date(scheduledForInput).getTime()
+            : undefined,
+        });
+        setEditingHumanDraftId(saved.draftId);
+        setEditingHumanDraftRevision(saved.revision);
+      }
+      lastAutosavedFingerprintRef.current = autosaveFingerprint;
+      setAutosaveStatus("saved");
+    } catch (error) {
+      await preserveConflictedComposer(error, autosaveBundle);
+      setAutosaveStatus("error");
+    } finally {
+      autosaveInFlightRef.current = false;
+    }
+  };
+  useEffect(() => {
+    if (!(composerOpen && autosaveFingerprint) || publishing) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void autosaveNowRef.current();
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [autosaveFingerprint, composerOpen, publishing]);
+  useEffect(() => {
+    const flushWhenHidden = () => {
+      if (window.document.visibilityState === "hidden") {
+        void autosaveNowRef.current();
+      }
+    };
+    window.document.addEventListener("visibilitychange", flushWhenHidden);
+    return () =>
+      window.document.removeEventListener("visibilitychange", flushWhenHidden);
+  }, []);
 
   const publishComposerPost = async () => {
     if (!isOnline) {
@@ -1352,6 +1494,13 @@ function BuildCollaborationFeedContent({
       })
     );
     setRequestedReaderIds(bundle.requestedReaderIds);
+    setComposerExtrasOpen(
+      Boolean(
+        bundle.acknowledgementRequired ||
+          bundle.actionItems.length > 0 ||
+          bundle.attachmentAssetIds.length > 0
+      )
+    );
     setDraftConflictMessage(null);
     setComposerOpen(true);
   };
@@ -1390,6 +1539,13 @@ function BuildCollaborationFeedContent({
     );
   };
 
+  const composerExtraCount =
+    attachmentAssetIds.length +
+    composerFiles.length +
+    Number(Boolean(actionTitle.trim())) +
+    Number(Boolean(scheduledForInput)) +
+    Number(acknowledgementRequired);
+
   if (!organizationId) {
     return (
       <Frame data-testid="build-collaboration-unavailable">
@@ -1413,10 +1569,46 @@ function BuildCollaborationFeedContent({
       data-viewer-role={viewerBinding?.role}
       data-viewer-workos-user-id={viewerBinding?.workosUserId}
     >
-      <div className="min-w-0 space-y-4">
-        {isOnline ? null : (
+      <aside
+        aria-label="My collaboration work"
+        className="order-first xl:order-none xl:col-start-2 xl:row-start-1"
+      >
+        <BuildCollaborationActionItemQueue
+          compactOnNarrow
+          emptyLabel="No open work for you across your authorized Builds."
+          hasMore={personalQueue.hasMore}
+          loading={personalQueue.loading}
+          loadingMore={personalQueue.loadingMore}
+          onLoadMore={personalQueue.loadMore}
+          onOpen={(row) => {
+            if (row.buildId === activeBuildId) {
+              setActionItemSheetTarget({
+                actionItemId: row.item._id,
+                kind: "detail",
+              });
+              return;
+            }
+            window.location.assign(
+              buildActionItemQueueHref(
+                window.location.href,
+                row.buildId,
+                row.item._id
+              )
+            );
+          }}
+          rows={personalQueue.rows}
+          title="My Action Items"
+        />
+      </aside>
+
+      <div className="min-w-0 space-y-4 xl:col-start-1 xl:row-span-2 xl:row-start-1">
+        {connectionOnline ? null : (
           <Frame data-testid="build-collaboration-offline-banner">
-            <FramePanel className="flex items-start gap-3">
+            <FramePanel
+              aria-live="polite"
+              className="flex items-start gap-3"
+              role="status"
+            >
               <WifiOff aria-hidden="true" className="mt-0.5 size-4" />
               <div>
                 <p className="font-medium text-sm">Private offline mode</p>
@@ -1429,6 +1621,30 @@ function BuildCollaborationFeedContent({
             </FramePanel>
           </Frame>
         )}
+        {collaborationState === undefined ? (
+          <Frame data-testid="build-collaboration-lifecycle-loading">
+            <FramePanel aria-live="polite" role="status">
+              <p className="font-medium text-sm">
+                Loading collaboration access…
+              </p>
+              <p className="mt-1 text-muted-foreground text-sm">
+                Publishing controls will appear after this Build's lifecycle
+                state is verified.
+              </p>
+            </FramePanel>
+          </Frame>
+        ) : collaborationState !== "open" ? (
+          <Frame data-testid="build-collaboration-read-only-banner">
+            <FramePanel aria-live="polite" role="status">
+              <p className="font-medium text-sm">Collaboration is read-only</p>
+              <p className="mt-1 text-muted-foreground text-sm">
+                {collaborationState === "purged"
+                  ? "This Build's collaboration content was purged under its retention policy."
+                  : "This Build's collaboration archive is closed. Existing activity remains available, but new shared changes are disabled."}
+              </p>
+            </FramePanel>
+          </Frame>
+        ) : null}
         {offlineDraft ? (
           <Frame data-testid="build-collaboration-offline-draft">
             <FramePanel className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -1448,7 +1664,7 @@ function BuildCollaborationFeedContent({
                 type="button"
                 variant="outline"
               >
-                {isOnline ? "Load and reconcile" : "Continue offline"}
+                {connectionOnline ? "Load and reconcile" : "Continue offline"}
               </Button>
             </FramePanel>
           </Frame>
@@ -1645,190 +1861,292 @@ function BuildCollaborationFeedContent({
             </FramePanel>
           </Frame>
         ) : null}
-        <Frame>
-          <FramePanel className="p-0">
-            <button
-              aria-label="What should people involved in this Build know?"
-              className="flex w-full items-center gap-3 px-4 py-4 text-left"
-              onClick={() => setComposerOpen(true)}
-              type="button"
-            >
-              <Avatar className="size-9">
-                <AvatarFallback>+</AvatarFallback>
-              </Avatar>
-              <span className="min-w-0 flex-1 rounded-full border bg-muted/20 px-4 py-2.5 text-muted-foreground text-sm">
-                What should people involved in this Build know?
-              </span>
-            </button>
-            {composerOpen ? (
-              <div className="space-y-3 border-t p-4">
-                {draftConflictMessage ? (
-                  <Card data-testid="build-collaboration-draft-conflict">
-                    <CardHeader>
-                      <div>
-                        <CardTitle>Draft changed elsewhere</CardTitle>
-                        <CardDescription>
-                          Your unsaved composer is preserved. Compare it with
-                          the latest private server revision before retrying.
-                        </CardDescription>
-                      </div>
-                      <Badge variant="destructive">Conflict</Badge>
-                    </CardHeader>
-                    <CardPanel className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <p className="font-medium text-xs uppercase tracking-wide">
-                          Your draft
-                        </p>
-                        <p className="mt-1 text-sm">
-                          {plainTextFromDocument(document) || "No content"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="font-medium text-xs uppercase tracking-wide">
-                          Latest server revision {latestEditingDraft?.revision}
-                        </p>
-                        <p className="mt-1 text-sm">
-                          {latestEditingDraftBundle?.plainText ??
-                            "Latest content unavailable"}
-                        </p>
-                        {latestEditingDraft ? (
-                          <Button
-                            className="mt-2"
-                            onClick={() =>
-                              loadDraftIntoComposer(latestEditingDraft)
-                            }
-                            size="sm"
-                            type="button"
-                            variant="outline"
-                          >
-                            Use latest revision
-                          </Button>
+        {collaborationState === "open" || !connectionOnline ? (
+          <Frame>
+            <FramePanel className="p-0">
+              <button
+                aria-label="What should people involved in this Build know?"
+                className="flex w-full items-center gap-3 px-4 py-4 text-left"
+                onClick={() => setComposerOpen(true)}
+                type="button"
+              >
+                <Avatar className="size-9">
+                  <AvatarFallback>+</AvatarFallback>
+                </Avatar>
+                <span className="min-w-0 flex-1 rounded-full border bg-muted/20 px-4 py-2.5 text-muted-foreground text-sm">
+                  What should people involved in this Build know?
+                </span>
+              </button>
+              {composerOpen ? (
+                <div className="space-y-3 border-t p-4">
+                  {draftConflictMessage ? (
+                    <Card data-testid="build-collaboration-draft-conflict">
+                      <CardHeader>
+                        <div>
+                          <CardTitle>Draft changed elsewhere</CardTitle>
+                          <CardDescription>
+                            Your unsaved composer is preserved. Compare it with
+                            the latest private server revision before retrying.
+                          </CardDescription>
+                        </div>
+                        <Badge variant="destructive">Conflict</Badge>
+                      </CardHeader>
+                      <CardPanel className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <p className="font-medium text-xs uppercase tracking-wide">
+                            Your draft
+                          </p>
+                          <p className="mt-1 text-sm">
+                            {plainTextFromDocument(document) || "No content"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-medium text-xs uppercase tracking-wide">
+                            Latest server revision{" "}
+                            {latestEditingDraft?.revision}
+                          </p>
+                          <p className="mt-1 text-sm">
+                            {latestEditingDraftBundle?.plainText ??
+                              "Latest content unavailable"}
+                          </p>
+                          {latestEditingDraft ? (
+                            <Button
+                              className="mt-2"
+                              onClick={() =>
+                                loadDraftIntoComposer(latestEditingDraft)
+                              }
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              Use latest revision
+                            </Button>
+                          ) : null}
+                        </div>
+                      </CardPanel>
+                      <CardPanel className="border-t text-muted-foreground text-xs">
+                        {draftConflictMessage}
+                      </CardPanel>
+                    </Card>
+                  ) : null}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Select
+                      onValueChange={(value) => setPostType(value as PostType)}
+                      value={postType}
+                    >
+                      <SelectTrigger aria-label="Post type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="update">Update</SelectItem>
+                        <SelectItem value="question">Question</SelectItem>
+                        <SelectItem value="decision">Decision</SelectItem>
+                        <SelectItem value="issue">Issue / blocker</SelectItem>
+                        {canPublishAnnouncements ? (
+                          <SelectItem value="announcement">
+                            Announcement
+                          </SelectItem>
                         ) : null}
-                      </div>
-                    </CardPanel>
-                    <CardPanel className="border-t text-muted-foreground text-xs">
-                      {draftConflictMessage}
-                    </CardPanel>
-                  </Card>
-                ) : null}
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Select
-                    onValueChange={(value) => setPostType(value as PostType)}
-                    value={postType}
-                  >
-                    <SelectTrigger aria-label="Post type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="update">Update</SelectItem>
-                      <SelectItem value="question">Question</SelectItem>
-                      <SelectItem value="decision">Decision</SelectItem>
-                      <SelectItem value="issue">Issue / blocker</SelectItem>
-                      <SelectItem value="announcement">Announcement</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    onValueChange={(value) =>
-                      setAudienceMode(value as AudienceMode)
-                    }
-                    value={audienceMode}
-                  >
-                    <SelectTrigger aria-label="Post audience">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="build_wide">
-                        Everyone on this Build
-                      </SelectItem>
-                      <SelectItem value="author_tier_and_higher">
-                        My tier and higher
-                      </SelectItem>
-                      <SelectItem value="custom">
-                        Custom participants
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {audienceMode === "custom" ? (
-                  <div className="grid gap-2 rounded-lg border bg-muted/15 p-3 sm:grid-cols-2">
-                    {participants.map((participant) => (
-                      <label
-                        className="flex items-center gap-2 text-sm"
-                        key={participant.id}
-                      >
-                        <input
-                          checked={requestedReaderIds.includes(participant.id)}
-                          onChange={(event) =>
-                            setRequestedReaderIds((current) =>
-                              event.target.checked
-                                ? [...new Set([...current, participant.id])]
-                                : current.filter((id) => id !== participant.id)
-                            )
-                          }
-                          type="checkbox"
-                        />
-                        <span>{participant.label}</span>
-                      </label>
-                    ))}
-                    <p className="col-span-full text-muted-foreground text-xs">
-                      Higher and peer roles remain included automatically.
-                    </p>
-                  </div>
-                ) : null}
-                {schedulingCapabilities?.canSchedule &&
-                (postType === "update" || postType === "announcement") ? (
-                  <label
-                    className="grid gap-1 text-sm sm:max-w-sm"
-                    htmlFor="build-collaboration-scheduled-for"
-                  >
-                    <span className="font-medium">Optional publish time</span>
-                    <Input
-                      aria-label="Scheduled publication time"
-                      id="build-collaboration-scheduled-for"
-                      min={toLocalDateTimeInput(
-                        minimumScheduledPublicationTimestamp(Date.now())
-                      )}
-                      onChange={(event) =>
-                        setScheduledForInput(event.target.value)
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      onValueChange={(value) =>
+                        setAudienceMode(value as AudienceMode)
                       }
-                      type="datetime-local"
-                      value={scheduledForInput}
-                    />
-                    <span className="text-muted-foreground text-xs">
-                      The exact final bundle still requires your approval.
-                    </span>
-                  </label>
-                ) : null}
-                <CollaborationRichTextEditor
-                  ariaLabel="Build update"
-                  editorMinHeightClass="[&_.ProseMirror]:min-h-36"
-                  onChange={(nextHtml, nextReferences) => {
-                    setHtml(nextHtml);
-                    setReferences(nextReferences);
-                  }}
-                  onDocumentChange={(nextDocument) => setDocument(nextDocument)}
-                  placeholder="Write an update. Type @ to link people, milestones, evidence, site visits, documents, materials, draws, or Action Items."
-                  tagOptions={tagOptions}
-                  value={html}
-                />
-                <ComposerAttachmentInput
-                  assets={composerAssets}
-                  buildId={activeBuildId}
-                  existingCount={attachmentAssetIds.length}
-                  files={composerFiles}
-                  onFilesChange={setComposerFiles}
-                  onRemove={removeComposerAttachment}
-                  organizationId={organizationId}
-                  savingDraft={Boolean(editingHumanDraftId)}
-                />
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                  <Input
-                    onChange={(event) => setActionTitle(event.target.value)}
-                    placeholder="Optional Action Item to publish with this post"
-                    value={actionTitle}
+                      value={audienceMode}
+                    >
+                      <SelectTrigger aria-label="Post audience">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="build_wide">
+                          Everyone on this Build
+                        </SelectItem>
+                        <SelectItem value="author_tier_and_higher">
+                          My role level and above
+                        </SelectItem>
+                        {canCustomizeAudience ? (
+                          <SelectItem value="custom">
+                            Custom participants
+                          </SelectItem>
+                        ) : null}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {audienceMode === "custom" ? (
+                    <div className="grid gap-2 rounded-lg border bg-muted/15 p-3 sm:grid-cols-2">
+                      {participants.map((participant) => (
+                        <label
+                          className="flex items-center gap-2 text-sm"
+                          key={participant.id}
+                        >
+                          <input
+                            checked={requestedReaderIds.includes(
+                              participant.id
+                            )}
+                            onChange={(event) =>
+                              setRequestedReaderIds((current) =>
+                                event.target.checked
+                                  ? [...new Set([...current, participant.id])]
+                                  : current.filter(
+                                      (id) => id !== participant.id
+                                    )
+                              )
+                            }
+                            type="checkbox"
+                          />
+                          <span>{participant.label}</span>
+                        </label>
+                      ))}
+                      <p className="col-span-full text-muted-foreground text-xs">
+                        Participants at your role level and above remain
+                        mandatory readers. Referenced work may narrow the final
+                        audience.
+                      </p>
+                    </div>
+                  ) : null}
+                  <CollaborationRichTextEditor
+                    ariaLabel="Build update"
+                    editorMinHeightClass="[&_.ProseMirror]:min-h-36"
+                    onChange={(nextHtml, nextReferences) => {
+                      setHtml(nextHtml);
+                      setReferences(nextReferences);
+                    }}
+                    onDocumentChange={(nextDocument) =>
+                      setDocument(nextDocument)
+                    }
+                    placeholder="Write an update. Type @ to link people, milestones, evidence, site visits, documents, materials, draws, or Action Items."
+                    tagOptions={tagOptions}
+                    value={html}
                   />
-                  <div className="flex justify-end gap-2">
+                  {autosaveStatus !== "idle" ? (
+                    <p
+                      aria-live="polite"
+                      className={cn(
+                        "text-xs",
+                        autosaveStatus === "error"
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                      )}
+                      role="status"
+                    >
+                      {autosaveStatus === "saving"
+                        ? "Saving private draft…"
+                        : autosaveStatus === "saved"
+                          ? "Private draft autosaved. Publishing still requires you."
+                          : "Autosave could not finish. Keep this composer open and retry Save draft."}
+                    </p>
+                  ) : null}
+                  <Collapsible
+                    onOpenChange={setComposerExtrasOpen}
+                    open={composerExtrasOpen}
+                  >
+                    <CollapsibleTrigger
+                      render={
+                        <Button
+                          aria-label="Add attachments, scheduling, an Action Item, or acknowledgement"
+                          className="w-full justify-between"
+                          type="button"
+                          variant="outline"
+                        />
+                      }
+                    >
+                      <span className="flex items-center gap-2">
+                        <Paperclip aria-hidden="true" className="size-4" />
+                        Add to update
+                        {composerExtraCount > 0 ? (
+                          <Badge variant="secondary">
+                            {composerExtraCount} selected
+                          </Badge>
+                        ) : null}
+                      </span>
+                      <ChevronDown
+                        aria-hidden="true"
+                        className={cn(
+                          "size-4 transition-transform",
+                          composerExtrasOpen && "rotate-180"
+                        )}
+                      />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-3 pt-3">
+                        {schedulingCapabilities?.canSchedule &&
+                        (postType === "update" ||
+                          postType === "announcement") ? (
+                          <label
+                            className="grid gap-1 text-sm sm:max-w-sm"
+                            htmlFor="build-collaboration-scheduled-for"
+                          >
+                            <span className="font-medium">
+                              Optional publish time
+                            </span>
+                            <Input
+                              aria-label="Scheduled publication time"
+                              id="build-collaboration-scheduled-for"
+                              min={toLocalDateTimeInput(
+                                minimumScheduledPublicationTimestamp(Date.now())
+                              )}
+                              onChange={(event) =>
+                                setScheduledForInput(event.target.value)
+                              }
+                              type="datetime-local"
+                              value={scheduledForInput}
+                            />
+                            <span className="text-muted-foreground text-xs">
+                              The exact final bundle still requires your
+                              approval.
+                            </span>
+                          </label>
+                        ) : null}
+                        <ComposerAttachmentInput
+                          assets={composerAssets}
+                          buildId={activeBuildId}
+                          existingCount={attachmentAssetIds.length}
+                          files={composerFiles}
+                          onFilesChange={setComposerFiles}
+                          onRemove={removeComposerAttachment}
+                          organizationId={organizationId}
+                          savingDraft={Boolean(editingHumanDraftId)}
+                        />
+                        <div>
+                          <label
+                            className="sr-only"
+                            htmlFor="build-collaboration-action-title"
+                          >
+                            Optional Action Item title
+                          </label>
+                          <Input
+                            id="build-collaboration-action-title"
+                            onChange={(event) =>
+                              setActionTitle(event.target.value)
+                            }
+                            placeholder="Optional Action Item to publish with this post"
+                            value={actionTitle}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              checked={acknowledgementRequired}
+                              onChange={(event) =>
+                                setAcknowledgementRequired(event.target.checked)
+                              }
+                              type="checkbox"
+                            />
+                            Require acknowledgement from eligible participants
+                            at or below my role level
+                          </label>
+                          <p className="pl-6 text-muted-foreground text-xs">
+                            Acknowledgement confirms review; it is not an
+                            approval.
+                          </p>
+                        </div>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                     <Button
+                      className="w-full sm:w-auto"
                       onClick={resetComposer}
                       type="button"
                       variant="ghost"
@@ -1836,6 +2154,7 @@ function BuildCollaborationFeedContent({
                       Cancel
                     </Button>
                     <Button
+                      className="w-full sm:w-auto"
                       disabled={publishing}
                       onClick={saveCurrentDraft}
                       type="button"
@@ -1847,6 +2166,7 @@ function BuildCollaborationFeedContent({
                     schedulingCapabilities?.canSchedule &&
                     (postType === "update" || postType === "announcement") ? (
                       <Button
+                        className="col-span-2 w-full sm:w-auto"
                         disabled={publishing || !isOnline}
                         onClick={prepareScheduledPublication}
                         type="button"
@@ -1857,6 +2177,7 @@ function BuildCollaborationFeedContent({
                       </Button>
                     ) : null}
                     <Button
+                      className="col-span-2 w-full sm:w-auto"
                       disabled={publishing || !isOnline}
                       onClick={publishComposerPost}
                       type="button"
@@ -1866,20 +2187,10 @@ function BuildCollaborationFeedContent({
                     </Button>
                   </div>
                 </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    checked={acknowledgementRequired}
-                    onChange={(event) =>
-                      setAcknowledgementRequired(event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  Require acknowledgement from participants at or below my role
-                </label>
-              </div>
-            ) : null}
-          </FramePanel>
-        </Frame>
+              ) : null}
+            </FramePanel>
+          </Frame>
+        ) : null}
 
         <div className="space-y-3">
           <Tabs
@@ -1944,6 +2255,7 @@ function BuildCollaborationFeedContent({
               focusedPost={entry.post._id === focusedPostId}
               focusedReference={focusedEntityReference}
               key={entry.post._id}
+              mutationsAllowed={isOnline}
               onCreateActionItem={(postId) =>
                 setActionItemSheetTarget({ kind: "create", postId })
               }
@@ -1976,7 +2288,10 @@ function BuildCollaborationFeedContent({
         ) : null}
       </div>
 
-      <aside className="space-y-3">
+      <aside
+        aria-label="Build collaboration context"
+        className="space-y-3 xl:col-start-2 xl:row-start-2"
+      >
         <SummaryCard
           description="Important threads for this Build"
           icon={<Pin aria-hidden="true" className="size-4" />}
@@ -1986,31 +2301,6 @@ function BuildCollaborationFeedContent({
               (entry) => entry.kind === "post" && entry.pins.length > 0
             ).length
           )}
-        />
-        <BuildCollaborationActionItemQueue
-          emptyLabel="No open work for you across your authorized Builds."
-          hasMore={personalQueue.hasMore}
-          loading={personalQueue.loading}
-          loadingMore={personalQueue.loadingMore}
-          onLoadMore={personalQueue.loadMore}
-          onOpen={(row) => {
-            if (row.buildId === activeBuildId) {
-              setActionItemSheetTarget({
-                actionItemId: row.item._id,
-                kind: "detail",
-              });
-              return;
-            }
-            window.location.assign(
-              buildActionItemQueueHref(
-                window.location.href,
-                row.buildId,
-                row.item._id
-              )
-            );
-          }}
-          rows={personalQueue.rows}
-          title="My Action Items"
         />
         <BuildCollaborationActionItemQueue
           emptyLabel="No open Action Items on this Build."
@@ -2054,6 +2344,7 @@ function BuildCollaborationFeedContent({
         onReferenceOpen={openActionItemSheetReference}
         open={Boolean(actionItemSheetTarget)}
         organizationId={organizationId}
+        readOnly={!isOnline}
         tagOptions={tagOptions}
         target={actionItemSheetTarget}
       />
@@ -2220,6 +2511,7 @@ function ComposerAttachmentInput({
 function CollaborationPostHeader({
   buildId,
   entry,
+  mutationsAllowed,
   onEdit,
   onManageThread,
   onModerate,
@@ -2227,19 +2519,23 @@ function CollaborationPostHeader({
 }: {
   buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
+  mutationsAllowed: boolean;
   onEdit: () => void;
   onManageThread: () => void;
   onModerate: () => void;
   organizationId: string;
 }) {
-  const togglePin = useBuildCollaborationMutation(
+  const toggleBuildPin = useBuildCollaborationMutation(
     api.build_collaboration_threads.toggleBuildCollaborationPin
   );
-  const toggleFollow = useBuildCollaborationMutation(
+  const togglePersonalPin = useBuildCollaborationPersonalMutation(
+    api.build_collaboration_threads.toggleBuildCollaborationPin
+  );
+  const toggleFollow = useBuildCollaborationPersonalMutation(
     api.build_collaboration_threads.toggleBuildCollaborationFollow
   );
   const savePost = (kind: "build" | "personal") =>
-    togglePin({
+    (kind === "build" ? toggleBuildPin : togglePersonalPin)({
       buildId,
       kind,
       organizationId,
@@ -2266,7 +2562,9 @@ function CollaborationPostHeader({
       )
     );
   const canEdit =
-    entry.post.viewerIsAuthor && entry.post.contentState === "active";
+    mutationsAllowed &&
+    entry.post.viewerIsAuthor &&
+    entry.post.contentState === "active";
   const canViewHistory =
     entry.post.viewerIsAuthor ||
     (entry.post.contentState === "active" && entry.post.revision > 1);
@@ -2295,6 +2593,7 @@ function CollaborationPostHeader({
           canViewHistory={canViewHistory}
           entry={entry}
           followPost={followPost}
+          mutationsAllowed={mutationsAllowed}
           onEdit={onEdit}
           onManageThread={onManageThread}
           onModerate={onModerate}
@@ -2356,6 +2655,7 @@ function CollaborationPostActions({
   canViewHistory,
   entry,
   followPost,
+  mutationsAllowed,
   onEdit,
   onManageThread,
   onModerate,
@@ -2365,6 +2665,7 @@ function CollaborationPostActions({
   canViewHistory: boolean;
   entry: CollaborationFeedPostEntry;
   followPost: () => void;
+  mutationsAllowed: boolean;
   onEdit: () => void;
   onManageThread: () => void;
   onModerate: () => void;
@@ -2397,7 +2698,7 @@ function CollaborationPostActions({
                 {canEdit ? "Edit post" : "View revision history"}
               </DropdownMenuItem>
             ) : null}
-            {canUseModeration ? (
+            {mutationsAllowed && canUseModeration ? (
               <DropdownMenuItem onClick={onModerate}>
                 <ShieldAlert aria-hidden="true" className="size-4" />
                 {moderationActionLabel(entry.post)}
@@ -2405,7 +2706,7 @@ function CollaborationPostActions({
             ) : null}
             {entry.post.contentState === "active" ? (
               <DropdownMenuItem onClick={onManageThread}>
-                {entry.post.viewerCanManageThread
+                {mutationsAllowed && entry.post.viewerCanManageThread
                   ? "Manage thread outcome"
                   : "View thread outcome"}
               </DropdownMenuItem>
@@ -2413,9 +2714,11 @@ function CollaborationPostActions({
             <DropdownMenuItem onClick={() => savePost("personal")}>
               Save privately
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => savePost("build")}>
-              Pin for Build
-            </DropdownMenuItem>
+            {mutationsAllowed ? (
+              <DropdownMenuItem onClick={() => savePost("build")}>
+                Pin for Build
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem onClick={followPost}>
               {entry.following ? "Unfollow thread" : "Follow thread"}
             </DropdownMenuItem>
@@ -2429,10 +2732,12 @@ function CollaborationPostActions({
 function CollaborationPostFooter({
   buildId,
   entry,
+  mutationsAllowed,
   organizationId,
 }: {
   buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
+  mutationsAllowed: boolean;
   organizationId: string;
 }) {
   const acknowledge = useBuildCollaborationMutation(
@@ -2465,11 +2770,12 @@ function CollaborationPostFooter({
         <span>
           {entry.receipts.length > 0
             ? `Seen by ${entry.receipts.length} · ${formatTimestamp(latestReceipt)}`
-            : "No visible receipts yet"}
+            : "No view receipts are visible to your role yet"}
         </span>
         {entry.acknowledgement?.required &&
         !entry.acknowledgement.acknowledged ? (
           <Button
+            disabled={!mutationsAllowed}
             onClick={acknowledgePost}
             size="sm"
             type="button"
@@ -2543,6 +2849,7 @@ function CollaborationPostCard({
   focusedCommentId,
   focusedPost,
   focusedReference,
+  mutationsAllowed,
   onCreateActionItem,
   onFocusReference,
   onOpenActionItem,
@@ -2556,6 +2863,7 @@ function CollaborationPostCard({
   focusedCommentId?: Id<"buildCollaborationComments">;
   focusedPost: boolean;
   focusedReference?: string;
+  mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
   onFocusReference: (reference: FocusedReference) => void;
   onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
@@ -2566,7 +2874,9 @@ function CollaborationPostCard({
   const cardRef = useRef<HTMLDivElement>(null);
   useFocusedCollaborationPostCard(cardRef, focusedPost);
   const focusPresentation = focusedPostCardPresentation(focusedPost);
-  const [tab, setTab] = useState<"actions" | "discussion">("discussion");
+  const [tab, setTab] = useState<"actions" | "discussion" | null>(() =>
+    focusedCommentId ? "discussion" : null
+  );
   const [actionView, setActionView] = useState<"board" | "list">("list");
   const [editTarget, setEditTarget] = useState<CollaborationEditTarget | null>(
     null
@@ -2599,6 +2909,18 @@ function CollaborationPostCard({
   );
 
   useEffect(() => {
+    if (focusedCommentId) {
+      setTab("discussion");
+    }
+  }, [focusedCommentId]);
+
+  useEffect(() => {
+    if (focusedReference?.startsWith("comment:")) {
+      setTab("discussion");
+    }
+  }, [focusedReference]);
+
+  useEffect(() => {
     if (
       focusedReference?.startsWith("actionItem:") &&
       entry.actionItems.some(
@@ -2610,12 +2932,69 @@ function CollaborationPostCard({
   }, [entry.actionItems, focusedReference]);
 
   useEffect(() => {
-    markViewed({
-      buildId,
-      organizationId,
-      postId: entry.post._id,
-    }).catch(() => undefined);
-  }, [buildId, entry.post._id, markViewed, organizationId]);
+    if (!mutationsAllowed) {
+      return;
+    }
+    const card = cardRef.current;
+    if (!(card && typeof IntersectionObserver !== "undefined")) {
+      return;
+    }
+    let visible = false;
+    let timer: number | undefined;
+    let recorded = false;
+    const cancelPendingReceipt = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+    const scheduleReceipt = () => {
+      cancelPendingReceipt();
+      if (!(visible && document.visibilityState === "visible") || recorded) {
+        return;
+      }
+      timer = window.setTimeout(() => {
+        if (!(visible && document.visibilityState === "visible") || recorded) {
+          return;
+        }
+        recorded = true;
+        markViewed({
+          buildId,
+          organizationId,
+          postId: entry.post._id,
+        }).catch(() => {
+          recorded = false;
+        });
+      }, 1000);
+    };
+    const observer = new IntersectionObserver(
+      ([intersection]) => {
+        visible = Boolean(
+          intersection?.isIntersecting && intersection.intersectionRatio >= 0.5
+        );
+        if (visible) {
+          scheduleReceipt();
+        } else {
+          cancelPendingReceipt();
+        }
+      },
+      { threshold: [0.5] }
+    );
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        scheduleReceipt();
+      } else {
+        cancelPendingReceipt();
+      }
+    };
+    observer.observe(card);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      cancelPendingReceipt();
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [buildId, entry.post._id, markViewed, mutationsAllowed, organizationId]);
 
   const openReference = (reference: CollaborationTagReference) => {
     const option = referenceByKey.get(`${reference.kind}:${reference.id}`);
@@ -2679,7 +3058,9 @@ function CollaborationPostCard({
   const postEditTarget = () => {
     setEditTarget({
       canEdit:
-        entry.post.viewerIsAuthor && entry.post.contentState === "active",
+        mutationsAllowed &&
+        entry.post.viewerIsAuthor &&
+        entry.post.contentState === "active",
       document: parseDocument(entry.revision.tiptapJson),
       entity: { kind: "post", postId: entry.post._id },
       references: collaborationReferencesForEditor(
@@ -2701,6 +3082,7 @@ function CollaborationPostCard({
       <CollaborationPostHeader
         buildId={buildId}
         entry={entry}
+        mutationsAllowed={mutationsAllowed}
         onEdit={postEditTarget}
         onManageThread={() => setThreadSheetOpen(true)}
         onModerate={() =>
@@ -2748,7 +3130,11 @@ function CollaborationPostCard({
           assets={entry.attachments}
           buildId={buildId}
           focusedAssetId={focusedAssetId}
-          onReplace={(asset, file) => replaceAsset(asset, file)}
+          onReplace={
+            mutationsAllowed
+              ? (asset, file) => replaceAsset(asset, file)
+              : undefined
+          }
           organizationId={organizationId}
         />
         <ThreadOutcomeSummary entry={entry} />
@@ -2757,22 +3143,30 @@ function CollaborationPostCard({
         <>
           <div className="grid grid-cols-2 border-y">
             <button
+              aria-expanded={tab === "discussion"}
               className={cn(
                 "flex min-h-11 items-center justify-center gap-2 border-r text-sm",
-                tab === "discussion" && "bg-primary/5 text-primary"
+                tab === "discussion" && "bg-primary/10 text-foreground"
               )}
-              onClick={() => setTab("discussion")}
+              onClick={() =>
+                setTab((current) =>
+                  current === "discussion" ? null : "discussion"
+                )
+              }
               type="button"
             >
               <MessageCircle aria-hidden="true" className="size-4" />
               Discussion {entry.post.commentCount}
             </button>
             <button
+              aria-expanded={tab === "actions"}
               className={cn(
                 "flex min-h-11 items-center justify-center gap-2 text-sm",
-                tab === "actions" && "bg-primary/5 text-primary"
+                tab === "actions" && "bg-primary/10 text-foreground"
               )}
-              onClick={() => setTab("actions")}
+              onClick={() =>
+                setTab((current) => (current === "actions" ? null : "actions"))
+              }
               type="button"
             >
               <Flag aria-hidden="true" className="size-4" />
@@ -2785,6 +3179,7 @@ function CollaborationPostCard({
               buildId={buildId}
               focusedAssetId={focusedAssetId}
               focusedCommentId={focusedCommentId}
+              mutationsAllowed={mutationsAllowed}
               onEditComment={setEditTarget}
               onFocusReference={onFocusReference}
               onModerateComment={setModerationTarget}
@@ -2794,7 +3189,7 @@ function CollaborationPostCard({
               referenceByKey={referenceByKey}
               tagOptions={tagOptions}
             />
-          ) : (
+          ) : tab === "actions" ? (
             <CardPanel className="space-y-3 p-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-muted-foreground text-xs">
@@ -2802,18 +3197,20 @@ function CollaborationPostCard({
                 </p>
                 <div className="flex gap-1">
                   <Button
+                    aria-label="Show Action Items as a list"
                     aria-pressed={actionView === "list"}
                     onClick={() => setActionView("list")}
-                    size="icon-xs"
+                    size="icon-xl"
                     type="button"
                     variant={actionView === "list" ? "secondary" : "ghost"}
                   >
                     <List aria-hidden="true" className="size-4" />
                   </Button>
                   <Button
+                    aria-label="Show Action Items as a board"
                     aria-pressed={actionView === "board"}
                     onClick={() => setActionView("board")}
-                    size="icon-xs"
+                    size="icon-xl"
                     type="button"
                     variant={actionView === "board" ? "secondary" : "ghost"}
                   >
@@ -2824,6 +3221,7 @@ function CollaborationPostCard({
               <BuildCollaborationActionItems
                 actionView={actionView}
                 items={entry.actionItems}
+                mutationsAllowed={mutationsAllowed}
                 onCreate={() => onCreateActionItem(entry.post._id)}
                 onMove={async (
                   actionItemId,
@@ -2851,10 +3249,11 @@ function CollaborationPostCard({
                 onOpen={onOpenActionItem}
               />
             </CardPanel>
-          )}
+          ) : null}
           <CollaborationPostFooter
             buildId={buildId}
             entry={entry}
+            mutationsAllowed={mutationsAllowed}
             organizationId={organizationId}
           />
         </>
@@ -2898,6 +3297,7 @@ function CollaborationPostCard({
         open={threadSheetOpen}
         organizationId={organizationId}
         postId={entry.post._id}
+        readOnly={!mutationsAllowed}
       />
     </Card>
   );
@@ -2908,6 +3308,7 @@ function CollaborationComment({
   buildId,
   focused,
   focusedAssetId,
+  mutationsAllowed,
   onEdit,
   onFocusReference,
   onModerate,
@@ -2925,6 +3326,7 @@ function CollaborationComment({
   buildId: Id<"activeBuilds">;
   focused: boolean;
   focusedAssetId?: Id<"buildCollaborationAssets">;
+  mutationsAllowed: boolean;
   onEdit: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
   onModerate: (target: BuildCollaborationModerationEntity) => void;
@@ -2958,7 +3360,9 @@ function CollaborationComment({
   const editComment = () =>
     onEdit({
       canEdit:
-        row.comment.viewerIsAuthor && row.comment.contentState === "active",
+        mutationsAllowed &&
+        row.comment.viewerIsAuthor &&
+        row.comment.contentState === "active",
       document: parseDocument(
         row.revision?.tiptapJson ?? JSON.stringify(emptyDocument())
       ),
@@ -2989,7 +3393,7 @@ function CollaborationComment({
       ref={containerRef}
       role="treeitem"
       style={{
-        marginLeft: `${Math.min(row.comment.logicalDepth, 3) * 18}px`,
+        marginLeft: `${Math.min(row.comment.logicalDepth, 2) * 12}px`,
       }}
       tabIndex={tabStop ? 0 : -1}
     >
@@ -3008,7 +3412,7 @@ function CollaborationComment({
           </time>
           <CollaborationCommentBadges accepted={accepted} row={row} />
         </div>
-        {row.comment.logicalDepth > 3 ? (
+        {row.comment.logicalDepth > 2 ? (
           <p className="mt-1 text-muted-foreground text-xs">
             Replying to{" "}
             {row.comment.parentAuthorDisplayNameSnapshot ??
@@ -3028,60 +3432,71 @@ function CollaborationComment({
           assets={row.attachments}
           buildId={buildId}
           focusedAssetId={focusedAssetId}
-          onReplace={(asset, file) =>
-            onReplaceAsset(asset, file, row.comment._id)
+          onReplace={
+            mutationsAllowed
+              ? (asset, file) => onReplaceAsset(asset, file, row.comment._id)
+              : undefined
           }
           organizationId={organizationId}
         />
-        {row.comment.contentState === "active" ? (
-          <button
-            className="mt-1 text-muted-foreground text-xs hover:text-foreground"
-            id={`reply-to-${row.comment._id}`}
-            onClick={() => onReply(row.comment._id)}
-            type="button"
-          >
-            Reply
-          </button>
-        ) : null}
-        <CollaborationCommentReactions
-          buildId={buildId}
-          organizationId={organizationId}
-          row={row}
-        />
-        <CollaborationCommentPin
-          buildId={buildId}
-          organizationId={organizationId}
-          postId={postId}
-          row={row}
-        />
-        {canViewHistory ? (
-          <button
-            className="mt-1 ml-3 text-muted-foreground text-xs hover:text-foreground"
-            onClick={editComment}
-            type="button"
-          >
-            {row.comment.viewerIsAuthor && row.comment.contentState === "active"
-              ? "Edit"
-              : "History"}
-          </button>
-        ) : null}
-        {row.comment.viewerCanModerate ||
-        row.comment.viewerCanAppeal ||
-        row.comment.viewerCanResolveAppeal ? (
-          <button
-            className="mt-1 ml-3 text-muted-foreground text-xs hover:text-foreground"
-            onClick={() =>
-              onModerate({
-                entityId: row.comment._id,
-                entityKind: "comment",
-                expectedRevision: row.comment.revision,
-              })
-            }
-            type="button"
-          >
-            {moderationActionLabel(row.comment)}
-          </button>
-        ) : null}
+        <div className="mt-1 flex flex-wrap items-center gap-1">
+          {mutationsAllowed && row.comment.contentState === "active" ? (
+            <Button
+              id={`reply-to-${row.comment._id}`}
+              onClick={() => onReply(row.comment._id)}
+              size="xs"
+              type="button"
+              variant="ghost"
+            >
+              Reply
+            </Button>
+          ) : null}
+          <CollaborationCommentReactions
+            buildId={buildId}
+            mutationsAllowed={mutationsAllowed}
+            organizationId={organizationId}
+            row={row}
+          />
+          <CollaborationCommentPin
+            buildId={buildId}
+            mutationsAllowed={mutationsAllowed}
+            organizationId={organizationId}
+            postId={postId}
+            row={row}
+          />
+          {canViewHistory ? (
+            <Button
+              onClick={editComment}
+              size="xs"
+              type="button"
+              variant="ghost"
+            >
+              {row.comment.viewerIsAuthor &&
+              row.comment.contentState === "active"
+                ? "Edit"
+                : "History"}
+            </Button>
+          ) : null}
+          {mutationsAllowed &&
+          (row.comment.viewerCanModerate ||
+            row.comment.viewerCanAppeal ||
+            row.comment.viewerCanResolveAppeal) ? (
+            <Button
+              onClick={() =>
+                onModerate({
+                  entityId: row.comment._id,
+                  entityKind: "comment",
+                  expectedRevision: row.comment.revision,
+                })
+              }
+              size="xs"
+              type="button"
+              variant="ghost"
+            >
+              {moderationActionLabel(row.comment)}
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -3118,17 +3533,19 @@ function CollaborationCommentBadges({
 
 function CollaborationCommentReactions({
   buildId,
+  mutationsAllowed,
   organizationId,
   row,
 }: {
   buildId: Id<"activeBuilds">;
+  mutationsAllowed: boolean;
   organizationId: string;
   row: CollaborationCommentRow;
 }) {
   const reactToComment = useBuildCollaborationMutation(
     api.build_collaboration_threads.reactToBuildCollaborationComment
   );
-  if (row.comment.contentState !== "active") {
+  if (!mutationsAllowed || row.comment.contentState !== "active") {
     return null;
   }
   const reactionCounts = new Map<
@@ -3142,11 +3559,10 @@ function CollaborationCommentReactions({
     );
   }
   return (
-    <fieldset className="mt-1 inline-flex flex-wrap gap-1">
+    <fieldset className="inline-flex flex-wrap gap-1">
       <legend className="sr-only">Reply reactions</legend>
       {(["acknowledged", "agree", "question"] as const).map((reaction) => (
-        <button
-          className="rounded px-1.5 py-0.5 text-muted-foreground text-xs hover:bg-muted hover:text-foreground"
+        <Button
           key={reaction}
           onClick={() =>
             reactToComment({
@@ -3162,13 +3578,15 @@ function CollaborationCommentReactions({
               )
             )
           }
+          size="xs"
           type="button"
+          variant="ghost"
         >
           {reactionLabel(reaction)}
           {(reactionCounts.get(reaction) ?? 0) > 0
             ? ` ${reactionCounts.get(reaction)}`
             : ""}
-        </button>
+        </Button>
       ))}
     </fieldset>
   );
@@ -3176,11 +3594,13 @@ function CollaborationCommentReactions({
 
 function CollaborationCommentPin({
   buildId,
+  mutationsAllowed,
   organizationId,
   postId,
   row,
 }: {
   buildId: Id<"activeBuilds">;
+  mutationsAllowed: boolean;
   organizationId: string;
   postId: Id<"buildCollaborationPosts">;
   row: CollaborationCommentRow;
@@ -3188,13 +3608,12 @@ function CollaborationCommentPin({
   const togglePin = useBuildCollaborationMutation(
     api.build_collaboration_threads.toggleBuildCollaborationPin
   );
-  if (!row.comment.viewerCanPin) {
+  if (!(mutationsAllowed && row.comment.viewerCanPin)) {
     return null;
   }
   return (
-    <button
+    <Button
       aria-pressed={row.comment.viewerPinned}
-      className="mt-1 ml-3 text-muted-foreground text-xs hover:text-foreground"
       onClick={() =>
         togglePin({
           buildId,
@@ -3208,10 +3627,12 @@ function CollaborationCommentPin({
           )
         )
       }
+      size="xs"
       type="button"
+      variant="ghost"
     >
       {row.comment.viewerPinned ? "Unpin reply" : "Pin reply"}
-    </button>
+    </Button>
   );
 }
 
@@ -3220,6 +3641,7 @@ function CollaborationDiscussion({
   buildId,
   focusedAssetId,
   focusedCommentId,
+  mutationsAllowed,
   onEditComment,
   onFocusReference,
   onModerateComment,
@@ -3233,6 +3655,7 @@ function CollaborationDiscussion({
   buildId: Id<"activeBuilds">;
   focusedAssetId?: Id<"buildCollaborationAssets">;
   focusedCommentId?: Id<"buildCollaborationComments">;
+  mutationsAllowed: boolean;
   onEditComment: (target: CollaborationEditTarget) => void;
   onFocusReference: (reference: FocusedReference) => void;
   onModerateComment: (target: BuildCollaborationModerationEntity) => void;
@@ -3284,6 +3707,7 @@ function CollaborationDiscussion({
     CollaborationTagReference[]
   >([]);
   const [replyFiles, setReplyFiles] = useState<File[]>([]);
+  const [replyComposerOpen, setReplyComposerOpen] = useState(false);
   const [replyingTo, setReplyingTo] =
     useState<Id<"buildCollaborationComments">>();
   const [submittingReply, setSubmittingReply] = useState(false);
@@ -3356,6 +3780,7 @@ function CollaborationDiscussion({
       setReplyReferences([]);
       setReplyFiles([]);
       setReplyingTo(undefined);
+      setReplyComposerOpen(false);
       setPendingFocusCommentId(commentId);
     } catch (error) {
       await abandonGovernedCollaborationAssets({
@@ -3430,11 +3855,15 @@ function CollaborationDiscussion({
               focused={row.comment._id === effectiveFocusCommentId}
               focusedAssetId={focusedAssetId}
               key={row.comment._id}
+              mutationsAllowed={mutationsAllowed}
               onEdit={onEditComment}
               onFocusReference={onFocusReference}
               onModerate={onModerateComment}
               onReplaceAsset={onReplaceAsset}
-              onReply={setReplyingTo}
+              onReply={(commentId) => {
+                setReplyingTo(commentId);
+                setReplyComposerOpen(true);
+              }}
               onTreeFocus={setActiveTreeCommentId}
               organizationId={organizationId}
               postId={postId}
@@ -3450,91 +3879,117 @@ function CollaborationDiscussion({
           ))}
         </div>
       )}
-      {replyingTo ? (
+      {mutationsAllowed && replyComposerOpen && replyingTo ? (
         <p className="text-muted-foreground text-xs">
           Replying to{" "}
           {replyingToRow?.comment.authorDisplayNameSnapshot ??
             "an unavailable reply"}
           .{" "}
-          <button
-            className="underline"
+          <Button
             onClick={() => {
               const priorReply = replyingTo;
               setReplyingTo(undefined);
+              setReplyComposerOpen(false);
               restoreReplyFocus(priorReply);
             }}
+            size="xs"
             type="button"
+            variant="link"
           >
             Cancel
-          </button>
+          </Button>
         </p>
       ) : null}
-      <CollaborationRichTextEditor
-        ariaLabel="Reply to this Build update"
-        editorMinHeightClass="[&_.ProseMirror]:min-h-24"
-        onChange={(nextHtml, nextReferences) => {
-          setReplyHtml(nextHtml);
-          setReplyReferences(nextReferences);
-        }}
-        onDocumentChange={setReplyDocument}
-        placeholder="Write a reply. Type @ to link Build work."
-        tagOptions={tagOptions}
-        value={replyHtml}
-      />
-      <div className="space-y-1">
-        <Input
-          aria-label="Reply attachments"
-          multiple
-          nativeInput
-          onChange={(event) =>
-            setReplyFiles(Array.from(event.target.files ?? []))
-          }
-          type="file"
-        />
-        {replyFiles.length > 0 ? (
-          <p className="text-muted-foreground text-xs">
-            {replyFiles.length} file{replyFiles.length === 1 ? "" : "s"} will be
-            scanned before the reply is published.
-          </p>
-        ) : null}
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex gap-1">
-          {(["acknowledged", "agree", "question"] as const).map((reaction) => (
-            <Button
-              key={reaction}
-              onClick={() =>
-                react({
-                  buildId,
-                  organizationId,
-                  postId,
-                  reaction,
-                }).catch((error) =>
-                  toast.error(
-                    error instanceof Error
-                      ? error.message
-                      : "Unable to react to this post."
-                  )
-                )
+      {mutationsAllowed && replyComposerOpen ? (
+        <>
+          <CollaborationRichTextEditor
+            ariaLabel="Reply to this Build update"
+            editorMinHeightClass="[&_.ProseMirror]:min-h-24"
+            onChange={(nextHtml, nextReferences) => {
+              setReplyHtml(nextHtml);
+              setReplyReferences(nextReferences);
+            }}
+            onDocumentChange={setReplyDocument}
+            placeholder="Write a reply. Type @ to link Build work."
+            tagOptions={tagOptions}
+            value={replyHtml}
+          />
+          <div className="space-y-1">
+            <Input
+              aria-label="Reply attachments"
+              multiple
+              nativeInput
+              onChange={(event) =>
+                setReplyFiles(Array.from(event.target.files ?? []))
               }
-              size="xs"
+              type="file"
+            />
+            {replyFiles.length > 0 ? (
+              <p className="text-muted-foreground text-xs">
+                {replyFiles.length} file{replyFiles.length === 1 ? "" : "s"}{" "}
+                will be scanned before the reply is published.
+              </p>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+      {mutationsAllowed ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1">
+            {(["acknowledged", "agree", "question"] as const).map(
+              (reaction) => (
+                <Button
+                  key={reaction}
+                  onClick={() =>
+                    react({
+                      buildId,
+                      organizationId,
+                      postId,
+                      reaction,
+                    }).catch((error) =>
+                      toast.error(
+                        error instanceof Error
+                          ? error.message
+                          : "Unable to react to this post."
+                      )
+                    )
+                  }
+                  size="xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  {reactionLabel(reaction)}
+                </Button>
+              )
+            )}
+          </div>
+          {replyComposerOpen ? (
+            <Button
+              disabled={submittingReply}
+              onClick={submitReply}
+              size="sm"
               type="button"
-              variant="ghost"
             >
-              {reactionLabel(reaction)}
+              <Send aria-hidden="true" className="size-4" />
+              Reply
             </Button>
-          ))}
+          ) : (
+            <Button
+              onClick={() => setReplyComposerOpen(true)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Write a reply…
+            </Button>
+          )}
         </div>
-        <Button
-          disabled={submittingReply}
-          onClick={submitReply}
-          size="sm"
-          type="button"
-        >
-          <Send aria-hidden="true" className="size-4" />
-          Reply
-        </Button>
-      </div>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          This archived discussion is available to read; replies and reactions
+          are disabled.
+        </p>
+      )}
     </CardPanel>
   );
 }

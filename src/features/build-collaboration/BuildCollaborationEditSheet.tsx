@@ -75,7 +75,9 @@ function RevisionHistory({
     <section className="space-y-3">
       <div className="flex items-center gap-2">
         <History aria-hidden="true" className="size-4 text-primary" />
-        <h3 className="font-semibold text-sm">Revision history</h3>
+        <h3 className="font-semibold text-base leading-snug">
+          Revision history
+        </h3>
       </div>
       {history === undefined ? (
         <p className="text-muted-foreground text-sm">Loading history…</p>

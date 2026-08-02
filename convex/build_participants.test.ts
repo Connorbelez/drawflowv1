@@ -253,6 +253,12 @@ describe("Build participant lifecycle and role-complete access", () => {
     });
     await expect(
       homeowner.query(
+        (api as any).build_participants.getMyBuildParticipationScope,
+        { buildId: fixture.buildId, workspaceRole: "contractor" }
+      )
+    ).resolves.toBeNull();
+    await expect(
+      homeowner.query(
         (api as any).build_participants.listMyActiveBuildParticipations,
         {}
       )
@@ -618,6 +624,12 @@ describe("Build participant lifecycle and role-complete access", () => {
       subject: "persona_ungranted_contractor",
     });
     await expect(
+      ungrantedContractor.query(
+        (api as any).build_participants.getMyBuildParticipationScope,
+        { buildId: fixture.buildId, workspaceRole: "contractor" }
+      )
+    ).resolves.toBeNull();
+    await expect(
       readFeed(ungrantedContractor, fixture.buildId)
     ).rejects.toThrow("Forbidden: active build participation");
   });
@@ -731,6 +743,12 @@ describe("Build participant lifecycle and role-complete access", () => {
       participantId: invitedPeriodId,
       role: "contractor",
     });
+    await expect(
+      contractor.query(
+        (api as any).build_participants.getMyBuildParticipationScope,
+        { buildId: fixture.buildId, workspaceRole: "homeowner" }
+      )
+    ).resolves.toBeNull();
   });
 
   test("large revocations are resumable and certified only after every follow and assignment is cleaned", async () => {

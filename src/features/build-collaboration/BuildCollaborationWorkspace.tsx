@@ -46,7 +46,11 @@ export function BuildCollaborationWorkspace({
   if (rollout === undefined) {
     return (
       <Frame data-testid="build-collaboration-rollout-loading">
-        <FramePanel className="animate-pulse text-muted-foreground text-sm">
+        <FramePanel
+          aria-live="polite"
+          className="animate-pulse text-muted-foreground text-sm"
+          role="status"
+        >
           Checking collaboration availability…
         </FramePanel>
       </Frame>
@@ -55,7 +59,7 @@ export function BuildCollaborationWorkspace({
 
   if (!rollout.available) {
     return (
-      <CollaborationUnavailableState description="Collaboration has not been activated for this lender organization. Build Overview remains available." />
+      <CollaborationUnavailableState description="Collaboration has not been activated for this lender organization. Contact an organization admin to activate it." />
     );
   }
 

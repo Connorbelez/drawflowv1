@@ -73,8 +73,11 @@ export const getMyBuildParticipationScope = authenticatedQuery
   .input({
     buildId: v.id("activeBuilds"),
     organizationId: v.optional(v.string()),
+    workspaceRole: v.optional(
+      v.union(v.literal("contractor"), v.literal("homeowner"))
+    ),
   })
-  .returns(activeBuildParticipationValidator)
+  .returns(v.union(v.null(), activeBuildParticipationValidator))
   .handler(async (ctx, args) => {
     requireHumanViewer(ctx.viewer);
     const latest = await latestParticipantPeriod(
@@ -83,6 +86,9 @@ export const getMyBuildParticipationScope = authenticatedQuery
       ctx.viewer.subject
     );
     if (latest?.status === "active") {
+      if (args.workspaceRole && latest.role !== args.workspaceRole) {
+        return null;
+      }
       const build = await ctx.db.get(args.buildId);
       if (!build || build.brokerageId !== latest.brokerageId) {
         throw new Error("Build participation is unavailable.");
@@ -105,12 +111,21 @@ export const getMyBuildParticipationScope = authenticatedQuery
       };
     }
     if (!args.organizationId) {
+      if (args.workspaceRole) {
+        return null;
+      }
       throw new Error("Forbidden: active build participation");
     }
     const authorization = await authorizeActiveBuildAccess(ctx, {
       buildId: args.buildId,
       organizationId: args.organizationId,
     });
+    if (
+      args.workspaceRole &&
+      authorization.effectiveRole.role !== args.workspaceRole
+    ) {
+      return null;
+    }
     return {
       buildId: authorization.build._id,
       buildName: authorization.build.buildName,

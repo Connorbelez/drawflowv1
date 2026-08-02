@@ -22,6 +22,7 @@ import {
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
+import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
 import {
@@ -323,6 +324,9 @@ async function emitCreatedActionItemAssignmentNotification(
   }
   const kind =
     input.assignmentState === "requested" ? "assignment_request" : "assignment";
+  const recipientRole = input.authorization.participants.find(
+    (participant) => participant.workosUserId === input.assignee
+  )?.role;
   return await emitCanonicalBuildCollaborationNotification(ctx, {
     actionItemId: input.actionItemId,
     actionLabel: "Open Action Item",
@@ -331,7 +335,11 @@ async function emitCreatedActionItemAssignmentNotification(
     dedupeKey: `build-action-item:${input.actionItemId}:created:${kind}:${input.assignee}`,
     entityId: input.actionItemId,
     entityType: "buildActionItem",
-    href: `/backoffice/builds/${input.authorization.build._id}?tab=details&focus=actionItem%3A${input.actionItemId}`,
+    href: buildCollaborationDeepLink({
+      buildId: input.authorization.build._id,
+      focus: `actionItem:${input.actionItemId}`,
+      recipientRole,
+    }),
     kind,
     now: input.now,
     postId: input.postId,

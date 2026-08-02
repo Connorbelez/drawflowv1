@@ -20,12 +20,12 @@ import {
   type ProductionBuildDetailActions,
   ProductionBuildDetailSurface,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
+import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import { canUseAppPermission } from "#/features/builder-staff/app-permissions.ts";
 import {
   BuilderStaffPermissionsPanel,
   type StaffDirectory,
 } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
-import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   getVisualParityActiveBuildDetail,
@@ -302,7 +302,7 @@ function BuilderBuildUnavailable({
           <dl className="grid gap-1 rounded-lg bg-muted/50 p-3 text-sm">
             <div className="flex flex-wrap justify-between gap-2">
               <dt className="text-muted-foreground">Support reference</dt>
-              <dd className="font-mono text-xs">{supportReference}</dd>
+              <dd className="font-medium text-xs">{supportReference}</dd>
             </div>
             <div className="flex flex-wrap justify-between gap-2">
               <dt className="text-muted-foreground">Responsible owner</dt>
@@ -848,12 +848,12 @@ export function BuilderBuildWorkspaceRoute({
                   ? VISUAL_ACTIVE_BUILD_STAFF_DIRECTORY
                   : undefined
               }
-              scope="activeBuild"
               initialSelectedWorkosUserId={
                 search.focus?.startsWith("participant:")
                   ? search.focus.slice("participant:".length)
                   : undefined
               }
+              scope="activeBuild"
               workosOrganizationId={workosOrganizationId}
             />
           ) : undefined

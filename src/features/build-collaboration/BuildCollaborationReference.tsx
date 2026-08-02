@@ -54,7 +54,7 @@ export function BuildCollaborationReferenceChip({
         </span>
       </HoverCardTrigger>
       <HoverCardContent className="w-80">
-        <p className="font-medium text-primary text-xs uppercase tracking-wide">
+        <p className="font-medium text-foreground text-xs uppercase tracking-wide">
           {reference.eyebrow}
         </p>
         <p className="mt-2 font-semibold text-sm">{reference.label}</p>

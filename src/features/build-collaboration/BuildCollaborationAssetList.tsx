@@ -8,7 +8,7 @@ import { Button } from "#/components/ui/button.tsx";
 import { Card, CardPanel } from "#/components/ui/card.tsx";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { useBuildCollaborationMutation } from "./BuildCollaborationMutationGate.tsx";
+import { useBuildCollaborationReadMutation } from "./BuildCollaborationMutationGate.tsx";
 
 export interface BuildCollaborationAssetSummary {
   assetId: Id<"buildCollaborationAssets">;
@@ -40,7 +40,7 @@ export function BuildCollaborationAssetList({
   ) => Promise<void>;
   organizationId: string;
 }) {
-  const authorizeDownload = useBuildCollaborationMutation(
+  const authorizeDownload = useBuildCollaborationReadMutation(
     api.build_collaboration_assets.authorizeBuildCollaborationAssetDownload
   );
   if (assets.length === 0) {
@@ -136,67 +136,75 @@ function AssetCard({
       ref={cardRef}
       tabIndex={focused ? -1 : undefined}
     >
-      <CardPanel className="flex items-center gap-3 p-3">
-        <Paperclip aria-hidden="true" className="size-4 text-primary" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-sm">{asset.fileName}</p>
-          <p className="text-muted-foreground text-xs">
-            {asset.mimeType} · {formatBytes(asset.sizeBytes)} · v{asset.version}
-          </p>
-          {asset.scanState ? (
+      <CardPanel className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <Paperclip
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-primary"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-medium text-sm">{asset.fileName}</p>
             <p className="text-muted-foreground text-xs">
-              Scan: {asset.scanState}
-              {asset.contentHashSha256
-                ? ` · SHA-256 ${shortHash(asset.contentHashSha256)}`
-                : ""}
-              {asset.scanMessage ? ` · ${asset.scanMessage}` : ""}
+              {asset.mimeType} · {formatBytes(asset.sizeBytes)} · v
+              {asset.version}
             </p>
-          ) : null}
+            {asset.scanState ? (
+              <p className="text-muted-foreground text-xs">
+                Scan: {asset.scanState}
+                {asset.contentHashSha256
+                  ? ` · SHA-256 ${shortHash(asset.contentHashSha256)}`
+                  : ""}
+                {asset.scanMessage ? ` · ${asset.scanMessage}` : ""}
+              </p>
+            ) : null}
+          </div>
         </div>
-        {onReplace && asset.state === "available" ? (
-          <>
-            <input
-              aria-label={`Choose a replacement for ${asset.fileName}`}
-              className="sr-only"
-              onChange={(event) => replace(event.target.files?.[0])}
-              ref={inputRef}
-              type="file"
-            />
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          {onReplace && asset.state === "available" ? (
+            <>
+              <input
+                aria-label={`Choose a replacement for ${asset.fileName}`}
+                className="sr-only"
+                onChange={(event) => replace(event.target.files?.[0])}
+                ref={inputRef}
+                type="file"
+              />
+              <Button
+                disabled={replacing}
+                onClick={() => inputRef.current?.click()}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <RefreshCw aria-hidden="true" className="size-3.5" />
+                {replacing ? "Replacing…" : "Replace"}
+              </Button>
+            </>
+          ) : null}
+          {onRemove ? (
             <Button
-              disabled={replacing}
-              onClick={() => inputRef.current?.click()}
-              size="sm"
+              aria-label={`Remove ${asset.fileName}`}
+              disabled={removing}
+              onClick={remove}
+              size="icon-sm"
               type="button"
               variant="ghost"
             >
-              <RefreshCw aria-hidden="true" className="size-3.5" />
-              {replacing ? "Replacing…" : "Replace"}
+              <X aria-hidden="true" className="size-3.5" />
             </Button>
-          </>
-        ) : null}
-        {onRemove ? (
-          <Button
-            aria-label={`Remove ${asset.fileName}`}
-            disabled={removing}
-            onClick={remove}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            <X aria-hidden="true" className="size-3.5" />
-          </Button>
-        ) : null}
-        {asset.scanState === "clean" &&
-        (asset.state === "available" || asset.state === "superseded") ? (
-          <Button
-            onClick={() => onOpen(asset)}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Open
-          </Button>
-        ) : null}
+          ) : null}
+          {asset.scanState === "clean" &&
+          (asset.state === "available" || asset.state === "superseded") ? (
+            <Button
+              onClick={() => onOpen(asset)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Open
+            </Button>
+          ) : null}
+        </div>
       </CardPanel>
     </Card>
   );

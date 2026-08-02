@@ -29,6 +29,7 @@ export function HomeownerBuildCollaboration() {
   const { focus } = Route.useSearch();
   const scope = useQuery(api.build_participants.getMyBuildParticipationScope, {
     buildId: buildId as Id<"activeBuilds">,
+    workspaceRole: "homeowner",
   });
 
   if (scope === undefined) {
@@ -37,6 +38,22 @@ export function HomeownerBuildCollaboration() {
         <Frame className="mx-auto w-full max-w-6xl">
           <FramePanel className="animate-pulse text-muted-foreground text-sm">
             Loading Build collaboration…
+          </FramePanel>
+        </Frame>
+      </main>
+    );
+  }
+
+  if (!scope) {
+    return (
+      <main className="p-4 sm:p-6">
+        <Frame className="mx-auto w-full max-w-6xl">
+          <FramePanel>
+            <p className="font-medium text-sm">Build unavailable</p>
+            <p className="mt-1 text-muted-foreground text-sm">
+              This Build is not assigned to your homeowner workspace. Return to
+              your Build list and choose an assigned Build.
+            </p>
           </FramePanel>
         </Frame>
       </main>

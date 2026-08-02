@@ -883,20 +883,28 @@ const BubbleMenuButton = ({
   command,
   icon: Icon,
   hideName,
-}: EditorButtonProps) => (
-  <Button
-    className={`flex gap-4 ${hideName ? "" : "w-full"}`}
-    onClick={() => command()}
-    size="sm"
-    variant="ghost"
-  >
-    <Icon className="shrink-0 text-muted-foreground" size={12} />
-    {!hideName && <span className="flex-1 text-left">{name}</span>}
-    {isActive() ? (
+}: EditorButtonProps) => {
+  const active = isActive();
+
+  return (
+    <Button
+      aria-label={hideName ? name : undefined}
+      aria-pressed={active}
+      className={`flex gap-4 ${hideName ? "" : "w-full"}`}
+      onClick={() => command()}
+      size="sm"
+      title={hideName ? name : undefined}
+      type="button"
+      variant="ghost"
+    >
+      <Icon className="shrink-0 text-muted-foreground" size={12} />
+      {!hideName && <span className="flex-1 text-left">{name}</span>}
+      {active ? (
       <CheckIcon className="shrink-0 text-muted-foreground" size={12} />
-    ) : null}
-  </Button>
-);
+      ) : null}
+    </Button>
+  );
+};
 
 export type EditorClearFormattingProps = Pick<EditorButtonProps, "hideName">;
 

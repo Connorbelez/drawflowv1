@@ -1737,6 +1737,16 @@ function ProductionDetailsTab({
         )}
       </section>
 
+      <header className="scroll-mt-24 space-y-1" id="build-collaboration">
+        <h2 className="font-semibold text-xl leading-snug">
+          Build collaboration
+        </h2>
+        <p className="text-muted-foreground text-sm">
+          Coordinate updates, linked Build work, decisions, and Action Items
+          with every authorized participant.
+        </p>
+      </header>
+
       <CatchBoundary
         errorComponent={BuildCollaborationErrorFallback}
         getResetKey={() =>

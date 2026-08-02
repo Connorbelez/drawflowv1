@@ -70,6 +70,7 @@ const mocks = vi.hoisted(() => ({
   focusedReferenceContext: undefined as Record<string, unknown> | undefined,
   focusedPostId: "post-1" as string | null,
   loadMore: vi.fn(),
+  lifecycleState: "open" as "closed" | "open" | "purged",
   mutate: vi.fn().mockResolvedValue(null),
   onOpenReference: vi.fn(),
   personalActionItems: [] as Array<Record<string, unknown>>,
@@ -422,6 +423,12 @@ vi.mock("convex/react", () => ({
       "build_collaboration_viewer:getBuildCollaborationViewerBinding"
     ) {
       return mocks.viewerBinding;
+    }
+    if (
+      functionName ===
+      "build_collaboration_lifecycle:getBuildCollaborationLifecycleState"
+    ) {
+      return { state: mocks.lifecycleState };
     }
     if (
       functionName ===
@@ -848,6 +855,7 @@ afterEach(() => {
   });
   mocks.mutate.mockReset().mockResolvedValue(null);
   mocks.loadMore.mockClear();
+  mocks.lifecycleState = "open";
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
   mocks.editorReferences = [];
@@ -924,6 +932,115 @@ describe("BuildCollaborationFeed", () => {
     expect(feed.getAttribute("data-viewer-workos-user-id")).toBe(
       "user_admin"
     );
+  });
+
+  test("keeps shared controls closed until the Build lifecycle resolves", () => {
+    mocks.allQueriesUnavailable = true;
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getByText("Loading collaboration access…")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: "What should people involved in this Build know?",
+      })
+    ).toBeNull();
+  });
+
+  test("renders a closed Build as a readable archive without shared mutation controls", () => {
+    mocks.lifecycleState = "closed";
+    mocks.postViewerCanModerate = true;
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getByText("Collaboration is read-only")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: "What should people involved in this Build know?",
+      })
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
+    expect(screen.getByRole("menuitem", { name: "Save privately" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Pin for Build" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Moderate content" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
+    expect(screen.getByText(/archived discussion is available to read/i)).toBeTruthy();
+  });
+
+  test("keeps structured Action Item work readable but immutable in a closed Build", async () => {
+    mocks.lifecycleState = "closed";
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open details" })
+    );
+
+    expect(await screen.findByText("Structured work")).toBeTruthy();
+    const archivedChecklist = screen.getByLabelText(
+      "Mark Confirm file naming complete"
+    );
+    expect(archivedChecklist.getAttribute("data-disabled")).not.toBeNull();
+    mocks.mutate.mockClear();
+    fireEvent.click(archivedChecklist);
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Add child Action Item" })
+    ).toBeNull();
+    expect(screen.queryByLabelText("New checklist step")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Link" })).toBeNull();
+  });
+
+  test("records a seen receipt only after half the post stays visible for one continuous second", async () => {
+    vi.useFakeTimers();
+    let deliverIntersection:
+      | ((entries: Array<Partial<IntersectionObserverEntry>>) => void)
+      | undefined;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: IntersectionObserverCallback) {
+          deliverIntersection = (entries) =>
+            callback(entries as IntersectionObserverEntry[], this as never);
+        }
+        disconnect() {}
+        observe() {}
+        takeRecords() {
+          return [];
+        }
+        unobserve() {}
+        root = null;
+        rootMargin = "0px";
+        thresholds = [0.5];
+      }
+    );
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    expect(mocks.mutate).not.toHaveBeenCalled();
+
+    act(() => {
+      deliverIntersection?.([
+        { intersectionRatio: 0.5, isIntersecting: true },
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(999);
+    });
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(mocks.mutate).toHaveBeenCalledWith({
+      buildId: "build-1",
+      organizationId: "org-1",
+      postId: "post-1",
+    });
   });
 
   test("advertises a whole-minute schedule boundary beyond the server minimum", () => {
@@ -1460,6 +1577,31 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.queryByRole("button", { name: /Show .* more of/ })).toBeNull();
   });
 
+  test("uses one compact queue disclosure to reveal every loaded Action Item", () => {
+    mocks.personalActionItems = Array.from({ length: 16 }, (_, index) =>
+      queueRowFixture({
+        buildId: "build-1",
+        buildName: "Foundation Build",
+        id: `compact-action-${index + 1}`,
+        title: `Compact action ${index + 1}`,
+      })
+    );
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.queryByText("Compact action 16")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View all 16" }));
+    for (let index = 1; index <= 16; index += 1) {
+      expect(screen.getByText(`Compact action ${index}`)).toBeTruthy();
+    }
+    expect(screen.getByRole("button", { name: "Show fewer" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Show .* more of/ })
+    ).toBeNull();
+  });
+
   test("loads the next server page after the visible queue page is exhausted", () => {
     mocks.queueStatus = "CanLoadMore";
     mocks.personalActionItems = Array.from({ length: 5 }, (_, index) =>
@@ -1977,6 +2119,7 @@ describe("BuildCollaborationFeed", () => {
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
     );
+    fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
 
     const first = screen.getByTestId("collaboration-comment-comment-first");
     const second = screen.getByTestId("collaboration-comment-comment-second");
@@ -2092,7 +2235,7 @@ describe("BuildCollaborationFeed", () => {
 
     const root = screen.getByTestId("collaboration-comment-comment-root");
     const deep = screen.getByTestId("collaboration-comment-comment-deep");
-    expect(deep.style.marginLeft).toBe("54px");
+    expect(deep.style.marginLeft).toBe("24px");
     expect(within(deep).getByText("Replying to Parent Author")).toBeTruthy();
     expect(document.activeElement).toBe(deep);
     expect(scrollIntoView).not.toHaveBeenCalled();
@@ -2138,6 +2281,7 @@ describe("BuildCollaborationFeed", () => {
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
     );
+    fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
 
     expect(screen.getByText("Loading discussion…")).toBeTruthy();
   });
@@ -2326,6 +2470,7 @@ describe("BuildCollaborationFeed", () => {
         organizationId="org-1"
       />
     );
+    fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
 
     const comment = screen.getByTestId("collaboration-comment-comment-1");
     expect(within(comment).getByText("Moderated")).toBeTruthy();
@@ -2382,6 +2527,7 @@ describe("BuildCollaborationFeed", () => {
         organizationId="org-1"
       />
     );
+    fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
 
     expect(screen.getAllByText("Accepted answer")).toHaveLength(2);
     expect(
@@ -2412,6 +2558,46 @@ describe("BuildCollaborationFeed", () => {
       ),
     );
     expect(screen.queryByText("Human approval checkpoint")).toBeNull();
+  });
+
+  test("autosaves composer work privately and to the human-owned server draft after one second", async () => {
+    vi.useFakeTimers();
+    offlineDraftMocks.saveDraft.mockImplementation(async (input) => ({
+      ...input,
+      updatedAt: Date.now(),
+      version: 1,
+    }));
+    mocks.mutate.mockResolvedValueOnce({
+      draftId: "draft-autosaved",
+      revision: 1,
+    });
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /What should people involved in this Build know\?/,
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(offlineDraftMocks.saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "org-1:build-1:user_admin",
+      })
+    );
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildId: "build-1",
+        organizationId: "org-1",
+        preparedByAgent: false,
+      })
+    );
+    expect(screen.getByText(/Private draft autosaved/)).toBeTruthy();
   });
 
   test("offers direct publish for a human-authored saved draft", async () => {
@@ -2525,6 +2711,7 @@ describe("BuildCollaborationFeed", () => {
     render(
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
     );
+    fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByText("mistaken-photo.jpg")).toBeTruthy();
     mocks.mutate.mockClear();
@@ -2594,7 +2781,7 @@ describe("BuildCollaborationFeed", () => {
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
-  test("blocks receipts, reactions, replies, and Action Item transitions while offline", async () => {
+  test("removes receipts, reactions, replies, and Action Item transitions while offline", async () => {
     Object.defineProperty(navigator, "onLine", {
       configurable: true,
       value: false,
@@ -2606,20 +2793,18 @@ describe("BuildCollaborationFeed", () => {
     await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: /Discussion/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Mock Reply to this Build update",
-      })
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    expect(screen.queryByRole("button", { name: "Acknowledge" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Write a reply…" })).toBeNull();
+    expect(screen.getByText(/archived discussion is available to read/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Open details" })
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "in progress" })
-    );
+    expect(
+      (await screen.findByRole("button", {
+        name: "Add Action Item",
+      })) as HTMLButtonElement
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getByLabelText("Status for Upload engineer seal")
+    ).toHaveProperty("disabled", true);
 
     await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
   });
@@ -2742,6 +2927,7 @@ describe("BuildCollaborationFeed", () => {
     await waitFor(() => expect(mocks.mutate).not.toHaveBeenCalled());
     expect(offlineDraftMocks.deleteDraft).not.toHaveBeenCalled();
 
+    fireEvent.click(screen.getByRole("button", { name: /Add attachments/ }));
     fireEvent.change(screen.getByLabelText("Scheduled publication time"), {
       target: { value: "2099-01-01T12:00" },
     });
@@ -2831,6 +3017,7 @@ describe("BuildCollaborationFeed", () => {
       })
     );
     fireEvent.click(screen.getByRole("button", { name: "Mock Build update" }));
+    fireEvent.click(screen.getByRole("button", { name: /Add attachments/ }));
     fireEvent.change(
       screen.getByLabelText("Scheduled publication time"),
       { target: { value: scheduledForInput } }
