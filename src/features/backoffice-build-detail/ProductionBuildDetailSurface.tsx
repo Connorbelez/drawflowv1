@@ -815,6 +815,7 @@ export function ProductionBuildDetailSurface({
   calendarTimeframe,
   calendarWorkspace,
   contractorDetailHrefFor,
+  costs,
   breadcrumbRootHref = "/backoffice",
   breadcrumbRootLabel = "Backoffice",
   breadcrumbSectionHref = "/backoffice/builds",
@@ -841,6 +842,7 @@ export function ProductionBuildDetailSurface({
   calendarTimeframe?: CalendarTimeframe;
   calendarWorkspace?: DrawFlowCalendarWorkspaceData | null;
   contractorDetailHrefFor?: (contractorId: string) => string;
+  costs?: React.ReactNode;
   detail: ProductionBuildDetail;
   focusedReference?: string;
   fundingWorkspaceEnabled?: boolean;
@@ -1208,6 +1210,7 @@ export function ProductionBuildDetailSurface({
         {activeTab === "documents" ? (
           <ProductionDocumentsTab actions={actions} detail={detail} />
         ) : null}
+        {activeTab === "costs" ? costs : null}
         {activeTab === "milestones" ? (
           <ProductionMilestonesTab
             currentDay={currentDay}

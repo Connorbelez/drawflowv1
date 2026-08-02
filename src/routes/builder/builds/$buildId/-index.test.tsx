@@ -62,9 +62,12 @@ vi.mock(
   "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx",
   () => ({
     ProductionBuildDetailSurface: ({
+      activeTab,
       actions,
       contractorDetailHrefFor,
+      costs,
     }: {
+      activeTab?: string;
       actions?: {
         assignContractorToMilestone?: (input: {
           contractorId: string;
@@ -89,8 +92,11 @@ vi.mock(
         }) => unknown;
       };
       contractorDetailHrefFor?: (contractorId: string) => string;
+      costs?: React.ReactNode;
     }) => (
       <div data-testid="production-build-surface">
+        <span data-testid="active-build-tab">{activeTab}</span>
+        {costs ? <span data-testid="costs-slot-present" /> : null}
         {contractorDetailHrefFor ? (
           <a href={contractorDetailHrefFor("contractor-01")}>
             Open contractor relationship
@@ -200,6 +206,23 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
       .mockReturnValueOnce(createAndAttachContractor)
       .mockReturnValueOnce(sendContractorInvite)
       .mockReturnValueOnce(submitMilestoneCompletion);
+  });
+
+  test("wires the durable Cost Document capture into the production Costs route", () => {
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="active-build-01"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder"
+        search={{ tab: "costs" }}
+        workosOrganizationId="org_builder"
+      />
+    );
+
+    expect(screen.getByTestId("production-build-surface")).not.toBeNull();
+    expect(screen.getByTestId("active-build-tab").textContent).toBe("costs");
+    expect(screen.getByTestId("costs-slot-present")).not.toBeNull();
   });
 
   test("renders a contextual unavailable state with retry and live-build recovery", () => {

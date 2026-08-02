@@ -21,6 +21,7 @@ import {
   ProductionBuildDetailSurface,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import { SingleCostDocumentCapture } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
 import { canUseAppPermission } from "#/features/builder-staff/app-permissions.ts";
 import {
   BuilderStaffPermissionsPanel,
@@ -44,6 +45,7 @@ export type BuilderBuildSearch = {
   tab?:
     | "calendar"
     | "contractors"
+    | "costs"
     | "details"
     | "documents"
     | "evidence"
@@ -131,6 +133,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
     const tab =
       search.tab === "timeline" ||
+      search.tab === "costs" ||
       search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
@@ -823,6 +826,16 @@ export function BuilderBuildWorkspaceRoute({
                 `/builder/contractors/${contractorId}?fromBuildId=${buildId}`
             : undefined
         }
+        costs={
+          <SingleCostDocumentCapture
+            buildId={activeBuildId as Id<"activeBuilds">}
+            organizationId={workosOrganizationId}
+            submilestones={(detail.submilestones ?? []).map((submilestone) => ({
+              id: submilestone._id as Id<"buildSubmilestones">,
+              label: `${submilestone.milestoneKey} · ${submilestone.name}`,
+            }))}
+          />
+        }
         detail={detail}
         focusedReference={search.focus}
         fundingWorkspaceEnabled
@@ -865,6 +878,7 @@ export function BuilderBuildWorkspaceRoute({
             ? undefined
             : [
                 "details",
+                "costs",
                 "documents",
                 "milestones",
                 "contractors",

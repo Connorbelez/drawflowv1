@@ -6024,6 +6024,65 @@ export default defineSchema({
     .index("by_build_milestone", ["buildId", "milestoneKey"])
     .index("by_milestone", ["buildMilestoneId"])
     .index("by_proposal", ["proposalId"]),
+  costDocuments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    kind: v.union(v.literal("invoice"), v.literal("receipt")),
+    category: v.union(v.literal("labour"), v.literal("materials")),
+    state: v.literal("submitted"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    vendorName: v.string(),
+    documentDate: v.string(),
+    grossTotalCents: v.number(),
+    currency: v.literal("CAD"),
+    uploaderWorkosUserId: v.string(),
+    uploaderEmailSnapshot: v.string(),
+    submittedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_buildId_and_submittedAt", ["buildId", "submittedAt"])
+    .index("by_organizationId_and_submittedAt", [
+      "organizationId",
+      "submittedAt",
+    ])
+    .index("by_buildId_and_uploaderWorkosUserId_and_submittedAt", [
+      "buildId",
+      "uploaderWorkosUserId",
+      "submittedAt",
+    ]),
+  costDocumentPages: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    costDocumentId: v.id("costDocuments"),
+    assetId: v.id("buildCollaborationAssets"),
+    order: v.number(),
+    fileNameSnapshot: v.string(),
+    mimeTypeSnapshot: v.string(),
+    contentHashSha256Snapshot: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_costDocumentId_and_order", ["costDocumentId", "order"])
+    .index("by_buildId_and_assetId", ["buildId", "assetId"]),
+  costDocumentAllocations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    costDocumentId: v.id("costDocuments"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    amountCents: v.number(),
+    order: v.number(),
+    submilestoneKeySnapshot: v.string(),
+    submilestoneNameSnapshot: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_costDocumentId_and_order", ["costDocumentId", "order"])
+    .index("by_buildSubmilestoneId_and_createdAt", [
+      "buildSubmilestoneId",
+      "createdAt",
+    ]),
   plannedDrawScheduleRows: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
