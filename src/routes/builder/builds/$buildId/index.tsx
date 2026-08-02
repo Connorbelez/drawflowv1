@@ -27,6 +27,11 @@ import {
 } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
+  CostDocumentCapturePrototype,
+  type CostDocumentCapturePrototypeScenario,
+  type CostDocumentCapturePrototypeVariant,
+} from "#/features/cost-documents/CostDocumentCapture.prototype.tsx";
+import {
   CostsWorkspacePrototype,
   type CostsWorkspacePrototypeVariant,
 } from "#/features/cost-documents/CostsWorkspace.prototype.tsx";
@@ -42,10 +47,12 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 export type BuilderBuildSearch = {
   timeframe?: CalendarTimeframe;
   milestone?: string;
+  scenario?: CostDocumentCapturePrototypeScenario;
   variant?:
     | MilestonePrototypeVariant
     | MilestoneStartPrototypeVariant
-    | CostsWorkspacePrototypeVariant;
+    | CostsWorkspacePrototypeVariant
+    | CostDocumentCapturePrototypeVariant;
   tab?:
     | "calendar"
     | "contractors"
@@ -79,13 +86,32 @@ function isCostsWorkspacePrototypeVariant(
   );
 }
 
+function isCostDocumentCapturePrototypeVariant(
+  variant: BuilderBuildSearch["variant"]
+): variant is CostDocumentCapturePrototypeVariant {
+  return (
+    variant === "capture-guided" ||
+    variant === "capture-ledger" ||
+    variant === "capture-sourcebench"
+  );
+}
+
+function isCostDocumentCapturePrototypeScenario(
+  scenario: BuilderBuildSearch["scenario"]
+): scenario is CostDocumentCapturePrototypeScenario {
+  return (
+    scenario === "ready" ||
+    scenario === "uploading" ||
+    scenario === "duplicate" ||
+    scenario === "stale-assignment"
+  );
+}
+
 function isMilestonePrototypeVariant(
   variant: BuilderBuildSearch["variant"]
 ): variant is MilestonePrototypeVariant {
   return (
-    variant === "ledger" ||
-    variant === "console" ||
-    variant === "field-walk"
+    variant === "ledger" || variant === "console" || variant === "field-walk"
   );
 }
 
@@ -507,11 +533,21 @@ export function BuilderBuildWorkspaceRoute({
       | MilestonePrototypeVariant
       | MilestoneStartPrototypeVariant
       | CostsWorkspacePrototypeVariant
+      | CostDocumentCapturePrototypeVariant
   ) =>
     navigate({
       params: { buildId },
       replace: true,
       search: { ...search, variant },
+      to: `${routeBase}/builds/$buildId` as never,
+    } as never);
+  const onChangeCaptureScenario = (
+    scenario: CostDocumentCapturePrototypeScenario
+  ) =>
+    navigate({
+      params: { buildId },
+      replace: true,
+      search: { ...search, scenario },
       to: `${routeBase}/builds/$buildId` as never,
     } as never);
 
@@ -850,15 +886,43 @@ export function BuilderBuildWorkspaceRoute({
             : undefined
         }
         costs={
-          <CostsWorkspacePrototype
-            detail={detail}
-            onVariantChange={(variant) => onChangePrototypeVariant(variant)}
-            variant={
-              isCostsWorkspacePrototypeVariant(search.variant)
-                ? search.variant
-                : "ledger"
-            }
-          />
+          <>
+            <CostsWorkspacePrototype
+              detail={detail}
+              onVariantChange={(variant) => onChangePrototypeVariant(variant)}
+              variant={
+                isCostDocumentCapturePrototypeVariant(search.variant)
+                  ? "roadmap"
+                  : isCostsWorkspacePrototypeVariant(search.variant)
+                    ? search.variant
+                    : "roadmap"
+              }
+            />
+            {isCostDocumentCapturePrototypeVariant(search.variant) ? (
+              <CostDocumentCapturePrototype
+                onClose={() =>
+                  navigate({
+                    params: { buildId },
+                    replace: true,
+                    search: {
+                      ...search,
+                      scenario: undefined,
+                      variant: "roadmap",
+                    },
+                    to: `${routeBase}/builds/$buildId` as never,
+                  } as never)
+                }
+                onScenarioChange={onChangeCaptureScenario}
+                onVariantChange={onChangePrototypeVariant}
+                scenario={
+                  isCostDocumentCapturePrototypeScenario(search.scenario)
+                    ? search.scenario
+                    : "ready"
+                }
+                variant={search.variant}
+              />
+            ) : null}
+          </>
         }
         detail={detail}
         fundingWorkspaceEnabled

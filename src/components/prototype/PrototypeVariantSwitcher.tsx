@@ -5,6 +5,7 @@ import { useEffect } from "react";
 
 import { Button } from "#/components/ui/button.tsx";
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
+import { cn } from "#/lib/utils.ts";
 
 export interface PrototypeVariant {
   key: string;
@@ -12,10 +13,12 @@ export interface PrototypeVariant {
 }
 
 export function PrototypeVariantSwitcher({
+  className,
   current,
   onChange,
   variants,
 }: {
+  className?: string;
   current: string;
   onChange: (variant: string) => void;
   variants: readonly PrototypeVariant[];
@@ -65,7 +68,12 @@ export function PrototypeVariantSwitcher({
   };
 
   return (
-    <Frame className="fixed bottom-5 left-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 bg-foreground/90 shadow-2xl backdrop-blur">
+    <Frame
+      className={cn(
+        "fixed bottom-5 left-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 bg-foreground/90 shadow-2xl backdrop-blur",
+        className
+      )}
+    >
       <FramePanel className="flex items-center justify-between gap-2 border-white/10 bg-foreground p-1.5 text-background">
         <Button
           aria-label="Previous prototype variant"
@@ -80,7 +88,7 @@ export function PrototypeVariantSwitcher({
           <p className="truncate font-semibold text-sm">
             {active?.key} — {active?.name}
           </p>
-          <p className="text-[11px] text-background/60">
+          <p className="text-background/60 text-xs">
             Prototype only · use ← and →
           </p>
         </div>
