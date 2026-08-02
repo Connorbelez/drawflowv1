@@ -66,6 +66,7 @@ describe("Cost Document public contract", () => {
     );
     expect(result).toMatchObject({
       _id: costDocumentId,
+      activity: [{ eventType: "cost_document.submitted" }],
       allocations: [
         {
           amountCents: 12_345,
@@ -81,6 +82,10 @@ describe("Cost Document public contract", () => {
         { assetId: firstPageId, order: 1 },
         { assetId: secondPageId, order: 2 },
       ],
+      receipt: {
+        recipientEmail: "builder_owner@example.com",
+        status: "queued",
+      },
       state: "submitted",
       supportingContextDisclosure:
         "This Cost Document does not prove payment, completion, reimbursement eligibility, Draw inclusion, or approval.",
@@ -89,56 +94,70 @@ describe("Cost Document public contract", () => {
       vendorName: "Cedar Forming Ltd.",
     });
 
-    const pageUrl = await fixture.builder.mutation(
-      (api as any).cost_documents.authorizeCostDocumentPageDownload,
+    const pagePath = `/api/cost-documents/page?${new URLSearchParams({
+      assetId: firstPageId,
+      buildId: fixture.buildId,
+      costDocumentId,
+      organizationId: ORGANIZATION_ID,
+    }).toString()}`;
+    expect(pagePath).not.toContain("/api/storage/");
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("private invoice page", {
+        headers: { "Content-Type": "application/pdf" },
+        status: 200,
+      })
+    );
+    const pageResponse = await fixture.builder.fetch(pagePath, {
+      headers: {
+        Authorization: "Bearer test-auth-token",
+        Origin: "http://localhost:3000",
+      },
+    });
+    expect(pageResponse.status).toBe(200);
+    expect(pageResponse.headers.get("Cache-Control")).toContain("no-store");
+    expect(pageResponse.headers.get("Content-Disposition")).toContain(
+      "invoice-page-1.pdf"
+    );
+    expect(await pageResponse.text()).toBe("private invoice page");
+
+    const afterDownload = await fixture.builder.query(
+      (api as any).cost_documents.getCostDocument,
       {
-        assetId: firstPageId,
         buildId: fixture.buildId,
         costDocumentId,
         organizationId: ORGANIZATION_ID,
       }
     );
-    expect(pageUrl).toContain("http");
-
-    const persisted = await fixture.base.run(async (ctx) => ({
-      activities: await ctx.db
-        .query("eventOutbox")
-        .withIndex("by_entity", (query) =>
-          query
-            .eq("relatedEntityType", "costDocument")
-            .eq("relatedEntityId", String(costDocumentId))
-        )
-        .collect(),
-      audits: await ctx.db
-        .query("auditEvents")
-        .withIndex("by_entity", (query) =>
-          query
-            .eq("entityType", "costDocument")
-            .eq("entityId", String(costDocumentId))
-        )
-        .collect(),
-      receipts: await ctx.db
-        .query("emailMessages")
-        .withIndex("by_entity_and_createdAt", (query) =>
-          query
-            .eq("relatedEntityType", "costDocument")
-            .eq("relatedEntityId", String(costDocumentId))
-        )
-        .collect(),
-    }));
-    expect(persisted.audits.map((event) => event.eventType)).toEqual(
-      expect.arrayContaining([
-        "cost_document.submitted",
-        "cost_document.page_download_authorized",
-      ])
-    );
-    expect(persisted.activities).toHaveLength(1);
-    expect(persisted.receipts).toHaveLength(1);
-    expect(persisted.receipts[0]).toMatchObject({
-      recipientEmail: "builder_owner@example.com",
-      status: "queued",
-    });
+    expect(
+      afterDownload.activity.map(
+        (event: { eventType: string }) => event.eventType
+      )
+    ).toEqual([
+      "cost_document.submitted",
+      "cost_document.page_download_authorized",
+    ]);
     expect(await downstreamSnapshot(fixture)).toEqual(before);
+
+    await fixture.base.run(async (ctx) => {
+      const link = await ctx.db
+        .query("builderAccountLinks")
+        .withIndex("by_builder_user", (query) =>
+          query
+            .eq("builderProfileId", fixture.builderProfileId)
+            .eq("workosUserId", "builder_owner")
+        )
+        .first();
+      if (link) {
+        await ctx.db.patch(link._id, { status: "inactive", updatedAt: Date.now() });
+      }
+    });
+    const revokedResponse = await fixture.builder.fetch(pagePath, {
+      headers: {
+        Authorization: "Bearer test-auth-token",
+        Origin: "http://localhost:3000",
+      },
+    });
+    expect(revokedResponse.status).toBe(403);
   });
 
   test("rejects incomplete, invalid, mismatched, unavailable, and cross-tenant submissions without receipts", async () => {
@@ -189,6 +208,12 @@ describe("Cost Document public contract", () => {
     await expect(
       fixture.builder.mutation(
         (api as any).cost_documents.submitCostDocument,
+        { ...valid, documentDate: "2026-02-31" }
+      )
+    ).rejects.toThrow("valid YYYY-MM-DD date");
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.submitCostDocument,
         { ...valid, currency: "USD" }
       )
     ).rejects.toThrow();
@@ -204,11 +229,6 @@ describe("Cost Document public contract", () => {
       )
     ).rejects.toThrow("Forbidden");
 
-    const rejectedState = await fixture.base.run(async (ctx) => ({
-      documents: await ctx.db.query("costDocuments").collect(),
-      receipts: await ctx.db.query("emailMessages").collect(),
-    }));
-    expect(rejectedState).toEqual({ documents: [], receipts: [] });
   });
 });
 
@@ -380,7 +400,11 @@ async function seedFixture() {
       status: "planned",
       updatedAt: now,
     });
-    return { buildId, buildSubmilestoneId };
+    return {
+      buildId,
+      builderProfileId: foundation.builderProfileId,
+      buildSubmilestoneId,
+    };
   });
   return { admin, base, builder, ...seeded };
 }

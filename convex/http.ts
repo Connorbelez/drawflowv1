@@ -13,6 +13,7 @@ const BUILD_COLLABORATION_EXPORT_ASSET_PATH =
   "/api/build-collaboration/export-asset";
 const BUILD_COLLABORATION_EXPORT_ARCHIVE_CHUNK_PATH =
   "/api/build-collaboration/export-archive-chunk";
+const COST_DOCUMENT_PAGE_PATH = "/api/cost-documents/page";
 const DEFAULT_BUILD_COLLABORATION_APP_ORIGINS = [
   "https://drawflow.fairlend.ca",
   "http://localhost:3000",
@@ -100,6 +101,81 @@ http.route({
   }),
   method: "OPTIONS",
   path: BUILD_COLLABORATION_EXPORT_ARCHIVE_CHUNK_PATH,
+});
+http.route({
+  handler: httpAction((_ctx, request) => {
+    const corsHeaders = buildCollaborationExportCorsHeaders(request);
+    if (!corsHeaders) {
+      return Promise.resolve(
+        new Response("Cost Document download origin denied.", { status: 403 })
+      );
+    }
+    return Promise.resolve(
+      new Response(null, { headers: corsHeaders, status: 204 })
+    );
+  }),
+  method: "OPTIONS",
+  path: COST_DOCUMENT_PAGE_PATH,
+});
+http.route({
+  handler: httpAction(async (ctx, request) => {
+    const corsHeaders = buildCollaborationExportCorsHeaders(request);
+    if (!corsHeaders) {
+      return new Response("Cost Document download origin denied.", {
+        status: 403,
+      });
+    }
+    const requestUrl = new URL(request.url);
+    const assetId = requestUrl.searchParams.get("assetId");
+    const buildId = requestUrl.searchParams.get("buildId");
+    const costDocumentId = requestUrl.searchParams.get("costDocumentId");
+    const organizationId = requestUrl.searchParams.get("organizationId");
+    if (!(assetId && buildId && costDocumentId && organizationId)) {
+      return new Response("Missing Cost Document page identifiers.", {
+        status: 400,
+      });
+    }
+    try {
+      const authorized = await ctx.runMutation(
+        api.cost_documents.authorizeCostDocumentPageDownload,
+        {
+          assetId: assetId as never,
+          buildId: buildId as never,
+          costDocumentId: costDocumentId as never,
+          organizationId,
+        }
+      );
+      const storageUrl = await ctx.storage.getUrl(authorized.storageId);
+      if (!storageUrl) {
+        return new Response("Cost Document page is unavailable.", {
+          status: 404,
+        });
+      }
+      const sourceResponse = await fetch(storageUrl);
+      if (!(sourceResponse.ok && sourceResponse.body)) {
+        return new Response("Cost Document page is unavailable.", {
+          status: 404,
+        });
+      }
+      return new Response(sourceResponse.body, {
+        headers: {
+          ...corsHeaders,
+          "Cache-Control": "private, no-store, max-age=0",
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(authorized.fileName)}`,
+          "Content-Type": authorized.mimeType,
+          "X-Content-Type-Options": "nosniff",
+        },
+        status: 200,
+      });
+    } catch {
+      return new Response("Cost Document page access denied.", {
+        headers: corsHeaders,
+        status: 403,
+      });
+    }
+  }),
+  method: "GET",
+  path: COST_DOCUMENT_PAGE_PATH,
 });
 http.route({
   handler: httpAction(async (ctx, request) => {

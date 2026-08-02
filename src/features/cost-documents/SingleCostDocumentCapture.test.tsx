@@ -9,6 +9,11 @@ const actionByRef = new Map<string, (...args: unknown[]) => unknown>();
 const useQuery = vi.fn();
 const uploadAssets = vi.fn();
 const abandonAssets = vi.fn();
+const getAccessToken = vi.fn();
+
+vi.mock("@workos/authkit-tanstack-react-start/client", () => ({
+  useAccessToken: () => ({ getAccessToken }),
+}));
 
 vi.mock("convex/react", () => ({
   useAction: (ref: Parameters<typeof getFunctionName>[0]) =>
@@ -83,6 +88,18 @@ describe("SingleCostDocumentCapture", () => {
         ? undefined
         : {
             grossTotalCents: 12_345,
+            pages: [
+              {
+                assetId: "asset-page-1",
+                fileName: "invoice.pdf",
+                mimeType: "application/pdf",
+                order: 1,
+              },
+            ],
+            receipt: {
+              recipientEmail: "builder@example.com",
+              status: "queued",
+            },
             title: "Foundation invoice",
             vendorName: "Cedar Forming Ltd.",
           }
@@ -149,6 +166,38 @@ describe("SingleCostDocumentCapture", () => {
     );
     expect(await screen.findByText("Cost Document frozen")).not.toBeNull();
     expect(screen.getByText(/123\.45/)).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Download page 1: invoice.pdf" })
+    ).not.toBeNull();
+  });
+
+  test("rejects more than 50 pages before uploading any asset", async () => {
+    render(
+      <SingleCostDocumentCapture
+        buildId={"build-1" as Id<"activeBuilds">}
+        organizationId="org-1"
+        submilestones={[
+          {
+            id: "submilestone-1" as Id<"buildSubmilestones">,
+            label: "Foundation · Footings",
+          },
+        ]}
+      />
+    );
+    const input = screen.getByLabelText("Invoice or Receipt pages");
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: Array.from(
+        { length: 51 },
+        (_, index) => new File(["page"], `invoice-${index + 1}.pdf`)
+      ),
+    });
+    fireEvent.change(input);
+
+    expect(
+      await screen.findByText("A Cost Document supports at most 50 pages.")
+    ).not.toBeNull();
+    expect(uploadAssets).not.toHaveBeenCalled();
   });
 
   test("parses exact CAD cents and rejects ambiguous precision", () => {

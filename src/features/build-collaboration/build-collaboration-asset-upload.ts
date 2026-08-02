@@ -17,12 +17,14 @@ export async function abandonGovernedCollaborationAssets(input: {
   if (input.assetIds.length === 0) {
     return;
   }
-  await input.abandonAssets({
-    assetIds: input.assetIds,
-    buildId: input.buildId,
-    organizationId: input.organizationId,
-    reason: input.reason,
-  });
+  for (let index = 0; index < input.assetIds.length; index += 25) {
+    await input.abandonAssets({
+      assetIds: input.assetIds.slice(index, index + 25),
+      buildId: input.buildId,
+      organizationId: input.organizationId,
+      reason: input.reason,
+    });
+  }
 }
 
 export async function uploadGovernedCollaborationAssets(

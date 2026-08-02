@@ -9,7 +9,7 @@ import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const SUPPORTING_CONTEXT_DISCLOSURE =
   "This Cost Document does not prove payment, completion, reimbursement eligibility, Draw inclusion, or approval.";
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MAX_PAGES = 50;
 const MAX_ALLOCATIONS = 100;
 
@@ -38,8 +38,30 @@ const costDocumentAllocationProjectionValidator = v.object({
   submilestoneName: v.string(),
 });
 
+const costDocumentActivityProjectionValidator = v.object({
+  actorWorkosUserId: v.string(),
+  createdAt: v.number(),
+  eventType: v.string(),
+});
+
+const costDocumentReceiptProjectionValidator = v.object({
+  createdAt: v.number(),
+  recipientEmail: v.string(),
+  status: v.union(
+    v.literal("queued"),
+    v.literal("sent"),
+    v.literal("delivered"),
+    v.literal("delivery_delayed"),
+    v.literal("bounced"),
+    v.literal("failed"),
+    v.literal("complained"),
+    v.literal("cancelled")
+  ),
+});
+
 const costDocumentProjectionValidator = v.object({
   _id: v.id("costDocuments"),
+  activity: v.array(costDocumentActivityProjectionValidator),
   allocations: v.array(costDocumentAllocationProjectionValidator),
   category: costDocumentCategoryValidator,
   currency: v.literal("CAD"),
@@ -48,6 +70,7 @@ const costDocumentProjectionValidator = v.object({
   grossTotalCents: v.number(),
   kind: costDocumentKindValidator,
   pages: v.array(costDocumentPageProjectionValidator),
+  receipt: v.union(costDocumentReceiptProjectionValidator, v.null()),
   state: v.literal("submitted"),
   submittedAt: v.number(),
   supportingContextDisclosure: v.string(),
@@ -86,7 +109,7 @@ export const submitCostDocument = authenticatedMutation
     const now = Date.now();
     const title = requiredText(args.title, "Title", 240);
     const vendorName = requiredText(args.vendorName, "Vendor", 240);
-    const description = optionalText(args.description, "Description", 4_000);
+    const description = optionalText(args.description, "Description", 4000);
     const documentDate = requiredDocumentDate(args.documentDate);
     const grossTotalCents = positiveCents(
       args.grossTotalCents,
@@ -230,7 +253,14 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
     assetId: v.id("buildCollaborationAssets"),
     costDocumentId: v.id("costDocuments"),
   })
-  .returns(v.string())
+  .returns(
+    v.object({
+      fileName: v.string(),
+      mimeType: v.string(),
+      order: v.number(),
+      storageId: v.id("_storage"),
+    })
+  )
   .handler(async (ctx, args) => {
     const authorization = await authorizeCostDocumentBuilder(ctx, args);
     const document = await ctx.db.get(args.costDocumentId);
@@ -256,10 +286,6 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
     ) {
       throw new Error("The Cost Document page is unavailable.");
     }
-    const url = await ctx.storage.getUrl(asset.storageId);
-    if (!url) {
-      throw new Error("The Cost Document page file is unavailable.");
-    }
     await ctx.db.insert("auditEvents", {
       actorRoles: authorization.viewer.roles,
       actorWorkosUserId: authorization.viewer.subject,
@@ -276,7 +302,12 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
       organizationId: authorization.organizationId,
       warnings: [],
     });
-    return url;
+    return {
+      fileName: page.fileNameSnapshot,
+      mimeType: page.mimeTypeSnapshot,
+      order: page.order,
+      storageId: asset.storageId,
+    };
   })
   .public();
 
@@ -352,8 +383,9 @@ async function requireExactAllocations(
   if (
     input.allocations.length < 1 ||
     input.allocations.length > MAX_ALLOCATIONS ||
-    new Set(input.allocations.map((allocation) => allocation.buildSubmilestoneId))
-      .size !== input.allocations.length
+    new Set(
+      input.allocations.map((allocation) => allocation.buildSubmilestoneId)
+    ).size !== input.allocations.length
   ) {
     throw new Error(
       `A Cost Document requires 1-${MAX_ALLOCATIONS} unique Cost Allocations.`
@@ -396,7 +428,7 @@ async function projectCostDocument(
   ctx: QueryCtx,
   document: Doc<"costDocuments">
 ) {
-  const [pages, allocations] = await Promise.all([
+  const [pages, allocations, activity, receipts] = await Promise.all([
     ctx.db
       .query("costDocumentPages")
       .withIndex("by_costDocumentId_and_order", (query) =>
@@ -411,9 +443,32 @@ async function projectCostDocument(
       )
       .order("asc")
       .collect(),
+    ctx.db
+      .query("auditEvents")
+      .withIndex("by_entity", (query) =>
+        query
+          .eq("entityType", "costDocument")
+          .eq("entityId", String(document._id))
+      )
+      .order("asc")
+      .collect(),
+    ctx.db
+      .query("emailMessages")
+      .withIndex("by_entity_and_createdAt", (query) =>
+        query
+          .eq("relatedEntityType", "costDocument")
+          .eq("relatedEntityId", String(document._id))
+      )
+      .order("desc")
+      .take(1),
   ]);
   return {
     _id: document._id,
+    activity: activity.map((event) => ({
+      actorWorkosUserId: event.actorWorkosUserId,
+      createdAt: event.createdAt,
+      eventType: event.eventType,
+    })),
     allocations: allocations.map((allocation) => ({
       amountCents: allocation.amountCents,
       buildSubmilestoneId: allocation.buildSubmilestoneId,
@@ -434,6 +489,13 @@ async function projectCostDocument(
       mimeType: page.mimeTypeSnapshot,
       order: page.order,
     })),
+    receipt: receipts[0]
+      ? {
+          createdAt: receipts[0].createdAt,
+          recipientEmail: receipts[0].recipientEmail,
+          status: receipts[0].status,
+        }
+      : null,
     state: document.state,
     submittedAt: document.submittedAt,
     supportingContextDisclosure: SUPPORTING_CONTEXT_DISCLOSURE,
@@ -483,9 +545,18 @@ function optionalText(
 
 function requiredDocumentDate(value: string) {
   const normalized = value.trim();
+  const match = DATE_PATTERN.exec(normalized);
+  if (!match) {
+    throw new Error("Document date must be a valid YYYY-MM-DD date.");
+  }
+  const year = Number(match.at(1));
+  const month = Number(match.at(2));
+  const day = Number(match.at(3));
+  const parsed = new Date(Date.UTC(year, month - 1, day));
   if (
-    !DATE_PATTERN.test(normalized) ||
-    Number.isNaN(Date.parse(`${normalized}T00:00:00.000Z`))
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
   ) {
     throw new Error("Document date must be a valid YYYY-MM-DD date.");
   }
@@ -501,7 +572,9 @@ function positiveCents(value: number, label: string) {
 
 function requiredAssetHash(asset: Doc<"buildCollaborationAssets">) {
   if (!asset.contentHashSha256) {
-    throw new Error("Every Cost Document source page requires a verified hash.");
+    throw new Error(
+      "Every Cost Document source page requires a verified hash."
+    );
   }
   return asset.contentHashSha256;
 }

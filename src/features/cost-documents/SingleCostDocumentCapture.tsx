@@ -1,11 +1,13 @@
+import { useAccessToken } from "@workos/authkit-tanstack-react-start/client";
+import { useAction, useMutation, useQuery } from "convex/react";
 import {
   CheckCircle2,
+  Download,
   FileText,
   LockKeyhole,
   ShieldCheck,
   UploadCloud,
 } from "lucide-react";
-import { useAction, useMutation, useQuery } from "convex/react";
 import { type FormEvent, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
@@ -32,6 +34,9 @@ import type { Id } from "../../../convex/_generated/dataModel";
 
 const SUPPORTING_CONTEXT_DISCLOSURE =
   "This Cost Document does not prove payment, completion, reimbursement eligibility, Draw inclusion, or approval.";
+const MAX_COST_DOCUMENT_PAGES = 50;
+const CAD_AMOUNT_PATTERN = /^\d+(?:\.\d{1,2})?$/;
+const TRAILING_SLASH_PATTERN = /\/$/;
 
 export interface CostDocumentSubmilestoneOption {
   id: Id<"buildSubmilestones">;
@@ -47,11 +52,13 @@ export function SingleCostDocumentCapture({
   organizationId: string;
   submilestones: CostDocumentSubmilestoneOption[];
 }) {
+  const { getAccessToken } = useAccessToken();
   const beginUpload = useMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
   const registerUpload = useMutation(
-    api.build_collaboration_assets.registerBuildCollaborationAssetUploadedStorage
+    api.build_collaboration_assets
+      .registerBuildCollaborationAssetUploadedStorage
   );
   const finalizeAndScan = useAction(
     api.build_collaboration_asset_actions
@@ -60,11 +67,10 @@ export function SingleCostDocumentCapture({
   const abandonAssets = useMutation(
     api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
-  const submitCostDocument = useMutation(
-    api.cost_documents.submitCostDocument
+  const submitCostDocument = useMutation(api.cost_documents.submitCostDocument);
+  const [submittedId, setSubmittedId] = useState<Id<"costDocuments"> | null>(
+    null
   );
-  const [submittedId, setSubmittedId] =
-    useState<Id<"costDocuments"> | null>(null);
   const submitted = useQuery(
     api.cost_documents.getCostDocument,
     submittedId
@@ -73,9 +79,7 @@ export function SingleCostDocumentCapture({
   );
   const [files, setFiles] = useState<File[]>([]);
   const [kind, setKind] = useState<"invoice" | "receipt">("invoice");
-  const [category, setCategory] = useState<"labour" | "materials">(
-    "materials"
-  );
+  const [category, setCategory] = useState<"labour" | "materials">("materials");
   const [title, setTitle] = useState("");
   const [vendorName, setVendorName] = useState("");
   const [description, setDescription] = useState("");
@@ -86,6 +90,8 @@ export function SingleCostDocumentCapture({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingAssetId, setDownloadingAssetId] =
+    useState<Id<"buildCollaborationAssets"> | null>(null);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -95,6 +101,11 @@ export function SingleCostDocumentCapture({
     try {
       if (files.length === 0) {
         throw new Error("Choose at least one Invoice or Receipt page.");
+      }
+      if (files.length > MAX_COST_DOCUMENT_PAGES) {
+        throw new Error(
+          `A Cost Document supports at most ${MAX_COST_DOCUMENT_PAGES} pages.`
+        );
       }
       if (!submilestoneId) {
         throw new Error("Choose a Sub-milestone allocation.");
@@ -113,8 +124,7 @@ export function SingleCostDocumentCapture({
         allocations: [
           {
             amountCents: grossTotalCents,
-            buildSubmilestoneId:
-              submilestoneId as Id<"buildSubmilestones">,
+            buildSubmilestoneId: submilestoneId as Id<"buildSubmilestones">,
           },
         ],
         buildId,
@@ -141,10 +151,57 @@ export function SingleCostDocumentCapture({
         }).catch(() => undefined);
       }
       setError(
-        cause instanceof Error ? cause.message : "Unable to submit Cost Document."
+        cause instanceof Error
+          ? cause.message
+          : "Unable to submit Cost Document."
       );
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const downloadPage = async (page: {
+    assetId: Id<"buildCollaborationAssets">;
+    fileName: string;
+  }) => {
+    setError(null);
+    setDownloadingAssetId(page.assetId);
+    try {
+      if (!submittedId) {
+        throw new Error("The committed Cost Document is unavailable.");
+      }
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error("Sign in again to download this private page.");
+      }
+      const response = await fetch(
+        costDocumentPageDownloadUrl({
+          assetId: page.assetId,
+          buildId,
+          costDocumentId: submittedId,
+          organizationId,
+        }),
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      if (!response.ok) {
+        throw new Error("This Cost Document page is no longer available.");
+      }
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.download = page.fileName;
+      anchor.href = objectUrl;
+      anchor.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to download this Cost Document page."
+      );
+    } finally {
+      setDownloadingAssetId(null);
     }
   };
 
@@ -166,17 +223,67 @@ export function SingleCostDocumentCapture({
         </FrameHeader>
         <FramePanel className="space-y-4">
           {submitted ? (
-            <Card>
-              <CardPanel className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-                <div>
-                  <p className="font-semibold">{submitted.title}</p>
-                  <p className="text-muted-foreground text-sm">
-                    {submitted.vendorName} · {formatCad(submitted.grossTotalCents)}
-                  </p>
-                </div>
-                <Badge variant="secondary">Submitted</Badge>
-              </CardPanel>
-            </Card>
+            <div className="space-y-3">
+              <Card>
+                <CardPanel className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div>
+                    <p className="font-semibold">{submitted.title}</p>
+                    <p className="text-muted-foreground text-sm">
+                      {submitted.vendorName} ·{" "}
+                      {formatCad(submitted.grossTotalCents)}
+                    </p>
+                  </div>
+                  <Badge variant="secondary">Submitted</Badge>
+                </CardPanel>
+              </Card>
+              <Card>
+                <CardPanel className="space-y-3 p-4">
+                  <div>
+                    <p className="font-semibold">Source pages</p>
+                    <p className="text-muted-foreground text-sm">
+                      Ordered immutable pages. Access is checked again for every
+                      private download.
+                    </p>
+                  </div>
+                  <ol className="divide-y">
+                    {submitted.pages.map((page) => (
+                      <li
+                        className="flex min-w-0 items-center justify-between gap-3 py-3"
+                        key={page.assetId}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-sm">
+                            {page.order}. {page.fileName}
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            {page.mimeType}
+                          </p>
+                        </div>
+                        <Button
+                          aria-label={`Download page ${page.order}: ${page.fileName}`}
+                          disabled={downloadingAssetId === page.assetId}
+                          onClick={() => downloadPage(page)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <Download />
+                          {downloadingAssetId === page.assetId
+                            ? "Checking…"
+                            : "Download"}
+                        </Button>
+                      </li>
+                    ))}
+                  </ol>
+                  {submitted.receipt ? (
+                    <p className="text-muted-foreground text-xs">
+                      Upload receipt: {submitted.receipt.status} to{" "}
+                      {submitted.receipt.recipientEmail}
+                    </p>
+                  ) : null}
+                </CardPanel>
+              </Card>
+            </div>
           ) : (
             <p className="text-muted-foreground text-sm">
               Reading the committed record…
@@ -187,6 +294,12 @@ export function SingleCostDocumentCapture({
             <AlertTitle>Supporting cost context</AlertTitle>
             <AlertDescription>{SUPPORTING_CONTEXT_DISCLOSURE}</AlertDescription>
           </Alert>
+          {error ? (
+            <Alert variant="error">
+              <AlertTitle>Download unavailable</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
         </FramePanel>
       </Frame>
     );
@@ -208,7 +321,10 @@ export function SingleCostDocumentCapture({
           </div>
           <Badge variant="outline">CAD</Badge>
         </div>
-        <ol className="grid gap-2 text-xs sm:grid-cols-3" aria-label="Submission steps">
+        <ol
+          aria-label="Submission steps"
+          className="grid gap-2 text-xs sm:grid-cols-3"
+        >
           {["Capture & confirm", "Balance & allocate", "Freeze"].map(
             (step, index) => (
               <li className="flex items-center gap-2" key={step}>
@@ -223,7 +339,7 @@ export function SingleCostDocumentCapture({
       </FrameHeader>
       <FramePanel>
         <form className="space-y-6" onSubmit={submit}>
-          <section className="space-y-3" aria-labelledby="cost-source-heading">
+          <section aria-labelledby="cost-source-heading" className="space-y-3">
             <div>
               <h3 className="font-semibold" id="cost-source-heading">
                 Source pages
@@ -240,7 +356,19 @@ export function SingleCostDocumentCapture({
                 accept="application/pdf,image/*"
                 id="cost-document-pages"
                 multiple
-                onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+                onChange={(event) => {
+                  const selected = Array.from(event.target.files ?? []);
+                  if (selected.length > MAX_COST_DOCUMENT_PAGES) {
+                    setFiles([]);
+                    setError(
+                      `A Cost Document supports at most ${MAX_COST_DOCUMENT_PAGES} pages.`
+                    );
+                    event.currentTarget.value = "";
+                    return;
+                  }
+                  setError(null);
+                  setFiles(selected);
+                }}
                 type="file"
               />
               <FieldDescription>
@@ -264,9 +392,14 @@ export function SingleCostDocumentCapture({
             ) : null}
           </section>
 
-          <section className="grid gap-4 sm:grid-cols-2" aria-label="Document facts">
+          <section
+            aria-label="Document facts"
+            className="grid gap-4 sm:grid-cols-2"
+          >
             <Field>
-              <FieldLabel htmlFor="cost-document-kind">Document kind</FieldLabel>
+              <FieldLabel htmlFor="cost-document-kind">
+                Document kind
+              </FieldLabel>
               <select
                 className="min-h-11 rounded-md border border-input bg-background px-3 text-sm"
                 id="cost-document-kind"
@@ -280,7 +413,9 @@ export function SingleCostDocumentCapture({
               </select>
             </Field>
             <Field>
-              <FieldLabel htmlFor="cost-document-category">Classification</FieldLabel>
+              <FieldLabel htmlFor="cost-document-category">
+                Classification
+              </FieldLabel>
               <select
                 className="min-h-11 rounded-md border border-input bg-background px-3 text-sm"
                 id="cost-document-category"
@@ -312,7 +447,9 @@ export function SingleCostDocumentCapture({
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor="cost-document-date">Document date</FieldLabel>
+              <FieldLabel htmlFor="cost-document-date">
+                Document date
+              </FieldLabel>
               <Input
                 id="cost-document-date"
                 onChange={(event) => setDocumentDate(event.target.value)}
@@ -322,7 +459,9 @@ export function SingleCostDocumentCapture({
               />
             </Field>
             <Field className="sm:col-span-2">
-              <FieldLabel htmlFor="cost-document-description">Description</FieldLabel>
+              <FieldLabel htmlFor="cost-document-description">
+                Description
+              </FieldLabel>
               <Textarea
                 id="cost-document-description"
                 onChange={(event) => setDescription(event.target.value)}
@@ -331,7 +470,10 @@ export function SingleCostDocumentCapture({
             </Field>
           </section>
 
-          <section className="grid gap-4 sm:grid-cols-2" aria-label="Balance and allocation">
+          <section
+            aria-label="Balance and allocation"
+            className="grid gap-4 sm:grid-cols-2"
+          >
             <Field>
               <FieldLabel htmlFor="cost-document-total">
                 Gross Document Total (CAD)
@@ -345,7 +487,9 @@ export function SingleCostDocumentCapture({
                 required
                 value={grossTotal}
               />
-              <FieldDescription>Tax-inclusive; stored in integer cents.</FieldDescription>
+              <FieldDescription>
+                Tax-inclusive; stored in integer cents.
+              </FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="cost-document-allocation">
@@ -354,7 +498,11 @@ export function SingleCostDocumentCapture({
               <select
                 className="h-14 rounded-md border border-input bg-background px-3 text-sm"
                 id="cost-document-allocation"
-                onChange={(event) => setSubmilestoneId(event.target.value)}
+                onChange={(event) =>
+                  setSubmilestoneId(
+                    event.target.value as Id<"buildSubmilestones">
+                  )
+                }
                 required
                 value={submilestoneId}
               >
@@ -378,12 +526,13 @@ export function SingleCostDocumentCapture({
             <LockKeyhole />
             <AlertTitle>Freeze is atomic</AlertTitle>
             <AlertDescription>
-              Source pages, facts, total, allocation, provenance, audit activity,
-              and your upload receipt either commit together or not at all.
+              Source pages, facts, total, allocation, provenance, audit
+              activity, and your upload receipt either commit together or not at
+              all.
             </AlertDescription>
           </Alert>
           {error ? (
-            <Alert variant="destructive">
+            <Alert variant="error">
               <AlertTitle>Cost Document not submitted</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
             </Alert>
@@ -393,7 +542,11 @@ export function SingleCostDocumentCapture({
               {SUPPORTING_CONTEXT_DISCLOSURE}
             </p>
             <Button disabled={submitting} size="lg" type="submit">
-              {submitting ? <UploadCloud className="animate-pulse" /> : <ShieldCheck />}
+              {submitting ? (
+                <UploadCloud className="animate-pulse" />
+              ) : (
+                <ShieldCheck />
+              )}
               {submitting ? "Verifying and freezing…" : "Submit Cost Document"}
             </Button>
           </div>
@@ -405,7 +558,7 @@ export function SingleCostDocumentCapture({
 
 export function parseCadCents(value: string) {
   const normalized = value.trim().replace(/[$,\s]/g, "");
-  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) {
+  if (!CAD_AMOUNT_PATTERN.test(normalized)) {
     throw new Error("Gross Document Total must be a positive CAD amount.");
   }
   const [dollars, fraction = ""] = normalized.split(".");
@@ -421,4 +574,26 @@ function formatCad(amountCents: number) {
     currency: "CAD",
     style: "currency",
   }).format(amountCents / 100);
+}
+
+export function costDocumentPageDownloadUrl(input: {
+  assetId: Id<"buildCollaborationAssets">;
+  buildId: Id<"activeBuilds">;
+  costDocumentId: Id<"costDocuments">;
+  organizationId: string;
+}) {
+  const siteUrl = import.meta.env.VITE_CONVEX_SITE_URL?.replace(
+    TRAILING_SLASH_PATTERN,
+    ""
+  );
+  if (!siteUrl) {
+    throw new Error("Private Cost Document downloads are not configured.");
+  }
+  const search = new URLSearchParams({
+    assetId: input.assetId,
+    buildId: input.buildId,
+    costDocumentId: input.costDocumentId,
+    organizationId: input.organizationId,
+  });
+  return `${siteUrl}/api/cost-documents/page?${search.toString()}`;
 }

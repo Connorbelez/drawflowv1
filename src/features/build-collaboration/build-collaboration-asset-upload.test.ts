@@ -2,13 +2,40 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { uploadGovernedCollaborationAssets } from "./build-collaboration-asset-upload.ts";
+import {
+  abandonGovernedCollaborationAssets,
+  uploadGovernedCollaborationAssets,
+} from "./build-collaboration-asset-upload.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("uploadGovernedCollaborationAssets", () => {
+  test("abandons large cleanup sets in mutation-safe batches", async () => {
+    const abandonAssets = vi.fn(async () => 25);
+    const assetIds = Array.from(
+      { length: 51 },
+      (_, index) => `asset-${index + 1}` as never
+    );
+
+    await abandonGovernedCollaborationAssets({
+      abandonAssets,
+      assetIds,
+      buildId: "build-1" as never,
+      organizationId: "org-1",
+      reason: "Cost Document submission did not commit.",
+    });
+
+    expect(abandonAssets).toHaveBeenCalledTimes(3);
+    expect(
+      abandonAssets.mock.calls.map(([input]) => input.assetIds.length)
+    ).toEqual([25, 25, 1]);
+    expect(
+      abandonAssets.mock.calls.flatMap(([input]) => input.assetIds)
+    ).toEqual(assetIds);
+  });
+
   test("uploads bytes, hashes the exact file, and returns only a clean asset", async () => {
     const bytes = new TextEncoder().encode("hello");
     const capturedAt = Date.parse("2026-07-31T12:00:00.000Z");
