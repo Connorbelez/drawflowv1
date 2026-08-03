@@ -956,7 +956,13 @@ export const createQuoteResponseTemplateDraft = builderMutation
         .withIndex("by_template_version", (query) => query.eq("templateId", templateId))
         .order("desc")
         .first();
-      versionNumber = (latestVersion?.version ?? 0) + 1;
+      versionNumber = latestVersion
+        ? requireTemplateVersionScope(
+            sourceTemplate,
+            latestVersion,
+            "latest version"
+          ).version + 1
+        : 1;
     } else {
       const templateKey = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "quote-template"}-${now.toString(36)}`;
       templateId = await ctx.db.insert("quoteResponseTemplates", {
@@ -1057,11 +1063,15 @@ export const validateQuoteResponseTemplateDraft = builderQuery
     const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
     const template = await ctx.db.get(args.templateId);
     const version = await ctx.db.get(args.versionId);
-    if (!template || !version || template.organizationId !== authorization.organizationId || template.brokerageId !== authorization.brokerage._id || version.brokerageId !== authorization.brokerage._id || version.templateId !== template._id || version.status !== "draft") {
+    if (!template || template.organizationId !== authorization.organizationId || template.brokerageId !== authorization.brokerage._id) {
       throw new ConvexError("Draft template version is unavailable.");
     }
-    const fields = await ctx.db.query("quoteResponseTemplateFields").withIndex("by_version_order", (query) => query.eq("versionId", version._id)).collect();
-    fields.forEach((field) => requireTemplateFieldScope(version, field));
+    const scopedVersion = requireTemplateVersionScope(template, version, "draft version");
+    if (scopedVersion.status !== "draft") {
+      throw new ConvexError("Draft template version is unavailable.");
+    }
+    const fields = await ctx.db.query("quoteResponseTemplateFields").withIndex("by_version_order", (query) => query.eq("versionId", scopedVersion._id)).collect();
+    fields.forEach((field) => requireTemplateFieldScope(scopedVersion, field));
     const issues = validationIssues(fields.map((field) => ({
       allowAlternates: field.allowAlternates,
       allowExclusions: field.allowExclusions,
@@ -1095,11 +1105,15 @@ export const publishQuoteResponseTemplate = builderMutation
     const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
     const template = await ctx.db.get(args.templateId);
     const version = await ctx.db.get(args.versionId);
-    if (!template || !version || template.organizationId !== authorization.organizationId || template.brokerageId !== authorization.brokerage._id || version.brokerageId !== authorization.brokerage._id || version.templateId !== template._id || version.status !== "draft") {
+    if (!template || template.organizationId !== authorization.organizationId || template.brokerageId !== authorization.brokerage._id) {
       throw new ConvexError("Only an organization-owned draft version can be published.");
     }
-    const fields = await ctx.db.query("quoteResponseTemplateFields").withIndex("by_version_order", (query) => query.eq("versionId", version._id)).collect();
-    fields.forEach((field) => requireTemplateFieldScope(version, field));
+    const scopedVersion = requireTemplateVersionScope(template, version, "draft version");
+    if (scopedVersion.status !== "draft") {
+      throw new ConvexError("Only an organization-owned draft version can be published.");
+    }
+    const fields = await ctx.db.query("quoteResponseTemplateFields").withIndex("by_version_order", (query) => query.eq("versionId", scopedVersion._id)).collect();
+    fields.forEach((field) => requireTemplateFieldScope(scopedVersion, field));
     const issues = validationIssues(fields.map((field) => ({
       allowAlternates: field.allowAlternates,
       allowExclusions: field.allowExclusions,
@@ -1121,7 +1135,7 @@ export const publishQuoteResponseTemplate = builderMutation
       throw new ConvexError(`Template cannot be published: ${issues.join(" ")}`);
     }
     const now = Date.now();
-    await ctx.db.patch(version._id, {
+    await ctx.db.patch(scopedVersion._id, {
       publishedAt: now,
       publishedByWorkosUserId: authorization.subject,
       releaseNote: boundedText(args.releaseNote, "Release note", 500) || undefined,
@@ -1130,22 +1144,22 @@ export const publishQuoteResponseTemplate = builderMutation
       validationState: "valid",
     });
     await ctx.db.patch(template._id, {
-      audience: version.audience,
-      currentVersionId: version._id,
-      description: version.description,
-      name: version.name,
-      selectedVersionId: version._id,
+      audience: scopedVersion.audience,
+      currentVersionId: scopedVersion._id,
+      description: scopedVersion.description,
+      name: scopedVersion.name,
+      selectedVersionId: scopedVersion._id,
       updatedAt: now,
     });
     await auditTemplate(ctx, authorization, {
       command: "publishQuoteResponseTemplate",
       entityId: String(template._id),
       eventType: "quote_response_template.published",
-      newState: `published:v${version.version}`,
+      newState: `published:v${scopedVersion.version}`,
       priorState: "draft",
       reason: args.releaseNote,
     }, now);
-    return { templateId: template._id, versionId: version._id, version: version.version };
+    return { templateId: template._id, versionId: scopedVersion._id, version: scopedVersion.version };
   })
   .public();
 
@@ -1156,20 +1170,24 @@ export const selectQuoteResponseTemplateVersion = builderMutation
     const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
     const template = await ctx.db.get(args.templateId);
     const version = await ctx.db.get(args.versionId);
-    if (!template || !version || template.organizationId !== authorization.organizationId || template.brokerageId !== authorization.brokerage._id || version.brokerageId !== authorization.brokerage._id || version.templateId !== template._id || version.status !== "published") {
+    if (!template || template.organizationId !== authorization.organizationId || template.brokerageId !== authorization.brokerage._id) {
+      throw new ConvexError("Only a published version in this organization may be selected.");
+    }
+    const scopedVersion = requireTemplateVersionScope(template, version, "published version");
+    if (scopedVersion.status !== "published") {
       throw new ConvexError("Only a published version in this organization may be selected.");
     }
     const now = Date.now();
     const { selectedVersion: priorSelectedVersion } =
       await readTemplateVersionPointers(ctx, template);
-    await ctx.db.patch(template._id, { selectedVersionId: version._id, updatedAt: now });
+    await ctx.db.patch(template._id, { selectedVersionId: scopedVersion._id, updatedAt: now });
     await auditTemplate(ctx, authorization, {
       command: "selectQuoteResponseTemplateVersion",
       entityId: String(template._id),
       eventType: "quote_response_template.version_selected",
-      newState: `selected:v${version.version}`,
+      newState: `selected:v${scopedVersion.version}`,
       priorState: priorSelectedVersion ? `selected:v${priorSelectedVersion.version}` : "unselected",
     }, now);
-    return { templateId: template._id, versionId: version._id };
+    return { templateId: template._id, versionId: scopedVersion._id };
   })
   .public();

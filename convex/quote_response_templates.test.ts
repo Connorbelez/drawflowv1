@@ -746,12 +746,52 @@ describe("Quote Response Template public contract", () => {
     );
 
     await base.run(async (ctx) => {
-      await ctx.db.patch(created.versionId, { organizationId: "org_other" });
+      await ctx.db.patch(created.versionId, {
+        organizationId: "org_other",
+        status: "published",
+      });
+      const fields = await ctx.db
+        .query("quoteResponseTemplateFields")
+        .withIndex("by_version", (query) => query.eq("versionId", created.versionId))
+        .collect();
+      for (const field of fields) {
+        await ctx.db.patch(field._id, { organizationId: "org_other" });
+      }
     });
     await expect(
       builder.query(
         (api as any).quote_response_templates.getQuoteResponseTemplate,
         { templateId: created.templateId, workosOrganizationId: ORGANIZATION_ID }
+      )
+    ).rejects.toThrow(/cross-scope/);
+    await expect(
+      builder.query(
+        (api as any).quote_response_templates.validateQuoteResponseTemplateDraft,
+        {
+          templateId: created.templateId,
+          versionId: created.versionId,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/cross-scope/);
+    await expect(
+      builder.mutation(
+        (api as any).quote_response_templates.publishQuoteResponseTemplate,
+        {
+          templateId: created.templateId,
+          versionId: created.versionId,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/cross-scope/);
+    await expect(
+      builder.mutation(
+        (api as any).quote_response_templates.selectQuoteResponseTemplateVersion,
+        {
+          templateId: created.templateId,
+          versionId: created.versionId,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
       )
     ).rejects.toThrow(/cross-scope/);
     await expect(
@@ -777,12 +817,22 @@ describe("Quote Response Template public contract", () => {
     ).rejects.toThrow(/cross-scope/);
 
     const fieldId = await base.run(async (ctx) => {
-      await ctx.db.patch(created.versionId, { organizationId: ORGANIZATION_ID });
+      await ctx.db.patch(created.versionId, {
+        organizationId: ORGANIZATION_ID,
+        status: "draft",
+      });
       const field = await ctx.db
         .query("quoteResponseTemplateFields")
         .withIndex("by_version", (query) => query.eq("versionId", created.versionId))
         .first();
       if (!field) throw new Error("Missing quote template field fixture.");
+      const fields = await ctx.db
+        .query("quoteResponseTemplateFields")
+        .withIndex("by_version", (query) => query.eq("versionId", created.versionId))
+        .collect();
+      for (const candidate of fields) {
+        await ctx.db.patch(candidate._id, { organizationId: ORGANIZATION_ID });
+      }
       await ctx.db.patch(field._id, { organizationId: "org_other" });
       return field._id;
     });
@@ -826,6 +876,57 @@ describe("Quote Response Template public contract", () => {
         }
       )
     ).rejects.toThrow(/cross-scope field/);
+  });
+
+  test("fails closed when the latest historical version crosses scope", async () => {
+    const { base, builder } = await fixture();
+    const first = await builder.mutation(
+      (api as any).quote_response_templates.createQuoteResponseTemplateDraft,
+      {
+        audience: "contractor",
+        name: "Latest version scope contract",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await builder.mutation(
+      (api as any).quote_response_templates.publishQuoteResponseTemplate,
+      {
+        templateId: first.templateId,
+        versionId: first.versionId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const second = await builder.mutation(
+      (api as any).quote_response_templates.createQuoteResponseTemplateDraft,
+      {
+        audience: "contractor",
+        name: "Latest version scope contract",
+        sourceTemplateId: first.templateId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await base.run(async (ctx) => {
+      await ctx.db.patch(second.versionId, {
+        organizationId: "org_other",
+        status: "published",
+      });
+      await ctx.db.patch(first.templateId, {
+        currentVersionId: first.versionId,
+        selectedVersionId: first.versionId,
+      });
+    });
+
+    await expect(
+      builder.mutation(
+        (api as any).quote_response_templates.createQuoteResponseTemplateDraft,
+        {
+          audience: "contractor",
+          name: "Rejected next version",
+          sourceTemplateId: first.templateId,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/latest version|cross-scope/);
   });
 
   test("dry-runs without writes, replays idempotently, and processes migration batches", async () => {
