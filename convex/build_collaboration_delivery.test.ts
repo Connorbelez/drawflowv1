@@ -930,6 +930,8 @@ describe("Build collaboration external delivery", () => {
   });
 
   test("reschedules queued digest work when cadence changes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse("2026-07-31T14:30:00.000Z"));
     const fixture = await seedDeliveryBuild();
     await fixture.broker.mutation(
       (api as any).build_collaboration_notifications
