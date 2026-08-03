@@ -3,6 +3,7 @@ import { api, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { authKit } from "./auth";
 import { resendClient } from "./email_transport";
+import { quoteInvitationSecretVerifier } from "./quote_invitation_access";
 
 const ALLOWED_CONVEX_STORAGE_HOST_SUFFIXES = [
   ".convex.cloud",
@@ -14,6 +15,8 @@ const BUILD_COLLABORATION_EXPORT_ASSET_PATH =
 const BUILD_COLLABORATION_EXPORT_ARCHIVE_CHUNK_PATH =
   "/api/build-collaboration/export-archive-chunk";
 const COST_DOCUMENT_PAGE_PATH = "/api/cost-documents/page";
+const QUOTE_RESPONSE_DRAFT_ATTACHMENT_UPLOAD_PATH =
+  "/api/quote-response-draft-attachment-upload";
 const DEFAULT_BUILD_COLLABORATION_APP_ORIGINS = [
   "https://drawflow.fairlend.ca",
   "http://localhost:3000",
@@ -22,6 +25,126 @@ const DEFAULT_BUILD_COLLABORATION_APP_ORIGINS = [
 
 const http = httpRouter();
 authKit.registerRoutes(http);
+http.route({
+  handler: httpAction((_ctx, request) => {
+    const corsHeaders = quoteResponseDraftUploadCorsHeaders(request);
+    if (!corsHeaders) {
+      return Promise.resolve(
+        new Response("Quote response upload origin denied.", { status: 403 })
+      );
+    }
+    return Promise.resolve(
+      new Response(null, { headers: corsHeaders, status: 204 })
+    );
+  }),
+  method: "OPTIONS",
+  path: QUOTE_RESPONSE_DRAFT_ATTACHMENT_UPLOAD_PATH,
+});
+http.route({
+  handler: httpAction(async (ctx, request) => {
+    const corsHeaders = quoteResponseDraftUploadCorsHeaders(request);
+    if (!corsHeaders) {
+      return new Response("Quote response upload origin denied.", {
+        status: 403,
+      });
+    }
+    const requestUrl = new URL(request.url);
+    const stagingSessionId = requestUrl.searchParams.get("stagingSessionId");
+    const uploadSecret = request.headers.get("X-Quote-Upload-Secret")?.trim();
+    if (!(stagingSessionId && uploadSecret && uploadSecret.length <= 512)) {
+      return quoteResponseDraftUploadResponse(
+        "Missing response upload credentials.",
+        corsHeaders,
+        400
+      );
+    }
+    const uploadSecretVerifier =
+      await quoteInvitationSecretVerifier(uploadSecret);
+    let authorization: {
+      expectedMimeType?: string;
+      expectedSizeBytes?: number;
+      status: "available" | "unavailable";
+    };
+    try {
+      authorization = await ctx.runQuery(
+        internal.quote_response_drafts
+          .authorizeQuoteInvitationResponseDraftAttachmentHttpUpload,
+        {
+          stagingSessionId: stagingSessionId as never,
+          uploadSecretVerifier,
+        }
+      );
+    } catch {
+      return quoteResponseDraftUploadResponse(
+        "Response upload reservation is unavailable.",
+        corsHeaders,
+        410
+      );
+    }
+    if (
+      authorization.status !== "available" ||
+      authorization.expectedMimeType === undefined ||
+      authorization.expectedSizeBytes === undefined
+    ) {
+      return quoteResponseDraftUploadResponse(
+        "Response upload reservation is unavailable.",
+        corsHeaders,
+        410
+      );
+    }
+    const contentType = request.headers.get("Content-Type")?.toLowerCase();
+    if (!contentType || contentType !== authorization.expectedMimeType) {
+      return quoteResponseDraftUploadResponse(
+        "Response upload content type does not match its reservation.",
+        corsHeaders,
+        415
+      );
+    }
+    const body = await request.blob();
+    if (body.size !== authorization.expectedSizeBytes) {
+      return quoteResponseDraftUploadResponse(
+        "Response upload size does not match its reservation.",
+        corsHeaders,
+        400
+      );
+    }
+    const storageId = await ctx.storage.store(body);
+    let completed = false;
+    try {
+      completed = await ctx.runMutation(
+        internal.quote_response_drafts
+          .completeQuoteInvitationResponseDraftAttachmentHttpUpload,
+        {
+          actualMimeType: contentType,
+          stagingSessionId: stagingSessionId as never,
+          storageId,
+          uploadSecretVerifier,
+        }
+      );
+    } finally {
+      if (!completed) {
+        await ctx.storage.delete(storageId);
+      }
+    }
+    if (!completed) {
+      return quoteResponseDraftUploadResponse(
+        "Response upload reservation ended before completion.",
+        corsHeaders,
+        409
+      );
+    }
+    return new Response(JSON.stringify({ storageId }), {
+      headers: {
+        ...corsHeaders,
+        "Cache-Control": "private, no-store, max-age=0",
+        "Content-Type": "application/json",
+      },
+      status: 201,
+    });
+  }),
+  method: "POST",
+  path: QUOTE_RESPONSE_DRAFT_ATTACHMENT_UPLOAD_PATH,
+});
 http.route({
   handler: httpAction(async (ctx, request) => {
     try {
@@ -511,6 +634,49 @@ function buildCollaborationExportCorsHeaders(
     "Access-Control-Max-Age": "600",
     Vary: "Origin",
   };
+}
+
+function quoteResponseDraftUploadCorsHeaders(
+  request: Request
+): Record<string, string> | null {
+  const origin = request.headers.get("Origin");
+  if (!origin) {
+    return {};
+  }
+  const configuredOrigins = (process.env.DRAWFLOW_APP_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (
+    ![
+      ...DEFAULT_BUILD_COLLABORATION_APP_ORIGINS,
+      ...configuredOrigins,
+    ].includes(origin)
+  ) {
+    return null;
+  }
+  return {
+    "Access-Control-Allow-Headers": "Content-Type, X-Quote-Upload-Secret",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Max-Age": "600",
+    Vary: "Origin",
+  };
+}
+
+function quoteResponseDraftUploadResponse(
+  message: string,
+  corsHeaders: Record<string, string>,
+  status: number
+) {
+  return new Response(message, {
+    headers: {
+      ...corsHeaders,
+      "Cache-Control": "private, no-store, max-age=0",
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+    status,
+  });
 }
 
 export default http;

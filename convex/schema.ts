@@ -699,6 +699,33 @@ const quoteInvitationAccessEventTypeValidator = v.union(
   v.literal("profile_claimed")
 );
 
+// A recipient response is deliberately a separate mutable aggregate from the
+// immutable Quote Package. These values never become a submitted Quote
+// Response until the later submission workflow explicitly snapshots them.
+const quoteInvitationResponseDraftLineSourceValidator = v.union(
+  v.literal("package_labour"),
+  v.literal("package_material"),
+  v.literal("template_priced"),
+  v.literal("expanded_scope")
+);
+
+const quoteInvitationResponseDraftLineScopeValidator = v.union(
+  v.literal("labour"),
+  v.literal("materials"),
+  v.literal("whole_quote")
+);
+
+// Upload URLs cannot carry application authorization state after they are
+// issued, so every recipient file gets a bounded, invitation-scoped staging
+// session before storage accepts bytes. `finalized` means the storage ID was
+// registered; only `consumed` storage is retained by the Field Ledger.
+const quoteInvitationResponseDraftAttachmentStagingStateValidator = v.union(
+  v.literal("open"),
+  v.literal("finalized"),
+  v.literal("consumed"),
+  v.literal("abandoned")
+);
+
 const quotePackageAttachmentKindValidator = v.union(
   v.literal("permit"),
   v.literal("inherited")
@@ -2615,6 +2642,139 @@ export default defineSchema({
       "quotePackageRevisionId",
       "sourceBuildDocumentId",
     ]),
+  // One canonical, mutable Field Ledger exists for an Invitation + immutable
+  // Package Revision. It intentionally contains only aggregate progress and a
+  // bounded rich-text note; response line values, answers, and files are
+  // separate rows so a long-lived draft never rewrites an unbounded document.
+  quoteInvitationResponseDrafts: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    version: v.number(),
+    commentsHtml: v.optional(v.string()),
+    completedPricingLineCount: v.number(),
+    answeredFieldCount: v.number(),
+    attachmentCount: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundInvitationId_and_quotePackageRevisionId", [
+      "quoteRoundInvitationId",
+      "quotePackageRevisionId",
+    ])
+    .index("by_quoteRoundId_and_updatedAt", ["quoteRoundId", "updatedAt"]),
+  quoteInvitationResponseDraftLineItems: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseDraftId: v.id("quoteInvitationResponseDrafts"),
+    lineKey: v.string(),
+    source: quoteInvitationResponseDraftLineSourceValidator,
+    scope: quoteInvitationResponseDraftLineScopeValidator,
+    sourcePackageRevisionLabourLineId: v.optional(
+      v.id("quotePackageRevisionLabourLines")
+    ),
+    sourcePackageRevisionMaterialLineId: v.optional(
+      v.id("quotePackageRevisionMaterialLines")
+    ),
+    sourcePackageRevisionResponseFieldId: v.optional(
+      v.id("quotePackageRevisionResponseFields")
+    ),
+    title: v.string(),
+    quotedAmountCents: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteInvitationResponseDraftId_and_lineKey", [
+      "quoteInvitationResponseDraftId",
+      "lineKey",
+    ])
+    .index("by_quoteInvitationResponseDraftId_and_updatedAt", [
+      "quoteInvitationResponseDraftId",
+      "updatedAt",
+    ]),
+  quoteInvitationResponseDraftAnswers: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseDraftId: v.id("quoteInvitationResponseDrafts"),
+    sourcePackageRevisionResponseFieldId: v.id(
+      "quotePackageRevisionResponseFields"
+    ),
+    fieldKey: v.string(),
+    scope: quoteInvitationResponseDraftLineScopeValidator,
+    value: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_draft_and_responseFieldId", [
+    "quoteInvitationResponseDraftId",
+    "sourcePackageRevisionResponseFieldId",
+  ]),
+  quoteInvitationResponseDraftAttachments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseDraftId: v.id("quoteInvitationResponseDrafts"),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    sourcePackageRevisionResponseFieldId: v.optional(
+      v.id("quotePackageRevisionResponseFields")
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_quoteInvitationResponseDraftId_and_createdAt", [
+      "quoteInvitationResponseDraftId",
+      "createdAt",
+    ])
+    .index("by_storageId", ["storageId"]),
+  // A reserved slot is scoped to the exact Invitation + Package Revision and
+  // its initiating browser lease or claimed WorkOS identity. This prevents a
+  // generated upload URL from becoming an unbounded, transferable file sink.
+  quoteInvitationResponseDraftAttachmentStagingSessions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationBrowserSessionId: v.optional(
+      v.id("quoteInvitationBrowserSessions")
+    ),
+    ownerWorkosUserId: v.optional(v.string()),
+    expectedFileName: v.string(),
+    expectedMimeType: v.string(),
+    expectedSizeBytes: v.number(),
+    uploadSecretVerifier: v.string(),
+    sourcePackageRevisionResponseFieldId: v.optional(
+      v.id("quotePackageRevisionResponseFields")
+    ),
+    pendingStorageId: v.optional(v.id("_storage")),
+    state: quoteInvitationResponseDraftAttachmentStagingStateValidator,
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundInvitationId_and_quotePackageRevisionId_and_state", [
+      "quoteRoundInvitationId",
+      "quotePackageRevisionId",
+      "state",
+    ])
+    .index("by_pendingStorageId", ["pendingStorageId"])
+    .index("by_state_and_expiresAt", ["state", "expiresAt"]),
   quoteRoundInvitations: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

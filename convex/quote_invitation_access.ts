@@ -27,6 +27,7 @@ const quoteRecipientCapabilityValidator = v.union(
 );
 
 const quoteAccessLabourLineValidator = v.object({
+  sourceLineId: v.id("quotePackageRevisionLabourLines"),
   budgetCents: v.optional(v.number()),
   durationDays: v.optional(v.number()),
   milestoneName: v.string(),
@@ -36,6 +37,7 @@ const quoteAccessLabourLineValidator = v.object({
 });
 
 const quoteAccessMaterialLineValidator = v.object({
+  sourceLineId: v.id("quotePackageRevisionMaterialLines"),
   deliveryEndDay: v.number(),
   deliveryInstructions: v.string(),
   deliveryLocation: v.string(),
@@ -48,6 +50,7 @@ const quoteAccessMaterialLineValidator = v.object({
 });
 
 const quoteAccessAttachmentValidator = v.object({
+  sourceAttachmentId: v.id("quotePackageRevisionAttachments"),
   fileName: v.string(),
   kind: v.union(v.literal("permit"), v.literal("inherited")),
   mimeType: v.string(),
@@ -55,6 +58,8 @@ const quoteAccessAttachmentValidator = v.object({
 });
 
 const quoteAccessResponseFieldValidator = v.object({
+  sourceFieldId: v.id("quotePackageRevisionResponseFields"),
+  choiceOptions: v.optional(v.array(v.string())),
   fieldKey: v.string(),
   kind: v.union(
     v.literal("priced_line"),
@@ -66,6 +71,7 @@ const quoteAccessResponseFieldValidator = v.object({
   ),
   label: v.string(),
   required: v.boolean(),
+  renderer: v.union(v.literal("input"), v.literal("tiptap")),
   richTextDefaultHtml: v.optional(v.string()),
   scope: v.union(
     v.literal("whole_quote"),
@@ -74,7 +80,7 @@ const quoteAccessResponseFieldValidator = v.object({
   ),
 });
 
-const quoteInvitationAccessProjectionValidator = v.object({
+export const quoteInvitationAccessProjectionValidator = v.object({
   accessExpiresAt: v.number(),
   invitationId: v.id("quoteRoundInvitations"),
   issuerName: v.string(),
@@ -99,6 +105,10 @@ const quoteInvitationAccessProjectionValidator = v.object({
     v.literal("closed"),
     v.literal("cancelled")
   ),
+  // Browser leases are intentionally surfaced only to their holder. Claimed
+  // access omits this field, so an authenticated recipient is not coupled to a
+  // prior magic-link session.
+  sessionExpiresAt: v.optional(v.number()),
 });
 
 const quoteInvitationExchangeResultValidator = v.union(
@@ -133,13 +143,42 @@ const quoteRecipientClaimResultValidator = v.object({
 
 type InvitationAccessCtx = QueryCtx | MutationCtx;
 
-interface InvitationScope {
+export interface InvitationScope {
   brokerage: Doc<"brokerages">;
   invitation: Doc<"quoteRoundInvitations">;
   packageRevision: Doc<"quotePackageRevisions">;
   profile: Doc<"contractorProfiles">;
   round: Doc<"quoteRounds">;
 }
+
+export type QuoteInvitationResponseAccessState =
+  | "available"
+  | "read_only"
+  | "superseded"
+  | "unavailable";
+
+export type QuoteInvitationBrowserReadAccess =
+  | {
+      scope: InvitationScope;
+      session: Doc<"quoteInvitationBrowserSessions">;
+      status: Exclude<QuoteInvitationResponseAccessState, "unavailable">;
+    }
+  | { status: "unavailable" };
+
+export type QuoteInvitationBrowserWriteAccess =
+  | {
+      scope: InvitationScope;
+      session: Doc<"quoteInvitationBrowserSessions">;
+      status: Exclude<QuoteInvitationResponseAccessState, "unavailable">;
+    }
+  | { status: "unavailable" };
+
+export type QuoteInvitationClaimedAccess =
+  | {
+      scope: InvitationScope;
+      status: Exclude<QuoteInvitationResponseAccessState, "unavailable">;
+    }
+  | { status: "unavailable" };
 
 interface QuoteInvitationCredentialDispatchInput {
   accessExpiresAt: number;
@@ -319,7 +358,9 @@ export const exchangeQuoteInvitationAccess = publicMutation
       scope,
     });
     return {
-      access: await quoteInvitationAccessProjection(ctx, scope),
+      access: await quoteInvitationAccessProjection(ctx, scope, {
+        sessionExpiresAt: session.sessionExpiresAt,
+      }),
       sessionExpiresAt: session.sessionExpiresAt,
       sessionToken: session.sessionToken,
       status: "available",
@@ -688,7 +729,7 @@ function invitationIsAvailable(scope: InvitationScope) {
   );
 }
 
-async function resolveInvitationScope(
+export async function resolveInvitationScope(
   ctx: InvitationAccessCtx,
   source:
     | Doc<"quoteInvitationAccessCredentials">
@@ -741,9 +782,172 @@ async function resolveInvitationScope(
   return { brokerage, invitation, packageRevision, profile, round };
 }
 
-async function quoteInvitationAccessProjection(
+/**
+ * Reads remain server-authoritative even though the client supplies a
+ * presentation clock to refresh its subscription at deadline boundaries.
+ * Never use caller time for a lease, access window, or response authorization:
+ * a caller-controlled value could otherwise keep an expired browser session
+ * readable indefinitely.
+ */
+export async function resolveQuoteInvitationBrowserReadAccess(
+  ctx: QueryCtx,
+  input: {
+    presentationNow?: number;
+    quoteRoundInvitationId: Id<"quoteRoundInvitations">;
+    sessionToken: string;
+  }
+): Promise<QuoteInvitationBrowserReadAccess> {
+  const now = Date.now();
+  const session = await readLiveBrowserSession(ctx, {
+    now,
+    sessionToken: input.sessionToken,
+  });
+  if (
+    !session ||
+    session.quoteRoundInvitationId !== input.quoteRoundInvitationId
+  ) {
+    return { status: "unavailable" };
+  }
+  const scope = await resolveInvitationScope(
+    ctx,
+    await ctx.db.get(session.quoteRoundInvitationId)
+  );
+  if (!scope) {
+    return { status: "unavailable" };
+  }
+  const status = quoteInvitationResponseAccessState(scope, now);
+  return status === "unavailable" ? { status } : { scope, session, status };
+}
+
+/**
+ * Mutations must derive their deadline from server time. A stale browser query
+ * may leave an input visually editable, but it can never reopen a response
+ * window or a revoked/superseded invitation.
+ */
+export async function resolveQuoteInvitationBrowserWriteAccess(
+  ctx: MutationCtx,
+  input: {
+    quoteRoundInvitationId: Id<"quoteRoundInvitations">;
+    sessionToken: string;
+  }
+): Promise<QuoteInvitationBrowserWriteAccess> {
+  const now = Date.now();
+  const session = await resolveLiveBrowserSession(ctx, input.sessionToken, now);
+  if (
+    !session ||
+    session.quoteRoundInvitationId !== input.quoteRoundInvitationId
+  ) {
+    return { status: "unavailable" };
+  }
+  const scope = await resolveInvitationScope(
+    ctx,
+    await ctx.db.get(session.quoteRoundInvitationId)
+  );
+  if (!scope) {
+    return { status: "unavailable" };
+  }
+  const status = quoteInvitationResponseAccessState(scope, now);
+  return status === "unavailable" ? { status } : { scope, session, status };
+}
+
+export async function resolveQuoteInvitationClaimedReadAccess(
   ctx: InvitationAccessCtx,
-  scope: InvitationScope
+  input: {
+    presentationNow?: number;
+    quoteRoundInvitationId: Id<"quoteRoundInvitations">;
+    workosUserId: string;
+  }
+): Promise<QuoteInvitationClaimedAccess> {
+  const scope = await resolveInvitationScope(
+    ctx,
+    await ctx.db.get(input.quoteRoundInvitationId)
+  );
+  if (!scope || scope.profile.accountWorkosUserId !== input.workosUserId) {
+    return { status: "unavailable" };
+  }
+  // The presentation clock exists solely to let reactive callers refresh at a
+  // visual boundary. Claimed reads still make the permission decision on the
+  // server's clock, matching their mutation path.
+  const status = quoteInvitationResponseAccessState(scope, Date.now());
+  return status === "unavailable" ? { status } : { scope, status };
+}
+
+export async function resolveQuoteInvitationClaimedWriteAccess(
+  ctx: MutationCtx,
+  input: {
+    quoteRoundInvitationId: Id<"quoteRoundInvitations">;
+    workosUserId: string;
+  }
+): Promise<QuoteInvitationClaimedAccess> {
+  return await resolveQuoteInvitationClaimedReadAccess(ctx, {
+    quoteRoundInvitationId: input.quoteRoundInvitationId,
+    workosUserId: input.workosUserId,
+  });
+}
+
+function quoteInvitationResponseAccessState(
+  scope: InvitationScope,
+  now: number
+): QuoteInvitationResponseAccessState {
+  if (!Number.isSafeInteger(now) || now < 0) {
+    return "unavailable";
+  }
+  if (invitationHasReplacement(scope)) {
+    return "superseded";
+  }
+  if (!invitationIsAvailable(scope)) {
+    return "unavailable";
+  }
+  if (
+    scope.round.state !== "open" ||
+    now >= scope.packageRevision.responseDeadline
+  ) {
+    return "read_only";
+  }
+  return "available";
+}
+
+function invitationHasReplacement(scope: InvitationScope) {
+  // The round's canonical current revision, rather than the existence of
+  // another active recipient invitation, determines supersession. Looking at
+  // any active invitation would incorrectly mark both the prior and newly
+  // issued invitation read-only during a package revision cutover.
+  return scope.round.currentPackageRevisionId !== scope.packageRevision._id;
+}
+
+async function readLiveBrowserSession(
+  ctx: QueryCtx,
+  input: { now: number; sessionToken: string }
+) {
+  if (!Number.isSafeInteger(input.now) || input.now < 0) {
+    return null;
+  }
+  const secret = boundedSecret(input.sessionToken);
+  if (!secret) {
+    return null;
+  }
+  const sessionVerifier = await quoteInvitationSecretVerifier(secret);
+  const session = await ctx.db
+    .query("quoteInvitationBrowserSessions")
+    .withIndex("by_sessionVerifier", (query) =>
+      query.eq("sessionVerifier", sessionVerifier)
+    )
+    .unique();
+  if (
+    !session ||
+    session.state !== "active" ||
+    input.now >= session.accessExpiresAt ||
+    input.now >= session.sessionExpiresAt
+  ) {
+    return null;
+  }
+  return session;
+}
+
+export async function quoteInvitationAccessProjection(
+  ctx: InvitationAccessCtx,
+  scope: InvitationScope,
+  options?: { sessionExpiresAt?: number }
 ) {
   const [labourLines, materialLines, attachments, responseFields] =
     await Promise.all([
@@ -796,12 +1000,14 @@ async function quoteInvitationAccessProjection(
         kind: attachment.kind,
         mimeType: attachment.mimeTypeSnapshot,
         sizeBytes: attachment.sizeBytesSnapshot,
+        sourceAttachmentId: attachment._id,
       })),
       labourLines: labourLines.map((line) => ({
         budgetCents: line.budgetCents,
         durationDays: line.durationDays,
         milestoneName: line.milestoneName,
         scopeOfWorkTiptapJson: line.scopeOfWorkTiptapJson,
+        sourceLineId: line._id,
         startDay: line.startDay,
         submilestoneName: line.submilestoneName,
       })),
@@ -813,17 +1019,21 @@ async function quoteInvitationAccessProjection(
         description: line.description,
         quantity: line.quantity,
         specificationTiptapJson: line.specificationTiptapJson,
+        sourceLineId: line._id,
         title: line.title,
         unit: line.unit,
       })),
       responseDeadline: scope.packageRevision.responseDeadline,
       responseFields: responseFields.map((field) => ({
+        choiceOptions: field.choiceOptions,
         fieldKey: field.fieldKey,
         kind: field.kind,
         label: field.label,
         required: field.required,
+        renderer: field.renderer,
         richTextDefaultHtml: field.richTextDefaultHtml,
         scope: field.scope,
+        sourceFieldId: field._id,
       })),
       revision: scope.packageRevision.revision,
       siteAddress: scope.packageRevision.siteAddressSnapshot,
@@ -835,6 +1045,9 @@ async function quoteInvitationAccessProjection(
     },
     recipientName: scope.invitation.recipientNameSnapshot,
     roundState: scope.round.state,
+    ...(options?.sessionExpiresAt === undefined
+      ? {}
+      : { sessionExpiresAt: options.sessionExpiresAt }),
   };
 }
 

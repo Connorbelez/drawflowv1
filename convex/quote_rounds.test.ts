@@ -4,7 +4,7 @@ import resendTest from "@convex-dev/resend/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
   defaultQuoteInvitationAccessExpiry,
@@ -23,6 +23,725 @@ beforeEach(() => {
     "DrawFlow <notifications@updates.fairlend.ca>"
   );
   vi.stubEnv("QUOTE_INVITATION_PUBLIC_ORIGIN", "https://drawflow.test");
+  vi.stubEnv("CONVEX_SITE_URL", "https://drawflow.convex.site");
+});
+
+describe("Quote Invitation Field Ledger drafts", () => {
+  async function openedLedgerFixture() {
+    const fixture = await seedQuoteFixture();
+    const { credential, invitation } = await publishCombinedRound(
+      fixture,
+      "field-ledger-publish-001"
+    );
+    const magicToken = "field-ledger-browser-token";
+    await replaceCredentialMagicToken(fixture, credential._id, magicToken);
+    const exchanged = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken }
+    );
+    if (exchanged.status !== "available") {
+      throw new Error("Expected a usable Quote Invitation browser session.");
+    }
+    return { ...fixture, exchanged, invitation, magicToken };
+  }
+
+  test("does not create on read, creates one canonical draft on first edit, and resumes it across browser sessions", async () => {
+    const fixture = await openedLedgerFixture();
+    const before = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(before).toMatchObject({ draft: null, status: "available" });
+    const noDraftRows = await fixture.base.run(async (ctx) =>
+      await ctx.db.query("quoteInvitationResponseDrafts").take(2)
+    );
+    expect(noDraftRows).toHaveLength(0);
+
+    const labourLine = before.access.package.labourLines[0];
+    const firstSave = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: {
+          linePatches: [
+            {
+              lineKey: `labour:${labourLine.sourceLineId}`,
+              quotedAmountCents: 125_000_00,
+              scope: "labour",
+              source: "package_labour",
+              sourcePackageRevisionLabourLineId: labourLine.sourceLineId,
+            },
+          ],
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(firstSave).toMatchObject({
+      status: "saved",
+      draft: { completedPricingLineCount: 1, version: 1 },
+    });
+
+    const resumedSession = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken: fixture.magicToken }
+    );
+    expect(resumedSession).toMatchObject({ status: "available" });
+    const resumed = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: resumedSession.sessionToken,
+      }
+    );
+    expect(resumed).toMatchObject({
+      status: "available",
+      draft: {
+        completedPricingLineCount: 1,
+        lineItems: [
+          {
+            lineKey: `labour:${labourLine.sourceLineId}`,
+            quotedAmountCents: 125_000_00,
+          },
+        ],
+        version: 1,
+      },
+    });
+    const allDrafts = await fixture.base.run(async (ctx) =>
+      await ctx.db.query("quoteInvitationResponseDrafts").take(2)
+    );
+    expect(allDrafts).toHaveLength(1);
+  });
+
+  test("uses server time for public draft reads even when a caller reports a stale presentation clock", async () => {
+    const fixture = await openedLedgerFixture();
+    const session = await fixture.base.run((ctx) =>
+      ctx.db
+        .query("quoteInvitationBrowserSessions")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query
+            .eq("quoteRoundInvitationId", fixture.invitation._id)
+            .eq("state", "active")
+        )
+        .unique()
+    );
+    if (!session) {
+      throw new Error("Expected the browser lease created by the fixture.");
+    }
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(session._id, {
+        sessionExpiresAt: Date.now() - 1,
+        updatedAt: Date.now(),
+      })
+    );
+
+    const expired = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        // This deliberately predates the lease. A client clock must never make
+        // the expired bearer session readable again.
+        presentationNow: 0,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+
+    expect(expired).toEqual({ status: "unavailable" });
+  });
+
+  test("returns a recoverable optimistic conflict without overwriting the recipient's local pending input", async () => {
+    const fixture = await openedLedgerFixture();
+    const access = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const labourLine = access.access.package.labourLines[0];
+    const saved = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: {
+          linePatches: [
+            {
+              lineKey: `labour:${labourLine.sourceLineId}`,
+              quotedAmountCents: 111_000_00,
+              scope: "labour",
+              source: "package_labour",
+              sourcePackageRevisionLabourLineId: labourLine.sourceLineId,
+            },
+          ],
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(saved).toMatchObject({ status: "saved", draft: { version: 1 } });
+    const stale = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: {
+          commentsHtml: "<p>Keep this browser's pending wording.</p>",
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(stale).toMatchObject({
+      status: "conflict",
+      draft: {
+        lineItems: [{ quotedAmountCents: 111_000_00 }],
+        version: 1,
+      },
+    });
+    expect(stale.draft?.commentsHtml).toBeUndefined();
+  });
+
+  test("reserves the 25-file ceiling before issuing response upload URLs", async () => {
+    const fixture = await openedLedgerFixture();
+    const uploadIntent = (index: number) => ({
+      fileName: `scope-${index}.pdf`,
+      mimeType: "application/pdf",
+      quoteRoundInvitationId: fixture.invitation._id,
+      sessionToken: fixture.exchanged.sessionToken,
+      sizeBytes: 4,
+    });
+    for (let index = 1; index <= 25; index += 1) {
+      await fixture.base.mutation(
+        (api as any).quote_response_drafts
+          .beginQuoteInvitationResponseDraftAttachmentUpload,
+        uploadIntent(index)
+      );
+    }
+    await expect(
+      fixture.base.mutation(
+        (api as any).quote_response_drafts
+          .beginQuoteInvitationResponseDraftAttachmentUpload,
+        uploadIntent(26)
+      )
+    ).rejects.toThrow(/at most 25 response files/);
+    const stages = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quoteInvitationResponseDraftAttachmentStagingSessions")
+        .withIndex(
+          "by_quoteRoundInvitationId_and_quotePackageRevisionId_and_state",
+          (query) =>
+            query
+              .eq("quoteRoundInvitationId", fixture.invitation._id)
+              .eq(
+                "quotePackageRevisionId",
+                fixture.invitation.quotePackageRevisionId
+              )
+              .eq("state", "open")
+        )
+        .take(26)
+    );
+    expect(stages).toHaveLength(25);
+  });
+
+  test("stores and binds response bytes through the one-time staged HTTP endpoint", async () => {
+    const fixture = await openedLedgerFixture();
+    const began = await fixture.base.mutation(
+      (api as any).quote_response_drafts
+        .beginQuoteInvitationResponseDraftAttachmentUpload,
+      {
+        fileName: "bound-scope.pdf",
+        mimeType: "application/pdf",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        sizeBytes: 4,
+      }
+    );
+    const uploadUrl = new URL(began.uploadUrl);
+    const uploadPath = `${uploadUrl.pathname}${uploadUrl.search}`;
+    const preflight = await fixture.base.fetch(uploadPath, {
+      headers: {
+        "Access-Control-Request-Headers":
+          "Content-Type, X-Quote-Upload-Secret",
+        "Access-Control-Request-Method": "POST",
+        Origin: "http://localhost:3000",
+      },
+      method: "OPTIONS",
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("Access-Control-Allow-Headers")).toContain(
+      "X-Quote-Upload-Secret"
+    );
+    const uploaded = await fixture.base.fetch(uploadPath, {
+      body: new Blob(["file"], { type: "application/pdf" }),
+      headers: {
+        "Content-Type": "application/pdf",
+        Origin: "http://localhost:3000",
+        "X-Quote-Upload-Secret": began.uploadSecret,
+      },
+      method: "POST",
+    });
+    expect(uploaded.status).toBe(201);
+    const { storageId } = (await uploaded.json()) as { storageId: Id<"_storage"> };
+    const bound = await fixture.base.run(async (ctx) => ({
+      stage: await ctx.db.get(began.stagingSessionId),
+      storage: await ctx.db.system.get(storageId),
+    }));
+    expect(bound.stage).toMatchObject({
+      pendingStorageId: storageId,
+      state: "finalized",
+    });
+    expect(bound.storage).not.toBeNull();
+    const replay = await fixture.base.fetch(uploadPath, {
+      body: new Blob(["file"], { type: "application/pdf" }),
+      headers: {
+        "Content-Type": "application/pdf",
+        Origin: "http://localhost:3000",
+        "X-Quote-Upload-Secret": began.uploadSecret,
+      },
+      method: "POST",
+    });
+    expect(replay.status).toBe(410);
+  });
+
+  test("keeps a registered response file staged through an optimistic conflict so it can attach on retry", async () => {
+    const fixture = await openedLedgerFixture();
+    const began = await fixture.base.mutation(
+      (api as any).quote_response_drafts
+        .beginQuoteInvitationResponseDraftAttachmentUpload,
+      {
+        fileName: "scope.pdf",
+        mimeType: "application/pdf",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        sizeBytes: 4,
+      }
+    );
+    expect(began).toMatchObject({ status: "available" });
+    const storageId = await fixture.base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["file"], { type: "application/pdf" })
+      )
+    );
+    expect(
+      await fixture.base.mutation(
+        (internal as any).quote_response_drafts
+          .completeQuoteInvitationResponseDraftAttachmentHttpUpload,
+        {
+          actualMimeType: "application/pdf",
+          stagingSessionId: began.stagingSessionId,
+          storageId,
+          uploadSecretVerifier: await quoteInvitationSecretVerifier(
+            began.uploadSecret
+          ),
+        }
+      )
+    ).toBe(true);
+    await fixture.base.mutation(
+      (api as any).quote_response_drafts
+        .registerQuoteInvitationResponseDraftAttachmentUpload,
+      {
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        stagingSessionId: began.stagingSessionId,
+        storageId,
+      }
+    );
+    const savedDraft = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: { commentsHtml: "<p>Concurrent saved wording.</p>" },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(savedDraft).toMatchObject({ status: "saved", draft: { version: 1 } });
+
+    const conflict = await fixture.base.mutation(
+      (api as any).quote_response_drafts.attachQuoteInvitationResponseDraftFile,
+      {
+        expectedVersion: 0,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        stagingSessionId: began.stagingSessionId,
+        storageId,
+      }
+    );
+    expect(conflict).toMatchObject({ status: "conflict", draft: { version: 1 } });
+    const preserved = await fixture.base.run(async (ctx) => ({
+      stage: await ctx.db.get(began.stagingSessionId),
+      storage: await ctx.db.system.get(storageId),
+    }));
+    expect(preserved.stage).toMatchObject({
+      pendingStorageId: storageId,
+      state: "finalized",
+    });
+    expect(preserved.storage).not.toBeNull();
+
+    const retried = await fixture.base.mutation(
+      (api as any).quote_response_drafts.attachQuoteInvitationResponseDraftFile,
+      {
+        expectedVersion: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        stagingSessionId: began.stagingSessionId,
+        storageId,
+      }
+    );
+    expect(retried).toMatchObject({
+      status: "saved",
+      draft: { attachmentCount: 1, version: 2 },
+    });
+    const consumed = await fixture.base.run(async (ctx) => ({
+      attachments: await ctx.db
+        .query("quoteInvitationResponseDraftAttachments")
+        .withIndex("by_storageId", (query) => query.eq("storageId", storageId))
+        .take(2),
+      stage: await ctx.db.get(began.stagingSessionId),
+      storage: await ctx.db.system.get(storageId),
+    }));
+    expect(consumed.attachments).toHaveLength(1);
+    expect(consumed.stage).toMatchObject({ state: "consumed" });
+    expect(consumed.storage).not.toBeNull();
+  });
+
+  test("deletes registered but unconsumed response upload storage after staging expiry", async () => {
+    const fixture = await openedLedgerFixture();
+    const began = await fixture.base.mutation(
+      (api as any).quote_response_drafts
+        .beginQuoteInvitationResponseDraftAttachmentUpload,
+      {
+        fileName: "interrupted.pdf",
+        mimeType: "application/pdf",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        sizeBytes: 4,
+      }
+    );
+    const storageId = await fixture.base.run(async (ctx) =>
+      await ctx.storage.store(
+        new Blob(["file"], { type: "application/pdf" })
+      )
+    );
+    expect(
+      await fixture.base.mutation(
+        (internal as any).quote_response_drafts
+          .completeQuoteInvitationResponseDraftAttachmentHttpUpload,
+        {
+          actualMimeType: "application/pdf",
+          stagingSessionId: began.stagingSessionId,
+          storageId,
+          uploadSecretVerifier: await quoteInvitationSecretVerifier(
+            began.uploadSecret
+          ),
+        }
+      )
+    ).toBe(true);
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.invitation.quotePackageRevisionId, {
+        responseDeadline: Date.now() - 1,
+      });
+    });
+    await fixture.base.mutation(
+      (api as any).quote_response_drafts
+        .registerQuoteInvitationResponseDraftAttachmentUpload,
+      {
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        stagingSessionId: began.stagingSessionId,
+        storageId,
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(began.stagingSessionId, {
+        expiresAt: Date.now() - 1,
+        updatedAt: Date.now(),
+      });
+    });
+    await fixture.base.mutation(
+      (internal as any).quote_response_drafts
+        .expireQuoteInvitationResponseDraftAttachmentStagingSession,
+      { stagingSessionId: began.stagingSessionId }
+    );
+    const expired = await fixture.base.run(async (ctx) => ({
+      stage: await ctx.db.get(began.stagingSessionId),
+      storage: await ctx.db.system.get(storageId),
+    }));
+    expect(expired.stage).toMatchObject({ state: "abandoned" });
+    expect(expired.storage).toBeNull();
+  });
+
+  test("never lets public registration claim or delete an arbitrary storage object", async () => {
+    const fixture = await openedLedgerFixture();
+    const began = await fixture.base.mutation(
+      (api as any).quote_response_drafts
+        .beginQuoteInvitationResponseDraftAttachmentUpload,
+      {
+        fileName: "must-be-a-pdf.pdf",
+        mimeType: "application/pdf",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        sizeBytes: 4,
+      }
+    );
+    const storageId = await fixture.base.run(async (ctx) =>
+      await ctx.storage.store(new Blob(["files"], { type: "text/plain" }))
+    );
+    const registration = await fixture.base.mutation(
+      (api as any).quote_response_drafts
+        .registerQuoteInvitationResponseDraftAttachmentUpload,
+      {
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        stagingSessionId: began.stagingSessionId,
+        storageId,
+      }
+    );
+    expect(registration).toMatchObject({ status: "attachment_rejected" });
+    const rejected = await fixture.base.run(async (ctx) => ({
+      stage: await ctx.db.get(began.stagingSessionId),
+      storage: await ctx.db.system.get(storageId),
+    }));
+    expect(rejected.stage).toMatchObject({ state: "open" });
+    expect(rejected.storage).not.toBeNull();
+  });
+
+  test("rejects mismatched actual MIME metadata from bound upload completion", async () => {
+    const fixture = await openedLedgerFixture();
+    const began = await fixture.base.mutation(
+      (api as any).quote_response_drafts
+        .beginQuoteInvitationResponseDraftAttachmentUpload,
+      {
+        fileName: "must-have-content-type.pdf",
+        mimeType: "application/pdf",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        sizeBytes: 4,
+      }
+    );
+    const storageId = await fixture.base.run(async (ctx) =>
+      await ctx.storage.store(new Blob(["file"]))
+    );
+    expect(
+      await fixture.base.mutation(
+        (internal as any).quote_response_drafts
+          .completeQuoteInvitationResponseDraftAttachmentHttpUpload,
+        {
+          actualMimeType: "application/octet-stream",
+          stagingSessionId: began.stagingSessionId,
+          storageId,
+          uploadSecretVerifier: await quoteInvitationSecretVerifier(
+            began.uploadSecret
+          ),
+        }
+      )
+    ).toBe(false);
+    const rejected = await fixture.base.run(async (ctx) => ({
+      stage: await ctx.db.get(began.stagingSessionId),
+      storage: await ctx.db.system.get(storageId),
+    }));
+    expect(rejected.stage).toMatchObject({ state: "open" });
+    expect(rejected.storage).not.toBeNull();
+  });
+
+  test("allows a claimed account to resume the same draft, while deadline closure remains server-enforced", async () => {
+    const fixture = await openedLedgerFixture();
+    const access = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const materialLine = access.access.package.materialLines[0];
+    await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: {
+          linePatches: [
+            {
+              lineKey: `material:${materialLine.sourceLineId}`,
+              quotedAmountCents: 87_500_00,
+              scope: "materials",
+              source: "package_material",
+              sourcePackageRevisionMaterialLineId: materialLine.sourceLineId,
+            },
+          ],
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const recipient = withIdentity(
+      fixture.base,
+      ["member"],
+      "claimed-field-ledger-recipient",
+      ORGANIZATION_ID,
+      "quote-recipient@example.com"
+    );
+    await fixture.base.run((ctx) =>
+      ctx.db.insert("users", {
+        authId: "auth_claimed_field_ledger_recipient",
+        email: "quote-recipient@example.com",
+        emailVerified: true,
+        name: "Claimed Field Ledger recipient",
+        status: "active",
+        workosUserId: "claimed-field-ledger-recipient",
+      })
+    );
+    await recipient.mutation(
+      (api as any).quote_invitation_access.claimQuoteInvitationProfile,
+      { sessionToken: fixture.exchanged.sessionToken }
+    );
+    const claimed = await recipient.query(
+      (api as any).quote_response_drafts.getClaimedQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+      }
+    );
+    expect(claimed).toMatchObject({
+      status: "available",
+      draft: { lineItems: [{ quotedAmountCents: 87_500_00 }], version: 1 },
+    });
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.invitation.quotePackageRevisionId, {
+        responseDeadline: Date.now() - 1,
+      });
+    });
+    const readOnly = await recipient.query(
+      (api as any).quote_response_drafts.getClaimedQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+      }
+    );
+    expect(readOnly).toMatchObject({ status: "read_only" });
+    const blockedSave = await recipient.mutation(
+      (api as any).quote_response_drafts.saveClaimedQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 1,
+        patch: { commentsHtml: "<p>Late local text</p>" },
+        quoteRoundInvitationId: fixture.invitation._id,
+      }
+    );
+    expect(blockedSave).toEqual({ status: "read_only" });
+  });
+
+  test("marks only a prior package revision as superseded after a revision cutover", async () => {
+    const fixture = await openedLedgerFixture();
+    await fixture.base.run(async (ctx) => {
+      const currentRevision = await ctx.db.get(
+        fixture.invitation.quotePackageRevisionId
+      );
+      if (!currentRevision) {
+        throw new Error("Expected a published Quote Package Revision.");
+      }
+      const { _creationTime, _id, ...replacementSnapshot } = currentRevision;
+      const replacementRevisionId = await ctx.db.insert(
+        "quotePackageRevisions",
+        {
+          ...replacementSnapshot,
+          publishedAt: Date.now(),
+          revision: currentRevision.revision + 1,
+        }
+      );
+      await ctx.db.patch(fixture.invitation.quoteRoundId, {
+        currentPackageRevisionId: replacementRevisionId,
+        updatedAt: Date.now(),
+      });
+    });
+
+    const superseded = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(superseded).toEqual({ status: "superseded" });
+  });
+
+  test("never crosses invitation tenancy and gives internal users progress metadata without draft content", async () => {
+    const fixture = await openedLedgerFixture();
+    const access = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const labourLine = access.access.package.labourLines[0];
+    await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: {
+          commentsHtml: "<p>Private assumptions only.</p>",
+          linePatches: [
+            {
+              lineKey: `labour:${labourLine.sourceLineId}`,
+              quotedAmountCents: 200_000_00,
+              scope: "labour",
+              source: "package_labour",
+              sourcePackageRevisionLabourLineId: labourLine.sourceLineId,
+            },
+          ],
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const wrongPublication = await publishCombinedRound(
+      fixture,
+      "field-ledger-wrong-invitation-001"
+    );
+    const wrongInvitation = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: wrongPublication.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(wrongInvitation).toEqual({ status: "unavailable" });
+
+    const progress = await fixture.builder.query(
+      (api as any).quote_response_drafts.getQuoteRoundInvitationResponseProgress,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId: fixture.invitation.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(progress).toHaveLength(1);
+    expect(progress[0]).toMatchObject({
+      completedPricingLineCount: 1,
+      quoteRoundInvitationId: fixture.invitation._id,
+      status: "drafting",
+    });
+    expect(Object.keys(progress[0]).sort()).toEqual([
+      "answeredFieldCount",
+      "attachmentCount",
+      "completedPricingLineCount",
+      "quotePackageRevisionId",
+      "quoteRoundInvitationId",
+      "status",
+      "updatedAt",
+    ]);
+    expect(JSON.stringify(progress)).not.toContain("Private assumptions");
+    expect(JSON.stringify(progress)).not.toContain("20000000");
+  });
 });
 
 afterEach(() => {
