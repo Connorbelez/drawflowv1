@@ -137,7 +137,7 @@ http.route({
     }
     try {
       const authorized = await ctx.runMutation(
-        api.cost_documents.authorizeCostDocumentPageDownload,
+        internal.cost_documents.authorizeCostDocumentPageDownload,
         {
           assetId: assetId as never,
           buildId: buildId as never,

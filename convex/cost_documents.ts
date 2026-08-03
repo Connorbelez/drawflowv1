@@ -247,6 +247,27 @@ export const getCostDocument = authenticatedQuery
   })
   .public();
 
+export const listCostDocuments = authenticatedQuery
+  .input(activeBuildScopeFields)
+  .returns(v.array(costDocumentProjectionValidator))
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const documents = await ctx.db
+      .query("costDocuments")
+      .withIndex("by_buildId_and_submittedAt", (query) =>
+        query.eq("buildId", authorization.build._id)
+      )
+      .order("desc")
+      .take(100);
+    const inScope = documents.filter((document) =>
+      isDocumentInScope(document, authorization)
+    );
+    return await Promise.all(
+      inScope.map((document) => projectCostDocument(ctx, document))
+    );
+  })
+  .public();
+
 export const authorizeCostDocumentPageDownload = authenticatedMutation
   .input({
     ...activeBuildScopeFields,
@@ -309,7 +330,7 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
       storageId: asset.storageId,
     };
   })
-  .public();
+  .internal();
 
 type AuthorizedCostDocumentCtx = (QueryCtx | MutationCtx) & {
   viewer: ActiveBuildAuthorization["viewer"];

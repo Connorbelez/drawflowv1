@@ -11,6 +11,11 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 const ORGANIZATION_ID = "org_cost_documents";
 
+if (false) {
+  // @ts-expect-error The storage authorizer is intentionally HTTP-internal only.
+  void api.cost_documents.authorizeCostDocumentPageDownload;
+}
+
 describe("Cost Document public contract", () => {
   beforeEach(() => {
     vi.stubEnv("RESEND_API_KEY", "re_test_key");
@@ -228,6 +233,15 @@ describe("Cost Document public contract", () => {
         valid
       )
     ).rejects.toThrow("Forbidden");
+
+    const visibleDocuments = await fixture.builder.query(
+      (api as any).cost_documents.listCostDocuments,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(visibleDocuments).toEqual([]);
 
   });
 });
