@@ -551,6 +551,41 @@ async function insertVersionFields(
   }
 }
 
+function requireTemplateVersionScope(
+  template: Doc<"quoteResponseTemplates">,
+  version: Doc<"quoteResponseTemplateVersions"> | null,
+  context = "version"
+) {
+  if (
+    !version ||
+    version.templateId !== template._id ||
+    version.organizationId !== template.organizationId ||
+    version.brokerageId !== template.brokerageId
+  ) {
+    throw new ConvexError(
+      `Template ${template._id} has an unavailable or cross-scope ${context}.`
+    );
+  }
+  return version;
+}
+
+function requireTemplateFieldScope(
+  version: Doc<"quoteResponseTemplateVersions">,
+  field: Doc<"quoteResponseTemplateFields">
+) {
+  if (
+    field.versionId !== version._id ||
+    field.templateId !== version.templateId ||
+    field.organizationId !== version.organizationId ||
+    field.brokerageId !== version.brokerageId
+  ) {
+    throw new ConvexError(
+      `Template version ${version._id} has an unavailable or cross-scope field.`
+    );
+  }
+  return field;
+}
+
 async function readVersion(
   ctx: QueryCtx | MutationCtx,
   version: Doc<"quoteResponseTemplateVersions">
@@ -564,7 +599,9 @@ async function readVersion(
     audience: version.audience,
     createdAt: version.createdAt,
     description: version.description,
-    fields: fields.map((field) => ({
+    fields: fields.map((candidate) => {
+      const field = requireTemplateFieldScope(version, candidate);
+      return {
       _id: field._id,
       allowAlternates: field.allowAlternates,
       allowExclusions: field.allowExclusions,
@@ -581,8 +618,9 @@ async function readVersion(
       scope: field.scope,
       supportsTax: field.supportsTax,
       tax: field.tax,
-      validation: field.validation,
-    })),
+        validation: field.validation,
+      };
+    }),
     publishedAt: version.publishedAt,
     releaseNote: version.releaseNote,
     name: version.name,
@@ -598,17 +636,7 @@ function validateTemplateVersionPointer(
   version: Doc<"quoteResponseTemplateVersions"> | null,
   pointer: "currentVersionId" | "selectedVersionId"
 ) {
-  if (
-    !version ||
-    version.templateId !== template._id ||
-    version.organizationId !== template.organizationId ||
-    version.brokerageId !== template.brokerageId
-  ) {
-    throw new ConvexError(
-      `Template ${template._id} has an unavailable or cross-scope ${pointer} pointer.`
-    );
-  }
-  return version;
+  return requireTemplateVersionScope(template, version, `${pointer} pointer`);
 }
 
 async function readTemplateVersionPointers(
@@ -657,6 +685,9 @@ async function readTemplate(
     .withIndex("by_template_version", (query) => query.eq("templateId", template._id))
     .order("desc")
     .take(50);
+  const scopedVersions = versions.map((version) =>
+    requireTemplateVersionScope(template, version, "history version")
+  );
   const { currentVersion, selectedVersion } = await readTemplateVersionPointers(ctx, template);
   const identityVersion = currentVersion ?? selectedVersion;
   return {
@@ -671,7 +702,7 @@ async function readTemplate(
     status: template.status,
     templateKey: template.templateKey,
     updatedAt: template.updatedAt,
-    versions: versions.map(readVersionSummary),
+    versions: scopedVersions.map(readVersionSummary),
   };
 }
 
@@ -802,7 +833,11 @@ export const listQuoteResponseTemplateVersions = builderQuery
       .paginate(args.paginationOpts);
     return {
       ...versions,
-      page: versions.page.map(readVersionSummary),
+      page: versions.page.map((version) =>
+        readVersionSummary(
+          requireTemplateVersionScope(template, version, "history version")
+        )
+      ),
     };
   })
   .public();
@@ -874,7 +909,12 @@ export const createQuoteResponseTemplateDraft = builderMutation
         )
         .first();
       if (activeDraft) {
-        return { templateId: sourceTemplateId, versionId: activeDraft._id };
+        const scopedDraft = requireTemplateVersionScope(
+          sourceTemplate,
+          activeDraft,
+          "active draft"
+        );
+        return { templateId: sourceTemplateId, versionId: scopedDraft._id };
       }
       const { currentVersion, selectedVersion } = await readTemplateVersionPointers(
         ctx,
@@ -883,7 +923,9 @@ export const createQuoteResponseTemplateDraft = builderMutation
       const sourceVersion = currentVersion ?? selectedVersion;
       if (sourceVersion) {
           const sourceFields = await ctx.db.query("quoteResponseTemplateFields").withIndex("by_version_order", (query) => query.eq("versionId", sourceVersion._id)).collect();
-          fields = sourceFields.map((field, order) => ({
+          fields = sourceFields.map((candidate, order) => {
+            const field = requireTemplateFieldScope(sourceVersion, candidate);
+            return {
             allowAlternates: field.allowAlternates,
             allowExclusions: field.allowExclusions,
             choiceOptions: field.choiceOptions,
@@ -898,8 +940,9 @@ export const createQuoteResponseTemplateDraft = builderMutation
             scope: field.scope,
             supportsTax: field.supportsTax,
             tax: field.tax,
-            validation: field.validation,
-          }));
+              validation: field.validation,
+            };
+          });
       }
     }
     const normalizedFields = normalizeFields(fields);
@@ -983,6 +1026,7 @@ export const updateQuoteResponseTemplateDraft = builderMutation
     const name = requiredText(args.name, "Template name", 120);
     const description = boundedText(args.description, "Template description", 500) || undefined;
     const oldFields = await ctx.db.query("quoteResponseTemplateFields").withIndex("by_version", (query) => query.eq("versionId", version._id)).collect();
+    oldFields.forEach((field) => requireTemplateFieldScope(version, field));
     const now = Date.now();
     for (const oldField of oldFields) {
       await ctx.db.delete(oldField._id);
@@ -1017,6 +1061,7 @@ export const validateQuoteResponseTemplateDraft = builderQuery
       throw new ConvexError("Draft template version is unavailable.");
     }
     const fields = await ctx.db.query("quoteResponseTemplateFields").withIndex("by_version_order", (query) => query.eq("versionId", version._id)).collect();
+    fields.forEach((field) => requireTemplateFieldScope(version, field));
     const issues = validationIssues(fields.map((field) => ({
       allowAlternates: field.allowAlternates,
       allowExclusions: field.allowExclusions,
@@ -1054,6 +1099,7 @@ export const publishQuoteResponseTemplate = builderMutation
       throw new ConvexError("Only an organization-owned draft version can be published.");
     }
     const fields = await ctx.db.query("quoteResponseTemplateFields").withIndex("by_version_order", (query) => query.eq("versionId", version._id)).collect();
+    fields.forEach((field) => requireTemplateFieldScope(version, field));
     const issues = validationIssues(fields.map((field) => ({
       allowAlternates: field.allowAlternates,
       allowExclusions: field.allowExclusions,

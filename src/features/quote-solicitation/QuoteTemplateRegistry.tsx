@@ -410,7 +410,7 @@ export function QuoteTemplateRegistry({
       setMessage(safeErrorMessage(error, "Could not save draft."));
       return false;
     } finally {
-      setPendingMutation((current) => publishing ? "publish" : current === "save" ? null : current);
+      setPendingMutation(publishing ? "publish" : null);
     }
   };
 
@@ -554,7 +554,7 @@ export function QuoteTemplateRegistry({
           setReleaseNote("");
         }}
         onPublish={publishCurrentDraft}
-        onSave={saveCurrentDraft}
+        onSave={() => saveCurrentDraft()}
         releaseNote={releaseNote}
         selectedTemplate={selectedTemplate}
         isPending={isPending}

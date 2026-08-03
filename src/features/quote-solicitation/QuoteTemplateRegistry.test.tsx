@@ -151,6 +151,9 @@ describe("QuoteTemplateRegistry", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     const update = mutationByRef.get(getFunctionName(api.quote_response_templates.updateQuoteResponseTemplateDraft)) as ReturnType<typeof vi.fn>;
     await waitFor(() => expect(update).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save draft" }).getAttribute("disabled")).toBeNull()
+    );
     const lastPayload = update.mock.calls[update.mock.calls.length - 1]?.[0] as { fields: Array<Record<string, unknown>> };
     expect(lastPayload.fields.every((field) => !("_id" in field) && !("isPermanent" in field))).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "4. Preview" }));
