@@ -51,6 +51,7 @@ import { Progress } from "#/components/ui/progress.tsx";
 import { cn } from "#/lib/utils.ts";
 import {
   CollaborationRichTextEditor,
+  CollaborationRichTextPreview,
   type CollaborationTagOption,
 } from "../CollaborationRichTextEditor.tsx";
 
@@ -63,6 +64,15 @@ import {
 
 export type SystemPostPrototypeVariant = "A" | "B" | "C";
 export type SystemPostPrototypeKind = "milestone" | "draw";
+export type SystemPostPrototypeScenario =
+  | "active"
+  | "archived"
+  | "empty"
+  | "error"
+  | "loading"
+  | "reopened"
+  | "resolved"
+  | "restricted";
 export type SystemPostPrototypeRole =
   | "builder"
   | "contractor"
@@ -136,6 +146,20 @@ const ROLE_OPTIONS: { label: string; value: SystemPostPrototypeRole }[] = [
   { label: "Contractor", value: "contractor" },
   { label: "Lender staff", value: "lender_staff" },
   { label: "Lender admin", value: "lender_admin" },
+];
+
+const SCENARIO_OPTIONS: {
+  label: string;
+  value: SystemPostPrototypeScenario;
+}[] = [
+  { label: "Active", value: "active" },
+  { label: "Resolved", value: "resolved" },
+  { label: "Reopened", value: "reopened" },
+  { label: "Archived", value: "archived" },
+  { label: "Restricted", value: "restricted" },
+  { label: "Loading", value: "loading" },
+  { label: "Empty", value: "empty" },
+  { label: "Error", value: "error" },
 ];
 
 const STATE_COLUMNS: { key: WorkState; label: string }[] = [
@@ -429,19 +453,29 @@ export function isSystemPostPrototypeRole(
   return ROLE_OPTIONS.some((option) => option.value === value);
 }
 
+export function isSystemPostPrototypeScenario(
+  value: unknown
+): value is SystemPostPrototypeScenario {
+  return SCENARIO_OPTIONS.some((option) => option.value === value);
+}
+
 export function SystemPostExperiencePrototype({
   onPostChange,
   onRoleChange,
+  onScenarioChange,
   onVariantChange,
   post,
   role,
+  scenario,
   variant,
 }: {
   onPostChange: (post: SystemPostPrototypeKind) => void;
   onRoleChange: (role: SystemPostPrototypeRole) => void;
+  onScenarioChange: (scenario: SystemPostPrototypeScenario) => void;
   onVariantChange: (variant: SystemPostPrototypeVariant) => void;
   post: SystemPostPrototypeKind;
   role: SystemPostPrototypeRole;
+  scenario: SystemPostPrototypeScenario;
   variant: SystemPostPrototypeVariant;
 }) {
   const [items, setItems] = useState(() => cloneWorkItems());
@@ -452,6 +486,8 @@ export function SystemPostExperiencePrototype({
   const [postTab, setPostTab] = useState<"actions" | "discussion" | null>(null);
   const selected =
     items.find((item) => item.id === selectedId) ?? items[0] ?? null;
+  const workflowWritable = scenario === "active" || scenario === "reopened";
+  const collaborationWritable = scenario !== "archived";
 
   const appendEvent = (event: Omit<PrototypeEvent, "id" | "time">) => {
     setEvents((current) => [
@@ -465,7 +501,7 @@ export function SystemPostExperiencePrototype({
   };
 
   const advanceSelected = () => {
-    if (!selected) {
+    if (!(selected && workflowWritable)) {
       return;
     }
     const command = commandForWorkItem(selected.state, role);
@@ -497,6 +533,9 @@ export function SystemPostExperiencePrototype({
   };
 
   const advanceDraw = () => {
+    if (!workflowWritable) {
+      return;
+    }
     const command = commandForDraw(drawState, role);
     if (!(command.enabled && command.nextState)) {
       return;
@@ -511,7 +550,7 @@ export function SystemPostExperiencePrototype({
   };
 
   const addCoordinationItem = () => {
-    if (coordinationItems.length > 0) {
+    if (coordinationItems.length > 0 || !workflowWritable) {
       return;
     }
     setCoordinationItems(["Confirm lender inspection availability"]);
@@ -544,6 +583,7 @@ export function SystemPostExperiencePrototype({
     post,
     role,
     selected,
+    workflowWritable,
   };
 
   return (
@@ -557,8 +597,13 @@ export function SystemPostExperiencePrototype({
           }}
           onReset={resetScenario}
           onRoleChange={onRoleChange}
+          onScenarioChange={(nextScenario) => {
+            setPostTab(null);
+            onScenarioChange(nextScenario);
+          }}
           post={post}
           role={role}
+          scenario={scenario}
           selected={selected}
           variant={variant}
         />
@@ -572,22 +617,25 @@ export function SystemPostExperiencePrototype({
             mobilizing now. I’ve attached the revised access plan for today’s
             work.
           </OrdinaryCollaborationPost>
-          <SystemCollaborationPost
+          <SystemPostScenarioEntry
             actionItemCount={
               post === "milestone" ? items.length : coordinationItems.length
             }
+            collaborationWritable={collaborationWritable}
             drawState={drawState}
             items={items}
             post={post}
             postTab={postTab}
+            scenario={scenario}
             setPostTab={setPostTab}
+            workflowWritable={workflowWritable}
           >
             {variant === "A" ? <BoardFirstVariant {...shared} /> : null}
             {variant === "B" ? <EventFirstVariant {...shared} /> : null}
             {variant === "C" ? (
               <ControlRoomVariant key={post} {...shared} />
             ) : null}
-          </SystemCollaborationPost>
+          </SystemPostScenarioEntry>
           <OrdinaryCollaborationPost
             author="Nora Patel"
             initials="NP"
@@ -620,6 +668,7 @@ interface VariantProps {
   post: SystemPostPrototypeKind;
   role: SystemPostPrototypeRole;
   selected: WorkItem | null;
+  workflowWritable: boolean;
 }
 
 function PrototypeHeader({
@@ -627,8 +676,10 @@ function PrototypeHeader({
   onPostChange,
   onReset,
   onRoleChange,
+  onScenarioChange,
   post,
   role,
+  scenario,
   selected,
   variant,
 }: {
@@ -636,8 +687,10 @@ function PrototypeHeader({
   onPostChange: (post: SystemPostPrototypeKind) => void;
   onReset: () => void;
   onRoleChange: (role: SystemPostPrototypeRole) => void;
+  onScenarioChange: (scenario: SystemPostPrototypeScenario) => void;
   post: SystemPostPrototypeKind;
   role: SystemPostPrototypeRole;
+  scenario: SystemPostPrototypeScenario;
   selected: WorkItem | null;
   variant: SystemPostPrototypeVariant;
 }) {
@@ -681,6 +734,14 @@ function PrototypeHeader({
               }
               options={ROLE_OPTIONS}
               value={role}
+            />
+            <SegmentedChoice
+              label="Scenario"
+              onChange={(value) =>
+                onScenarioChange(value as SystemPostPrototypeScenario)
+              }
+              options={SCENARIO_OPTIONS}
+              value={scenario}
             />
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -792,30 +853,104 @@ function OrdinaryCollaborationPost({
   );
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This prototype intentionally keeps the complete post-shell state matrix visible in one place for product review.
-function SystemCollaborationPost({
-  actionItemCount,
-  children,
-  drawState,
-  items,
-  post,
-  postTab,
-  setPostTab,
-}: {
+interface SystemPostScenarioEntryProps {
   actionItemCount: number;
   children: ReactNode;
+  collaborationWritable: boolean;
   drawState: DrawState;
   items: WorkItem[];
   post: SystemPostPrototypeKind;
   postTab: "actions" | "discussion" | null;
+  scenario: SystemPostPrototypeScenario;
   setPostTab: (tab: "actions" | "discussion" | null) => void;
-}) {
+  workflowWritable: boolean;
+}
+
+function SystemPostScenarioEntry(props: SystemPostScenarioEntryProps) {
+  if (props.scenario === "restricted") {
+    return (
+      <Frame>
+        <FramePanel className="flex min-h-28 items-center justify-center gap-2 text-muted-foreground text-sm">
+          <ShieldCheck className="size-4" /> Restricted update
+        </FramePanel>
+      </Frame>
+    );
+  }
+  if (props.scenario === "loading") {
+    return (
+      <Card aria-label="Loading System Post" className="animate-pulse">
+        <CardPanel className="space-y-3 p-4">
+          <div className="h-9 w-48 rounded-lg bg-muted" />
+          <div className="h-4 w-3/4 rounded bg-muted" />
+          <div className="h-24 rounded-xl bg-muted/70" />
+          <p className="text-muted-foreground text-xs">Loading System Post…</p>
+        </CardPanel>
+      </Card>
+    );
+  }
+  if (props.scenario === "empty") {
+    return (
+      <Frame>
+        <FramePanel className="py-10 text-center">
+          <ListChecks className="mx-auto size-5 text-muted-foreground" />
+          <p className="mt-3 font-medium text-sm">
+            No System Posts in this view
+          </p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            Valid Milestones always have at least one Sub-milestone; this is a
+            feed result state, not an empty Milestone.
+          </p>
+        </FramePanel>
+      </Frame>
+    );
+  }
+  if (props.scenario === "error") {
+    return (
+      <Card>
+        <CardPanel className="py-8 text-center">
+          <AlertTriangle className="mx-auto size-5 text-destructive" />
+          <p className="mt-3 font-medium text-sm">System Post unavailable</p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            The collaboration feed remains usable while this governed projection
+            retries.
+          </p>
+          <Button className="mt-4" size="sm" type="button" variant="outline">
+            <RotateCcw className="size-4" /> Retry
+          </Button>
+        </CardPanel>
+      </Card>
+    );
+  }
+  return <SystemCollaborationPost {...props} />;
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This throwaway prototype deliberately exposes the full post-shell state matrix together for product review.
+function SystemCollaborationPost({
+  actionItemCount,
+  children,
+  collaborationWritable,
+  drawState,
+  items,
+  post,
+  postTab,
+  scenario,
+  setPostTab,
+  workflowWritable,
+}: SystemPostScenarioEntryProps) {
   const milestone = post === "milestone";
   const [collapsed, setCollapsed] = useState(false);
   const behindScheduleCount = items.filter(
     (item) => item.state === "behind_schedule"
   ).length;
   const reviewCount = items.filter((item) => item.state === "in_review").length;
+  const lifecycleLabel =
+    scenario === "resolved"
+      ? "Resolved"
+      : scenario === "reopened"
+        ? "Reopened"
+        : scenario === "archived"
+          ? "Archived"
+          : "Active";
   return (
     <Card className="ring-1 ring-primary/15">
       <CardHeader className="gap-3 p-4">
@@ -835,7 +970,22 @@ function SystemCollaborationPost({
               <Badge variant="outline">
                 {milestone ? "Milestone" : "Draw"}
               </Badge>
-              <Badge variant="success">Open</Badge>
+              <Badge
+                variant={
+                  scenario === "resolved"
+                    ? "success"
+                    : scenario === "reopened"
+                      ? "info"
+                      : scenario === "archived"
+                        ? "secondary"
+                        : "success"
+                }
+              >
+                {lifecycleLabel}
+              </Badge>
+              {scenario === "archived" ? (
+                <Badge variant="outline">Read-only</Badge>
+              ) : null}
             </CardDescription>
           </div>
           <div className="flex items-center gap-1">
@@ -884,6 +1034,22 @@ function SystemCollaborationPost({
               : "A reimbursement Draw Request is active. Financial approval remains governed by the canonical Draw workflow."}
           </p>
         </div>
+        {scenario === "resolved" ? (
+          <div className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm">
+            Resolved after final approval. Workflow commands are locked, while
+            the existing Discussion thread remains available.
+          </div>
+        ) : scenario === "reopened" ? (
+          <div className="rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm">
+            Reopened by a canonical Milestone reactivation. Prior history is
+            preserved and governed commands are active again.
+          </div>
+        ) : scenario === "archived" ? (
+          <div className="rounded-lg border border-dashed bg-muted/45 px-3 py-2 text-sm">
+            This Build collaboration archive is read-only. Content, reports, and
+            evidence remain viewable; shared writes are disabled.
+          </div>
+        ) : null}
         {milestone ? <MilestoneHeadline /> : null}
         {collapsed ? (
           <div className="space-y-2 border-t pt-3">
@@ -969,7 +1135,12 @@ function SystemCollaborationPost({
                     Replies, mentions, rich text, attachments, revision history,
                     and unread state use the existing post thread.
                   </p>
-                  <Button size="sm" type="button" variant="outline">
+                  <Button
+                    disabled={!collaborationWritable}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
                     Reply to thread
                   </Button>
                 </div>
@@ -977,7 +1148,9 @@ function SystemCollaborationPost({
                 <div className="space-y-2">
                   <p className="font-medium text-sm">
                     {milestone
-                      ? "Governed work is summarized in the System Post above."
+                      ? workflowWritable
+                        ? "Governed work is summarized in the System Post above."
+                        : "Governed work is preserved as a read-only projection."
                       : "Only manually added coordination work appears here."}
                   </p>
                   <p className="text-muted-foreground text-xs">
@@ -1094,6 +1267,7 @@ function BoardFirstVariant(props: VariantProps) {
       <MilestoneOversight
         onToggle={() => setOversightOpen((current) => !current)}
         open={oversightOpen}
+        readOnly={!props.workflowWritable}
         role={props.role}
       />
       <Frame className="min-w-0">
@@ -1172,6 +1346,7 @@ function BoardFirstVariant(props: VariantProps) {
                 setExpandedId((current) => (current === id ? null : id));
               }}
               role={props.role}
+              workflowWritable={props.workflowWritable}
             />
           )}
         </FramePanel>
@@ -1180,6 +1355,7 @@ function BoardFirstVariant(props: VariantProps) {
         <div className="border-t pt-4">
           <GateInspector
             onAdvance={props.advanceSelected}
+            readOnly={!props.workflowWritable}
             role={props.role}
             selected={props.selected}
             variant="console"
@@ -1193,10 +1369,12 @@ function BoardFirstVariant(props: VariantProps) {
 function MilestoneOversight({
   onToggle,
   open,
+  readOnly,
   role,
 }: {
   onToggle: () => void;
   open: boolean;
+  readOnly: boolean;
   role: SystemPostPrototypeRole;
 }) {
   const backoffice = role === "lender_staff" || role === "lender_admin";
@@ -1226,7 +1404,7 @@ function MilestoneOversight({
           </div>
           <div className="flex items-center gap-1">
             {backoffice ? (
-              <Button size="sm" type="button">
+              <Button disabled={readOnly} size="sm" type="button">
                 Order site visit
               </Button>
             ) : null}
@@ -1341,12 +1519,14 @@ function SubMilestoneList({
   onAdvance,
   onExpand,
   role,
+  workflowWritable,
 }: {
   expandedId: string | null;
   items: WorkItem[];
   onAdvance: () => void;
   onExpand: (id: string) => void;
   role: SystemPostPrototypeRole;
+  workflowWritable: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -1392,6 +1572,7 @@ function SubMilestoneList({
                 item={item}
                 onAdvance={onAdvance}
                 role={role}
+                workflowWritable={workflowWritable}
               />
             ) : null}
           </Card>
@@ -1405,10 +1586,12 @@ function SubMilestoneExpandedDetails({
   item,
   onAdvance,
   role,
+  workflowWritable,
 }: {
   item: WorkItem;
   onAdvance: () => void;
   role: SystemPostPrototypeRole;
+  workflowWritable: boolean;
 }) {
   const command = commandForWorkItem(item.state, role);
   return (
@@ -1435,7 +1618,12 @@ function SubMilestoneExpandedDetails({
             <p className="flex items-center gap-1 font-medium text-sm">
               <Wrench className="size-4" /> Trades & suppliers
             </p>
-            <Button size="sm" type="button" variant="outline">
+            <Button
+              disabled={!workflowWritable}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
               Manage assignments
             </Button>
           </div>
@@ -1493,7 +1681,12 @@ function SubMilestoneExpandedDetails({
           </p>
         )}
       </section>
-      <NextGateBand command={command} onAdvance={onAdvance} role={role} />
+      <NextGateBand
+        command={command}
+        onAdvance={onAdvance}
+        readOnly={!workflowWritable}
+        role={role}
+      />
     </CardPanel>
   );
 }
@@ -1561,6 +1754,7 @@ function EventFirstVariant(props: VariantProps) {
                   ? props.advanceSelected
                   : props.advanceDraw
               }
+              readOnly={!props.workflowWritable}
               role={props.role}
             />
             <div className="mt-5 flex flex-wrap gap-2 border-b pb-3">
@@ -1587,6 +1781,7 @@ function EventFirstVariant(props: VariantProps) {
                 <DrawCoordination
                   items={props.coordinationItems}
                   onAdd={props.addCoordinationItem}
+                  readOnly={!props.workflowWritable}
                 />
               </div>
             ) : null}
@@ -1640,6 +1835,7 @@ function ControlRoomVariant(props: VariantProps) {
                 <DrawCoordination
                   items={props.coordinationItems}
                   onAdd={props.addCoordinationItem}
+                  readOnly={!props.workflowWritable}
                 />
               </>
             )}
@@ -1651,13 +1847,18 @@ function ControlRoomVariant(props: VariantProps) {
                   : props.advanceDraw
               }
               post={props.post}
+              readOnly={!props.workflowWritable}
               role={props.role}
               selected={props.selected}
               variant="console"
             />
           </div>
         ) : view === "details" ? (
-          <OperationsBrief key={props.post} kind={props.post} />
+          <OperationsBrief
+            key={props.post}
+            kind={props.post}
+            readOnly={!props.workflowWritable}
+          />
         ) : (
           <div className="mt-4">
             <EventLedger events={props.events} />
@@ -1845,6 +2046,7 @@ function GateInspector({
   drawState = "requested",
   onAdvance,
   post = "milestone",
+  readOnly = false,
   role,
   selected,
   variant,
@@ -1852,6 +2054,7 @@ function GateInspector({
   drawState?: DrawState;
   onAdvance: () => void;
   post?: SystemPostPrototypeKind;
+  readOnly?: boolean;
   role: SystemPostPrototypeRole;
   selected: WorkItem | null;
   variant: "board" | "console";
@@ -1936,18 +2139,23 @@ function GateInspector({
         )}
         <div className="mt-5 rounded-lg border border-dashed bg-muted/35 p-3">
           <p className="font-medium text-xs">What happens next</p>
-          <p className="mt-1 text-muted-foreground text-sm">{command.reason}</p>
+          <p className="mt-1 text-muted-foreground text-sm">
+            {readOnly
+              ? "This lifecycle state preserves the governed record without allowing workflow advancement."
+              : command.reason}
+          </p>
           <Button
             className="mt-3 w-full"
-            disabled={!command.enabled}
+            disabled={readOnly || !command.enabled}
             onClick={onAdvance}
             type="button"
           >
-            {command.label} <ArrowRight className="ml-1 size-4" />
+            {readOnly ? "Workflow read-only" : command.label}{" "}
+            <ArrowRight className="ml-1 size-4" />
           </Button>
         </div>
         {post === "milestone" && variant === "board" ? (
-          <OperationsBrief kind="milestone" />
+          <OperationsBrief kind="milestone" readOnly={readOnly} />
         ) : null}
       </FramePanel>
     </Frame>
@@ -1957,10 +2165,12 @@ function GateInspector({
 function NextGateBand({
   command,
   onAdvance,
+  readOnly = false,
   role,
 }: {
   command: CommandPresentation;
   onAdvance: () => void;
+  readOnly?: boolean;
   role: SystemPostPrototypeRole;
 }) {
   return (
@@ -1973,7 +2183,9 @@ function NextGateBand({
           <div>
             <p className="font-semibold text-sm">Next required gate</p>
             <p className="mt-1 text-muted-foreground text-xs">
-              {command.reason}
+              {readOnly
+                ? "This lifecycle state preserves the governed record without allowing workflow advancement."
+                : command.reason}
             </p>
             <p className="mt-1 text-muted-foreground text-xs">
               Viewer · {roleLabel(role)}
@@ -1981,12 +2193,12 @@ function NextGateBand({
           </div>
         </div>
         <Button
-          disabled={!command.enabled}
+          disabled={readOnly || !command.enabled}
           onClick={onAdvance}
           size="sm"
           type="button"
         >
-          {command.label}
+          {readOnly ? "Workflow read-only" : command.label}
         </Button>
       </CardPanel>
     </Card>
@@ -2065,8 +2277,10 @@ function DiscussionComposer() {
 
 function OperationsBrief({
   kind = "milestone",
+  readOnly = false,
 }: {
   kind?: SystemPostPrototypeKind;
+  readOnly?: boolean;
 }) {
   const [value, setValue] = useState(
     kind === "milestone"
@@ -2079,7 +2293,10 @@ function OperationsBrief({
         <div>
           <p className="font-semibold text-sm">Operations Brief</p>
           <p className="text-muted-foreground text-xs">
-            Editable collaboration context · domain facts remain immutable
+            {readOnly
+              ? "Read-only collaboration context"
+              : "Editable collaboration context"}{" "}
+            · domain facts remain immutable
           </p>
         </div>
         <Badge size="sm" variant="outline">
@@ -2087,16 +2304,26 @@ function OperationsBrief({
         </Badge>
       </div>
       <div className="mt-3 rounded-xl bg-muted/55 p-3">
-        <CollaborationRichTextEditor
-          ariaLabel="System Post Operations Brief"
-          editorMinHeightClass="min-h-28"
-          onChange={setValue}
-          placeholder="Add operational context…"
-          tagOptions={
-            kind === "milestone" ? BRIEF_TAG_OPTIONS : DRAW_BRIEF_TAG_OPTIONS
-          }
-          value={value}
-        />
+        {readOnly ? (
+          <CollaborationRichTextPreview
+            ariaLabel="System Post Operations Brief"
+            tagOptions={
+              kind === "milestone" ? BRIEF_TAG_OPTIONS : DRAW_BRIEF_TAG_OPTIONS
+            }
+            value={value}
+          />
+        ) : (
+          <CollaborationRichTextEditor
+            ariaLabel="System Post Operations Brief"
+            editorMinHeightClass="min-h-28"
+            onChange={setValue}
+            placeholder="Add operational context…"
+            tagOptions={
+              kind === "milestone" ? BRIEF_TAG_OPTIONS : DRAW_BRIEF_TAG_OPTIONS
+            }
+            value={value}
+          />
+        )}
         <div className="mt-2 flex flex-wrap gap-2">
           <Badge variant="outline">
             <Paperclip className="mr-1 size-3" />{" "}
@@ -2117,6 +2344,7 @@ function BoardlessDraw({
   coordinationItems,
   drawState,
   role,
+  workflowWritable,
 }: VariantProps & { mode: "board" }) {
   return (
     <div className="space-y-4">
@@ -2144,6 +2372,7 @@ function BoardlessDraw({
           <DrawCoordination
             items={coordinationItems}
             onAdd={addCoordinationItem}
+            readOnly={!workflowWritable}
           />
         </FramePanel>
       </Frame>
@@ -2152,6 +2381,7 @@ function BoardlessDraw({
           drawState={drawState}
           onAdvance={advanceDraw}
           post="draw"
+          readOnly={!workflowWritable}
           role={role}
           selected={null}
           variant="console"
@@ -2173,9 +2403,9 @@ function DrawSummary({ drawState }: { drawState: DrawState }) {
         <SummaryMetric label="Requested" tone="info" value="$184,000" />
         <SummaryMetric label="Generated items" tone="success" value="0" />
         <SummaryMetric
-          label="Post lifecycle"
+          label="Workflow authority"
           tone="outline"
-          value={drawState === "released" ? "Resolved" : "Open"}
+          value="Canonical Draw"
         />
       </FramePanel>
     </Frame>
@@ -2240,9 +2470,11 @@ function DrawLifecycle({ drawState }: { drawState: DrawState }) {
 function DrawCoordination({
   items,
   onAdd,
+  readOnly = false,
 }: {
   items: string[];
   onAdd: () => void;
+  readOnly?: boolean;
 }) {
   return (
     <section className="border-t pt-4">
@@ -2256,7 +2488,13 @@ function DrawCoordination({
             Ordinary Action Items only · completion has no Draw workflow effect
           </p>
         </div>
-        <Button onClick={onAdd} size="sm" type="button" variant="outline">
+        <Button
+          disabled={readOnly}
+          onClick={onAdd}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
           <UserPlus className="mr-1 size-3.5" /> Add coordination item
         </Button>
       </div>
