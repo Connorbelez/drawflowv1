@@ -13,12 +13,13 @@ import {
   normalizeCostDocumentSearch,
 } from "#/features/cost-documents/costDocumentRouteState.ts";
 import type { CostDocumentSubmilestoneOption } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
+import { QuoteRoundsSurface } from "#/features/quote-solicitation/QuoteRoundsSurface.tsx";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 interface HomeownerBuildSearch extends CostDocumentRouteSearch {
   focus?: string;
-  tab?: "costs";
+  tab?: "costs" | "quotes";
 }
 
 export const Route = createFileRoute("/homeowner/builds/$buildId")({
@@ -34,6 +35,7 @@ export const Route = createFileRoute("/homeowner/builds/$buildId")({
     const costDocumentSearch = normalizeCostDocumentSearch(search);
     const tab =
       search.tab === "costs" ||
+      search.tab === "quotes" ||
       costDocumentSearch.costBatch ||
       costDocumentSearch.costDocument ||
       costDocumentSearch.costDocumentDraft
@@ -52,6 +54,7 @@ function HomeownerBuildCollaboration() {
   const search = Route.useSearch();
   const navigate = useNavigate();
   const costsActive = search.tab === "costs";
+  const quotesActive = search.tab === "quotes";
   const scope = useQuery(api.build_participants.getMyBuildParticipationScope, {
     buildId: buildId as Id<"activeBuilds">,
     workspaceRole: "homeowner",
@@ -95,7 +98,11 @@ function HomeownerBuildCollaboration() {
     );
   }
 
-  const activeTab: BuildDetailSubTab = costsActive ? "costs" : "details";
+  const activeTab: BuildDetailSubTab = costsActive
+    ? "costs"
+    : quotesActive
+      ? "quotes"
+      : "details";
   const onChangeTab = (tab: BuildDetailSubTab) =>
     navigate({
       params: { buildId },
@@ -106,7 +113,7 @@ function HomeownerBuildCollaboration() {
         costDocument: tab === "costs" ? search.costDocument : undefined,
         costDocumentDraft:
           tab === "costs" ? search.costDocumentDraft : undefined,
-        tab: tab === "costs" ? "costs" : undefined,
+        tab: tab === "costs" || tab === "quotes" ? tab : undefined,
       },
       to: "/homeowner/builds/$buildId",
     } as never);
@@ -127,7 +134,7 @@ function HomeownerBuildCollaboration() {
           activeTab={activeTab}
           labels={{ details: "Collaboration" }}
           onChangeTab={onChangeTab}
-          tabs={["details", "costs"]}
+          tabs={["details", "costs", "quotes"]}
         />
         {activeTab === "costs" ? (
           costDocumentSubmilestones === undefined ? (
@@ -191,6 +198,13 @@ function HomeownerBuildCollaboration() {
               }
             />
           )
+        ) : quotesActive ? (
+          <QuoteRoundsSurface
+            buildId={buildId}
+            organizationId={scope.organizationId}
+            readOnly
+            readOnlyLabel="Homeowner"
+          />
         ) : (
           <BuildCollaborationWorkspace
             buildId={buildId}

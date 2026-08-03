@@ -23,6 +23,10 @@ import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 const MAX_DRAFT_LABOUR_LINES = 100;
 const MAX_DRAFT_MATERIAL_LINES = 100;
 const MAX_DRAFT_RECIPIENTS = 100;
+const MAX_REGISTER_INVITATIONS = MAX_DRAFT_RECIPIENTS * 2;
+const MAX_REGISTER_ACTIVE_INVITATIONS = 500;
+const MAX_REGISTER_CREDENTIALS_PER_INVITATION = 50;
+const MAX_REGISTER_NOTICES_PER_ROUND = 500;
 const MAX_MATERIAL_ASSIGNMENTS_PER_ROW = 100;
 // A quote package writes a row for every material assignment alongside
 // package lines, attachments, response fields, invitations, and credentials.
@@ -51,6 +55,27 @@ const quoteRoundStateValidator = v.union(
   v.literal("open"),
   v.literal("closed"),
   v.literal("cancelled")
+);
+const quoteRoundAttentionReasonValidator = v.union(
+  v.literal("delivery_failure"),
+  v.literal("deadline_overdue"),
+  v.literal("deadline_imminent"),
+  v.literal("revision_wait"),
+  v.literal("reminder_eligible"),
+  v.literal("scheduling_readiness")
+);
+const quoteRoundAttentionToneValidator = v.union(
+  v.literal("critical"),
+  v.literal("warning"),
+  v.literal("neutral")
+);
+const quoteRoundDeliveryStatusValidator = v.union(
+  v.literal("not_dispatched"),
+  v.literal("partially_dispatched"),
+  v.literal("pending"),
+  v.literal("delivered"),
+  v.literal("failed"),
+  v.literal("mixed")
 );
 const quoteRoundMaterialSourceValidator = v.union(
   v.literal("build_cost_item"),
@@ -342,12 +367,55 @@ const quoteRoundProjectionValidator = v.object({
 
 const quoteRoundSummaryValidator = v.object({
   _id: v.id("quoteRounds"),
+  access: v.object({
+    active: v.number(),
+    expired: v.number(),
+    revoked: v.number(),
+    rotated: v.number(),
+    total: v.number(),
+  }),
+  attention: v.union(
+    v.object({
+      detail: v.string(),
+      label: v.string(),
+      rank: v.number(),
+      reason: quoteRoundAttentionReasonValidator,
+      tone: quoteRoundAttentionToneValidator,
+    }),
+    v.null()
+  ),
+  delivery: v.object({
+    delivered: v.number(),
+    failed: v.number(),
+    pending: v.number(),
+    status: quoteRoundDeliveryStatusValidator,
+    total: v.number(),
+    undispatched: v.number(),
+  }),
   invitationCount: v.number(),
+  lastActivityAt: v.number(),
   mode: quoteRoundModeValidator,
   packageRevisionId: v.optional(v.id("quotePackageRevisions")),
   packageRevisionNumber: v.optional(v.number()),
+  participation: v.object({
+    active: v.number(),
+    revoked: v.number(),
+    total: v.number(),
+  }),
+  preferredQuote: v.null(),
+  recipients: v.object({
+    active: v.number(),
+    revoked: v.number(),
+    total: v.number(),
+  }),
   responseDeadline: v.optional(v.number()),
+  responses: v.object({
+    drafting: v.number(),
+    submitted: v.number(),
+    total: v.number(),
+  }),
   revision: v.number(),
+  scope: v.string(),
   state: quoteRoundStateValidator,
   title: v.string(),
   updatedAt: v.number(),
@@ -516,6 +584,39 @@ function assertAuthoringRole(viewer: AuthorizedViewer) {
   }
 }
 
+function assertReadRole(roles: readonly string[]) {
+  if (
+    !roles.some((role) =>
+      [
+        "admin",
+        "principle-broker",
+        "broker",
+        "broker-staff",
+        "builder",
+        "builder-staff",
+        "homeowner",
+      ].includes(role)
+    )
+  ) {
+    throw new ConvexError(
+      "Forbidden: this Build role cannot read Quote Rounds."
+    );
+  }
+}
+
+function canSearchQuoteRecipientIdentities(roles: readonly string[]) {
+  return roles.some((role) =>
+    [
+      "admin",
+      "principle-broker",
+      "broker",
+      "broker-staff",
+      "builder",
+      "builder-staff",
+    ].includes(role)
+  );
+}
+
 async function authorizeQuoteRoundPath(
   ctx: QuoteRoundCtx,
   input: { buildId: Id<"activeBuilds">; workosOrganizationId: string }
@@ -525,6 +626,19 @@ async function authorizeQuoteRoundPath(
     buildId: input.buildId,
     organizationId: input.workosOrganizationId,
   });
+}
+
+async function authorizeQuoteRoundReadPath(
+  ctx: QuoteRoundCtx,
+  input: { buildId: Id<"activeBuilds">; workosOrganizationId: string }
+) {
+  const authorization = await authorizeActiveBuildAccess(ctx, {
+    backofficePolicy: "proposal-read",
+    buildId: input.buildId,
+    organizationId: input.workosOrganizationId,
+  });
+  assertReadRole(authorization.roles);
+  return authorization;
 }
 
 function requireRoundScope(
@@ -2365,11 +2479,203 @@ export const getQuoteRoundComposer = authenticatedQuery
   })
   .public();
 
+interface QuoteRoundRegisterAttention {
+  detail: string;
+  label: string;
+  rank: number;
+  reason:
+    | "delivery_failure"
+    | "deadline_overdue"
+    | "deadline_imminent"
+    | "revision_wait"
+    | "reminder_eligible"
+    | "scheduling_readiness";
+  tone: "critical" | "warning" | "neutral";
+}
+
+interface QuoteRoundRegisterDelivery {
+  delivered: number;
+  failed: number;
+  pending: number;
+  status:
+    | "not_dispatched"
+    | "partially_dispatched"
+    | "pending"
+    | "delivered"
+    | "failed"
+    | "mixed";
+  total: number;
+  undispatched: number;
+}
+
+function quoteRoundModeLabel(mode: Doc<"quoteRounds">["mode"]) {
+  return mode === "combined"
+    ? "Labour + Materials"
+    : mode === "labour"
+      ? "Labour"
+      : "Materials";
+}
+
+function quoteRoundScopeLabel(input: {
+  labour: Array<{ submilestoneName: string }>;
+  material: Array<{ title: string }>;
+  mode: Doc<"quoteRounds">["mode"];
+}) {
+  const names = [
+    ...input.labour.map((line) => line.submilestoneName),
+    ...input.material.map((line) => line.title),
+  ]
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (names.length === 0) {
+    return `${quoteRoundModeLabel(input.mode)} scope`;
+  }
+  return `${names.slice(0, 3).join(" · ")}${names.length > 3 ? " · …" : ""}`;
+}
+
+function quoteRoundDeliveryStatus(
+  delivery: Pick<
+    QuoteRoundRegisterDelivery,
+    "delivered" | "failed" | "pending" | "total" | "undispatched"
+  >
+): QuoteRoundRegisterDelivery["status"] {
+  if (delivery.total === 0 || delivery.undispatched === delivery.total) {
+    return "not_dispatched";
+  }
+  if (delivery.undispatched > 0) {
+    return "partially_dispatched";
+  }
+  if (delivery.failed > 0 && delivery.delivered + delivery.pending > 0) {
+    return "mixed";
+  }
+  if (delivery.failed > 0) {
+    return "failed";
+  }
+  if (delivery.pending > 0) {
+    return "pending";
+  }
+  return "delivered";
+}
+
+function quoteRoundAttention(input: {
+  activeInvitationCount: number;
+  delivery: QuoteRoundRegisterDelivery;
+  hasPendingRevisionAcknowledgement: boolean;
+  hasReminderEligibleRecipient: boolean;
+  mode: Doc<"quoteRounds">["mode"];
+  now: number;
+  responseDeadline?: number;
+  state: Doc<"quoteRounds">["state"];
+}) {
+  if (input.delivery.failed > 0) {
+    return {
+      detail: `${input.delivery.failed} recipient delivery ${input.delivery.failed === 1 ? "failed" : "failures"} recorded.`,
+      label: "Delivery failed",
+      rank: 1,
+      reason: "delivery_failure" as const,
+      tone: "critical" as const,
+    } satisfies QuoteRoundRegisterAttention;
+  }
+  if (input.state === "open" && input.responseDeadline) {
+    if (input.responseDeadline <= input.now) {
+      return {
+        detail: "The response deadline has passed; review the open responses.",
+        label: "Deadline overdue",
+        rank: 2,
+        reason: "deadline_overdue" as const,
+        tone: "critical" as const,
+      } satisfies QuoteRoundRegisterAttention;
+    }
+    if (input.responseDeadline <= input.now + 48 * 60 * 60 * 1000) {
+      return {
+        detail: "The response deadline is within the next 48 hours.",
+        label: "Deadline approaching",
+        rank: 2,
+        reason: "deadline_imminent" as const,
+        tone: "warning" as const,
+      } satisfies QuoteRoundRegisterAttention;
+    }
+  }
+  if (input.hasPendingRevisionAcknowledgement) {
+    return {
+      detail: "A recipient has not acknowledged the current Package Revision.",
+      label: "Revision outstanding",
+      rank: 3,
+      reason: "revision_wait" as const,
+      tone: "warning" as const,
+    } satisfies QuoteRoundRegisterAttention;
+  }
+  if (input.hasReminderEligibleRecipient) {
+    return {
+      detail: "At least one active recipient has not started a response.",
+      label: "Reminder eligible",
+      rank: 4,
+      reason: "reminder_eligible" as const,
+      tone: "warning" as const,
+    } satisfies QuoteRoundRegisterAttention;
+  }
+  if (
+    input.state === "draft" ||
+    !input.responseDeadline ||
+    input.activeInvitationCount === 0
+  ) {
+    return {
+      detail:
+        input.state === "draft"
+          ? `${quoteRoundModeLabel(input.mode)} package still needs setup.`
+          : "Recipients or a response deadline are not ready.",
+      label: input.state === "draft" ? "Draft needs setup" : "Needs setup",
+      rank: 5,
+      reason: "scheduling_readiness" as const,
+      tone: "neutral" as const,
+    } satisfies QuoteRoundRegisterAttention;
+  }
+  return null;
+}
+
+function isQuoteRoundDeliveryFailure(status: string) {
+  return status === "bounced" || status === "failed" || status === "complained";
+}
+
+function isQuoteRoundDeliveryPending(status: string) {
+  return (
+    status === "queued" || status === "sent" || status === "delivery_delayed"
+  );
+}
+
+function quoteRoundCredentialStateCounts(
+  credentials: Doc<"quoteInvitationAccessCredentials">[]
+) {
+  return credentials.reduce(
+    (counts, credential) => {
+      counts.total += 1;
+      counts[credential.state] += 1;
+      return counts;
+    },
+    {
+      active: 0,
+      expired: 0,
+      revoked: 0,
+      rotated: 0,
+      total: 0,
+    }
+  );
+}
+
 export const listQuoteRounds = authenticatedQuery
-  .input({ buildId: v.id("activeBuilds"), workosOrganizationId: v.string() })
+  .input({
+    buildId: v.id("activeBuilds"),
+    mode: v.optional(quoteRoundModeValidator),
+    search: v.optional(v.string()),
+    workosOrganizationId: v.string(),
+  })
   .returns(quoteRoundListValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeQuoteRoundPath(ctx, args);
+    const authorization = await authorizeQuoteRoundReadPath(ctx, args);
+    const normalizedSearch = args.search?.trim().toLocaleLowerCase() ?? "";
+    if (normalizedSearch.length > 200) {
+      throw new ConvexError("Quote Round search is limited to 200 characters.");
+    }
     const rounds = await ctx.db
       .query("quoteRounds")
       .withIndex("by_buildId", (query) =>
@@ -2380,49 +2686,456 @@ export const listQuoteRounds = authenticatedQuery
     if (rounds.length > 100) {
       throw new ConvexError("Build has too many Quote Rounds to load at once.");
     }
-    const summaries = await Promise.all(
-      rounds.map(async (round) => {
-        requireRoundScope(round, authorization, round._id);
-        const [packageRevision, invitations] = await Promise.all([
-          round.currentPackageRevisionId
-            ? ctx.db.get(round.currentPackageRevisionId)
-            : Promise.resolve(null),
-          ctx.db
-            .query("quoteRoundInvitations")
-            .withIndex("by_quoteRoundId_and_participationState", (query) =>
-              query
-                .eq("quoteRoundId", round._id)
-                .eq("participationState", "active")
-            )
-            .take(MAX_DRAFT_RECIPIENTS + 1),
-        ]);
-        if (invitations.length > MAX_DRAFT_RECIPIENTS) {
-          throw new ConvexError("Quote Round has too many invitations.");
-        }
-        if (
-          packageRevision &&
-          (packageRevision.quoteRoundId !== round._id ||
-            packageRevision.buildId !== authorization.build._id ||
-            packageRevision.organizationId !== authorization.organizationId ||
-            packageRevision.brokerageId !== authorization.brokerage._id)
-        ) {
-          throw new ConvexError("Quote Package Revision crosses Build scope.");
-        }
-        return {
-          _id: round._id,
-          invitationCount: invitations.length,
-          mode: round.mode,
-          packageRevisionId: packageRevision?._id,
-          packageRevisionNumber: packageRevision?.revision,
-          responseDeadline: packageRevision?.responseDeadline,
-          revision: round.revision,
-          state: round.state,
-          title: round.title,
-          updatedAt: round.updatedAt,
-        };
-      })
+    const filteredRounds = rounds.filter(
+      (round) => !args.mode || round.mode === args.mode
     );
-    return { rounds: summaries };
+    let activeInvitationBudget = 0;
+    const now = Date.now();
+    const summaries = await Promise.all(
+      filteredRounds
+        // This bounded projection intentionally composes scoped snapshots and
+        // recipient dimensions in one read so the register cannot drift across
+        // independent queries.
+        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: bounded register projection
+        .map(async (round) => {
+          requireRoundScope(round, authorization, round._id);
+          const [
+            packageRevision,
+            draft,
+            activeInvitations,
+            revokedInvitations,
+          ] = await Promise.all([
+            round.currentPackageRevisionId
+              ? ctx.db.get(round.currentPackageRevisionId)
+              : Promise.resolve(null),
+            ctx.db
+              .query("quoteRoundDrafts")
+              .withIndex("by_quoteRoundId", (query) =>
+                query.eq("quoteRoundId", round._id)
+              )
+              .take(2),
+            ctx.db
+              .query("quoteRoundInvitations")
+              .withIndex("by_quoteRoundId_and_participationState", (query) =>
+                query
+                  .eq("quoteRoundId", round._id)
+                  .eq("participationState", "active")
+              )
+              .take(MAX_REGISTER_INVITATIONS + 1),
+            ctx.db
+              .query("quoteRoundInvitations")
+              .withIndex("by_quoteRoundId_and_participationState", (query) =>
+                query
+                  .eq("quoteRoundId", round._id)
+                  .eq("participationState", "revoked")
+              )
+              .take(MAX_REGISTER_INVITATIONS + 1),
+          ]);
+          if (draft.length > 1) {
+            throw new ConvexError(
+              "Quote Round has multiple draft projections."
+            );
+          }
+          if (
+            activeInvitations.length > MAX_REGISTER_INVITATIONS ||
+            revokedInvitations.length > MAX_REGISTER_INVITATIONS
+          ) {
+            throw new ConvexError("Quote Round has too many invitations.");
+          }
+          activeInvitationBudget += activeInvitations.length;
+          if (activeInvitationBudget > MAX_REGISTER_ACTIVE_INVITATIONS) {
+            throw new ConvexError(
+              "Quote Round register exceeds the active invitation budget."
+            );
+          }
+          const allInvitations = [...activeInvitations, ...revokedInvitations];
+          if (
+            packageRevision &&
+            (packageRevision.quoteRoundId !== round._id ||
+              packageRevision.buildId !== authorization.build._id ||
+              packageRevision.organizationId !== authorization.organizationId ||
+              packageRevision.brokerageId !== authorization.brokerage._id)
+          ) {
+            throw new ConvexError(
+              "Quote Package Revision crosses Build scope."
+            );
+          }
+          const [
+            packageLabourLines,
+            packageMaterialLines,
+            draftLabourLines,
+            draftMaterialRows,
+            notices,
+          ] = await Promise.all([
+            packageRevision
+              ? ctx.db
+                  .query("quotePackageRevisionLabourLines")
+                  .withIndex("by_quotePackageRevisionId_and_order", (query) =>
+                    query.eq("quotePackageRevisionId", packageRevision._id)
+                  )
+                  .take(MAX_DRAFT_LABOUR_LINES + 1)
+              : Promise.resolve([]),
+            packageRevision
+              ? ctx.db
+                  .query("quotePackageRevisionMaterialLines")
+                  .withIndex("by_quotePackageRevisionId_and_order", (query) =>
+                    query.eq("quotePackageRevisionId", packageRevision._id)
+                  )
+                  .take(MAX_DRAFT_MATERIAL_LINES + 1)
+              : Promise.resolve([]),
+            packageRevision
+              ? Promise.resolve([])
+              : ctx.db
+                  .query("quoteRoundDraftLabourScope")
+                  .withIndex("by_quoteRoundId_and_order", (query) =>
+                    query.eq("quoteRoundId", round._id)
+                  )
+                  .take(MAX_DRAFT_LABOUR_LINES + 1),
+            packageRevision
+              ? Promise.resolve([])
+              : ctx.db
+                  .query("quoteRoundDraftMaterialRows")
+                  .withIndex("by_quoteRoundId_and_order", (query) =>
+                    query.eq("quoteRoundId", round._id)
+                  )
+                  .take(MAX_DRAFT_MATERIAL_LINES + 1),
+            ctx.db
+              .query("quoteRoundRecipientNoticeIntents")
+              .withIndex("by_quoteRoundId_and_createdAt", (query) =>
+                query.eq("quoteRoundId", round._id)
+              )
+              .order("desc")
+              .take(MAX_REGISTER_NOTICES_PER_ROUND),
+          ]);
+          if (
+            packageLabourLines.length > MAX_DRAFT_LABOUR_LINES ||
+            packageMaterialLines.length > MAX_DRAFT_MATERIAL_LINES ||
+            draftLabourLines.length > MAX_DRAFT_LABOUR_LINES ||
+            draftMaterialRows.length > MAX_DRAFT_MATERIAL_LINES
+          ) {
+            throw new ConvexError(
+              "Quote Round register projection exceeds limits."
+            );
+          }
+          const draftLabourSubmilestones = packageRevision
+            ? []
+            : await Promise.all(
+                draftLabourLines.map(async (line) => {
+                  const submilestone = await ctx.db.get(
+                    line.buildSubmilestoneId
+                  );
+                  if (
+                    !submilestone ||
+                    submilestone.buildId !== authorization.build._id ||
+                    submilestone.organizationId !==
+                      authorization.organizationId ||
+                    submilestone.brokerageId !== authorization.brokerage._id
+                  ) {
+                    throw new ConvexError(
+                      "Draft Labour scope crosses Build scope."
+                    );
+                  }
+                  return submilestone;
+                })
+              );
+          const scope = quoteRoundScopeLabel({
+            labour: packageRevision
+              ? packageLabourLines
+              : draftLabourSubmilestones.map((submilestone) => ({
+                  submilestoneName: submilestone.name,
+                })),
+            material: packageRevision
+              ? packageMaterialLines
+              : draftMaterialRows.map((row) => ({
+                  title: row.title ?? "Materials",
+                })),
+            mode: round.mode,
+          });
+          const searchableText = [
+            String(round._id),
+            round.title,
+            scope,
+            ...(canSearchQuoteRecipientIdentities(authorization.roles)
+              ? allInvitations.flatMap((invitation) => [
+                  invitation.recipientNameSnapshot,
+                  invitation.recipientEmailSnapshot,
+                ])
+              : []),
+          ]
+            .join(" ")
+            .toLocaleLowerCase();
+          if (normalizedSearch && !searchableText.includes(normalizedSearch)) {
+            return null;
+          }
+
+          const noticeByInvitation = new Map<
+            Id<"quoteRoundInvitations">,
+            Doc<"quoteRoundRecipientNoticeIntents">[]
+          >();
+          for (const notice of notices) {
+            const existing = noticeByInvitation.get(
+              notice.quoteRoundInvitationId
+            );
+            if (existing) {
+              existing.push(notice);
+            } else {
+              noticeByInvitation.set(notice.quoteRoundInvitationId, [notice]);
+            }
+          }
+          const activeProjection = await Promise.all(
+            activeInvitations.map(
+              // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: bounded invitation projection
+              async (invitation) => {
+                const credentials = await ctx.db
+                  .query("quoteInvitationAccessCredentials")
+                  .withIndex(
+                    "by_quoteRoundInvitationId_and_createdAt",
+                    (query) =>
+                      query.eq("quoteRoundInvitationId", invitation._id)
+                  )
+                  .order("desc")
+                  .take(MAX_REGISTER_CREDENTIALS_PER_INVITATION);
+                const [draftRows, submissionStates, acknowledgements] =
+                  await Promise.all([
+                    packageRevision
+                      ? ctx.db
+                          .query("quoteInvitationResponseDrafts")
+                          .withIndex(
+                            "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+                            (query) =>
+                              query
+                                .eq("quoteRoundInvitationId", invitation._id)
+                                .eq(
+                                  "quotePackageRevisionId",
+                                  packageRevision._id
+                                )
+                          )
+                          .take(2)
+                      : Promise.resolve([]),
+                    packageRevision
+                      ? ctx.db
+                          .query("quoteInvitationResponseSubmissionStates")
+                          .withIndex(
+                            "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+                            (query) =>
+                              query
+                                .eq("quoteRoundInvitationId", invitation._id)
+                                .eq(
+                                  "quotePackageRevisionId",
+                                  packageRevision._id
+                                )
+                          )
+                          .take(2)
+                      : Promise.resolve([]),
+                    packageRevision
+                      ? ctx.db
+                          .query(
+                            "quoteInvitationPackageRevisionAcknowledgements"
+                          )
+                          .withIndex(
+                            "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+                            (query) =>
+                              query
+                                .eq("quoteRoundInvitationId", invitation._id)
+                                .eq(
+                                  "quotePackageRevisionId",
+                                  packageRevision._id
+                                )
+                          )
+                          .take(2)
+                      : Promise.resolve([]),
+                  ]);
+                if (draftRows.length > 1 || submissionStates.length > 1) {
+                  throw new ConvexError(
+                    "Quote response projection is inconsistent."
+                  );
+                }
+                const latestCredential = [...credentials].sort(
+                  (left, right) =>
+                    right.createdAt - left.createdAt ||
+                    right.credentialVersion - left.credentialVersion
+                )[0];
+                const latestEmail = latestCredential?.deliveryEmailMessageId
+                  ? await ctx.db.get(latestCredential.deliveryEmailMessageId)
+                  : null;
+                if (
+                  latestEmail &&
+                  (latestEmail.organizationId !==
+                    authorization.organizationId ||
+                    latestEmail.brokerageId !== authorization.brokerage._id)
+                ) {
+                  throw new ConvexError("Quote delivery crosses Build scope.");
+                }
+                const submissionState = submissionStates[0];
+                const hasSubmitted = Boolean(
+                  submissionState?.activeSubmissionRevisionId
+                );
+                const hasDraft = draftRows.length > 0;
+                const pendingAcknowledgement = acknowledgements.some(
+                  (acknowledgement) => acknowledgement.status === "pending"
+                );
+                const noticesForInvitation =
+                  noticeByInvitation.get(invitation._id) ?? [];
+                const hasPendingReminder = noticesForInvitation.some(
+                  (notice) =>
+                    notice.kind === "access_reminder" &&
+                    notice.status === "pending"
+                );
+                const deliveryStatus = latestEmail
+                  ? isQuoteRoundDeliveryFailure(latestEmail.status)
+                    ? "failed"
+                    : isQuoteRoundDeliveryPending(latestEmail.status)
+                      ? "pending"
+                      : latestEmail.status === "delivered"
+                        ? "delivered"
+                        : "pending"
+                  : "not_dispatched";
+                return {
+                  credentials,
+                  deliveryStatus,
+                  hasDraft,
+                  hasPendingAcknowledgement: pendingAcknowledgement,
+                  hasPendingReminder,
+                  hasSubmitted,
+                  lastActivityAt: Math.max(
+                    invitation.updatedAt,
+                    ...credentials.map((credential) => credential.updatedAt),
+                    ...draftRows.map(
+                      (responseDraft) => responseDraft.updatedAt
+                    ),
+                    ...submissionStates.map((state) => state.updatedAt),
+                    ...noticesForInvitation.map((notice) => notice.createdAt)
+                  ),
+                };
+              }
+            )
+          );
+          const delivery = activeProjection.reduce<QuoteRoundRegisterDelivery>(
+            (counts, projection) => {
+              counts.total += 1;
+              if (projection.deliveryStatus === "failed") {
+                counts.failed += 1;
+              } else if (projection.deliveryStatus === "delivered") {
+                counts.delivered += 1;
+              } else if (projection.deliveryStatus === "pending") {
+                counts.pending += 1;
+              } else if (projection.deliveryStatus === "not_dispatched") {
+                counts.undispatched += 1;
+              }
+              return counts;
+            },
+            {
+              delivered: 0,
+              failed: 0,
+              pending: 0,
+              status: "not_dispatched",
+              total: 0,
+              undispatched: 0,
+            }
+          );
+          delivery.status = quoteRoundDeliveryStatus(delivery);
+          const access = activeProjection.reduce(
+            (counts, projection) => {
+              const credentialCounts = quoteRoundCredentialStateCounts(
+                projection.credentials
+              );
+              counts.active += credentialCounts.active;
+              counts.expired += credentialCounts.expired;
+              counts.revoked += credentialCounts.revoked;
+              counts.rotated += credentialCounts.rotated;
+              counts.total += credentialCounts.total;
+              return counts;
+            },
+            { active: 0, expired: 0, revoked: 0, rotated: 0, total: 0 }
+          );
+          const responses = activeProjection.reduce(
+            (counts, projection) => {
+              counts.total += 1;
+              if (projection.hasSubmitted) {
+                counts.submitted += 1;
+              } else if (projection.hasDraft) {
+                counts.drafting += 1;
+              }
+              return counts;
+            },
+            { drafting: 0, submitted: 0, total: 0 }
+          );
+          const pendingRevisionAcknowledgement = activeProjection.some(
+            (projection) => projection.hasPendingAcknowledgement
+          );
+          const reminderEligible = activeProjection.some(
+            (projection) =>
+              !(
+                projection.hasSubmitted ||
+                projection.hasDraft ||
+                projection.hasPendingReminder
+              )
+          );
+          const responseDeadline =
+            packageRevision?.responseDeadline ?? draft[0]?.responseDeadline;
+          const attention = quoteRoundAttention({
+            activeInvitationCount: activeInvitations.length,
+            delivery,
+            hasPendingRevisionAcknowledgement: pendingRevisionAcknowledgement,
+            hasReminderEligibleRecipient:
+              reminderEligible && round.state === "open",
+            mode: round.mode,
+            responseDeadline,
+            state: round.state,
+            now,
+          });
+          const lastActivityAt = Math.max(
+            round.updatedAt,
+            packageRevision?.publishedAt ?? 0,
+            draft[0]?.updatedAt ?? 0,
+            ...allInvitations.map((invitation) => invitation.updatedAt),
+            ...activeProjection.map((projection) => projection.lastActivityAt),
+            ...notices.map((notice) => notice.createdAt)
+          );
+          return {
+            _id: round._id,
+            access,
+            attention,
+            delivery,
+            invitationCount: activeInvitations.length,
+            lastActivityAt,
+            mode: round.mode,
+            packageRevisionId: packageRevision?._id,
+            packageRevisionNumber: packageRevision?.revision,
+            participation: {
+              active: activeInvitations.length,
+              revoked: revokedInvitations.length,
+              total: allInvitations.length,
+            },
+            preferredQuote: null,
+            recipients: {
+              active: activeInvitations.length,
+              revoked: revokedInvitations.length,
+              total: allInvitations.length,
+            },
+            responseDeadline,
+            responses,
+            revision: round.revision,
+            scope,
+            state: round.state,
+            title: round.title,
+            updatedAt: round.updatedAt,
+          };
+        })
+    );
+    return {
+      rounds: summaries
+        .filter(
+          (summary): summary is NonNullable<typeof summary> => summary !== null
+        )
+        .sort(
+          (left, right) =>
+            (left.attention?.rank ?? 99) - (right.attention?.rank ?? 99) ||
+            right.lastActivityAt - left.lastActivityAt ||
+            left.title.localeCompare(right.title) ||
+            String(left._id).localeCompare(String(right._id))
+        ),
+    };
   })
   .public();
 

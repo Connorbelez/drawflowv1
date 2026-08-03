@@ -3049,6 +3049,10 @@ export default defineSchema({
       "quoteRoundInvitationId",
       "state",
     ])
+    .index("by_quoteRoundInvitationId_and_createdAt", [
+      "quoteRoundInvitationId",
+      "createdAt",
+    ])
     .index("by_quoteRoundInvitationId_and_credentialVersion", [
       "quoteRoundInvitationId",
       "credentialVersion",

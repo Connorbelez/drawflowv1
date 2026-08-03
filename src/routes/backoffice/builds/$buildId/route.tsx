@@ -26,6 +26,7 @@ import {
   getVisualParityActiveBuildTimelineWorkspace,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
+import { QuoteRoundsSurface } from "#/features/quote-solicitation/QuoteRoundsSurface.tsx";
 import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -46,6 +47,7 @@ interface BuildDetailSearch {
     | "materials"
     | "milestones"
     | "staff"
+    | "quotes"
     | "timeline";
   timeframe?: CalendarTimeframe;
 }
@@ -61,6 +63,7 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
       search.tab === "contractors" ||
       search.tab === "milestones" ||
       search.tab === "materials" ||
+      search.tab === "quotes" ||
       search.tab === "staff" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
@@ -879,6 +882,14 @@ function RouteComponent() {
         onChangeMilestone={onChangeMilestone}
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
+        quotes={
+          <QuoteRoundsSurface
+            buildId={String(activeBuildId)}
+            organizationId={workosOrganizationId}
+            readOnly
+            readOnlyLabel="Backoffice audit"
+          />
+        }
         rail={search.rail}
         staff={
           visualFixtureEnabled ? undefined : (

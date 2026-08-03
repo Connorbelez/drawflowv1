@@ -4840,3 +4840,371 @@ describe("Quote Round governed lifecycle", () => {
     expect(persisted.revisions).toHaveLength(1);
   });
 });
+
+describe("Quote Round operations register projection", () => {
+  async function publishRegisterRound(
+    fixture: Awaited<ReturnType<typeof seedQuoteFixture>>,
+    mode: "labour" | "material" | "combined",
+    idempotencyKey: string
+  ) {
+    const created = await configureRound(fixture, mode);
+    return await fixture.builder.mutation(
+      (api as any).quote_rounds.publishQuoteRoundDraft,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        idempotencyKey,
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+  }
+
+  async function register(
+    fixture: Awaited<ReturnType<typeof seedQuoteFixture>>,
+    viewer = fixture.builder,
+    input: Record<string, unknown> = {}
+  ) {
+    return await viewer.query(
+      (api as any).quote_rounds.listQuoteRounds,
+      {
+        buildId: fixture.buildId,
+        workosOrganizationId: ORGANIZATION_ID,
+        ...input,
+      }
+    );
+  }
+
+  test("projects independent recipient, delivery, participation, access, response, deadline, and attention facts", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    const credential = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quoteInvitationAccessCredentials")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query
+            .eq("quoteRoundInvitationId", fixture.invitation._id)
+            .eq("state", "active")
+        )
+        .unique()
+    );
+    if (!credential) {
+      throw new Error("Expected the initial Quote Invitation credential.");
+    }
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(credential._id, {
+        state: "expired",
+        updatedAt: Date.now(),
+      });
+      const messages = await ctx.db
+        .query("emailMessages")
+        .withIndex("by_entity_and_createdAt", (query) =>
+          query
+            .eq("relatedEntityType", "quoteRoundInvitation")
+            .eq("relatedEntityId", String(fixture.invitation._id))
+        )
+        .collect();
+      for (const message of messages) {
+        await ctx.db.patch(message._id, {
+          lastError: "Provider rejected this delivery.",
+          status: "failed",
+          updatedAt: Date.now(),
+        });
+      }
+    });
+
+    const result = await register(fixture);
+    const row = result.rounds.find(
+      (candidate: { _id: string }) => candidate._id === fixture.invitation.quoteRoundId
+    );
+    expect(row).toMatchObject({
+      access: { active: 0, expired: 1, total: 1 },
+      attention: {
+        rank: 1,
+        reason: "delivery_failure",
+      },
+      delivery: {
+        delivered: 0,
+        failed: 1,
+        pending: 0,
+        status: "failed",
+        total: 1,
+        undispatched: 0,
+      },
+      invitationCount: 1,
+      mode: "combined",
+      participation: { active: 1, revoked: 0, total: 1 },
+      preferredQuote: null,
+      recipients: { active: 1, revoked: 0, total: 1 },
+      responses: { drafting: 1, submitted: 0, total: 1 },
+      scope: "Frame exterior walls · Framing lumber",
+      state: "open",
+    });
+    expect(row.responseDeadline).toBeGreaterThan(Date.now());
+    expect(row.lastActivityAt).toEqual(expect.any(Number));
+  });
+
+  test("supports deterministic scope search and mode filtering without changing round identity", async () => {
+    const fixture = await seedQuoteFixture();
+    const labour = await publishRegisterRound(fixture, "labour", "register-labour-001");
+    const material = await publishRegisterRound(
+      fixture,
+      "material",
+      "register-material-001"
+    );
+    const combined = await publishRegisterRound(
+      fixture,
+      "combined",
+      "register-combined-001"
+    );
+
+    const allFirst = await register(fixture);
+    const allSecond = await register(fixture);
+    expect(allSecond.rounds.map((row: { _id: string }) => row._id)).toEqual(
+      allFirst.rounds.map((row: { _id: string }) => row._id)
+    );
+    expect(allFirst.rounds).toHaveLength(3);
+
+    const labourOnly = await register(fixture, fixture.builder, { mode: "labour" });
+    expect(labourOnly.rounds).toHaveLength(1);
+    expect(labourOnly.rounds[0]).toMatchObject({
+      _id: labour.quoteRoundId,
+      mode: "labour",
+    });
+
+    const materialSearch = await register(fixture, fixture.builder, {
+      search: "MATERIAL",
+    });
+    expect(materialSearch.rounds).toHaveLength(1);
+    expect(materialSearch.rounds[0]).toMatchObject({
+      _id: material.quoteRoundId,
+      mode: "material",
+    });
+    expect(
+      allFirst.rounds.map((row: { _id: string }) => row._id)
+    ).toEqual(
+      expect.arrayContaining([
+        labour.quoteRoundId,
+        material.quoteRoundId,
+        combined.quoteRoundId,
+      ])
+    );
+  });
+
+  test("resolves draft labour scope labels from canonical Build Sub-milestones", async () => {
+    const fixture = await seedQuoteFixture();
+    const draft = await configureRound(fixture, "labour");
+
+    const result = await register(fixture);
+    const row = result.rounds.find(
+      (candidate: { _id: string }) => candidate._id === draft.quoteRoundId
+    );
+    expect(row).toMatchObject({
+      scope: "Frame exterior walls",
+      state: "draft",
+    });
+  });
+
+  test("classifies fully and partially undispatched recipients without losing dispatched facts", async () => {
+    const fixture = await seedQuoteFixture();
+    const created = await configureRound(fixture, "labour", {
+      recipientProfileIds: [
+        fixture.recipientId,
+        fixture.contractorOnlyRecipientId,
+      ],
+    });
+    await fixture.builder.mutation(
+      (api as any).quote_rounds.publishQuoteRoundDraft,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        idempotencyKey: "register-undispatched-001",
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const invitations = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quoteRoundInvitations")
+        .withIndex("by_quoteRoundId_and_participationState", (query) =>
+          query
+            .eq("quoteRoundId", created.quoteRoundId)
+            .eq("participationState", "active")
+        )
+        .collect()
+    );
+    expect(invitations).toHaveLength(2);
+    const credentials = await fixture.base.run(async (ctx) =>
+      await Promise.all(
+        invitations.map(async (invitation) =>
+          await ctx.db
+            .query("quoteInvitationAccessCredentials")
+            .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+              query
+                .eq("quoteRoundInvitationId", invitation._id)
+                .eq("state", "active")
+            )
+            .unique()
+        )
+      )
+    );
+    expect(credentials.every(Boolean)).toBe(true);
+    await fixture.base.run(async (ctx) => {
+      const first = credentials[0];
+      if (!first) throw new Error("Expected first active credential.");
+      await ctx.db.patch(first._id, { deliveryEmailMessageId: undefined });
+      const second = credentials[1];
+      if (!second?.deliveryEmailMessageId) {
+        throw new Error("Expected second dispatched email.");
+      }
+      await ctx.db.patch(second.deliveryEmailMessageId, {
+        status: "delivered",
+      });
+    });
+
+    const result = await register(fixture);
+    const row = result.rounds.find(
+      (candidate: { _id: string }) => candidate._id === created.quoteRoundId
+    );
+    expect(row?.delivery).toMatchObject({
+      delivered: 1,
+      failed: 0,
+      pending: 0,
+      status: "partially_dispatched",
+      total: 2,
+      undispatched: 1,
+    });
+    await fixture.base.run(async (ctx) => {
+      const second = credentials[1];
+      if (!second) throw new Error("Expected second active credential.");
+      await ctx.db.patch(second._id, { deliveryEmailMessageId: undefined });
+    });
+    const fullyUndispatched = await register(fixture);
+    const fullyUndispatchedRow = fullyUndispatched.rounds.find(
+      (candidate: { _id: string }) => candidate._id === created.quoteRoundId
+    );
+    expect(fullyUndispatchedRow?.delivery).toMatchObject({
+      delivered: 0,
+      status: "not_dispatched",
+      total: 2,
+      undispatched: 2,
+    });
+  });
+
+  test("retains newest notice and credential history without rejecting older overflow", async () => {
+    const fixture = await openedSubmissionFixture();
+    const now = Date.now();
+    await fixture.base.run(async (ctx) => {
+      for (let index = 0; index < 501; index += 1) {
+        await ctx.db.insert("quoteRoundRecipientNoticeIntents", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: now + index,
+          kind: "access_reminder",
+          organizationId: ORGANIZATION_ID,
+          quotePackageRevisionId: fixture.invitation.quotePackageRevisionId,
+          quoteRoundId: fixture.invitation.quoteRoundId,
+          quoteRoundInvitationId: fixture.invitation._id,
+          reason: `Recent reminder ${index}`,
+          status: "pending",
+        });
+      }
+      for (let index = 0; index < 50; index += 1) {
+        await ctx.db.insert("quoteInvitationAccessCredentials", {
+          accessExpiresAt: now + 90 * 24 * 60 * 60 * 1000,
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          credentialVerifier: `${"b".repeat(60)}${index
+            .toString(16)
+            .padStart(4, "0")}`,
+          credentialVersion: index + 2,
+          createdAt: now + index,
+          organizationId: ORGANIZATION_ID,
+          purpose: "rotation",
+          quoteRoundId: fixture.invitation.quoteRoundId,
+          quoteRoundInvitationId: fixture.invitation._id,
+          state: "rotated",
+          updatedAt: now + index,
+        });
+      }
+    });
+
+    const result = await register(fixture);
+    const row = result.rounds.find(
+      (candidate: { _id: string }) =>
+        candidate._id === fixture.invitation.quoteRoundId
+    );
+    expect(row).toMatchObject({
+      access: { rotated: 50, total: 50 },
+      delivery: { status: "not_dispatched" },
+    });
+    expect(row?.lastActivityAt).toBeGreaterThanOrEqual(now + 500);
+  });
+
+  test("allows read-only Build roles to see the same register while preserving authoring boundaries", async () => {
+    const fixture = await openedSubmissionFixture();
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("buildParticipants", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        displayNameSnapshot: "Homeowner Viewer",
+        emailSnapshot: "homeowner@example.com",
+        joinedAt: now,
+        organizationId: ORGANIZATION_ID,
+        participationPeriod: 1,
+        role: "homeowner",
+        status: "active",
+        updatedAt: now,
+        validFrom: now,
+        workosUserId: "user_homeowner",
+      });
+    });
+    const builderStaff = withIdentity(
+      fixture.base,
+      ["builder-staff"],
+      "user_builder"
+    );
+    const homeowner = withIdentity(
+      fixture.base,
+      ["member"],
+      "user_homeowner"
+    );
+    const backoffice = withIdentity(fixture.base, ["admin"], "user_admin");
+    const builderRows = await register(fixture);
+    const staffRows = await register(fixture, builderStaff);
+    const homeownerRows = await register(fixture, homeowner);
+    const backofficeRows = await register(fixture, backoffice);
+
+    expect(staffRows).toEqual(builderRows);
+    expect(homeownerRows).toEqual(builderRows);
+    expect(backofficeRows).toEqual(builderRows);
+
+    const builderRecipientSearch = await register(fixture, fixture.builder, {
+      search: "quote-recipient@example.com",
+    });
+    const staffRecipientSearch = await register(fixture, builderStaff, {
+      search: "quote-recipient@example.com",
+    });
+    const backofficeRecipientSearch = await register(fixture, backoffice, {
+      search: "quote-recipient@example.com",
+    });
+    const homeownerRecipientSearch = await register(fixture, homeowner, {
+      search: "quote-recipient@example.com",
+    });
+    expect(builderRecipientSearch.rounds).toHaveLength(1);
+    expect(staffRecipientSearch.rounds).toHaveLength(1);
+    expect(backofficeRecipientSearch.rounds).toHaveLength(1);
+    expect(homeownerRecipientSearch.rounds).toHaveLength(0);
+
+    await expect(
+      homeowner.mutation((api as any).quote_rounds.createQuoteRoundDraft, {
+        buildId: fixture.buildId,
+        mode: "labour",
+        title: "Homeowner cannot author",
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    ).rejects.toThrow(/Builder or Builder Staff/);
+  });
+});
