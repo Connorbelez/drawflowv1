@@ -10,6 +10,7 @@ import {
   type MilestoneStartSource,
   recordMilestoneStart,
 } from "./milestone_start";
+import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 /**
@@ -91,7 +92,7 @@ async function loadContractorAssignments(
   ctx: QueryCtx,
   contractorId: Id<"contractorProfiles">
 ): Promise<ContractorAssignmentContext> {
-  const [proposalAssignments, buildAssignments] = await Promise.all([
+  const [proposalAssignments, rawBuildAssignments] = await Promise.all([
     ctx.db
       .query("proposalMilestoneContractorAssignments")
       .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
@@ -101,7 +102,68 @@ async function loadContractorAssignments(
       .withIndex("by_contractor", (q) => q.eq("contractorId", contractorId))
       .collect(),
   ]);
+  const buildAssignments: Doc<"milestoneContractorAssignments">[] = [];
+  for (const assignment of rawBuildAssignments) {
+    if (await isCanonicalBuildAssignment(ctx, contractorId, assignment)) {
+      buildAssignments.push(assignment);
+    }
+  }
   return { proposalAssignments, buildAssignments };
+}
+
+/**
+ * Build work cards are projections of the tenant-scoped Work Allocation
+ * aggregate.  Do not project dangling, cross-tenant, or partially-linked rows
+ * merely because they happen to point at this contractor profile.
+ */
+async function isCanonicalBuildAssignment(
+  ctx: QueryCtx,
+  contractorId: Id<"contractorProfiles">,
+  assignment: Doc<"milestoneContractorAssignments">
+) {
+  if (
+    assignment.contractorId !== contractorId ||
+    assignment.status === "removed" ||
+    (assignment.buildSubmilestoneId === undefined) !==
+      (assignment.submilestoneKey === undefined)
+  ) {
+    return false;
+  }
+  const [build, rootAssignment, milestone] = await Promise.all([
+    ctx.db.get(assignment.buildId),
+    ctx.db.get(assignment.buildContractorAssignmentId),
+    ctx.db.get(assignment.buildMilestoneId),
+  ]);
+  if (
+    !build ||
+    !rootAssignment ||
+    !milestone ||
+    assignment.organizationId !== build.organizationId ||
+    assignment.brokerageId !== build.brokerageId ||
+    assignment.buildId !== build._id ||
+    assignment.buildMilestoneId !== milestone._id ||
+    assignment.milestoneKey !== milestone.key ||
+    rootAssignment.organizationId !== build.organizationId ||
+    rootAssignment.brokerageId !== build.brokerageId ||
+    rootAssignment.buildId !== build._id ||
+    rootAssignment.contractorId !== contractorId ||
+    rootAssignment.status !== "active"
+  ) {
+    return false;
+  }
+  if (!assignment.buildSubmilestoneId || !assignment.submilestoneKey) {
+    return true;
+  }
+  const submilestone = await ctx.db.get(assignment.buildSubmilestoneId);
+  return Boolean(
+    submilestone &&
+      submilestone.buildId === build._id &&
+      submilestone.organizationId === build.organizationId &&
+      submilestone.brokerageId === build.brokerageId &&
+      submilestone.buildMilestoneId === milestone._id &&
+      submilestone.milestoneKey === milestone.key &&
+      submilestone.key === assignment.submilestoneKey
+  );
 }
 
 /**
@@ -614,13 +676,19 @@ export const getContractorBuildDetail = contractorRoleQuery
       throw new Error("Forbidden: brokerage scope");
     }
 
-    const myAssignments = await ctx.db
+    const rawAssignments = await ctx.db
       .query("milestoneContractorAssignments")
       .withIndex("by_contractor_build", (q) =>
         q.eq("contractorId", contractor._id).eq("buildId", args.buildId)
       )
       .filter((q: any) => q.neq(q.field("status"), "removed"))
       .collect();
+    const myAssignments: Doc<"milestoneContractorAssignments">[] = [];
+    for (const assignment of rawAssignments) {
+      if (await isCanonicalBuildAssignment(ctx, contractor._id, assignment)) {
+        myAssignments.push(assignment);
+      }
+    }
 
     if (myAssignments.length === 0) {
       return {
@@ -764,38 +832,22 @@ export const startAssignedSubmilestone = contractorRoleMutation
     ) {
       throw new Error("Forbidden: contractor build scope");
     }
-    const assignment = await ctx.db
-      .query("milestoneContractorAssignments")
-      .withIndex("by_contractor_build", (query) =>
-        query.eq("contractorId", contractor._id).eq("buildId", args.buildId)
+    const milestone = await ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build_key", (query) =>
+        query.eq("buildId", args.buildId).eq("key", args.milestoneKey)
       )
-      .filter((query) =>
-        query.and(
-          query.eq(query.field("milestoneKey"), args.milestoneKey),
-          query.eq(query.field("submilestoneKey"), args.submilestoneKey)
-        )
-      )
-      .first();
-    if (
-      !assignment ||
-      assignment.status === "removed" ||
-      !assignment.buildSubmilestoneId ||
-      assignment.organizationId !== build.organizationId ||
-      assignment.brokerageId !== build.brokerageId ||
-      assignment.buildId !== build._id
-    ) {
-      throw new Error(
-        "Forbidden: contractor is not assigned to this submilestone."
-      );
-    }
-    const [milestone, submilestone, milestones] = await Promise.all([
-      ctx.db.get(assignment.buildMilestoneId),
-      ctx.db.get(assignment.buildSubmilestoneId),
-      ctx.db
-        .query("buildMilestones")
-        .withIndex("by_build", (query) => query.eq("buildId", args.buildId))
-        .take(500),
-    ]);
+      .unique();
+    const submilestone = milestone
+      ? (
+          await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (query) =>
+              query.eq("buildMilestoneId", milestone._id)
+            )
+            .take(500)
+        ).find((candidate) => candidate.key === args.submilestoneKey)
+      : undefined;
     if (
       !(milestone && submilestone) ||
       milestone.organizationId !== build.organizationId ||
@@ -810,6 +862,24 @@ export const startAssignedSubmilestone = contractorRoleMutation
     ) {
       throw new Error("Forbidden: contractor assignment target mismatch.");
     }
+    const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
+      build,
+      milestone,
+      submilestone,
+    });
+    if (
+      ownership.state !== "assigned" ||
+      ownership.assignment?.contractorId !== contractor._id ||
+      ownership.contractor?.accountWorkosUserId !== ctx.viewer.subject
+    ) {
+      throw new Error(
+        "Forbidden: contractor assignment target mismatch. Assignment required."
+      );
+    }
+    const milestones = await ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build", (query) => query.eq("buildId", args.buildId))
+      .take(500);
     return await recordMilestoneStart(ctx, {
       actor: {
         brokerageId: build.brokerageId,

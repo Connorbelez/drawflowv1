@@ -9,6 +9,10 @@ import {
   type BuildCollaborationRole,
   resolveEffectiveCollaborationRole,
 } from "./build_collaboration_model";
+import {
+  canBuilderStartMilestone,
+  resolveCanonicalMilestoneExecutionOwnership,
+} from "./build_collaboration_system_event_access";
 import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
 import {
   publishCanonicalBuildCollaborationSystemEvent,
@@ -34,9 +38,36 @@ export type SystemActionItemPresentationColumn =
 export type SystemActionItemPresentation = {
   attention?: "overdue_completion";
   column: SystemActionItemPresentationColumn;
+  executionOwnership?: {
+    assigneeDisplayName?: string;
+    assigneeId?: Id<"contractorProfiles">;
+    state: "assigned" | "assignment_required";
+    viewerIsAssignee: boolean;
+  };
   plannedCompletionDate?: string;
   plannedStartDate?: string;
   state: "known" | "unknown";
+  startCommand?: {
+    allowed: boolean;
+    buildName: string;
+    dependencyBlockers: Array<{
+      milestoneKey: string;
+      milestoneName: string;
+      status: "in_progress" | "planned";
+    }>;
+    denialReason?:
+      | "already_started"
+      | "assignment_required"
+      | "completed"
+      | "permission_denied";
+    milestoneKey: string;
+    milestoneName: string;
+    plannedStartDate: string;
+    scope: "submilestone";
+    source: "submilestone_detail";
+    submilestoneKey: string;
+    submilestoneName: string;
+  };
   timezone?: string;
   unknownReason?: string;
 };
@@ -146,6 +177,10 @@ export async function deriveMilestoneSystemActionItemPresentation(
     actionItem: Doc<"buildActionItems">;
     asOf: number;
     build: Doc<"activeBuilds">;
+    viewer?: {
+      role: BuildCollaborationRole;
+      workosUserId: string;
+    };
   }
 ): Promise<SystemActionItemPresentation | undefined> {
   if (input.actionItem.systemMode !== "generated_milestone_submilestone") {
@@ -157,19 +192,6 @@ export async function deriveMilestoneSystemActionItemPresentation(
   ) {
     return unknownSystemActionItemPresentation(
       "Generated System Action Item is missing its canonical Milestone binding."
-    );
-  }
-  if (!input.build.timezone) {
-    return unknownSystemActionItemPresentation(
-      "Build timezone is unavailable; schedule state requires an explicit IANA timezone."
-    );
-  }
-  let localDate: string;
-  try {
-    localDate = buildLocalDateAt(input.asOf, input.build.timezone);
-  } catch {
-    return unknownSystemActionItemPresentation(
-      "Build timezone is invalid; schedule state requires an explicit IANA timezone."
     );
   }
   const [milestone, submilestone] = await Promise.all([
@@ -190,14 +212,50 @@ export async function deriveMilestoneSystemActionItemPresentation(
       "Canonical Milestone or Sub-milestone binding is unavailable."
     );
   }
-  const plannedStartDate = addBuildLocalDays(
-    input.build.startDate,
-    submilestone.startDay ?? milestone.dayStart
-  );
-  const plannedCompletionDate = addBuildLocalDays(
-    plannedStartDate,
-    Math.max(0, (submilestone.durationDays ?? 1) - 1)
-  );
+  let plannedStartDate: string;
+  let plannedCompletionDate: string;
+  try {
+    plannedStartDate = addBuildLocalDays(
+      input.build.startDate,
+      submilestone.startDay ?? milestone.dayStart
+    );
+    plannedCompletionDate = addBuildLocalDays(
+      plannedStartDate,
+      Math.max(0, (submilestone.durationDays ?? 1) - 1)
+    );
+  } catch {
+    return unknownSystemActionItemPresentation(
+      "Build start date is invalid; schedule state requires a valid Build-local calendar date."
+    );
+  }
+  const execution = input.viewer
+    ? await projectMilestoneExecutionPresentation(ctx, {
+        build: input.build,
+        milestone,
+        plannedStartDate,
+        submilestone,
+        viewer: input.viewer,
+      })
+    : undefined;
+  if (!input.build.timezone) {
+    return {
+      ...unknownSystemActionItemPresentation(
+        "Build timezone is unavailable; schedule state requires an explicit IANA timezone."
+      ),
+      ...execution,
+    };
+  }
+  let localDate: string;
+  try {
+    localDate = buildLocalDateAt(input.asOf, input.build.timezone);
+  } catch {
+    return {
+      ...unknownSystemActionItemPresentation(
+        "Build timezone is invalid; schedule state requires an explicit IANA timezone."
+      ),
+      ...execution,
+    };
+  }
   const base = {
     plannedCompletionDate,
     plannedStartDate,
@@ -210,6 +268,7 @@ export async function deriveMilestoneSystemActionItemPresentation(
   ) {
     return {
       ...base,
+      ...execution,
       column:
         milestone.completionReview?.status === "approved"
           ? "approved"
@@ -219,6 +278,7 @@ export async function deriveMilestoneSystemActionItemPresentation(
   if (submilestone.actualStartedAt !== undefined) {
     return {
       ...base,
+      ...execution,
       attention:
         localDate > plannedCompletionDate ? "overdue_completion" : undefined,
       column: "in_progress",
@@ -226,7 +286,121 @@ export async function deriveMilestoneSystemActionItemPresentation(
   }
   return {
     ...base,
+    ...execution,
     column: localDate > plannedStartDate ? "behind_schedule" : "backlog",
+  };
+}
+
+async function projectMilestoneExecutionPresentation(
+  ctx: QueryCtx,
+  input: {
+    build: Doc<"activeBuilds">;
+    milestone: Doc<"buildMilestones">;
+    plannedStartDate: string;
+    submilestone: Doc<"buildSubmilestones">;
+    viewer: {
+      role: BuildCollaborationRole;
+      workosUserId: string;
+    };
+  }
+): Promise<
+  Pick<SystemActionItemPresentation, "executionOwnership" | "startCommand">
+> {
+  const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
+    build: input.build,
+    milestone: input.milestone,
+    submilestone: input.submilestone,
+  });
+  const viewerIsAssignee =
+    ownership.state === "assigned" &&
+    ownership.contractor?.accountWorkosUserId === input.viewer.workosUserId;
+  const milestones = await ctx.db
+    .query("buildMilestones")
+    .withIndex("by_build", (query) => query.eq("buildId", input.build._id))
+    .take(500);
+  const milestonesByKey = new Map(
+    milestones.map((milestone) => [milestone.key, milestone])
+  );
+  const dependencyBlockers = input.milestone.dependencyKeys.flatMap((key) => {
+    const dependency = milestonesByKey.get(key);
+    if (!dependency || dependency.status === "complete") {
+      return [];
+    }
+    return [
+      {
+        milestoneKey: dependency.key,
+        milestoneName: dependency.name,
+        status:
+          dependency.status === "in_progress"
+            ? ("in_progress" as const)
+            : ("planned" as const),
+      },
+    ];
+  });
+  const completed =
+    input.milestone.status === "complete" ||
+    input.milestone.completionClaim !== undefined ||
+    input.submilestone.status === "complete";
+  const alreadyStarted = input.submilestone.actualStartedAt !== undefined;
+  let allowed = false;
+  let denialReason:
+    | "already_started"
+    | "assignment_required"
+    | "completed"
+    | "permission_denied"
+    | undefined;
+  if (input.viewer.role === "contractor" && ownership.state !== "assigned") {
+    denialReason = "assignment_required";
+  } else if (completed) {
+    denialReason = "completed";
+  } else if (alreadyStarted) {
+    denialReason = "already_started";
+  } else if (input.viewer.role === "contractor") {
+    allowed = viewerIsAssignee;
+    if (!allowed) {
+      denialReason = "permission_denied";
+    }
+  } else if (
+    input.viewer.role === "builder" ||
+    input.viewer.role === "builder-staff"
+  ) {
+    allowed = await canBuilderStartMilestone(ctx, {
+      build: input.build,
+      role: input.viewer.role,
+      workosUserId: input.viewer.workosUserId,
+    });
+    if (!allowed) {
+      denialReason = "permission_denied";
+    }
+  } else {
+    denialReason = "permission_denied";
+  }
+  return {
+    executionOwnership: {
+      ...(input.viewer.role === "contractor"
+        ? {}
+        : ownership.contractor
+          ? {
+              assigneeDisplayName: ownership.contractor.name,
+              assigneeId: ownership.contractor._id,
+            }
+          : {}),
+      state: ownership.state,
+      viewerIsAssignee,
+    },
+    startCommand: {
+      allowed,
+      buildName: input.build.buildName,
+      dependencyBlockers,
+      ...(denialReason ? { denialReason } : {}),
+      milestoneKey: input.milestone.key,
+      milestoneName: input.milestone.name,
+      plannedStartDate: input.plannedStartDate,
+      scope: "submilestone",
+      source: "submilestone_detail",
+      submilestoneKey: input.submilestone.key,
+      submilestoneName: input.submilestone.name,
+    },
   };
 }
 

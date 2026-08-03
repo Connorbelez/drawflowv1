@@ -448,6 +448,29 @@ describe("Build Collaboration operational events", () => {
     expect(systemCards.map((item) => item.canonicalBuildSubmilestoneId)).toEqual(
       expect.arrayContaining(submilestoneIds),
     );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.buildId, { timezone: "America/Toronto" });
+    });
+    const builderItems = await fixture.builder.query(
+      (api as any).build_action_items.listBuildActionItems,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(builderItems[0]?.item.systemPresentation).toMatchObject({
+      executionOwnership: {
+        state: "assignment_required",
+        viewerIsAssignee: false,
+      },
+      startCommand: {
+        allowed: true,
+        scope: "submilestone",
+        source: "submilestone_detail",
+      },
+    });
+    const contractorItems = await fixture.assignedContractor.query(
+      (api as any).build_action_items.listBuildActionItems,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(contractorItems).toEqual([]);
     const generatedCard = systemCards[0]!;
     await expect(
       fixture.admin.mutation(
@@ -1343,16 +1366,16 @@ describe("Build Collaboration operational events", () => {
       ]),
     );
     expect(await feedKinds(fixture.contractor, fixture.buildId)).toEqual([
-      "post",
-      "post",
-      "post",
-      "post",
+      "restricted",
+      "restricted",
+      "restricted",
+      "restricted",
     ]);
     expect(await feedKinds(fixture.homeowner, fixture.buildId)).toEqual([
-      "post",
-      "post",
-      "post",
-      "post",
+      "restricted",
+      "restricted",
+      "restricted",
+      "restricted",
     ]);
     const persistedMilestone = await fixture.base.run((ctx) =>
       ctx.db.get(fixture.milestoneId),

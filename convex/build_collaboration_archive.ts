@@ -1,5 +1,6 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { canSeeCollaborationReceipt } from "./build_collaboration_access";
+import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import type { Doc, Id, QueryCtx } from "./types";
 
 const ARCHIVE_ROW_LIMIT = 2000;
@@ -233,18 +234,30 @@ export async function buildCollaborationPostArchivePage(
         query.eq("originatingPostId", post._id).lte("createdAt", snapshotAt)
       )
       .paginate({ cursor, numItems: ARCHIVE_PAGE_SIZE });
+    const visibleItems: Record<string, unknown>[] = [];
+    for (const item of result.page) {
+      if (
+        await canReadMilestoneSystemActionItem(ctx, {
+          actionItem: item,
+          buildId: authorization.build._id,
+          role: authorization.effectiveRole.role,
+          workosUserId: authorization.viewer.subject,
+        })
+      ) {
+        visibleItems.push(
+          await archiveActionItemSnapshot(ctx, item, snapshotAt)
+        );
+      }
+    }
     return {
       ...result,
       page: undefined,
-      data: await Promise.all(
-        result.page.map((item) =>
-          archiveActionItemSnapshot(ctx, item, snapshotAt)
-        )
-      ),
+      data: visibleItems,
     };
   }
   if (section.startsWith("action_item_")) {
     return await buildActionItemChildArchivePage(ctx, {
+      authorization,
       cursor,
       postId: post._id,
       section: section as ActionItemChildArchiveSection,
@@ -766,6 +779,7 @@ async function archiveActionItemSnapshot(
 async function buildActionItemChildArchivePage(
   ctx: QueryCtx,
   input: {
+    authorization: ActiveBuildAuthorization;
     cursor: string | null;
     postId: Id<"buildCollaborationPosts">;
     section: ActionItemChildArchiveSection;
@@ -799,6 +813,16 @@ async function buildActionItemChildArchivePage(
     outerIsDone = itemPage.isDone;
   }
   if (!item) {
+    return { continueCursor: "", data: [], isDone: true };
+  }
+  if (
+    !(await canReadMilestoneSystemActionItem(ctx, {
+      actionItem: item,
+      buildId: input.authorization.build._id,
+      role: input.authorization.effectiveRole.role,
+      workosUserId: input.authorization.viewer.subject,
+    }))
+  ) {
     return { continueCursor: "", data: [], isDone: true };
   }
 

@@ -10,6 +10,10 @@ import type { BuildCollaborationRole } from "./build_collaboration_model";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import type { ReferenceInput } from "./build_collaboration_publication_bundle";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import {
+  canReadCanonicalMilestoneSubmilestone,
+  canReadMilestoneSystemActionItem,
+} from "./build_collaboration_system_event_access";
 import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import type { Doc, QueryCtx } from "./types";
 
@@ -212,6 +216,26 @@ async function resolveCanonicalReference(
         entityId,
         authorization
       );
+      const milestone = await ctx.db.get(submilestone.buildMilestoneId);
+      if (!milestone || !isScopedDoc(milestone, authorization)) {
+        throw unavailableReference();
+      }
+      const readersCanRead = await Promise.all(
+        readers.map((reader) =>
+          reader.role !== "contractor"
+            ? true
+            : canReadCanonicalMilestoneSubmilestone(ctx, {
+                build: authorization.build,
+                milestone,
+                role: reader.role,
+                submilestone,
+                workosUserId: reader.workosUserId,
+              })
+        )
+      );
+      if (readersCanRead.includes(false)) {
+        throw incompatibleReference();
+      }
       return {
         ...common,
         eyebrow: "Sub-milestone",
@@ -465,7 +489,17 @@ async function resolveActionItemReference(
   const post = await ctx.db.get(item.originatingPostId);
   const readerAccess = post
     ? await Promise.all(
-        input.readers.map((reader) => canParticipantReadPost(ctx, post, reader))
+        input.readers.map(async (reader) => {
+          if (!(await canParticipantReadPost(ctx, post, reader))) {
+            return false;
+          }
+          return await canReadMilestoneSystemActionItem(ctx, {
+            actionItem: item,
+            buildId: input.authorization.build._id,
+            role: reader.role,
+            workosUserId: reader.workosUserId,
+          });
+        })
       )
     : [];
   if (!post || readerAccess.includes(false)) {

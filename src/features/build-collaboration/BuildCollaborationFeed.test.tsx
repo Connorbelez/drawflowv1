@@ -265,8 +265,25 @@ function canonicalMilestoneSystemPostEntryFixture() {
         status: "todo",
         systemPresentation: {
           column: "behind_schedule",
+          executionOwnership: {
+            state: "assignment_required",
+            viewerIsAssignee: false,
+          },
           plannedCompletionDate: "2026-08-04",
           plannedStartDate: "2026-08-03",
+          startCommand: {
+            allowed: false,
+            buildName: "UI fixture Build",
+            dependencyBlockers: [],
+            denialReason: "assignment_required",
+            milestoneKey: "foundation",
+            milestoneName: "Foundation",
+            plannedStartDate: "2026-08-03",
+            scope: "submilestone",
+            source: "submilestone_detail",
+            submilestoneKey: "foundation-1",
+            submilestoneName: "Excavate",
+          },
           state: "known",
           timezone: "America/Toronto",
         },
@@ -1109,6 +1126,7 @@ describe("BuildCollaborationFeed", () => {
     );
     expect(screen.getAllByText("System · Milestone").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Behind Schedule").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Assignment required").length).toBeGreaterThan(0);
     const status = screen.getByRole("combobox", {
       name: "Status for Excavate",
     });

@@ -35,6 +35,17 @@ const collaborationSystemPostValidator = v.object({
 
 export const systemActionItemPresentationValidator = v.object({
   attention: v.optional(v.literal("overdue_completion")),
+  executionOwnership: v.optional(
+    v.object({
+      assigneeDisplayName: v.optional(v.string()),
+      assigneeId: v.optional(v.id("contractorProfiles")),
+      state: v.union(
+        v.literal("assigned"),
+        v.literal("assignment_required")
+      ),
+      viewerIsAssignee: v.boolean(),
+    })
+  ),
   column: v.union(
     v.literal("backlog"),
     v.literal("behind_schedule"),
@@ -45,6 +56,34 @@ export const systemActionItemPresentationValidator = v.object({
   plannedCompletionDate: v.optional(v.string()),
   plannedStartDate: v.optional(v.string()),
   state: v.union(v.literal("known"), v.literal("unknown")),
+  startCommand: v.optional(
+    v.object({
+      allowed: v.boolean(),
+      buildName: v.string(),
+      dependencyBlockers: v.array(
+        v.object({
+          milestoneKey: v.string(),
+          milestoneName: v.string(),
+          status: v.union(v.literal("in_progress"), v.literal("planned")),
+        })
+      ),
+      denialReason: v.optional(
+        v.union(
+          v.literal("already_started"),
+          v.literal("assignment_required"),
+          v.literal("completed"),
+          v.literal("permission_denied")
+        )
+      ),
+      milestoneKey: v.string(),
+      milestoneName: v.string(),
+      plannedStartDate: v.string(),
+      scope: v.literal("submilestone"),
+      source: v.literal("submilestone_detail"),
+      submilestoneKey: v.string(),
+      submilestoneName: v.string(),
+    })
+  ),
   timezone: v.optional(v.string()),
   unknownReason: v.optional(v.string()),
 });

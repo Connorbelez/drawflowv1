@@ -6,6 +6,7 @@ import { ConvexError, v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
 import { copyProposalDocumentsToActiveBuild } from "./active_build_document_lineage";
+import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import {
   type AuthorizedViewer,
   authenticatedAction,
@@ -42,6 +43,7 @@ import {
   publishDrawCollaborationEvent,
   publishMilestoneCollaborationEvent,
 } from "./build_collaboration_workflow_events";
+import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
 import { scheduleCurrentMilestoneSystemPostActivations } from "./build_collaboration_scheduling";
 import { validateBuildTimezone } from "./build_collaboration_system_posts";
 import {
@@ -17053,7 +17055,7 @@ export const startActiveBuildMilestone = authenticatedMutation
   })
   .returns(v.any())
   .handler(async (ctx, args) => {
-    const auth = await authorizeActiveBuildOrThrow(
+    const auth = await authorizeActiveBuildForStart(
       ctx,
       args.buildId,
       args.workosOrganizationId,
@@ -17063,8 +17065,17 @@ export const startActiveBuildMilestone = authenticatedMutation
         "Forbidden: lender roles cannot originate builder milestone starts.",
       );
     }
-    await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
-    if (args.submilestoneKey) {
+    const contractorStart = auth.roles.includes("contractor");
+    if (contractorStart) {
+      if (!args.submilestoneKey || args.startParent) {
+        throw new Error(
+          "Assigned Contractors may start only an assigned Sub-milestone."
+        );
+      }
+    } else {
+      await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+    }
+    if (args.submilestoneKey && !contractorStart) {
       await requireActiveBuildAppPermission(
         ctx,
         auth,
@@ -17092,6 +17103,24 @@ export const startActiveBuildMilestone = authenticatedMutation
         message: "Submilestone is unavailable for this milestone.",
         submilestoneKey: args.submilestoneKey,
       });
+    }
+    if (contractorStart) {
+      const ownership = submilestone
+        ? await resolveCanonicalMilestoneExecutionOwnership(ctx, {
+            build: auth.build,
+            milestone,
+            submilestone,
+          })
+        : undefined;
+      if (
+        !ownership ||
+        ownership.state !== "assigned" ||
+        ownership.contractor?.accountWorkosUserId !== auth.subject
+      ) {
+        throw new Error(
+          "Assignment required: contractor is not assigned to this Sub-milestone."
+        );
+      }
     }
     return await recordMilestoneStart(ctx, {
       actor: {
@@ -21757,6 +21786,32 @@ async function authorizeActiveBuildOrThrow(
     throw new Error("Forbidden: active build scope");
   }
   return auth;
+}
+
+/** Narrow Contractor admission used only by the canonical start command. */
+async function authorizeActiveBuildForStart(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  buildId: Id<"activeBuilds">,
+  workosOrganizationId: string
+): Promise<Awaited<ReturnType<typeof authorizeActiveBuildOrThrow>>> {
+  if (!ctx.viewer.roles.includes("contractor")) {
+    return await authorizeActiveBuildOrThrow(
+      ctx,
+      buildId,
+      workosOrganizationId
+    );
+  }
+  const access = await authorizeActiveBuildAccess(ctx, {
+    buildId,
+    organizationId: workosOrganizationId,
+  });
+  return {
+    brokerage: access.brokerage,
+    build: access.build,
+    proposal: access.proposal,
+    roles: normalizeRoleSlugs(ctx.viewer.roles),
+    subject: ctx.viewer.subject,
+  };
 }
 
 function requireBackofficeActiveBuildWrite(auth: {

@@ -140,7 +140,7 @@ export const listBuildActionItemQueue = authenticatedQuery
       ...page,
       page: await Promise.all(
         readable.map((item) =>
-          queueRow(ctx, item, authorization.build, args.scope, asOf)
+          queueRow(ctx, item, authorization, args.scope, asOf)
         )
       ),
     };
@@ -196,7 +196,7 @@ export const listMyBuildActionItemQueue = authenticatedQuery
       result.push(
         ...(await Promise.all(
           readable.map((item) =>
-            queueRow(ctx, item, authorization.build, "personal", asOf)
+            queueRow(ctx, item, authorization, "personal", asOf)
           )
         ))
       );
@@ -727,7 +727,7 @@ async function resolveBuildQueuePage(
 async function queueRow(
   ctx: QueryCtx,
   item: Doc<"buildActionItems">,
-  build: Doc<"activeBuilds">,
+  authorization: ActiveBuildAuthorization,
   scope: "build" | "post" | "entity" | "personal",
   now: number
 ) {
@@ -736,13 +736,17 @@ async function queueRow(
     {
       actionItem: item,
       asOf: now,
-      build,
+      build: authorization.build,
+      viewer: {
+        role: authorization.effectiveRole.role,
+        workosUserId: authorization.viewer.subject,
+      },
     }
   );
   const deadline = actionItemOverdueState(item, now);
   return {
-    buildId: build._id,
-    buildName: build.buildName,
+    buildId: authorization.build._id,
+    buildName: authorization.build.buildName,
     item: {
       _creationTime: item._creationTime,
       _id: item._id,

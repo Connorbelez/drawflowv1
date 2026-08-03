@@ -117,6 +117,22 @@ export async function recordMilestoneStart(
         "Explain why work began before the declared predecessor milestones were complete.",
     });
   }
+  if (
+    dependencySnapshot.length > 0 &&
+    reason &&
+    !input.actor.roles.some(
+      (role) =>
+        role.trim().toLowerCase() === "builder" ||
+        role.trim().toLowerCase() === "builder-staff" ||
+        role.trim().toLowerCase() === "builder_staff"
+    )
+  ) {
+    throw new ConvexError({
+      code: "DEPENDENCY_EXCEPTION_NOT_AUTHORIZED",
+      message:
+        "Only an authorized Builder or Builder Staff member may record a dependency exception.",
+    });
+  }
   const warnings = dependencySnapshot.map(
     (dependency) =>
       `${dependency.milestoneName} (${dependency.milestoneKey}) was ${dependency.status}.`

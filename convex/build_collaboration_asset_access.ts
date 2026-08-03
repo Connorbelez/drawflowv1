@@ -3,6 +3,7 @@ import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
+import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import type { Doc, QueryCtx } from "./types";
 
 export async function canUseCollaborationAssetForPost(
@@ -23,6 +24,29 @@ export async function canUseCollaborationAssetForPost(
     input.post.buildId !== input.authorization.build._id
   ) {
     return false;
+  }
+  const ownerAttachments = await ctx.db
+    .query("buildCollaborationAttachments")
+    .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
+      query
+        .eq("buildId", input.authorization.build._id)
+        .eq("attachmentKind", "collaborationAsset")
+        .eq("attachmentId", input.asset._id)
+    )
+    .take(100);
+  for (const attachment of ownerAttachments) {
+    const actionItem = await attachmentActionItem(ctx, attachment);
+    if (
+      actionItem &&
+      !(await canReadMilestoneSystemActionItem(ctx, {
+        actionItem,
+        buildId: input.authorization.build._id,
+        role: input.authorization.effectiveRole.role,
+        workosUserId: input.authorization.viewer.subject,
+      }))
+    ) {
+      return false;
+    }
   }
   if (input.asset.originatingPostId === input.post._id) {
     return true;
@@ -97,6 +121,18 @@ export async function resolveCollaborationAssetReadDecision(
     .take(100);
   for (const attachment of attachments) {
     const post = await attachmentPost(ctx, attachment);
+    const actionItem = await attachmentActionItem(ctx, attachment);
+    if (
+      actionItem &&
+      !(await canReadMilestoneSystemActionItem(ctx, {
+        actionItem,
+        buildId: input.authorization.build._id,
+        role: input.authorization.effectiveRole.role,
+        workosUserId: input.authorization.viewer.subject,
+      }))
+    ) {
+      continue;
+    }
     if (
       post &&
       (await canReadCollaborationPost(ctx, input.authorization, post))
@@ -198,4 +234,26 @@ async function attachmentPost(
   const comment = commentId ? await ctx.db.get(commentId) : null;
   const actionItem = comment ? await ctx.db.get(comment.actionItemId) : null;
   return actionItem ? await ctx.db.get(actionItem.originatingPostId) : null;
+}
+
+async function attachmentActionItem(
+  ctx: QueryCtx,
+  attachment: Doc<"buildCollaborationAttachments">
+) {
+  if (attachment.ownerKind === "actionItem") {
+    const actionItemId = ctx.db.normalizeId(
+      "buildActionItems",
+      attachment.ownerRecordId
+    );
+    return actionItemId ? await ctx.db.get(actionItemId) : null;
+  }
+  if (attachment.ownerKind !== "actionItemComment") {
+    return null;
+  }
+  const commentId = ctx.db.normalizeId(
+    "buildActionItemComments",
+    attachment.ownerRecordId
+  );
+  const comment = commentId ? await ctx.db.get(commentId) : null;
+  return comment ? await ctx.db.get(comment.actionItemId) : null;
 }

@@ -334,6 +334,10 @@ async function projectActionItemSummary(
         actionItem: item,
         asOf,
         build: authorization.build,
+        viewer: {
+          role: authorization.effectiveRole.role,
+          workosUserId: authorization.viewer.subject,
+        },
       }),
     ]);
   const isScopedBlock = (relation: Doc<"buildActionItemRelations">) =>

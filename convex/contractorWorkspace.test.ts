@@ -528,6 +528,308 @@ describe("contractor workspace scope + redaction", () => {
     });
   });
 
+  test("public canonical start admits only the exact assigned child and fails closed after removal", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const { buildId } = await createApprovedBuild(admin, seed);
+    const contractorId = await createContractorLinked(admin, seed);
+    await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId,
+        contractorId,
+        milestoneKey: "foundation",
+        role: "mason",
+        submilestoneKeys: ["forms"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const me = withIdentity(base, ["contractor"], CONTRACTOR_USER);
+    const startInput = {
+      actualStartedAt: Date.now() - 60 * 60 * 1000,
+      buildId,
+      idempotencyKey: "public-contractor-forms-start-001",
+      milestoneKey: "foundation",
+      source: "submilestone_detail" as const,
+      startParent: false,
+      submilestoneKey: "forms",
+      workosOrganizationId: ORG,
+    };
+    await me.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      startInput,
+    );
+    await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", buildId).eq("key", "foundation"),
+        )
+        .unique();
+      expect(milestone).toMatchObject({ status: "planned" });
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (query: any) =>
+          query.eq("buildMilestoneId", milestone._id),
+        )
+        .first();
+      expect(submilestone).toMatchObject({ status: "in_progress" });
+      const assignment = await ctx.db
+        .query("milestoneContractorAssignments")
+        .withIndex("by_contractor_build", (query: any) =>
+          query.eq("contractorId", contractorId).eq("buildId", buildId),
+        )
+        .first();
+      await ctx.db.patch(assignment._id, { status: "removed" });
+    });
+    await expect(
+      me.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          ...startInput,
+          actualStartedAt: Date.now() - 30 * 60 * 1000,
+          idempotencyKey: "public-contractor-forms-start-002",
+        },
+      ),
+    ).rejects.toThrow(/Assignment required/i);
+  });
+
+  test("ENG-409 authenticated role matrix keeps Work Allocation as the only contractor authority", async () => {
+    const { admin, base, seed } = await seedFoundation();
+    const assignedBuild = await createApprovedBuild(admin, seed);
+    const assignedContractorId = await createContractorLinked(
+      admin,
+      seed,
+      "Assigned ENG-409 contractor",
+      "user_eng409_assigned",
+    );
+    await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId: assignedBuild.buildId,
+        contractorId: assignedContractorId,
+        milestoneKey: "foundation",
+        role: "mason",
+        submilestoneKeys: ["forms"],
+        workosOrganizationId: ORG,
+      },
+    );
+    const unassignedContractorId = await createContractorLinked(
+      admin,
+      seed,
+      "Unassigned ENG-409 contractor",
+      "user_eng409_unassigned",
+    );
+    await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildContractorToMilestone,
+      {
+        buildId: assignedBuild.buildId,
+        contractorId: unassignedContractorId,
+        milestoneKey: "foundation",
+        role: "observer",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    // A build participant and a mention/follow record are collaboration
+    // projections only; neither row is an execution grant.
+    await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(assignedBuild.buildId);
+      const now = Date.now();
+      if (!build) {
+        throw new Error("ENG-409 build fixture is unavailable.");
+      }
+      const postId = await ctx.db.insert("buildCollaborationPosts", {
+        acknowledgementRequired: false,
+        agentDrafted: false,
+        audienceFloorTier: 0,
+        audienceMode: "build_wide",
+        authorDisplayNameSnapshot: "ENG-409 test post",
+        authorRole: "admin",
+        authorRolesSnapshot: ["admin"],
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        commentCount: 0,
+        contentState: "active",
+        createdAt: now,
+        lastMeaningfulActivityAt: now,
+        openActionItemCount: 0,
+        organizationId: build.organizationId,
+        postType: "update",
+        readRevision: 1,
+        revision: 1,
+        source: "human",
+        threadRevision: 0,
+        threadState: "open",
+        updatedAt: now,
+      });
+      await ctx.db.insert("buildParticipants", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        displayNameSnapshot: "Self-joined ENG-409 contractor",
+        joinedAt: now,
+        organizationId: build.organizationId,
+        participationPeriod: 1,
+        role: "contractor",
+        status: "active",
+        updatedAt: now,
+        validFrom: now,
+        workosUserId: "user_eng409_unassigned",
+      });
+      await ctx.db.insert("buildCollaborationFollows", {
+        active: true,
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        organizationId: build.organizationId,
+        postId,
+        reason: "mentioned",
+        updatedAt: now,
+        workosUserId: "user_eng409_unassigned",
+      });
+    });
+
+    const unassigned = withIdentity(
+      base,
+      ["contractor"],
+      "user_eng409_unassigned",
+    );
+    await expect(
+      unassigned.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          actualStartedAt: Date.now() - 60 * 60 * 1000,
+          buildId: assignedBuild.buildId,
+          idempotencyKey: "eng409-unassigned-child-start",
+          milestoneKey: "foundation",
+          source: "submilestone_detail",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/Assignment required/i);
+
+    const assigned = withIdentity(base, ["contractor"], "user_eng409_assigned");
+    await expect(
+      assigned.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          actualStartedAt: Date.now() - 60 * 60 * 1000,
+          buildId: assignedBuild.buildId,
+          idempotencyKey: "eng409-contractor-parent-start",
+          milestoneKey: "foundation",
+          source: "milestone_detail",
+          startParent: true,
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/Assigned Contractors may start only an assigned Sub-milestone/i);
+
+    const contractorStart = await assigned.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: Date.now() - 45 * 60 * 1000,
+        buildId: assignedBuild.buildId,
+        idempotencyKey: "eng409-contractor-child-start",
+        milestoneKey: "foundation",
+        source: "submilestone_detail",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(contractorStart).toMatchObject({
+      parentStarted: false,
+      submilestoneKey: "forms",
+    });
+
+    const lender = withIdentity(base, ["admin"], PRINCIPAL_BROKER);
+    await expect(
+      lender.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          actualStartedAt: Date.now() - 30 * 60 * 1000,
+          buildId: assignedBuild.buildId,
+          idempotencyKey: "eng409-lender-start",
+          milestoneKey: "foundation",
+          source: "milestone_detail",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/lender roles cannot originate/i);
+
+    const builderBuild = await createApprovedBuild(admin, seed);
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    await expect(
+      builder.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          actualStartedAt: Date.now() - 30 * 60 * 1000,
+          buildId: builderBuild.buildId,
+          idempotencyKey: "eng409-builder-parent-child-start",
+          milestoneKey: "foundation",
+          source: "submilestone_detail",
+          startParent: true,
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toMatchObject({ parentStarted: true, submilestoneKey: "forms" });
+
+    const staffBuild = await createApprovedBuild(admin, seed);
+    const staffUser = "user_eng409_staff";
+    await admin.run(async (ctx: any) => {
+      const now = Date.now();
+      const linkId = await ctx.db.insert("builderAccountLinks", {
+        assignedEmail: `${staffUser}@example.com`,
+        brokerageId: seed.brokerageId,
+        builderProfileId: seed.builderProfileId,
+        createdAt: now,
+        role: "staff",
+        status: "active",
+        updatedAt: now,
+        workosUserId: staffUser,
+      });
+      for (const resourceType of ["milestone", "submilestone"] as const) {
+        await ctx.db.insert("builderStaffPermissionGrants", {
+          brokerageId: seed.brokerageId,
+          buildId: staffBuild.buildId,
+          builderAccountLinkId: linkId,
+          builderProfileId: seed.builderProfileId,
+          canCreate: false,
+          canDelete: false,
+          canUpdate: true,
+          canView: true,
+          createdAt: now,
+          createdByWorkosUserId: PRINCIPAL_BROKER,
+          organizationId: ORG,
+          proposalId: staffBuild.proposalId,
+          resourceType,
+          scope: "activeBuild",
+          updatedAt: now,
+          updatedByWorkosUserId: PRINCIPAL_BROKER,
+          workosUserId: staffUser,
+        });
+      }
+    });
+    const staff = withIdentity(base, ["builder-staff"], staffUser);
+    await expect(
+      staff.mutation(
+        (api as any).production_proposals.startActiveBuildMilestone,
+        {
+          actualStartedAt: Date.now() - 30 * 60 * 1000,
+          buildId: staffBuild.buildId,
+          idempotencyKey: "eng409-staff-parent-child-start",
+          milestoneKey: "foundation",
+          source: "submilestone_detail",
+          startParent: true,
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).resolves.toMatchObject({ parentStarted: true, submilestoneKey: "forms" });
+  });
+
   test("rejects contractor start commands whose caller or assignment projection crosses an organization boundary", async () => {
     const { admin, base, seed } = await seedFoundation();
     const { buildId } = await createApprovedBuild(admin, seed);

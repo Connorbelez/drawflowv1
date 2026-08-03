@@ -10,6 +10,7 @@ import {
 import { projectReadableBuildCollaborationPost } from "./build_collaboration_projection";
 import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import { buildCollaborationReferenceKindValidator } from "./build_collaboration_validators";
 import type { Id, QueryCtx } from "./types";
 
@@ -46,7 +47,15 @@ export const getFocusedBuildActionItemContext = authenticatedQuery
       return null;
     }
     const post = await ctx.db.get(item.originatingPostId);
-    if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+    if (
+      !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+      !(await canReadMilestoneSystemActionItem(ctx, {
+        actionItem: item,
+        buildId: authorization.build._id,
+        role: authorization.effectiveRole.role,
+        workosUserId: authorization.viewer.subject,
+      }))
+    ) {
       return null;
     }
     return { actionItemId: item._id, postId: post._id };

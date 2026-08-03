@@ -245,6 +245,10 @@ export const getBuildActionItemDetail = authenticatedQuery
         actionItem: item,
         asOf: Date.now(),
         build: authorization.build,
+        viewer: {
+          role: authorization.effectiveRole.role,
+          workosUserId: authorization.viewer.subject,
+        },
       });
     const attachmentRows = await Promise.all(
       attachments.map(async (attachment) => {

@@ -12,6 +12,7 @@ import {
   Clock3,
   History,
   MessageCircle,
+  Play,
   ShieldCheck,
   UserRound,
   X,
@@ -56,6 +57,11 @@ import {
   BuildCollaborationAssetList,
   type BuildCollaborationAssetSummary,
 } from "./BuildCollaborationAssetList.tsx";
+import {
+  MilestoneStartDialog,
+  type MilestoneStartDialogRequest,
+  type MilestoneStartConfirmation,
+} from "../backoffice-build-detail/MilestoneStartDialog.tsx";
 import {
   useBuildCollaborationAction,
   useBuildCollaborationMutation,
@@ -650,6 +656,9 @@ function VisibleActionItemDetail({
   const transitionActionItem = useBuildCollaborationMutation(
     api.build_action_item_workflow.transitionBuildActionItem
   );
+  const startCanonicalMilestone = useBuildCollaborationMutation(
+    api.production_proposals.startActiveBuildMilestone
+  );
   const workflow = useQuery(
     api.build_action_item_workflow.getBuildActionItemWorkflowContext,
     {
@@ -701,6 +710,8 @@ function VisibleActionItemDetail({
   const [saving, setSaving] = useState(false);
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [transitionReason, setTransitionReason] = useState("");
+  const [canonicalStartRequest, setCanonicalStartRequest] =
+    useState<MilestoneStartDialogRequest | null>(null);
 
   const replaceAsset = async (
     asset: BuildCollaborationAssetSummary,
@@ -971,6 +982,46 @@ function VisibleActionItemDetail({
     }
   };
 
+  const openCanonicalStart = () => {
+    const command = detail.item.systemPresentation?.startCommand;
+    if (!command?.allowed || readOnly) {
+      return;
+    }
+    setCanonicalStartRequest({
+      action: "start",
+      buildName: command.buildName,
+      dependencyBlockers: command.dependencyBlockers,
+      milestoneKey: command.milestoneKey,
+      milestoneName: command.milestoneName,
+      plannedStartDate: command.plannedStartDate,
+      scope: command.scope,
+      source: command.source,
+      startParent: false,
+      submilestoneKey: command.submilestoneKey,
+      submilestoneName: command.submilestoneName,
+    });
+  };
+
+  const confirmCanonicalStart = async (
+    input: MilestoneStartConfirmation
+  ) => {
+    if (input.action !== "start" || input.actualStartedAt === undefined) {
+      throw new Error("An actual start is required.");
+    }
+    await startCanonicalMilestone({
+      actualStartedAt: input.actualStartedAt,
+      buildId,
+      dependencyOverrideReason: input.dependencyOverrideReason,
+      idempotencyKey: input.idempotencyKey,
+      milestoneKey: input.milestoneKey,
+      source: input.source,
+      startParent: false,
+      submilestoneKey: input.submilestoneKey,
+      workosOrganizationId: organizationId,
+    });
+    toast.success("Canonical Sub-milestone start recorded.");
+  };
+
   return (
     <>
       <DetailSheetHeader
@@ -1019,7 +1070,11 @@ function VisibleActionItemDetail({
       <SheetPanel className="space-y-6">
         <AudienceInheritanceNotice audienceMode={detail.item.audienceMode} />
         {detail.item.systemMode === "generated_milestone_submilestone" ? (
-          <CanonicalMilestoneActionItemFacts detail={detail} />
+          <CanonicalMilestoneActionItemFacts
+            detail={detail}
+            onStart={openCanonicalStart}
+            readOnly={readOnly}
+          />
         ) : null}
         {readOnly ? (
           <Frame>
@@ -1307,14 +1362,25 @@ function VisibleActionItemDetail({
           Close
         </Button>
       </SheetFooter>
+      {canonicalStartRequest ? (
+        <MilestoneStartDialog
+          onClose={() => setCanonicalStartRequest(null)}
+          onConfirm={confirmCanonicalStart}
+          request={canonicalStartRequest}
+        />
+      ) : null}
     </>
   );
 }
 
 function CanonicalMilestoneActionItemFacts({
   detail,
+  onStart,
+  readOnly,
 }: {
   detail: VisibleActionItemDetail;
+  onStart?: () => void;
+  readOnly: boolean;
 }) {
   const milestoneReference = detail.references.find(
     (reference) => reference.entityKind === "milestone"
@@ -1342,6 +1408,10 @@ function CanonicalMilestoneActionItemFacts({
           "overdue_completion" ? (
             <Badge variant="destructive">Overdue completion</Badge>
           ) : null}
+          {detail.item.systemPresentation?.executionOwnership?.state ===
+          "assignment_required" ? (
+            <Badge variant="warning">Assignment required</Badge>
+          ) : null}
           <span className="text-muted-foreground">System-owned binding</span>
         </div>
         <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
@@ -1362,9 +1432,17 @@ function CanonicalMilestoneActionItemFacts({
               : ""}
           </p>
         ) : null}
+        {detail.item.systemPresentation?.startCommand?.allowed &&
+        !readOnly ? (
+          <Button onClick={onStart} size="sm" type="button">
+            <Play aria-hidden="true" className="size-4" />
+            Start work
+          </Button>
+        ) : null}
         <p className="text-muted-foreground text-xs">
-          Status, completion, and identity follow the canonical roadmap. This
-          collaboration card is not an independent workflow command.
+          Status, completion, ownership, and identity follow the canonical
+          roadmap. Start work is a canonical milestone command; this
+          collaboration card is not an independent workflow.
         </p>
       </FramePanel>
     </Frame>

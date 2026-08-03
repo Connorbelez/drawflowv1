@@ -16,6 +16,7 @@ import {
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import { beginBuildCollaborationArchiveSnapshot } from "./build_collaboration_lifecycle_state";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import type { Doc, Id, MutationCtx } from "./types";
 
 const EXPORT_TTL_MS = 15 * 60_000;
@@ -612,7 +613,7 @@ async function buildExportSnapshot(
   const actionItems =
     input.scope === "full_archive"
       ? []
-      : await buildExportedActionItems(ctx, selectedPosts);
+      : await buildExportedActionItems(ctx, input.authorization, selectedPosts);
   const assets = await selectExportAssets(ctx, {
     ...input,
     postIds,
@@ -718,6 +719,7 @@ async function buildExportedPosts(
 
 async function buildExportedActionItems(
   ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
   selectedPosts: Doc<"buildCollaborationPosts">[]
 ) {
   const actionItems: Record<string, unknown>[] = [];
@@ -731,8 +733,18 @@ async function buildExportedActionItems(
     if (rows.length > 2000) {
       throw new Error("A thread exceeds the 2,000-Action-Item export limit.");
     }
-    actionItems.push(
-      ...rows.map((item) => ({
+    for (const item of rows) {
+      if (
+        !(await canReadMilestoneSystemActionItem(ctx, {
+          actionItem: item,
+          buildId: authorization.build._id,
+          role: authorization.effectiveRole.role,
+          workosUserId: authorization.viewer.subject,
+        }))
+      ) {
+        continue;
+      }
+      actionItems.push({
         actionItemId: item._id,
         assigneeWorkosUserId: item.assigneeWorkosUserId,
         createdAt: item.createdAt,
@@ -741,8 +753,8 @@ async function buildExportedActionItems(
         priority: item.priority,
         status: item.status,
         title: item.title,
-      }))
-    );
+      });
+    }
   }
   return actionItems;
 }

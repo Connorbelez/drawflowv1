@@ -24,6 +24,7 @@ import {
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import { buildCollaborationSearchReaderFingerprint } from "./build_collaboration_search_readers";
 import {
   buildCollaborationAudienceModeValidator,
@@ -948,6 +949,16 @@ async function loadSearchOwnerDescriptor(
   ) {
     return null;
   }
+  if (
+    !(await canReadMilestoneSystemActionItem(ctx, {
+      actionItem: item,
+      buildId: authorization.build._id,
+      role: authorization.effectiveRole.role,
+      workosUserId: authorization.viewer.subject,
+    }))
+  ) {
+    return null;
+  }
   const projected = projectCollaborationRevisionForViewer({
     references: [],
     tiptapJson: item.descriptionTiptapJson,
@@ -1252,6 +1263,16 @@ async function refreshIndexedSearchCandidate(
         !item ||
         item.originatingPostId !== input.post._id ||
         item.buildId !== input.authorization.build._id
+      ) {
+        return null;
+      }
+      if (
+        !(await canReadMilestoneSystemActionItem(ctx, {
+          actionItem: item,
+          buildId: input.authorization.build._id,
+          role: input.authorization.effectiveRole.role,
+          workosUserId: input.authorization.viewer.subject,
+        }))
       ) {
         return null;
       }

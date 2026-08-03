@@ -73,6 +73,9 @@ function SystemPresentationBadges({
       {presentation.attention === "overdue_completion" ? (
         <Badge variant="destructive">Overdue completion</Badge>
       ) : null}
+      {presentation.executionOwnership?.state === "assignment_required" ? (
+        <Badge variant="warning">Assignment required</Badge>
+      ) : null}
       {presentation.state === "unknown" ? (
         <span className="text-muted-foreground text-xs">
           Schedule state unavailable
