@@ -7,6 +7,7 @@ import {
   render,
   screen,
 } from "@testing-library/react";
+import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const convexMock = vi.hoisted(() => ({
@@ -17,6 +18,41 @@ const convexMock = vi.hoisted(() => ({
 vi.mock("convex/react", () => ({
   useMutation: vi.fn(() => convexMock.mutation),
   useQuery: vi.fn((...args) => convexMock.query(...args)),
+}));
+
+vi.mock("#/components/ui/alert-dialog.tsx", () => ({
+  AlertDialog: ({ children }: { children: ReactNode }) => <>{children}</>,
+  AlertDialogClose: ({
+    children,
+    render,
+    ...props
+  }: {
+    children: ReactNode;
+    render: ReactElement;
+  }) => cloneElement(render, props, children),
+  AlertDialogContent: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogDescription: ({ children }: { children: ReactNode }) => (
+    <p>{children}</p>
+  ),
+  AlertDialogFooter: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogHeader: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogTitle: ({ children }: { children: ReactNode }) => (
+    <h4>{children}</h4>
+  ),
+  AlertDialogTrigger: ({
+    children,
+    render,
+    ...props
+  }: {
+    children: ReactNode;
+    render: ReactElement;
+  }) => cloneElement(render, props, children),
 }));
 
 vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
@@ -357,6 +393,227 @@ describe("QuoteFieldLedger", () => {
 
     expect(screen.getByText("Field Ledger access interrupted")).toBeTruthy();
     expect(screen.queryByText("Foundation · Footings")).toBeNull();
+  });
+
+  test("requires an explicit confirmation before submitting the current draft", async () => {
+    const lifecycleRead = {
+      currentSubmission: null,
+      draft: { version: 4 },
+      eligibility: { canRevise: false, canSubmit: true, canWithdraw: false },
+      revisions: [],
+      status: "available",
+    } as const;
+    convexMock.query.mockImplementation((_, args) => {
+      if (args === "skip" || "presentationNow" in args) {
+        return undefined;
+      }
+      return lifecycleRead;
+    });
+    render(
+      <QuoteFieldLedger
+        access={fieldLedgerAccess()}
+        hasAuthenticatedUser={false}
+        sessionToken="browser-session-token"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit quote" }));
+
+    expect(screen.getByText("Submit this quote revision?")).toBeTruthy();
+    expect(
+      screen.getByText(/server will recalculate the final total/i)
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  });
+
+  test("submits only the server draft version and a retry-safe idempotency key", async () => {
+    const access = fieldLedgerAccess();
+    const draftRead = {
+      access,
+      draft: {
+        answers: [],
+        attachments: [],
+        commentsHtml: undefined,
+        lines: [],
+        version: 4,
+      },
+      status: "available",
+    } as const;
+    const lifecycleRead = {
+      currentSubmission: null,
+      draft: { version: 4 },
+      eligibility: { canRevise: false, canSubmit: true, canWithdraw: false },
+      revisions: [],
+      status: "available",
+    } as const;
+    convexMock.mutation.mockResolvedValue({
+      idempotentReplay: false,
+      status: "accepted",
+      submission: { revision: 1 },
+    });
+    convexMock.query.mockImplementation((_, args) => {
+      if (args === "skip") {
+        return undefined;
+      }
+      if ("presentationNow" in args) {
+        return draftRead;
+      }
+      return lifecycleRead;
+    });
+    render(
+      <QuoteFieldLedger
+        access={access}
+        hasAuthenticatedUser={false}
+        sessionToken="browser-session-token"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit quote" }));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirm submit quote" })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(convexMock.mutation).toHaveBeenCalledWith({
+      expectedDraftVersion: 4,
+      idempotencyKey: expect.stringMatching(/^quote-response:/),
+      quoteRoundInvitationId: "quote-invitation-1",
+      sessionToken: "browser-session-token",
+    });
+  });
+
+  test("keeps an accepted revision authoritative while a revision draft is prepared", () => {
+    const lifecycleRead = {
+      currentSubmission: {
+        attachments: [],
+        canonicalTotalCents: 125_000,
+        lineItems: [],
+        responses: [],
+        revision: 2,
+        sourceDraftVersion: 2,
+        status: "active",
+        submittedAt: Date.now() - 5_000,
+      },
+      draft: { version: 3 },
+      eligibility: { canRevise: false, canSubmit: true, canWithdraw: true },
+      revisions: [
+        {
+          canonicalTotalCents: 100_000,
+          revision: 1,
+          status: "superseded",
+          submittedAt: Date.now() - 10_000,
+          supersededByRevision: 2,
+        },
+      ],
+      status: "available",
+    } as const;
+    convexMock.query.mockImplementation((_, args) => {
+      if (args === "skip" || "presentationNow" in args) {
+        return undefined;
+      }
+      return lifecycleRead;
+    });
+    render(
+      <QuoteFieldLedger
+        access={fieldLedgerAccess()}
+        hasAuthenticatedUser={false}
+        sessionToken="browser-session-token"
+      />
+    );
+
+    expect(screen.getByText("Revision 2 is still authoritative")).toBeTruthy();
+    expect(screen.getByText("Superseded by revision 2")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Resubmit quote" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Withdraw quote" })).toBeTruthy();
+  });
+
+  test("renders the accepted immutable revision read-only until Revise quote seeds a draft", () => {
+    const submitted = {
+      attachments: [],
+      canonicalTotalCents: 125_000,
+      lineItems: [
+        {
+          lineKey: "labour:labour-line-1",
+          quotedAmountCents: 125_000,
+          scope: "labour",
+          source: "package_labour",
+          sourcePackageRevisionLabourLineId: "labour-line-1",
+          title: "Foundation · Footings",
+        },
+      ],
+      responses: [],
+      revision: 1,
+      sourceDraftVersion: 4,
+      status: "active",
+      submittedAt: Date.now() - 5_000,
+    } as const;
+    const lifecycleRead = {
+      currentSubmission: submitted,
+      draft: null,
+      eligibility: { canRevise: true, canSubmit: false, canWithdraw: true },
+      revisions: [submitted],
+      status: "available",
+    } as const;
+    convexMock.query.mockImplementation((_, args) =>
+      args === "skip" || "presentationNow" in args
+        ? undefined
+        : lifecycleRead
+    );
+    render(
+      <QuoteFieldLedger
+        access={fieldLedgerAccess()}
+        hasAuthenticatedUser={false}
+        sessionToken="browser-session-token"
+      />
+    );
+
+    const amount = screen.getByLabelText(
+      "Quoted amount for Foundation · Footings"
+    ) as HTMLInputElement;
+    expect(amount.value).toBe("1250.00");
+    expect(amount.disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Revise quote" })).toBeTruthy();
+  });
+
+  test("offers a new revision after withdrawal without deleting immutable history", () => {
+    const withdrawnAt = Date.now() - 1_000;
+    const withdrawnSubmission = {
+      attachments: [],
+      canonicalTotalCents: 125_000,
+      lineItems: [],
+      responses: [],
+      revision: 2,
+      sourceDraftVersion: 2,
+      status: "withdrawn",
+      submittedAt: Date.now() - 5_000,
+      withdrawnAt,
+    } as const;
+    const lifecycleRead = {
+      currentSubmission: withdrawnSubmission,
+      draft: null,
+      eligibility: { canRevise: true, canSubmit: false, canWithdraw: false },
+      revisions: [withdrawnSubmission],
+      status: "available",
+    } as const;
+    convexMock.query.mockImplementation((_, args) => {
+      if (args === "skip" || "presentationNow" in args) {
+        return undefined;
+      }
+      return lifecycleRead;
+    });
+    render(
+      <QuoteFieldLedger
+        access={fieldLedgerAccess()}
+        hasAuthenticatedUser={false}
+        sessionToken="browser-session-token"
+      />
+    );
+
+    expect(screen.getByText("Revision 2 withdrawn")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Prepare a new quote" })).toBeTruthy();
   });
 
   test("uses the shared Frame primitive for each pricing table boundary", () => {

@@ -726,6 +726,20 @@ const quoteInvitationResponseDraftAttachmentStagingStateValidator = v.union(
   v.literal("abandoned")
 );
 
+// Quote response content is immutable at submission time. Lifecycle changes
+// (supersession and withdrawal) are separate append-only events so the
+// commercial response itself is never rewritten or deleted.
+const quoteInvitationResponseSubmissionLifecycleEventTypeValidator = v.union(
+  v.literal("submitted"),
+  v.literal("superseded"),
+  v.literal("withdrawn")
+);
+
+const quoteInvitationResponseSubmissionActorKindValidator = v.union(
+  v.literal("browser_session"),
+  v.literal("claimed_account")
+);
+
 const quotePackageAttachmentKindValidator = v.union(
   v.literal("permit"),
   v.literal("inherited")
@@ -2758,7 +2772,10 @@ export default defineSchema({
     expectedFileName: v.string(),
     expectedMimeType: v.string(),
     expectedSizeBytes: v.number(),
-    uploadSecretVerifier: v.string(),
+    // Consumed staging rows may predate verifier-backed uploads. Live upload
+    // authorization treats a missing verifier as unavailable, while keeping
+    // those immutable historical rows schema-readable during deployment.
+    uploadSecretVerifier: v.optional(v.string()),
     sourcePackageRevisionResponseFieldId: v.optional(
       v.id("quotePackageRevisionResponseFields")
     ),
@@ -2775,6 +2792,183 @@ export default defineSchema({
     ])
     .index("by_pendingStorageId", ["pendingStorageId"])
     .index("by_state_and_expiresAt", ["state", "expiresAt"]),
+  // A submission revision is a durable commercial snapshot. Its state never
+  // lives on this row: withdrawal and supersession are immutable lifecycle
+  // events, while the small state projection below is only a current pointer.
+  quoteInvitationResponseSubmissionRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    revision: v.number(),
+    sourceDraftVersion: v.number(),
+    canonicalTotalCents: v.number(),
+    commentsHtml: v.optional(v.string()),
+    submittedByKind: quoteInvitationResponseSubmissionActorKindValidator,
+    submittedByWorkosUserId: v.optional(v.string()),
+    submittedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_quoteRoundInvitationId_and_revision", [
+      "quoteRoundInvitationId",
+      "revision",
+    ])
+    .index("by_quotePackageRevisionId_and_submittedAt", [
+      "quotePackageRevisionId",
+      "submittedAt",
+    ])
+    .index("by_quoteRoundId_and_submittedAt", ["quoteRoundId", "submittedAt"]),
+  quoteInvitationResponseSubmissionLineItems: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    lineKey: v.string(),
+    source: quoteInvitationResponseDraftLineSourceValidator,
+    scope: quoteInvitationResponseDraftLineScopeValidator,
+    sourcePackageRevisionLabourLineId: v.optional(
+      v.id("quotePackageRevisionLabourLines")
+    ),
+    sourcePackageRevisionMaterialLineId: v.optional(
+      v.id("quotePackageRevisionMaterialLines")
+    ),
+    sourcePackageRevisionResponseFieldId: v.optional(
+      v.id("quotePackageRevisionResponseFields")
+    ),
+    title: v.string(),
+    quotedAmountCents: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_quoteInvitationResponseSubmissionRevisionId_and_lineKey", [
+      "quoteInvitationResponseSubmissionRevisionId",
+      "lineKey",
+    ])
+    .index("by_quoteInvitationResponseSubmissionRevisionId_and_createdAt", [
+      "quoteInvitationResponseSubmissionRevisionId",
+      "createdAt",
+    ]),
+  quoteInvitationResponseSubmissionAnswers: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    sourcePackageRevisionResponseFieldId: v.id(
+      "quotePackageRevisionResponseFields"
+    ),
+    fieldKey: v.string(),
+    scope: quoteInvitationResponseDraftLineScopeValidator,
+    value: v.string(),
+    createdAt: v.number(),
+  }).index("by_quoteInvitationResponseSubmissionRevisionId", [
+    "quoteInvitationResponseSubmissionRevisionId",
+  ]),
+  quoteInvitationResponseSubmissionAttachments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    mimeType: v.string(),
+    sizeBytes: v.number(),
+    sourcePackageRevisionResponseFieldId: v.optional(
+      v.id("quotePackageRevisionResponseFields")
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_quoteInvitationResponseSubmissionRevisionId_and_createdAt", [
+      "quoteInvitationResponseSubmissionRevisionId",
+      "createdAt",
+    ])
+    .index("by_storageId", ["storageId"]),
+  quoteInvitationResponseSubmissionLifecycleEvents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quoteInvitationResponseSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    eventType: quoteInvitationResponseSubmissionLifecycleEventTypeValidator,
+    replacementSubmissionRevisionId: v.optional(
+      v.id("quoteInvitationResponseSubmissionRevisions")
+    ),
+    withdrawalExplanation: v.optional(v.string()),
+    actorKind: quoteInvitationResponseSubmissionActorKindValidator,
+    actorWorkosUserId: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_quoteInvitationResponseSubmissionRevisionId_and_createdAt", [
+      "quoteInvitationResponseSubmissionRevisionId",
+      "createdAt",
+    ])
+    .index("by_quoteRoundInvitationId_and_createdAt", [
+      "quoteRoundInvitationId",
+      "createdAt",
+    ]),
+  // This row is a transactional projection, not commercial history. It lets
+  // us enforce one authoritative response per Invitation without mutating an
+  // immutable submission revision or scanning unbounded historical rows.
+  quoteInvitationResponseSubmissionStates: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    latestSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    activeSubmissionRevisionId: v.optional(
+      v.id("quoteInvitationResponseSubmissionRevisions")
+    ),
+    latestRevision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_quoteRoundInvitationId_and_quotePackageRevisionId", [
+    "quoteRoundInvitationId",
+    "quotePackageRevisionId",
+  ]),
+  // Replaying a client command returns the exact receipt even if its original
+  // network response was lost. The fingerprint makes key reuse with a stale
+  // Draft version a hard conflict rather than a second commercial response.
+  quoteInvitationResponseSubmissionRequests: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    idempotencyKey: v.string(),
+    requestFingerprint: v.string(),
+    expectedDraftVersion: v.number(),
+    quoteInvitationResponseSubmissionRevisionId: v.id(
+      "quoteInvitationResponseSubmissionRevisions"
+    ),
+    createdAt: v.number(),
+  }).index("by_quoteRoundInvitationId_and_idempotencyKey", [
+    "quoteRoundInvitationId",
+    "idempotencyKey",
+  ]),
   quoteRoundInvitations: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

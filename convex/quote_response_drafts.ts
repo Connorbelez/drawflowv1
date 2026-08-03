@@ -160,6 +160,10 @@ const quoteDraftSaveResultValidator = v.union(
     status: v.literal("conflict"),
   }),
   v.object({ status: v.literal("not_started") }),
+  // Once a commercial response exists, only the submission lifecycle may seed
+  // a new Draft. Autosave must not silently create a revision Draft from a
+  // stale Field Ledger view.
+  v.object({ status: v.literal("revision_required") }),
   v.object({ status: v.literal("read_only") }),
   v.object({ status: v.literal("superseded") }),
   v.object({ status: v.literal("unavailable") })
@@ -185,6 +189,7 @@ const quoteDraftUploadUrlResultValidator = v.union(
     uploadUrl: v.string(),
   }),
   v.object({ status: v.literal("read_only") }),
+  v.object({ status: v.literal("revision_required") }),
   v.object({ status: v.literal("superseded") }),
   v.object({ status: v.literal("unavailable") })
 );
@@ -207,6 +212,7 @@ const quoteDraftAttachmentFinalizeResultValidator = v.union(
     status: v.literal("conflict"),
   }),
   v.object({ message: v.string(), status: v.literal("attachment_rejected") }),
+  v.object({ status: v.literal("revision_required") }),
   v.object({ status: v.literal("read_only") }),
   v.object({ status: v.literal("superseded") }),
   v.object({ status: v.literal("unavailable") })
@@ -529,6 +535,9 @@ async function saveDraftForAccess(
     if (args.expectedVersion !== 0) {
       return { draft: null, status: "conflict" } as const;
     }
+    if (await hasSubmittedResponseState(ctx, access.scope)) {
+      return { status: "revision_required" } as const;
+    }
     if (!patchHasMeaningfulChange(args.patch)) {
       return { status: "not_started" } as const;
     }
@@ -573,6 +582,12 @@ async function beginDraftAttachmentUploadForAccess(
 ) {
   if (access.status !== "available") {
     return { status: access.status } as const;
+  }
+  if (
+    !(await findDraft(ctx, access.scope)) &&
+    (await hasSubmittedResponseState(ctx, access.scope))
+  ) {
+    return { status: "revision_required" } as const;
   }
   const attachment = await validateAttachmentDescriptor(
     ctx,
@@ -798,17 +813,12 @@ async function attachDraftFileForAccess(
   }
   const existingAttachment = existingAttachments[0];
   if (session.state === "consumed" && existingAttachment) {
-    const draft = await findDraft(ctx, access.scope);
-    if (
-      !draft ||
-      existingAttachment.quoteInvitationResponseDraftId !== draft._id
-    ) {
-      throw new ConvexError("Response file staging crosses its Field Ledger.");
-    }
-    return {
-      draft: await quoteDraftProjection(ctx, access.scope, draft),
-      status: "saved" as const,
-    };
+    return existingAttachmentResult(
+      ctx,
+      access.scope,
+      existingAttachment,
+      "Response file staging crosses its Field Ledger."
+    );
   }
   if (session.state !== "finalized") {
     return attachmentRejected(
@@ -821,19 +831,12 @@ async function attachDraftFileForAccess(
   }
   if (existingAttachment) {
     await ctx.db.patch(session._id, { state: "consumed", updatedAt: now });
-    const draft = await findDraft(ctx, access.scope);
-    if (
-      !draft ||
-      existingAttachment.quoteInvitationResponseDraftId !== draft._id
-    ) {
-      throw new ConvexError(
-        "Response file storage belongs to another Field Ledger."
-      );
-    }
-    return {
-      draft: await quoteDraftProjection(ctx, access.scope, draft),
-      status: "saved" as const,
-    };
+    return existingAttachmentResult(
+      ctx,
+      access.scope,
+      existingAttachment,
+      "Response file storage belongs to another Field Ledger."
+    );
   }
 
   let draft = await findDraft(ctx, access.scope);
@@ -841,6 +844,9 @@ async function attachDraftFileForAccess(
   if (!draft) {
     if (args.expectedVersion !== 0) {
       return { draft: null, status: "conflict" } as const;
+    }
+    if (await hasSubmittedResponseState(ctx, access.scope)) {
+      return { status: "revision_required" } as const;
     }
     draft = await createDraft(ctx, access.scope);
     created = true;
@@ -884,6 +890,22 @@ async function attachDraftFileForAccess(
   });
   return {
     draft: await quoteDraftProjection(ctx, access.scope, updated),
+    status: "saved" as const,
+  };
+}
+
+async function existingAttachmentResult(
+  ctx: MutationCtx,
+  scope: InvitationScope,
+  attachment: Doc<"quoteInvitationResponseDraftAttachments">,
+  scopeError: string
+) {
+  const draft = await findDraft(ctx, scope);
+  if (!draft || attachment.quoteInvitationResponseDraftId !== draft._id) {
+    throw new ConvexError(scopeError);
+  }
+  return {
+    draft: await quoteDraftProjection(ctx, scope, draft),
     status: "saved" as const,
   };
 }
@@ -1090,6 +1112,41 @@ async function findDraft(ctx: QueryCtx | MutationCtx, scope: InvitationScope) {
     assertDraftScope(draft, scope);
   }
   return draft;
+}
+
+// A submitted response clears its old mutable Draft. Do not let an autosave or
+// attachment-first interaction recreate one implicitly: ENG-394 owns the only
+// transition that may seed a revision Draft from an immutable submission.
+async function hasSubmittedResponseState(
+  ctx: MutationCtx,
+  scope: InvitationScope
+) {
+  const state = await ctx.db
+    .query("quoteInvitationResponseSubmissionStates")
+    .withIndex(
+      "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+      (query) =>
+        query
+          .eq("quoteRoundInvitationId", scope.invitation._id)
+          .eq("quotePackageRevisionId", scope.packageRevision._id)
+    )
+    .unique();
+  if (!state) {
+    return false;
+  }
+  if (
+    state.brokerageId !== scope.invitation.brokerageId ||
+    state.organizationId !== scope.invitation.organizationId ||
+    state.buildId !== scope.invitation.buildId ||
+    state.quoteRoundId !== scope.invitation.quoteRoundId ||
+    state.quoteRoundInvitationId !== scope.invitation._id ||
+    state.quotePackageRevisionId !== scope.packageRevision._id
+  ) {
+    throw new ConvexError(
+      "Quote response submission state crosses its invitation scope."
+    );
+  }
+  return true;
 }
 
 async function createDraft(ctx: MutationCtx, scope: InvitationScope) {

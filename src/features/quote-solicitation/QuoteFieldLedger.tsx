@@ -13,8 +13,11 @@ import {
   MapPinned,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Send,
   ShieldCheck,
   TriangleAlert,
+  Undo2,
 } from "lucide-react";
 import {
   type ChangeEvent,
@@ -32,6 +35,16 @@ import {
   FieldRichTextPreview,
 } from "#/components/rich-text/field-rich-text.tsx";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "#/components/ui/alert-dialog.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card, CardPanel } from "#/components/ui/card.tsx";
@@ -56,6 +69,15 @@ type ReadableDraftResult = Extract<
 >;
 type QuoteAccess = ReadableDraftResult["access"];
 type QuoteDraft = ReadableDraftResult["draft"];
+type LifecycleReadResult = FunctionReturnType<
+  typeof api.quote_response_submissions.getQuoteInvitationResponseLifecycle
+>;
+type ReadableLifecycleResult = LifecycleReadResult & {
+  status: "available" | "read_only";
+};
+type ResponseLedgerSource =
+  | QuoteDraft
+  | ReadableLifecycleResult["currentSubmission"];
 type DraftLineSource =
   | "package_labour"
   | "package_material"
@@ -150,6 +172,11 @@ export function QuoteFieldLedger({
     observedAt,
     sessionToken,
   });
+  const lifecycle = useQuoteResponseLifecycle({
+    hasAuthenticatedUser,
+    quoteRoundInvitationId: initialAccess.invitationId,
+    sessionToken,
+  });
   const saveBrowserDraft = useMutation(
     api.quote_response_drafts.saveQuoteInvitationResponseDraft
   );
@@ -177,20 +204,52 @@ export function QuoteFieldLedger({
   const attachClaimedFile = useMutation(
     api.quote_response_drafts.attachClaimedQuoteInvitationResponseDraftFile
   );
+  const submitBrowserResponse = useMutation(
+    api.quote_response_submissions.submitQuoteInvitationResponse
+  );
+  const submitClaimedResponse = useMutation(
+    api.quote_response_submissions.submitClaimedQuoteInvitationResponse
+  );
+  const startBrowserRevision = useMutation(
+    api.quote_response_submissions.startQuoteInvitationResponseRevision
+  );
+  const startClaimedRevision = useMutation(
+    api.quote_response_submissions.startClaimedQuoteInvitationResponseRevision
+  );
+  const withdrawBrowserResponse = useMutation(
+    api.quote_response_submissions.withdrawQuoteInvitationResponse
+  );
+  const withdrawClaimedResponse = useMutation(
+    api.quote_response_submissions.withdrawClaimedQuoteInvitationResponse
+  );
 
   const access = activeRead.access;
 
+  const responseLedgerSource =
+    activeRead.draft ??
+    lifecycle?.result.draft ??
+    lifecycle?.result.currentSubmission ??
+    null;
   const initialState = useMemo(
-    () => stateFromDraft(activeRead.draft),
-    [activeRead.draft]
+    () => stateFromResponse(responseLedgerSource),
+    [responseLedgerSource]
   );
   const [ledger, setLedger] = useState<LocalLedgerState>(initialState);
   const [syncMessage, setSyncMessage] = useState("Opening saved draft…");
   const [syncError, setSyncError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<DraftConflict | null>(null);
-  const controlsLocked = readOnly || Boolean(conflict);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [lifecyclePending, setLifecyclePending] = useState<
+    "submit" | "revise" | "withdraw" | null
+  >(null);
+  const controlsLocked =
+    readOnly ||
+    Boolean(conflict) ||
+    Boolean(lifecyclePending) ||
+    Boolean(lifecycle?.result.currentSubmission && !lifecycle.result.draft);
+  const [lifecycleMessage, setLifecycleMessage] = useState<string | null>(null);
+  const [withdrawalExplanation, setWithdrawalExplanation] = useState("");
   const [expandedTitle, setExpandedTitle] = useState("");
   const [expandedAmount, setExpandedAmount] = useState("");
   const [expandedScope, setExpandedScope] = useState<"labour" | "materials">(
@@ -204,6 +263,7 @@ export function QuoteFieldLedger({
   const localEditsRef = useRef(false);
   const conflictRef = useRef<DraftConflict | null>(null);
   const stagedAttachmentRef = useRef<StagedAttachment | null>(null);
+  const submissionIdempotencyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     conflictRef.current = conflict;
@@ -222,12 +282,12 @@ export function QuoteFieldLedger({
     ) {
       return;
     }
-    const next = stateFromDraft(activeRead.draft);
+    const next = stateFromResponse(responseLedgerSource);
     versionRef.current = next.version;
     setLedger(next);
     setSyncMessage(next.version ? "Saved to DrawFlow" : "No draft yet");
     setSyncError(null);
-  }, [activeRead.draft]);
+  }, [responseLedgerSource]);
 
   const invokeSave = useCallback(
     async (expectedVersion: number, patch: DraftPatch) => {
@@ -296,6 +356,11 @@ export function QuoteFieldLedger({
         }
         case "not_started":
           setSyncMessage("No draft yet");
+          break;
+        case "revision_required":
+          setSyncError(
+            "The current quote is already submitted. Start Revise quote before making changes."
+          );
           break;
         case "read_only":
           setSyncError(
@@ -545,6 +610,7 @@ export function QuoteFieldLedger({
           stagedAttachmentRef.current = null;
           throw new Error(result.message);
         case "read_only":
+        case "revision_required":
         case "superseded":
         case "unavailable":
           throw new Error(uploadFailureMessage(result.status));
@@ -631,6 +697,133 @@ export function QuoteFieldLedger({
     }
   };
 
+  const submitCurrentDraft = async () => {
+    if (!lifecycle || lifecyclePending || readOnly) {
+      return;
+    }
+    setLifecyclePending("submit");
+    setLifecycleMessage(null);
+    try {
+      await flush();
+      if (pendingRef.current || conflictRef.current || flushingRef.current) {
+        setLifecycleMessage(
+          "Resolve and save the current Field Ledger changes before submitting."
+        );
+        return;
+      }
+      const idempotencyKey =
+        submissionIdempotencyKeyRef.current ??
+        `quote-response:${safeClientKey()}`;
+      submissionIdempotencyKeyRef.current = idempotencyKey;
+      const input = {
+        expectedDraftVersion: versionRef.current,
+        idempotencyKey,
+        quoteRoundInvitationId: access.invitationId,
+      };
+      const result = await invokeRecipientMutation({
+        browserMutation: submitBrowserResponse,
+        claimedMutation: submitClaimedResponse,
+        input,
+        sessionToken,
+        usingClaimedAccess: lifecycle.usingClaimedAccess,
+      });
+      if (result.status === "accepted" && result.submission) {
+        submissionIdempotencyKeyRef.current = null;
+        setLifecycleMessage(
+          result.idempotentReplay
+            ? `Revision ${result.submission.revision} was already accepted.`
+            : `Revision ${result.submission.revision} submitted.`
+        );
+        return;
+      }
+      setLifecycleMessage(lifecycleFailureMessage(result.status));
+    } catch (error) {
+      setLifecycleMessage(
+        lifecycleErrorMessage(
+          error,
+          "The quote was not submitted. Retry with the same saved draft."
+        )
+      );
+    } finally {
+      setLifecyclePending(null);
+    }
+  };
+
+  const startResponseRevision = async () => {
+    const currentSubmission = lifecycle?.result.currentSubmission;
+    if (!(lifecycle && currentSubmission) || lifecyclePending || readOnly) {
+      return;
+    }
+    setLifecyclePending("revise");
+    setLifecycleMessage(null);
+    try {
+      const input = {
+        expectedSubmissionRevision: currentSubmission.revision,
+        quoteRoundInvitationId: access.invitationId,
+      };
+      const result = await invokeRecipientMutation({
+        browserMutation: startBrowserRevision,
+        claimedMutation: startClaimedRevision,
+        input,
+        sessionToken,
+        usingClaimedAccess: lifecycle.usingClaimedAccess,
+      });
+      if (result.status === "draft_ready" && result.draft) {
+        versionRef.current = result.draft.version;
+        setLifecycleMessage(
+          `Revision ${currentSubmission.revision} remains authoritative until you resubmit.`
+        );
+        return;
+      }
+      setLifecycleMessage(lifecycleFailureMessage(result.status));
+    } catch (error) {
+      setLifecycleMessage(
+        lifecycleErrorMessage(error, "A revision draft could not be started.")
+      );
+    } finally {
+      setLifecyclePending(null);
+    }
+  };
+
+  const withdrawCurrentResponse = async () => {
+    const currentSubmission = lifecycle?.result.currentSubmission;
+    if (!(lifecycle && currentSubmission) || lifecyclePending || readOnly) {
+      return;
+    }
+    setLifecyclePending("withdraw");
+    setLifecycleMessage(null);
+    try {
+      const explanation = withdrawalExplanation.trim();
+      const input = {
+        confirmed: true,
+        expectedSubmissionRevision: currentSubmission.revision,
+        explanation: explanation || undefined,
+        quoteRoundInvitationId: access.invitationId,
+      };
+      const result = await invokeRecipientMutation({
+        browserMutation: withdrawBrowserResponse,
+        claimedMutation: withdrawClaimedResponse,
+        input,
+        sessionToken,
+        usingClaimedAccess: lifecycle.usingClaimedAccess,
+      });
+      if (result.status === "withdrawn" && result.submission) {
+        setWithdrawalExplanation("");
+        setLifecycleMessage(
+          `Revision ${result.submission.revision} withdrawn. Its immutable history remains available.`
+        );
+        return;
+      }
+      setLifecycleMessage(lifecycleFailureMessage(result.status));
+    } catch (error) {
+      setLifecycleMessage(
+        lifecycleErrorMessage(error, "The submitted quote was not withdrawn.")
+      );
+    } finally {
+      setLifecyclePending(null);
+    }
+  };
+
   if (serverSuperseded) {
     return (
       <LedgerRecoverySurface
@@ -712,7 +905,7 @@ export function QuoteFieldLedger({
                     </Button>
                     <Button
                       onClick={() => {
-                        const saved = stateFromDraft(conflict.draft);
+                        const saved = stateFromResponse(conflict.draft);
                         pendingRef.current = null;
                         conflictRef.current = null;
                         setConflict(null);
@@ -837,7 +1030,7 @@ export function QuoteFieldLedger({
                   </div>
                   <ResponseAttachments
                     attachmentError={attachmentError}
-                    attachments={activeRead.draft?.attachments ?? []}
+                    attachments={responseLedgerSource?.attachments ?? []}
                     onFileChange={uploadAttachment}
                     readOnly={controlsLocked}
                     uploading={uploading}
@@ -852,9 +1045,17 @@ export function QuoteFieldLedger({
                 <ReviewBand
                   expandedSubtotal={expandedSubtotal}
                   labourSubtotal={labourSubtotal}
+                  lifecycle={lifecycle?.result ?? null}
+                  lifecycleMessage={lifecycleMessage}
+                  lifecyclePending={lifecyclePending}
                   materialSubtotal={materialSubtotal}
+                  onStartRevision={startResponseRevision}
+                  onSubmit={submitCurrentDraft}
+                  onWithdraw={withdrawCurrentResponse}
+                  onWithdrawalExplanationChange={setWithdrawalExplanation}
                   readOnly={readOnly}
                   total={total}
+                  withdrawalExplanation={withdrawalExplanation}
                 />
               </LedgerSection>
             </FramePanel>
@@ -927,6 +1128,32 @@ function useQuoteFieldLedgerAccess({
     serverUnavailable,
     usingClaimedAccess: Boolean(readableClaimed),
   };
+}
+
+function useQuoteResponseLifecycle({
+  hasAuthenticatedUser,
+  quoteRoundInvitationId,
+  sessionToken,
+}: {
+  hasAuthenticatedUser: boolean;
+  quoteRoundInvitationId: Id<"quoteRoundInvitations">;
+  sessionToken?: string;
+}) {
+  const browserLifecycle = useQuery(
+    api.quote_response_submissions.getQuoteInvitationResponseLifecycle,
+    sessionToken ? { quoteRoundInvitationId, sessionToken } : "skip"
+  );
+  const claimedLifecycle = useQuery(
+    api.quote_response_submissions.getClaimedQuoteInvitationResponseLifecycle,
+    hasAuthenticatedUser ? { quoteRoundInvitationId } : "skip"
+  );
+  if (isReadableLifecycle(claimedLifecycle)) {
+    return { result: claimedLifecycle, usingClaimedAccess: true };
+  }
+  if (isReadableLifecycle(browserLifecycle)) {
+    return { result: browserLifecycle, usingClaimedAccess: false };
+  }
+  return null;
 }
 
 function LedgerMasthead({
@@ -1733,27 +1960,57 @@ function ResponseAttachments({
 function ReviewBand({
   expandedSubtotal,
   labourSubtotal,
+  lifecycle,
+  lifecycleMessage,
+  lifecyclePending,
   materialSubtotal,
+  onStartRevision,
+  onSubmit,
+  onWithdraw,
+  onWithdrawalExplanationChange,
   readOnly,
   total,
+  withdrawalExplanation,
 }: {
   expandedSubtotal: number;
   labourSubtotal: number;
+  lifecycle: ReadableLifecycleResult | null;
+  lifecycleMessage: string | null;
+  lifecyclePending: "submit" | "revise" | "withdraw" | null;
   materialSubtotal: number;
+  onStartRevision: () => Promise<void>;
+  onSubmit: () => Promise<void>;
+  onWithdraw: () => Promise<void>;
+  onWithdrawalExplanationChange: (value: string) => void;
   readOnly: boolean;
   total: number;
+  withdrawalExplanation: string;
 }) {
+  const currentSubmission = lifecycle?.currentSubmission ?? null;
+  const submissionStatus = responseSubmissionStatus(currentSubmission);
+  const hasRevisionDraft = Boolean(currentSubmission && lifecycle?.draft);
+  const canSubmit = Boolean(lifecycle?.eligibility.canSubmit) && !readOnly;
+  const canRevise = Boolean(lifecycle?.eligibility.canRevise) && !readOnly;
+  const canWithdraw = Boolean(lifecycle?.eligibility.canWithdraw) && !readOnly;
+  const submitLabel = currentSubmission ? "Resubmit quote" : "Submit quote";
+  const badge = responseLifecycleBadge(
+    currentSubmission,
+    submissionStatus,
+    readOnly
+  );
+  const authorityCopy =
+    hasRevisionDraft && currentSubmission
+      ? `Revision ${currentSubmission.revision} is still authoritative. Your revision draft changes nothing until you explicitly resubmit it.`
+      : "Internal teams receive only approved progress metadata before submission, never unsubmitted prices, answers, notes, or files.";
   return (
     <div className="grid gap-5">
       <div>
-        <Badge variant={readOnly ? "outline" : "info"}>
-          {readOnly ? "Read-only" : "Draft review"}
-        </Badge>
+        <Badge variant={badge.variant}>{badge.label}</Badge>
         <h3 className="mt-3 font-semibold text-xl">Review your Field Ledger</h3>
         <p className="mt-1 max-w-2xl text-muted-foreground text-sm">
-          Labour, materials, and expanded scope remain distinct here. Immutable
-          submit, revise, and withdraw actions are intentionally introduced in
-          the next workflow.
+          Labour, materials, and expanded scope remain distinct. DrawFlow
+          recalculates the canonical total and freezes a new immutable revision
+          only when the server accepts submission.
         </p>
       </div>
       <Frame>
@@ -1766,14 +2023,293 @@ function ReviewBand({
       </Frame>
       <Alert variant="info">
         <ShieldCheck />
-        <AlertTitle>One revision, one response</AlertTitle>
-        <AlertDescription>
-          Your draft is scoped only to Package Revision information shown above.
-          Internal teams receive progress metadata, not your prices, answers,
-          notes, or files.
-        </AlertDescription>
+        <AlertTitle>Immutable response history</AlertTitle>
+        <AlertDescription>{authorityCopy}</AlertDescription>
       </Alert>
+      <CurrentSubmissionSummary
+        hasRevisionDraft={hasRevisionDraft}
+        lifecycle={lifecycle}
+        submissionStatus={submissionStatus}
+      />
+      {lifecycleMessage ? (
+        <Alert
+          variant={
+            lifecycleMessage.includes("submitted") ? "success" : "warning"
+          }
+        >
+          <CircleAlert />
+          <AlertTitle>Response status</AlertTitle>
+          <AlertDescription>{lifecycleMessage}</AlertDescription>
+        </Alert>
+      ) : null}
+      <ResponseLifecycleActions
+        canRevise={canRevise}
+        canSubmit={canSubmit}
+        canWithdraw={canWithdraw}
+        currentSubmission={currentSubmission}
+        hasDraft={Boolean(lifecycle?.draft)}
+        lifecyclePending={lifecyclePending}
+        onStartRevision={onStartRevision}
+        onSubmit={onSubmit}
+        onWithdraw={onWithdraw}
+        onWithdrawalExplanationChange={onWithdrawalExplanationChange}
+        submissionStatus={submissionStatus}
+        submitLabel={submitLabel}
+        total={total}
+        withdrawalExplanation={withdrawalExplanation}
+      />
+      {lifecycle ? (
+        lifecycle.eligibility.reason &&
+        !(canSubmit || canRevise || canWithdraw) ? (
+          <p className="text-muted-foreground text-xs">
+            {lifecycle.eligibility.reason}
+          </p>
+        ) : null
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          Loading immutable response status…
+        </p>
+      )}
     </div>
+  );
+}
+
+function CurrentSubmissionSummary({
+  hasRevisionDraft,
+  lifecycle,
+  submissionStatus,
+}: {
+  hasRevisionDraft: boolean;
+  lifecycle: ReadableLifecycleResult | null;
+  submissionStatus: string | null;
+}) {
+  const submission = lifecycle?.currentSubmission;
+  if (!submission) {
+    return null;
+  }
+  let title = `Revision ${submission.revision} submitted`;
+  if (submissionStatus === "withdrawn") {
+    title = `Revision ${submission.revision} withdrawn`;
+  } else if (hasRevisionDraft) {
+    title = `Revision ${submission.revision} is still authoritative`;
+  }
+  const revisionCount =
+    (lifecycle as ReadableLifecycleResult & { revisionCount?: number })
+      .revisionCount ?? lifecycle.revisions.length;
+  return (
+    <Frame>
+      <FramePanel className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div>
+          <p className="font-semibold text-sm">{title}</p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            {money(submission.canonicalTotalCents)} · submitted{" "}
+            {formatDateTime(submission.submittedAt)}
+          </p>
+        </div>
+        <Badge variant="outline">
+          {revisionCount} immutable{" "}
+          {revisionCount === 1 ? "revision" : "revisions"}
+        </Badge>
+      </FramePanel>
+      {revisionCount ? (
+        <FramePanel className="p-0">
+          <div className="border-b px-4 py-3">
+            <p className="font-semibold text-sm">Revision history</p>
+            <p className="mt-1 text-muted-foreground text-xs">
+              Prior revisions remain immutable and visibly superseded or
+              withdrawn.
+            </p>
+          </div>
+          <ol className="divide-y">
+            {[...lifecycle.revisions].reverse().map((revision) => (
+              <li
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                key={revision.revision}
+              >
+                <div>
+                  <p className="font-medium text-sm">
+                    Revision {revision.revision}
+                  </p>
+                  <p className="mt-1 text-muted-foreground text-xs">
+                    {money(revision.canonicalTotalCents)} ·{" "}
+                    {formatDateTime(revision.submittedAt)}
+                  </p>
+                </div>
+                <Badge variant="outline">{revisionStatusLabel(revision)}</Badge>
+              </li>
+            ))}
+          </ol>
+        </FramePanel>
+      ) : null}
+    </Frame>
+  );
+}
+
+function ResponseLifecycleActions({
+  canRevise,
+  canSubmit,
+  canWithdraw,
+  currentSubmission,
+  hasDraft,
+  lifecyclePending,
+  onStartRevision,
+  onSubmit,
+  onWithdraw,
+  onWithdrawalExplanationChange,
+  submissionStatus,
+  submitLabel,
+  total,
+  withdrawalExplanation,
+}: {
+  canRevise: boolean;
+  canSubmit: boolean;
+  canWithdraw: boolean;
+  currentSubmission: ReadableLifecycleResult["currentSubmission"];
+  hasDraft: boolean;
+  lifecyclePending: "submit" | "revise" | "withdraw" | null;
+  onStartRevision: () => Promise<void>;
+  onSubmit: () => Promise<void>;
+  onWithdraw: () => Promise<void>;
+  onWithdrawalExplanationChange: (value: string) => void;
+  submissionStatus: string | null;
+  submitLabel: string;
+  total: number;
+  withdrawalExplanation: string;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {canSubmit ? (
+        <SubmitResponseDialog
+          lifecyclePending={lifecyclePending}
+          onSubmit={onSubmit}
+          submitLabel={submitLabel}
+          total={total}
+        />
+      ) : null}
+      {canRevise && currentSubmission && !hasDraft ? (
+        <Button
+          disabled={Boolean(lifecyclePending)}
+          loading={lifecyclePending === "revise"}
+          onClick={onStartRevision}
+          variant="outline"
+        >
+          <RotateCcw />
+          {submissionStatus === "withdrawn"
+            ? "Prepare a new quote"
+            : "Revise quote"}
+        </Button>
+      ) : null}
+      {canWithdraw && currentSubmission && submissionStatus !== "withdrawn" ? (
+        <WithdrawResponseDialog
+          lifecyclePending={lifecyclePending}
+          onWithdraw={onWithdraw}
+          onWithdrawalExplanationChange={onWithdrawalExplanationChange}
+          withdrawalExplanation={withdrawalExplanation}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function SubmitResponseDialog({
+  lifecyclePending,
+  onSubmit,
+  submitLabel,
+  total,
+}: {
+  lifecyclePending: "submit" | "revise" | "withdraw" | null;
+  onSubmit: () => Promise<void>;
+  submitLabel: string;
+  total: number;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger
+        render={
+          <Button
+            disabled={Boolean(lifecyclePending)}
+            loading={lifecyclePending === "submit"}
+          />
+        }
+      >
+        <Send /> {submitLabel}
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Submit this quote revision?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The server will recalculate the final total from every saved pricing
+            line, validate the current package and deadline, and freeze an
+            immutable revision. The displayed draft total is {money(total)}.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose render={<Button variant="outline" />}>
+            Keep editing
+          </AlertDialogClose>
+          <AlertDialogClose onClick={onSubmit} render={<Button />}>
+            Confirm {submitLabel.toLowerCase()}
+          </AlertDialogClose>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function WithdrawResponseDialog({
+  lifecyclePending,
+  onWithdraw,
+  onWithdrawalExplanationChange,
+  withdrawalExplanation,
+}: {
+  lifecyclePending: "submit" | "revise" | "withdraw" | null;
+  onWithdraw: () => Promise<void>;
+  onWithdrawalExplanationChange: (value: string) => void;
+  withdrawalExplanation: string;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger
+        render={
+          <Button
+            disabled={Boolean(lifecyclePending)}
+            loading={lifecyclePending === "withdraw"}
+            variant="destructive-outline"
+          />
+        }
+      >
+        <Undo2 /> Withdraw quote
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Withdraw this submitted quote?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Withdrawal removes the current revision from comparison but never
+            deletes its immutable history. You may prepare and submit another
+            revision before the deadline.
+          </AlertDialogDescription>
+          <Textarea
+            aria-label="Optional withdrawal explanation"
+            onChange={(event) =>
+              onWithdrawalExplanationChange(event.currentTarget.value)
+            }
+            placeholder="Optional explanation"
+            value={withdrawalExplanation}
+          />
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose render={<Button variant="outline" />}>
+            Keep submitted
+          </AlertDialogClose>
+          <AlertDialogClose
+            onClick={onWithdraw}
+            render={<Button variant="destructive" />}
+          >
+            Confirm withdrawal
+          </AlertDialogClose>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -1921,22 +2457,22 @@ function isReadableDraft(
   return result?.status === "available" || result?.status === "read_only";
 }
 
-function stateFromDraft(draft: QuoteDraft): LocalLedgerState {
+function stateFromResponse(source: ResponseLedgerSource): LocalLedgerState {
   return {
     amounts: Object.fromEntries(
-      (draft?.lineItems ?? []).map((line) => [
+      (source?.lineItems ?? []).map((line) => [
         line.lineKey,
         line.quotedAmountCents,
       ])
     ),
     answers: Object.fromEntries(
-      (draft?.responses ?? []).map((answer) => [
+      (source?.responses ?? []).map((answer) => [
         answer.sourcePackageRevisionResponseFieldId,
         answer.value,
       ])
     ),
-    commentsHtml: draft?.commentsHtml ?? "",
-    expandedLines: (draft?.lineItems ?? [])
+    commentsHtml: source?.commentsHtml ?? "",
+    expandedLines: (source?.lineItems ?? [])
       .filter((line) => line.source === "expanded_scope")
       .map((line) => ({
         lineKey: line.lineKey,
@@ -1951,7 +2487,11 @@ function stateFromDraft(draft: QuoteDraft): LocalLedgerState {
           line.sourcePackageRevisionResponseFieldId,
         title: line.title,
       })),
-    version: draft?.version ?? 0,
+    version: source
+      ? "version" in source
+        ? source.version
+        : source.sourceDraftVersion
+      : 0,
   };
 }
 
@@ -2082,6 +2622,123 @@ function restoreInFlightPatch(inFlight: DraftPatch, newer: DraftPatch | null) {
   return newer ? mergeDraftPatches(inFlight, newer) : inFlight;
 }
 
+function isReadableLifecycle(
+  result: LifecycleReadResult | undefined
+): result is ReadableLifecycleResult {
+  return Boolean(
+    result &&
+      (result.status === "available" || result.status === "read_only") &&
+      "eligibility" in result
+  );
+}
+
+function responseSubmissionStatus(
+  submission: ReadableLifecycleResult["currentSubmission"]
+) {
+  if (!submission) {
+    return null;
+  }
+  const projection = submission as typeof submission & {
+    state?: string;
+    status?: string;
+  };
+  return projection.status ?? projection.state ?? "submitted";
+}
+
+function revisionStatusLabel(
+  revision: ReadableLifecycleResult["revisions"][number]
+) {
+  if (revision.status === "withdrawn") {
+    return "Withdrawn";
+  }
+  if (revision.status === "superseded") {
+    return revision.supersededByRevision
+      ? `Superseded by revision ${revision.supersededByRevision}`
+      : "Superseded";
+  }
+  return "Current";
+}
+
+function responseLifecycleBadge(
+  submission: ReadableLifecycleResult["currentSubmission"],
+  submissionStatus: string | null,
+  readOnly: boolean
+) {
+  if (submissionStatus === "withdrawn") {
+    return { label: "Withdrawn", variant: "warning" as const };
+  }
+  if (submission) {
+    return {
+      label: `Submitted revision ${submission.revision}`,
+      variant: "success" as const,
+    };
+  }
+  return readOnly
+    ? { label: "Read-only", variant: "outline" as const }
+    : { label: "Draft review", variant: "info" as const };
+}
+
+function lifecycleFailureMessage(status: string) {
+  switch (status) {
+    case "conflict":
+    case "draft_conflict":
+    case "stale_draft":
+      return "A newer Field Ledger draft exists. Reload it before submitting.";
+    case "submission_conflict":
+      return "The submitted revision changed. Reload the latest response history.";
+    case "invalid":
+    case "invalid_response":
+      return "Complete every required response field and valid pricing line before submitting.";
+    case "no_draft":
+      return "Save at least one meaningful Field Ledger change before submitting.";
+    case "no_submission":
+      return "No submitted quote revision is available for this action.";
+    case "confirmation_required":
+      return "Confirm withdrawal before removing the quote from comparison.";
+    case "read_only":
+      return "The response window closed before this action reached the server.";
+    case "superseded":
+      return "This package revision was replaced. Use the newest invitation.";
+    case "unavailable":
+      return "This invitation is no longer active. Reopen the original invitation.";
+    default:
+      return "The response lifecycle changed before this action completed. Reload and retry.";
+  }
+}
+
+async function invokeRecipientMutation<
+  TInput extends Record<string, unknown>,
+  TResult,
+>({
+  browserMutation,
+  claimedMutation,
+  input,
+  sessionToken,
+  usingClaimedAccess,
+}: {
+  browserMutation: (
+    input: TInput & { sessionToken: string }
+  ) => Promise<TResult>;
+  claimedMutation: (input: TInput) => Promise<TResult>;
+  input: TInput;
+  sessionToken?: string;
+  usingClaimedAccess: boolean;
+}) {
+  if (usingClaimedAccess) {
+    return await claimedMutation(input);
+  }
+  if (!sessionToken) {
+    throw new Error(
+      "This invitation session ended. Reopen the original invitation."
+    );
+  }
+  return await browserMutation({ ...input, sessionToken });
+}
+
+function lifecycleErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? draftSaveErrorMessage(error) : fallback;
+}
+
 function draftSaveErrorMessage(error: unknown) {
   return error instanceof Error
     ? error.message.replace(CONVEX_ERROR_PREFIX, "")
@@ -2205,11 +2862,13 @@ function safeClientKey() {
     : `${Date.now()}${Math.random().toString(36).slice(2)}`;
 }
 function uploadFailureMessage(
-  status: "read_only" | "superseded" | "unavailable"
+  status: "read_only" | "revision_required" | "superseded" | "unavailable"
 ) {
   return status === "read_only"
     ? "The response window closed before this file could attach."
-    : status === "superseded"
-      ? "This package was replaced before the file could attach."
-      : "This invitation session ended before the file could attach.";
+    : status === "revision_required"
+      ? "Start Revise quote before attaching files to a submitted response."
+      : status === "superseded"
+        ? "This package was replaced before the file could attach."
+        : "This invitation session ended before the file could attach.";
 }

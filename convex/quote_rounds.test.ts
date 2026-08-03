@@ -748,6 +748,1112 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+describe("Quote Invitation immutable response submissions", () => {
+  test("atomically snapshots a current Field Ledger draft and clears the mutable draft", async () => {
+    const fixture = await openedSubmissionFixture();
+    const before = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const labourLine = before.access.package.labourLines[0];
+    const requiredAnswer = before.access.package.responseFields.find(
+      (field: { fieldKey: string }) => field.fieldKey === "approach"
+    );
+    expect(requiredAnswer).toBeDefined();
+    const saved = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: {
+          answerPatches: [
+            {
+              sourcePackageRevisionResponseFieldId: requiredAnswer.sourceFieldId,
+              value: "<p>We will stage the crew before framing.</p>",
+            },
+          ],
+          linePatches: [
+            {
+              lineKey: `labour:${labourLine.sourceLineId}`,
+              quotedAmountCents: 125_000_00,
+              scope: "labour",
+              source: "package_labour",
+              sourcePackageRevisionLabourLineId: labourLine.sourceLineId,
+            },
+          ],
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(saved).toMatchObject({ status: "saved", draft: { version: 1 } });
+
+    const accepted = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-first-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(accepted).toMatchObject({
+      idempotentReplay: false,
+      status: "accepted",
+      submission: {
+        canonicalTotalCents: 125_000_00,
+        revision: 1,
+      },
+    });
+    const persisted = await fixture.base.run(async (ctx) => ({
+      drafts: await ctx.db.query("quoteInvitationResponseDrafts").collect(),
+      submissions: await ctx.db
+        .query("quoteInvitationResponseSubmissionRevisions")
+        .collect(),
+    }));
+    expect(persisted.drafts).toHaveLength(0);
+    expect(persisted.submissions).toHaveLength(1);
+    const lifecycle = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(lifecycle).toMatchObject({
+      hasMoreRevisions: false,
+      revisionCount: 1,
+      revisions: [
+        {
+          canonicalTotalCents: 125_000_00,
+          revision: 1,
+          status: "active",
+        },
+      ],
+    });
+    expect(lifecycle.revisions[0]).not.toHaveProperty("lineItems");
+    expect(lifecycle.revisions[0]).not.toHaveProperty("responses");
+    expect(lifecycle.revisions[0]).not.toHaveProperty("attachments");
+    const revision = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseSubmissionRevision,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        revision: 1,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(revision).toMatchObject({
+      status: "available",
+      submission: {
+        canonicalTotalCents: 125_000_00,
+        lineItems: [{ quotedAmountCents: 125_000_00 }],
+        revision: 1,
+      },
+    });
+  });
+
+  test("returns the same immutable receipt for a lost submission response or a double tap", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture, 141_000_00);
+    const input = {
+      expectedDraftVersion: 1,
+      idempotencyKey: "submission-replay-001",
+      quoteRoundInvitationId: fixture.invitation._id,
+      sessionToken: fixture.exchanged.sessionToken,
+    };
+    const accepted = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      input
+    );
+    const replay = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      input
+    );
+    expect(accepted).toMatchObject({
+      idempotentReplay: false,
+      status: "accepted",
+      submission: { canonicalTotalCents: 141_000_00, revision: 1 },
+    });
+    expect(replay).toMatchObject({
+      idempotentReplay: true,
+      status: "accepted",
+      submission: { canonicalTotalCents: 141_000_00, revision: 1 },
+    });
+    const persisted = await fixture.base.run(async (ctx) => ({
+      requests: await ctx
+        .db
+        .query("quoteInvitationResponseSubmissionRequests")
+        .collect(),
+      submissions: await ctx
+        .db
+        .query("quoteInvitationResponseSubmissionRevisions")
+        .collect(),
+    }));
+    expect(persisted.requests).toHaveLength(1);
+    expect(persisted.submissions).toHaveLength(1);
+  });
+
+  test("retains auditable prior and new lifecycle state for submit and withdrawal", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture, 124_000_00);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-audit-base-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.withdrawQuoteInvitationResponse,
+      {
+        confirmed: true,
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const audits = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query.eq("entityType", "quoteInvitationResponseSubmission")
+        )
+        .collect()
+    );
+    const submitted = audits.find(
+      (audit) => audit.eventType === "quote_response.submitted"
+    );
+    const withdrawn = audits.find(
+      (audit) => audit.eventType === "quote_response.withdrawn"
+    );
+    expect(JSON.parse(submitted?.priorState ?? "{}"))
+      .toEqual({ status: "none" });
+    expect(JSON.parse(submitted?.newState ?? "{}"))
+      .toMatchObject({ canonicalTotalCents: 124_000_00, revision: 1, status: "active" });
+    expect(JSON.parse(withdrawn?.priorState ?? "{}"))
+      .toMatchObject({ canonicalTotalCents: 124_000_00, revision: 1, status: "active" });
+    expect(JSON.parse(withdrawn?.newState ?? "{}"))
+      .toEqual({ revision: 1, status: "withdrawn" });
+  });
+
+  test("rejects a stale Draft version without replacing the newer Field Ledger", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    const newer = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 1,
+        patch: { commentsHtml: "<p>Newer local wording.</p>" },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(newer).toMatchObject({ status: "saved", draft: { version: 2 } });
+    const stale = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-stale-draft-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(stale).toMatchObject({
+      draft: { commentsHtml: "<p>Newer local wording.</p>", version: 2 },
+      status: "conflict",
+    });
+    const submissions = await fixture.base.run(async (ctx) =>
+      await ctx.db.query("quoteInvitationResponseSubmissionRevisions").collect()
+    );
+    expect(submissions).toHaveLength(0);
+  });
+
+  test("does not accept a draft until its required immutable Package fields are valid", async () => {
+    const fixture = await openedSubmissionFixture();
+    const access = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const labourLine = access.access.package.labourLines[0];
+    await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: {
+          linePatches: [
+            {
+              lineKey: `labour:${labourLine.sourceLineId}`,
+              quotedAmountCents: 83_000_00,
+              scope: "labour",
+              source: "package_labour",
+              sourcePackageRevisionLabourLineId: labourLine.sourceLineId,
+            },
+          ],
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const invalid = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-required-field-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(invalid).toMatchObject({ status: "invalid" });
+    expect(invalid.validationErrors).toContain("Approach is required.");
+  });
+
+  test("recomputes total from valid pricing rows and rejects tampered invalid totals", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture, 73_000_00);
+    await fixture.base.run(async (ctx) => {
+      const draft = await ctx.db
+        .query("quoteInvitationResponseDrafts")
+        .withIndex(
+          "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+          (query) =>
+            query
+              .eq("quoteRoundInvitationId", fixture.invitation._id)
+              .eq(
+                "quotePackageRevisionId",
+                fixture.invitation.quotePackageRevisionId
+              )
+        )
+        .unique();
+      if (!draft) {
+        throw new Error("Expected a Field Ledger draft.");
+      }
+      const line = await ctx.db
+        .query("quoteInvitationResponseDraftLineItems")
+        .withIndex("by_quoteInvitationResponseDraftId_and_updatedAt", (query) =>
+          query.eq("quoteInvitationResponseDraftId", draft._id)
+        )
+        .unique();
+      if (!line) {
+        throw new Error("Expected a Field Ledger line.");
+      }
+      await ctx.db.patch(line._id, { quotedAmountCents: -1 });
+    });
+    const invalid = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-invalid-total-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(invalid).toMatchObject({ status: "invalid" });
+    expect(invalid.validationErrors).toContain(
+      "Quoted amount must be a non-negative whole-cent value."
+    );
+    const submissions = await fixture.base.run(async (ctx) =>
+      await ctx.db.query("quoteInvitationResponseSubmissionRevisions").collect()
+    );
+    expect(submissions).toHaveLength(0);
+  });
+
+  test("keeps the prior immutable quote authoritative while a revision Draft is abandoned", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture, 109_000_00);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-abandoned-base-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const started = await fixture.base.mutation(
+      (api as any).quote_response_submissions.startQuoteInvitationResponseRevision,
+      {
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(started).toMatchObject({
+      draft: { lineItems: [{ quotedAmountCents: 109_000_00 }], version: 1 },
+      status: "draft_ready",
+    });
+    const lifecycle = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(lifecycle).toMatchObject({
+      currentSubmission: {
+        canonicalTotalCents: 109_000_00,
+        revision: 1,
+        status: "active",
+      },
+      draft: { version: 1 },
+      eligibility: { canRevise: false, canSubmit: true, canWithdraw: true },
+      revisions: [{ revision: 1, status: "active" }],
+      status: "available",
+    });
+  });
+
+  test("requires explicit revision start before autosave or attachment-first edits can recreate a submitted Draft", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-explicit-revision-base-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const bypassSave = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: { commentsHtml: "<p>Stale autosave must not make a revision.</p>" },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const bypassAttachment = await fixture.base.mutation(
+      (api as any).quote_response_drafts
+        .beginQuoteInvitationResponseDraftAttachmentUpload,
+      {
+        fileName: "stale.pdf",
+        mimeType: "application/pdf",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+        sizeBytes: 4,
+      }
+    );
+    expect(bypassSave).toEqual({ status: "revision_required" });
+    expect(bypassAttachment).toEqual({ status: "revision_required" });
+    const noDraft = await fixture.base.run(async (ctx) =>
+      await ctx.db.query("quoteInvitationResponseDrafts").collect()
+    );
+    expect(noDraft).toHaveLength(0);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.startQuoteInvitationResponseRevision,
+      {
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const resumed = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 1,
+        patch: { commentsHtml: "<p>Explicit revision wording.</p>" },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(resumed).toMatchObject({ status: "saved", draft: { version: 2 } });
+  });
+
+  test("supersedes only after explicit resubmission and retains immutable revision history", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture, 82_000_00);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-resubmit-base-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.startQuoteInvitationResponseRevision,
+      {
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const draft = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const labourLine = draft.access.package.labourLines[0];
+    const revisedDraft = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 1,
+        patch: {
+          linePatches: [
+            {
+              lineKey: `labour:${labourLine.sourceLineId}`,
+              quotedAmountCents: 94_000_00,
+              scope: "labour",
+              source: "package_labour",
+              sourcePackageRevisionLabourLineId: labourLine.sourceLineId,
+            },
+          ],
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(revisedDraft).toMatchObject({
+      draft: { version: 2 },
+      status: "saved",
+    });
+    const resubmitted = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 2,
+        idempotencyKey: "submission-resubmit-final-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(resubmitted).toMatchObject({
+      status: "accepted",
+      submission: { canonicalTotalCents: 94_000_00, revision: 2 },
+    });
+    const lifecycle = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(lifecycle).toMatchObject({
+      currentSubmission: {
+        canonicalTotalCents: 94_000_00,
+        revision: 2,
+        status: "active",
+      },
+      revisions: [
+        { revision: 1, status: "superseded", supersededByRevision: 2 },
+        { revision: 2, status: "active" },
+      ],
+    });
+  });
+
+  test("withdraws only after confirmation, keeps the event immutable, and permits resubmission", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture, 66_000_00);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-withdraw-base-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const confirmationRequired = await fixture.base.mutation(
+      (api as any).quote_response_submissions.withdrawQuoteInvitationResponse,
+      {
+        confirmed: false,
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(confirmationRequired).toEqual({ status: "confirmation_required" });
+    const withdrawn = await fixture.base.mutation(
+      (api as any).quote_response_submissions.withdrawQuoteInvitationResponse,
+      {
+        confirmed: true,
+        expectedSubmissionRevision: 1,
+        explanation: "Scope has changed; please ignore this quote.",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(withdrawn).toMatchObject({
+      status: "withdrawn",
+      submission: {
+        revision: 1,
+        status: "withdrawn",
+        withdrawalExplanation: "Scope has changed; please ignore this quote.",
+      },
+    });
+    const withdrawnLifecycle = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(withdrawnLifecycle).toMatchObject({
+      currentSubmission: { revision: 1, status: "withdrawn" },
+      eligibility: { canRevise: true, canSubmit: false, canWithdraw: false },
+      revisions: [{ revision: 1, status: "withdrawn" }],
+    });
+    const draft = await fixture.base.mutation(
+      (api as any).quote_response_submissions.startQuoteInvitationResponseRevision,
+      {
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(draft).toMatchObject({ status: "draft_ready", draft: { version: 1 } });
+    const resubmitted = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-after-withdraw-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(resubmitted).toMatchObject({
+      status: "accepted",
+      submission: { revision: 2, status: "active" },
+    });
+  });
+
+  test("uses server deadline time to make drafts read-only and never writes a late response", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.invitation.quotePackageRevisionId, {
+        responseDeadline: Date.now() - 1,
+      });
+    });
+    const lifecycle = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now() - 60_000,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(lifecycle).toMatchObject({
+      draft: { version: 1 },
+      eligibility: { canRevise: false, canSubmit: false, canWithdraw: false },
+      status: "read_only",
+    });
+    const lateSave = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 1,
+        patch: { commentsHtml: "<p>Late local wording.</p>" },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const lateSubmit = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-late-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(lateSave).toEqual({ status: "read_only" });
+    expect(lateSubmit).toEqual({ status: "read_only" });
+    const persisted = await fixture.base.run(async (ctx) => ({
+      drafts: await ctx.db.query("quoteInvitationResponseDrafts").collect(),
+      submissions: await ctx
+        .db
+        .query("quoteInvitationResponseSubmissionRevisions")
+        .collect(),
+    }));
+    expect(persisted.drafts).toHaveLength(1);
+    expect(persisted.submissions).toHaveLength(0);
+  });
+
+  test("rechecks the server deadline after validation before it writes a submission", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    const authorizationNow = Date.now();
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.invitation.quotePackageRevisionId, {
+        responseDeadline: authorizationNow + 1,
+      });
+    });
+    let monotonicReads = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(authorizationNow);
+    const performanceSpy = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => {
+        monotonicReads += 1;
+        return monotonicReads * 10;
+      });
+    let raced: unknown;
+    try {
+      raced = await fixture.base.mutation(
+        (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+        {
+          expectedDraftVersion: 1,
+          idempotencyKey: "submission-deadline-race-001",
+          quoteRoundInvitationId: fixture.invitation._id,
+          sessionToken: fixture.exchanged.sessionToken,
+        }
+      );
+    } finally {
+      performanceSpy.mockRestore();
+      nowSpy.mockRestore();
+    }
+    expect(monotonicReads).toBeGreaterThanOrEqual(2);
+    expect(raced).toEqual({ status: "read_only" });
+    const submissions = await fixture.base.run(async (ctx) =>
+      await ctx.db.query("quoteInvitationResponseSubmissionRevisions").collect()
+    );
+    expect(submissions).toHaveLength(0);
+  });
+
+  test("stamps an accepted receipt with the same below-deadline server timestamp it checked", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    const checkedAt = Date.now();
+    const deadline = checkedAt + 10_000;
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.invitation.quotePackageRevisionId, {
+        responseDeadline: deadline,
+      });
+    });
+    let wallClockReads = 0;
+    let monotonicReads = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => {
+      wallClockReads += 1;
+      return checkedAt;
+    });
+    const performanceSpy = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => {
+        monotonicReads += 1;
+        return 100;
+      });
+    let accepted: any;
+    try {
+      accepted = await fixture.base.mutation(
+        (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+        {
+          expectedDraftVersion: 1,
+          idempotencyKey: "submission-deadline-boundary-001",
+          quoteRoundInvitationId: fixture.invitation._id,
+          sessionToken: fixture.exchanged.sessionToken,
+        }
+      );
+    } finally {
+      performanceSpy.mockRestore();
+      nowSpy.mockRestore();
+    }
+    expect(accepted).toMatchObject({ status: "accepted" });
+    expect(accepted.submission.submittedAt).toBe(checkedAt);
+    expect(accepted.submission.submittedAt).toBeLessThan(deadline);
+    expect(wallClockReads).toBeGreaterThan(0);
+    expect(monotonicReads).toBeGreaterThanOrEqual(2);
+  });
+
+  test("blocks a claimed internal actor who is also linked to the recipient profile from withdrawing", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-internal-claimed-base-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.recipientId, {
+        accountWorkosUserId: "user_builder",
+      });
+    });
+    const denied = await fixture.builder.mutation(
+      (api as any).quote_response_submissions
+        .withdrawClaimedQuoteInvitationResponse,
+      {
+        confirmed: true,
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+      }
+    );
+    expect(denied).toEqual({ status: "unavailable" });
+    const lifecycle = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(lifecycle.currentSubmission).toMatchObject({
+      revision: 1,
+      status: "active",
+    });
+  });
+
+  test("refuses the next submission at the durable revision cap without clearing its Draft", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-cap-base-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.startQuoteInvitationResponseRevision,
+      {
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      const state = await ctx.db
+        .query("quoteInvitationResponseSubmissionStates")
+        .withIndex(
+          "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+          (query) =>
+            query
+              .eq("quoteRoundInvitationId", fixture.invitation._id)
+              .eq(
+                "quotePackageRevisionId",
+                fixture.invitation.quotePackageRevisionId
+              )
+        )
+        .unique();
+      if (!state) {
+        throw new Error("Expected the immutable submission state projection.");
+      }
+      await ctx.db.patch(state._id, { latestRevision: 100 });
+    });
+    const capped = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-cap-final-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(capped).toMatchObject({
+      status: "invalid",
+      validationErrors: [
+        "Quote response revision history has reached its safe limit.",
+      ],
+    });
+    const draft = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(draft).toMatchObject({ draft: { version: 1 }, status: "available" });
+  });
+
+  test("requires the invitation's acknowledged Package Revision to remain current at submission", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    await fixture.base.run(async (ctx) => {
+      const current = await ctx.db.get(
+        fixture.invitation.quotePackageRevisionId
+      );
+      if (!current) {
+        throw new Error("Expected the current Quote Package Revision.");
+      }
+      const { _creationTime, _id, ...snapshot } = current;
+      const replacementId = await ctx.db.insert("quotePackageRevisions", {
+        ...snapshot,
+        publishedAt: Date.now(),
+        revision: current.revision + 1,
+      });
+      await ctx.db.patch(fixture.invitation.quoteRoundId, {
+        currentPackageRevisionId: replacementId,
+        updatedAt: Date.now(),
+      });
+    });
+    const superseded = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-stale-package-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(superseded).toEqual({ status: "superseded" });
+    const submissions = await fixture.base.run(async (ctx) =>
+      await ctx.db.query("quoteInvitationResponseSubmissionRevisions").collect()
+    );
+    expect(submissions).toHaveLength(0);
+  });
+
+  test("still returns the original accepted receipt when its network retry arrives after the deadline", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture, 71_000_00);
+    const input = {
+      expectedDraftVersion: 1,
+      idempotencyKey: "submission-lost-response-after-deadline-001",
+      quoteRoundInvitationId: fixture.invitation._id,
+      sessionToken: fixture.exchanged.sessionToken,
+    };
+    const accepted = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      input
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.invitation.quotePackageRevisionId, {
+        responseDeadline: Date.now() - 1,
+      });
+    });
+    const replay = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      input
+    );
+    expect(accepted).toMatchObject({
+      idempotentReplay: false,
+      submission: { revision: 1 },
+      status: "accepted",
+    });
+    expect(replay).toMatchObject({
+      idempotentReplay: true,
+      submission: { revision: 1 },
+      status: "accepted",
+    });
+  });
+
+  test("treats early Round closure as an immediate write cutoff while preserving the submitted response", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-closed-base-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.invitation.quoteRoundId, {
+        state: "closed",
+        updatedAt: Date.now(),
+      });
+    });
+    const start = await fixture.base.mutation(
+      (api as any).quote_response_submissions.startQuoteInvitationResponseRevision,
+      {
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const withdraw = await fixture.base.mutation(
+      (api as any).quote_response_submissions.withdrawQuoteInvitationResponse,
+      {
+        confirmed: true,
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(start).toEqual({ status: "read_only" });
+    expect(withdraw).toEqual({ status: "read_only" });
+    const lifecycle = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(lifecycle).toMatchObject({
+      currentSubmission: { revision: 1, status: "active" },
+      status: "read_only",
+    });
+  });
+
+  test("never reveals or changes another invitation's response, including to an internal user", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture);
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-isolation-base-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const wrongPublication = await publishCombinedRound(
+      fixture,
+      "submission-isolation-wrong-round-001"
+    );
+    const wrongLifecycle = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: wrongPublication.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const wrongSubmit = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "submission-isolation-wrong-submit-001",
+        quoteRoundInvitationId: wrongPublication.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    const internalWithdraw = await fixture.builder.mutation(
+      (api as any).quote_response_submissions
+        .withdrawClaimedQuoteInvitationResponse,
+      {
+        confirmed: true,
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+      }
+    );
+    expect(wrongLifecycle).toEqual({
+      currentSubmission: null,
+      draft: null,
+      hasMoreRevisions: false,
+      eligibility: {
+        canRevise: false,
+        canSubmit: false,
+        canWithdraw: false,
+        reason: "This Quote Invitation is unavailable.",
+      },
+      revisionCount: 0,
+      revisions: [],
+      status: "unavailable",
+    });
+    expect(wrongSubmit).toEqual({ status: "unavailable" });
+    expect(internalWithdraw).toEqual({ status: "unavailable" });
+    const lifecycle = await fixture.base.query(
+      (api as any).quote_response_submissions
+        .getQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(lifecycle.currentSubmission).toMatchObject({
+      revision: 1,
+      status: "active",
+    });
+  });
+
+  test("lets an exact claimed recipient continue the same invitation lifecycle without granting internal access", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture, 91_000_00);
+    const recipient = withIdentity(
+      fixture.base,
+      ["member"],
+      "claimed-submission-recipient",
+      ORGANIZATION_ID,
+      "quote-recipient@example.com"
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId: "auth_claimed_submission_recipient",
+        email: "quote-recipient@example.com",
+        emailVerified: true,
+        name: "Claimed submission recipient",
+        status: "active",
+        workosUserId: "claimed-submission-recipient",
+      });
+    });
+    await recipient.mutation(
+      (api as any).quote_invitation_access.claimQuoteInvitationProfile,
+      { sessionToken: fixture.exchanged.sessionToken }
+    );
+    const claimedLifecycle = await recipient.query(
+      (api as any).quote_response_submissions
+        .getClaimedQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+      }
+    );
+    expect(claimedLifecycle).toMatchObject({
+      draft: { lineItems: [{ quotedAmountCents: 91_000_00 }], version: 1 },
+      status: "available",
+    });
+    const accepted = await recipient.mutation(
+      (api as any).quote_response_submissions
+        .submitClaimedQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "claimed-submission-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+      }
+    );
+    expect(accepted).toMatchObject({
+      status: "accepted",
+      submission: { canonicalTotalCents: 91_000_00, revision: 1 },
+    });
+    const builderLifecycle = await fixture.builder.query(
+      (api as any).quote_response_submissions
+        .getClaimedQuoteInvitationResponseLifecycle,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+      }
+    );
+    expect(builderLifecycle).toEqual({
+      currentSubmission: null,
+      draft: null,
+      hasMoreRevisions: false,
+      eligibility: {
+        canRevise: false,
+        canSubmit: false,
+        canWithdraw: false,
+        reason: "This Quote Invitation is unavailable.",
+      },
+      revisionCount: 0,
+      revisions: [],
+      status: "unavailable",
+    });
+  });
+});
+
 function withIdentity(
   base: ReturnType<typeof convexTest>,
   roles: string[],
@@ -1193,6 +2299,72 @@ async function publishCombinedRound(
     }
     return { credential, invitation };
   });
+}
+
+async function openedSubmissionFixture() {
+  const fixture = await seedQuoteFixture();
+  const { credential, invitation } = await publishCombinedRound(
+    fixture,
+    "response-submission-publish-001"
+  );
+  const magicToken = "response-submission-browser-token";
+  await replaceCredentialMagicToken(fixture, credential._id, magicToken);
+  const exchanged = await fixture.base.mutation(
+    (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+    { magicToken }
+  );
+  if (exchanged.status !== "available") {
+    throw new Error("Expected a usable Quote Invitation browser session.");
+  }
+  return { ...fixture, exchanged, invitation, magicToken };
+}
+
+async function saveCompleteSubmissionDraft(
+  fixture: Awaited<ReturnType<typeof openedSubmissionFixture>>,
+  amountCents = 125_000_00
+) {
+  const before = await fixture.base.query(
+    (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+    {
+      presentationNow: Date.now(),
+      quoteRoundInvitationId: fixture.invitation._id,
+      sessionToken: fixture.exchanged.sessionToken,
+    }
+  );
+  const labourLine = before.access.package.labourLines[0];
+  const requiredAnswer = before.access.package.responseFields.find(
+    (field: { fieldKey: string }) => field.fieldKey === "approach"
+  );
+  if (!requiredAnswer) {
+    throw new Error("Expected the required approach response field.");
+  }
+  const saved = await fixture.base.mutation(
+    (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+    {
+      expectedVersion: 0,
+      patch: {
+        answerPatches: [
+          {
+            sourcePackageRevisionResponseFieldId: requiredAnswer.sourceFieldId,
+            value: "<p>We will stage the crew before framing.</p>",
+          },
+        ],
+        linePatches: [
+          {
+            lineKey: `labour:${labourLine.sourceLineId}`,
+            quotedAmountCents: amountCents,
+            scope: "labour",
+            source: "package_labour",
+            sourcePackageRevisionLabourLineId: labourLine.sourceLineId,
+          },
+        ],
+      },
+      quoteRoundInvitationId: fixture.invitation._id,
+      sessionToken: fixture.exchanged.sessionToken,
+    }
+  );
+  expect(saved).toMatchObject({ status: "saved", draft: { version: 1 } });
+  return { before, saved };
 }
 
 async function replaceCredentialMagicToken(
