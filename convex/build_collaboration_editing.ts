@@ -328,6 +328,11 @@ export const tombstoneBuildCollaborationPost = authenticatedMutation
       authorization,
       args.postId
     );
+    if (post.source === "system" && post.systemPostKind === "milestone") {
+      throw new Error(
+        "System Milestone Posts cannot be tombstoned outside canonical domain state."
+      );
+    }
     assertExpectedRevision(post.revision, args.expectedRevision, "post");
     const now = Date.now();
     await ctx.db.patch(post._id, {
@@ -504,10 +509,14 @@ async function requireAuthoredReadablePost(
   postId: Id<"buildCollaborationPosts">
 ) {
   const post = await ctx.db.get(postId);
+  const systemEditor =
+    post?.source === "system" &&
+    post.systemPostKind === "milestone" &&
+    authorization.effectiveRole.tier >= 3;
   if (
     !post ||
     post.buildId !== authorization.build._id ||
-    post.authorWorkosUserId !== authorization.viewer.subject ||
+    (!systemEditor && post.authorWorkosUserId !== authorization.viewer.subject) ||
     !(await canReadCollaborationPost(ctx, authorization, post))
   ) {
     throw new Error("Forbidden: authored collaboration post");

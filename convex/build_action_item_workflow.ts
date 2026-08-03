@@ -14,7 +14,10 @@ import {
   authorizeBuildActionItemOperation,
   type BuildActionItemOperation,
 } from "./build_action_item_rbac";
-import { requireReadableActionItem } from "./build_action_items";
+import {
+  assertCanonicalMilestoneActionItemMutable,
+  requireReadableActionItem,
+} from "./build_action_items";
 import { resolveCurrentCollaborationNotificationReaderIds } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { collaborationRoleTier } from "./build_collaboration_model";
@@ -81,6 +84,19 @@ export const getBuildActionItemWorkflowContext = authenticatedQuery
       );
     } catch {
       return { state: "revoked" as const };
+    }
+    if (item.systemMode === "generated_milestone_submilestone") {
+      return {
+        assignableParticipants: [],
+        availableTransitions: [],
+        state: "visible" as const,
+        viewerCanAcceptAssignment: false,
+        viewerCanEditFields: false,
+        viewerEditAuthority: "reader" as const,
+        viewerRequiresEditReason: false,
+        viewerCanUnassign: false,
+        viewerWorkosUserId: authorization.viewer.subject,
+      };
     }
     const readerIds = await activeActionItemReaders(ctx, authorization, item);
     const assignableParticipants = authorization.participants.flatMap(
@@ -155,6 +171,7 @@ export const assignBuildActionItem = authenticatedMutation
       authorization,
       args.actionItemId
     );
+    assertCanonicalMilestoneActionItemMutable(item);
     assertExpectedRevision(item, args.expectedRevision);
     const assignment = await resolveAssignmentChange(ctx, {
       authorization,
@@ -212,6 +229,7 @@ export const acceptBuildActionItemAssignment = authenticatedMutation
       authorization,
       args.actionItemId
     );
+    assertCanonicalMilestoneActionItemMutable(item);
     assertExpectedRevision(item, args.expectedRevision);
     const decision = operationDecision(
       authorization,
@@ -345,6 +363,7 @@ export const transitionBuildActionItem = authenticatedMutation
       authorization,
       args.actionItemId
     );
+    assertCanonicalMilestoneActionItemMutable(item);
     assertExpectedRevision(item, args.expectedRevision);
     await assertDependencyCompletionPreconditions(
       ctx,

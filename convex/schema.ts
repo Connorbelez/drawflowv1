@@ -5,6 +5,7 @@ import {
   buildActionAssignmentStateValidator,
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
+  buildActionItemSystemModeValidator,
   buildActionItemWorkKindValidator,
   buildActionRelationKindValidator,
   buildCollaborationActorKindValidator,
@@ -26,6 +27,7 @@ import {
   buildCollaborationReferenceKindValidator,
   buildCollaborationRoleValidator,
   buildCollaborationSourceValidator,
+  buildCollaborationSystemPostKindValidator,
   buildCollaborationTenantStatusValidator,
   buildCollaborationThreadStateValidator,
   buildParticipantStatusValidator,
@@ -3870,6 +3872,16 @@ export default defineSchema({
     activeModerationCaseId: v.optional(
       v.id("buildCollaborationModerationCases")
     ),
+    // Immutable canonical System Post identity.  Ordinary human posts leave
+    // these fields unset; domain-owned posts bind to exactly one occurrence.
+    systemPostKind: v.optional(buildCollaborationSystemPostKindValidator),
+    canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
+    canonicalBuildDrawOccurrenceKey: v.optional(v.string()),
+    systemOccurrenceKey: v.optional(v.string()),
+    activationReason: v.optional(v.string()),
+    triggeredByWorkosUserId: v.optional(v.string()),
+    triggeredByRole: v.optional(buildCollaborationRoleValidator),
+    triggeredAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -3889,6 +3901,15 @@ export default defineSchema({
       "postType",
     ])
     .index("by_buildId_and_systemEventKey", ["buildId", "systemEventKey"])
+    .index("by_buildId_and_systemPostKind_and_canonicalBuildMilestoneId", [
+      "buildId",
+      "systemPostKind",
+      "canonicalBuildMilestoneId",
+    ])
+    .index("by_buildId_and_systemOccurrenceKey", [
+      "buildId",
+      "systemOccurrenceKey",
+    ])
     .index("by_buildId_and_importedSourceId", ["buildId", "importedSourceId"])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   buildCollaborationPostRevisions: defineTable({
@@ -4452,6 +4473,12 @@ export default defineSchema({
     primaryReferenceId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    // Generated Milestone cards are immutable projections of canonical
+    // Sub-milestones.  User-authored Action Items leave these unset.
+    systemMode: v.optional(buildActionItemSystemModeValidator),
+    canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
+    canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    canonicalBindingRevision: v.optional(v.number()),
   })
     .index("by_originatingPostId_and_createdAt", [
       "originatingPostId",

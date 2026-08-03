@@ -74,6 +74,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   entityActionItems: [] as Array<Record<string, unknown>>,
   feedStatus: "Exhausted" as "CanLoadMore" | "Exhausted",
+  feedRows: [] as Array<Record<string, unknown>>,
   focusedCommentContext: undefined as
     | Record<string, unknown>
     | undefined,
@@ -244,6 +245,97 @@ function focusedPostEntryFixture(id: string, text: string) {
   };
 }
 
+function canonicalMilestoneSystemPostEntryFixture() {
+  const now = Date.parse("2026-08-03T12:00:00.000Z");
+  return {
+    acknowledgement: { acknowledged: false, required: false },
+    actionItems: [
+      {
+        _id: "system-action-1",
+        actionableUnreadCount: 0,
+        assignmentState: "unassigned",
+        canonicalBindingRevision: 1,
+        canonicalBuildMilestoneId: "milestone-1",
+        canonicalBuildSubmilestoneId: "submilestone-1",
+        createdAt: now,
+        currentRevision: 1,
+        dependencyCount: 0,
+        priority: "none",
+        requiresAcceptance: false,
+        status: "todo",
+        systemMode: "generated_milestone_submilestone",
+        title: "Excavate",
+        unblocksCount: 0,
+        unreadCommentCount: 0,
+      },
+    ],
+    following: false,
+    kind: "post",
+    pins: [],
+    post: {
+      _creationTime: now,
+      _id: "system-post-1",
+      agentDrafted: false,
+      announcementProminent: false,
+      audienceMode: "build_wide",
+      authorDisplayNameSnapshot: "DrawFlow System",
+      authorRole: "admin",
+      commentCount: 0,
+      contentState: "active",
+      createdAt: now,
+      postType: "update",
+      readRevision: 2,
+      revision: 2,
+      source: "system",
+      systemPost: {
+        activationReason: "explicit_start",
+        authoredBy: "DrawFlow System",
+        canonicalBuildMilestoneId: "milestone-1",
+        kind: "milestone",
+        occurrenceKey: "milestone-system:build-1:milestone-1",
+        triggeredAt: now,
+        triggeredByRole: "builder",
+        triggeredByWorkosUserId: "user_builder",
+      },
+      threadState: "open",
+      updatedAt: now,
+      viewerCanAppeal: false,
+      viewerCanManageThread: true,
+      viewerCanModerate: false,
+      viewerCanResolveAppeal: false,
+      viewerIsAuthor: false,
+    },
+    reactions: [],
+    receipts: [],
+    references: [
+      {
+        _id: "system-reference-1",
+        entityId: "milestone-1",
+        entityKind: "milestone",
+        labelSnapshot: "Foundation",
+        summarySnapshot: "Canonical Milestone",
+      },
+    ],
+    revision: {
+      plainText: "Foundation started. Canonical Sub-milestone cards are synchronized.",
+      tiptapJson: JSON.stringify({
+        content: [
+          {
+            content: [
+              {
+                text: "Foundation started. Canonical Sub-milestone cards are synchronized.",
+                type: "text",
+              },
+            ],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      }),
+    },
+  };
+}
+
 function collaborationDraftBundleFixture(
   text: string,
   overrides: Record<string, unknown> = {}
@@ -343,7 +435,7 @@ vi.mock("convex/react", () => ({
     }
     return {
       loadMore: mocks.loadMore,
-      results: [
+      results: mocks.feedRows.length > 0 ? mocks.feedRows : [
       {
         kind: "restricted",
         placeholderKey: "restricted-first-page-0",
@@ -909,6 +1001,7 @@ afterEach(() => {
   mocks.assetStatuses = [];
   mocks.buildActionItems = [];
   mocks.feedStatus = "Exhausted";
+  mocks.feedRows = [];
   mocks.focusedAssetContext = undefined;
   mocks.focusedCommentContext = undefined;
   mocks.focusedPostContext = undefined;
@@ -986,6 +1079,37 @@ describe("BuildCollaborationFeed", () => {
         .querySelector('aside[aria-label="Build collaboration context"]')
         ?.classList.contains("build-collaboration-context-rail")
     ).toBe(true);
+  });
+
+  test("separates immutable Milestone System Post facts from its editable brief and locks generated card workflow", () => {
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getByText("Canonical facts")).toBeTruthy();
+    expect(screen.getByText("Immutable domain binding")).toBeTruthy();
+    expect(screen.getAllByText("Foundation").length).toBeGreaterThan(0);
+    expect(screen.getByText("user_builder")).toBeTruthy();
+    expect(screen.getByText("explicit start")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
+    expect(screen.getByText("Edit post")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" })
+    );
+    expect(screen.getAllByText("System · Milestone").length).toBeGreaterThan(0);
+    const status = screen.getByRole("combobox", {
+      name: "Status for Excavate",
+    });
+    expect(status.getAttribute("data-disabled")).not.toBeNull();
+    expect(
+      screen.getByText(
+        "System · Milestone — status follows the canonical Sub-milestone."
+      )
+    ).toBeTruthy();
   });
 
   test("distills list Action Items into a clickable card with compact metadata", () => {

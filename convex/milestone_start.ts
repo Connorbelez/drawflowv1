@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
 
 import { backofficeRoleSlugs } from "./authz";
+import { ensureMilestoneSystemPost } from "./build_collaboration_system_posts";
 import type { Doc, Id, MutationCtx } from "./types";
 
 export const MILESTONE_START_SOURCES = [
@@ -66,6 +67,19 @@ export async function recordMilestoneStart(
   validateStartInput(input);
   const replay = await findIdempotentStart(ctx, input);
   if (replay) {
+    const shouldActivateSystemPost =
+      input.source !== "completion_catch_up" &&
+      (!input.submilestone ||
+        replay.parentStarted ||
+        input.milestone.actualStartedAt !== undefined);
+    if (shouldActivateSystemPost) {
+      await ensureMilestoneSystemPost(ctx, {
+        actor: input.actor,
+        activationReason: "explicit_start",
+        build: input.build,
+        milestone: input.milestone,
+      });
+    }
     return replay;
   }
 
@@ -174,6 +188,20 @@ export async function recordMilestoneStart(
       milestone: input.milestone,
       reason,
       submilestone: input.submilestone,
+    });
+  }
+
+  const shouldActivateSystemPost =
+    input.source !== "completion_catch_up" &&
+    (!input.submilestone ||
+      parentStarted ||
+      input.milestone.actualStartedAt !== undefined);
+  if (shouldActivateSystemPost) {
+    await ensureMilestoneSystemPost(ctx, {
+      actor: input.actor,
+      activationReason: "explicit_start",
+      build: input.build,
+      milestone: input.milestone,
     });
   }
 

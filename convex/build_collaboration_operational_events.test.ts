@@ -274,6 +274,7 @@ async function seedOperationalBuild(options?: {
     base,
     ...fixture,
     broker: withIdentity(base, "broker", "user_broker"),
+    builder: withIdentity(base, "builder", "user_builder"),
     builderStaff: withIdentity(base, "builder-staff", "user_builder_staff"),
     assignedContractor: withIdentity(
       base,
@@ -350,6 +351,265 @@ describe("Build Collaboration operational events", () => {
       role: "admin",
       workosUserId: "user_admin",
     });
+  });
+
+  test("creates one canonical Milestone System Post and one bound card per Sub-milestone idempotently", async () => {
+    const fixture = await seedOperationalBuild();
+    const submilestoneIds = await fixture.base.run(async (ctx) => {
+      const milestone = await ctx.db.get(fixture.milestoneId);
+      const proposalMilestone = milestone
+        ? await ctx.db.get(milestone.proposalMilestoneId)
+        : null;
+      if (!(milestone && proposalMilestone)) {
+        throw new Error("Milestone fixture is unavailable.");
+      }
+      const now = Date.now();
+      const rows = [];
+      for (const [index, name] of ["Excavate", "Pour footings"].entries()) {
+        const key = `foundation-${index + 1}`;
+        const proposalSubmilestoneId = await ctx.db.insert(
+          "proposalSubmilestones",
+          {
+            brokerageId: fixture.brokerageId,
+            createdAt: now,
+            key,
+            milestoneKey: milestone.key,
+            name,
+            order: index + 1,
+            organizationId: ORGANIZATION_ID,
+            proposalId: fixture.proposalId,
+            proposalMilestoneId: proposalMilestone._id,
+            updatedAt: now,
+          },
+        );
+        rows.push(
+          await ctx.db.insert("buildSubmilestones", {
+            brokerageId: fixture.brokerageId,
+            buildId: fixture.buildId,
+            buildMilestoneId: milestone._id,
+            createdAt: now,
+            key,
+            milestoneKey: milestone.key,
+            name,
+            order: index + 1,
+            organizationId: ORGANIZATION_ID,
+            proposalSubmilestoneId,
+            status: "planned",
+            updatedAt: now,
+          }),
+        );
+      }
+      return rows;
+    });
+
+    const startArgs = {
+      actualStartedAt: Date.parse("2026-08-03T12:00:00.000Z"),
+      buildId: fixture.buildId,
+      idempotencyKey: "eng-407-foundation-start-001",
+      milestoneKey: "foundation",
+      source: "milestone_detail" as const,
+      workosOrganizationId: ORGANIZATION_ID,
+    };
+    const first = await fixture.builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      startArgs,
+    );
+    const afterFirst = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    const replay = await fixture.builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      startArgs,
+    );
+    const afterReplay = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    const systemPosts = afterFirst.posts.filter(
+      (post) => post.systemPostKind === "milestone",
+    );
+    const systemCards = afterFirst.actionItems.filter(
+      (item) => item.systemMode === "generated_milestone_submilestone",
+    );
+    expect(first).toMatchObject({ replayed: false });
+    expect(replay).toEqual({ ...first, replayed: true });
+    expect(systemPosts).toHaveLength(1);
+    expect(systemPosts[0]).toMatchObject({
+      activationReason: "explicit_start",
+      authorDisplayNameSnapshot: "DrawFlow System",
+      canonicalBuildMilestoneId: fixture.milestoneId,
+      source: "system",
+      systemOccurrenceKey: `milestone-system:${fixture.buildId}:${fixture.milestoneId}`,
+      triggeredByRole: "builder",
+      triggeredByWorkosUserId: "user_builder",
+    });
+    expect(systemCards).toHaveLength(submilestoneIds.length);
+    expect(systemCards.map((item) => item.canonicalBuildSubmilestoneId)).toEqual(
+      expect.arrayContaining(submilestoneIds),
+    );
+    const generatedCard = systemCards[0]!;
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_action_items.updateBuildActionItem,
+        {
+          actionItemId: generatedCard._id,
+          buildId: fixture.buildId,
+          expectedRevision: generatedCard.currentRevision,
+          organizationId: ORGANIZATION_ID,
+          title: "Tampered system card",
+        },
+      ),
+    ).rejects.toThrow(/cannot be edited or transitioned directly/i);
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_action_item_workflow.transitionBuildActionItem,
+        {
+          actionItemId: generatedCard._id,
+          buildId: fixture.buildId,
+          expectedRevision: generatedCard.currentRevision,
+          nextStatus: "done",
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/cannot be edited or transitioned directly/i);
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_editing.tombstoneBuildCollaborationPost,
+        {
+          buildId: fixture.buildId,
+          expectedRevision: systemPosts[0]!.revision,
+          organizationId: ORGANIZATION_ID,
+          postId: systemPosts[0]!._id,
+        },
+      ),
+    ).rejects.toThrow(/cannot be tombstoned/i);
+    expect(afterReplay.posts).toHaveLength(afterFirst.posts.length);
+    expect(afterReplay.actionItems).toHaveLength(afterFirst.actionItems.length);
+    expect(afterReplay.deliveries).toHaveLength(afterFirst.deliveries.length);
+    expect(afterReplay.references).toHaveLength(afterFirst.references.length);
+    await expect(
+      fixture.builder.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationPostContext,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: systemPosts[0]!._id,
+        },
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        entry: expect.objectContaining({
+          post: expect.objectContaining({
+            systemPost: expect.objectContaining({ kind: "milestone" }),
+          }),
+        }),
+        state: "visible",
+      }),
+    );
+    await expect(
+      fixture.homeowner.query(
+        (api as any).build_collaboration_focus
+          .getFocusedBuildCollaborationPostContext,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: systemPosts[0]!._id,
+        },
+      ),
+    ).resolves.toEqual({ state: "revoked" });
+    const auditEvents = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query.eq("entityType", "buildCollaborationPost").eq(
+            "entityId",
+            String(systemPosts[0]!._id),
+          ),
+        )
+        .collect(),
+    );
+    expect(
+      auditEvents.filter(
+        (event) => event.eventType === "build.collaboration.system_event.published",
+      ),
+    ).toHaveLength(1);
+    expect(
+      afterFirst.deliveries.map((delivery) => delivery.recipientWorkosUserId),
+    ).not.toContain("user_homeowner");
+    expect(await feedKinds(fixture.builder, fixture.buildId)).toEqual(["post"]);
+    expect(await feedKinds(fixture.homeowner, fixture.buildId)).toEqual([
+      "restricted",
+    ]);
+  });
+
+  test("rejects zero-child active Milestone writes and renders legacy recovery without fabricating cards", async () => {
+    const fixture = await seedOperationalBuild();
+    await expect(
+      fixture.admin.mutation(
+        (api as any).production_proposals.createActiveBuildTimelineMilestone,
+        {
+          buildId: fixture.buildId,
+          milestone: {
+            budgetCents: 10_000_000,
+            dayEnd: 30,
+            dayStart: 21,
+            durationDays: 9,
+            evidenceState: "",
+            dependencyKeys: [],
+            milestoneKey: "framing",
+            name: "Framing",
+            order: 2,
+            policyState: "",
+            status: "planned",
+            submilestones: [],
+            x: 21,
+          },
+          workosOrganizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/at least one valid Sub-milestone/i);
+
+    await fixture.builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: Date.parse("2026-08-03T13:00:00.000Z"),
+        buildId: fixture.buildId,
+        idempotencyKey: "eng-407-legacy-zero-child-start-001",
+        milestoneKey: "foundation",
+        source: "milestone_detail",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const snapshot = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    expect(
+      snapshot.actionItems.filter(
+        (item) => item.systemMode === "generated_milestone_submilestone",
+      ),
+    ).toHaveLength(0);
+    const feed = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 50 },
+      },
+    );
+    expect(feed.page).toEqual([
+      expect.objectContaining({
+        kind: "post",
+        post: expect.objectContaining({
+          systemPost: expect.objectContaining({
+            kind: "milestone",
+            recoveryState: "recovery_required",
+          }),
+        }),
+      }),
+    ]);
   });
 
   test("publishes submitted and location-unverified Evidence without widening access", async () => {

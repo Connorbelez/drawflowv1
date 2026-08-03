@@ -7,6 +7,123 @@ export function isDrawSystemPost(
   return post.source === "system" && post.primaryReferenceKind === "draw";
 }
 
+export function isMilestoneSystemPost(
+  post: Pick<Doc<"buildCollaborationPosts">, "source" | "systemPostKind">
+) {
+  return post.source === "system" && post.systemPostKind === "milestone";
+}
+
+export async function canReadMilestoneSystemEvent(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    milestoneId?: Id<"buildMilestones">;
+    role: BuildCollaborationRole;
+    workosUserId: string;
+  }
+) {
+  if (input.role === "homeowner") {
+    return false;
+  }
+  if (input.role !== "contractor") {
+    return true;
+  }
+  if (!input.milestoneId) {
+    return false;
+  }
+  const milestone = await ctx.db.get(input.milestoneId);
+  if (!milestone || milestone.buildId !== input.buildId) {
+    return false;
+  }
+  return contractorAssignedToMilestone(ctx, {
+    buildId: input.buildId,
+    milestoneKey: milestone.key,
+    workosUserId: input.workosUserId,
+  });
+}
+
+export async function canReadMilestoneSystemActionItem(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    actionItem: Pick<
+      Doc<"buildActionItems">,
+      | "canonicalBuildMilestoneId"
+      | "canonicalBuildSubmilestoneId"
+      | "systemMode"
+    >;
+    buildId: Id<"activeBuilds">;
+    role: BuildCollaborationRole;
+    workosUserId: string;
+  }
+) {
+  if (input.actionItem.systemMode !== "generated_milestone_submilestone") {
+    return true;
+  }
+  if (input.role === "homeowner") {
+    return false;
+  }
+  if (input.role !== "contractor") {
+    return true;
+  }
+  const milestoneId = input.actionItem.canonicalBuildMilestoneId;
+  const submilestoneId = input.actionItem.canonicalBuildSubmilestoneId;
+  if (!(milestoneId && submilestoneId)) {
+    return false;
+  }
+  const [milestone, submilestone] = await Promise.all([
+    ctx.db.get(milestoneId),
+    ctx.db.get(submilestoneId),
+  ]);
+  if (
+    !(milestone && submilestone) ||
+    milestone.buildId !== input.buildId ||
+    submilestone.buildId !== input.buildId ||
+    submilestone.buildMilestoneId !== milestone._id
+  ) {
+    return false;
+  }
+  return contractorAssignedToMilestone(ctx, {
+    buildId: input.buildId,
+    milestoneKey: milestone.key,
+    submilestoneId: submilestone._id,
+    workosUserId: input.workosUserId,
+  });
+}
+
+async function contractorAssignedToMilestone(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    milestoneKey: string;
+    submilestoneId?: Id<"buildSubmilestones">;
+    workosUserId: string;
+  }
+) {
+  const assignments = await ctx.db
+    .query("milestoneContractorAssignments")
+    .withIndex("by_build_milestone", (query) =>
+      query.eq("buildId", input.buildId).eq("milestoneKey", input.milestoneKey)
+    )
+    .take(500);
+  for (const assignment of assignments) {
+    if (assignment.status === "removed") {
+      continue;
+    }
+    if (
+      input.submilestoneId &&
+      assignment.buildSubmilestoneId &&
+      assignment.buildSubmilestoneId !== input.submilestoneId
+    ) {
+      continue;
+    }
+    const contractor = await ctx.db.get(assignment.contractorId);
+    if (contractor?.accountWorkosUserId === input.workosUserId) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function canReadDrawSystemEvent(
   ctx: QueryCtx | MutationCtx,
   input: {

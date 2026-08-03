@@ -358,6 +358,8 @@ function ActionItemCard({
     0,
     (item.actionableUnreadCount ?? 0) - unreadCommentCount
   );
+  const isCanonicalMilestoneItem =
+    item.systemMode === "generated_milestone_submilestone";
 
   const selectStatus = (status: ActionStatus) => {
     if (status === "blocked") {
@@ -434,9 +436,14 @@ function ActionItemCard({
         )}
       >
         <div className="flex min-w-0 items-start justify-between gap-2">
-          <p className="min-w-0 flex-1 break-words font-medium text-sm leading-5 [overflow-wrap:anywhere]">
-            {item.title}
-          </p>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="break-words font-medium text-sm leading-5 [overflow-wrap:anywhere]">
+              {item.title}
+            </p>
+            {item.systemMode === "generated_milestone_submilestone" ? (
+              <Badge variant="secondary">System · Milestone</Badge>
+            ) : null}
+          </div>
         </div>
         {item.dependencyCount > 0 ||
         item.unblocksCount > 0 ||
@@ -531,7 +538,7 @@ function ActionItemCard({
       <div className="flex min-w-0 items-stretch gap-2">
         {actionItemCard}
         <Select
-          disabled={!mutationsAllowed}
+          disabled={!mutationsAllowed || isCanonicalMilestoneItem}
           onValueChange={(value) => selectStatus(value as ActionStatus)}
           value={item.status}
         >
@@ -552,7 +559,13 @@ function ActionItemCard({
           </SelectContent>
         </Select>
       </div>
-      {renderTerminalReasonEditor()}
+      {isCanonicalMilestoneItem ? (
+        <p className="text-muted-foreground text-xs">
+          System · Milestone — status follows the canonical Sub-milestone.
+        </p>
+      ) : (
+        renderTerminalReasonEditor()
+      )}
     </div>
   );
 }

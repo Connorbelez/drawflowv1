@@ -5,6 +5,7 @@ import {
   buildActionAssignmentStateValidator,
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
+  buildActionItemSystemModeValidator,
   buildActionItemWorkKindValidator,
   buildActionRelationKindValidator,
   buildCollaborationActorKindValidator,
@@ -17,7 +18,20 @@ import {
   buildCollaborationReferenceKindValidator,
   buildCollaborationRoleValidator,
   buildCollaborationSourceValidator,
+  buildCollaborationSystemPostKindValidator,
 } from "./build_collaboration_validators";
+
+const collaborationSystemPostValidator = v.object({
+  activationReason: v.string(),
+  authoredBy: v.literal("DrawFlow System"),
+  canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
+  kind: buildCollaborationSystemPostKindValidator,
+  occurrenceKey: v.string(),
+  recoveryState: v.optional(v.literal("recovery_required")),
+  triggeredAt: v.optional(v.number()),
+  triggeredByRole: v.optional(buildCollaborationRoleValidator),
+  triggeredByWorkosUserId: v.optional(v.string()),
+});
 
 export const collaborationPostSummaryValidator = v.object({
   _creationTime: v.number(),
@@ -46,6 +60,7 @@ export const collaborationPostSummaryValidator = v.object({
   resolvedAt: v.optional(v.number()),
   revision: v.number(),
   source: buildCollaborationSourceValidator,
+  systemPost: v.optional(collaborationSystemPostValidator),
   threadState: v.union(v.literal("open"), v.literal("resolved")),
   updatedAt: v.number(),
   viewerCanAppeal: v.boolean(),
@@ -79,6 +94,10 @@ export const collaborationActionItemSummaryValidator = v.object({
   labels: v.array(v.string()),
   priority: buildActionItemPriorityValidator,
   status: buildActionItemStatusValidator,
+  systemMode: v.optional(buildActionItemSystemModeValidator),
+  canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
+  canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+  canonicalBindingRevision: v.optional(v.number()),
   title: v.string(),
   unblocksCount: v.number(),
   unreadCommentCount: v.number(),
@@ -320,6 +339,10 @@ export const buildActionItemValidator = v.object({
   priority: buildActionItemPriorityValidator,
   requiresAcceptance: v.boolean(),
   status: buildActionItemStatusValidator,
+  systemMode: v.optional(buildActionItemSystemModeValidator),
+  canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
+  canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+  canonicalBindingRevision: v.optional(v.number()),
   title: v.string(),
   updatedAt: v.number(),
   unassignmentReason: v.optional(v.literal("participant_removed")),

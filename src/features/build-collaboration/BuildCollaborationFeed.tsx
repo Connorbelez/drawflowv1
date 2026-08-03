@@ -2641,7 +2641,8 @@ function CollaborationPostHeader({
     );
   const canEdit =
     mutationsAllowed &&
-    entry.post.viewerIsAuthor &&
+    (entry.post.viewerIsAuthor ||
+      (entry.post.systemPost && entry.post.viewerCanManageThread)) &&
     entry.post.contentState === "active";
   const canViewHistory =
     entry.post.viewerIsAuthor ||
@@ -2699,6 +2700,9 @@ function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
         <Badge variant="secondary">{contentStatus}</Badge>
       )}
       <Badge variant="outline">{postTypeLabel(entry.post.postType)}</Badge>
+      {entry.post.systemPost ? (
+        <Badge variant="secondary">System · Milestone</Badge>
+      ) : null}
       {entry.post.threadState === "resolved" ? <Badge>Resolved</Badge> : null}
       {entry.post.postType === "announcement" ? (
         <Badge variant={announcementProminent ? "secondary" : "outline"}>
@@ -3150,7 +3154,8 @@ function CollaborationPostCard({
     setEditTarget({
       canEdit:
         mutationsAllowed &&
-        entry.post.viewerIsAuthor &&
+        (entry.post.viewerIsAuthor ||
+          (entry.post.systemPost && entry.post.viewerCanManageThread)) &&
         entry.post.contentState === "active",
       document: parseDocument(entry.revision.tiptapJson),
       entity: { kind: "post", postId: entry.post._id },
@@ -3193,6 +3198,7 @@ function CollaborationPostCard({
           tagOptions={tagOptions}
           value={parseDocument(entry.revision.tiptapJson)}
         />
+        {entry.post.systemPost ? <SystemPostFacts entry={entry} /> : null}
         {entry.references.length > 0 ? (
           <div className="grid gap-2 sm:grid-cols-2">
             {entry.references.map((reference) => {
@@ -3392,6 +3398,51 @@ function CollaborationPostCard({
         readOnly={!mutationsAllowed}
       />
     </Card>
+  );
+}
+
+function SystemPostFacts({ entry }: { entry: CollaborationFeedPostEntry }) {
+  const systemPost = entry.post.systemPost;
+  if (!systemPost) {
+    return null;
+  }
+  const milestoneReference = entry.references.find(
+    (reference) => reference.entityKind === "milestone"
+  );
+  return (
+    <Frame className="border-dashed bg-muted/20" size="sm">
+      <FramePanel className="space-y-2 p-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Badge variant="secondary">Canonical facts</Badge>
+          <span className="text-muted-foreground">Immutable domain binding</span>
+        </div>
+        <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
+          <div>
+            <dt className="text-muted-foreground">Milestone</dt>
+            <dd className="font-medium">
+              {milestoneReference?.labelSnapshot ?? "Canonical Milestone"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Triggered by</dt>
+            <dd className="font-medium">
+              {systemPost.triggeredByWorkosUserId ??
+                systemPost.triggeredByRole ??
+                "DrawFlow System"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Activation</dt>
+            <dd className="font-medium">{systemPost.activationReason.replaceAll("_", " ")}</dd>
+          </div>
+        </dl>
+        {systemPost.recoveryState === "recovery_required" ? (
+          <p className="text-amber-700 text-xs dark:text-amber-300">
+            Recovery required: add a valid Sub-milestone through the canonical roadmap revision before starting work.
+          </p>
+        ) : null}
+      </FramePanel>
+    </Frame>
   );
 }
 

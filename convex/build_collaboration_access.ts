@@ -2,8 +2,10 @@ import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { normalizeRoleSlugs } from "./authz";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import {
+  canReadMilestoneSystemEvent,
   canReadDrawSystemEvent,
   isDrawSystemPost,
+  isMilestoneSystemPost,
 } from "./build_collaboration_system_event_access";
 import type { Doc, QueryCtx } from "./types";
 
@@ -15,6 +17,17 @@ export async function canReadCollaborationPost(
   if (
     post.organizationId !== authorization.organizationId ||
     post.buildId !== authorization.build._id
+  ) {
+    return false;
+  }
+  if (
+    isMilestoneSystemPost(post) &&
+    !(await canReadMilestoneSystemEvent(ctx, {
+      buildId: authorization.build._id,
+      milestoneId: post.canonicalBuildMilestoneId,
+      role: authorization.effectiveRole.role,
+      workosUserId: authorization.viewer.subject,
+    }))
   ) {
     return false;
   }
@@ -68,6 +81,22 @@ export async function resolveCurrentCollaborationPostReaderIds(
       collaborationRoleTier(participant.role) >= post.audienceFloorTier ||
       fixedMemberIds.has(participant.workosUserId),
   );
+  if (isMilestoneSystemPost(post)) {
+    const readerDecisions = await Promise.all(
+      audienceReaders.map(async (participant) => ({
+        allowed: await canReadMilestoneSystemEvent(ctx, {
+          buildId: authorization.build._id,
+          milestoneId: post.canonicalBuildMilestoneId,
+          role: participant.role,
+          workosUserId: participant.workosUserId,
+        }),
+        participant,
+      })),
+    );
+    return readerDecisions
+      .filter((decision) => decision.allowed)
+      .map((decision) => decision.participant.workosUserId);
+  }
   if (!isDrawSystemPost(post)) {
     return audienceReaders.map((participant) => participant.workosUserId);
   }

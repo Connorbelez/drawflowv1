@@ -33,7 +33,10 @@ import {
   isBuildCollaborationCutoverFrozen,
 } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchBuildRebuild } from "./build_collaboration_search_maintenance";
-import { canReadDrawSystemEvent } from "./build_collaboration_system_event_access";
+import {
+  canReadDrawSystemEvent,
+  canReadMilestoneSystemEvent,
+} from "./build_collaboration_system_event_access";
 import {
   buildCollaborationNotificationKindValidator,
   buildCollaborationPostTypeValidator,
@@ -93,6 +96,7 @@ export interface BuildCollaborationSystemEventInput {
     workKind: "evidence" | "site_visit_remediation" | "draw_blocker";
   };
   systemLabel: string;
+  systemPostKind?: "milestone" | "draw";
 }
 
 export const publishBuildCollaborationSystemEvent = internalMutation
@@ -108,6 +112,9 @@ export const publishBuildCollaborationSystemEvent = internalMutation
     primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
     references: v.optional(v.array(systemReferenceValidator)),
     remediation: v.optional(remediationValidator),
+    systemPostKind: v.optional(
+      v.union(v.literal("milestone"), v.literal("draw"))
+    ),
     systemLabel: v.string(),
   })
   .returns(v.id("buildCollaborationPosts"))
@@ -153,6 +160,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     participants,
     primaryReferenceId,
     primaryReferenceKind,
+    systemPostKind: input.systemPostKind,
   });
   if (readerParticipants.length === 0) {
     throw new Error("A system event requires at least one authorized reader.");
@@ -202,6 +210,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     readRevision: 1,
     revision: 1,
     source: "system",
+    systemPostKind: input.systemPostKind,
     systemEventKey: idempotencyKey,
     threadState: "open",
     threadRevision: 0,
@@ -332,7 +341,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   return postId;
 }
 
-type SystemEventScope =
+export type SystemEventScope =
   | { postId: Id<"buildCollaborationPosts">; status: "existing" }
   | { status: "inactive" }
   | {
@@ -342,7 +351,7 @@ type SystemEventScope =
       status: "ready";
     };
 
-async function resolveSystemEventScope(
+export async function resolveSystemEventScope(
   ctx: MutationCtx,
   input: BuildCollaborationSystemEventInput,
   idempotencyKey: string
@@ -477,6 +486,7 @@ function normalizeSystemReferences(input: BuildCollaborationSystemEventInput) {
   }));
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Reader policy branches are intentionally centralized with the canonical system-event publisher.
 async function systemEventReaders(
   ctx: MutationCtx,
   input: {
@@ -484,8 +494,28 @@ async function systemEventReaders(
     participants: ActiveBuildParticipantProjection[];
     primaryReferenceId?: string;
     primaryReferenceKind?: BuildCollaborationSystemEventInput["primaryReferenceKind"];
+    systemPostKind?: BuildCollaborationSystemEventInput["systemPostKind"];
   }
 ) {
+  if (input.systemPostKind === "milestone") {
+    const milestoneId = input.primaryReferenceId
+      ? ctx.db.normalizeId("buildMilestones", input.primaryReferenceId)
+      : null;
+    const readerDecisions = await Promise.all(
+      input.participants.map(async (participant) => ({
+        allowed: await canReadMilestoneSystemEvent(ctx, {
+          buildId: input.buildId,
+          milestoneId: milestoneId ?? undefined,
+          role: participant.role,
+          workosUserId: participant.workosUserId,
+        }),
+        participant,
+      }))
+    );
+    return readerDecisions
+      .filter((decision) => decision.allowed)
+      .map((decision) => decision.participant);
+  }
   if (input.primaryReferenceKind === "draw") {
     const readerDecisions = await Promise.all(
       input.participants.map(async (participant) => ({

@@ -9,7 +9,10 @@ import {
   type BuildActionItemOperation,
 } from "./build_action_item_rbac";
 import { wouldCreateActionItemDependencyCycle } from "./build_action_item_structure_model";
-import { requireReadableActionItem } from "./build_action_items";
+import {
+  assertCanonicalMilestoneActionItemMutable,
+  requireReadableActionItem,
+} from "./build_action_items";
 import { resolveCurrentCollaborationPostReaderIds } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
@@ -1268,6 +1271,7 @@ function assertOperation(
   item: Doc<"buildActionItems">,
   operation: BuildActionItemOperation
 ) {
+  assertCanonicalMilestoneActionItemMutable(item);
   const decision = operationDecision(authorization, item, operation);
   if (!decision.allowed) {
     throw new Error(

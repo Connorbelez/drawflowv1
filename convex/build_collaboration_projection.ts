@@ -8,6 +8,7 @@ import {
 import { collaborationModerationCapabilities } from "./build_collaboration_moderation";
 import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { projectAcceptedBuildCollaborationAnswerForViewer } from "./build_collaboration_resolution";
+import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import type { Doc, QueryCtx } from "./types";
 
 const MAX_REFERENCES_PER_POST = 100;
@@ -63,8 +64,10 @@ export async function projectReadableBuildCollaborationPost(
       post: collaborationPostSummary({
         authorization,
         moderationCapabilities,
-        post,
-        redacted: true,
+      post,
+      redacted: true,
+      systemRecoveryRequired:
+        post.systemPostKind === "milestone" && post.openActionItemCount === 0,
       }),
       reactions: [],
       receipts: [],
@@ -168,6 +171,31 @@ export async function projectReadableBuildCollaborationPost(
           })
         )?.plainText
       : post.resolutionSummary;
+  const canonicalMilestoneId = post.canonicalBuildMilestoneId;
+  const systemRecoveryRequired =
+    post.systemPostKind === "milestone" && canonicalMilestoneId
+      ? (
+          await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (query) =>
+              query.eq("buildMilestoneId", canonicalMilestoneId)
+            )
+            .take(1)
+        ).length === 0
+      : false;
+  const readableActionItems = [] as Doc<"buildActionItems">[];
+  for (const item of actionItems) {
+    if (
+      await canReadMilestoneSystemActionItem(ctx, {
+        actionItem: item,
+        buildId: authorization.build._id,
+        role: authorization.effectiveRole.role,
+        workosUserId: authorization.viewer.subject,
+      })
+    ) {
+      readableActionItems.push(item);
+    }
+  }
   return {
     acknowledgement: acknowledgementTarget
       ? {
@@ -180,7 +208,7 @@ export async function projectReadableBuildCollaborationPost(
         }
       : { acknowledged: false, required: false },
     actionItems: await Promise.all(
-      actionItems.map((item) =>
+      readableActionItems.map((item) =>
         projectActionItemSummary(ctx, authorization, item)
       )
     ),
@@ -197,6 +225,7 @@ export async function projectReadableBuildCollaborationPost(
       post,
       redacted: false,
       resolutionSummary: projectedResolutionSummary,
+      systemRecoveryRequired,
     }),
     reactions: reactions
       .filter(
@@ -326,6 +355,10 @@ async function projectActionItemSummary(
         delivery.inAppVisible !== false &&
         delivery.entityType === "buildActionItemComment"
     ).length,
+    systemMode: item.systemMode,
+    canonicalBuildMilestoneId: item.canonicalBuildMilestoneId,
+    canonicalBuildSubmilestoneId: item.canonicalBuildSubmilestoneId,
+    canonicalBindingRevision: item.canonicalBindingRevision,
   };
 }
 
@@ -339,6 +372,7 @@ function collaborationPostSummary(input: {
   post: Doc<"buildCollaborationPosts">;
   redacted: boolean;
   resolutionSummary?: string;
+  systemRecoveryRequired?: boolean;
 }) {
   const {
     authorization,
@@ -346,6 +380,7 @@ function collaborationPostSummary(input: {
     post,
     redacted,
     resolutionSummary,
+    systemRecoveryRequired,
   } = input;
   const viewerIsAuthor =
     post.authorWorkosUserId === authorization.viewer.subject;
@@ -384,6 +419,22 @@ function collaborationPostSummary(input: {
     resolvedAt: post.resolvedAt,
     revision: post.revision,
     source: post.source,
+    systemPost:
+      post.systemPostKind && post.systemOccurrenceKey
+        ? {
+            activationReason: post.activationReason ?? "explicit_start",
+            authoredBy: "DrawFlow System" as const,
+            canonicalBuildMilestoneId: post.canonicalBuildMilestoneId,
+            kind: post.systemPostKind,
+            occurrenceKey: post.systemOccurrenceKey,
+            recoveryState: systemRecoveryRequired
+              ? ("recovery_required" as const)
+              : undefined,
+            triggeredAt: post.triggeredAt,
+            triggeredByRole: post.triggeredByRole,
+            triggeredByWorkosUserId: post.triggeredByWorkosUserId,
+          }
+        : undefined,
     threadState: post.threadState,
     updatedAt: post.updatedAt,
     viewerCanAppeal: moderationCapabilities.canAppeal,

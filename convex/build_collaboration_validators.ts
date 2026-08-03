@@ -32,6 +32,12 @@ export const buildCollaborationSourceValidator = v.union(
   v.literal("imported")
 );
 
+/** Canonical domain orchestration post kinds. */
+export const buildCollaborationSystemPostKindValidator = v.union(
+  v.literal("milestone"),
+  v.literal("draw")
+);
+
 export const buildCollaborationPostTypeValidator = v.union(
   v.literal("update"),
   v.literal("question"),
@@ -104,6 +110,12 @@ export const buildActionItemWorkKindValidator = v.union(
   v.literal("evidence"),
   v.literal("site_visit_remediation"),
   v.literal("draw_blocker")
+);
+
+/** Generated cards remain Build Collaboration Action Items, but their
+ * execution binding is owned by the canonical domain aggregate. */
+export const buildActionItemSystemModeValidator = v.union(
+  v.literal("generated_milestone_submilestone")
 );
 
 export const buildActionItemPriorityValidator = v.union(

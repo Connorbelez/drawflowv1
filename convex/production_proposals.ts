@@ -1724,6 +1724,31 @@ function normalizeProductionMilestoneSchedule<
   };
 }
 
+function assertValidProductionSubmilestones(
+  rows: readonly ProductionSubmilestoneScheduleInput[],
+  label: string,
+) {
+  if (rows.length === 0) {
+    throw new Error(`${label} must contain at least one valid Sub-milestone.`);
+  }
+  const keys = new Set<string>();
+  for (const row of rows) {
+    const key = row.key.trim();
+    const name = row.name.trim();
+    if (!key || !name) {
+      throw new Error(
+        `${label} contains a Sub-milestone with an empty key or name.`,
+      );
+    }
+    if (keys.has(key)) {
+      throw new Error(
+        `${label} contains duplicate Sub-milestone key ${key}.`,
+      );
+    }
+    keys.add(key);
+  }
+}
+
 function sumProductionSubmilestoneBudgetCents(
   rows: ProductionSubmilestoneScheduleInput[],
 ) {
@@ -2996,6 +3021,15 @@ export const updateProductionTimelineMilestone = authenticatedMutation
             }))
           : args.submilestones,
     });
+    if (
+      args.submilestones !== undefined &&
+      schedule.submilestones.length > 0
+    ) {
+      assertValidProductionSubmilestones(
+        schedule.submilestones,
+        `Milestone ${milestone.key}`,
+      );
+    }
     const budgetDerivedFromSubmilestones =
       args.submilestones !== undefined && schedule.submilestones.length > 0;
     const unscopedAdditiveCostCents = budgetDerivedFromSubmilestones
@@ -3079,6 +3113,7 @@ export const updateProductionTimelineMilestone = authenticatedMutation
       await replaceProductionSubmilestones(ctx, auth, {
         milestone,
         proposalId: args.proposalId,
+        rejectEmpty: args.submilestones !== undefined,
         rows: schedule.submilestones,
       });
     }
@@ -16329,6 +16364,12 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
             }))
           : args.submilestones,
     });
+    if (args.submilestones !== undefined) {
+      assertValidProductionSubmilestones(
+        schedule.submilestones,
+        `Milestone ${milestone.key}`,
+      );
+    }
     const nextBudgetCents =
       args.budgetCents === undefined
         ? milestone.budgetCents
@@ -16397,6 +16438,7 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
       await replaceActiveBuildSubmilestones(ctx, auth, {
         buildId: args.buildId,
         milestone,
+        rejectEmpty: args.submilestones !== undefined,
         rows: schedule.submilestones,
       });
     }
@@ -24447,6 +24489,14 @@ function activeBuildMilestoneSummary(input: {
         : completedSubmilestoneCount === totalSubmilestoneCount
           ? ("complete" as const)
           : ("incomplete" as const),
+    submilestoneRecovery:
+      totalSubmilestoneCount === 0
+        ? {
+            message:
+              "This Milestone has no valid Sub-milestones. Add one through the canonical roadmap revision before starting work.",
+            state: "recovery_required" as const,
+          }
+        : undefined,
     submilestoneSnapshot: input.includeSubmilestones
       ? milestoneSubmilestones.map((submilestone) => ({
           ...(submilestone.budgetCents === undefined
@@ -27513,6 +27563,7 @@ async function replaceProductionSubmilestones(
   input: {
     milestone: Pick<Doc<"proposalMilestones">, "_id" | "key">;
     proposalId: Id<"buildProposals">;
+    rejectEmpty?: boolean;
     rows: {
       budgetCents?: number;
       durationDays?: number;
@@ -27560,6 +27611,12 @@ async function replaceProductionSubmilestones(
         `Maintained cost items exceed the ${target} budget by ${maintainedCents - budgetCents} cents.`,
       );
     }
+  }
+  if (input.rejectEmpty) {
+    assertValidProductionSubmilestones(
+      input.rows,
+      `Milestone ${input.milestone.key}`,
+    );
   }
   const existing = await ctx.db
     .query("proposalSubmilestones")
@@ -28919,6 +28976,10 @@ async function insertActiveBuildMilestoneFromInput(
     throw new Error("Production active-build milestone already exists.");
   }
   const schedule = normalizeProductionMilestoneSchedule(milestone);
+  assertValidProductionSubmilestones(
+    schedule.submilestones,
+    `Milestone ${milestone.milestoneKey}`,
+  );
   const now = Date.now();
   const budgetCents =
     schedule.submilestones.length > 0
@@ -28996,6 +29057,7 @@ async function replaceActiveBuildSubmilestones(
       Doc<"buildMilestones">,
       "_id" | "key" | "proposalMilestoneId"
     >;
+    rejectEmpty?: boolean;
     rows: {
       budgetCents?: number;
       durationDays?: number;
@@ -29043,6 +29105,12 @@ async function replaceActiveBuildSubmilestones(
         `Maintained cost items exceed the ${target} budget by ${maintainedCents - budgetCents} cents.`,
       );
     }
+  }
+  if (input.rejectEmpty) {
+    assertValidProductionSubmilestones(
+      input.rows,
+      `Milestone ${input.milestone.key}`,
+    );
   }
   const existing = await ctx.db
     .query("buildSubmilestones")

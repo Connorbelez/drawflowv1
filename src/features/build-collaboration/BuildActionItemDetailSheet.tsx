@@ -982,6 +982,9 @@ function VisibleActionItemDetail({
       >
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{statusLabel(detail.item.status)}</Badge>
+          {detail.item.systemMode === "generated_milestone_submilestone" ? (
+            <Badge variant="secondary">System · Milestone</Badge>
+          ) : null}
           {detail.labels.map((label) => (
             <Badge key={label} variant="secondary">
               {label}
@@ -1015,6 +1018,9 @@ function VisibleActionItemDetail({
       </DetailSheetHeader>
       <SheetPanel className="space-y-6">
         <AudienceInheritanceNotice audienceMode={detail.item.audienceMode} />
+        {detail.item.systemMode === "generated_milestone_submilestone" ? (
+          <CanonicalMilestoneActionItemFacts detail={detail} />
+        ) : null}
         {readOnly ? (
           <Frame>
             <FramePanel className="text-muted-foreground text-sm">
@@ -1302,6 +1308,43 @@ function VisibleActionItemDetail({
         </Button>
       </SheetFooter>
     </>
+  );
+}
+
+function CanonicalMilestoneActionItemFacts({
+  detail,
+}: {
+  detail: VisibleActionItemDetail;
+}) {
+  const milestoneReference = detail.references.find(
+    (reference) => reference.entityKind === "milestone"
+  );
+  const submilestoneReference = detail.references.find(
+    (reference) => reference.entityKind === "submilestone"
+  );
+  return (
+    <Frame className="border-dashed bg-muted/20" size="sm">
+      <FramePanel className="space-y-2 p-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Badge variant="secondary">Canonical Sub-milestone</Badge>
+          <span className="text-muted-foreground">System-owned binding</span>
+        </div>
+        <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+          <ReadOnlyField
+            label="Milestone"
+            value={milestoneReference?.label ?? "Canonical Milestone"}
+          />
+          <ReadOnlyField
+            label="Sub-milestone"
+            value={submilestoneReference?.label ?? detail.item.title}
+          />
+        </dl>
+        <p className="text-muted-foreground text-xs">
+          Status, completion, and identity follow the canonical roadmap. This
+          collaboration card is not an independent workflow command.
+        </p>
+      </FramePanel>
+    </Frame>
   );
 }
 

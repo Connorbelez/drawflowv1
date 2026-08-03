@@ -21,6 +21,7 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
@@ -503,7 +504,15 @@ async function canReadActionItemProjection(
   }
   const cached = postAccess.get(item.originatingPostId);
   if (cached !== undefined) {
-    return cached;
+    return (
+      cached &&
+      (await canReadMilestoneSystemActionItem(ctx, {
+        actionItem: item,
+        buildId: authorization.build._id,
+        role: authorization.effectiveRole.role,
+        workosUserId: authorization.viewer.subject,
+      }))
+    );
   }
   const post = await ctx.db.get(item.originatingPostId);
   const canRead = Boolean(
@@ -514,7 +523,15 @@ async function canReadActionItemProjection(
       (await canReadCollaborationPost(ctx, authorization, post))
   );
   postAccess.set(item.originatingPostId, canRead);
-  return canRead;
+  if (!canRead) {
+    return false;
+  }
+  return canReadMilestoneSystemActionItem(ctx, {
+    actionItem: item,
+    buildId: authorization.build._id,
+    role: authorization.effectiveRole.role,
+    workosUserId: authorization.viewer.subject,
+  });
 }
 
 export const updateBuildActionItem = authenticatedMutation
@@ -545,6 +562,7 @@ export const updateBuildActionItem = authenticatedMutation
       authorization,
       args.actionItemId
     );
+    assertCanonicalMilestoneActionItemMutable(item);
     assertCompletionAcceptanceChange(
       authorization,
       item,
@@ -862,7 +880,27 @@ export async function requireReadableActionItem(
   ) {
     throw new Error("Action Item is unavailable.");
   }
+  if (
+    !(await canReadMilestoneSystemActionItem(ctx, {
+      actionItem: item,
+      buildId: authorization.build._id,
+      role: authorization.effectiveRole.role,
+      workosUserId: authorization.viewer.subject,
+    }))
+  ) {
+    throw new Error("Action Item is unavailable.");
+  }
   return item;
+}
+
+export function assertCanonicalMilestoneActionItemMutable(
+  item: Doc<"buildActionItems">
+) {
+  if (item.systemMode === "generated_milestone_submilestone") {
+    throw new Error(
+      "System Action Items mirror canonical Sub-milestones and cannot be edited or transitioned directly."
+    );
+  }
 }
 
 function assertActionItemOperation(
@@ -1045,6 +1083,7 @@ async function resolveParentActionItemForCreation(
       "Action Items support only one level of child Action Items."
     );
   }
+  assertCanonicalMilestoneActionItemMutable(parentActionItem);
   const existingChildren = await ctx.db
     .query("buildActionItems")
     .withIndex("by_parentActionItemId_and_status", (query) =>
