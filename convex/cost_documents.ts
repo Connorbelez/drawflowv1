@@ -5,10 +5,25 @@ import {
 import { v } from "convex/values";
 
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
-import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { isCleanCollaborationAsset } from "./build_collaboration_asset_access";
 import { abandonUnpublishedCostDocumentDraftAsset } from "./build_collaboration_assets";
+import {
+  assertExpectedCostDocumentBatchRevision,
+  assertExpectedCostDocumentDraftRevision,
+  authorizeCostDocumentIntent,
+  canReadSubmittedCostDocument,
+  costDocumentDraftCapabilities,
+  currentCostDocumentBatchRevision,
+  currentCostDocumentDraftRevision,
+  hasCurrentDraftCollaborationGrant,
+  isCostDocumentInScope as isCostDocumentInScopeForAuthorization,
+  listCurrentCostDocumentDraftCollaborators,
+  listEligibleCostDocumentDraftCollaborators,
+  requireCostDocumentBatchCreator,
+  requireCostDocumentDraftAccess,
+  requireEligibleCostDocumentDraftCollaborator,
+} from "./cost_document_access";
 import { normalizeCostDocumentWorkingStateJson } from "./cost_document_working_state";
 import { enqueueTransactionalEmail } from "./email_transport";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
@@ -85,21 +100,6 @@ const costDocumentActivityProjectionValidator = v.object({
   eventType: v.string(),
 });
 
-const costDocumentReceiptProjectionValidator = v.object({
-  createdAt: v.number(),
-  recipientEmail: v.string(),
-  status: v.union(
-    v.literal("queued"),
-    v.literal("sent"),
-    v.literal("delivered"),
-    v.literal("delivery_delayed"),
-    v.literal("bounced"),
-    v.literal("failed"),
-    v.literal("complained"),
-    v.literal("cancelled")
-  ),
-});
-
 const costDocumentSummaryValidator = v.object({
   _id: v.id("costDocuments"),
   category: costDocumentCategoryValidator,
@@ -126,12 +126,10 @@ const costDocumentProjectionValidator = v.object({
   grossTotalCents: v.number(),
   kind: costDocumentKindValidator,
   pages: v.array(costDocumentPageProjectionValidator),
-  receipt: v.union(costDocumentReceiptProjectionValidator, v.null()),
   state: v.literal("submitted"),
   submittedAt: v.number(),
   supportingContextDisclosure: v.string(),
   title: v.string(),
-  uploaderWorkosUserId: v.string(),
   vendorName: v.string(),
 });
 
@@ -145,13 +143,39 @@ const costDocumentDraftPageProjectionValidator = v.object({
   replacedAt: v.optional(v.number()),
 });
 
+const costDocumentDraftCapabilitiesValidator = v.object({
+  canDiscardBatch: v.boolean(),
+  canEditDraft: v.boolean(),
+  canManageDraftCollaboration: v.boolean(),
+  canManageSourcePages: v.boolean(),
+  canReadDraft: v.boolean(),
+  canSubmitBatch: v.boolean(),
+});
+
 const costDocumentDraftProjectionValidator = v.object({
   _id: v.id("costDocumentDrafts"),
   activeStep: costDocumentDraftStepValidator,
   allocations: v.array(costDocumentAllocationProjectionValidator),
   batchId: v.id("costDocumentBatches"),
+  capabilities: costDocumentDraftCapabilitiesValidator,
   category: costDocumentCategoryValidator,
+  collaboration: v.object({
+    currentCollaborators: v.array(
+      v.object({
+        grantedAt: v.number(),
+        workosUserId: v.string(),
+      })
+    ),
+    eligibleCollaborators: v.array(
+      v.object({
+        displayName: v.string(),
+        role: v.union(v.literal("builder"), v.literal("builder-staff")),
+        workosUserId: v.string(),
+      })
+    ),
+  }),
   completedAt: v.optional(v.number()),
+  creator: v.object({ workosUserId: v.string() }),
   currency: v.literal("CAD"),
   description: v.optional(v.string()),
   documentDate: v.optional(v.string()),
@@ -167,7 +191,38 @@ const costDocumentDraftProjectionValidator = v.object({
   ),
   order: v.number(),
   pages: v.array(costDocumentDraftPageProjectionValidator),
+  revision: v.number(),
+  self: v.object({ workosUserId: v.string() }),
   submittedCostDocumentId: v.optional(v.id("costDocuments")),
+  title: v.optional(v.string()),
+  vendorName: v.optional(v.string()),
+  workingStateJson: v.optional(v.string()),
+});
+
+const collaborativeCostDocumentDraftProjectionValidator = v.object({
+  _id: v.id("costDocumentDrafts"),
+  activeStep: costDocumentDraftStepValidator,
+  allocations: v.array(costDocumentAllocationProjectionValidator),
+  capabilities: costDocumentDraftCapabilitiesValidator,
+  category: costDocumentCategoryValidator,
+  completedAt: v.optional(v.number()),
+  creator: v.object({ workosUserId: v.string() }),
+  currency: v.literal("CAD"),
+  description: v.optional(v.string()),
+  documentDate: v.optional(v.string()),
+  financialComponents: v.array(
+    costDocumentFinancialComponentProjectionValidator
+  ),
+  grossTotalCents: v.optional(v.number()),
+  kind: costDocumentKindValidator,
+  lifecycle: v.union(
+    v.literal("draft"),
+    v.literal("complete"),
+    v.literal("submitted")
+  ),
+  pages: v.array(costDocumentDraftPageProjectionValidator),
+  revision: v.number(),
+  self: v.object({ workosUserId: v.string() }),
   title: v.optional(v.string()),
   vendorName: v.optional(v.string()),
   workingStateJson: v.optional(v.string()),
@@ -177,6 +232,7 @@ const costDocumentBatchProjectionValidator = v.object({
   _id: v.id("costDocumentBatches"),
   drafts: v.array(costDocumentDraftProjectionValidator),
   idempotencyKey: v.optional(v.string()),
+  revision: v.number(),
   state: v.union(
     v.literal("active"),
     v.literal("submitted"),
@@ -211,130 +267,14 @@ export const submitCostDocument = authenticatedMutation
     vendorName: v.string(),
   })
   .returns(v.id("costDocuments"))
-  .handler(async (ctx, args) => {
-    const authorization = await authorizeCostDocumentBuilder(ctx, args);
-    const now = Date.now();
-    const title = requiredText(args.title, "Title", 240);
-    const vendorName = requiredText(args.vendorName, "Vendor", 240);
-    const description = optionalText(args.description, "Description", 4000);
-    const documentDate = requiredDocumentDate(args.documentDate);
-    const grossTotalCents = positiveCents(
-      args.grossTotalCents,
-      "Gross Document Total"
+  .handler(() => {
+    // Direct immutable insertion cannot prove batch ownership, exact-Draft
+    // collaboration, or optimistic concurrency. Retain the legacy symbol only
+    // to fail closed for stale clients while every supported submission flows
+    // through submitCostDocumentBatch.
+    throw new Error(
+      "Direct Cost Document submission is unavailable. Create or resume a Cost Document batch."
     );
-    const pages = await requireAvailableSourcePages(ctx, authorization, {
-      now,
-      pageAssetIds: args.pageAssetIds,
-    });
-    const allocations = await requireExactAllocations(ctx, authorization, {
-      allocations: args.allocations,
-      grossTotalCents,
-    });
-    const uploaderEmail = authorization.viewer.email?.trim().toLowerCase();
-    if (!uploaderEmail) {
-      throw new Error("A verified uploader email is required for the receipt.");
-    }
-
-    const costDocumentId = await ctx.db.insert("costDocuments", {
-      brokerageId: authorization.brokerage._id,
-      buildId: authorization.build._id,
-      category: args.category,
-      createdAt: now,
-      currency: "CAD",
-      description,
-      documentDate,
-      grossTotalCents,
-      kind: args.kind,
-      organizationId: authorization.organizationId,
-      state: "submitted",
-      submittedAt: now,
-      title,
-      uploaderEmailSnapshot: uploaderEmail,
-      uploaderWorkosUserId: authorization.viewer.subject,
-      vendorName,
-    });
-
-    for (const [index, asset] of pages.entries()) {
-      await ctx.db.insert("costDocumentPages", {
-        assetId: asset._id,
-        brokerageId: authorization.brokerage._id,
-        buildId: authorization.build._id,
-        contentHashSha256Snapshot: requiredAssetHash(asset),
-        costDocumentId,
-        createdAt: now,
-        fileNameSnapshot: asset.fileName,
-        mimeTypeSnapshot: asset.mimeType,
-        order: index + 1,
-        organizationId: authorization.organizationId,
-      });
-      await ctx.db.patch(asset._id, {
-        publishedAt: asset.publishedAt ?? now,
-      });
-    }
-    for (const [index, allocation] of allocations.entries()) {
-      await ctx.db.insert("costDocumentAllocations", {
-        amountCents: allocation.amountCents,
-        brokerageId: authorization.brokerage._id,
-        buildId: authorization.build._id,
-        buildSubmilestoneId: allocation.submilestone._id,
-        costDocumentId,
-        createdAt: now,
-        order: index + 1,
-        organizationId: authorization.organizationId,
-        submilestoneKeySnapshot: allocation.submilestone.key,
-        submilestoneNameSnapshot: allocation.submilestone.name,
-      });
-    }
-
-    await ctx.db.insert("auditEvents", {
-      actorRoles: authorization.viewer.roles,
-      actorWorkosUserId: authorization.viewer.subject,
-      brokerageId: authorization.brokerage._id,
-      command: "submitCostDocument",
-      createdAt: now,
-      entityId: String(costDocumentId),
-      entityType: "costDocument",
-      eventType: "cost_document.submitted",
-      newState: JSON.stringify({
-        allocationCount: allocations.length,
-        category: args.category,
-        currency: "CAD",
-        grossTotalCents,
-        kind: args.kind,
-        pageCount: pages.length,
-        state: "submitted",
-      }),
-      organizationId: authorization.organizationId,
-      warnings: [],
-    });
-    await ctx.db.insert("eventOutbox", {
-      brokerageId: authorization.brokerage._id,
-      createdAt: now,
-      eventType: "cost_document.submitted",
-      organizationId: authorization.organizationId,
-      payloadPreview: JSON.stringify({
-        buildId: authorization.build._id,
-        grossTotalCents,
-        state: "submitted",
-      }),
-      relatedEntityId: String(costDocumentId),
-      relatedEntityType: "costDocument",
-      status: "pending",
-    });
-    await enqueueTransactionalEmail(ctx, {
-      brokerageId: authorization.brokerage._id,
-      idempotencyKey: `cost-document:${costDocumentId}:submitted-receipt`,
-      organizationId: authorization.organizationId,
-      recipientEmail: uploaderEmail,
-      relatedEntityId: String(costDocumentId),
-      relatedEntityType: "costDocument",
-      subject: `Cost Document submitted: ${title}`,
-      text: [
-        `${args.kind === "invoice" ? "Invoice" : "Receipt"} “${title}” was submitted for ${formatCad(grossTotalCents)} CAD.`,
-        SUPPORTING_CONTEXT_DISCLOSURE,
-      ].join("\n\n"),
-    });
-    return costDocumentId;
   })
   .public();
 
@@ -345,9 +285,17 @@ export const getCostDocument = authenticatedQuery
   })
   .returns(v.union(costDocumentProjectionValidator, v.null()))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "submitted.read",
+    });
     const document = await ctx.db.get(args.costDocumentId);
-    if (!isDocumentInScope(document, authorization)) {
+    if (
+      !(
+        isCostDocumentInScopeForAuthorization(document, authorization) &&
+        canReadSubmittedCostDocument(authorization, document)
+      )
+    ) {
       return null;
     }
     return await projectCostDocument(ctx, document);
@@ -361,11 +309,23 @@ export const listCostDocuments = authenticatedQuery
   })
   .returns(paginationResultValidator(costDocumentSummaryValidator))
   .handler(async (ctx, args) => {
-    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "submitted.list",
+    });
+    const contractorOnly = authorization.effectiveRole.role === "contractor";
     const page = await ctx.db
       .query("costDocuments")
-      .withIndex("by_buildId_and_submittedAt", (query) =>
-        query.eq("buildId", authorization.build._id)
+      .withIndex(
+        contractorOnly
+          ? "by_buildId_and_uploaderWorkosUserId_and_submittedAt"
+          : "by_buildId_and_submittedAt",
+        (query) =>
+          contractorOnly
+            ? query
+                .eq("buildId", authorization.build._id)
+                .eq("uploaderWorkosUserId", authorization.viewer.subject)
+            : query.eq("buildId", authorization.build._id)
       )
       .order("desc")
       .paginate({
@@ -373,7 +333,7 @@ export const listCostDocuments = authenticatedQuery
         numItems: Math.min(50, Math.max(1, args.paginationOpts.numItems)),
       });
     const inScope = page.page.filter((document) =>
-      isDocumentInScope(document, authorization)
+      canReadSubmittedCostDocument(authorization, document)
     );
     return {
       ...page,
@@ -442,6 +402,244 @@ export const getCostDocumentBatch = authenticatedQuery
   })
   .public();
 
+/**
+ * Exact-Draft seam for an explicitly granted Builder collaborator. It is
+ * deliberately not a batch projection: a grant never discloses sibling
+ * drafts, batch state, batch order, or transport metadata.
+ */
+export const getCostDocumentDraft = authenticatedQuery
+  .input({
+    ...activeBuildScopeFields,
+    // Route/deep-link input is untrusted. Normalize it in the handler so an
+    // expired grant or malformed ID resolves to the intentional unavailable
+    // state instead of leaking through a validator/error boundary.
+    draftId: v.string(),
+  })
+  .returns(v.union(collaborativeCostDocumentDraftProjectionValidator, v.null()))
+  .handler(async (ctx, args) => {
+    const draftId = ctx.db.normalizeId("costDocumentDrafts", args.draftId);
+    if (!draftId) {
+      return null;
+    }
+    try {
+      const requestedAuthorization = await authorizeCostDocumentIntent(ctx, {
+        buildId: args.buildId,
+        intent: "draft.read",
+        organizationId: args.organizationId,
+      });
+      const access = await requireCostDocumentDraftAccess(ctx, {
+        draftId,
+        intent: "draft.read",
+      });
+      if (
+        access.authorization.build._id !== requestedAuthorization.build._id ||
+        access.authorization.organizationId !==
+          requestedAuthorization.organizationId
+      ) {
+        return null;
+      }
+      const projected = await projectCostDocumentDraft(
+        ctx,
+        access.draft,
+        access.authorization
+      );
+      return {
+        _id: projected._id,
+        activeStep: projected.activeStep,
+        allocations: projected.allocations,
+        capabilities: costDocumentDraftCapabilities(access),
+        category: projected.category,
+        completedAt: projected.completedAt,
+        creator: { workosUserId: access.draft.ownerWorkosUserId },
+        currency: projected.currency,
+        description: projected.description,
+        documentDate: projected.documentDate,
+        financialComponents: projected.financialComponents,
+        grossTotalCents: projected.grossTotalCents,
+        kind: projected.kind,
+        lifecycle: projected.lifecycle,
+        pages: projected.pages,
+        revision: currentCostDocumentDraftRevision(access.draft),
+        self: { workosUserId: access.authorization.viewer.subject },
+        title: projected.title,
+        vendorName: projected.vendorName,
+        workingStateJson: projected.workingStateJson,
+      };
+    } catch {
+      return null;
+    }
+  })
+  .public();
+
+export const grantCostDocumentDraftCollaborator = authenticatedMutation
+  .input({
+    collaboratorWorkosUserId: v.string(),
+    draftId: v.id("costDocumentDrafts"),
+    expectedRevision: v.number(),
+    reason: v.optional(v.string()),
+  })
+  .returns(
+    v.object({
+      draftId: v.id("costDocumentDrafts"),
+      revision: v.number(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const access = await requireCostDocumentDraftAccess(ctx, {
+      draftId: args.draftId,
+      intent: "draft.edit",
+    });
+    if (
+      access.mode !== "creator" ||
+      access.batch.state !== "active" ||
+      access.draft.lifecycle !== "draft" ||
+      !isBuilderCostDocumentCreator(access.authorization)
+    ) {
+      throw new Error("The Cost Document draft is unavailable.");
+    }
+    assertExpectedCostDocumentDraftRevision(
+      access.draft,
+      args.expectedRevision
+    );
+    const collaboratorWorkosUserId = args.collaboratorWorkosUserId.trim();
+    if (!collaboratorWorkosUserId) {
+      throw new Error("The Cost Document collaborator is unavailable.");
+    }
+    await requireEligibleCostDocumentDraftCollaborator(ctx, {
+      authorization: access.authorization,
+      collaboratorWorkosUserId,
+      creatorWorkosUserId: access.draft.ownerWorkosUserId,
+    });
+    if (
+      await hasCurrentDraftCollaborationGrant(ctx, {
+        draft: access.draft,
+        workosUserId: collaboratorWorkosUserId,
+      })
+    ) {
+      throw new Error("The Cost Document collaborator already has access.");
+    }
+    const now = Date.now();
+    const revision = currentCostDocumentDraftRevision(access.draft) + 1;
+    await ctx.db.insert("costDocumentDraftCollaborationEvents", {
+      actorRole: access.authorization.effectiveRole.role,
+      actorWorkosUserId: access.authorization.viewer.subject,
+      batchId: access.batch._id,
+      brokerageId: access.authorization.brokerage._id,
+      buildId: access.authorization.build._id,
+      collaboratorWorkosUserId,
+      createdAt: now,
+      creatorWorkosUserId: access.draft.ownerWorkosUserId,
+      draftId: access.draft._id,
+      draftRevision: revision,
+      eventType: "granted",
+      organizationId: access.authorization.organizationId,
+      reason: optionalText(args.reason, "Collaboration reason", 500),
+    });
+    await ctx.db.patch(access.draft._id, { revision, updatedAt: now });
+    await ctx.db.patch(access.batch._id, {
+      revision: currentCostDocumentBatchRevision(access.batch) + 1,
+      updatedAt: now,
+    });
+    await recordCostDocumentDraftAudit(
+      ctx,
+      access.authorization,
+      access.draft,
+      {
+        command: "grantCostDocumentDraftCollaborator",
+        eventType: "cost_document.draft_collaborator_granted",
+        newState: JSON.stringify({ collaboratorWorkosUserId, revision }),
+        now,
+        priorState: JSON.stringify({
+          revision: currentCostDocumentDraftRevision(access.draft),
+        }),
+      }
+    );
+    return { draftId: access.draft._id, revision };
+  })
+  .public();
+
+export const revokeCostDocumentDraftCollaborator = authenticatedMutation
+  .input({
+    collaboratorWorkosUserId: v.string(),
+    draftId: v.id("costDocumentDrafts"),
+    expectedRevision: v.number(),
+    reason: v.optional(v.string()),
+  })
+  .returns(
+    v.object({
+      draftId: v.id("costDocumentDrafts"),
+      revision: v.number(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const access = await requireCostDocumentDraftAccess(ctx, {
+      draftId: args.draftId,
+      intent: "draft.edit",
+    });
+    if (
+      access.mode !== "creator" ||
+      access.batch.state !== "active" ||
+      access.draft.lifecycle !== "draft" ||
+      !isBuilderCostDocumentCreator(access.authorization)
+    ) {
+      throw new Error("The Cost Document draft is unavailable.");
+    }
+    assertExpectedCostDocumentDraftRevision(
+      access.draft,
+      args.expectedRevision
+    );
+    const collaboratorWorkosUserId = args.collaboratorWorkosUserId.trim();
+    if (
+      !(
+        collaboratorWorkosUserId &&
+        (await hasCurrentDraftCollaborationGrant(ctx, {
+          draft: access.draft,
+          workosUserId: collaboratorWorkosUserId,
+        }))
+      )
+    ) {
+      throw new Error("The Cost Document collaborator is unavailable.");
+    }
+    const now = Date.now();
+    const revision = currentCostDocumentDraftRevision(access.draft) + 1;
+    await ctx.db.insert("costDocumentDraftCollaborationEvents", {
+      actorRole: access.authorization.effectiveRole.role,
+      actorWorkosUserId: access.authorization.viewer.subject,
+      batchId: access.batch._id,
+      brokerageId: access.authorization.brokerage._id,
+      buildId: access.authorization.build._id,
+      collaboratorWorkosUserId,
+      createdAt: now,
+      creatorWorkosUserId: access.draft.ownerWorkosUserId,
+      draftId: access.draft._id,
+      draftRevision: revision,
+      eventType: "revoked",
+      organizationId: access.authorization.organizationId,
+      reason: optionalText(args.reason, "Collaboration reason", 500),
+    });
+    await ctx.db.patch(access.draft._id, { revision, updatedAt: now });
+    await ctx.db.patch(access.batch._id, {
+      revision: currentCostDocumentBatchRevision(access.batch) + 1,
+      updatedAt: now,
+    });
+    await recordCostDocumentDraftAudit(
+      ctx,
+      access.authorization,
+      access.draft,
+      {
+        command: "revokeCostDocumentDraftCollaborator",
+        eventType: "cost_document.draft_collaborator_revoked",
+        newState: JSON.stringify({ collaboratorWorkosUserId, revision }),
+        now,
+        priorState: JSON.stringify({
+          revision: currentCostDocumentDraftRevision(access.draft),
+        }),
+      }
+    );
+    return { draftId: access.draft._id, revision };
+  })
+  .public();
+
 export const createCostDocumentBatch = authenticatedMutation
   .input({
     ...activeBuildScopeFields,
@@ -487,6 +685,7 @@ export const createCostDocumentBatch = authenticatedMutation
       createdAt: now,
       organizationId: authorization.organizationId,
       ownerWorkosUserId: authorization.viewer.subject,
+      revision: 1,
       state: "active",
       updatedAt: now,
     });
@@ -511,7 +710,8 @@ export const addCostDocumentDraft = authenticatedMutation
   .handler(async (ctx, args) => {
     const { authorization, batch } = await requireCostDocumentBatchOwner(
       ctx,
-      args.batchId
+      args.batchId,
+      "create"
     );
     if (batch.state !== "active") {
       throw new Error("The Cost Document batch is no longer editable.");
@@ -542,9 +742,13 @@ export const addCostDocumentDraft = authenticatedMutation
       order: (existing?.order ?? 0) + 1,
       organizationId: authorization.organizationId,
       ownerWorkosUserId: authorization.viewer.subject,
+      revision: 1,
       updatedAt: now,
     });
-    await ctx.db.patch(batch._id, { updatedAt: now });
+    await ctx.db.patch(batch._id, {
+      revision: currentCostDocumentBatchRevision(batch) + 1,
+      updatedAt: now,
+    });
     await recordCostDocumentBatchAudit(ctx, authorization, {
       batchId: batch._id,
       command: "addCostDocumentDraft",
@@ -556,12 +760,63 @@ export const addCostDocumentDraft = authenticatedMutation
   })
   .public();
 
+/**
+ * Discards the creator-owned batch without deleting its durable audit trail or
+ * source-page history. Draft access ends immediately because every exact
+ * authorizer requires an active batch; scheduled staging cleanup remains
+ * responsible for any unbound private storage.
+ */
+export const abandonCostDocumentBatch = authenticatedMutation
+  .input({
+    batchId: v.id("costDocumentBatches"),
+    expectedRevision: v.number(),
+    reason: v.optional(v.string()),
+  })
+  .returns(v.object({ revision: v.number() }))
+  .handler(async (ctx, args) => {
+    const { authorization, batch } = await requireCostDocumentBatchOwner(
+      ctx,
+      args.batchId,
+      "batch.submit"
+    );
+    if (batch.state !== "active") {
+      throw new Error("The Cost Document batch is no longer editable.");
+    }
+    assertExpectedCostDocumentBatchRevision(batch, args.expectedRevision);
+    const drafts = await listBatchDrafts(ctx, batch._id);
+    for (const draft of drafts) {
+      assertDraftOwnershipScope(draft, batch, authorization);
+    }
+    const now = Date.now();
+    const revision = currentCostDocumentBatchRevision(batch) + 1;
+    const reason = optionalText(args.reason, "Discard reason", 500);
+    await ctx.db.patch(batch._id, {
+      revision,
+      state: "abandoned",
+      updatedAt: now,
+    });
+    await recordCostDocumentBatchAudit(ctx, authorization, {
+      batchId: batch._id,
+      command: "abandonCostDocumentBatch",
+      eventType: "cost_document.batch_abandoned",
+      newState: JSON.stringify({ reason, revision, state: "abandoned" }),
+      now,
+      priorState: JSON.stringify({
+        revision: currentCostDocumentBatchRevision(batch),
+        state: batch.state,
+      }),
+    });
+    return { revision };
+  })
+  .public();
+
 export const saveCostDocumentDraft = authenticatedMutation
   .input({
     category: v.optional(costDocumentCategoryValidator),
     description: v.optional(v.string()),
     documentDate: v.optional(v.string()),
     draftId: v.id("costDocumentDrafts"),
+    expectedRevision: v.number(),
     financialComponents: v.optional(
       v.array(costDocumentFinancialComponentInputValidator)
     ),
@@ -580,16 +835,19 @@ export const saveCostDocumentDraft = authenticatedMutation
     vendorName: v.optional(v.string()),
     workingStateJson: v.optional(v.string()),
   })
-  .returns(v.null())
+  .returns(v.object({ revision: v.number() }))
   .handler(async (ctx, args) => {
-    const { authorization, batch, draft } = await requireCostDocumentDraftOwner(
-      ctx,
-      args.draftId
-    );
+    const { authorization, batch, draft } =
+      await requireCostDocumentDraftAccess(ctx, {
+        draftId: args.draftId,
+        intent: "draft.edit",
+      });
     if (batch.state !== "active" || draft.lifecycle !== "draft") {
       throw new Error("The Cost Document draft is no longer editable.");
     }
+    assertExpectedCostDocumentDraftRevision(draft, args.expectedRevision);
     const now = Date.now();
+    const revision = currentCostDocumentDraftRevision(draft) + 1;
     const updates: {
       category?: "labour" | "materials";
       description?: string;
@@ -599,8 +857,9 @@ export const saveCostDocumentDraft = authenticatedMutation
       title?: string;
       vendorName?: string;
       workingStateJson?: string;
+      revision: number;
       updatedAt: number;
-    } = { updatedAt: now };
+    } = { revision, updatedAt: now };
     if (args.category !== undefined) {
       updates.category = args.category;
     }
@@ -672,8 +931,20 @@ export const saveCostDocumentDraft = authenticatedMutation
       );
     }
     await ctx.db.patch(draft._id, updates);
-    await ctx.db.patch(batch._id, { updatedAt: now });
-    return null;
+    await ctx.db.patch(batch._id, {
+      revision: currentCostDocumentBatchRevision(batch) + 1,
+      updatedAt: now,
+    });
+    await recordCostDocumentDraftAudit(ctx, authorization, draft, {
+      command: "saveCostDocumentDraft",
+      eventType: "cost_document.draft_edited",
+      newState: JSON.stringify({ revision }),
+      now,
+      priorState: JSON.stringify({
+        revision: currentCostDocumentDraftRevision(draft),
+      }),
+    });
+    return { revision };
   })
   .public();
 
@@ -681,7 +952,7 @@ export const saveCostDocumentDraft = authenticatedMutation
  * Makes one successfully scanned Cost Document source page durable immediately
  * after upload. This closes the interruption window between generic governed
  * upload finalization and the next draft-form save: the active draft page row
- * survives staging-session expiry and keeps the owner-only asset readable.
+ * survives staging-session expiry and keeps the exact-Draft asset readable.
  *
  * The mutation is idempotent so an interrupted client can retry safely.
  */
@@ -689,20 +960,24 @@ export const bindCostDocumentDraftPageAsset = authenticatedMutation
   .input({
     assetId: v.id("buildCollaborationAssets"),
     draftId: v.id("costDocumentDrafts"),
+    expectedRevision: v.number(),
     replaceAssetId: v.optional(v.id("buildCollaborationAssets")),
   })
-  .returns(v.object({ order: v.number() }))
+  .returns(v.object({ order: v.number(), revision: v.number() }))
   .handler(async (ctx, args) => {
-    const { authorization, batch, draft } = await requireCostDocumentDraftOwner(
-      ctx,
-      args.draftId
-    );
+    const { authorization, batch, draft } =
+      await requireCostDocumentDraftAccess(ctx, {
+        draftId: args.draftId,
+        intent: "draft.edit",
+      });
     if (batch.state !== "active") {
       throw new Error("The Cost Document batch is no longer editable.");
     }
     assertDraftPageMutationAllowed(draft);
+    assertExpectedCostDocumentDraftRevision(draft, args.expectedRevision);
 
     const now = Date.now();
+    const revision = currentCostDocumentDraftRevision(draft) + 1;
     const activePages = await currentDraftPages(ctx, draft);
     for (const page of activePages) {
       assertDraftPageScope(page, draft, authorization);
@@ -717,6 +992,7 @@ export const bindCostDocumentDraftPageAsset = authenticatedMutation
         draft,
         existing,
         now,
+        revision,
         replaceAssetId: args.replaceAssetId,
       });
     }
@@ -739,7 +1015,10 @@ export const bindCostDocumentDraftPageAsset = authenticatedMutation
       // finalized session. Retrying must converge that exact durable binding
       // to consumed so expiry cannot subsequently delete its storage.
       await consumeDraftPageSessions(ctx, [asset], now);
-      return { order: existing.order };
+      return {
+        order: existing.order,
+        revision: currentCostDocumentDraftRevision(draft),
+      };
     }
     if (activePages.length >= MAX_PAGES) {
       throw new Error(`A Cost Document requires at most ${MAX_PAGES} pages.`);
@@ -768,15 +1047,21 @@ export const bindCostDocumentDraftPageAsset = authenticatedMutation
       state: "active",
     });
     await consumeDraftPageSessions(ctx, [asset], now);
-    await ctx.db.patch(draft._id, { updatedAt: now });
-    await ctx.db.patch(batch._id, { updatedAt: now });
+    await ctx.db.patch(draft._id, { revision, updatedAt: now });
+    await ctx.db.patch(batch._id, {
+      revision: currentCostDocumentBatchRevision(batch) + 1,
+      updatedAt: now,
+    });
     await recordCostDocumentDraftAudit(ctx, authorization, draft, {
       command: "bindCostDocumentDraftPageAsset",
       eventType: "cost_document.draft_page_bound",
-      newState: JSON.stringify({ assetId: asset._id, order }),
+      newState: JSON.stringify({ assetId: asset._id, order, revision }),
       now,
+      priorState: JSON.stringify({
+        revision: currentCostDocumentDraftRevision(draft),
+      }),
     });
-    return { order };
+    return { order, revision };
   })
   .public();
 
@@ -795,6 +1080,7 @@ async function replaceCostDocumentDraftPageAsset(
     draft: Doc<"costDocumentDrafts">;
     existing?: Doc<"costDocumentDraftPages">;
     now: number;
+    revision: number;
     replaceAssetId: Id<"buildCollaborationAssets">;
   }
 ) {
@@ -814,7 +1100,10 @@ async function replaceCostDocumentDraftPageAsset(
     // page binding without adding a 51st row at the page cap.
     const asset = await requireOneAvailableDraftSourcePage(ctx, input);
     await consumeDraftPageSessions(ctx, [asset], input.now);
-    return { order: input.existing.order };
+    return {
+      order: input.existing.order,
+      revision: currentCostDocumentDraftRevision(input.draft),
+    };
   }
   if (!replacedPage) {
     throw new Error("The original Cost Document source page is unavailable.");
@@ -840,13 +1129,20 @@ async function replaceCostDocumentDraftPageAsset(
   await retireReplacedDraftAssets(
     ctx,
     input.authorization,
+    input.draft,
     [replacedPage],
     [asset],
     input.now
   );
   await consumeDraftPageSessions(ctx, [asset], input.now);
-  await ctx.db.patch(input.draft._id, { updatedAt: input.now });
-  await ctx.db.patch(input.batch._id, { updatedAt: input.now });
+  await ctx.db.patch(input.draft._id, {
+    revision: input.revision,
+    updatedAt: input.now,
+  });
+  await ctx.db.patch(input.batch._id, {
+    revision: currentCostDocumentBatchRevision(input.batch) + 1,
+    updatedAt: input.now,
+  });
   await recordCostDocumentDraftAudit(ctx, input.authorization, input.draft, {
     command: "replaceCostDocumentDraftPageAsset",
     eventType: "cost_document.draft_page_replaced",
@@ -854,14 +1150,16 @@ async function replaceCostDocumentDraftPageAsset(
       assetId: asset._id,
       order: replacedPage.order,
       priorAssetId: replacedPage.assetId,
+      revision: input.revision,
     }),
     now: input.now,
     priorState: JSON.stringify({
       assetId: replacedPage.assetId,
       order: replacedPage.order,
+      revision: currentCostDocumentDraftRevision(input.draft),
     }),
   });
-  return { order: replacedPage.order };
+  return { order: replacedPage.order, revision: input.revision };
 }
 
 async function requireOneAvailableDraftSourcePage(
@@ -890,17 +1188,20 @@ export const setCostDocumentDraftStep = authenticatedMutation
   .input({
     complete: v.optional(v.boolean()),
     draftId: v.id("costDocumentDrafts"),
+    expectedRevision: v.number(),
     step: costDocumentDraftStepValidator,
   })
-  .returns(v.null())
+  .returns(v.object({ revision: v.number() }))
   .handler(async (ctx, args) => {
-    const { authorization, batch, draft } = await requireCostDocumentDraftOwner(
-      ctx,
-      args.draftId
-    );
+    const { authorization, batch, draft } =
+      await requireCostDocumentDraftAccess(ctx, {
+        draftId: args.draftId,
+        intent: "draft.edit",
+      });
     if (batch.state !== "active" || draft.lifecycle === "submitted") {
       throw new Error("The Cost Document draft is no longer editable.");
     }
+    assertExpectedCostDocumentDraftRevision(draft, args.expectedRevision);
     await validateCostDocumentDraftStepTransition(
       ctx,
       authorization,
@@ -908,16 +1209,21 @@ export const setCostDocumentDraftStep = authenticatedMutation
       args
     );
     const now = Date.now();
+    const revision = currentCostDocumentDraftRevision(draft) + 1;
     const nextLifecycle = args.complete ? "complete" : "draft";
     const nextCompletedAt = args.complete ? now : undefined;
     await ctx.db.patch(draft._id, {
       activeStep: args.step,
       completedAt: nextCompletedAt,
       lifecycle: nextLifecycle,
+      revision,
       updatedAt: now,
       workingStateJson: args.complete ? undefined : draft.workingStateJson,
     });
-    await ctx.db.patch(batch._id, { updatedAt: now });
+    await ctx.db.patch(batch._id, {
+      revision: currentCostDocumentBatchRevision(batch) + 1,
+      updatedAt: now,
+    });
     await recordCostDocumentDraftAudit(ctx, authorization, draft, {
       command: "setCostDocumentDraftStep",
       eventType: args.complete
@@ -925,23 +1231,28 @@ export const setCostDocumentDraftStep = authenticatedMutation
         : draft.lifecycle === "complete"
           ? "cost_document.draft_reopened"
           : "cost_document.draft_step_changed",
-      priorState: JSON.stringify(costDocumentDraftLifecycleState(draft)),
-      newState: JSON.stringify(
-        costDocumentDraftLifecycleState({
+      priorState: JSON.stringify({
+        ...costDocumentDraftLifecycleState(draft),
+        revision: currentCostDocumentDraftRevision(draft),
+      }),
+      newState: JSON.stringify({
+        ...costDocumentDraftLifecycleState({
           activeStep: args.step,
           completedAt: nextCompletedAt,
           lifecycle: nextLifecycle,
-        })
-      ),
+        }),
+        revision,
+      }),
       now,
     });
-    return null;
+    return { revision };
   })
   .public();
 
 export const submitCostDocumentBatch = authenticatedMutation
   .input({
     batchId: v.id("costDocumentBatches"),
+    expectedRevision: v.number(),
     idempotencyKey: v.string(),
   })
   .returns(
@@ -949,12 +1260,14 @@ export const submitCostDocumentBatch = authenticatedMutation
       batchId: v.id("costDocumentBatches"),
       costDocumentIds: v.array(v.id("costDocuments")),
       replayed: v.boolean(),
+      revision: v.number(),
     })
   )
   .handler(async (ctx, args) => {
     const { authorization, batch } = await requireCostDocumentBatchOwner(
       ctx,
-      args.batchId
+      args.batchId,
+      "batch.submit"
     );
     const idempotencyKey = requiredIdempotencyKey(args.idempotencyKey);
     if (batch.state === "submitted") {
@@ -975,11 +1288,13 @@ export const submitCostDocumentBatch = authenticatedMutation
         batchId: batch._id,
         costDocumentIds,
         replayed: true,
+        revision: currentCostDocumentBatchRevision(batch),
       };
     }
     if (batch.state !== "active") {
       throw new Error("The Cost Document batch is no longer editable.");
     }
+    assertExpectedCostDocumentBatchRevision(batch, args.expectedRevision);
     if (
       batch.submitIdempotencyKey &&
       batch.submitIdempotencyKey !== idempotencyKey
@@ -1035,6 +1350,7 @@ export const submitCostDocumentBatch = authenticatedMutation
       );
     }
     const now = Date.now();
+    const revision = currentCostDocumentBatchRevision(batch) + 1;
     const costDocumentIds: Id<"costDocuments">[] = [];
     for (const document of prepared) {
       const costDocumentId = await insertSubmittedCostDocument(
@@ -1051,12 +1367,14 @@ export const submitCostDocumentBatch = authenticatedMutation
       costDocumentIds.push(costDocumentId);
       await ctx.db.patch(document.draft._id, {
         lifecycle: "submitted",
+        revision: currentCostDocumentDraftRevision(document.draft) + 1,
         submittedCostDocumentId: costDocumentId,
         updatedAt: now,
         workingStateJson: undefined,
       });
     }
     await ctx.db.patch(batch._id, {
+      revision,
       state: "submitted",
       submitIdempotencyKey: idempotencyKey,
       submittedAt: now,
@@ -1068,11 +1386,16 @@ export const submitCostDocumentBatch = authenticatedMutation
       eventType: "cost_document.batch_submitted",
       newState: JSON.stringify({
         costDocumentIds,
+        revision,
         state: "submitted",
       }),
       now,
+      priorState: JSON.stringify({
+        revision: currentCostDocumentBatchRevision(batch),
+        state: batch.state,
+      }),
     });
-    return { batchId: batch._id, costDocumentIds, replayed: false };
+    return { batchId: batch._id, costDocumentIds, replayed: false, revision };
   })
   .public();
 
@@ -1091,19 +1414,32 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
     })
   )
   .handler(async (ctx, args) => {
-    const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "submitted.read",
+    });
     const document = await ctx.db.get(args.costDocumentId);
-    if (!isDocumentInScope(document, authorization)) {
+    if (
+      !(
+        isCostDocumentInScopeForAuthorization(document, authorization) &&
+        canReadSubmittedCostDocument(authorization, document)
+      )
+    ) {
       throw new Error("The Cost Document is unavailable.");
     }
     const page = await ctx.db
       .query("costDocumentPages")
-      .withIndex("by_buildId_and_assetId", (query) =>
-        query.eq("buildId", authorization.build._id).eq("assetId", args.assetId)
+      .withIndex("by_costDocumentId_and_assetId", (query) =>
+        query.eq("costDocumentId", document._id).eq("assetId", args.assetId)
       )
-      .filter((query) => query.eq(query.field("costDocumentId"), document._id))
       .unique();
-    if (!page) {
+    if (
+      !page ||
+      page.costDocumentId !== document._id ||
+      page.organizationId !== authorization.organizationId ||
+      page.brokerageId !== authorization.brokerage._id ||
+      page.buildId !== authorization.build._id
+    ) {
       throw new Error("The Cost Document page is unavailable.");
     }
     const asset = await ctx.db.get(page.assetId);
@@ -1111,6 +1447,7 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
       !asset ||
       asset.organizationId !== authorization.organizationId ||
       asset.brokerageId !== authorization.brokerage._id ||
+      asset.buildId !== authorization.build._id ||
       !isCleanCollaborationAsset(asset)
     ) {
       throw new Error("The Cost Document page is unavailable.");
@@ -1148,47 +1485,22 @@ async function authorizeCostDocumentBuilder(
   ctx: AuthorizedCostDocumentCtx,
   input: { buildId: Id<"activeBuilds">; organizationId: string }
 ) {
-  const authorization = await authorizeActiveBuildAccess(ctx, input);
-  if (
-    authorization.viewer.actorKind !== "human" ||
-    (authorization.effectiveRole.role !== "builder" &&
-      authorization.effectiveRole.role !== "builder-staff")
-  ) {
-    throw new Error("Forbidden: Cost Document Builder access");
-  }
-  return authorization;
+  return await authorizeCostDocumentIntent(ctx, { ...input, intent: "create" });
+}
+
+function isBuilderCostDocumentCreator(authorization: ActiveBuildAuthorization) {
+  return (
+    authorization.effectiveRole.role === "builder" ||
+    authorization.effectiveRole.role === "builder-staff"
+  );
 }
 
 async function requireCostDocumentBatchOwner(
   ctx: AuthorizedCostDocumentCtx,
-  batchId: Id<"costDocumentBatches">
+  batchId: Id<"costDocumentBatches">,
+  intent: "create" | "draft.read" | "batch.submit" = "draft.read"
 ) {
-  const batch = await ctx.db.get(batchId);
-  if (!batch) {
-    throw new Error("The Cost Document batch is unavailable.");
-  }
-  const authorization = await authorizeCostDocumentBuilder(ctx, {
-    buildId: batch.buildId,
-    organizationId: batch.organizationId,
-  });
-  assertBatchOwnership(batch, authorization);
-  return { authorization, batch };
-}
-
-async function requireCostDocumentDraftOwner(
-  ctx: AuthorizedCostDocumentCtx,
-  draftId: Id<"costDocumentDrafts">
-) {
-  const draft = await ctx.db.get(draftId);
-  if (!draft) {
-    throw new Error("The Cost Document draft is unavailable.");
-  }
-  const { authorization, batch } = await requireCostDocumentBatchOwner(
-    ctx,
-    draft.batchId
-  );
-  assertDraftOwnershipScope(draft, batch, authorization);
-  return { authorization, batch, draft };
+  return await requireCostDocumentBatchCreator(ctx, { batchId, intent });
 }
 
 async function validateCostDocumentDraftStepTransition(
@@ -1808,15 +2120,52 @@ async function projectCostDocumentBatch(
   for (const draft of drafts) {
     assertDraftOwnershipScope(draft, batch, authorization);
   }
+  // Only the Builder-side creator receives a collaboration management ledger.
+  // A collaborator's exact-Draft projection never traverses this batch path,
+  // and homeowner-owned batches cannot create Builder-side grants.
+  const canProjectCollaboration =
+    batch.state === "active" && isBuilderCostDocumentCreator(authorization);
+  const eligibleCollaborators = canProjectCollaboration
+    ? await listEligibleCostDocumentDraftCollaborators(ctx, authorization)
+    : [];
   return {
     _id: batch._id,
     drafts: await Promise.all(
-      drafts.map(
-        async (draft) =>
-          await projectCostDocumentDraft(ctx, draft, authorization)
-      )
+      drafts.map(async (draft) => {
+        const projected = await projectCostDocumentDraft(
+          ctx,
+          draft,
+          authorization
+        );
+        const access = {
+          authorization,
+          batch,
+          draft,
+          mode: "creator" as const,
+        };
+        const currentCollaborators = canProjectCollaboration
+          ? await listCurrentCostDocumentDraftCollaborators(ctx, {
+              authorization,
+              draft,
+            })
+          : [];
+        return {
+          ...projected,
+          capabilities: costDocumentDraftCapabilities(access),
+          collaboration: {
+            currentCollaborators: currentCollaborators.map(
+              ({ grantedAt, workosUserId }) => ({ grantedAt, workosUserId })
+            ),
+            eligibleCollaborators,
+          },
+          creator: { workosUserId: draft.ownerWorkosUserId },
+          revision: currentCostDocumentDraftRevision(draft),
+          self: { workosUserId: authorization.viewer.subject },
+        };
+      })
     ),
     idempotencyKey: batch.submitIdempotencyKey ?? batch.createIdempotencyKey,
+    revision: currentCostDocumentBatchRevision(batch),
     state: batch.state,
     submittedAt: batch.submittedAt,
     supportingContextDisclosure: SUPPORTING_CONTEXT_DISCLOSURE,
@@ -1940,14 +2289,7 @@ async function requireAvailableDraftSourcePages(
     )
     .collect();
   for (const page of currentBound) {
-    if (
-      page.batchId !== input.draft.batchId ||
-      page.organizationId !== authorization.organizationId ||
-      page.brokerageId !== authorization.brokerage._id ||
-      page.buildId !== authorization.build._id
-    ) {
-      throw new Error("The Cost Document draft page is unavailable.");
-    }
+    assertDraftPageScope(page, input.draft, authorization);
   }
   const boundAssetIds = new Set(currentBound.map((page) => page.assetId));
   const pages: Doc<"buildCollaborationAssets">[] = [];
@@ -1971,6 +2313,15 @@ async function requireAvailableDraftSourcePages(
       sessionBelongsToDraft && session && session.state === "consumed"
     );
     const isAlreadyBound = boundAssetIds.has(assetId);
+    // A page that is already durable in this exact Draft is shared Draft
+    // state, not an uploader-owned staging entitlement. An exact collaborator
+    // may retain, reorder, or remove a consumed creator page. Any page that is
+    // not yet consumed must still be a current actor's freshly finalized
+    // staging upload, which prevents cross-Draft and cross-actor injection.
+    const isExistingConsumedDraftPage = isAlreadyBound && sessionIsConsumed;
+    const isCurrentActorFreshDraftUpload =
+      sessionIsFreshlyFinalized &&
+      session?.ownerWorkosUserId === authorization.viewer.subject;
     if (
       !asset ||
       asset.organizationId !== authorization.organizationId ||
@@ -1983,10 +2334,9 @@ async function requireAvailableDraftSourcePages(
       session.organizationId !== authorization.organizationId ||
       session.brokerageId !== authorization.brokerage._id ||
       session.buildId !== authorization.build._id ||
-      session.ownerWorkosUserId !== authorization.viewer.subject ||
       !(
         sessionBelongsToDraft &&
-        (sessionIsFreshlyFinalized || (isAlreadyBound && sessionIsConsumed))
+        (isExistingConsumedDraftPage || isCurrentActorFreshDraftUpload)
       )
     ) {
       throw new Error(
@@ -2024,7 +2374,14 @@ async function replaceDraftPages(
     currentByOrder,
     now
   );
-  await retireReplacedDraftAssets(ctx, authorization, current, pages, now);
+  await retireReplacedDraftAssets(
+    ctx,
+    authorization,
+    draft,
+    current,
+    pages,
+    now
+  );
   await consumeDraftPageSessions(ctx, pages, now);
 }
 
@@ -2077,6 +2434,7 @@ async function insertDraftPageReplacements(
 async function retireReplacedDraftAssets(
   ctx: MutationCtx,
   authorization: ActiveBuildAuthorization,
+  draft: Doc<"costDocumentDrafts">,
   current: Doc<"costDocumentDraftPages">[],
   pages: Doc<"buildCollaborationAssets">[],
   now: number
@@ -2088,8 +2446,9 @@ async function retireReplacedDraftAssets(
     }
     const references = await ctx.db
       .query("costDocumentDraftPages")
-      .withIndex("by_assetId", (query) => query.eq("assetId", oldPage.assetId))
-      .filter((query) => query.eq(query.field("state"), "active"))
+      .withIndex("by_assetId_and_state", (query) =>
+        query.eq("assetId", oldPage.assetId).eq("state", "active")
+      )
       .take(2);
     if (references.length > 0) {
       continue;
@@ -2101,6 +2460,7 @@ async function retireReplacedDraftAssets(
     if (asset && session && !asset.publishedAt) {
       await abandonUnpublishedCostDocumentDraftAsset(ctx, authorization, {
         asset,
+        draftId: draft._id,
         now,
         reason: "Replaced by another Cost Document source page.",
         session,
@@ -2693,6 +3053,7 @@ async function recordCostDocumentBatchAudit(
     eventType: string;
     newState?: string;
     now: number;
+    priorState?: string;
   }
 ) {
   await ctx.db.insert("auditEvents", {
@@ -2706,6 +3067,7 @@ async function recordCostDocumentBatchAudit(
     eventType: input.eventType,
     newState: input.newState,
     organizationId: authorization.organizationId,
+    priorState: input.priorState,
     warnings: [],
   });
 }
@@ -2751,106 +3113,12 @@ function costDocumentDraftLifecycleState(
   };
 }
 
-async function requireAvailableSourcePages(
-  ctx: MutationCtx,
-  authorization: ActiveBuildAuthorization,
-  input: { now: number; pageAssetIds: Id<"buildCollaborationAssets">[] }
-) {
-  if (
-    input.pageAssetIds.length < 1 ||
-    input.pageAssetIds.length > MAX_PAGES ||
-    new Set(input.pageAssetIds).size !== input.pageAssetIds.length
-  ) {
-    throw new Error(`A Cost Document requires 1-${MAX_PAGES} unique pages.`);
-  }
-  const pages: Doc<"buildCollaborationAssets">[] = [];
-  for (const assetId of input.pageAssetIds) {
-    const asset = await ctx.db.get(assetId);
-    const session = asset?.stagingSessionId
-      ? await ctx.db.get(asset.stagingSessionId)
-      : null;
-    if (
-      !asset ||
-      asset.organizationId !== authorization.organizationId ||
-      asset.brokerageId !== authorization.brokerage._id ||
-      asset.buildId !== authorization.build._id ||
-      !isCleanCollaborationAsset(asset) ||
-      asset.publishedAt ||
-      !session ||
-      session.organizationId !== authorization.organizationId ||
-      session.buildId !== authorization.build._id ||
-      session.ownerWorkosUserId !== authorization.viewer.subject ||
-      session.state !== "finalized" ||
-      session.expiresAt <= input.now
-    ) {
-      throw new Error("Every Cost Document source page must be available.");
-    }
-    pages.push(asset);
-  }
-  return pages;
-}
-
-async function requireExactAllocations(
-  ctx: MutationCtx,
-  authorization: ActiveBuildAuthorization,
-  input: {
-    allocations: {
-      amountCents: number;
-      buildSubmilestoneId: Id<"buildSubmilestones">;
-    }[];
-    grossTotalCents: number;
-  }
-) {
-  if (
-    input.allocations.length < 1 ||
-    input.allocations.length > MAX_ALLOCATIONS ||
-    new Set(
-      input.allocations.map((allocation) => allocation.buildSubmilestoneId)
-    ).size !== input.allocations.length
-  ) {
-    throw new Error(
-      `A Cost Document requires 1-${MAX_ALLOCATIONS} unique Cost Allocations.`
-    );
-  }
-  let allocatedCents = 0;
-  const allocations: {
-    amountCents: number;
-    submilestone: Doc<"buildSubmilestones">;
-  }[] = [];
-  for (const allocation of input.allocations) {
-    const amountCents = positiveCents(
-      allocation.amountCents,
-      "Cost Allocation amount"
-    );
-    allocatedCents += amountCents;
-    if (!Number.isSafeInteger(allocatedCents)) {
-      throw new Error("Cost Allocation total exceeds safe integer cents.");
-    }
-    const submilestone = await ctx.db.get(allocation.buildSubmilestoneId);
-    if (
-      !submilestone ||
-      submilestone.organizationId !== authorization.organizationId ||
-      submilestone.brokerageId !== authorization.brokerage._id ||
-      submilestone.buildId !== authorization.build._id
-    ) {
-      throw new Error("Cost Allocation Sub-milestone is unavailable.");
-    }
-    allocations.push({ amountCents, submilestone });
-  }
-  if (allocatedCents !== input.grossTotalCents) {
-    throw new Error(
-      "Cost Allocations must equal the Gross Document Total exactly."
-    );
-  }
-  return allocations;
-}
-
 async function projectCostDocument(
   ctx: QueryCtx,
   document: Doc<"costDocuments">
 ) {
-  const [pages, allocations, financialComponents, activity, receipts] =
-    await Promise.all([
+  const [pages, allocations, financialComponents, activity] = await Promise.all(
+    [
       ctx.db
         .query("costDocumentPages")
         .withIndex("by_costDocumentId_and_order", (query) =>
@@ -2881,16 +3149,8 @@ async function projectCostDocument(
         )
         .order("desc")
         .take(50),
-      ctx.db
-        .query("emailMessages")
-        .withIndex("by_entity_and_createdAt", (query) =>
-          query
-            .eq("relatedEntityType", "costDocument")
-            .eq("relatedEntityId", String(document._id))
-        )
-        .order("desc")
-        .take(1),
-    ]);
+    ]
+  );
   return {
     _id: document._id,
     activity: activity.map((event) => ({
@@ -2924,32 +3184,12 @@ async function projectCostDocument(
       mimeType: page.mimeTypeSnapshot,
       order: page.order,
     })),
-    receipt: receipts[0]
-      ? {
-          createdAt: receipts[0].createdAt,
-          recipientEmail: receipts[0].recipientEmail,
-          status: receipts[0].status,
-        }
-      : null,
     state: document.state,
     submittedAt: document.submittedAt,
     supportingContextDisclosure: SUPPORTING_CONTEXT_DISCLOSURE,
     title: document.title,
-    uploaderWorkosUserId: document.uploaderWorkosUserId,
     vendorName: document.vendorName,
   };
-}
-
-function isDocumentInScope(
-  document: Doc<"costDocuments"> | null,
-  authorization: ActiveBuildAuthorization
-): document is Doc<"costDocuments"> {
-  return Boolean(
-    document &&
-      document.organizationId === authorization.organizationId &&
-      document.brokerageId === authorization.brokerage._id &&
-      document.buildId === authorization.build._id
-  );
 }
 
 function requiredText(value: string, label: string, maxLength: number) {

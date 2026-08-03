@@ -56,6 +56,7 @@ export function ComboboxChipsInput({
 
 export function ComboboxInput({
   className,
+  inputClassName,
   showTrigger = true,
   showClear = false,
   startAddon,
@@ -66,6 +67,7 @@ export function ComboboxInput({
 }: Omit<ComboboxPrimitive.Input.Props, "size"> & {
   showTrigger?: boolean;
   showClear?: boolean;
+  inputClassName?: string;
   startAddon?: React.ReactNode;
   size?: "sm" | "default" | "lg" | number;
   ref?: React.Ref<HTMLInputElement>;
@@ -101,6 +103,7 @@ export function ComboboxInput({
         render={
           <Input
             className="has-disabled:opacity-100"
+            inputClassName={inputClassName}
             nativeInput
             size={sizeValue}
           />

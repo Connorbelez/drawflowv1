@@ -26,5 +26,19 @@ describe("Builder Staff Build route search", () => {
     expect(validateSearch({ costBatch: 42, tab: "costs" })).toEqual({
       tab: "costs",
     });
+    expect(
+      validateSearch({
+        costBatch: "batch-private",
+        costDocumentDraft: " draft-shared ",
+        tab: "costs",
+      })
+    ).toEqual({ costDocumentDraft: "draft-shared", tab: "costs" });
+    expect(
+      validateSearch({
+        costBatch: " batch-private ",
+        costDocumentDraft: false,
+        tab: "costs",
+      })
+    ).toEqual({ costBatch: "batch-private", tab: "costs" });
   });
 });

@@ -39,6 +39,7 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 
 export interface BuilderBuildSearch {
   costBatch?: string;
+  costDocumentDraft?: string;
   focus?: string;
   milestone?: string;
   rail?: "open" | "closed";
@@ -130,12 +131,17 @@ const VISUAL_ACTIVE_BUILD_STAFF_DIRECTORY: StaffDirectory = {
   ],
 };
 
+function normalizeOptionalSearchString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
+    const costDocumentDraft = normalizeOptionalSearchString(
+      search.costDocumentDraft
+    );
     const costBatch =
-      typeof search.costBatch === "string" && search.costBatch.trim()
-        ? search.costBatch.trim()
-        : undefined;
+      !costDocumentDraft && normalizeOptionalSearchString(search.costBatch);
     const tab =
       search.tab === "timeline" ||
       search.tab === "costs" ||
@@ -176,6 +182,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
         : undefined;
     return {
       ...(costBatch ? { costBatch } : {}),
+      ...(costDocumentDraft ? { costDocumentDraft } : {}),
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
@@ -836,6 +843,7 @@ export function BuilderBuildWorkspaceRoute({
           <CostDocumentBatchWorkspace
             batchId={search.costBatch}
             buildId={activeBuildId as Id<"activeBuilds">}
+            draftId={search.costDocumentDraft}
             onBatchIdChange={(batchId) =>
               navigate({
                 params: { buildId },
@@ -843,6 +851,7 @@ export function BuilderBuildWorkspaceRoute({
                 search: {
                   ...search,
                   costBatch: batchId,
+                  costDocumentDraft: undefined,
                   tab: "costs",
                 },
                 to: `${routeBase}/builds/$buildId` as never,

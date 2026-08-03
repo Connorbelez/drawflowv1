@@ -10,6 +10,8 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 const ORGANIZATION_ID = "org_cost_documents";
+type CostDocumentFixture = Awaited<ReturnType<typeof seedFixture>>;
+type CostDocumentActor = CostDocumentFixture["builder"];
 
 if (false) {
   // @ts-expect-error The storage authorizer is intentionally HTTP-internal only.
@@ -31,35 +33,44 @@ describe("Cost Document public contract", () => {
 
   test("submits, reads, and privately downloads one immutable multi-page Invoice", async () => {
     const fixture = await seedFixture();
-    const firstPageId = await stageAvailableAsset(fixture, "invoice-page-1.pdf");
-    const secondPageId = await stageAvailableAsset(
+    const batchId = await createBatch(fixture, "multi-page-submission");
+    const draftId = await addDraft(fixture, batchId, "invoice", "labour");
+    const firstPageId = await stageDraftAsset(
       fixture,
+      draftId,
+      "invoice-page-1.pdf"
+    );
+    const secondPageId = await stageDraftAsset(
+      fixture,
+      draftId,
       "invoice-page-2.pdf"
     );
     const before = await downstreamSnapshot(fixture);
-
-    const costDocumentId: Id<"costDocuments"> = await fixture.builder.mutation(
-      (api as any).cost_documents.submitCostDocument,
+    await saveDraft(fixture, draftId, {
+      allocations: [
+        {
+          amountCents: 12_345,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      description: "Concrete forming and labour.",
+      documentDate: "2026-08-01",
+      grossTotalCents: 12_345,
+      pageAssetIds: [firstPageId, secondPageId],
+      title: "Foundation invoice",
+      vendorName: "Cedar Forming Ltd.",
+    });
+    await completeDraft(fixture, draftId);
+    const submitted = await fixture.builder.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
       {
-        allocations: [
-          {
-            amountCents: 12_345,
-            buildSubmilestoneId: fixture.buildSubmilestoneId,
-          },
-        ],
-        buildId: fixture.buildId,
-        category: "labour",
-        currency: "CAD",
-        description: "Concrete forming and labour.",
-        documentDate: "2026-08-01",
-        grossTotalCents: 12_345,
-        kind: "invoice",
-        organizationId: ORGANIZATION_ID,
-        pageAssetIds: [firstPageId, secondPageId],
-        title: "Foundation invoice",
-        vendorName: "Cedar Forming Ltd.",
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "multi-page-submission-submit",
       }
     );
+    const costDocumentId = submitted.costDocumentIds[0] as Id<"costDocuments">;
+    expect(costDocumentId).toBeDefined();
 
     const result = await fixture.builder.query(
       (api as any).cost_documents.getCostDocument,
@@ -87,17 +98,15 @@ describe("Cost Document public contract", () => {
         { assetId: firstPageId, order: 1 },
         { assetId: secondPageId, order: 2 },
       ],
-      receipt: {
-        recipientEmail: "builder_owner@example.com",
-        status: "queued",
-      },
       state: "submitted",
       supportingContextDisclosure:
         "This Cost Document does not prove payment, completion, reimbursement eligibility, Draw inclusion, or approval.",
       title: "Foundation invoice",
-      uploaderWorkosUserId: "builder_owner",
       vendorName: "Cedar Forming Ltd.",
     });
+    expect(result).not.toHaveProperty("receipt");
+    expect(result).not.toHaveProperty("uploaderEmailSnapshot");
+    expect(result).not.toHaveProperty("uploaderWorkosUserId");
 
     const pagePath = `/api/cost-documents/page?${new URLSearchParams({
       assetId: firstPageId,
@@ -165,74 +174,220 @@ describe("Cost Document public contract", () => {
     expect(revokedResponse.status).toBe(403);
   });
 
-  test("rejects incomplete, invalid, mismatched, unavailable, and cross-tenant submissions without receipts", async () => {
+  test("rejects forged Cost Document page and asset child graphs before authorizing a download", async () => {
     const fixture = await seedFixture();
-    const availableAssetId = await stageAvailableAsset(
+    const batchId = await createBatch(fixture, "page-download-child-graph");
+    const draftId = await addDraft(fixture, batchId);
+    const assetId = await stageDraftAsset(
       fixture,
-      "valid-invoice.pdf"
+      draftId,
+      "page-download-child-graph.pdf"
     );
-    const unavailableAssetId = await stageAsset(
-      fixture,
-      "unscanned-invoice.pdf",
-      false
-    );
-    const valid = submissionArgs(fixture, availableAssetId);
-
-    await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.submitCostDocument,
-        { ...valid, title: "" }
-      )
-    ).rejects.toThrow("Title is required");
-    await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.submitCostDocument,
-        { ...valid, grossTotalCents: 0 }
-      )
-    ).rejects.toThrow("positive integer");
-    await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.submitCostDocument,
+    await saveDraft(fixture, draftId, {
+      allocations: [
         {
-          ...valid,
-          allocations: [
-            {
-              amountCents: 12_344,
-              buildSubmilestoneId: fixture.buildSubmilestoneId,
-            },
-          ],
-        }
-      )
-    ).rejects.toThrow("equal the Gross Document Total exactly");
-    await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.submitCostDocument,
-        { ...valid, pageAssetIds: [unavailableAssetId] }
-      )
-    ).rejects.toThrow("source page must be available");
-    await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.submitCostDocument,
-        { ...valid, documentDate: "2026-02-31" }
-      )
-    ).rejects.toThrow("valid YYYY-MM-DD date");
-    await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.submitCostDocument,
-        { ...valid, currency: "USD" }
-      )
-    ).rejects.toThrow();
-    const otherTenantBuilder = withIdentity(
-      fixture.base,
-      { roles: ["builder"], subject: "cross_tenant_builder" },
-      "org_other"
+          amountCents: 1_000,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      documentDate: "2026-08-03",
+      grossTotalCents: 1_000,
+      pageAssetIds: [assetId],
+      title: "Page download scope",
+      vendorName: "Vendor",
+    });
+    await completeDraft(fixture, draftId);
+    const submitted = await fixture.builder.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "page-download-child-graph-submit",
+      }
     );
+    const costDocumentId = submitted.costDocumentIds[0] as Id<"costDocuments">;
+    const graph = await fixture.base.run(async (ctx) => {
+      const [asset, document, page] = await Promise.all([
+        ctx.db.get(assetId),
+        ctx.db.get(costDocumentId),
+        ctx.db
+          .query("costDocumentPages")
+          .withIndex("by_costDocumentId_and_assetId", (query) =>
+            query.eq("costDocumentId", costDocumentId).eq("assetId", assetId)
+          )
+          .unique(),
+      ]);
+      if (!(asset && document && page)) {
+        throw new Error("Missing Cost Document page-download graph fixture");
+      }
+      return { asset, document, page };
+    });
+    const otherBuildId = await addSecondAccessibleBuild(fixture);
+    const otherBrokerageId = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("brokerages", {
+        createdAt: now,
+        displayName: "Forged child brokerage",
+        legalName: "Forged child brokerage Ltd.",
+        status: "active",
+        updatedAt: now,
+        workosOrganizationId: "org_forged_child_brokerage",
+      });
+    });
+    const otherCostDocumentId = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("costDocuments", {
+        brokerageId: graph.document.brokerageId,
+        buildId: graph.document.buildId,
+        category: "materials",
+        createdAt: now,
+        currency: "CAD",
+        documentDate: "2026-08-03",
+        grossTotalCents: 1,
+        kind: "receipt",
+        organizationId: graph.document.organizationId,
+        state: "submitted",
+        submittedAt: now,
+        title: "Other submitted document",
+        uploaderEmailSnapshot: "builder_owner@example.com",
+        uploaderWorkosUserId: "builder_owner",
+        vendorName: "Other vendor",
+      });
+    });
+    const pagePath = `/api/cost-documents/page?${new URLSearchParams({
+      assetId,
+      buildId: fixture.buildId,
+      costDocumentId,
+      organizationId: ORGANIZATION_ID,
+    }).toString()}`;
+    const assertDenied = async (
+      apply: () => Promise<void>,
+      restore: () => Promise<void>
+    ) => {
+      await apply();
+      try {
+        const response = await fixture.builder.fetch(pagePath, {
+          headers: {
+            Authorization: "Bearer test-auth-token",
+            Origin: "http://localhost:3000",
+          },
+        });
+        expect(response.status).toBe(403);
+      } finally {
+        await restore();
+      }
+    };
+    const corruptions = [
+      {
+        apply: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.page._id, { organizationId: "org_corrupt" })
+          ),
+        restore: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.page._id, {
+              organizationId: graph.page.organizationId,
+            })
+          ),
+      },
+      {
+        apply: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.page._id, { brokerageId: otherBrokerageId })
+          ),
+        restore: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.page._id, {
+              brokerageId: graph.page.brokerageId,
+            })
+          ),
+      },
+      {
+        apply: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.page._id, { buildId: otherBuildId })
+          ),
+        restore: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.page._id, { buildId: graph.page.buildId })
+          ),
+      },
+      {
+        apply: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.page._id, {
+              costDocumentId: otherCostDocumentId,
+            })
+          ),
+        restore: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.page._id, {
+              costDocumentId: graph.page.costDocumentId,
+            })
+          ),
+      },
+      {
+        apply: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.asset._id, { organizationId: "org_corrupt" })
+          ),
+        restore: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.asset._id, {
+              organizationId: graph.asset.organizationId,
+            })
+          ),
+      },
+      {
+        apply: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.asset._id, { brokerageId: otherBrokerageId })
+          ),
+        restore: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.asset._id, {
+              brokerageId: graph.asset.brokerageId,
+            })
+          ),
+      },
+      {
+        apply: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.asset._id, { buildId: otherBuildId })
+          ),
+        restore: () =>
+          fixture.base.run((ctx) =>
+            ctx.db.patch(graph.asset._id, { buildId: graph.asset.buildId })
+          ),
+      },
+    ];
+    for (const corruption of corruptions) {
+      await assertDenied(corruption.apply, corruption.restore);
+    }
+  });
+
+  test("rejects the legacy direct-submit bypass without creating documents or receipts", async () => {
+    const fixture = await seedFixture();
     await expect(
-      otherTenantBuilder.mutation(
-        (api as any).cost_documents.submitCostDocument,
-        valid
-      )
-    ).rejects.toThrow("Forbidden");
+      fixture.builder.mutation((api as any).cost_documents.submitCostDocument, {
+        allocations: [
+          {
+            amountCents: 12_345,
+            buildSubmilestoneId: fixture.buildSubmilestoneId,
+          },
+        ],
+        buildId: fixture.buildId,
+        category: "labour",
+        currency: "CAD",
+        documentDate: "2026-08-01",
+        grossTotalCents: 12_345,
+        kind: "invoice",
+        organizationId: ORGANIZATION_ID,
+        pageAssetIds: [],
+        title: "Blocked direct submission",
+        vendorName: "Cedar Forming Ltd.",
+      })
+    ).rejects.toThrow("Direct Cost Document submission is unavailable");
 
     const visibleDocuments = await fixture.builder.query(
       (api as any).cost_documents.listCostDocuments,
@@ -243,7 +398,6 @@ describe("Cost Document public contract", () => {
       }
     );
     expect(visibleDocuments.page).toEqual([]);
-
   });
 
   test("recovers an exact batch only for its requested Build, tenant, and owner", async () => {
@@ -391,7 +545,7 @@ describe("Cost Document public contract", () => {
 
     await expect(
       saveDraft(fixture, draftId, { workingStateJson: rawWorkingState })
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ revision: 2 });
     const recovered = await getBatch(fixture, batchId);
     const recoveredDraft = recovered?.drafts.find(
       (draft: { _id: Id<"costDocumentDrafts"> }) => draft._id === draftId
@@ -436,11 +590,8 @@ describe("Cost Document public contract", () => {
     const assetId = await stageDraftAsset(fixture, draftId, "immediate.pdf");
 
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.bindCostDocumentDraftPageAsset,
-        { assetId, draftId }
-      )
-    ).resolves.toEqual({ order: 1 });
+      bindDraftPage(fixture, { assetId, draftId })
+    ).resolves.toMatchObject({ order: 1, revision: 2 });
     await fixture.base.run(async (ctx) => {
       const asset = await ctx.db.get(assetId);
       if (!asset?.stagingSessionId) {
@@ -454,11 +605,8 @@ describe("Cost Document public contract", () => {
       });
     });
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.bindCostDocumentDraftPageAsset,
-        { assetId, draftId }
-      )
-    ).resolves.toEqual({ order: 1 });
+      bindDraftPage(fixture, { assetId, draftId })
+    ).resolves.toMatchObject({ order: 1, revision: 2 });
 
     const bound = await fixture.base.run(async (ctx) => {
       const asset = await ctx.db.get(assetId);
@@ -486,7 +634,7 @@ describe("Cost Document public contract", () => {
     ]);
     await expect(
       saveDraft(fixture, draftId, { pageAssetIds: [assetId] })
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ revision: 3 });
   });
 
   test("accepts only fresh finalized or consumed sessions for bound Cost Document pages", async () => {
@@ -494,10 +642,7 @@ describe("Cost Document public contract", () => {
     const batchId = await createBatch(fixture, "bound-page-session-states");
     const draftId = await addDraft(fixture, batchId);
     const assetId = await stageDraftAsset(fixture, draftId, "bound-state.pdf");
-    await fixture.builder.mutation(
-      (api as any).cost_documents.bindCostDocumentDraftPageAsset,
-      { assetId, draftId }
-    );
+    await bindDraftPage(fixture, { assetId, draftId });
     const stagingSessionId = await fixture.base.run(async (ctx) => {
       const asset = await ctx.db.get(assetId);
       if (!asset?.stagingSessionId) {
@@ -505,11 +650,7 @@ describe("Cost Document public contract", () => {
       }
       return asset.stagingSessionId;
     });
-    const retryBoundPage = () =>
-      fixture.builder.mutation(
-        (api as any).cost_documents.bindCostDocumentDraftPageAsset,
-        { assetId, draftId }
-      );
+    const retryBoundPage = () => bindDraftPage(fixture, { assetId, draftId });
 
     for (const state of ["open", "abandoned"] as const) {
       await fixture.base.run(async (ctx) => {
@@ -534,7 +675,7 @@ describe("Cost Document public contract", () => {
         state: "consumed",
       });
     });
-    await expect(retryBoundPage()).resolves.toEqual({ order: 1 });
+    await expect(retryBoundPage()).resolves.toMatchObject({ order: 1 });
   });
 
   test("allows source-page mutations only during Capture & confirm on an open draft", async () => {
@@ -559,12 +700,9 @@ describe("Cost Document public contract", () => {
           sizeBytes: 1,
         }
       )
-    ).rejects.toThrow("Forbidden: Cost Document Builder access");
+    ).rejects.toThrow("The Cost Document draft is unavailable");
     const boundAssetId = await stageDraftAsset(fixture, draftId, "capture.pdf");
-    await fixture.builder.mutation(
-      (api as any).cost_documents.bindCostDocumentDraftPageAsset,
-      { assetId: boundAssetId, draftId }
-    );
+    await bindDraftPage(fixture, { assetId: boundAssetId, draftId });
     await saveDraft(fixture, draftId, {
       allocations: [
         { amountCents: 1_000, buildSubmilestoneId: fixture.buildSubmilestoneId },
@@ -575,10 +713,7 @@ describe("Cost Document public contract", () => {
       vendorName: "Vendor",
     });
     const laterAssetId = await stageDraftAsset(fixture, draftId, "later.pdf");
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { draftId, step: "balance_allocate" }
-    );
+    await setDraftStep(fixture, { draftId, step: "balance_allocate" });
     await expect(
       stageDraftAsset(fixture, draftId, "outside-capture.pdf")
     ).rejects.toThrow("unavailable");
@@ -586,18 +721,12 @@ describe("Cost Document public contract", () => {
       saveDraft(fixture, draftId, { pageAssetIds: [boundAssetId, laterAssetId] })
     ).rejects.toThrow("only during Capture & confirm");
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.bindCostDocumentDraftPageAsset,
-        { assetId: laterAssetId, draftId }
-      )
+      bindDraftPage(fixture, { assetId: laterAssetId, draftId })
     ).rejects.toThrow("only during Capture & confirm");
 
     await completeDraft(fixture, draftId);
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.setCostDocumentDraftStep,
-        { draftId, step: "capture_confirm" }
-      )
+      setDraftStep(fixture, { draftId, step: "capture_confirm" })
     ).rejects.toThrow("only from Freeze to Share");
     await expect(
       saveDraft(fixture, draftId, { pageAssetIds: [boundAssetId] })
@@ -606,24 +735,12 @@ describe("Cost Document public contract", () => {
       stageDraftAsset(fixture, draftId, "after-complete.pdf")
     ).rejects.toThrow("unavailable");
 
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { draftId, step: "share" }
-    );
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { draftId, step: "balance_allocate" }
-    );
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { draftId, step: "capture_confirm" }
-    );
+    await setDraftStep(fixture, { draftId, step: "share" });
+    await setDraftStep(fixture, { draftId, step: "balance_allocate" });
+    await setDraftStep(fixture, { draftId, step: "capture_confirm" });
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.bindCostDocumentDraftPageAsset,
-        { assetId: laterAssetId, draftId }
-      )
-    ).resolves.toEqual({ order: 2 });
+      bindDraftPage(fixture, { assetId: laterAssetId, draftId })
+    ).resolves.toMatchObject({ order: 2 });
   });
 
   test("enforces sequential Cost Document steps and only audits reopening through Back", async () => {
@@ -646,46 +763,22 @@ describe("Cost Document public contract", () => {
     });
 
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.setCostDocumentDraftStep,
-        { draftId, step: "share" }
-      )
+      setDraftStep(fixture, { draftId, step: "share" })
     ).rejects.toThrow("only to an adjacent workflow step");
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.setCostDocumentDraftStep,
-        { complete: true, draftId, step: "freeze" }
-      )
+      setDraftStep(fixture, { complete: true, draftId, step: "freeze" })
     ).rejects.toThrow("only from an open draft at Freeze");
 
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { draftId, step: "balance_allocate" }
-    );
+    await setDraftStep(fixture, { draftId, step: "balance_allocate" });
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.setCostDocumentDraftStep,
-        { draftId, step: "freeze" }
-      )
+      setDraftStep(fixture, { draftId, step: "freeze" })
     ).rejects.toThrow("only to an adjacent workflow step");
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { draftId, step: "share" }
-    );
+    await setDraftStep(fixture, { draftId, step: "share" });
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.setCostDocumentDraftStep,
-        { draftId, step: "capture_confirm" }
-      )
+      setDraftStep(fixture, { draftId, step: "capture_confirm" })
     ).rejects.toThrow("only to an adjacent workflow step");
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { draftId, step: "freeze" }
-    );
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { complete: true, draftId, step: "freeze" }
-    );
+    await setDraftStep(fixture, { draftId, step: "freeze" });
+    await setDraftStep(fixture, { complete: true, draftId, step: "freeze" });
 
     const completed = await fixture.base.run(async (ctx) => {
       const draft = (await ctx.db.get(draftId)) as Doc<"costDocumentDrafts"> | null;
@@ -729,17 +822,17 @@ describe("Cost Document public contract", () => {
       reopenedAuditCount: 0,
       title: "State machine",
     });
-    expect(JSON.parse(completed.shareAudit?.priorState ?? "{}")).toEqual({
+    expect(JSON.parse(completed.shareAudit?.priorState ?? "{}")).toMatchObject({
       activeStep: "balance_allocate",
       completedAt: null,
       lifecycle: "draft",
     });
-    expect(JSON.parse(completed.shareAudit?.newState ?? "{}")).toEqual({
+    expect(JSON.parse(completed.shareAudit?.newState ?? "{}")).toMatchObject({
       activeStep: "share",
       completedAt: null,
       lifecycle: "draft",
     });
-    expect(JSON.parse(completed.completedAudit?.priorState ?? "{}")).toEqual({
+    expect(JSON.parse(completed.completedAudit?.priorState ?? "{}")).toMatchObject({
       activeStep: "freeze",
       completedAt: null,
       lifecycle: "draft",
@@ -784,15 +877,9 @@ describe("Cost Document public contract", () => {
     });
 
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.setCostDocumentDraftStep,
-        { draftId, step: "capture_confirm" }
-      )
+      setDraftStep(fixture, { draftId, step: "capture_confirm" })
     ).rejects.toThrow("only from Freeze to Share");
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { draftId, step: "share" }
-    );
+    await setDraftStep(fixture, { draftId, step: "share" });
     expect(await getBatch(fixture, batchId)).toMatchObject({
       drafts: [
         expect.objectContaining({
@@ -821,7 +908,7 @@ describe("Cost Document public contract", () => {
       completedAt: expect.any(Number),
       lifecycle: "complete",
     });
-    expect(JSON.parse(reopenedAudit?.newState ?? "{}")).toEqual({
+    expect(JSON.parse(reopenedAudit?.newState ?? "{}")).toMatchObject({
       activeStep: "share",
       completedAt: null,
       lifecycle: "draft",
@@ -881,10 +968,7 @@ describe("Cost Document public contract", () => {
 
     await completeDraft(fixture, firstDraftId);
     await completeDraft(fixture, secondDraftId);
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { draftId: firstDraftId, step: "share" }
-    );
+    await setDraftStep(fixture, { draftId: firstDraftId, step: "share" });
     const reopened = await getBatch(fixture, batchId);
     expect(reopened?.drafts[0]).toMatchObject({
       _id: firstDraftId,
@@ -919,7 +1003,11 @@ describe("Cost Document public contract", () => {
     await expect(
       fixture.builder.mutation(
         (api as any).cost_documents.submitCostDocumentBatch,
-        { batchId, idempotencyKey: "atomic-invalid-submit" }
+        {
+          batchId,
+          expectedRevision: await batchRevision(fixture, batchId),
+          idempotencyKey: "atomic-invalid-submit",
+        }
       )
     ).rejects.toThrow("Every Cost Document must be complete");
     const state = await fixture.base.run(async (ctx) => ({
@@ -1009,14 +1097,22 @@ describe("Cost Document public contract", () => {
     const before = await downstreamSnapshot(fixture);
     const submitted = await fixture.builder.mutation(
       (api as any).cost_documents.submitCostDocumentBatch,
-      { batchId, idempotencyKey: "atomic-success-submit" }
+      {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "atomic-success-submit",
+      }
     );
     expect(submitted.replayed).toBe(false);
     expect(submitted.costDocumentIds).toHaveLength(1);
     expect(await downstreamSnapshot(fixture)).toEqual(before);
     const replay = await fixture.builder.mutation(
       (api as any).cost_documents.submitCostDocumentBatch,
-      { batchId, idempotencyKey: "atomic-success-submit" }
+      {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "atomic-success-submit",
+      }
     );
     expect(replay).toEqual({ ...submitted, replayed: true });
     const genericReplacementName = "generic-replacement.pdf";
@@ -1063,13 +1159,21 @@ describe("Cost Document public contract", () => {
     expect(
       await fixture.builder.mutation(
         (api as any).cost_documents.submitCostDocumentBatch,
-        { batchId, idempotencyKey: "atomic-success-submit" }
+        {
+          batchId,
+          expectedRevision: await batchRevision(fixture, batchId),
+          idempotencyKey: "atomic-success-submit",
+        }
       )
     ).toEqual({ ...submitted, replayed: true });
     await expect(
       fixture.builder.mutation(
         (api as any).cost_documents.submitCostDocumentBatch,
-        { batchId, idempotencyKey: "different-submit-key" }
+        {
+          batchId,
+          expectedRevision: await batchRevision(fixture, batchId),
+          idempotencyKey: "different-submit-key",
+        }
       )
     ).rejects.toThrow("submit key does not match");
   });
@@ -1100,7 +1204,11 @@ describe("Cost Document public contract", () => {
       const idempotencyKey = `replay-submit-${key}`;
       const submitted = await fixture.builder.mutation(
         (api as any).cost_documents.submitCostDocumentBatch,
-        { batchId, idempotencyKey }
+        {
+          batchId,
+          expectedRevision: await batchRevision(fixture, batchId),
+          idempotencyKey,
+        }
       );
       const graph = await fixture.base.run(async (ctx) => {
         const costDocumentId = submitted.costDocumentIds[0] as Id<"costDocuments">;
@@ -1156,11 +1264,14 @@ describe("Cost Document public contract", () => {
       };
     };
 
-    const replay = (submission: Awaited<ReturnType<typeof submitFixtureBatch>>) =>
+    const replay = async (
+      submission: Awaited<ReturnType<typeof submitFixtureBatch>>
+    ) =>
       fixture.builder.mutation(
         (api as any).cost_documents.submitCostDocumentBatch,
         {
           batchId: submission.batchId,
+          expectedRevision: await batchRevision(fixture, submission.batchId),
           idempotencyKey: submission.idempotencyKey,
         }
       );
@@ -1279,7 +1390,11 @@ describe("Cost Document public contract", () => {
         await expect(
           fixture.builder.mutation(
             (api as any).cost_documents.submitCostDocumentBatch,
-            { batchId, idempotencyKey: "corruption-submit" }
+            {
+              batchId,
+              expectedRevision: await batchRevision(fixture, batchId),
+              idempotencyKey: "corruption-submit",
+            }
           )
         ).rejects.toThrow();
       }
@@ -1339,19 +1454,13 @@ describe("Cost Document public contract", () => {
       replaceAssetId: originalAssetId,
     };
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.bindCostDocumentDraftPageAsset,
-        replaceArgs
-      )
-    ).resolves.toEqual({ order: 25 });
+      bindDraftPage(fixture, replaceArgs)
+    ).resolves.toMatchObject({ order: 25 });
     // The exact retry must be idempotent even though the draft remains at its
     // 50-page maximum and the original active row is now historical.
     await expect(
-      fixture.builder.mutation(
-        (api as any).cost_documents.bindCostDocumentDraftPageAsset,
-        replaceArgs
-      )
-    ).resolves.toEqual({ order: 25 });
+      bindDraftPage(fixture, replaceArgs)
+    ).resolves.toMatchObject({ order: 25 });
 
     const replacementState = await fixture.base.run(async (ctx) => {
       const pages = await ctx.db
@@ -1407,6 +1516,726 @@ describe("Cost Document public contract", () => {
     expect(replacementState.originalSession?.state).toBe("abandoned");
     expect(replacementState.replacementAsset?.supersedesAssetId).toBeUndefined();
     expect(replacementState.replacementSession?.state).toBe("consumed");
+  });
+
+  test("grants one exact Draft to an eligible Builder Staff collaborator without exposing the creator batch", async () => {
+    const fixture = await seedFixture();
+    const batchId = await createBatch(fixture, "exact-draft-collaboration");
+    const grantedDraftId = await addDraft(fixture, batchId);
+    await addDraft(fixture, batchId, "receipt", "labour");
+    const staff = await addEligibleBuilderStaff(fixture, "builder_staff");
+
+    await fixture.builder.mutation(
+      (api as any).cost_documents.grantCostDocumentDraftCollaborator,
+      {
+        collaboratorWorkosUserId: "builder_staff",
+        draftId: grantedDraftId,
+        expectedRevision: 1,
+      }
+    );
+
+    const sharedDraft = await staff.query(
+      (api as any).cost_documents.getCostDocumentDraft,
+      {
+        buildId: fixture.buildId,
+        draftId: grantedDraftId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(sharedDraft).toMatchObject({
+      _id: grantedDraftId,
+      capabilities: {
+        canDiscardBatch: false,
+        canEditDraft: true,
+        canManageDraftCollaboration: false,
+        canManageSourcePages: true,
+        canReadDraft: true,
+        canSubmitBatch: false,
+      },
+      creator: { workosUserId: "builder_owner" },
+      revision: 2,
+      self: { workosUserId: "builder_staff" },
+    });
+    expect(sharedDraft).not.toHaveProperty("batchId");
+    expect(sharedDraft).not.toHaveProperty("order");
+    expect(
+      await staff.query((api as any).cost_documents.getCostDocumentBatch, {
+        batchId,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).toBeNull();
+  });
+
+  test("allows an exact Draft collaborator to edit as themselves with optimistic revision protection", async () => {
+    const fixture = await seedFixture();
+    const batchId = await createBatch(fixture, "collaborator-edit-provenance");
+    const draftId = await addDraft(fixture, batchId);
+    const staff = await addEligibleBuilderStaff(fixture, "builder_staff_editor");
+    await fixture.builder.mutation(
+      (api as any).cost_documents.grantCostDocumentDraftCollaborator,
+      {
+        collaboratorWorkosUserId: "builder_staff_editor",
+        draftId,
+        expectedRevision: 1,
+      }
+    );
+
+    await expect(
+      staff.mutation((api as any).cost_documents.saveCostDocumentDraft, {
+        draftId,
+        expectedRevision: 2,
+        title: "Staff-entered receipt",
+      })
+    ).resolves.toEqual({ revision: 3 });
+    await expect(
+      staff.mutation((api as any).cost_documents.saveCostDocumentDraft, {
+        draftId,
+        expectedRevision: 2,
+        title: "Stale overwrite",
+      })
+    ).rejects.toThrow("Draft revision conflict");
+
+    expect(
+      await staff.query((api as any).cost_documents.getCostDocumentDraft, {
+        buildId: fixture.buildId,
+        draftId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).toMatchObject({
+      revision: 3,
+      title: "Staff-entered receipt",
+    });
+    const audit = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("entityType", "costDocumentDraft")
+            .eq("entityId", String(draftId))
+        )
+        .order("desc")
+        .first()
+    );
+    expect(audit).toMatchObject({
+      actorWorkosUserId: "builder_staff_editor",
+      eventType: "cost_document.draft_edited",
+      newState: JSON.stringify({ revision: 3 }),
+      priorState: JSON.stringify({ revision: 2 }),
+    });
+  });
+
+  test("lets an exact Draft collaborator retain, reorder, and remove consumed creator pages while rejecting foreign Draft and tenant assets", async () => {
+    const fixture = await seedFixture();
+    const batchId = await createBatch(fixture, "mixed-page-manifest");
+    const draftId = await addDraft(fixture, batchId);
+    const otherDraftId = await addDraft(fixture, batchId, "receipt", "labour");
+    const creatorAssetId = await stageDraftAsset(
+      fixture,
+      draftId,
+      "creator-page.pdf"
+    );
+    await saveDraft(fixture, draftId, {
+      allocations: [
+        {
+          amountCents: 1_000,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      documentDate: "2026-08-03",
+      grossTotalCents: 1_000,
+      pageAssetIds: [creatorAssetId],
+      title: "Mixed page manifest",
+      vendorName: "Creator vendor",
+    });
+    const staff = await addEligibleBuilderStaff(
+      fixture,
+      "builder_staff_mixed_pages"
+    );
+    await fixture.builder.mutation(
+      (api as any).cost_documents.grantCostDocumentDraftCollaborator,
+      {
+        collaboratorWorkosUserId: "builder_staff_mixed_pages",
+        draftId,
+        expectedRevision: 2,
+      }
+    );
+
+    const staffAssetId = await stageDraftAsset(
+      fixture,
+      draftId,
+      "staff-page.pdf",
+      staff
+    );
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        { pageAssetIds: [creatorAssetId, staffAssetId] },
+        staff
+      )
+    ).resolves.toEqual({ revision: 4 });
+    await expect(
+      staff.query((api as any).cost_documents.getCostDocumentDraft, {
+        buildId: fixture.buildId,
+        draftId: String(draftId),
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toMatchObject({
+      pages: [
+        { assetId: creatorAssetId, order: 1 },
+        { assetId: staffAssetId, order: 2 },
+      ],
+      revision: 4,
+    });
+
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        { pageAssetIds: [staffAssetId, creatorAssetId] },
+        staff
+      )
+    ).resolves.toEqual({ revision: 5 });
+    await expect(
+      staff.query((api as any).cost_documents.getCostDocumentDraft, {
+        buildId: fixture.buildId,
+        draftId: String(draftId),
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toMatchObject({
+      pages: [
+        { assetId: staffAssetId, order: 1 },
+        { assetId: creatorAssetId, order: 2 },
+      ],
+      revision: 5,
+    });
+
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        { pageAssetIds: [staffAssetId] },
+        staff
+      )
+    ).resolves.toEqual({ revision: 6 });
+    await expect(
+      staff.query((api as any).cost_documents.getCostDocumentDraft, {
+        buildId: fixture.buildId,
+        draftId: String(draftId),
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toMatchObject({
+      pages: [{ assetId: staffAssetId, order: 1 }],
+      revision: 6,
+    });
+
+    const otherDraftAssetId = await stageDraftAsset(
+      fixture,
+      otherDraftId,
+      "other-draft-page.pdf"
+    );
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        { pageAssetIds: [staffAssetId, otherDraftAssetId] },
+        staff
+      )
+    ).rejects.toThrow("Every Cost Document draft source page must be available");
+
+    const crossTenantAssetId = await stageDraftAsset(
+      fixture,
+      draftId,
+      "cross-tenant-page.pdf",
+      staff
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(crossTenantAssetId, { organizationId: "org_corrupt" });
+    });
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        { pageAssetIds: [staffAssetId, crossTenantAssetId] },
+        staff
+      )
+    ).rejects.toThrow("Every Cost Document draft source page must be available");
+
+    await expect(completeDraft(fixture, draftId)).resolves.toEqual({
+      revision: 10,
+    });
+  });
+
+  test("keeps grant administration creator-only and revokes exact Draft, asset status, and download access immediately", async () => {
+    const fixture = await seedFixture();
+    const batchId = await createBatch(fixture, "grant-revocation-boundary");
+    const draftId = await addDraft(fixture, batchId);
+    const staff = await addEligibleBuilderStaff(fixture, "builder_staff_revoked");
+    await fixture.builder.mutation(
+      (api as any).cost_documents.grantCostDocumentDraftCollaborator,
+      {
+        collaboratorWorkosUserId: "builder_staff_revoked",
+        draftId,
+        expectedRevision: 1,
+      }
+    );
+
+    await expect(
+      staff.mutation(
+        (api as any).cost_documents.grantCostDocumentDraftCollaborator,
+        {
+          collaboratorWorkosUserId: "builder_owner",
+          draftId,
+          expectedRevision: 2,
+        }
+      )
+    ).rejects.toThrow("unavailable");
+    await expect(
+      staff.mutation((api as any).cost_documents.submitCostDocumentBatch, {
+        batchId,
+        expectedRevision: 2,
+        idempotencyKey: "forged-collaborator-submit",
+      })
+    ).rejects.toThrow("unavailable");
+
+    const staffAssetId = await stageDraftAsset(
+      fixture,
+      draftId,
+      "staff-private-source.pdf",
+      staff
+    );
+    await expect(
+      staff.mutation(
+        (api as any).cost_documents.bindCostDocumentDraftPageAsset,
+        {
+          assetId: staffAssetId,
+          draftId,
+          expectedRevision: 2,
+        }
+      )
+    ).resolves.toEqual({ order: 1, revision: 3 });
+    for (const actor of [fixture.builder, staff]) {
+      await expect(
+        actor.query(
+          (api as any).build_collaboration_assets
+            .listBuildCollaborationAssetStatuses,
+          {
+            assetIds: [staffAssetId],
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+          }
+        )
+      ).resolves.toEqual([
+        expect.objectContaining({
+          _id: staffAssetId,
+          fileName: "staff-private-source.pdf",
+          scanState: "clean",
+        }),
+      ]);
+      await expect(
+        actor.mutation(
+          (api as any).build_collaboration_assets
+            .authorizeBuildCollaborationAssetDownload,
+          {
+            assetId: staffAssetId,
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+          }
+        )
+      ).resolves.toContain("http");
+    }
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.revokeCostDocumentDraftCollaborator,
+        {
+          collaboratorWorkosUserId: "builder_staff_revoked",
+          draftId,
+          expectedRevision: 3,
+          reason: "No longer assisting this document.",
+        }
+      )
+    ).resolves.toEqual({ draftId, revision: 4 });
+    await expect(
+      staff.query((api as any).cost_documents.getCostDocumentDraft, {
+        buildId: fixture.buildId,
+        draftId: String(draftId),
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toBeNull();
+    await expect(
+      staff.query(
+        (api as any).build_collaboration_assets
+          .listBuildCollaborationAssetStatuses,
+        {
+          assetIds: [staffAssetId],
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toEqual([]);
+    await expect(
+      staff.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId: staffAssetId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("collaboration asset is unavailable");
+    await expect(
+      staff.mutation((api as any).cost_documents.saveCostDocumentDraft, {
+        draftId,
+        expectedRevision: 4,
+        title: "Revoked collaborator overwrite",
+      })
+    ).rejects.toThrow("unavailable");
+    const events = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("costDocumentDraftCollaborationEvents")
+        .withIndex("by_draftId_and_draftRevision", (query) =>
+          query.eq("draftId", draftId)
+        )
+        .order("asc")
+        .collect()
+    );
+    expect(events.map((event) => event.eventType)).toEqual([
+      "granted",
+      "revoked",
+    ]);
+  });
+
+  test("enforces the active-role submitted-document and asset matrix, including homeowner ownership and contractor uploader isolation", async () => {
+    const fixture = await seedFixture();
+    const builderStaff = await addEligibleBuilderStaff(
+      fixture,
+      "builder_staff_matrix"
+    );
+    const homeowner = withIdentity(fixture.base, {
+      roles: ["homeowner"],
+      subject: "homeowner_matrix",
+    });
+    const broker = withIdentity(fixture.base, {
+      roles: ["broker"],
+      subject: "broker_matrix",
+    });
+    const brokerStaff = withIdentity(fixture.base, {
+      roles: ["broker-staff"],
+      subject: "broker_staff_matrix",
+    });
+    const principleBroker = withIdentity(fixture.base, {
+      roles: ["principle-broker"],
+      subject: "principle_broker_matrix",
+    });
+    const contractor = withIdentity(fixture.base, {
+      roles: ["contractor"],
+      subject: "contractor_matrix",
+    });
+    await Promise.all([
+      addActiveBuildParticipant(fixture, {
+        role: "homeowner",
+        subject: "homeowner_matrix",
+      }),
+      addActiveBuildParticipant(fixture, {
+        role: "broker",
+        subject: "broker_matrix",
+      }),
+      addActiveBuildParticipant(fixture, {
+        role: "broker-staff",
+        subject: "broker_staff_matrix",
+      }),
+      addActiveBuildParticipant(fixture, {
+        role: "principle-broker",
+        subject: "principle_broker_matrix",
+      }),
+      addActiveBuildParticipant(fixture, {
+        role: "contractor",
+        subject: "contractor_matrix",
+      }),
+    ]);
+
+    const homeownerBatchId = await createBatch(
+      fixture,
+      "homeowner-owned-batch",
+      homeowner
+    );
+    const homeownerDraftId = await addDraft(
+      fixture,
+      homeownerBatchId,
+      "receipt",
+      "materials",
+      homeowner
+    );
+    const homeownerAssetId = await stageDraftAsset(
+      fixture,
+      homeownerDraftId,
+      "homeowner-source.pdf",
+      homeowner
+    );
+    await saveDraft(
+      fixture,
+      homeownerDraftId,
+      {
+        allocations: [
+          {
+            amountCents: 1_100,
+            buildSubmilestoneId: fixture.buildSubmilestoneId,
+          },
+        ],
+        documentDate: "2026-08-03",
+        grossTotalCents: 1_100,
+        pageAssetIds: [homeownerAssetId],
+        title: "Homeowner receipt",
+        vendorName: "Homeowner supplier",
+      },
+      homeowner
+    );
+    await completeDraft(fixture, homeownerDraftId, homeowner);
+    await expect(
+      homeowner.mutation(
+        (api as any).cost_documents.grantCostDocumentDraftCollaborator,
+        {
+          collaboratorWorkosUserId: "builder_staff_matrix",
+          draftId: homeownerDraftId,
+          expectedRevision: await draftRevision(fixture, homeownerDraftId),
+        }
+      )
+    ).rejects.toThrow("unavailable");
+    await expect(
+      builderStaff.mutation(
+        (api as any).cost_documents.submitCostDocumentBatch,
+        {
+          batchId: homeownerBatchId,
+          expectedRevision: await batchRevision(fixture, homeownerBatchId),
+          idempotencyKey: "forged-homeowner-submit",
+        }
+      )
+    ).rejects.toThrow("unavailable");
+    await expect(
+      homeowner.mutation((api as any).cost_documents.submitCostDocumentBatch, {
+        batchId: homeownerBatchId,
+        expectedRevision: await batchRevision(fixture, homeownerBatchId),
+        idempotencyKey: "homeowner-owned-submit",
+      })
+    ).resolves.toMatchObject({
+      batchId: homeownerBatchId,
+      costDocumentIds: [expect.any(String)],
+      replayed: false,
+    });
+
+    const builderBatchId = await createBatch(fixture, "submitted-role-matrix");
+    const builderDraftId = await addDraft(fixture, builderBatchId);
+    const builderAssetId = await stageDraftAsset(
+      fixture,
+      builderDraftId,
+      "submitted-role-matrix.pdf"
+    );
+    await saveDraft(fixture, builderDraftId, {
+      allocations: [
+        {
+          amountCents: 2_200,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      documentDate: "2026-08-03",
+      grossTotalCents: 2_200,
+      pageAssetIds: [builderAssetId],
+      title: "Builder submitted invoice",
+      vendorName: "Builder vendor",
+    });
+    await completeDraft(fixture, builderDraftId);
+    const builderSubmission = await fixture.builder.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId: builderBatchId,
+        expectedRevision: await batchRevision(fixture, builderBatchId),
+        idempotencyKey: "submitted-role-matrix-submit",
+      }
+    );
+    const builderCostDocumentId = builderSubmission.costDocumentIds[0] as Id<"costDocuments">;
+    expect(builderCostDocumentId).toBeDefined();
+
+    const fullReaders = [
+      fixture.admin,
+      fixture.builder,
+      builderStaff,
+      homeowner,
+      principleBroker,
+      broker,
+      brokerStaff,
+    ];
+    for (const actor of fullReaders) {
+      const document = await actor.query(
+        (api as any).cost_documents.getCostDocument,
+        {
+          buildId: fixture.buildId,
+          costDocumentId: builderCostDocumentId,
+          organizationId: ORGANIZATION_ID,
+        }
+      );
+      expect(document).toMatchObject({ _id: builderCostDocumentId });
+      expect(document).not.toHaveProperty("uploaderEmailSnapshot");
+      expect(document).not.toHaveProperty("uploaderWorkosUserId");
+
+      const listed = await actor.query(
+        (api as any).cost_documents.listCostDocuments,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor: null, numItems: 20 },
+        }
+      );
+      expect(
+        listed.page.map((item: { _id: Id<"costDocuments"> }) => item._id)
+      ).toContain(builderCostDocumentId);
+
+      await expect(
+        actor.query(
+          (api as any).build_collaboration_assets
+            .listBuildCollaborationAssetStatuses,
+          {
+            assetIds: [builderAssetId],
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+          }
+        )
+      ).resolves.toEqual([
+        expect.objectContaining({
+          _id: builderAssetId,
+          scanState: "clean",
+        }),
+      ]);
+      await expect(
+        actor.mutation(
+          (api as any).build_collaboration_assets
+            .authorizeBuildCollaborationAssetDownload,
+          {
+            assetId: builderAssetId,
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+          }
+        )
+      ).resolves.toContain("http");
+    }
+
+    await expect(
+      contractor.query((api as any).cost_documents.getCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId: builderCostDocumentId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toBeNull();
+    await expect(
+      contractor.query((api as any).cost_documents.listCostDocuments, {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      })
+    ).resolves.toMatchObject({ page: [] });
+    await expect(
+      contractor.query(
+        (api as any).build_collaboration_assets
+          .listBuildCollaborationAssetStatuses,
+        {
+          assetIds: [builderAssetId],
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toEqual([]);
+    await expect(
+      contractor.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId: builderAssetId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("collaboration asset is unavailable");
+
+    const contractorCostDocumentId = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      const asset = await ctx.db.get(builderAssetId);
+      if (!(build && asset?.contentHashSha256)) {
+        throw new Error("Missing submitted Cost Document matrix fixture data");
+      }
+      const now = Date.now();
+      const costDocumentId = await ctx.db.insert("costDocuments", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        category: "materials",
+        createdAt: now,
+        currency: "CAD",
+        documentDate: "2026-08-03",
+        grossTotalCents: 3_300,
+        kind: "receipt",
+        organizationId: ORGANIZATION_ID,
+        state: "submitted",
+        submittedAt: now,
+        title: "Contractor submitted receipt",
+        uploaderEmailSnapshot: "contractor_matrix@example.com",
+        uploaderWorkosUserId: "contractor_matrix",
+        vendorName: "Contractor vendor",
+      });
+      await ctx.db.insert("costDocumentPages", {
+        assetId: builderAssetId,
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        contentHashSha256Snapshot: asset.contentHashSha256,
+        costDocumentId,
+        createdAt: now,
+        fileNameSnapshot: asset.fileName,
+        mimeTypeSnapshot: asset.mimeType,
+        order: 1,
+        organizationId: ORGANIZATION_ID,
+      });
+      return costDocumentId;
+    });
+    await expect(
+      contractor.query((api as any).cost_documents.getCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId: contractorCostDocumentId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toMatchObject({ _id: contractorCostDocumentId });
+    await expect(
+      contractor.query((api as any).cost_documents.listCostDocuments, {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      })
+    ).resolves.toMatchObject({
+      page: [expect.objectContaining({ _id: contractorCostDocumentId })],
+    });
+    await expect(
+      contractor.query(
+        (api as any).build_collaboration_assets
+          .listBuildCollaborationAssetStatuses,
+        {
+          assetIds: [builderAssetId],
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toEqual([
+      expect.objectContaining({ _id: builderAssetId, scanState: "clean" }),
+    ]);
+    await expect(
+      contractor.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId: builderAssetId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toContain("http");
   });
 });
 
@@ -1587,6 +2416,83 @@ async function seedFixture() {
   return { admin, base, builder, ...seeded };
 }
 
+async function addEligibleBuilderStaff(
+  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  subject: string
+) {
+  const staff = withIdentity(fixture.base, {
+    roles: ["builder-staff"],
+    subject,
+  });
+  await fixture.base.run(async (ctx) => {
+    const build = await ctx.db.get(fixture.buildId);
+    if (!build) {
+      throw new Error("Missing Cost Document fixture build");
+    }
+    const now = Date.now();
+    const builderAccountLinkId = await ctx.db.insert("builderAccountLinks", {
+      assignedEmail: `${subject}@example.com`,
+      brokerageId: build.brokerageId,
+      builderProfileId: build.builderProfileId,
+      createdAt: now,
+      role: "staff",
+      status: "active",
+      updatedAt: now,
+      workosUserId: subject,
+    });
+    await ctx.db.insert("builderStaffPermissionGrants", {
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      builderAccountLinkId,
+      builderProfileId: build.builderProfileId,
+      canCreate: true,
+      canDelete: false,
+      canUpdate: true,
+      canView: true,
+      createdAt: now,
+      createdByWorkosUserId: "builder_owner",
+      organizationId: ORGANIZATION_ID,
+      resourceType: "evidence",
+      scope: "activeBuild",
+      updatedAt: now,
+      updatedByWorkosUserId: "builder_owner",
+      workosUserId: subject,
+    });
+  });
+  return staff;
+}
+
+async function addActiveBuildParticipant(
+  fixture: CostDocumentFixture,
+  input: {
+    role: Doc<"buildParticipants">["role"];
+    subject: string;
+  }
+) {
+  await fixture.base.run(async (ctx) => {
+    const build = await ctx.db.get(fixture.buildId);
+    if (!build) {
+      throw new Error("Missing Cost Document fixture build");
+    }
+    const now = Date.now();
+    await ctx.db.insert("buildParticipants", {
+      brokerageId: build.brokerageId,
+      buildId: build._id,
+      createdAt: now,
+      displayNameSnapshot: input.subject,
+      emailSnapshot: `${input.subject}@example.com`,
+      joinedAt: now,
+      organizationId: ORGANIZATION_ID,
+      participationPeriod: 1,
+      role: input.role,
+      status: "active",
+      updatedAt: now,
+      validFrom: now,
+      workosUserId: input.subject,
+    });
+  });
+}
+
 async function stageAvailableAsset(
   fixture: Awaited<ReturnType<typeof seedFixture>>,
   fileName: string
@@ -1595,15 +2501,16 @@ async function stageAvailableAsset(
 }
 
 async function stageAsset(
-  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  fixture: CostDocumentFixture,
   fileName: string,
   scanClean: boolean,
   context: {
     contextKind?: "composer" | "costDocumentDraft";
     contextRecordId?: string;
-  } = {}
+  } = {},
+  actor: CostDocumentActor = fixture.builder
 ) {
-  const staged = await fixture.builder.mutation(
+  const staged = await actor.mutation(
     (api as any).build_collaboration_assets.beginBuildCollaborationAssetUpload,
     {
       buildId: fixture.buildId,
@@ -1622,7 +2529,7 @@ async function stageAsset(
     ? "a".repeat(64)
     : "b".repeat(64);
   const assetId: Id<"buildCollaborationAssets"> =
-    await fixture.builder.mutation(
+    await actor.mutation(
       (api as any).build_collaboration_assets
         .finalizeBuildCollaborationAssetUpload,
       {
@@ -1651,10 +2558,11 @@ async function stageAsset(
 }
 
 async function createBatch(
-  fixture: Awaited<ReturnType<typeof seedFixture>>,
-  idempotencyKey: string
+  fixture: CostDocumentFixture,
+  idempotencyKey: string,
+  actor: CostDocumentActor = fixture.builder
 ) {
-  return await fixture.builder.mutation(
+  return await actor.mutation(
     (api as any).cost_documents.createCostDocumentBatch,
     {
       buildId: fixture.buildId,
@@ -1665,36 +2573,39 @@ async function createBatch(
 }
 
 async function addDraft(
-  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  fixture: CostDocumentFixture,
   batchId: Id<"costDocumentBatches">,
   kind: "invoice" | "receipt" = "invoice",
-  category: "labour" | "materials" = "materials"
+  category: "labour" | "materials" = "materials",
+  actor: CostDocumentActor = fixture.builder
 ) {
-  return await fixture.builder.mutation(
+  return await actor.mutation(
     (api as any).cost_documents.addCostDocumentDraft,
     { batchId, category, kind }
   );
 }
 
 async function stageDraftAsset(
-  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  fixture: CostDocumentFixture,
   draftId: Id<"costDocumentDrafts">,
-  fileName: string
+  fileName: string,
+  actor: CostDocumentActor = fixture.builder
 ) {
   return await stageAsset(fixture, fileName, true, {
     contextKind: "costDocumentDraft",
     contextRecordId: String(draftId),
-  });
+  }, actor);
 }
 
 async function saveDraft(
-  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  fixture: CostDocumentFixture,
   draftId: Id<"costDocumentDrafts">,
   input: {
     allocations?: {
       amountCents: number;
       buildSubmilestoneId: Id<"buildSubmilestones">;
     }[];
+    description?: string;
     documentDate?: string;
     financialComponents?: {
       amountCents: number;
@@ -1706,17 +2617,59 @@ async function saveDraft(
     title?: string;
     vendorName?: string;
     workingStateJson?: string;
-  }
+  },
+  actor: CostDocumentActor = fixture.builder
 ) {
-  return await fixture.builder.mutation(
+  const draft = await fixture.base.run(async (ctx) => await ctx.db.get(draftId));
+  if (!draft) {
+    throw new Error("Missing Cost Document draft fixture");
+  }
+  return await actor.mutation(
     (api as any).cost_documents.saveCostDocumentDraft,
-    { draftId, ...input }
+    { draftId, expectedRevision: draft.revision ?? 1, ...input }
+  );
+}
+
+async function bindDraftPage(
+  fixture: CostDocumentFixture,
+  input: {
+    assetId: Id<"buildCollaborationAssets">;
+    draftId: Id<"costDocumentDrafts">;
+    replaceAssetId?: Id<"buildCollaborationAssets">;
+  },
+  actor: CostDocumentActor = fixture.builder
+) {
+  return await actor.mutation(
+    (api as any).cost_documents.bindCostDocumentDraftPageAsset,
+    {
+      ...input,
+      expectedRevision: await draftRevision(fixture, input.draftId),
+    }
+  );
+}
+
+async function setDraftStep(
+  fixture: CostDocumentFixture,
+  input: {
+    complete?: boolean;
+    draftId: Id<"costDocumentDrafts">;
+    step: "capture_confirm" | "balance_allocate" | "share" | "freeze";
+  },
+  actor: CostDocumentActor = fixture.builder
+) {
+  return await actor.mutation(
+    (api as any).cost_documents.setCostDocumentDraftStep,
+    {
+      ...input,
+      expectedRevision: await draftRevision(fixture, input.draftId),
+    }
   );
 }
 
 async function completeDraft(
-  fixture: Awaited<ReturnType<typeof seedFixture>>,
-  draftId: Id<"costDocumentDrafts">
+  fixture: CostDocumentFixture,
+  draftId: Id<"costDocumentDrafts">,
+  actor: CostDocumentActor = fixture.builder
 ) {
   const draft = await fixture.base.run(async (ctx) => await ctx.db.get(draftId));
   if (!draft) {
@@ -1733,15 +2686,13 @@ async function completeDraft(
     throw new Error("Cost Document draft fixture is not open for completion");
   }
   for (const step of steps.slice(currentIndex + 1)) {
-    await fixture.builder.mutation(
-      (api as any).cost_documents.setCostDocumentDraftStep,
-      { draftId, step }
-    );
+    await setDraftStep(fixture, { draftId, step }, actor);
   }
-  return await fixture.builder.mutation(
-    (api as any).cost_documents.setCostDocumentDraftStep,
-    { complete: true, draftId, step: "freeze" }
-  );
+  return await setDraftStep(fixture, {
+    complete: true,
+    draftId,
+    step: "freeze",
+  }, actor);
 }
 
 async function getBatch(
@@ -1761,6 +2712,28 @@ async function getActiveBatch(
     (api as any).cost_documents.getActiveCostDocumentBatch,
     { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
   );
+}
+
+async function batchRevision(
+  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  batchId: Id<"costDocumentBatches">
+) {
+  const batch = await fixture.base.run(async (ctx) => await ctx.db.get(batchId));
+  if (!batch) {
+    throw new Error("Missing Cost Document batch fixture");
+  }
+  return batch.revision ?? 1;
+}
+
+async function draftRevision(
+  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  draftId: Id<"costDocumentDrafts">
+) {
+  const draft = await fixture.base.run(async (ctx) => await ctx.db.get(draftId));
+  if (!draft) {
+    throw new Error("Missing Cost Document draft fixture");
+  }
+  return draft.revision ?? 1;
 }
 
 async function addSecondAccessibleBuild(

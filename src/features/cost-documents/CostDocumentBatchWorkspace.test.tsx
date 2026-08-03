@@ -49,8 +49,28 @@ type BatchDraft = {
     submilestoneName: string;
   }>;
   batchId: Id<"costDocumentBatches">;
+  capabilities: {
+    canDiscardBatch: boolean;
+    canEditDraft: boolean;
+    canManageDraftCollaboration: boolean;
+    canManageSourcePages: boolean;
+    canReadDraft: boolean;
+    canSubmitBatch: boolean;
+  };
   category: "labour" | "materials";
+  collaboration: {
+    currentCollaborators: Array<{
+      grantedAt: number;
+      workosUserId: string;
+    }>;
+    eligibleCollaborators: Array<{
+      displayName: string;
+      role: string;
+      workosUserId: string;
+    }>;
+  };
   completedAt?: number;
+  creator: { workosUserId: string };
   currency: "CAD";
   description?: string;
   documentDate?: string;
@@ -72,6 +92,8 @@ type BatchDraft = {
     order: number;
     priorAssetId?: Id<"buildCollaborationAssets">;
   }>;
+  revision: number;
+  self: { workosUserId: string };
   submittedCostDocumentId?: Id<"costDocuments">;
   title?: string;
   vendorName?: string;
@@ -82,9 +104,20 @@ type BatchProjection = {
   _id: Id<"costDocumentBatches">;
   drafts: BatchDraft[];
   idempotencyKey?: string;
+  revision: number;
   state: "active" | "submitted" | "abandoned";
   submittedAt?: number;
   supportingContextDisclosure: string;
+};
+
+type ExactDraftProjection = Omit<
+  BatchDraft,
+  "batchId" | "collaboration" | "order"
+> & {
+  collaborators?: Array<{
+    grantedAt?: number;
+    workosUserId: string;
+  }>;
 };
 
 const SUPPORTING_CONTEXT_DISCLOSURE =
@@ -96,13 +129,28 @@ function makeDraft(overrides: Partial<BatchDraft> = {}): BatchDraft {
     activeStep: "capture_confirm",
     allocations: [],
     batchId: "batch-1" as Id<"costDocumentBatches">,
+    capabilities: {
+      canDiscardBatch: true,
+      canEditDraft: true,
+      canManageDraftCollaboration: true,
+      canManageSourcePages: true,
+      canReadDraft: true,
+      canSubmitBatch: true,
+    },
     category: "materials",
+    collaboration: {
+      currentCollaborators: [],
+      eligibleCollaborators: [],
+    },
+    creator: { workosUserId: "builder-owner" },
     currency: "CAD",
     financialComponents: [],
     kind: "invoice",
     lifecycle: "draft",
     order: 1,
     pages: [],
+    revision: 1,
+    self: { workosUserId: "builder-owner" },
     ...overrides,
   };
 }
@@ -111,10 +159,19 @@ function makeBatch(overrides: Partial<BatchProjection> = {}): BatchProjection {
   return {
     _id: "batch-1" as Id<"costDocumentBatches">,
     drafts: [makeDraft()],
+    revision: 1,
     state: "active",
     supportingContextDisclosure: SUPPORTING_CONTEXT_DISCLOSURE,
     ...overrides,
   };
+}
+
+function makeExactDraft(
+  overrides: Partial<ExactDraftProjection> = {}
+): ExactDraftProjection {
+  const { batchId: _batchId, collaboration: _collaboration, order: _order, ...draft } =
+    makeDraft();
+  return { ...draft, ...overrides };
 }
 
 function deferred<T>() {
@@ -135,18 +192,22 @@ describe("CostDocumentBatchWorkspace", () => {
   const addDraft = vi.fn();
   const saveDraft = vi.fn();
   const bindDraftPageAsset = vi.fn();
+  const grantDraftCollaborator = vi.fn();
+  const revokeDraftCollaborator = vi.fn();
   const setDraftStep = vi.fn();
   const submitBatch = vi.fn();
   let currentBatch: BatchProjection | null | undefined;
   let activeBatchQuery: BatchProjection | null | undefined;
   let routeBatchQuery: BatchProjection | null | undefined;
+  let exactDraftQuery: ExactDraftProjection | null | undefined;
 
-  const renderWorkspace = (input?: { batchId?: string }) => {
+  const renderWorkspace = (input?: { batchId?: string; draftId?: string }) => {
     const onBatchIdChange = vi.fn();
-    render(
+    const workspace = (next?: { batchId?: string; draftId?: string }) => (
       <CostDocumentBatchWorkspace
-        batchId={input?.batchId}
+        batchId={next?.batchId}
         buildId={"build-1" as Id<"activeBuilds">}
+        draftId={next?.draftId}
         onBatchIdChange={onBatchIdChange}
         organizationId="org-1"
         submilestones={[
@@ -161,7 +222,12 @@ describe("CostDocumentBatchWorkspace", () => {
         ]}
       />
     );
-    return { onBatchIdChange };
+    const view = render(workspace(input));
+    return {
+      onBatchIdChange,
+      rerenderWorkspace: (next?: { batchId?: string; draftId?: string }) =>
+        view.rerender(workspace(next)),
+    };
   };
 
   beforeEach(() => {
@@ -171,6 +237,7 @@ describe("CostDocumentBatchWorkspace", () => {
     currentBatch = null;
     activeBatchQuery = undefined;
     routeBatchQuery = undefined;
+    exactDraftQuery = undefined;
     useQuery.mockImplementation((ref: unknown, args: unknown) => {
       const functionName = getFunctionName(
         ref as Parameters<typeof getFunctionName>[0]
@@ -186,6 +253,11 @@ describe("CostDocumentBatchWorkspace", () => {
       ) {
         return args === "skip" ? undefined : routeBatchQuery ?? currentBatch;
       }
+      if (
+        functionName === getFunctionName(api.cost_documents.getCostDocumentDraft)
+      ) {
+        return args === "skip" ? undefined : exactDraftQuery;
+      }
       return undefined;
     });
     createBatch.mockResolvedValue("batch-created");
@@ -198,6 +270,14 @@ describe("CostDocumentBatchWorkspace", () => {
       replayed: false,
     });
     bindDraftPageAsset.mockResolvedValue({ order: 1 });
+    grantDraftCollaborator.mockResolvedValue({
+      draftId: "draft-1",
+      revision: 2,
+    });
+    revokeDraftCollaborator.mockResolvedValue({
+      draftId: "draft-1",
+      revision: 2,
+    });
     uploadAssets.mockImplementation(
       async (
         files: File[],
@@ -264,6 +344,14 @@ describe("CostDocumentBatchWorkspace", () => {
     mutationByRef.set(
       getFunctionName(api.cost_documents.submitCostDocumentBatch),
       submitBatch
+    );
+    mutationByRef.set(
+      getFunctionName(api.cost_documents.grantCostDocumentDraftCollaborator),
+      grantDraftCollaborator
+    );
+    mutationByRef.set(
+      getFunctionName(api.cost_documents.revokeCostDocumentDraftCollaborator),
+      revokeDraftCollaborator
     );
     actionByRef.set(
       getFunctionName(
@@ -356,6 +444,314 @@ describe("CostDocumentBatchWorkspace", () => {
     );
     expect(screen.getByText("Cost Document batch unavailable")).toBeTruthy();
     expect(screen.getByText("Recovery needed")).toBeTruthy();
+  });
+
+  test("renders one exact shared Draft without querying or exposing the creator batch", () => {
+    currentBatch = makeBatch({
+      drafts: [
+        makeDraft({ title: "Private sibling source" }),
+        makeDraft({
+          _id: "draft-private-sibling" as Id<"costDocumentDrafts">,
+          order: 2,
+          title: "Second private sibling",
+        }),
+      ],
+    });
+    exactDraftQuery = makeExactDraft({
+      _id: "draft-shared" as Id<"costDocumentDrafts">,
+      activeStep: "share",
+      capabilities: {
+        canDiscardBatch: false,
+        canEditDraft: true,
+        canManageDraftCollaboration: false,
+        canManageSourcePages: true,
+        canReadDraft: true,
+        canSubmitBatch: false,
+      },
+      collaborators: [{ workosUserId: "builder-staff" }],
+      creator: { workosUserId: "builder-owner" },
+      revision: 6,
+      self: { workosUserId: "builder-staff" },
+      title: "Shared insulation invoice",
+    });
+
+    renderWorkspace({ draftId: "draft-shared" });
+
+    expect(useQuery).toHaveBeenCalledWith(
+      api.cost_documents.getActiveCostDocumentBatch,
+      "skip"
+    );
+    expect(useQuery).toHaveBeenCalledWith(
+      api.cost_documents.getCostDocumentBatch,
+      "skip"
+    );
+    expect(useQuery).toHaveBeenCalledWith(
+      api.cost_documents.getCostDocumentDraft,
+      {
+        buildId: "build-1",
+        draftId: "draft-shared",
+        organizationId: "org-1",
+      }
+    );
+    expect(screen.getByText("Shared Cost Document")).toBeTruthy();
+    expect(screen.getByText("Shared insulation invoice")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Draft access cannot be changed from your current capacity."
+      )
+    ).toBeTruthy();
+    expect(screen.queryByText("Private sibling source")).toBeNull();
+    expect(screen.queryByText("Second private sibling")).toBeNull();
+    expect(screen.queryByTestId("cost-document-batch-register")).toBeNull();
+    expect(screen.queryByTestId("batch-submit")).toBeNull();
+    expect(screen.queryByLabelText("Search eligible collaborators")).toBeNull();
+  });
+
+  test("drops optimistic sibling state when the same workspace switches to an exact Draft", async () => {
+    currentBatch = makeBatch({
+      drafts: [makeDraft({ title: "Creator source" })],
+    });
+    const view = renderWorkspace({ batchId: "batch-1" });
+    fireEvent.click(screen.getByRole("button", { name: "Add document" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("draft-draft-created")).toBeTruthy()
+    );
+
+    exactDraftQuery = makeExactDraft({
+      _id: "draft-shared-only" as Id<"costDocumentDrafts">,
+      activeStep: "share",
+      capabilities: {
+        canDiscardBatch: false,
+        canEditDraft: true,
+        canManageDraftCollaboration: false,
+        canManageSourcePages: false,
+        canReadDraft: true,
+        canSubmitBatch: false,
+      },
+      creator: { workosUserId: "builder-owner" },
+      revision: 4,
+      self: { workosUserId: "builder-staff" },
+      title: "Only shared source",
+    });
+    view.rerenderWorkspace({ draftId: "draft-shared-only" });
+
+    expect(screen.getByText("Only shared source")).toBeTruthy();
+    expect(screen.queryByText("Creator source")).toBeNull();
+    expect(screen.queryByTestId("draft-draft-created")).toBeNull();
+    expect(screen.queryByTestId("cost-document-batch-register")).toBeNull();
+  });
+
+  test("wires the owner Share ledger to exact-Draft grant mutations at the projected revision", async () => {
+    grantDraftCollaborator.mockResolvedValueOnce({
+      draftId: "draft-1",
+      revision: 8,
+    });
+    currentBatch = makeBatch({
+      drafts: [
+        makeDraft({
+          activeStep: "share",
+          collaboration: {
+            currentCollaborators: [
+              { grantedAt: 1_723_000_000_000, workosUserId: "staff-sam" },
+            ],
+            eligibleCollaborators: [
+              {
+                displayName: "Sam Rivera",
+                role: "builder-staff",
+                workosUserId: "staff-sam",
+              },
+              {
+                displayName: "Anika Patel",
+                role: "builder-staff",
+                workosUserId: "staff-anika",
+              },
+            ],
+          },
+          revision: 7,
+          title: "Electrical rough-in invoice",
+        }),
+      ],
+    });
+    renderWorkspace({ batchId: "batch-1" });
+
+    expect(screen.getByText("Collaborator · Builder Staff")).toBeTruthy();
+    expect(screen.queryByText("Private sibling source")).toBeNull();
+    const search = screen.getByLabelText("Search eligible collaborators");
+    fireEvent.click(search);
+    fireEvent.change(search, { target: { value: "anika" } });
+    fireEvent.click(screen.getByRole("option", { name: /Anika Patel/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm Draft access" })
+    );
+
+    await waitFor(() =>
+      expect(grantDraftCollaborator).toHaveBeenCalledWith({
+        collaboratorWorkosUserId: "staff-anika",
+        draftId: "draft-1",
+        expectedRevision: 7,
+      })
+    );
+  });
+
+  test("handles immediate exact-Draft revocation without offering private batch recovery", () => {
+    exactDraftQuery = null;
+
+    renderWorkspace({ draftId: "draft-revoked" });
+
+    expect(screen.getByText("Cost Document Draft unavailable")).toBeTruthy();
+    expect(screen.getByText("Access ended")).toBeTruthy();
+    expect(screen.queryByText("Cost Document batch unavailable")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start Cost Document batch" })).toBeNull();
+  });
+
+  test("persists collaborator edits against the exact projected revision without a batch mutation", async () => {
+    exactDraftQuery = makeExactDraft({
+      _id: "draft-shared-edit" as Id<"costDocumentDrafts">,
+      capabilities: {
+        canDiscardBatch: false,
+        canEditDraft: true,
+        canManageDraftCollaboration: false,
+        canManageSourcePages: true,
+        canReadDraft: true,
+        canSubmitBatch: false,
+      },
+      creator: { workosUserId: "builder-owner" },
+      revision: 6,
+      self: { workosUserId: "builder-staff" },
+      title: "Shared source",
+    });
+    renderWorkspace({ draftId: "draft-shared-edit" });
+
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Collaborator-updated source" },
+    });
+
+    await waitFor(
+      () =>
+        expect(saveDraft).toHaveBeenCalledWith(
+          expect.objectContaining({
+            draftId: "draft-shared-edit",
+            expectedRevision: 6,
+            title: "Collaborator-updated source",
+          })
+        ),
+      { timeout: 1500 }
+    );
+    expect(addDraft).not.toHaveBeenCalled();
+    expect(submitBatch).not.toHaveBeenCalled();
+  });
+
+  test("keeps the editor base revision when a reactive collaborator update arrives before autosave", async () => {
+    saveDraft.mockRejectedValueOnce(
+      new Error(
+        "Draft revision conflict: this Cost Document changed while you were editing."
+      )
+    );
+    exactDraftQuery = makeExactDraft({
+      _id: "draft-stale" as Id<"costDocumentDrafts">,
+      capabilities: {
+        canDiscardBatch: false,
+        canEditDraft: true,
+        canManageDraftCollaboration: false,
+        canManageSourcePages: true,
+        canReadDraft: true,
+        canSubmitBatch: false,
+      },
+      creator: { workosUserId: "builder-owner" },
+      revision: 11,
+      self: { workosUserId: "builder-staff" },
+      title: "Server title",
+    });
+    const { rerenderWorkspace } = renderWorkspace({
+      draftId: "draft-stale",
+    });
+
+    const title = screen.getByLabelText("Title") as HTMLInputElement;
+    fireEvent.change(title, { target: { value: "Preserved local title" } });
+    exactDraftQuery = makeExactDraft({
+      _id: "draft-stale" as Id<"costDocumentDrafts">,
+      capabilities: {
+        canDiscardBatch: false,
+        canEditDraft: true,
+        canManageDraftCollaboration: false,
+        canManageSourcePages: true,
+        canReadDraft: true,
+        canSubmitBatch: false,
+      },
+      creator: { workosUserId: "builder-owner" },
+      revision: 12,
+      self: { workosUserId: "builder-staff" },
+      title: "Other collaborator title",
+    });
+    rerenderWorkspace({ draftId: "draft-stale" });
+
+    expect(
+      await screen.findByText(/Draft revision conflict/i, {}, { timeout: 1500 })
+    ).toBeTruthy();
+    expect(title.value).toBe("Preserved local title");
+    expect(saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftId: "draft-stale",
+        expectedRevision: 11,
+      })
+    );
+  });
+
+  test("adopts a newer reactive projection when the local editor is clean", async () => {
+    exactDraftQuery = makeExactDraft({
+      _id: "draft-clean-refresh" as Id<"costDocumentDrafts">,
+      revision: 3,
+      title: "Original server title",
+    });
+    const { rerenderWorkspace } = renderWorkspace({
+      draftId: "draft-clean-refresh",
+    });
+
+    expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
+      "Original server title"
+    );
+    exactDraftQuery = makeExactDraft({
+      _id: "draft-clean-refresh" as Id<"costDocumentDrafts">,
+      revision: 4,
+      title: "Fresh collaborator title",
+    });
+    rerenderWorkspace({ draftId: "draft-clean-refresh" });
+
+    await waitFor(() =>
+      expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe(
+        "Fresh collaborator title"
+      )
+    );
+    expect(saveDraft).not.toHaveBeenCalled();
+  });
+
+  test("renders a completed collaborator projection read-only without creator reopen controls", () => {
+    exactDraftQuery = makeExactDraft({
+      _id: "draft-complete-collaborator" as Id<"costDocumentDrafts">,
+      activeStep: "freeze",
+      capabilities: {
+        canDiscardBatch: false,
+        canEditDraft: false,
+        canManageDraftCollaboration: false,
+        canManageSourcePages: false,
+        canReadDraft: true,
+        canSubmitBatch: false,
+      },
+      completedAt: 1_723_000_000_000,
+      creator: { workosUserId: "builder-owner" },
+      lifecycle: "complete",
+      revision: 12,
+      self: { workosUserId: "builder-staff" },
+      title: "Completed shared source",
+    });
+    renderWorkspace({ draftId: "draft-complete-collaborator" });
+
+    expect(screen.getByText("Read-only Cost Document Draft")).toBeTruthy();
+    expect(screen.queryByLabelText("Title")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Reopen to Share" })
+    ).toBeNull();
+    expect(screen.queryByTestId("batch-submit")).toBeNull();
   });
 
   test("recovers server drafts and keeps navigation and progress independent for each document", async () => {
@@ -705,6 +1101,7 @@ describe("CostDocumentBatchWorkspace", () => {
     expect(bindDraftPageAsset).toHaveBeenCalledWith({
       assetId: "asset-uploaded",
       draftId: "draft-capture",
+      expectedRevision: 1,
     });
 
     cleanup();
@@ -779,6 +1176,7 @@ describe("CostDocumentBatchWorkspace", () => {
       expect(bindDraftPageAsset).toHaveBeenCalledWith({
         assetId: "asset-uploaded",
         draftId: "draft-edit-before-upload",
+        expectedRevision: 1,
       })
     );
   });
@@ -829,6 +1227,7 @@ describe("CostDocumentBatchWorkspace", () => {
       expect(bindDraftPageAsset).toHaveBeenCalledWith({
         assetId: "asset-retained",
         draftId: "draft-partial-upload",
+        expectedRevision: 1,
       })
     );
     await waitFor(() => expect(screen.getByText("retry.pdf")).toBeTruthy());
@@ -850,6 +1249,7 @@ describe("CostDocumentBatchWorkspace", () => {
       expect(bindDraftPageAsset).toHaveBeenCalledWith({
         assetId: "asset-uploaded",
         draftId: "draft-partial-upload",
+        expectedRevision: 2,
       })
     );
   });
@@ -918,6 +1318,7 @@ describe("CostDocumentBatchWorkspace", () => {
       expect(bindDraftPageAsset).toHaveBeenCalledWith({
         assetId: "asset-originating",
         draftId: "draft-upload-origin",
+        expectedRevision: 1,
       })
     );
     await waitFor(() =>
@@ -934,6 +1335,98 @@ describe("CostDocumentBatchWorkspace", () => {
           (input as { draftId?: string }).draftId === "draft-upload-other"
       )
     ).toBe(false);
+  });
+
+  test("keeps the upload base revision when a reactive page update arrives during scanning", async () => {
+    const uploadCompletion = deferred<Id<"buildCollaborationAssets">[]>();
+    uploadAssets.mockImplementationOnce(
+      async (
+        files: File[],
+        context: {
+          onFinalizedCleanAsset?: (asset: {
+            assetId: Id<"buildCollaborationAssets">;
+            file: File;
+          }) => Promise<void> | void;
+        }
+      ) => {
+        const assetIds = await uploadCompletion.promise;
+        for (const [index, file] of files.entries()) {
+          await context.onFinalizedCleanAsset?.({
+            assetId: assetIds[index]!,
+            file,
+          });
+        }
+        return assetIds;
+      }
+    );
+    bindDraftPageAsset.mockRejectedValueOnce(
+      new Error(
+        "Draft revision conflict: this Cost Document changed while you were uploading."
+      )
+    );
+    exactDraftQuery = makeExactDraft({
+      _id: "draft-upload-conflict" as Id<"costDocumentDrafts">,
+      pages: [
+        {
+          assetId: "asset-creator" as Id<"buildCollaborationAssets">,
+          fileName: "creator.pdf",
+          mimeType: "application/pdf",
+          order: 1,
+        },
+      ],
+      revision: 5,
+      title: "Shared upload source",
+    });
+    const { rerenderWorkspace } = renderWorkspace({
+      draftId: "draft-upload-conflict",
+    });
+
+    fireEvent.change(screen.getByTestId("page-input"), {
+      target: {
+        files: [
+          new File(["page"], "collaborator.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Upload source pages" }));
+    await waitFor(() => expect(uploadAssets).toHaveBeenCalledTimes(1));
+
+    exactDraftQuery = makeExactDraft({
+      _id: "draft-upload-conflict" as Id<"costDocumentDrafts">,
+      pages: [
+        {
+          assetId: "asset-creator" as Id<"buildCollaborationAssets">,
+          fileName: "creator.pdf",
+          mimeType: "application/pdf",
+          order: 1,
+        },
+        {
+          assetId:
+            "asset-other-collaborator" as Id<"buildCollaborationAssets">,
+          fileName: "other.pdf",
+          mimeType: "application/pdf",
+          order: 2,
+        },
+      ],
+      revision: 6,
+      title: "Shared upload source",
+    });
+    rerenderWorkspace({ draftId: "draft-upload-conflict" });
+    uploadCompletion.resolve([
+      "asset-upload-conflict" as Id<"buildCollaborationAssets">,
+    ]);
+
+    await waitFor(() =>
+      expect(bindDraftPageAsset).toHaveBeenCalledWith({
+        assetId: "asset-upload-conflict",
+        draftId: "draft-upload-conflict",
+        expectedRevision: 5,
+      })
+    );
+    expect(await screen.findByText(/Draft revision conflict/i)).toBeTruthy();
+    expect(saveDraft).not.toHaveBeenCalled();
   });
 
   test("reorders and removes already-bound Capture pages through the durable replacement contract", async () => {
@@ -1015,6 +1508,7 @@ describe("CostDocumentBatchWorkspace", () => {
       expect(bindDraftPageAsset).toHaveBeenCalledWith({
         assetId: "asset-uploaded",
         draftId: "draft-1",
+        expectedRevision: 1,
         replaceAssetId: "asset-original",
       })
     );
@@ -1103,6 +1597,7 @@ describe("CostDocumentBatchWorkspace", () => {
     );
     expect(setDraftStep).toHaveBeenCalledWith({
       draftId: "draft-1",
+      expectedRevision: 3,
       step: "share",
     });
   });
@@ -1147,6 +1642,7 @@ describe("CostDocumentBatchWorkspace", () => {
     await waitFor(() =>
       expect(setDraftStep).toHaveBeenCalledWith({
         draftId: "draft-1",
+        expectedRevision: 1,
         step: "balance_allocate",
       })
     );
@@ -1177,18 +1673,20 @@ describe("CostDocumentBatchWorkspace", () => {
       expect(setDraftStep).toHaveBeenCalledWith({
         complete: false,
         draftId: "draft-1",
+        expectedRevision: 1,
         step: "share",
       })
     );
     expect(
       screen.getByTestId("cost-document-batch-editor").textContent
-    ).toContain("Owner-private draft");
+    ).toContain("Share this Draft");
     fireEvent.click(
       screen.getByRole("button", { name: "Back to Balance & allocate" })
     );
     await waitFor(() =>
       expect(setDraftStep).toHaveBeenLastCalledWith({
         draftId: "draft-1",
+        expectedRevision: 2,
         step: "balance_allocate",
       })
     );

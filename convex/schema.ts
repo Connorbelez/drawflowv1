@@ -1846,6 +1846,7 @@ export default defineSchema({
     .index("by_builder", ["builderProfileId"])
     .index("by_link", ["builderAccountLinkId"])
     .index("by_user", ["workosUserId"])
+    .index("by_buildId_and_workosUserId", ["buildId", "workosUserId"])
     .index("by_proposal_link_resource", [
       "proposalId",
       "builderAccountLinkId",
@@ -6183,6 +6184,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_costDocumentId_and_order", ["costDocumentId", "order"])
+    .index("by_costDocumentId_and_assetId", ["costDocumentId", "assetId"])
     .index("by_buildId_and_assetId", ["buildId", "assetId"]),
   costDocumentAllocations: defineTable({
     brokerageId: v.id("brokerages"),
@@ -6221,6 +6223,9 @@ export default defineSchema({
     createIdempotencyKey: v.optional(v.string()),
     submitIdempotencyKey: v.optional(v.string()),
     submittedAt: v.optional(v.number()),
+    // Optimistic aggregate revision. Legacy rows default to revision 1 at the
+    // authorization boundary until first material mutation backfills it.
+    revision: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -6255,6 +6260,9 @@ export default defineSchema({
     lifecycle: costDocumentDraftLifecycleValidator,
     completedAt: v.optional(v.number()),
     submittedCostDocumentId: v.optional(v.id("costDocuments")),
+    // Optimistic revision for all material draft edits and collaboration
+    // decisions. Legacy rows default to revision 1 at read/write time.
+    revision: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -6265,6 +6273,32 @@ export default defineSchema({
       "lifecycle",
     ])
     .index("by_batchId_and_lifecycle", ["batchId", "lifecycle"]),
+  costDocumentDraftCollaborationEvents: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    batchId: v.id("costDocumentBatches"),
+    draftId: v.id("costDocumentDrafts"),
+    creatorWorkosUserId: v.string(),
+    collaboratorWorkosUserId: v.string(),
+    actorWorkosUserId: v.string(),
+    actorRole: buildCollaborationRoleValidator,
+    eventType: v.union(v.literal("granted"), v.literal("revoked")),
+    draftRevision: v.number(),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_draftId_and_draftRevision", ["draftId", "draftRevision"])
+    .index("by_draftId_and_collaboratorWorkosUserId_and_draftRevision", [
+      "draftId",
+      "collaboratorWorkosUserId",
+      "draftRevision",
+    ])
+    .index("by_buildId_and_collaboratorWorkosUserId_and_draftRevision", [
+      "buildId",
+      "collaboratorWorkosUserId",
+      "draftRevision",
+    ]),
   costDocumentDraftPages: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -6280,7 +6314,8 @@ export default defineSchema({
   })
     .index("by_draftId_and_order", ["draftId", "order"])
     .index("by_draftId_and_state_and_order", ["draftId", "state", "order"])
-    .index("by_assetId", ["assetId"]),
+    .index("by_assetId", ["assetId"])
+    .index("by_assetId_and_state", ["assetId", "state"]),
   costDocumentDraftAllocations: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

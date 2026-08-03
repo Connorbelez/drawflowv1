@@ -6,12 +6,17 @@ import {
   BuilderBuildWorkspaceRoute,
 } from "#/routes/builder/builds/$buildId/index.tsx";
 
+function normalizeOptionalSearchString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
+    const costDocumentDraft = normalizeOptionalSearchString(
+      search.costDocumentDraft
+    );
     const costBatch =
-      typeof search.costBatch === "string" && search.costBatch.trim()
-        ? search.costBatch.trim()
-        : undefined;
+      !costDocumentDraft && normalizeOptionalSearchString(search.costBatch);
     const tab =
       search.tab === "timeline" ||
       search.tab === "costs" ||
@@ -42,6 +47,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
         : undefined;
     return {
       ...(costBatch ? { costBatch } : {}),
+      ...(costDocumentDraft ? { costDocumentDraft } : {}),
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),

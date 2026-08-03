@@ -44,6 +44,11 @@ import { uploadGovernedCollaborationAssets } from "#/features/build-collaboratio
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
+  type CostDocumentDraftAccessPerson,
+  CostDocumentDraftCollaboration,
+  type CostDocumentDraftCollaborator,
+} from "./CostDocumentDraftCollaboration.tsx";
+import {
   type CostDocumentSubmilestoneOption,
   formatCad,
   parseCadCents,
@@ -77,9 +82,16 @@ interface BatchDraft {
     submilestoneKey: string;
     submilestoneName: string;
   }>;
-  batchId: Id<"costDocumentBatches">;
+  batchId?: Id<"costDocumentBatches">;
+  capabilities?: CostDocumentDraftCapabilities;
   category: CostDocumentCategory;
+  collaboration?: CostDocumentDraftCollaborationProjection;
+  collaborators?: Array<{
+    grantedAt?: number;
+    workosUserId: string;
+  }>;
   completedAt?: number;
+  creator?: { workosUserId: string };
   currency: "CAD";
   description?: string;
   documentDate?: string;
@@ -92,7 +104,7 @@ interface BatchDraft {
   grossTotalCents?: number;
   kind: CostDocumentKind;
   lifecycle: "draft" | "complete" | "submitted";
-  order: number;
+  order?: number;
   pages: Array<{
     assetId: Id<"buildCollaborationAssets">;
     contentHashSha256?: string;
@@ -102,16 +114,47 @@ interface BatchDraft {
     priorAssetId?: Id<"buildCollaborationAssets">;
     replacedAt?: number;
   }>;
+  revision?: number;
+  self?: { workosUserId: string };
   submittedCostDocumentId?: Id<"costDocuments">;
   title?: string;
   vendorName?: string;
   workingStateJson?: string;
 }
 
+interface CostDocumentDraftCapabilities {
+  canDiscardBatch: boolean;
+  canEditDraft: boolean;
+  canManageDraftCollaboration: boolean;
+  canManageSourcePages: boolean;
+  canReadDraft: boolean;
+  canSubmitBatch: boolean;
+}
+
+interface CostDocumentDraftCollaborationProjection {
+  currentCollaborators: Array<{
+    grantedAt: number;
+    workosUserId: string;
+  }>;
+  eligibleCollaborators: Array<{
+    displayName: string;
+    role: string;
+    workosUserId: string;
+  }>;
+}
+
+interface ExactDraftProjection extends Omit<BatchDraft, "batchId" | "order"> {
+  capabilities: CostDocumentDraftCapabilities;
+  creator: { workosUserId: string };
+  revision: number;
+  self: { workosUserId: string };
+}
+
 interface BatchProjection {
   _id: Id<"costDocumentBatches">;
   drafts: BatchDraft[];
   idempotencyKey?: string;
+  revision: number;
   state: "active" | "submitted" | "abandoned";
   submittedAt?: number;
   supportingContextDisclosure: string;
@@ -177,9 +220,32 @@ interface DraftAutosavePayload {
   workingStateJson: string;
 }
 
+interface CostDocumentDraftSaveInput {
+  allocations?: Array<{
+    amountCents: number;
+    buildSubmilestoneId: Id<"buildSubmilestones">;
+  }>;
+  category?: CostDocumentCategory;
+  description?: string;
+  documentDate?: string;
+  draftId: Id<"costDocumentDrafts">;
+  financialComponents?: Array<{
+    amountCents: number;
+    kind: FinancialComponentKind;
+    label?: string;
+  }>;
+  grossTotalCents?: number;
+  kind?: CostDocumentKind;
+  pageAssetIds?: Id<"buildCollaborationAssets">[];
+  title?: string;
+  vendorName?: string;
+  workingStateJson?: string;
+}
+
 export interface CostDocumentBatchWorkspaceProps {
   batchId?: string;
   buildId: Id<"activeBuilds">;
+  draftId?: string;
   onBatchIdChange: (batchId?: string) => void;
   organizationId: string;
   submilestones: CostDocumentSubmilestoneOption[];
@@ -254,17 +320,18 @@ function useReconcileOptimisticCostDocumentDrafts({
 export function CostDocumentBatchWorkspace({
   batchId,
   buildId,
+  draftId,
   onBatchIdChange,
   organizationId,
   submilestones,
 }: CostDocumentBatchWorkspaceProps) {
   const activeBatchRecoveryQuery = useQuery(
     api.cost_documents.getActiveCostDocumentBatch,
-    batchId ? "skip" : { buildId, organizationId }
+    batchId || draftId ? "skip" : { buildId, organizationId }
   ) as BatchProjection | null | undefined;
   const routeBatchQuery = useQuery(
     api.cost_documents.getCostDocumentBatch,
-    batchId
+    batchId && !draftId
       ? {
           batchId,
           buildId,
@@ -272,6 +339,16 @@ export function CostDocumentBatchWorkspace({
         }
       : "skip"
   ) as BatchProjection | null | undefined;
+  const exactDraftQuery = useQuery(
+    api.cost_documents.getCostDocumentDraft,
+    draftId
+      ? {
+          buildId,
+          draftId: draftId as Id<"costDocumentDrafts">,
+          organizationId,
+        }
+      : "skip"
+  ) as ExactDraftProjection | null | undefined;
   const batchQuery = batchId ? routeBatchQuery : activeBatchRecoveryQuery;
   const createBatch = useMutation(api.cost_documents.createCostDocumentBatch);
   const addDraft = useMutation(api.cost_documents.addCostDocumentDraft);
@@ -281,6 +358,12 @@ export function CostDocumentBatchWorkspace({
     api.cost_documents.bindCostDocumentDraftPageAsset
   );
   const submitBatch = useMutation(api.cost_documents.submitCostDocumentBatch);
+  const grantDraftCollaborator = useMutation(
+    api.cost_documents.grantCostDocumentDraftCollaborator
+  );
+  const revokeDraftCollaborator = useMutation(
+    api.cost_documents.revokeCostDocumentDraftCollaborator
+  );
   const beginUpload = useMutation(
     api.build_collaboration_assets.beginBuildCollaborationAssetUpload
   );
@@ -313,6 +396,8 @@ export function CostDocumentBatchWorkspace({
   const [uploadingPages, setUploadingPages] = useState(false);
   const [draftBusy, setDraftBusy] = useState(false);
   const [draftError, setDraftError] = useState<string>();
+  const [collaborationBusy, setCollaborationBusy] = useState(false);
+  const [collaborationError, setCollaborationError] = useState<string>();
   const [submittingBatch, setSubmittingBatch] = useState(false);
   const [batchSubmitError, setBatchSubmitError] = useState<string>();
   const [autosaveStatuses, setAutosaveStatuses] = useState<
@@ -328,28 +413,39 @@ export function CostDocumentBatchWorkspace({
   const draftAutosaveStatesRef = useRef(new Map<string, DraftAutosaveState>());
   const persistDraftEditorRef = useRef<(draftId: string) => Promise<void>>();
   const draftsByIdRef = useRef(new Map<string, BatchDraft>());
+  const draftRevisionsRef = useRef(new Map<string, number>());
   const uploadingDraftIdRef = useRef<string>();
   const switchingDraftRef = useRef(false);
   const pendingFilesDraftIdRef = useRef<string>();
 
   const activeBatch = batchQuery?.state === "active" ? batchQuery : null;
   const activeBatchId = activeBatch ? String(activeBatch._id) : undefined;
+  const exactDraft = draftId ? exactDraftQuery : null;
+  const serverDrafts = useMemo(
+    () => (exactDraft ? [exactDraft] : (activeBatch?.drafts ?? [])),
+    [activeBatch?.drafts, exactDraft]
+  );
 
   const drafts = useMemo(() => {
-    const serverDrafts = activeBatch?.drafts ?? [];
     const serverDraftIds = new Set(
       serverDrafts.map((draft) => String(draft._id))
     );
-    const localOnly = optimisticDrafts.filter(
-      (draft) => !serverDraftIds.has(String(draft._id))
-    );
+    const localOnly = exactDraft
+      ? []
+      : optimisticDrafts.filter(
+          (draft) => !serverDraftIds.has(String(draft._id))
+        );
     return [...serverDrafts, ...localOnly]
-      .map((draft) => ({
-        ...draft,
-        ...draftOverrides[String(draft._id)],
-      }))
-      .sort((left, right) => left.order - right.order);
-  }, [activeBatch?.drafts, draftOverrides, optimisticDrafts]);
+      .map((draft) => {
+        const override = draftOverrides[String(draft._id)];
+        return {
+          ...draft,
+          ...override,
+          revision: Math.max(draft.revision ?? 1, override?.revision ?? 0),
+        };
+      })
+      .sort((left, right) => (left.order ?? 0) - (right.order ?? 0));
+  }, [draftOverrides, exactDraft, optimisticDrafts, serverDrafts]);
 
   const activeDraft =
     drafts.find((draft) => String(draft._id) === activeDraftId) ?? drafts[0];
@@ -358,7 +454,7 @@ export function CostDocumentBatchWorkspace({
   );
 
   const sheetOpen = Boolean(
-    batchId || (activeBatchId && activeBatchId !== dismissedBatchId)
+    draftId || batchId || (activeBatchId && activeBatchId !== dismissedBatchId)
   );
 
   useCostDocumentBatchRouteLifecycle({
@@ -371,7 +467,7 @@ export function CostDocumentBatchWorkspace({
   });
 
   useReconcileOptimisticCostDocumentDrafts({
-    activeBatch,
+    activeBatch: draftId ? null : activeBatch,
     setOptimisticDrafts,
   });
 
@@ -388,6 +484,59 @@ export function CostDocumentBatchWorkspace({
   useEffect(() => {
     activeDraftIdRef.current = activeDraftId;
   }, [activeDraftId]);
+
+  useEffect(() => {
+    const overridesToClear: string[] = [];
+    for (const serverDraft of serverDrafts) {
+      const draftKey = String(serverDraft._id);
+      const serverRevision = serverDraft.revision ?? 1;
+      const trackedRevision = draftRevisionsRef.current.get(draftKey);
+      if (trackedRevision === undefined) {
+        draftRevisionsRef.current.set(draftKey, serverRevision);
+        continue;
+      }
+      const autosaveState = draftAutosaveStatesRef.current.get(draftKey);
+      const hasLocalDraftOperation =
+        uploadingDraftIdRef.current === draftKey ||
+        Boolean(
+          autosaveState &&
+            (autosaveState.requestedVersion > autosaveState.savedVersion ||
+              autosaveState.inFlight ||
+              autosaveState.timer)
+        );
+      if (hasLocalDraftOperation || serverRevision < trackedRevision) {
+        continue;
+      }
+
+      // A clean editor may adopt a newer reactive projection. A dirty editor
+      // deliberately keeps its original base revision so autosave conflicts
+      // instead of overwriting another collaborator's intervening update.
+      draftRevisionsRef.current.set(draftKey, serverRevision);
+      const nextEditor = draftToEditor(serverDraft);
+      draftEditorsRef.current.set(draftKey, nextEditor);
+      if (
+        activeDraftIdRef.current === draftKey ||
+        (!activeDraftIdRef.current && activeDraftId === draftKey)
+      ) {
+        editorRef.current = nextEditor;
+        setEditor(nextEditor);
+      }
+      overridesToClear.push(draftKey);
+    }
+    if (overridesToClear.length > 0) {
+      setDraftOverrides((current) => {
+        const next = { ...current };
+        let changed = false;
+        for (const draftKey of overridesToClear) {
+          if (next[draftKey]) {
+            delete next[draftKey];
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
+    }
+  }, [activeDraftId, serverDrafts]);
 
   useEffect(() => {
     // Query and optimistic-override refreshes create new draft objects. They
@@ -433,6 +582,60 @@ export function CostDocumentBatchWorkspace({
     }));
   };
 
+  const revisionForDraft = (draftId: string) =>
+    draftRevisionsRef.current.get(draftId) ??
+    draftsByIdRef.current.get(draftId)?.revision ??
+    1;
+
+  const recordDraftRevision = (
+    draftId: string,
+    result: unknown,
+    expectedRevision: number
+  ) => {
+    const returnedRevision =
+      typeof result === "object" &&
+      result !== null &&
+      "revision" in result &&
+      typeof result.revision === "number"
+        ? result.revision
+        : expectedRevision + 1;
+    draftRevisionsRef.current.set(draftId, returnedRevision);
+    updateDraftOverride(draftId, { revision: returnedRevision });
+    return returnedRevision;
+  };
+
+  const saveDraftWithRevision = async (input: CostDocumentDraftSaveInput) => {
+    const draftKey = String(input.draftId);
+    const expectedRevision = revisionForDraft(draftKey);
+    const result = await saveDraft({ ...input, expectedRevision });
+    recordDraftRevision(draftKey, result, expectedRevision);
+    return result;
+  };
+
+  const setDraftStepWithRevision = async (input: {
+    complete?: boolean;
+    draftId: Id<"costDocumentDrafts">;
+    step: DraftStep;
+  }) => {
+    const draftKey = String(input.draftId);
+    const expectedRevision = revisionForDraft(draftKey);
+    const result = await setDraftStep({ ...input, expectedRevision });
+    recordDraftRevision(draftKey, result, expectedRevision);
+    return result;
+  };
+
+  const bindDraftPageAssetWithRevision = async (input: {
+    assetId: Id<"buildCollaborationAssets">;
+    draftId: Id<"costDocumentDrafts">;
+    replaceAssetId?: Id<"buildCollaborationAssets">;
+  }) => {
+    const draftKey = String(input.draftId);
+    const expectedRevision = revisionForDraft(draftKey);
+    const result = await bindDraftPageAsset({ ...input, expectedRevision });
+    recordDraftRevision(draftKey, result, expectedRevision);
+    return result;
+  };
+
   function replaceEditor(nextEditor: DraftEditor | null) {
     editorRef.current = nextEditor;
     if (nextEditor) {
@@ -473,7 +676,7 @@ export function CostDocumentBatchWorkspace({
     const version = state.requestedVersion;
     const payload = autosavePayload(currentEditor);
     setAutosaveStatuses((current) => ({ ...current, [draftId]: "saving" }));
-    const request = saveDraft(payload);
+    const request = saveDraftWithRevision(payload);
     state.inFlight = request;
     let saved = false;
     try {
@@ -686,13 +889,23 @@ export function CostDocumentBatchWorkspace({
         activeStep: "capture_confirm",
         allocations: [],
         batchId: activeBatch._id,
+        capabilities: {
+          canDiscardBatch: true,
+          canEditDraft: true,
+          canManageDraftCollaboration: false,
+          canManageSourcePages: true,
+          canReadDraft: true,
+          canSubmitBatch: true,
+        },
         category: newCategory,
         currency: "CAD",
         financialComponents: [],
         kind: newKind,
         lifecycle: "draft",
-        order: Math.max(0, ...drafts.map((existing) => existing.order)) + 1,
+        order:
+          Math.max(0, ...drafts.map((existing) => existing.order ?? 0)) + 1,
         pages: [],
+        revision: 1,
       };
       setOptimisticDrafts((current) => [...current, draft]);
       const draftEditor = draftToEditor(draft);
@@ -716,7 +929,7 @@ export function CostDocumentBatchWorkspace({
     if (pageAssetIds.length === 0) {
       throw new Error("Choose at least one Invoice or Receipt page.");
     }
-    await saveDraft({
+    await saveDraftWithRevision({
       description: facts.description,
       documentDate: facts.documentDate,
       draftId: draft._id,
@@ -775,7 +988,7 @@ export function CostDocumentBatchWorkspace({
         contextRecordId: String(draft._id),
         finalizeAndScan,
         onFinalizedCleanAsset: async ({ assetId, file }) => {
-          const binding = await bindDraftPageAsset({
+          const binding = await bindDraftPageAssetWithRevision({
             assetId,
             draftId: draft._id,
           });
@@ -811,7 +1024,7 @@ export function CostDocumentBatchWorkspace({
         .sort((left, right) => left.order - right.order)
         .map((page) => String(page.assetId));
       if (options?.persistImmediately !== false) {
-        await saveDraft({
+        await saveDraftWithRevision({
           draftId: draft._id,
           pageAssetIds: pageAssetIds as Id<"buildCollaborationAssets">[],
         });
@@ -872,7 +1085,7 @@ export function CostDocumentBatchWorkspace({
       draft.pages.map((page) => [String(page.assetId), page])
     );
     const nextEditor = { ...currentEditor, pageAssetIds };
-    await saveDraft({
+    await saveDraftWithRevision({
       draftId: draft._id,
       pageAssetIds: pageAssetIds as Id<"buildCollaborationAssets">[],
       workingStateJson: serializeDraftWorkingState(nextEditor),
@@ -1017,7 +1230,7 @@ export function CostDocumentBatchWorkspace({
           assetId: replacementAssetId,
           file,
         }) => {
-          const binding = await bindDraftPageAsset({
+          const binding = await bindDraftPageAssetWithRevision({
             assetId: replacementAssetId,
             draftId: activeDraft._id,
             replaceAssetId: assetId as Id<"buildCollaborationAssets">,
@@ -1122,7 +1335,7 @@ export function CostDocumentBatchWorkspace({
           draftEditorsRef.current.get(draftId) ?? currentEditor,
           pageAssetIds
         );
-        await setDraftStep({
+        await setDraftStepWithRevision({
           draftId: activeDraft._id,
           step: "balance_allocate",
         });
@@ -1132,7 +1345,7 @@ export function CostDocumentBatchWorkspace({
       if (activeDraft.activeStep === "balance_allocate") {
         const balance = exactBalanceFromEditor(currentEditor);
         const facts = requiredCaptureFacts(currentEditor);
-        await saveDraft({
+        await saveDraftWithRevision({
           allocations: balance.allocations,
           description: facts.description,
           documentDate: facts.documentDate,
@@ -1166,12 +1379,18 @@ export function CostDocumentBatchWorkspace({
           grossTotalCents: balance.grossTotalCents,
           lifecycle: "draft",
         });
-        await setDraftStep({ draftId: activeDraft._id, step: "share" });
+        await setDraftStepWithRevision({
+          draftId: activeDraft._id,
+          step: "share",
+        });
         updateDraftOverride(draftId, { activeStep: "share" });
         return;
       }
       if (activeDraft.activeStep === "share") {
-        await setDraftStep({ draftId: activeDraft._id, step: "freeze" });
+        await setDraftStepWithRevision({
+          draftId: activeDraft._id,
+          step: "freeze",
+        });
         updateDraftOverride(draftId, { activeStep: "freeze" });
       }
     } catch (cause) {
@@ -1199,7 +1418,7 @@ export function CostDocumentBatchWorkspace({
         return;
       }
       await flushDraftAutosave(String(activeDraft._id));
-      await setDraftStep(
+      await setDraftStepWithRevision(
         activeDraft.lifecycle === "complete"
           ? { complete: false, draftId: activeDraft._id, step: previous.id }
           : { draftId: activeDraft._id, step: previous.id }
@@ -1233,7 +1452,7 @@ export function CostDocumentBatchWorkspace({
     setDraftBusy(true);
     try {
       await flushDraftAutosave(String(activeDraft._id));
-      await setDraftStep({ draftId: activeDraft._id, step });
+      await setDraftStepWithRevision({ draftId: activeDraft._id, step });
       updateDraftOverride(String(activeDraft._id), { activeStep: step });
     } catch (cause) {
       setDraftError(
@@ -1256,7 +1475,7 @@ export function CostDocumentBatchWorkspace({
     setDraftBusy(true);
     try {
       await flushDraftAutosave(String(activeDraft._id));
-      await setDraftStep({
+      await setDraftStepWithRevision({
         complete: true,
         draftId: activeDraft._id,
         step: "freeze",
@@ -1286,7 +1505,7 @@ export function CostDocumentBatchWorkspace({
     setDraftBusy(true);
     try {
       await flushDraftAutosave(String(activeDraft._id));
-      await setDraftStep({
+      await setDraftStepWithRevision({
         complete: false,
         draftId: activeDraft._id,
         step: "share",
@@ -1305,6 +1524,68 @@ export function CostDocumentBatchWorkspace({
     }
   };
 
+  const grantCollaborator = async ({
+    expectedRevision,
+    granteeWorkosUserId,
+  }: {
+    expectedRevision: number;
+    granteeWorkosUserId: string;
+  }) => {
+    if (!activeDraft?.capabilities?.canManageDraftCollaboration) {
+      return;
+    }
+    setCollaborationError(undefined);
+    setCollaborationBusy(true);
+    try {
+      const result = await grantDraftCollaborator({
+        collaboratorWorkosUserId: granteeWorkosUserId,
+        draftId: activeDraft._id,
+        expectedRevision,
+      });
+      recordDraftRevision(String(activeDraft._id), result, expectedRevision);
+    } catch (cause) {
+      const message = errorMessage(
+        cause,
+        "Unable to grant access to this Cost Document Draft."
+      );
+      setCollaborationError(message);
+      throw cause;
+    } finally {
+      setCollaborationBusy(false);
+    }
+  };
+
+  const revokeCollaborator = async ({
+    collaboratorWorkosUserId,
+    expectedRevision,
+  }: {
+    collaboratorWorkosUserId: string;
+    expectedRevision: number;
+  }) => {
+    if (!activeDraft?.capabilities?.canManageDraftCollaboration) {
+      return;
+    }
+    setCollaborationError(undefined);
+    setCollaborationBusy(true);
+    try {
+      const result = await revokeDraftCollaborator({
+        collaboratorWorkosUserId,
+        draftId: activeDraft._id,
+        expectedRevision,
+      });
+      recordDraftRevision(String(activeDraft._id), result, expectedRevision);
+    } catch (cause) {
+      const message = errorMessage(
+        cause,
+        "Unable to revoke access to this Cost Document Draft."
+      );
+      setCollaborationError(message);
+      throw cause;
+    } finally {
+      setCollaborationBusy(false);
+    }
+  };
+
   const allDraftsComplete =
     drafts.length > 0 &&
     drafts.every((draft) => draft.lifecycle === "complete");
@@ -1320,7 +1601,11 @@ export function CostDocumentBatchWorkspace({
         submitIdempotencyKeys.current.get(String(activeBatch._id)) ??
         makeIdempotencyKey("cost-document-batch-submit");
       submitIdempotencyKeys.current.set(String(activeBatch._id), key);
-      await submitBatch({ batchId: activeBatch._id, idempotencyKey: key });
+      await submitBatch({
+        batchId: activeBatch._id,
+        expectedRevision: activeBatch.revision,
+        idempotencyKey: key,
+      });
       setDraftOverrides((current) =>
         Object.fromEntries(
           Object.entries(current).map(([draftId, draft]) => [
@@ -1353,19 +1638,49 @@ export function CostDocumentBatchWorkspace({
     );
   }
 
-  if (batchQuery === undefined) {
+  const workspaceQuery = draftId ? exactDraftQuery : batchQuery;
+
+  if (workspaceQuery === undefined) {
     return (
-      <CostDocumentBatchSheet onClose={close}>
+      <CostDocumentBatchSheet exactDraft={Boolean(draftId)} onClose={close}>
         <Frame data-testid="cost-document-batch-workspace">
           <FramePanel className="flex min-h-56 items-center justify-center p-6 text-muted-foreground text-sm">
-            Recovering your private Cost Document draft…
+            {draftId
+              ? "Checking your access to this Cost Document Draft…"
+              : "Recovering your private Cost Document draft…"}
           </FramePanel>
         </Frame>
       </CostDocumentBatchSheet>
     );
   }
 
-  if (!activeBatch) {
+  if (draftId && !exactDraft) {
+    return (
+      <CostDocumentBatchSheet exactDraft onClose={close}>
+        <Frame data-testid="cost-document-batch-workspace">
+          <FrameHeader>
+            <FrameTitle>Cost Document Draft unavailable</FrameTitle>
+            <FrameDescription>
+              This exact Draft is no longer shared with you or is outside your
+              current Build participation.
+            </FrameDescription>
+          </FrameHeader>
+          <FramePanel>
+            <Alert variant="warning">
+              <LockKeyhole />
+              <AlertTitle>Access ended</AlertTitle>
+              <AlertDescription>
+                Draft access is rechecked on every read and write. Prior
+                contributions remain attributed in the durable history.
+              </AlertDescription>
+            </Alert>
+          </FramePanel>
+        </Frame>
+      </CostDocumentBatchSheet>
+    );
+  }
+
+  if (!(draftId || activeBatch)) {
     return (
       <CostDocumentBatchSheet onClose={close}>
         <Frame data-testid="cost-document-batch-workspace">
@@ -1401,28 +1716,38 @@ export function CostDocumentBatchWorkspace({
 
   return (
     <div data-testid="cost-document-batch-workspace">
-      <CostDocumentBatchSheet onClose={close}>
+      <CostDocumentBatchSheet exactDraft={Boolean(draftId)} onClose={close}>
         <SheetPanel className="p-3 sm:p-5">
-          <div className="mx-auto grid w-full max-w-[90rem] gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
-            <CostDocumentRegister
-              activeDraftId={String(activeDraft?._id ?? "")}
-              addingDraft={addingDraft}
-              drafts={drafts}
-              newCategory={newCategory}
-              newKind={newKind}
-              onAdd={createDraft}
-              onCategoryChange={setNewCategory}
-              onKindChange={setNewKind}
-              onSelect={selectDraft}
-              selectionLocked={Boolean(
-                uploadingDraftIdRef.current || draftBusy
-              )}
-            />
+          <div
+            className={
+              draftId
+                ? "mx-auto w-full max-w-5xl"
+                : "mx-auto grid w-full max-w-[90rem] gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]"
+            }
+          >
+            {draftId ? null : (
+              <CostDocumentRegister
+                activeDraftId={String(activeDraft?._id ?? "")}
+                addingDraft={addingDraft}
+                drafts={drafts}
+                newCategory={newCategory}
+                newKind={newKind}
+                onAdd={createDraft}
+                onCategoryChange={setNewCategory}
+                onKindChange={setNewKind}
+                onSelect={selectDraft}
+                selectionLocked={Boolean(
+                  uploadingDraftIdRef.current || draftBusy
+                )}
+              />
+            )}
             <div className="min-w-0" data-testid="cost-document-batch-editor">
               {activeDraft && editor ? (
                 <CostDocumentDraftEditor
                   autosaveStatus={autosaveStatuses[String(activeDraft._id)]}
                   busy={draftBusy || uploadingPages}
+                  collaborationBusy={collaborationBusy}
+                  collaborationError={collaborationError}
                   draft={activeDraft}
                   editor={editor}
                   error={draftError}
@@ -1458,6 +1783,7 @@ export function CostDocumentBatchWorkspace({
                   onComplete={completeDraft}
                   onContinue={continueDraft}
                   onEditorChange={updateEditor}
+                  onGrantCollaborator={grantCollaborator}
                   onMoveSavedPage={moveSavedPage}
                   onMoveToPriorStep={moveToPriorStep}
                   onPendingFilesChange={setPendingFiles}
@@ -1478,6 +1804,7 @@ export function CostDocumentBatchWorkspace({
                   onRemoveSavedPage={removeSavedPage}
                   onReopen={reopenDraft}
                   onReplaceSavedPage={replaceSavedPage}
+                  onRevokeCollaborator={revokeCollaborator}
                   onUploadPages={uploadPages}
                   pendingFiles={pendingFiles}
                   submilestones={submilestones}
@@ -1489,27 +1816,32 @@ export function CostDocumentBatchWorkspace({
             </div>
           </div>
         </SheetPanel>
-        <SheetFooter className="gap-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center">
-          <div className="mr-auto flex min-w-0 items-center gap-2 text-muted-foreground text-sm">
-            <LockKeyhole className="size-4 shrink-0" />
-            <span className="truncate">
-              {drafts.filter((draft) => draft.lifecycle === "complete").length}{" "}
-              of {drafts.length} complete
-            </span>
-          </div>
-          <Button
-            data-testid="batch-submit"
-            disabled={!allDraftsComplete || submittingBatch}
-            loading={submittingBatch}
-            onClick={submitCurrentBatch}
-          >
-            <ShieldCheck />
-            {submittingBatch
-              ? "Freezing batch…"
-              : `Submit ${drafts.length || ""} Cost Document${drafts.length === 1 ? "" : "s"}`}
-          </Button>
-        </SheetFooter>
-        {batchSubmitError ? (
+        {!draftId && activeDraft?.capabilities?.canSubmitBatch ? (
+          <SheetFooter className="gap-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center">
+            <div className="mr-auto flex min-w-0 items-center gap-2 text-muted-foreground text-sm">
+              <LockKeyhole className="size-4 shrink-0" />
+              <span className="truncate">
+                {
+                  drafts.filter((draft) => draft.lifecycle === "complete")
+                    .length
+                }{" "}
+                of {drafts.length} complete
+              </span>
+            </div>
+            <Button
+              data-testid="batch-submit"
+              disabled={!allDraftsComplete || submittingBatch}
+              loading={submittingBatch}
+              onClick={submitCurrentBatch}
+            >
+              <ShieldCheck />
+              {submittingBatch
+                ? "Freezing batch…"
+                : `Submit ${drafts.length || ""} Cost Document${drafts.length === 1 ? "" : "s"}`}
+            </Button>
+          </SheetFooter>
+        ) : null}
+        {!draftId && batchSubmitError ? (
           <div className="border-t px-6 pb-4">
             <Alert
               className="mt-4"
@@ -1588,9 +1920,11 @@ function CostDocumentBatchLaunchPanel({
 
 function CostDocumentBatchSheet({
   children,
+  exactDraft = false,
   onClose,
 }: {
   children: React.ReactNode;
+  exactDraft?: boolean;
   onClose: () => void | Promise<void>;
 }) {
   return (
@@ -1622,12 +1956,17 @@ function CostDocumentBatchSheet({
               </Button>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <SheetTitle>New Cost Documents</SheetTitle>
-                  <Badge variant="secondary">Private draft</Badge>
+                  <SheetTitle>
+                    {exactDraft ? "Shared Cost Document" : "New Cost Documents"}
+                  </SheetTitle>
+                  <Badge variant={exactDraft ? "info" : "secondary"}>
+                    {exactDraft ? "Exact Draft" : "Private draft"}
+                  </Badge>
                 </div>
                 <SheetDescription className="mt-1">
-                  Complete each source record independently. The batch publishes
-                  only after every document reaches Freeze.
+                  {exactDraft
+                    ? "Your access is scoped to this Draft. Sibling Cost Documents and batch submission remain private to its creator."
+                    : "Complete each source record independently. The batch publishes only after every document reaches Freeze."}
                 </SheetDescription>
               </div>
             </div>
@@ -1915,6 +2254,8 @@ function RegisterDraftProgress({
 interface CostDocumentDraftEditorProps {
   autosaveStatus?: DraftAutosaveStatus;
   busy: boolean;
+  collaborationBusy: boolean;
+  collaborationError?: string;
   draft: BatchDraft;
   editor: DraftEditor;
   error?: string;
@@ -1924,6 +2265,10 @@ interface CostDocumentDraftEditorProps {
   onComplete: () => void;
   onContinue: () => void;
   onEditorChange: (patch: Partial<DraftEditor>) => void;
+  onGrantCollaborator: (input: {
+    expectedRevision: number;
+    granteeWorkosUserId: string;
+  }) => Promise<void>;
   onMoveSavedPage: (assetId: string, direction: -1 | 1) => void | Promise<void>;
   onMoveToPriorStep: (step: DraftStep) => void;
   onPendingFilesChange: (files: File[]) => void;
@@ -1932,6 +2277,10 @@ interface CostDocumentDraftEditorProps {
   onRemoveSavedPage: (assetId: string) => void | Promise<void>;
   onReopen: () => void;
   onReplaceSavedPage: (assetId: string, file: File) => void | Promise<void>;
+  onRevokeCollaborator: (input: {
+    collaboratorWorkosUserId: string;
+    expectedRevision: number;
+  }) => Promise<void>;
   onUploadPages: () => void;
   pendingFiles: File[];
   submilestones: CostDocumentSubmilestoneOption[];
@@ -1941,6 +2290,8 @@ interface CostDocumentDraftEditorProps {
 function CostDocumentDraftEditor({
   autosaveStatus,
   busy,
+  collaborationBusy,
+  collaborationError,
   draft,
   editor,
   error,
@@ -1952,11 +2303,13 @@ function CostDocumentDraftEditor({
   onEditorChange,
   onMoveToPriorStep,
   onMoveSavedPage,
+  onGrantCollaborator,
   onPendingFilesChange,
   onRemoveAllocation,
   onRemoveFinancialComponent,
   onRemoveSavedPage,
   onReopen,
+  onRevokeCollaborator,
   onReplaceSavedPage,
   onUploadPages,
   pendingFiles,
@@ -1966,6 +2319,49 @@ function CostDocumentDraftEditor({
   const step = draft.activeStep;
   const balance = balancePreview(editor);
   const isComplete = draft.lifecycle === "complete";
+  const canReopen = Boolean(isComplete && draft.capabilities?.canSubmitBatch);
+  const readOnly = !(draft.capabilities?.canEditDraft || canReopen);
+
+  if (readOnly) {
+    return (
+      <div className="space-y-4">
+        <Frame>
+          <DraftEditorHeader
+            autosaveStatus={autosaveStatus}
+            busy={busy}
+            canReopen={false}
+            draft={draft}
+            editor={editor}
+            isComplete={isComplete}
+            onMoveToPriorStep={onMoveToPriorStep}
+            onReopen={onReopen}
+          />
+          <FramePanel className="space-y-4 p-3 sm:p-5">
+            <Alert>
+              <LockKeyhole />
+              <AlertTitle>Read-only Cost Document Draft</AlertTitle>
+              <AlertDescription>
+                Your current Build participation can inspect this exact Draft,
+                but it cannot change facts, pages, allocations, workflow, or
+                batch submission.
+              </AlertDescription>
+            </Alert>
+            <FreezeManifestStep
+              draft={draft}
+              editor={editor}
+              isComplete={isComplete}
+            />
+          </FramePanel>
+        </Frame>
+        {error ? (
+          <Alert variant="error">
+            <AlertTitle>Document unavailable</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -1973,6 +2369,7 @@ function CostDocumentDraftEditor({
         <DraftEditorHeader
           autosaveStatus={autosaveStatus}
           busy={busy}
+          canReopen={canReopen}
           draft={draft}
           editor={editor}
           isComplete={isComplete}
@@ -1983,18 +2380,22 @@ function CostDocumentDraftEditor({
           <DraftStepBody
             balance={balance}
             busy={busy}
+            collaborationBusy={collaborationBusy}
+            collaborationError={collaborationError}
             draft={draft}
             editor={editor}
             isComplete={isComplete}
             onAddAllocation={onAddAllocation}
             onAddFinancialComponent={onAddFinancialComponent}
             onEditorChange={onEditorChange}
+            onGrantCollaborator={onGrantCollaborator}
             onMoveSavedPage={onMoveSavedPage}
             onPendingFilesChange={onPendingFilesChange}
             onRemoveAllocation={onRemoveAllocation}
             onRemoveFinancialComponent={onRemoveFinancialComponent}
             onRemoveSavedPage={onRemoveSavedPage}
             onReplaceSavedPage={onReplaceSavedPage}
+            onRevokeCollaborator={onRevokeCollaborator}
             onUploadPages={onUploadPages}
             pendingFiles={pendingFiles}
             submilestones={submilestones}
@@ -2025,6 +2426,7 @@ function CostDocumentDraftEditor({
 function DraftEditorHeader({
   autosaveStatus,
   busy,
+  canReopen,
   draft,
   editor,
   isComplete,
@@ -2033,6 +2435,7 @@ function DraftEditorHeader({
 }: {
   autosaveStatus?: DraftAutosaveStatus;
   busy: boolean;
+  canReopen: boolean;
   draft: BatchDraft;
   editor: DraftEditor;
   isComplete: boolean;
@@ -2071,7 +2474,7 @@ function DraftEditorHeader({
             {autosaveStatusLabel(autosaveStatus)}
           </p>
         </div>
-        {isComplete ? (
+        {canReopen ? (
           <Button onClick={onReopen} size="sm" variant="outline">
             <RefreshCw /> Reopen to Share
           </Button>
@@ -2108,6 +2511,8 @@ function DraftEditorHeader({
 function DraftStepBody({
   balance,
   busy,
+  collaborationBusy,
+  collaborationError,
   draft,
   editor,
   isComplete,
@@ -2115,10 +2520,12 @@ function DraftStepBody({
   onAddFinancialComponent,
   onEditorChange,
   onMoveSavedPage,
+  onGrantCollaborator,
   onPendingFilesChange,
   onRemoveAllocation,
   onRemoveFinancialComponent,
   onRemoveSavedPage,
+  onRevokeCollaborator,
   onReplaceSavedPage,
   onUploadPages,
   pendingFiles,
@@ -2127,6 +2534,8 @@ function DraftStepBody({
 }: {
   balance: ReturnType<typeof balancePreview>;
   busy: boolean;
+  collaborationBusy: boolean;
+  collaborationError?: string;
   draft: BatchDraft;
   editor: DraftEditor;
   isComplete: boolean;
@@ -2134,10 +2543,18 @@ function DraftStepBody({
   onAddFinancialComponent: () => void;
   onEditorChange: (patch: Partial<DraftEditor>) => void;
   onMoveSavedPage: (assetId: string, direction: -1 | 1) => void | Promise<void>;
+  onGrantCollaborator: (input: {
+    expectedRevision: number;
+    granteeWorkosUserId: string;
+  }) => Promise<void>;
   onPendingFilesChange: (files: File[]) => void;
   onRemoveAllocation: (rowId: string) => void;
   onRemoveFinancialComponent: (rowId: string) => void;
   onRemoveSavedPage: (assetId: string) => void | Promise<void>;
+  onRevokeCollaborator: (input: {
+    collaboratorWorkosUserId: string;
+    expectedRevision: number;
+  }) => Promise<void>;
   onReplaceSavedPage: (assetId: string, file: File) => void | Promise<void>;
   onUploadPages: () => void;
   pendingFiles: File[];
@@ -2176,7 +2593,24 @@ function DraftStepBody({
     );
   }
   if (draft.activeStep === "share") {
-    return <OwnerPrivateShareStep />;
+    const collaboration = draftCollaborationView(draft);
+    return (
+      <CostDocumentDraftCollaboration
+        busy={collaborationBusy}
+        canManageAccess={Boolean(
+          draft.capabilities?.canManageDraftCollaboration
+        )}
+        collaborators={collaboration.collaborators}
+        creator={collaboration.creator}
+        draftReference={`Draft ${String(draft._id).slice(-8)}`}
+        eligibleCollaborators={collaboration.eligibleCollaborators}
+        error={collaborationError}
+        onGrant={onGrantCollaborator}
+        onRevoke={onRevokeCollaborator}
+        revision={draft.revision ?? 1}
+        title={editor.title.trim() || "this Cost Document"}
+      />
+    );
   }
   return (
     <FreezeManifestStep draft={draft} editor={editor} isComplete={isComplete} />
@@ -2816,28 +3250,59 @@ function BalanceAllocateStep({
   );
 }
 
-function OwnerPrivateShareStep() {
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="font-semibold">Owner-private draft</h3>
-        <p className="text-muted-foreground text-sm">
-          There are no collaborator controls at this stage. Only the draft owner
-          can read or change this unsubmitted Cost Document. Submission creates
-          durable Build cost context; it does not prove payment, completion,
-          reimbursement eligibility, Draw inclusion, or approval.
-        </p>
-      </div>
-      <Alert>
-        <LockKeyhole />
-        <AlertTitle>Private until batch submission</AlertTitle>
-        <AlertDescription>
-          Continue only after confirming that this source record is ready to
-          freeze in the batch manifest.
-        </AlertDescription>
-      </Alert>
-    </div>
+function draftCollaborationView(draft: BatchDraft): {
+  collaborators: CostDocumentDraftCollaborator[];
+  creator: CostDocumentDraftAccessPerson;
+  eligibleCollaborators: CostDocumentDraftAccessPerson[];
+} {
+  const eligible = draft.collaboration?.eligibleCollaborators ?? [];
+  const peopleById = new Map(
+    eligible.map((person) => [person.workosUserId, person])
   );
+  const creatorWorkosUserId = draft.creator?.workosUserId ?? "draft-creator";
+  const creatorRecord = peopleById.get(creatorWorkosUserId);
+  const creator: CostDocumentDraftAccessPerson = {
+    displayName:
+      creatorRecord?.displayName ??
+      (draft.self?.workosUserId === creatorWorkosUserId
+        ? "You"
+        : "Draft creator"),
+    roleLabel: roleLabel(creatorRecord?.role ?? "creator"),
+    workosUserId: creatorWorkosUserId,
+  };
+  const currentCollaborators =
+    draft.collaboration?.currentCollaborators ?? draft.collaborators ?? [];
+  const currentIds = new Set(
+    currentCollaborators.map((person) => person.workosUserId)
+  );
+  const collaborators = currentCollaborators.map((collaborator) => {
+    const person = peopleById.get(collaborator.workosUserId);
+    return {
+      displayName: person?.displayName ?? collaborator.workosUserId,
+      grantedAt: collaborator.grantedAt,
+      roleLabel: roleLabel(person?.role ?? "Builder participant"),
+      workosUserId: collaborator.workosUserId,
+    };
+  });
+  const eligibleCollaborators = eligible
+    .filter(
+      (person) =>
+        person.workosUserId !== creatorWorkosUserId &&
+        !currentIds.has(person.workosUserId)
+    )
+    .map((person) => ({
+      displayName: person.displayName,
+      roleLabel: roleLabel(person.role),
+      workosUserId: person.workosUserId,
+    }));
+  return { collaborators, creator, eligibleCollaborators };
+}
+
+function roleLabel(role: string) {
+  return role
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function FreezeManifestStep({

@@ -15,6 +15,7 @@ import {
 import { canReadDrawCoordination } from "./build_draw_coordination";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { buildCollaborationAssetStagingContextValidator } from "./build_collaboration_validators";
+import { resolveCostDocumentDraftAccessForAuthorization } from "./cost_document_access";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_ASSET_BYTES = 100 * 1024 * 1024;
@@ -482,8 +483,9 @@ export const abandonMyBuildCollaborationAssets = authenticatedMutation
       }
       const activeCostDocumentDraftPages = await ctx.db
         .query("costDocumentDraftPages")
-        .withIndex("by_assetId", (query) => query.eq("assetId", asset._id))
-        .filter((query) => query.eq(query.field("state"), "active"))
+        .withIndex("by_assetId_and_state", (query) =>
+          query.eq("assetId", asset._id).eq("state", "active")
+        )
         .take(1);
       if (activeCostDocumentDraftPages.length > 0) {
         throw new Error(
@@ -593,22 +595,22 @@ async function authorizeCostDocumentDraftStagingContext(
   authorization: ActiveBuildAuthorization,
   contextRecordId: string
 ) {
-  if (
-    authorization.viewer.actorKind !== "human" ||
-    (authorization.effectiveRole.role !== "builder" &&
-      authorization.effectiveRole.role !== "builder-staff")
-  ) {
-    throw new Error("Forbidden: Cost Document Builder access");
-  }
   const draftId = ctx.db.normalizeId("costDocumentDrafts", contextRecordId);
-  const draft = draftId ? await ctx.db.get(draftId) : null;
-  const batch = draft?.batchId ? await ctx.db.get(draft.batchId) : null;
+  if (!draftId) {
+    throw new Error("The Cost Document draft is unavailable.");
+  }
+  const access = await resolveCostDocumentDraftAccessForAuthorization(ctx, {
+    authorization,
+    draftId,
+  });
+  if (!access) {
+    throw new Error("The Cost Document draft is unavailable.");
+  }
+  const { batch, draft } = access;
   if (
-    !(draft && batch) ||
-    draft.buildId !== authorization.build._id ||
-    draft.organizationId !== authorization.organizationId ||
-    draft.brokerageId !== authorization.brokerage._id ||
-    draft.ownerWorkosUserId !== authorization.viewer.subject ||
+    access.authorization.build._id !== authorization.build._id ||
+    access.authorization.organizationId !== authorization.organizationId ||
+    access.authorization.brokerage._id !== authorization.brokerage._id ||
     draft.lifecycle !== "draft" ||
     draft.activeStep !== "capture_confirm" ||
     batch.organizationId !== draft.organizationId ||
@@ -827,29 +829,45 @@ async function canManageStagingSession(
   authorization: ActiveBuildAuthorization,
   session: Doc<"buildCollaborationAssetStagingSessions">
 ) {
+  if (session.contextKind === "costDocumentDraft") {
+    if (
+      session.ownerWorkosUserId !== authorization.viewer.subject ||
+      !session.contextRecordId
+    ) {
+      return false;
+    }
+    const draftId = ctx.db.normalizeId(
+      "costDocumentDrafts",
+      session.contextRecordId
+    );
+    if (!draftId) {
+      return false;
+    }
+    try {
+      const access = await resolveCostDocumentDraftAccessForAuthorization(ctx, {
+        authorization,
+        draftId,
+      });
+      return Boolean(
+        access &&
+          access.authorization.build._id === authorization.build._id &&
+          access.authorization.organizationId ===
+            authorization.organizationId &&
+          access.draft._id === draftId
+      );
+    } catch {
+      return false;
+    }
+  }
   if (session.ownerWorkosUserId === authorization.viewer.subject) {
     return true;
   }
   if (
     authorization.viewer.actorKind !== "human" ||
-    (session.contextKind !== "draft" &&
-      session.contextKind !== "costDocumentDraft") ||
+    session.contextKind !== "draft" ||
     !session.contextRecordId
   ) {
     return false;
-  }
-  if (session.contextKind === "costDocumentDraft") {
-    const draftId = ctx.db.normalizeId(
-      "costDocumentDrafts",
-      session.contextRecordId
-    );
-    const draft = draftId ? await ctx.db.get(draftId) : null;
-    return Boolean(
-      draft &&
-        draft.organizationId === authorization.organizationId &&
-        draft.buildId === authorization.build._id &&
-        draft.ownerWorkosUserId === authorization.viewer.subject
-    );
   }
   const draftId = ctx.db.normalizeId(
     "buildCollaborationDrafts",
@@ -879,6 +897,32 @@ async function canInspectAsset(
   const session = asset.stagingSessionId
     ? await ctx.db.get(asset.stagingSessionId)
     : null;
+  // Cost Document assets have an exact-Draft/submitted-document audience. A
+  // session-owner shortcut here would let a revoked collaborator retain status
+  // visibility even after the grant is gone.
+  if (session?.contextKind === "costDocumentDraft") {
+    if (await canReadCollaborationAsset(ctx, { asset, authorization })) {
+      return true;
+    }
+    const draftId = session.contextRecordId
+      ? ctx.db.normalizeId("costDocumentDrafts", session.contextRecordId)
+      : null;
+    if (
+      !draftId ||
+      session.ownerWorkosUserId !== authorization.viewer.subject
+    ) {
+      return false;
+    }
+    // Status polling begins before a scan turns the asset into a readable
+    // source page. The uploader may inspect that in-flight status only while
+    // they still hold current exact-Draft edit access.
+    return Boolean(
+      await resolveCostDocumentDraftAccessForAuthorization(ctx, {
+        authorization,
+        draftId,
+      })
+    );
+  }
   if (
     session?.ownerWorkosUserId === authorization.viewer.subject &&
     (await canReadAssetStagingContext(ctx, authorization, session))
@@ -1025,18 +1069,31 @@ export async function abandonUnpublishedCostDocumentDraftAsset(
   authorization: ActiveBuildAuthorization,
   input: {
     asset: Doc<"buildCollaborationAssets">;
+    draftId: Id<"costDocumentDrafts">;
     now: number;
     reason: string;
     session: Doc<"buildCollaborationAssetStagingSessions">;
   }
 ) {
+  const access = await resolveCostDocumentDraftAccessForAuthorization(ctx, {
+    authorization,
+    draftId: input.draftId,
+  });
+  if (!access) {
+    throw new Error("The Cost Document draft asset cannot be abandoned.");
+  }
   if (
     input.session.contextKind !== "costDocumentDraft" ||
     input.asset.publishedAt ||
-    input.session.organizationId !== authorization.organizationId ||
-    input.session.brokerageId !== authorization.brokerage._id ||
-    input.session.buildId !== authorization.build._id ||
-    input.session.ownerWorkosUserId !== authorization.viewer.subject
+    input.asset.stagingSessionId !== input.session._id ||
+    input.asset.organizationId !== access.authorization.organizationId ||
+    input.asset.brokerageId !== access.authorization.brokerage._id ||
+    input.asset.buildId !== access.authorization.build._id ||
+    input.session.contextRecordId !== String(access.draft._id) ||
+    input.session.organizationId !== access.authorization.organizationId ||
+    input.session.brokerageId !== access.authorization.brokerage._id ||
+    input.session.buildId !== access.authorization.build._id ||
+    access.authorization.viewer.subject !== authorization.viewer.subject
   ) {
     throw new Error("The Cost Document draft asset cannot be abandoned.");
   }

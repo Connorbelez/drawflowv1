@@ -66,12 +66,18 @@ vi.mock(
   () => ({
     CostDocumentBatchWorkspace: ({
       batchId,
+      draftId,
       onBatchIdChange,
     }: {
       batchId?: string;
+      draftId?: string;
       onBatchIdChange: (batchId?: string) => void;
     }) => (
-      <div data-batch-id={batchId} data-testid="cost-document-batch-workspace">
+      <div
+        data-batch-id={batchId}
+        data-draft-id={draftId}
+        data-testid="cost-document-batch-workspace"
+      >
         <button onClick={() => onBatchIdChange("batch-01")} type="button">
           Open Cost Document batch
         </button>
@@ -299,6 +305,7 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
         replace: true,
         search: expect.objectContaining({
           costBatch: "batch-01",
+          costDocumentDraft: undefined,
           tab: "costs",
         }),
       })
@@ -311,6 +318,7 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
         replace: true,
         search: expect.objectContaining({
           costBatch: undefined,
+          costDocumentDraft: undefined,
           tab: "costs",
         }),
       })
@@ -331,6 +339,37 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
     expect(validateSearch({ costBatch: 42, tab: "costs" })).toEqual({
       tab: "costs",
     });
+    expect(
+      validateSearch({
+        costBatch: "batch-private",
+        costDocumentDraft: " draft-shared ",
+        tab: "costs",
+      })
+    ).toEqual({ costDocumentDraft: "draft-shared", tab: "costs" });
+    expect(
+      validateSearch({
+        costBatch: " batch-private ",
+        costDocumentDraft: 42,
+        tab: "costs",
+      })
+    ).toEqual({ costBatch: "batch-private", tab: "costs" });
+  });
+
+  test("passes an exact shared Draft deep link without a creator batch", () => {
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="active-build-01"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder"
+        search={{ costDocumentDraft: "draft-shared", tab: "costs" }}
+        workosOrganizationId="org_builder"
+      />
+    );
+
+    const workspace = screen.getByTestId("cost-document-batch-workspace");
+    expect(workspace.getAttribute("data-draft-id")).toBe("draft-shared");
+    expect(workspace.getAttribute("data-batch-id")).toBeNull();
   });
 
   test("renders a contextual unavailable state with retry and live-build recovery", () => {
