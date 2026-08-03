@@ -1614,6 +1614,151 @@ describe("Build collaboration governed assets", () => {
     }
   });
 
+  test("refuses to abandon or expire an asset while an active Cost Document draft page owns it", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    const staged = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .beginBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contextKind: "composer",
+        fileName: "cost-document-source.pdf",
+        mimeType: "application/pdf",
+        organizationId: ORGANIZATION_ID,
+        sizeBytes: 20,
+      },
+    );
+    const storageId = await base.run(
+      async (ctx) =>
+        await ctx.storage.store(
+          new Blob(["Cost Document source"], { type: "application/pdf" }),
+        ),
+    );
+    const contentHashSha256 = "c".repeat(64);
+    const assetId: Id<"buildCollaborationAssets"> = await admin.mutation(
+      (api as any).build_collaboration_assets
+        .finalizeBuildCollaborationAssetUpload,
+      {
+        buildId,
+        contentHashSha256,
+        fileName: "cost-document-source.pdf",
+        mimeType: "application/pdf",
+        organizationId: ORGANIZATION_ID,
+        stagingSessionId: staged.stagingSessionId,
+        storageId,
+      },
+    );
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .recordBuildCollaborationAssetScanResult,
+      {
+        assetId,
+        computedHashSha256: contentHashSha256,
+        outcome: "clean",
+        provider: "test-scanner",
+      },
+    );
+    const draftId = await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) throw new Error("Missing fixture build");
+      const now = Date.now();
+      const batchId = await ctx.db.insert("costDocumentBatches", {
+        brokerageId: build.brokerageId,
+        buildId,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        ownerWorkosUserId: "user_admin",
+        state: "active",
+        updatedAt: now,
+      });
+      const costDocumentDraftId = await ctx.db.insert("costDocumentDrafts", {
+        activeStep: "capture_confirm",
+        batchId,
+        brokerageId: build.brokerageId,
+        buildId,
+        category: "materials",
+        createdAt: now,
+        currency: "CAD",
+        kind: "invoice",
+        lifecycle: "draft",
+        order: 1,
+        organizationId: ORGANIZATION_ID,
+        ownerWorkosUserId: "user_admin",
+        updatedAt: now,
+      });
+      await ctx.db.insert("costDocumentDraftPages", {
+        assetId,
+        batchId,
+        brokerageId: build.brokerageId,
+        buildId,
+        createdAt: now,
+        draftId: costDocumentDraftId,
+        order: 1,
+        organizationId: ORGANIZATION_ID,
+        state: "active",
+      });
+      return costDocumentDraftId;
+    });
+
+    await expect(
+      admin.mutation(
+        (api as any).build_collaboration_assets
+          .abandonMyBuildCollaborationAssets,
+        {
+          assetIds: [assetId],
+          buildId,
+          organizationId: ORGANIZATION_ID,
+          reason: "Attempted bundle cleanup after a durable page bind.",
+        },
+      ),
+    ).rejects.toThrow("cannot be abandoned while still bound");
+
+    const retained = await base.run(async (ctx) => ({
+      asset: await ctx.db.get(assetId),
+      page: await ctx.db
+        .query("costDocumentDraftPages")
+        .withIndex("by_draftId_and_state_and_order", (query) =>
+          query.eq("draftId", draftId).eq("state", "active"),
+        )
+        .first(),
+      session: await ctx.db.get(
+        staged.stagingSessionId as Id<"buildCollaborationAssetStagingSessions">,
+      ),
+    }));
+    expect(retained.asset).toMatchObject({
+      _id: assetId,
+      scanState: "clean",
+      state: "available",
+    });
+    expect(retained.asset?.storageDeletedAt).toBeUndefined();
+    expect(retained.page).toMatchObject({ assetId, draftId, state: "active" });
+    expect(retained.session?.state).toBe("finalized");
+
+    await base.run(async (ctx) => {
+      await ctx.db.patch(staged.stagingSessionId, {
+        expiresAt: Date.now() - 1,
+      });
+    });
+    await base.mutation(
+      (internal as any).build_collaboration_asset_maintenance
+        .expireBuildCollaborationAssetStagingSession,
+      { stagingSessionId: staged.stagingSessionId },
+    );
+    const retainedAfterExpiry = await base.run(async (ctx) => ({
+      asset: await ctx.db.get(assetId),
+      session: await ctx.db.get(staged.stagingSessionId),
+      storage: await ctx.db.system.get(storageId),
+    }));
+    expect(retainedAfterExpiry.asset).toMatchObject({
+      _id: assetId,
+      scanState: "clean",
+      state: "available",
+    });
+    expect(retainedAfterExpiry.asset?.storageDeletedAt).toBeUndefined();
+    expect(retainedAfterExpiry.session).toMatchObject({ state: "consumed" });
+    expect(retainedAfterExpiry.storage).not.toBeNull();
+  });
+
   test("quarantines, scans, publishes, versions, downloads, and audits immutable assets", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     const staged = await admin.mutation(

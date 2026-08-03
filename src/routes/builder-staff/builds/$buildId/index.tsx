@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import {
   type BuilderBuildSearch,
   BuilderBuildWorkspaceRoute,
@@ -8,8 +8,13 @@ import {
 
 export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
+    const costBatch =
+      typeof search.costBatch === "string" && search.costBatch.trim()
+        ? search.costBatch.trim()
+        : undefined;
     const tab =
       search.tab === "timeline" ||
+      search.tab === "costs" ||
       search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
@@ -36,6 +41,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     return {
+      ...(costBatch ? { costBatch } : {}),
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),

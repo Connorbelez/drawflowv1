@@ -358,6 +358,37 @@ export const buildCollaborationDraftStateValidator = v.union(
   v.literal("discarded")
 );
 
+export const costDocumentBatchStateValidator = v.union(
+  v.literal("active"),
+  v.literal("submitted"),
+  v.literal("abandoned")
+);
+
+export const costDocumentDraftLifecycleValidator = v.union(
+  v.literal("draft"),
+  v.literal("complete"),
+  v.literal("submitted")
+);
+
+export const costDocumentDraftStepValidator = v.union(
+  v.literal("capture_confirm"),
+  v.literal("balance_allocate"),
+  v.literal("share"),
+  v.literal("freeze")
+);
+
+export const costDocumentDraftPageStateValidator = v.union(
+  v.literal("active"),
+  v.literal("replaced")
+);
+
+export const costDocumentFinancialComponentKindValidator = v.union(
+  v.literal("subtotal"),
+  v.literal("tax"),
+  v.literal("fee"),
+  v.literal("discount")
+);
+
 export const buildCollaborationTenantStatusValidator = v.union(
   v.literal("disabled"),
   v.literal("migration_ready"),

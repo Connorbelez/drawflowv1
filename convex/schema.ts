@@ -35,6 +35,11 @@ import {
   buildCollaborationTenantStatusValidator,
   buildCollaborationThreadStateValidator,
   buildParticipantStatusValidator,
+  costDocumentBatchStateValidator,
+  costDocumentDraftLifecycleValidator,
+  costDocumentDraftPageStateValidator,
+  costDocumentDraftStepValidator,
+  costDocumentFinancialComponentKindValidator,
 } from "./build_collaboration_validators";
 import {
   buildCollaborationWebhookAttemptStatusValidator,
@@ -6137,6 +6142,8 @@ export default defineSchema({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
     buildId: v.id("activeBuilds"),
+    batchId: v.optional(v.id("costDocumentBatches")),
+    draftId: v.optional(v.id("costDocumentDrafts")),
     kind: v.union(v.literal("invoice"), v.literal("receipt")),
     category: v.union(v.literal("labour"), v.literal("materials")),
     state: v.literal("submitted"),
@@ -6152,6 +6159,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_buildId_and_submittedAt", ["buildId", "submittedAt"])
+    .index("by_batchId", ["batchId"])
+    .index("by_draftId", ["draftId"])
     .index("by_organizationId_and_submittedAt", [
       "organizationId",
       "submittedAt",
@@ -6192,6 +6201,111 @@ export default defineSchema({
       "buildSubmilestoneId",
       "createdAt",
     ]),
+  costDocumentFinancialComponents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    costDocumentId: v.id("costDocuments"),
+    kind: costDocumentFinancialComponentKindValidator,
+    label: v.optional(v.string()),
+    amountCents: v.number(),
+    order: v.number(),
+    createdAt: v.number(),
+  }).index("by_costDocumentId_and_order", ["costDocumentId", "order"]),
+  costDocumentBatches: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    ownerWorkosUserId: v.string(),
+    state: costDocumentBatchStateValidator,
+    createIdempotencyKey: v.optional(v.string()),
+    submitIdempotencyKey: v.optional(v.string()),
+    submittedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId_and_ownerWorkosUserId_and_state", [
+      "buildId",
+      "ownerWorkosUserId",
+      "state",
+    ])
+    .index("by_organizationId_and_createIdempotencyKey", [
+      "organizationId",
+      "createIdempotencyKey",
+    ]),
+  costDocumentDrafts: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    batchId: v.id("costDocumentBatches"),
+    ownerWorkosUserId: v.string(),
+    order: v.number(),
+    kind: v.union(v.literal("invoice"), v.literal("receipt")),
+    category: v.union(v.literal("labour"), v.literal("materials")),
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    vendorName: v.optional(v.string()),
+    documentDate: v.optional(v.string()),
+    grossTotalCents: v.optional(v.number()),
+    // Exact owner-private in-progress editor state. Canonical monetary rows
+    // remain validated separately when the workflow advances.
+    workingStateJson: v.optional(v.string()),
+    currency: v.literal("CAD"),
+    activeStep: costDocumentDraftStepValidator,
+    lifecycle: costDocumentDraftLifecycleValidator,
+    completedAt: v.optional(v.number()),
+    submittedCostDocumentId: v.optional(v.id("costDocuments")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_batchId_and_order", ["batchId", "order"])
+    .index("by_buildId_and_ownerWorkosUserId_and_lifecycle", [
+      "buildId",
+      "ownerWorkosUserId",
+      "lifecycle",
+    ])
+    .index("by_batchId_and_lifecycle", ["batchId", "lifecycle"]),
+  costDocumentDraftPages: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    batchId: v.id("costDocumentBatches"),
+    draftId: v.id("costDocumentDrafts"),
+    order: v.number(),
+    assetId: v.id("buildCollaborationAssets"),
+    priorAssetId: v.optional(v.id("buildCollaborationAssets")),
+    state: costDocumentDraftPageStateValidator,
+    replacedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_draftId_and_order", ["draftId", "order"])
+    .index("by_draftId_and_state_and_order", ["draftId", "state", "order"])
+    .index("by_assetId", ["assetId"]),
+  costDocumentDraftAllocations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    batchId: v.id("costDocumentBatches"),
+    draftId: v.id("costDocumentDrafts"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    amountCents: v.number(),
+    order: v.number(),
+    submilestoneKeySnapshot: v.string(),
+    submilestoneNameSnapshot: v.string(),
+    createdAt: v.number(),
+  }).index("by_draftId_and_order", ["draftId", "order"]),
+  costDocumentDraftFinancialComponents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    batchId: v.id("costDocumentBatches"),
+    draftId: v.id("costDocumentDrafts"),
+    kind: costDocumentFinancialComponentKindValidator,
+    label: v.optional(v.string()),
+    amountCents: v.number(),
+    order: v.number(),
+    createdAt: v.number(),
+  }).index("by_draftId_and_order", ["draftId", "order"]),
   plannedDrawScheduleRows: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

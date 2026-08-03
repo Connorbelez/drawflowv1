@@ -61,6 +61,28 @@ vi.mock(
   })
 );
 
+vi.mock(
+  "#/features/cost-documents/CostDocumentBatchWorkspace.tsx",
+  () => ({
+    CostDocumentBatchWorkspace: ({
+      batchId,
+      onBatchIdChange,
+    }: {
+      batchId?: string;
+      onBatchIdChange: (batchId?: string) => void;
+    }) => (
+      <div data-batch-id={batchId} data-testid="cost-document-batch-workspace">
+        <button onClick={() => onBatchIdChange("batch-01")} type="button">
+          Open Cost Document batch
+        </button>
+        <button onClick={() => onBatchIdChange(undefined)} type="button">
+          Close Cost Document batch
+        </button>
+      </div>
+    ),
+  })
+);
+
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (config: unknown) => config,
   useNavigate: () => navigate,
@@ -219,6 +241,7 @@ vi.mock(
 import {
   BuilderBuildWorkspaceRoute,
   createBuildAvailabilityReference,
+  Route,
 } from "./index";
 
 describe("BuilderBuildWorkspaceRoute contractor actions", () => {
@@ -248,66 +271,14 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
       .mockReturnValueOnce(submitMilestoneCompletion);
   });
 
-  test("submits, reads, and downloads a durable Cost Document through the production Costs route", async () => {
-    const committed = {
-      grossTotalCents: 12_345,
-      pages: [
-        {
-          assetId: "asset-page-1",
-          fileName: "invoice.pdf",
-          mimeType: "application/pdf",
-          order: 1,
-        },
-      ],
-      receipt: {
-        recipientEmail: "builder@example.com",
-        status: "queued",
-      },
-      title: "Foundation invoice",
-      vendorName: "Cedar Forming Ltd.",
-    };
-    useQuery.mockReset().mockImplementation((ref, args) => {
-      const name = getFunctionName(ref);
-      if (name === "production_proposals:getActiveBuildDetailByString") {
-        return activeBuildDetail;
-      }
-      if (name === "cost_documents:getCostDocument") {
-        return args === "skip" ? undefined : committed;
-      }
-      return {};
-    });
-    useMutation.mockReset().mockImplementation((ref) =>
-      getFunctionName(ref) === "cost_documents:submitCostDocument"
-        ? submitCostDocument
-        : vi.fn()
-    );
-    useAction.mockReturnValue(vi.fn());
-    uploadCostDocumentAssets.mockResolvedValue(["asset-page-1"]);
-    submitCostDocument.mockResolvedValue("cost-document-1");
-    getAccessToken.mockResolvedValue("workos-access-token");
-    vi.stubEnv("VITE_CONVEX_SITE_URL", "https://drawflow.convex.site");
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("private page", { status: 200 }));
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: vi.fn(() => "blob:private-page"),
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: vi.fn(),
-    });
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
-      () => undefined
-    );
-
+  test("keeps the Cost Document batch sheet route-addressable", () => {
     render(
       <BuilderBuildWorkspaceRoute
         buildId="active-build-01"
         enableContractorLinks
         includeStaffTab={false}
         routeBase="/builder"
-        search={{ tab: "costs" }}
+        search={{ costBatch: "batch-deep-link", tab: "costs" }}
         workosOrganizationId="org_builder"
       />
     );
@@ -315,36 +286,51 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
     expect(screen.getByTestId("production-build-surface")).not.toBeNull();
     expect(screen.getByTestId("active-build-tab").textContent).toBe("costs");
     expect(screen.getByTestId("costs-slot-present")).not.toBeNull();
-    fireEvent.change(screen.getByLabelText("Invoice or Receipt pages"), {
-      target: {
-        files: [new File(["page"], "invoice.pdf", { type: "application/pdf" })],
-      },
-    });
-    fireEvent.change(screen.getByLabelText("Title"), {
-      target: { value: "Foundation invoice" },
-    });
-    fireEvent.change(screen.getByLabelText("Vendor"), {
-      target: { value: "Cedar Forming Ltd." },
-    });
-    fireEvent.change(screen.getByLabelText("Document date"), {
-      target: { value: "2026-08-01" },
-    });
-    fireEvent.change(screen.getByLabelText("Gross Document Total (CAD)"), {
-      target: { value: "123.45" },
-    });
+    expect(
+      screen.getByTestId("cost-document-batch-workspace").getAttribute(
+        "data-batch-id"
+      )
+    ).toBe("batch-deep-link");
     fireEvent.click(
-      screen.getByRole("button", { name: "Submit Cost Document" })
+      screen.getByRole("button", { name: "Open Cost Document batch" })
     );
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        replace: true,
+        search: expect.objectContaining({
+          costBatch: "batch-01",
+          tab: "costs",
+        }),
+      })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close Cost Document batch" })
+    );
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        replace: true,
+        search: expect.objectContaining({
+          costBatch: undefined,
+          tab: "costs",
+        }),
+      })
+    );
+  });
 
-    expect(await screen.findByText("Cost Document frozen")).not.toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Download page 1: invoice.pdf" })
-    );
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-    expect(fetchSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/api/cost-documents/page?"),
-      { headers: { Authorization: "Bearer workos-access-token" } }
-    );
+  test("validates Cost Document batch deep links without leaking other values", () => {
+    const validateSearch = (
+      Route as unknown as {
+        validateSearch: (
+          search: Record<string, unknown>
+        ) => Record<string, unknown>;
+      }
+    ).validateSearch;
+    expect(
+      validateSearch({ costBatch: " batch-01 ", tab: "costs" })
+    ).toMatchObject({ costBatch: "batch-01", tab: "costs" });
+    expect(validateSearch({ costBatch: 42, tab: "costs" })).toEqual({
+      tab: "costs",
+    });
   });
 
   test("renders a contextual unavailable state with retry and live-build recovery", () => {

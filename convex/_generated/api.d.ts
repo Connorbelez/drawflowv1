@@ -129,6 +129,7 @@ import type * as contractorEvidence from "../contractorEvidence.js";
 import type * as contractorMerge from "../contractorMerge.js";
 import type * as contractorOnboarding from "../contractorOnboarding.js";
 import type * as contractorWorkspace from "../contractorWorkspace.js";
+import type * as cost_document_working_state from "../cost_document_working_state.js";
 import type * as cost_documents from "../cost_documents.js";
 import type * as crons from "../crons.js";
 import type * as demo_build_address from "../demo_build_address.js";
@@ -288,6 +289,7 @@ declare const fullApi: ApiFromModules<{
   contractorMerge: typeof contractorMerge;
   contractorOnboarding: typeof contractorOnboarding;
   contractorWorkspace: typeof contractorWorkspace;
+  cost_document_working_state: typeof cost_document_working_state;
   cost_documents: typeof cost_documents;
   crons: typeof crons;
   demo_build_address: typeof demo_build_address;

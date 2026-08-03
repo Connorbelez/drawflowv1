@@ -569,7 +569,7 @@ export function parseCadCents(value: string) {
   return cents;
 }
 
-function formatCad(amountCents: number) {
+export function formatCad(amountCents: number) {
   return new Intl.NumberFormat("en-CA", {
     currency: "CAD",
     style: "currency",

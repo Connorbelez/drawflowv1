@@ -20,7 +20,9 @@ import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 const MAX_ASSET_BYTES = 100 * 1024 * 1024;
 const MAX_ASSETS_PER_REQUEST = 100;
 const MAX_ACTIVE_STAGING_SESSIONS = 25;
+const MAX_COST_DOCUMENT_DRAFT_ACTIVE_STAGING_SESSIONS = 50;
 const STAGING_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const COST_DOCUMENT_DRAFT_STAGING_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_CAPTURE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const BLOCKED_MIME_TYPES = new Set([
@@ -119,8 +121,12 @@ export const beginBuildCollaborationAssetUpload = authenticatedMutation
     });
     const now = Date.now();
     assertSourceCapturedAt(args.sourceCapturedAt, now);
-    await assertStagingCapacity(ctx, authorization, now);
-    const expiresAt = now + STAGING_SESSION_TTL_MS;
+    await assertStagingCapacity(ctx, authorization, now, args.contextKind);
+    const expiresAt =
+      now +
+      (args.contextKind === "costDocumentDraft"
+        ? COST_DOCUMENT_DRAFT_STAGING_SESSION_TTL_MS
+        : STAGING_SESSION_TTL_MS);
     const stagingSessionId = await ctx.db.insert(
       "buildCollaborationAssetStagingSessions",
       {
@@ -474,6 +480,16 @@ export const abandonMyBuildCollaborationAssets = authenticatedMutation
       ) {
         throw new Error("A staged collaboration asset is unavailable.");
       }
+      const activeCostDocumentDraftPages = await ctx.db
+        .query("costDocumentDraftPages")
+        .withIndex("by_assetId", (query) => query.eq("assetId", asset._id))
+        .filter((query) => query.eq(query.field("state"), "active"))
+        .take(1);
+      if (activeCostDocumentDraftPages.length > 0) {
+        throw new Error(
+          "Cost Document draft source pages cannot be abandoned while still bound."
+        );
+      }
       const attachments = await ctx.db
         .query("buildCollaborationAttachments")
         .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
@@ -502,7 +518,12 @@ async function authorizeStagingContext(
   ctx: MutationCtx,
   input: {
     authorization: ActiveBuildAuthorization;
-    contextKind: "composer" | "costDocumentDraft" | "draft" | "post" | "actionItem";
+    contextKind:
+      | "composer"
+      | "costDocumentDraft"
+      | "draft"
+      | "post"
+      | "actionItem";
     contextRecordId?: string;
   }
 ) {
@@ -537,9 +558,11 @@ async function authorizeStagingContext(
     return draft._id;
   }
   if (input.contextKind === "costDocumentDraft") {
-    // Live deployment may already store this contextKind from the cost-documents
-    // branch. Reject new/managed staging here until that surface is merged.
-    throw new Error("Cost Document draft asset staging is unavailable.");
+    return await authorizeCostDocumentDraftStagingContext(
+      ctx,
+      input.authorization,
+      input.contextRecordId
+    );
   }
   if (input.contextKind === "post") {
     const post = await readablePost(
@@ -563,6 +586,40 @@ async function authorizeStagingContext(
   }
   await readablePost(ctx, input.authorization, actionItem.originatingPostId);
   return actionItem._id;
+}
+
+async function authorizeCostDocumentDraftStagingContext(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  contextRecordId: string
+) {
+  if (
+    authorization.viewer.actorKind !== "human" ||
+    (authorization.effectiveRole.role !== "builder" &&
+      authorization.effectiveRole.role !== "builder-staff")
+  ) {
+    throw new Error("Forbidden: Cost Document Builder access");
+  }
+  const draftId = ctx.db.normalizeId("costDocumentDrafts", contextRecordId);
+  const draft = draftId ? await ctx.db.get(draftId) : null;
+  const batch = draft?.batchId ? await ctx.db.get(draft.batchId) : null;
+  if (
+    !(draft && batch) ||
+    draft.buildId !== authorization.build._id ||
+    draft.organizationId !== authorization.organizationId ||
+    draft.brokerageId !== authorization.brokerage._id ||
+    draft.ownerWorkosUserId !== authorization.viewer.subject ||
+    draft.lifecycle !== "draft" ||
+    draft.activeStep !== "capture_confirm" ||
+    batch.organizationId !== draft.organizationId ||
+    batch.brokerageId !== draft.brokerageId ||
+    batch.buildId !== draft.buildId ||
+    batch.ownerWorkosUserId !== draft.ownerWorkosUserId ||
+    batch.state !== "active"
+  ) {
+    throw new Error("The Cost Document draft is unavailable.");
+  }
+  return draft._id;
 }
 
 async function requireOwnedOpenSession(
@@ -609,6 +666,24 @@ async function resolveVersionPlacement(
   ) {
     throw new Error("The prior asset version is unavailable.");
   }
+  const [draftPage, submittedPage] = await Promise.all([
+    ctx.db
+      .query("costDocumentDraftPages")
+      .withIndex("by_assetId", (query) => query.eq("assetId", asset._id))
+      .first(),
+    ctx.db
+      .query("costDocumentPages")
+      .withIndex("by_buildId_and_assetId", (query) =>
+        query.eq("buildId", authorization.build._id).eq("assetId", asset._id)
+      )
+      .first(),
+  ]);
+  if (draftPage || submittedPage) {
+    // Cost Document page identity is frozen by its own draft/submission
+    // lifecycle. Generic collaboration versioning would later supersede the
+    // source asset and invalidate immutable Cost Document replay.
+    throw new Error("The prior asset version is unavailable.");
+  }
   const lineageRootAssetId = asset.lineageRootAssetId ?? asset._id;
   const lineage = await ctx.db
     .query("buildCollaborationAssets")
@@ -639,8 +714,18 @@ async function resolveVersionPlacement(
 async function assertStagingCapacity(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
-  now: number
+  now: number,
+  contextKind?:
+    | "composer"
+    | "costDocumentDraft"
+    | "draft"
+    | "post"
+    | "actionItem"
 ) {
+  const maxActiveSessions =
+    contextKind === "costDocumentDraft"
+      ? MAX_COST_DOCUMENT_DRAFT_ACTIVE_STAGING_SESSIONS
+      : MAX_ACTIVE_STAGING_SESSIONS;
   let activeCount = 0;
   for (const state of ["open", "finalized"] as const) {
     const sessions = await ctx.db
@@ -651,12 +736,12 @@ async function assertStagingCapacity(
           .eq("ownerWorkosUserId", authorization.viewer.subject)
           .eq("state", state)
       )
-      .take(MAX_ACTIVE_STAGING_SESSIONS + 1);
+      .take(maxActiveSessions + 1);
     activeCount += sessions.filter((session) => session.expiresAt > now).length;
   }
-  if (activeCount >= MAX_ACTIVE_STAGING_SESSIONS) {
+  if (activeCount >= maxActiveSessions) {
     throw new Error(
-      `At most ${MAX_ACTIVE_STAGING_SESSIONS} active asset uploads are allowed per participant and Build.`
+      `At most ${maxActiveSessions} active asset uploads are allowed per participant and Build.`
     );
   }
 }
@@ -707,6 +792,12 @@ async function stagingAudience(
       ),
     };
   }
+  if (session.contextKind === "costDocumentDraft") {
+    return {
+      maximumAudienceMode: "custom",
+      readerWorkosUserIds: [authorization.viewer.subject],
+    };
+  }
   return { maximumAudienceMode: "build_wide" };
 }
 
@@ -741,10 +832,24 @@ async function canManageStagingSession(
   }
   if (
     authorization.viewer.actorKind !== "human" ||
-    session.contextKind !== "draft" ||
+    (session.contextKind !== "draft" &&
+      session.contextKind !== "costDocumentDraft") ||
     !session.contextRecordId
   ) {
     return false;
+  }
+  if (session.contextKind === "costDocumentDraft") {
+    const draftId = ctx.db.normalizeId(
+      "costDocumentDrafts",
+      session.contextRecordId
+    );
+    const draft = draftId ? await ctx.db.get(draftId) : null;
+    return Boolean(
+      draft &&
+        draft.organizationId === authorization.organizationId &&
+        draft.buildId === authorization.build._id &&
+        draft.ownerWorkosUserId === authorization.viewer.subject
+    );
   }
   const draftId = ctx.db.normalizeId(
     "buildCollaborationDrafts",
@@ -907,6 +1012,35 @@ async function abandonUnpublishedAsset(
     }),
     now: input.now,
   });
+}
+
+/**
+ * Retires an unpublished Cost Document draft asset after a page replacement.
+ * The draft page owns the storage lineage, so this deliberately reuses the
+ * governed abandonment path instead of introducing a second uploader/cleanup
+ * implementation.
+ */
+export async function abandonUnpublishedCostDocumentDraftAsset(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  input: {
+    asset: Doc<"buildCollaborationAssets">;
+    now: number;
+    reason: string;
+    session: Doc<"buildCollaborationAssetStagingSessions">;
+  }
+) {
+  if (
+    input.session.contextKind !== "costDocumentDraft" ||
+    input.asset.publishedAt ||
+    input.session.organizationId !== authorization.organizationId ||
+    input.session.brokerageId !== authorization.brokerage._id ||
+    input.session.buildId !== authorization.build._id ||
+    input.session.ownerWorkosUserId !== authorization.viewer.subject
+  ) {
+    throw new Error("The Cost Document draft asset cannot be abandoned.");
+  }
+  await abandonUnpublishedAsset(ctx, authorization, input);
 }
 
 export async function reconcileDraftAssetStagingSessions(

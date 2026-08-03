@@ -21,13 +21,13 @@ import {
   ProductionBuildDetailSurface,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
-import { SingleCostDocumentCapture } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
 import { canUseAppPermission } from "#/features/builder-staff/app-permissions.ts";
 import {
   BuilderStaffPermissionsPanel,
   type StaffDirectory,
 } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import { CostDocumentBatchWorkspace } from "#/features/cost-documents/CostDocumentBatchWorkspace.tsx";
 import {
   getVisualParityActiveBuildDetail,
   getVisualParityActiveBuildTimelineWorkspace,
@@ -37,11 +37,11 @@ import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalizati
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
-export type BuilderBuildSearch = {
+export interface BuilderBuildSearch {
+  costBatch?: string;
   focus?: string;
-  timeframe?: CalendarTimeframe;
   milestone?: string;
-  variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant;
+  rail?: "open" | "closed";
   tab?:
     | "calendar"
     | "contractors"
@@ -54,8 +54,9 @@ export type BuilderBuildSearch = {
     | "milestones"
     | "staff"
     | "timeline";
-  rail?: "open" | "closed";
-};
+  timeframe?: CalendarTimeframe;
+  variant?: MilestonePrototypeVariant | MilestoneStartPrototypeVariant;
+}
 
 function isMilestoneStartPrototypeVariant(
   variant: BuilderBuildSearch["variant"]
@@ -131,6 +132,10 @@ const VISUAL_ACTIVE_BUILD_STAFF_DIRECTORY: StaffDirectory = {
 
 export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
+    const costBatch =
+      typeof search.costBatch === "string" && search.costBatch.trim()
+        ? search.costBatch.trim()
+        : undefined;
     const tab =
       search.tab === "timeline" ||
       search.tab === "costs" ||
@@ -170,6 +175,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     return {
+      ...(costBatch ? { costBatch } : {}),
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
@@ -827,8 +833,21 @@ export function BuilderBuildWorkspaceRoute({
             : undefined
         }
         costs={
-          <SingleCostDocumentCapture
+          <CostDocumentBatchWorkspace
+            batchId={search.costBatch}
             buildId={activeBuildId as Id<"activeBuilds">}
+            onBatchIdChange={(batchId) =>
+              navigate({
+                params: { buildId },
+                replace: Boolean(search.costBatch) || !batchId,
+                search: {
+                  ...search,
+                  costBatch: batchId,
+                  tab: "costs",
+                },
+                to: `${routeBase}/builds/$buildId` as never,
+              } as never)
+            }
             organizationId={workosOrganizationId}
             submilestones={(detail.submilestones ?? []).map((submilestone) => ({
               id: submilestone._id as Id<"buildSubmilestones">,

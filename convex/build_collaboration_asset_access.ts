@@ -178,10 +178,19 @@ export async function resolveCollaborationAssetReadDecision(
   if (
     !session ||
     session.organizationId !== input.authorization.organizationId ||
-    session.buildId !== input.authorization.build._id ||
-    session.state !== "finalized" ||
-    session.expiresAt <= Date.now()
+    session.buildId !== input.authorization.build._id
   ) {
+    return null;
+  }
+  const costDocumentDraftDecision = await costDocumentDraftReadDecision(
+    ctx,
+    input,
+    session
+  );
+  if (costDocumentDraftDecision) {
+    return costDocumentDraftDecision;
+  }
+  if (session.state !== "finalized" || session.expiresAt <= Date.now()) {
     return null;
   }
   if (session.ownerWorkosUserId === input.authorization.viewer.subject) {
@@ -283,6 +292,46 @@ async function listAssetAttachments(
     }
     cursor = page.continueCursor;
   }
+}
+
+async function costDocumentDraftReadDecision(
+  ctx: QueryCtx,
+  input: {
+    asset: Doc<"buildCollaborationAssets">;
+    authorization: ActiveBuildAuthorization;
+  },
+  session: Doc<"buildCollaborationAssetStagingSessions">
+) {
+  if (session.contextKind !== "costDocumentDraft" || !session.contextRecordId) {
+    return null;
+  }
+  const draftId = ctx.db.normalizeId(
+    "costDocumentDrafts",
+    session.contextRecordId
+  );
+  const draft = draftId ? await ctx.db.get(draftId) : null;
+  if (
+    !draft ||
+    draft.organizationId !== input.authorization.organizationId ||
+    draft.brokerageId !== input.authorization.brokerage._id ||
+    draft.buildId !== input.authorization.build._id ||
+    draft.ownerWorkosUserId !== input.authorization.viewer.subject
+  ) {
+    return null;
+  }
+  const page = await ctx.db
+    .query("costDocumentDraftPages")
+    .withIndex("by_assetId", (query) => query.eq("assetId", input.asset._id))
+    .filter((query) => query.eq(query.field("state"), "active"))
+    .first();
+  if (page?.draftId !== draft._id) {
+    return null;
+  }
+  return {
+    basis: "cost_document_draft_owner" as const,
+    draftId: draft._id,
+    stagingSessionId: session._id,
+  };
 }
 
 async function isDraftApprovalOwner(
