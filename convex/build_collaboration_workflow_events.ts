@@ -54,6 +54,7 @@ export async function publishMilestoneCollaborationEvent(
         }
       : undefined,
     systemLabel: SYSTEM_LABEL,
+    systemPostKind: "milestone",
   });
 }
 
