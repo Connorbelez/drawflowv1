@@ -332,6 +332,14 @@ export function QuoteTemplateRegistry({
     setNewTemplateOpen(true);
     setSelectedTemplateId(undefined);
     setInspectedVersionId(undefined);
+    setDraftTemplateId(undefined);
+    setDraftVersionId(undefined);
+    setDraftName("");
+    setDraftDescription("");
+    setDraftAudience("either");
+    setDraftFields([]);
+    setReleaseNote("");
+    setStep("identity");
     setMessage(undefined);
   };
 
@@ -340,9 +348,10 @@ export function QuoteTemplateRegistry({
     setDraftTemplateId(template._id);
     setDraftVersionId(version?._id);
     setDraftName(version?.name ?? template.name);
-    setDraftDescription(version?.description ?? template.description ?? "");
+    setDraftDescription(version ? (version.description ?? "") : (template.description ?? ""));
     setDraftAudience(version?.audience ?? template.audience);
     setDraftFields(cloneFields(version?.fields ?? template.currentVersion?.fields));
+    setReleaseNote("");
     setStep("identity");
     setMode("guided");
     setMessage(undefined);
@@ -362,6 +371,7 @@ export function QuoteTemplateRegistry({
       setDraftTemplateId(String(created.templateId));
       setDraftVersionId(String(created.versionId));
       setDraftFields(cloneFields(defaultDraftFields));
+      setReleaseNote("");
       setNewTemplateOpen(false);
       setMode("guided");
       setStep("identity");
@@ -414,7 +424,9 @@ export function QuoteTemplateRegistry({
     try {
       const created = await createDraft({
         audience: selectedTemplate.currentVersion?.audience ?? selectedTemplate.audience,
-        description: selectedTemplate.currentVersion?.description ?? selectedTemplate.description,
+        description: selectedTemplate.currentVersion
+          ? selectedTemplate.currentVersion.description
+          : selectedTemplate.description,
         name: selectedTemplate.currentVersion?.name ?? selectedTemplate.name,
         sourceTemplateId: selectedTemplate._id as never,
         workosOrganizationId,
@@ -422,9 +434,14 @@ export function QuoteTemplateRegistry({
       setDraftTemplateId(String(created.templateId));
       setDraftVersionId(String(created.versionId));
       setDraftName(selectedTemplate.currentVersion?.name ?? selectedTemplate.name);
-      setDraftDescription(selectedTemplate.currentVersion?.description ?? selectedTemplate.description ?? "");
+      setDraftDescription(
+        selectedTemplate.currentVersion
+          ? (selectedTemplate.currentVersion.description ?? "")
+          : (selectedTemplate.description ?? "")
+      );
       setDraftAudience(selectedTemplate.currentVersion?.audience ?? selectedTemplate.audience);
       setDraftFields(cloneFields(selectedTemplate.currentVersion?.fields));
+      setReleaseNote("");
       setMode("guided");
       setStep("identity");
       setMessage("A new immutable version draft is ready to edit.");
@@ -453,6 +470,9 @@ export function QuoteTemplateRegistry({
         workosOrganizationId,
       });
       setMode("registry");
+      setDraftTemplateId(undefined);
+      setDraftVersionId(undefined);
+      setReleaseNote("");
       setMessage("Published. Existing Quote Rounds remain pinned to their version snapshot.");
     } catch (error) {
       setMessage(safeErrorMessage(error, "Could not publish version."));
@@ -527,7 +547,12 @@ export function QuoteTemplateRegistry({
         draftFields={draftFields}
         draftName={draftName}
         message={message}
-        onBack={() => setMode("registry")}
+        onBack={() => {
+          setMode("registry");
+          setDraftTemplateId(undefined);
+          setDraftVersionId(undefined);
+          setReleaseNote("");
+        }}
         onPublish={publishCurrentDraft}
         onSave={saveCurrentDraft}
         releaseNote={releaseNote}
@@ -1039,7 +1064,7 @@ function RecipientPreviewField({ field }: { field: QuoteTemplateField }) {
     const maxFiles = field.validation?.maxFiles;
     return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input accept={field.validation?.allowedMimeTypes?.join(",")} aria-describedby={validation ? disclosureId : undefined} aria-label={accessibleLabel} id={inputId} multiple={maxFiles === undefined || maxFiles > 1} required={field.required} type="file" />{validation ? <PreviewContractDisclosure field={field} id={disclosureId} /> : null}</label>;
   }
-  return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input aria-describedby={validation ? disclosureId : undefined} aria-label={accessibleLabel} id={inputId} maxLength={validation?.maxLength} minLength={validation?.minLength} pattern={validation?.pattern} placeholder="Short text response" required={field.required} /></label>;
+  return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input aria-describedby={validation ? disclosureId : undefined} aria-label={accessibleLabel} id={inputId} maxLength={validation?.maxLength} minLength={validation?.minLength} pattern={validation?.pattern} placeholder="Short text response" required={field.required} />{validation ? <PreviewContractDisclosure field={field} id={disclosureId} /> : null}</label>;
 }
 
 function PreviewContractDisclosure({ field, id }: { field: QuoteTemplateField; id: string }) {

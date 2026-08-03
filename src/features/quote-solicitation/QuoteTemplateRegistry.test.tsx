@@ -85,6 +85,9 @@ describe("QuoteTemplateRegistry", () => {
     queryByRef.clear();
     if (registry.templates[0]?.selectedVersion && registry.templates[0].currentVersion) {
       registry.templates[0].selectedVersion.fields = registry.templates[0].currentVersion.fields;
+      registry.templates[0].description = "Reusable trade response.";
+      registry.templates[0].currentVersion.description = "Reusable trade response.";
+      registry.templates[0].selectedVersion.description = "Reusable trade response.";
     }
     useQuery.mockImplementation((ref: Parameters<typeof getFunctionName>[0]) => queryByRef.get(getFunctionName(ref)));
     usePaginatedQuery.mockImplementation((ref: Parameters<typeof getFunctionName>[0]) => {
@@ -163,11 +166,63 @@ describe("QuoteTemplateRegistry", () => {
     expect(screen.getByLabelText("Estimated crew size").getAttribute("minlength")).toBe("1");
     expect(screen.getByLabelText("Estimated crew size").getAttribute("maxlength")).toBe("80");
     expect(screen.getByLabelText("Estimated crew size").getAttribute("pattern")).toBe("^[A-Z]");
+    expect(screen.getByText(/Text constraints: min length 1 · max length 80 · pattern \^\[A-Z\]/)).toBeTruthy();
+    const crewDescriptionId = screen.getByLabelText("Estimated crew size").getAttribute("aria-describedby");
+    expect(crewDescriptionId).toBeTruthy();
+    expect(document.getElementById(crewDescriptionId ?? "")).toBeTruthy();
     expect(screen.getByLabelText("Warranty (required)").getAttribute("required")).toBe("");
     expect(screen.getByLabelText("Insurance certificate (required)").getAttribute("required")).toBe("");
     expect(screen.getByLabelText("Labour amount in cents").getAttribute("min")).toBe("1000");
     expect(screen.getByLabelText("Labour amount in cents").getAttribute("max")).toBe("500000");
     expect(screen.getByLabelText("Labour amount in cents").getAttribute("aria-describedby")).toBe("preview-labour-line-contract");
+  });
+
+  test("keeps an intentionally cleared version description empty when reopening a draft", async () => {
+    const template = registry.templates[0];
+    if (!(template?.currentVersion && template.selectedVersion)) {
+      throw new Error("Missing quote template fixture.");
+    }
+    template.currentVersion.description = undefined as never;
+    template.selectedVersion.description = undefined as never;
+    render(<QuoteTemplateRegistry workosOrganizationId="org_quote_templates" />);
+    fireEvent.click(screen.getByRole("button", { name: /Standard trade quote/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Create next version draft" }));
+    await waitFor(() =>
+      expect(
+        mutationByRef.get(
+          getFunctionName(api.quote_response_templates.createQuoteResponseTemplateDraft)
+        )
+      ).toHaveBeenCalledWith(expect.objectContaining({ description: undefined }))
+    );
+    expect((screen.getByRole("textbox", { name: "Internal description" }) as HTMLInputElement).value).toBe("");
+  });
+
+  test("resets template identity and release-note state between authoring workflows", async () => {
+    render(<QuoteTemplateRegistry workosOrganizationId="org_quote_templates" />);
+    fireEvent.click(screen.getByRole("button", { name: /Standard trade quote/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Create next version draft" }));
+    await waitFor(() =>
+      expect(
+        mutationByRef.get(
+          getFunctionName(api.quote_response_templates.createQuoteResponseTemplateDraft)
+        )
+      ).toHaveBeenCalled()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "5. Publish" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Release note" }), {
+      target: { value: "Stale release note" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Back to template registry" }));
+    fireEvent.click(screen.getByRole("button", { name: "New template" }));
+    expect((screen.getByRole("textbox", { name: "Template name" }) as HTMLInputElement).value).toBe("");
+    expect((screen.getByRole("textbox", { name: "Internal description" }) as HTMLInputElement).value).toBe("");
+    expect((screen.getByRole("combobox", { name: "Intended recipient" }) as HTMLSelectElement).value).toBe("either");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: /Standard trade quote/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Create next version draft" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "5. Publish" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "5. Publish" }));
+    expect((screen.getByRole("textbox", { name: "Release note" }) as HTMLInputElement).value).toBe("");
   });
 
   test("does not publish when saving the draft fails", async () => {

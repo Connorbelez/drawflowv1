@@ -220,6 +220,19 @@ describe("Quote Response Template public contract", () => {
       )
     ).toEqual({ issues: [], valid: true });
 
+    const prePublication = await builder.query(
+      (api as any).quote_response_templates.getQuoteResponseTemplate,
+      {
+        templateId: created.templateId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(prePublication?.currentVersion).toMatchObject({
+      _id: created.versionId,
+      status: "draft",
+    });
+    expect(prePublication?.selectedVersion).toBeNull();
+
     const published = await builder.mutation(
       (api as any).quote_response_templates.publishQuoteResponseTemplate,
       {
@@ -669,12 +682,25 @@ describe("Quote Response Template public contract", () => {
       }
     );
     await base.run(async (ctx) => {
+      await ctx.db.patch(first.versionId, { status: "published" });
+      await ctx.db.patch(second.versionId, { status: "published" });
       await ctx.db.patch(first.templateId, { currentVersionId: second.versionId });
     });
     await expect(
       builder.query(
         (api as any).quote_response_templates.getQuoteResponseTemplate,
         { templateId: first.templateId, workosOrganizationId: ORGANIZATION_ID }
+      )
+    ).rejects.toThrow(/currentVersionId|cross-scope/);
+    await expect(
+      builder.mutation(
+        (api as any).quote_response_templates.createQuoteResponseTemplateDraft,
+        {
+          audience: "contractor",
+          name: "Pointer clone",
+          sourceTemplateId: first.templateId,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
       )
     ).rejects.toThrow(/currentVersionId|cross-scope/);
 
@@ -685,6 +711,16 @@ describe("Quote Response Template public contract", () => {
       builder.query(
         (api as any).quote_response_templates.getQuoteResponseTemplate,
         { templateId: first.templateId, workosOrganizationId: ORGANIZATION_ID }
+      )
+    ).rejects.toThrow(/selectedVersionId|cross-scope/);
+    await expect(
+      builder.mutation(
+        (api as any).quote_response_templates.selectQuoteResponseTemplateVersion,
+        {
+          templateId: first.templateId,
+          versionId: first.versionId,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
       )
     ).rejects.toThrow(/selectedVersionId|cross-scope/);
     await expect(

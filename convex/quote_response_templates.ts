@@ -628,7 +628,7 @@ async function readTemplateVersionPointers(
         await ctx.db.get(template.selectedVersionId),
         "selectedVersionId"
       )
-    : currentVersion;
+    : null;
   return { currentVersion, selectedVersion };
 }
 
@@ -665,7 +665,7 @@ async function readTemplate(
     createdAt: template.createdAt,
     createdByWorkosUserId: template.createdByWorkosUserId,
     currentVersion: currentVersion ? await readVersion(ctx, currentVersion) : null,
-    description: identityVersion?.description ?? template.description,
+    description: identityVersion ? identityVersion.description : template.description,
     name: identityVersion?.name ?? template.name,
     selectedVersion: selectedVersion ? await readVersion(ctx, selectedVersion) : null,
     status: template.status,
@@ -687,7 +687,7 @@ async function readTemplateSummary(
     createdAt: template.createdAt,
     createdByWorkosUserId: template.createdByWorkosUserId,
     currentVersion: currentVersion ? readVersionSummary(currentVersion) : null,
-    description: identityVersion?.description ?? template.description,
+    description: identityVersion ? identityVersion.description : template.description,
     name: identityVersion?.name ?? template.name,
     selectedVersion: selectedVersion ? readVersionSummary(selectedVersion) : null,
     status: template.status,
@@ -876,10 +876,12 @@ export const createQuoteResponseTemplateDraft = builderMutation
       if (activeDraft) {
         return { templateId: sourceTemplateId, versionId: activeDraft._id };
       }
-      const sourceVersionId = sourceTemplate.currentVersionId ?? sourceTemplate.selectedVersionId;
-      if (sourceVersionId) {
-        const sourceVersion = await ctx.db.get(sourceVersionId);
-        if (sourceVersion && sourceVersion.brokerageId === authorization.brokerage._id && sourceVersion.organizationId === authorization.organizationId && sourceVersion.templateId === sourceTemplate._id) {
+      const { currentVersion, selectedVersion } = await readTemplateVersionPointers(
+        ctx,
+        sourceTemplate
+      );
+      const sourceVersion = currentVersion ?? selectedVersion;
+      if (sourceVersion) {
           const sourceFields = await ctx.db.query("quoteResponseTemplateFields").withIndex("by_version_order", (query) => query.eq("versionId", sourceVersion._id)).collect();
           fields = sourceFields.map((field, order) => ({
             allowAlternates: field.allowAlternates,
@@ -898,7 +900,6 @@ export const createQuoteResponseTemplateDraft = builderMutation
             tax: field.tax,
             validation: field.validation,
           }));
-        }
       }
     }
     const normalizedFields = normalizeFields(fields);
@@ -1113,9 +1114,8 @@ export const selectQuoteResponseTemplateVersion = builderMutation
       throw new ConvexError("Only a published version in this organization may be selected.");
     }
     const now = Date.now();
-    const priorSelectedVersion = template.selectedVersionId
-      ? await ctx.db.get(template.selectedVersionId)
-      : null;
+    const { selectedVersion: priorSelectedVersion } =
+      await readTemplateVersionPointers(ctx, template);
     await ctx.db.patch(template._id, { selectedVersionId: version._id, updatedAt: now });
     await auditTemplate(ctx, authorization, {
       command: "selectQuoteResponseTemplateVersion",
