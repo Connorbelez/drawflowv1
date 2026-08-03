@@ -273,6 +273,7 @@ describe("Cost Document public contract", () => {
           },
         });
         expect(response.status).toBe(403);
+        expect(response.headers.get("Cache-Control")).toContain("no-store");
       } finally {
         await restore();
       }
@@ -1257,6 +1258,7 @@ describe("Cost Document public contract", () => {
         (api as any).cost_documents.submitCostDocumentBatch,
         {
           batchId,
+          duplicateOverrideReason: "Independent replay-integrity fixture.",
           expectedRevision: await batchRevision(fixture, batchId),
           idempotencyKey,
         }
@@ -2921,6 +2923,828 @@ describe("Cost Document public contract", () => {
       })
     ).rejects.toThrow("active build participation revoked");
   });
+
+  test("blocks exact source duplicates while requiring an audited override for likely same-Build duplicates", async () => {
+    const fixture = await seedFixture();
+    const original = await submitIntegrityFixtureDocument(fixture, {
+      assetFileName: "exact-duplicate-source.pdf",
+      key: "integrity-original",
+    });
+    await fixture.base.run(async (ctx) => {
+      const source = await ctx.db.get(original.costDocumentId);
+      if (!source) throw new Error("Missing duplicate-scope source fixture");
+      const { _creationTime, _id, ...fields } = source;
+      await ctx.db.insert("costDocuments", {
+        ...fields,
+        organizationId: "org_duplicate_scope_forgery",
+        submittedAt: source.submittedAt + 1,
+      });
+    });
+
+    const exact = await prepareIntegrityFixtureDraft(fixture, {
+      assetFileName: "exact-duplicate-source.pdf",
+      key: "integrity-exact-copy",
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.submitCostDocumentBatch,
+        {
+          batchId: exact.batchId,
+          expectedRevision: await batchRevision(fixture, exact.batchId),
+          idempotencyKey: "integrity-exact-copy-submit",
+        }
+      )
+    ).rejects.toThrow("exact duplicate");
+    await fixture.builder.mutation(
+      (api as any).cost_documents.abandonCostDocumentBatch,
+      {
+        batchId: exact.batchId,
+        expectedRevision: await batchRevision(fixture, exact.batchId),
+        reason: "Exact duplicate correctly rejected.",
+      }
+    );
+
+    const likely = await prepareIntegrityFixtureDraft(fixture, {
+      assetFileName: "different-source.pdf",
+      key: "integrity-likely-copy",
+    });
+    const assessment = await fixture.builder.query(
+      (api as any).cost_documents.getCostDocumentDuplicateAssessment,
+      { draftId: likely.draftId }
+    );
+    expect(assessment).toMatchObject({
+      likelyDuplicateCostDocumentIds: [original.costDocumentId],
+      requiresOverride: true,
+    });
+    expect(assessment).not.toHaveProperty("exactDuplicateCostDocumentId");
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.submitCostDocumentBatch,
+        {
+          batchId: likely.batchId,
+          expectedRevision: await batchRevision(fixture, likely.batchId),
+          idempotencyKey: "integrity-likely-copy-submit",
+        }
+      )
+    ).rejects.toThrow("likely duplicate");
+    const submitted = await fixture.builder.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId: likely.batchId,
+        duplicateOverrideReason: "Separate supplier invoice for the same amount.",
+        expectedRevision: await batchRevision(fixture, likely.batchId),
+        idempotencyKey: "integrity-likely-copy-submit",
+      }
+    );
+    const acceptedId = submitted.costDocumentIds[0] as Id<"costDocuments">;
+    const accepted = await fixture.builder.query(
+      (api as any).cost_documents.getCostDocument,
+      {
+        buildId: fixture.buildId,
+        costDocumentId: acceptedId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(accepted.duplicateWarning).toMatchObject({
+      overridden: true,
+      reason: "Separate supplier invoice for the same amount.",
+    });
+  });
+
+  test("serializes concurrent exact-duplicate submissions so only one independent record wins", async () => {
+    const fixture = await seedFixture();
+    const staff = await addEligibleBuilderStaff(fixture, "duplicate_race_staff");
+    const builderDraft = await prepareIntegrityFixtureDraft(fixture, {
+      assetFileName: "duplicate-race-source.pdf",
+      key: "duplicate-race-builder",
+    });
+    const staffDraft = await prepareIntegrityFixtureDraft(fixture, {
+      actor: staff,
+      assetFileName: "duplicate-race-source.pdf",
+      key: "duplicate-race-staff",
+    });
+
+    const results = await Promise.allSettled([
+      fixture.builder.mutation(
+        (api as any).cost_documents.submitCostDocumentBatch,
+        {
+          batchId: builderDraft.batchId,
+          expectedRevision: await batchRevision(
+            fixture,
+            builderDraft.batchId
+          ),
+          idempotencyKey: "duplicate-race-builder-submit",
+        }
+      ),
+      staff.mutation((api as any).cost_documents.submitCostDocumentBatch, {
+        batchId: staffDraft.batchId,
+        expectedRevision: await batchRevision(fixture, staffDraft.batchId),
+        idempotencyKey: "duplicate-race-staff-submit",
+      }),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(
+      1
+    );
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(
+      1
+    );
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(String(rejected && "reason" in rejected ? rejected.reason : "")).toContain(
+      "exact duplicate"
+    );
+  });
+
+  test("rejects exact-source sibling drafts inside one atomic batch", async () => {
+    const fixture = await seedFixture();
+    const batchId = await createBatch(fixture, "duplicate-sibling-batch");
+    for (const suffix of ["first", "second"] as const) {
+      const draftId = await addDraft(fixture, batchId, "invoice", "labour");
+      const assetId = await stageDraftAsset(
+        fixture,
+        draftId,
+        "same-sibling-source.pdf"
+      );
+      await saveDraft(fixture, draftId, {
+        allocations: [
+          {
+            amountCents: 12_345,
+            buildSubmilestoneId: fixture.buildSubmilestoneId,
+          },
+        ],
+        documentDate: "2026-08-01",
+        grossTotalCents: 12_345,
+        pageAssetIds: [assetId],
+        title: `Sibling ${suffix}`,
+        vendorName: "Cedar Forming Ltd.",
+      });
+      await completeDraft(fixture, draftId);
+    }
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.submitCostDocumentBatch,
+        {
+          batchId,
+          duplicateOverrideReason: "This must not bypass exact-source checks.",
+          expectedRevision: await batchRevision(fixture, batchId),
+          idempotencyKey: "duplicate-sibling-batch-submit",
+        }
+      )
+    ).rejects.toThrow("exact duplicate");
+    await expect(
+      fixture.base.run(async (ctx) =>
+        await ctx.db
+          .query("costDocuments")
+          .withIndex("by_batchId", (query) => query.eq("batchId", batchId))
+          .collect()
+      )
+    ).resolves.toEqual([]);
+  });
+
+  test.each(["voided", "superseded"] as const)(
+    "keeps legacy %s records in the exact-source invariant",
+    async (lifecycle) => {
+      const fixture = await seedFixture();
+      const original = await submitIntegrityFixtureDocument(fixture, {
+        assetFileName: `legacy-${lifecycle}-source.pdf`,
+        key: `legacy-${lifecycle}-source`,
+      });
+      await fixture.base.run(async (ctx) => {
+        const source = await ctx.db.get(original.costDocumentId);
+        if (!source) throw new Error("Missing legacy duplicate fixture");
+        if (lifecycle === "voided") {
+          await ctx.db.patch(source._id, {
+            sourceHashDigest: undefined,
+            voidReason: "Legacy void fixture.",
+            voidedAt: Date.now(),
+            voidedByWorkosUserId: "admin",
+          });
+          return;
+        }
+        const { _creationTime, _id, ...fields } = source;
+        const successorId = await ctx.db.insert("costDocuments", {
+          ...fields,
+          createdAt: source.createdAt + 1,
+          sourceHashDigest: "f".repeat(64),
+          submittedAt: source.submittedAt + 1,
+          title: "Legacy successor fixture",
+        });
+        await ctx.db.patch(source._id, {
+          sourceHashDigest: undefined,
+          supersededAt: Date.now(),
+          supersededByCostDocumentId: successorId,
+        });
+      });
+
+      const duplicate = await prepareIntegrityFixtureDraft(fixture, {
+        assetFileName: `legacy-${lifecycle}-source.pdf`,
+        key: `legacy-${lifecycle}-copy`,
+      });
+      await expect(
+        fixture.builder.mutation(
+          (api as any).cost_documents.submitCostDocumentBatch,
+          {
+            batchId: duplicate.batchId,
+            expectedRevision: await batchRevision(fixture, duplicate.batchId),
+            idempotencyKey: `legacy-${lifecycle}-copy-submit`,
+          }
+        )
+      ).rejects.toThrow("exact duplicate");
+    }
+  );
+
+  test("backfills bounded legacy source digests without changing submitted facts", async () => {
+    const fixture = await seedFixture();
+    const submitted = await submitIntegrityFixtureDocument(fixture, {
+      assetFileName: "legacy-backfill-source.pdf",
+      key: "legacy-backfill",
+    });
+    const before = await fixture.base.run(async (ctx) => {
+      const document = await ctx.db.get(submitted.costDocumentId);
+      if (!document) throw new Error("Missing backfill fixture");
+      await ctx.db.patch(document._id, { sourceHashDigest: undefined });
+      return document;
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).cost_documents.backfillCostDocumentSourceHashDigests,
+        {
+          buildId: fixture.buildId,
+          limit: 1,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toEqual({ hasMore: false, processed: 1 });
+    const after = await fixture.base.run(
+      async (ctx) => await ctx.db.get(submitted.costDocumentId)
+    );
+    expect(after).toMatchObject({
+      documentDate: before.documentDate,
+      grossTotalCents: before.grossTotalCents,
+      sourceHashDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      title: before.title,
+      vendorName: before.vendorName,
+    });
+  });
+
+  test("fails closed on foreign or oversized submitted child projections", async () => {
+    const fixture = await seedFixture();
+    const submitted = await submitIntegrityFixtureDocument(fixture, {
+      assetFileName: "projection-graph-source.pdf",
+      key: "projection-graph",
+    });
+    const read = () =>
+      fixture.builder.query((api as any).cost_documents.getCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      });
+    const graph = await fixture.base.run(async (ctx) => {
+      const document = await ctx.db.get(submitted.costDocumentId);
+      const page = await ctx.db
+        .query("costDocumentPages")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", submitted.costDocumentId)
+        )
+        .first();
+      const allocation = await ctx.db
+        .query("costDocumentAllocations")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", submitted.costDocumentId)
+        )
+        .first();
+      if (!(document && page && allocation)) {
+        throw new Error("Missing submitted projection graph fixture");
+      }
+      return { allocation, document, page };
+    });
+
+    const foreignPageId = await fixture.base.run(async (ctx) => {
+      const { _creationTime, _id, ...fields } = graph.page;
+      return await ctx.db.insert("costDocumentPages", {
+        ...fields,
+        order: 1,
+        organizationId: "org_foreign_projection",
+      });
+    });
+    await expect(read()).rejects.toThrow("durable graph is unavailable");
+    await fixture.base.run(async (ctx) => await ctx.db.delete(foreignPageId));
+
+    const foreignAllocationId = await fixture.base.run(async (ctx) => {
+      const { _creationTime, _id, ...fields } = graph.allocation;
+      return await ctx.db.insert("costDocumentAllocations", {
+        ...fields,
+        order: 1,
+        organizationId: "org_foreign_projection",
+      });
+    });
+    await expect(read()).rejects.toThrow("durable graph is unavailable");
+    await fixture.base.run(
+      async (ctx) => await ctx.db.delete(foreignAllocationId)
+    );
+
+    const foreignComponentId = await fixture.base.run(async (ctx) =>
+      await ctx.db.insert("costDocumentFinancialComponents", {
+        amountCents: 1,
+        brokerageId: graph.document.brokerageId,
+        buildId: graph.document.buildId,
+        costDocumentId: graph.document._id,
+        createdAt: Date.now(),
+        kind: "fee",
+        label: "Forged foreign fee",
+        order: 0,
+        organizationId: "org_foreign_projection",
+      })
+    );
+    await expect(read()).rejects.toThrow("durable graph is unavailable");
+    await fixture.base.run(
+      async (ctx) => await ctx.db.delete(foreignComponentId)
+    );
+
+    const overflowPageIds = await fixture.base.run(async (ctx) => {
+      const ids: Id<"costDocumentPages">[] = [];
+      const { _creationTime, _id, ...fields } = graph.page;
+      for (let order = 1; order <= 500; order += 1) {
+        ids.push(
+          await ctx.db.insert("costDocumentPages", { ...fields, order })
+        );
+      }
+      return ids;
+    });
+    await expect(read()).rejects.toThrow("durable graph is unavailable");
+    await fixture.base.run(async (ctx) => {
+      for (const pageId of overflowPageIds) await ctx.db.delete(pageId);
+    });
+  });
+
+  test("keeps Builder and Brokerage review annotations independent and voids without deleting lineage", async () => {
+    const fixture = await seedFixture();
+    const submitted = await submitIntegrityFixtureDocument(fixture, {
+      assetFileName: "review-source.pdf",
+      key: "integrity-review",
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.setCostDocumentReviewAnnotation,
+        {
+          annotation: "Builder cannot author Brokerage Review.",
+          buildId: fixture.buildId,
+          costDocumentId: submitted.costDocumentId,
+          organizationId: ORGANIZATION_ID,
+          outcome: "accepted",
+          reviewType: "brokerage",
+        }
+      )
+    ).rejects.toThrow("brokerage Cost Document review is unavailable");
+    await expect(
+      fixture.admin.mutation(
+        (api as any).cost_documents.setCostDocumentReviewAnnotation,
+        {
+          annotation: "Brokerage cannot author Builder Review.",
+          buildId: fixture.buildId,
+          costDocumentId: submitted.costDocumentId,
+          organizationId: ORGANIZATION_ID,
+          outcome: "accepted",
+          reviewType: "builder",
+        }
+      )
+    ).rejects.toThrow("builder Cost Document review is unavailable");
+    await fixture.builder.mutation(
+      (api as any).cost_documents.setCostDocumentReviewAnnotation,
+      {
+        annotation: "Matches the concrete delivery docket.",
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+        outcome: "accepted",
+        reviewType: "builder",
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).cost_documents.setCostDocumentReviewAnnotation,
+      {
+        annotation: "Awaiting lender allocation confirmation.",
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+        outcome: "needs_correction",
+        reviewType: "brokerage",
+      }
+    );
+    let document = await fixture.builder.query(
+      (api as any).cost_documents.getCostDocument,
+      {
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(document.reviews).toMatchObject({
+      brokerage: {
+        annotation: "Awaiting lender allocation confirmation.",
+        outcome: "needs_correction",
+      },
+      builder: {
+        annotation: "Matches the concrete delivery docket.",
+        outcome: "accepted",
+      },
+    });
+
+    await fixture.admin.mutation((api as any).cost_documents.voidCostDocument, {
+      buildId: fixture.buildId,
+      costDocumentId: submitted.costDocumentId,
+      organizationId: ORGANIZATION_ID,
+      reason: "Uploaded against the wrong purchase order.",
+    });
+    document = await fixture.builder.query(
+      (api as any).cost_documents.getCostDocument,
+      {
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(document.lifecycle).toMatchObject({
+      state: "voided",
+      voidReason: "Uploaded against the wrong purchase order.",
+    });
+    await expect(
+      fixture.builder.query((api as any).cost_documents.listCostDocuments, {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      })
+    ).resolves.toMatchObject({ page: [] });
+    const retained = await fixture.base.run(async (ctx) => ({
+      allocations: await ctx.db
+        .query("costDocumentAllocations")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", submitted.costDocumentId)
+        )
+        .collect(),
+      document: await ctx.db.get(submitted.costDocumentId),
+      pages: await ctx.db
+        .query("costDocumentPages")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", submitted.costDocumentId)
+        )
+        .collect(),
+    }));
+    expect(retained.document).not.toBeNull();
+    expect(retained.allocations).toHaveLength(1);
+    expect(retained.pages).toHaveLength(1);
+    await expect(
+      fixture.admin.mutation((api as any).cost_documents.voidCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+        reason: "Attempted second void.",
+      })
+    ).rejects.toThrow("already voided");
+  });
+
+  test("creates linear corrected revisions and records durable action-required integrity exceptions", async () => {
+    const fixture = await seedFixture();
+    const original = await submitIntegrityFixtureDocument(fixture, {
+      assetFileName: "correction-source.pdf",
+      key: "integrity-correction-original",
+    });
+    const correction = await fixture.builder.mutation(
+      (api as any).cost_documents.startCostDocumentCorrection,
+      {
+        buildId: fixture.buildId,
+        costDocumentId: original.costDocumentId,
+        idempotencyKey: "integrity-correction-v2",
+        organizationId: ORGANIZATION_ID,
+        reuseSourcePages: true,
+      }
+    );
+    await saveDraft(fixture, correction.draftId, {
+      title: "Corrected foundation invoice",
+    });
+    await completeDraft(fixture, correction.draftId);
+    const corrected = await fixture.builder.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId: correction.batchId,
+        expectedRevision: await batchRevision(fixture, correction.batchId),
+        idempotencyKey: "integrity-correction-v2-submit",
+      }
+    );
+    const correctedId = corrected.costDocumentIds[0] as Id<"costDocuments">;
+    const projected = await fixture.builder.query(
+      (api as any).cost_documents.getCostDocument,
+      {
+        buildId: fixture.buildId,
+        costDocumentId: correctedId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(projected.revision).toMatchObject({
+      number: 2,
+      supersedesCostDocumentId: original.costDocumentId,
+    });
+    await expect(
+      fixture.builder.query((api as any).cost_documents.getCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId: original.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toMatchObject({
+      lifecycle: { state: "superseded" },
+      pages: [expect.objectContaining({ assetId: original.assetId })],
+      revision: { number: 1, supersededByCostDocumentId: correctedId },
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.startCostDocumentCorrection,
+        {
+          buildId: fixture.buildId,
+          costDocumentId: original.costDocumentId,
+          idempotencyKey: "integrity-correction-fork",
+          organizationId: ORGANIZATION_ID,
+          reuseSourcePages: true,
+        }
+      )
+    ).rejects.toThrow("newest revision");
+
+    await fixture.base.run(async (ctx) => {
+      const asset = await ctx.db.get(original.assetId);
+      if (!asset) throw new Error("Missing integrity asset fixture");
+      await ctx.db.patch(asset._id, { state: "quarantined" });
+    });
+    const quarantinedResponse = await fixture.builder.fetch(
+      `/api/cost-documents/page?${new URLSearchParams({
+        assetId: original.assetId,
+        buildId: fixture.buildId,
+        costDocumentId: correctedId,
+        organizationId: ORGANIZATION_ID,
+      }).toString()}`,
+      {
+        headers: {
+          Authorization: "Bearer test-auth-token",
+          Origin: "http://localhost:3000",
+        },
+      }
+    );
+    expect(quarantinedResponse.status).toBe(409);
+    expect(quarantinedResponse.headers.get("Cache-Control")).toContain(
+      "no-store"
+    );
+    const integrity = await fixture.builder.mutation(
+      (api as any).cost_documents.reconcileCostDocumentIntegrity,
+      {
+        buildId: fixture.buildId,
+        costDocumentId: correctedId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(integrity).toMatchObject({
+      healthy: false,
+      exceptions: [
+        expect.objectContaining({
+          actionRequired: true,
+          kind: "quarantined",
+        }),
+      ],
+    });
+    const durable = await fixture.base.run(async (ctx) => ({
+      exceptions: await ctx.db
+        .query("costDocumentIntegrityExceptions")
+        .withIndex("by_costDocumentId_and_createdAt", (query) =>
+          query.eq("costDocumentId", correctedId)
+        )
+        .collect(),
+      outbox: await ctx.db
+        .query("eventOutbox")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("relatedEntityType", "costDocument")
+            .eq("relatedEntityId", String(correctedId))
+        )
+        .collect(),
+    }));
+    expect(durable.exceptions).toHaveLength(1);
+    expect(
+      durable.outbox.some(
+        (event) => event.eventType === "cost_document.integrity_exception"
+      )
+    ).toBe(true);
+  });
+
+  test.each([
+    ["missing", "delete"],
+    ["corrupt", "hash"],
+  ] as const)(
+    "records and deduplicates %s source integrity failures without deleting the submitted record",
+    async (expectedKind, corruption) => {
+      const fixture = await seedFixture();
+      const submitted = await submitIntegrityFixtureDocument(fixture, {
+        assetFileName: `integrity-${expectedKind}.pdf`,
+        key: `integrity-${expectedKind}`,
+      });
+      await fixture.base.run(async (ctx) => {
+        const asset = await ctx.db.get(submitted.assetId);
+        if (!asset) throw new Error("Missing integrity failure asset");
+        if (corruption === "delete") {
+          await ctx.db.delete(asset._id);
+        } else {
+          await ctx.db.patch(asset._id, {
+            contentHashSha256: "f".repeat(64),
+          });
+        }
+      });
+      const args = {
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      };
+      await expect(
+        fixture.builder.mutation(
+          (api as any).cost_documents.reconcileCostDocumentIntegrity,
+          args
+        )
+      ).resolves.toMatchObject({
+        exceptions: [expect.objectContaining({ kind: expectedKind })],
+        healthy: false,
+      });
+      await fixture.builder.mutation(
+        (api as any).cost_documents.reconcileCostDocumentIntegrity,
+        args
+      );
+      const retained = await fixture.base.run(async (ctx) => ({
+        document: await ctx.db.get(submitted.costDocumentId),
+        exceptions: await ctx.db
+          .query("costDocumentIntegrityExceptions")
+          .withIndex("by_costDocumentId_and_createdAt", (query) =>
+            query.eq("costDocumentId", submitted.costDocumentId)
+          )
+          .collect(),
+      }));
+      expect(retained.document).not.toBeNull();
+      expect(retained.exceptions).toHaveLength(1);
+    }
+  );
+
+  test("records a durable unavailable exception when delivery fails after authorization", async () => {
+    const fixture = await seedFixture();
+    const submitted = await submitIntegrityFixtureDocument(fixture, {
+      assetFileName: "delivery-failure-source.pdf",
+      key: "delivery-failure",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(null, { status: 503 })
+    );
+
+    const response = await fixture.builder.fetch(
+      `/api/cost-documents/page?${new URLSearchParams({
+        assetId: submitted.assetId,
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      }).toString()}`,
+      {
+        headers: {
+          Authorization: "Bearer test-auth-token",
+          Origin: "http://localhost:3000",
+        },
+      }
+    );
+    expect(response.status).toBe(409);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    const durable = await fixture.base.run(async (ctx) => ({
+      emails: await ctx.db
+        .query("emailMessages")
+        .withIndex("by_entity_and_createdAt", (query) =>
+          query
+            .eq("relatedEntityType", "costDocument")
+            .eq("relatedEntityId", String(submitted.costDocumentId))
+        )
+        .collect()
+        .then((messages) =>
+          messages.filter((message) =>
+            message.subject.startsWith("Action required:")
+          )
+        ),
+      exceptions: await ctx.db
+        .query("costDocumentIntegrityExceptions")
+        .withIndex("by_costDocumentId_and_createdAt", (query) =>
+          query.eq("costDocumentId", submitted.costDocumentId)
+        )
+        .collect(),
+      outbox: await ctx.db
+        .query("eventOutbox")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("relatedEntityType", "costDocument")
+            .eq("relatedEntityId", String(submitted.costDocumentId))
+        )
+        .collect(),
+    }));
+    expect(durable.exceptions).toEqual([
+      expect.objectContaining({ kind: "unavailable" }),
+    ]);
+    expect(durable.exceptions[0]).not.toHaveProperty("resolvedAt");
+    expect(durable.emails).toHaveLength(1);
+    expect(
+      durable.outbox.filter(
+        (event) => event.eventType === "cost_document.integrity_exception"
+      )
+    ).toHaveLength(1);
+  });
+
+  test("resolves stale integrity kinds and notifies again after a resolved recurrence", async () => {
+    const fixture = await seedFixture();
+    const submitted = await submitIntegrityFixtureDocument(fixture, {
+      assetFileName: "integrity-transition-source.pdf",
+      key: "integrity-transition",
+    });
+    const args = {
+      buildId: fixture.buildId,
+      costDocumentId: submitted.costDocumentId,
+      organizationId: ORGANIZATION_ID,
+    };
+    const expectedHash = await fixture.base.run(async (ctx) => {
+      const page = await ctx.db
+        .query("costDocumentPages")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", submitted.costDocumentId)
+        )
+        .first();
+      if (!page) throw new Error("Missing integrity transition page");
+      return page.contentHashSha256Snapshot;
+    });
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(submitted.assetId, { state: "quarantined" });
+    });
+    await fixture.builder.mutation(
+      (api as any).cost_documents.reconcileCostDocumentIntegrity,
+      args
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(submitted.assetId, {
+        contentHashSha256: "f".repeat(64),
+        state: "available",
+      });
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.reconcileCostDocumentIntegrity,
+        args
+      )
+    ).resolves.toMatchObject({
+      exceptions: [expect.objectContaining({ kind: "corrupt" })],
+      healthy: false,
+    });
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(submitted.assetId, {
+        contentHashSha256: expectedHash,
+      });
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.reconcileCostDocumentIntegrity,
+        args
+      )
+    ).resolves.toMatchObject({ exceptions: [], healthy: true });
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(submitted.assetId, {
+        contentHashSha256: "e".repeat(64),
+      });
+    });
+    await fixture.builder.mutation(
+      (api as any).cost_documents.reconcileCostDocumentIntegrity,
+      args
+    );
+
+    const durable = await fixture.base.run(async (ctx) => ({
+      emails: await ctx.db
+        .query("emailMessages")
+        .withIndex("by_entity_and_createdAt", (query) =>
+          query
+            .eq("relatedEntityType", "costDocument")
+            .eq("relatedEntityId", String(submitted.costDocumentId))
+        )
+        .collect()
+        .then((messages) =>
+          messages.filter((message) =>
+            message.subject.startsWith("Action required:")
+          )
+        ),
+      exceptions: await ctx.db
+        .query("costDocumentIntegrityExceptions")
+        .withIndex("by_costDocumentId_and_createdAt", (query) =>
+          query.eq("costDocumentId", submitted.costDocumentId)
+        )
+        .collect(),
+    }));
+    expect(durable.exceptions).toHaveLength(3);
+    expect(
+      durable.exceptions.filter((exception) => exception.resolvedAt === undefined)
+    ).toEqual([expect.objectContaining({ kind: "corrupt" })]);
+    expect(durable.emails).toHaveLength(3);
+  });
 });
 
 function withIdentity(
@@ -3400,9 +4224,13 @@ async function stageAsset(
   const storageId = await fixture.base.run((ctx) =>
     ctx.storage.store(new Blob([fileName], { type: "application/pdf" }))
   );
-  const contentHashSha256 = fileName.startsWith("invoice-page-1")
-    ? "a".repeat(64)
-    : "b".repeat(64);
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(fileName)
+  );
+  const contentHashSha256 = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
   const assetId: Id<"buildCollaborationAssets"> =
     await actor.mutation(
       (api as any).build_collaboration_assets
@@ -3568,6 +4396,70 @@ async function completeDraft(
     draftId,
     step: "freeze",
   }, actor);
+}
+
+async function prepareIntegrityFixtureDraft(
+  fixture: CostDocumentFixture,
+  input: {
+    actor?: CostDocumentActor;
+    assetFileName: string;
+    key: string;
+  }
+) {
+  const actor = input.actor ?? fixture.builder;
+  const batchId = await createBatch(fixture, input.key, actor);
+  const draftId = await addDraft(
+    fixture,
+    batchId,
+    "invoice",
+    "labour",
+    actor
+  );
+  const assetId = await stageDraftAsset(
+    fixture,
+    draftId,
+    input.assetFileName,
+    actor
+  );
+  await saveDraft(
+    fixture,
+    draftId,
+    {
+      allocations: [
+        {
+          amountCents: 12_345,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      documentDate: "2026-08-01",
+      grossTotalCents: 12_345,
+      pageAssetIds: [assetId],
+      title: "Foundation invoice",
+      vendorName: "Cedar Forming Ltd.",
+    },
+    actor
+  );
+  await completeDraft(fixture, draftId, actor);
+  return { assetId, batchId, draftId };
+}
+
+async function submitIntegrityFixtureDocument(
+  fixture: CostDocumentFixture,
+  input: { assetFileName: string; key: string }
+) {
+  const prepared = await prepareIntegrityFixtureDraft(fixture, input);
+  const submitted = await fixture.builder.mutation(
+    (api as any).cost_documents.submitCostDocumentBatch,
+    {
+      batchId: prepared.batchId,
+      expectedRevision: await batchRevision(fixture, prepared.batchId),
+      idempotencyKey: `${input.key}-submit`,
+    }
+  );
+  return {
+    ...prepared,
+    costDocumentId: submitted.costDocumentIds[0] as Id<"costDocuments">,
+  };
 }
 
 async function getBatch(

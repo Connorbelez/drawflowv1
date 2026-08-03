@@ -145,16 +145,74 @@ http.route({
           organizationId,
         }
       );
-      const storageUrl = await ctx.storage.getUrl(authorized.storageId);
-      if (!storageUrl) {
-        return new Response("Cost Document page is unavailable.", {
-          status: 404,
+      if (authorized.status === "integrity_exception") {
+        return new Response("Cost Document integrity review required.", {
+          headers: {
+            ...corsHeaders,
+            "Cache-Control": "private, no-store, max-age=0",
+          },
+          status: 409,
         });
       }
-      const sourceResponse = await fetch(storageUrl);
+      const storageUrl = await ctx.storage.getUrl(authorized.storageId);
+      if (!storageUrl) {
+        await ctx.runMutation(
+          internal.cost_documents.recordCostDocumentPageDeliveryFailure,
+          {
+            assetId: assetId as never,
+            buildId: buildId as never,
+            costDocumentId: costDocumentId as never,
+            kind: "missing",
+            organizationId,
+          }
+        );
+        return new Response("Cost Document integrity review required.", {
+          headers: {
+            ...corsHeaders,
+            "Cache-Control": "private, no-store, max-age=0",
+          },
+          status: 409,
+        });
+      }
+      let sourceResponse: Response;
+      try {
+        sourceResponse = await fetch(storageUrl);
+      } catch {
+        await ctx.runMutation(
+          internal.cost_documents.recordCostDocumentPageDeliveryFailure,
+          {
+            assetId: assetId as never,
+            buildId: buildId as never,
+            costDocumentId: costDocumentId as never,
+            kind: "unavailable",
+            organizationId,
+          }
+        );
+        return new Response("Cost Document integrity review required.", {
+          headers: {
+            ...corsHeaders,
+            "Cache-Control": "private, no-store, max-age=0",
+          },
+          status: 409,
+        });
+      }
       if (!(sourceResponse.ok && sourceResponse.body)) {
-        return new Response("Cost Document page is unavailable.", {
-          status: 404,
+        await ctx.runMutation(
+          internal.cost_documents.recordCostDocumentPageDeliveryFailure,
+          {
+            assetId: assetId as never,
+            buildId: buildId as never,
+            costDocumentId: costDocumentId as never,
+            kind: "unavailable",
+            organizationId,
+          }
+        );
+        return new Response("Cost Document integrity review required.", {
+          headers: {
+            ...corsHeaders,
+            "Cache-Control": "private, no-store, max-age=0",
+          },
+          status: 409,
         });
       }
       return new Response(sourceResponse.body, {
@@ -169,7 +227,10 @@ http.route({
       });
     } catch {
       return new Response("Cost Document page access denied.", {
-        headers: corsHeaders,
+        headers: {
+          ...corsHeaders,
+          "Cache-Control": "private, no-store, max-age=0",
+        },
         status: 403,
       });
     }

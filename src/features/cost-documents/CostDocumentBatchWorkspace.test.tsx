@@ -1768,6 +1768,49 @@ describe("CostDocumentBatchWorkspace", () => {
     await waitFor(() => expect(submitBatch).toHaveBeenCalledTimes(2));
   });
 
+  test("collects an audited reason before retrying a likely-duplicate submission", async () => {
+    submitBatch
+      .mockRejectedValueOnce(
+        new Error(
+          "This appears to be a likely duplicate. Record an override reason before submission."
+        )
+      )
+      .mockResolvedValueOnce({
+        batchId: "batch-1",
+        costDocumentIds: ["cost-document-1"],
+        replayed: false,
+      });
+    currentBatch = makeBatch({
+      drafts: [
+        makeDraft({ activeStep: "freeze", lifecycle: "complete", title: "Ready" }),
+      ],
+    });
+    renderWorkspace({ batchId: "batch-1" });
+
+    fireEvent.click(screen.getByTestId("batch-submit"));
+    expect(await screen.findByTestId("duplicate-override-field")).not.toBeNull();
+    expect(screen.getByTestId("batch-submit").hasAttribute("disabled")).toBe(
+      true
+    );
+    fireEvent.change(
+      screen.getByLabelText("Likely duplicate override reason"),
+      { target: { value: "Separate supplier invoice for the same amount." } }
+    );
+    expect(screen.getByTestId("batch-submit").hasAttribute("disabled")).toBe(
+      false
+    );
+    fireEvent.click(screen.getByTestId("batch-submit"));
+
+    await waitFor(() => expect(submitBatch).toHaveBeenCalledTimes(2));
+    expect(submitBatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        batchId: "batch-1",
+        duplicateOverrideReason:
+          "Separate supplier invoice for the same amount.",
+      })
+    );
+  });
+
   test("renders an accessible, mobile-first register before the active document editor", () => {
     currentBatch = makeBatch({
       drafts: [

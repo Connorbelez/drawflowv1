@@ -400,11 +400,15 @@ export function CostDocumentBatchWorkspace({
   const [collaborationError, setCollaborationError] = useState<string>();
   const [submittingBatch, setSubmittingBatch] = useState(false);
   const [batchSubmitError, setBatchSubmitError] = useState<string>();
+  const [duplicateOverrideRequired, setDuplicateOverrideRequired] =
+    useState(false);
+  const [duplicateOverrideReason, setDuplicateOverrideReason] = useState("");
   const [autosaveStatuses, setAutosaveStatuses] = useState<
     Record<string, DraftAutosaveStatus>
   >({});
   const createIdempotencyKey = useRef<string>();
   const submitIdempotencyKeys = useRef(new Map<string, string>());
+  const duplicateOverrideBatchIdRef = useRef<string>();
   const localRowCounter = useRef(0);
   const lastReportedBatchId = useRef<string>();
   const activeDraftIdRef = useRef<string>();
@@ -456,6 +460,15 @@ export function CostDocumentBatchWorkspace({
   const sheetOpen = Boolean(
     draftId || batchId || (activeBatchId && activeBatchId !== dismissedBatchId)
   );
+
+  useEffect(() => {
+    if (duplicateOverrideBatchIdRef.current === activeBatchId) {
+      return;
+    }
+    duplicateOverrideBatchIdRef.current = activeBatchId;
+    setDuplicateOverrideRequired(false);
+    setDuplicateOverrideReason("");
+  }, [activeBatchId]);
 
   useCostDocumentBatchRouteLifecycle({
     activeBatchId,
@@ -1603,9 +1616,12 @@ export function CostDocumentBatchWorkspace({
       submitIdempotencyKeys.current.set(String(activeBatch._id), key);
       await submitBatch({
         batchId: activeBatch._id,
+        duplicateOverrideReason: duplicateOverrideReason.trim() || undefined,
         expectedRevision: activeBatch.revision,
         idempotencyKey: key,
       });
+      setDuplicateOverrideRequired(false);
+      setDuplicateOverrideReason("");
       setDraftOverrides((current) =>
         Object.fromEntries(
           Object.entries(current).map(([draftId, draft]) => [
@@ -1617,9 +1633,14 @@ export function CostDocumentBatchWorkspace({
       setDismissedBatchId(String(activeBatch._id));
       onBatchIdChange(undefined);
     } catch (cause) {
-      setBatchSubmitError(
-        errorMessage(cause, "Unable to submit this Cost Document batch.")
+      const message = errorMessage(
+        cause,
+        "Unable to submit this Cost Document batch."
       );
+      setBatchSubmitError(message);
+      if (message.toLocaleLowerCase("en-CA").includes("likely duplicate")) {
+        setDuplicateOverrideRequired(true);
+      }
     } finally {
       setSubmittingBatch(false);
     }
@@ -1830,7 +1851,12 @@ export function CostDocumentBatchWorkspace({
             </div>
             <Button
               data-testid="batch-submit"
-              disabled={!allDraftsComplete || submittingBatch}
+              disabled={
+                !allDraftsComplete ||
+                submittingBatch ||
+                (duplicateOverrideRequired &&
+                  duplicateOverrideReason.trim().length === 0)
+              }
               loading={submittingBatch}
               onClick={submitCurrentBatch}
             >
@@ -1842,7 +1868,7 @@ export function CostDocumentBatchWorkspace({
           </SheetFooter>
         ) : null}
         {!draftId && batchSubmitError ? (
-          <div className="border-t px-6 pb-4">
+          <div className="space-y-4 border-t px-6 pb-4">
             <Alert
               className="mt-4"
               data-testid="batch-submit-error"
@@ -1851,10 +1877,42 @@ export function CostDocumentBatchWorkspace({
               <AlertTitle>Batch not submitted</AlertTitle>
               <AlertDescription>{batchSubmitError}</AlertDescription>
             </Alert>
+            {duplicateOverrideRequired ? (
+              <CostDocumentDuplicateOverridePrompt
+                onReasonChange={setDuplicateOverrideReason}
+                reason={duplicateOverrideReason}
+              />
+            ) : null}
           </div>
         ) : null}
       </CostDocumentBatchSheet>
     </div>
+  );
+}
+
+export function CostDocumentDuplicateOverridePrompt({
+  onReasonChange,
+  reason,
+}: {
+  onReasonChange: (reason: string) => void;
+  reason: string;
+}) {
+  return (
+    <Field data-testid="duplicate-override-field">
+      <FieldLabel htmlFor="cost-document-duplicate-override">
+        Likely duplicate override reason
+      </FieldLabel>
+      <Textarea
+        id="cost-document-duplicate-override"
+        onChange={(event) => onReasonChange(event.target.value)}
+        placeholder="Explain why this is a separate source record."
+        value={reason}
+      />
+      <FieldDescription>
+        This decision is written to the immutable Cost Document audit trail.
+        Exact source duplicates cannot be overridden.
+      </FieldDescription>
+    </Field>
   );
 }
 

@@ -110,6 +110,35 @@ const costDocumentActivityProjectionValidator = v.object({
   eventType: v.string(),
 });
 
+const costDocumentReviewTypeValidator = v.union(
+  v.literal("builder"),
+  v.literal("brokerage")
+);
+const costDocumentReviewOutcomeValidator = v.union(
+  v.literal("accepted"),
+  v.literal("needs_correction")
+);
+const costDocumentReviewProjectionValidator = v.object({
+  actorWorkosUserId: v.string(),
+  annotation: v.string(),
+  createdAt: v.number(),
+  outcome: costDocumentReviewOutcomeValidator,
+  revision: v.number(),
+});
+const costDocumentIntegrityKindValidator = v.union(
+  v.literal("unavailable"),
+  v.literal("quarantined"),
+  v.literal("missing"),
+  v.literal("corrupt")
+);
+const costDocumentIntegrityExceptionProjectionValidator = v.object({
+  actionRequired: v.boolean(),
+  assetId: v.id("buildCollaborationAssets"),
+  createdAt: v.number(),
+  kind: costDocumentIntegrityKindValidator,
+  pageId: v.id("costDocumentPages"),
+});
+
 const costDocumentSummaryValidator = v.object({
   _id: v.id("costDocuments"),
   category: costDocumentCategoryValidator,
@@ -135,12 +164,48 @@ const costDocumentProjectionValidator = v.object({
   ),
   grossTotalCents: v.number(),
   kind: costDocumentKindValidator,
+  duplicateWarning: v.optional(
+    v.object({
+      overridden: v.literal(true),
+      reason: v.string(),
+    })
+  ),
+  integrity: v.object({
+    healthy: v.boolean(),
+    openExceptions: v.array(costDocumentIntegrityExceptionProjectionValidator),
+  }),
+  lifecycle: v.object({
+    state: v.union(
+      v.literal("current"),
+      v.literal("superseded"),
+      v.literal("voided")
+    ),
+    supersededAt: v.optional(v.number()),
+    voidedAt: v.optional(v.number()),
+    voidReason: v.optional(v.string()),
+  }),
   pages: v.array(costDocumentPageProjectionValidator),
+  reviews: v.object({
+    brokerage: v.optional(costDocumentReviewProjectionValidator),
+    builder: v.optional(costDocumentReviewProjectionValidator),
+  }),
+  revision: v.object({
+    number: v.number(),
+    supersededByCostDocumentId: v.optional(v.id("costDocuments")),
+    supersedesCostDocumentId: v.optional(v.id("costDocuments")),
+  }),
   state: v.literal("submitted"),
   submittedAt: v.number(),
   supportingContextDisclosure: v.string(),
   title: v.string(),
   vendorName: v.string(),
+});
+
+const costDocumentDuplicateAssessmentValidator = v.object({
+  exactDuplicateCostDocumentId: v.optional(v.id("costDocuments")),
+  likelyDuplicateCostDocumentIds: v.array(v.id("costDocuments")),
+  requiresOverride: v.boolean(),
+  sourceHashDigest: v.string(),
 });
 
 const costDocumentDraftPageProjectionValidator = v.object({
@@ -309,6 +374,28 @@ export const getCostDocument = authenticatedQuery
       return null;
     }
     return await projectCostDocument(ctx, document);
+  })
+  .public();
+
+export const getCostDocumentDuplicateAssessment = authenticatedQuery
+  .input({ draftId: v.id("costDocumentDrafts") })
+  .returns(costDocumentDuplicateAssessmentValidator)
+  .handler(async (ctx, args) => {
+    const { authorization, draft } = await requireCostDocumentDraftAccess(ctx, {
+      draftId: args.draftId,
+      intent: "draft.read",
+    });
+    const assessment = await assessCostDocumentDuplicates(
+      ctx,
+      authorization,
+      draft
+    );
+    return {
+      exactDuplicateCostDocumentId: assessment.exactDuplicateCostDocumentId,
+      likelyDuplicateCostDocumentIds: assessment.likelyDuplicateCostDocumentIds,
+      requiresOverride: assessment.requiresOverride,
+      sourceHashDigest: assessment.sourceHashDigest,
+    };
   })
   .public();
 
@@ -501,12 +588,15 @@ async function listReadableCostDocuments(
 ) {
   const readable = await Promise.all(
     input.documents.map((document) =>
-      canReadSubmittedCostDocument(
-        ctx,
-        input.authorization,
-        document,
-        input.contractorSubmittedReadScope
-      )
+      document.voidedAt === undefined &&
+      document.supersededByCostDocumentId === undefined
+        ? canReadSubmittedCostDocument(
+            ctx,
+            input.authorization,
+            document,
+            input.contractorSubmittedReadScope
+          )
+        : Promise.resolve(false)
     )
   );
   return input.documents.filter((_, index) => readable[index]);
@@ -525,6 +615,248 @@ function projectCostDocumentSummary(document: Doc<"costDocuments">) {
     vendorName: document.vendorName,
   };
 }
+
+export const setCostDocumentReviewAnnotation = authenticatedMutation
+  .input({
+    ...activeBuildScopeFields,
+    annotation: v.string(),
+    costDocumentId: v.id("costDocuments"),
+    outcome: costDocumentReviewOutcomeValidator,
+    reviewType: costDocumentReviewTypeValidator,
+  })
+  .returns(v.object({ revision: v.number() }))
+  .handler(async (ctx, args) => {
+    const { authorization, document } = await requireReadableCostDocument(
+      ctx,
+      args
+    );
+    assertCostDocumentReviewerRole(authorization, args.reviewType);
+    const annotation = requiredText(args.annotation, "Review annotation", 4000);
+    const latest = await ctx.db
+      .query("costDocumentReviewAnnotations")
+      .withIndex("by_costDocumentId_and_reviewType_and_revision", (query) =>
+        query
+          .eq("costDocumentId", document._id)
+          .eq("reviewType", args.reviewType)
+      )
+      .order("desc")
+      .first();
+    const revision = (latest?.revision ?? 0) + 1;
+    const now = Date.now();
+    await ctx.db.insert("costDocumentReviewAnnotations", {
+      actorRoles: authorization.viewer.roles,
+      actorWorkosUserId: authorization.viewer.subject,
+      annotation,
+      brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
+      costDocumentId: document._id,
+      createdAt: now,
+      organizationId: authorization.organizationId,
+      outcome: args.outcome,
+      reviewType: args.reviewType,
+      revision,
+    });
+    await recordCostDocumentAudit(ctx, authorization, document._id, {
+      command: "setCostDocumentReviewAnnotation",
+      eventType: `cost_document.${args.reviewType}_review_recorded`,
+      newState: JSON.stringify({ annotation, outcome: args.outcome, revision }),
+      now,
+      priorState: latest
+        ? JSON.stringify({
+            annotation: latest.annotation,
+            outcome: latest.outcome,
+            revision: latest.revision,
+          })
+        : undefined,
+    });
+    return { revision };
+  })
+  .public();
+
+export const voidCostDocument = authenticatedMutation
+  .input({
+    ...activeBuildScopeFields,
+    costDocumentId: v.id("costDocuments"),
+    reason: v.string(),
+  })
+  .returns(v.object({ voidedAt: v.number() }))
+  .handler(async (ctx, args) => {
+    const { authorization, document } = await requireReadableCostDocument(
+      ctx,
+      args
+    );
+    assertCostDocumentLifecycleManager(authorization, document);
+    if (document.voidedAt !== undefined) {
+      throw new Error("The Cost Document is already voided.");
+    }
+    if (document.supersededByCostDocumentId !== undefined) {
+      throw new Error("A superseded Cost Document cannot be voided.");
+    }
+    const reason = requiredText(args.reason, "Void reason", 1000);
+    const now = Date.now();
+    await ctx.db.patch(document._id, {
+      voidReason: reason,
+      voidedAt: now,
+      voidedByWorkosUserId: authorization.viewer.subject,
+    });
+    await recordCostDocumentAudit(ctx, authorization, document._id, {
+      command: "voidCostDocument",
+      eventType: "cost_document.voided",
+      newState: JSON.stringify({ reason, state: "voided", voidedAt: now }),
+      now,
+      priorState: JSON.stringify({ state: "current" }),
+    });
+    await ctx.db.insert("eventOutbox", {
+      brokerageId: authorization.brokerage._id,
+      createdAt: now,
+      eventType: "cost_document.voided",
+      organizationId: authorization.organizationId,
+      payloadPreview: JSON.stringify({
+        buildId: authorization.build._id,
+        reason,
+      }),
+      relatedEntityId: String(document._id),
+      relatedEntityType: "costDocument",
+      status: "pending",
+    });
+    return { voidedAt: now };
+  })
+  .public();
+
+export const startCostDocumentCorrection = authenticatedMutation
+  .input({
+    ...activeBuildScopeFields,
+    costDocumentId: v.id("costDocuments"),
+    idempotencyKey: v.string(),
+    reuseSourcePages: v.boolean(),
+  })
+  .returns(
+    v.object({
+      batchId: v.id("costDocumentBatches"),
+      draftId: v.id("costDocumentDrafts"),
+      replayed: v.boolean(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const { authorization, document } = await requireReadableCostDocument(
+      ctx,
+      args
+    );
+    assertCostDocumentCorrectionManager(authorization, document);
+    return await createCostDocumentCorrection(ctx, authorization, document, {
+      idempotencyKey: requiredIdempotencyKey(args.idempotencyKey),
+      reuseSourcePages: args.reuseSourcePages,
+    });
+  })
+  .public();
+
+export const reconcileCostDocumentIntegrity = authenticatedMutation
+  .input({
+    ...activeBuildScopeFields,
+    costDocumentId: v.id("costDocuments"),
+  })
+  .returns(
+    v.object({
+      exceptions: v.array(costDocumentIntegrityExceptionProjectionValidator),
+      healthy: v.boolean(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const { authorization, document } = await requireReadableCostDocument(
+      ctx,
+      args
+    );
+    return await reconcileSubmittedCostDocumentIntegrity(
+      ctx,
+      authorization,
+      document
+    );
+  })
+  .public();
+
+export const backfillCostDocumentSourceHashDigests = authenticatedMutation
+  .input({
+    ...activeBuildScopeFields,
+    limit: v.optional(v.number()),
+  })
+  .returns(
+    v.object({
+      hasMore: v.boolean(),
+      processed: v.number(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "submitted.read",
+    });
+    if (
+      !["admin", "principle-broker"].includes(authorization.effectiveRole.role)
+    ) {
+      throw new Error("Cost Document source-digest backfill is unavailable.");
+    }
+    const limit = args.limit ?? 25;
+    if (!(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100)) {
+      throw new Error("Cost Document source-digest backfill limit is invalid.");
+    }
+    const candidates = await ctx.db
+      .query("costDocuments")
+      .withIndex("by_buildId_and_sourceHashDigest", (query) =>
+        query
+          .eq("buildId", authorization.build._id)
+          .eq("sourceHashDigest", undefined)
+      )
+      .take(limit + 1);
+    const documents = candidates.slice(0, limit);
+    for (const document of documents) {
+      if (
+        document.organizationId !== authorization.organizationId ||
+        document.brokerageId !== authorization.brokerage._id
+      ) {
+        throw new Error("The Cost Document backfill graph is unavailable.");
+      }
+      const pages = await ctx.db
+        .query("costDocumentPages")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", document._id)
+        )
+        .order("asc")
+        .take(MAX_PAGES + 1);
+      if (
+        pages.length < 1 ||
+        pages.length > MAX_PAGES ||
+        !hasSequentialCostDocumentOrders(pages) ||
+        pages.some(
+          (page) =>
+            page.organizationId !== authorization.organizationId ||
+            page.brokerageId !== authorization.brokerage._id ||
+            page.buildId !== authorization.build._id ||
+            page.costDocumentId !== document._id
+        )
+      ) {
+        throw new Error("The Cost Document backfill graph is unavailable.");
+      }
+      const sourceHashDigest = await sha256Text(
+        pages
+          .map((page) => page.contentHashSha256Snapshot)
+          .sort((left, right) => left.localeCompare(right))
+          .join("\n")
+      );
+      await ctx.db.patch(document._id, { sourceHashDigest });
+      await recordCostDocumentAudit(ctx, authorization, document._id, {
+        command: "backfillCostDocumentSourceHashDigests",
+        eventType: "cost_document.source_digest_backfilled",
+        newState: JSON.stringify({ sourceHashDigest }),
+        now: Date.now(),
+        priorState: JSON.stringify({ sourceHashDigest: null }),
+      });
+    }
+    return {
+      hasMore: candidates.length > limit,
+      processed: documents.length,
+    };
+  })
+  .public();
 
 export const getActiveCostDocumentBatch = authenticatedQuery
   .input(activeBuildScopeFields)
@@ -923,6 +1255,11 @@ export const addCostDocumentDraft = authenticatedMutation
     );
     if (batch.state !== "active") {
       throw new Error("The Cost Document batch is no longer editable.");
+    }
+    if (batch.correctionSourceCostDocumentId !== undefined) {
+      throw new Error(
+        "A Cost Document correction batch contains one revision."
+      );
     }
     const existing = await ctx.db
       .query("costDocumentDrafts")
@@ -1470,6 +1807,7 @@ export const setCostDocumentDraftStep = authenticatedMutation
 export const submitCostDocumentBatch = authenticatedMutation
   .input({
     batchId: v.id("costDocumentBatches"),
+    duplicateOverrideReason: v.optional(v.string()),
     expectedRevision: v.number(),
     idempotencyKey: v.string(),
   })
@@ -1567,10 +1905,23 @@ export const submitCostDocumentBatch = authenticatedMutation
         `A Cost Document batch supports at most ${MAX_BATCH_FINANCIAL_COMPONENTS} financial components.`
       );
     }
+    const { duplicateAssessments, duplicateOverrideReason } =
+      await validateBatchDuplicateAssessments(
+        ctx,
+        authorization,
+        prepared,
+        args.duplicateOverrideReason
+      );
     const now = Date.now();
     const revision = currentCostDocumentBatchRevision(batch) + 1;
     const costDocumentIds: Id<"costDocuments">[] = [];
-    for (const document of prepared) {
+    for (const [index, document] of prepared.entries()) {
+      const duplicateAssessment = duplicateAssessments[index];
+      if (!duplicateAssessment) {
+        throw new Error(
+          "The Cost Document duplicate assessment is unavailable."
+        );
+      }
       const costDocumentId = await insertSubmittedCostDocument(
         ctx,
         authorization,
@@ -1579,10 +1930,19 @@ export const submitCostDocumentBatch = authenticatedMutation
           draftId: document.draft._id,
           now,
           uploaderEmail,
+          duplicateAssessment,
+          duplicateOverrideReason,
           ...document,
         }
       );
       costDocumentIds.push(costDocumentId);
+      if (document.draft.supersedesCostDocumentId) {
+        await linkSubmittedCostDocumentCorrection(ctx, authorization, {
+          costDocumentId,
+          draft: document.draft,
+          now,
+        });
+      }
       await ctx.db.patch(document.draft._id, {
         lifecycle: "submitted",
         revision: currentCostDocumentDraftRevision(document.draft) + 1,
@@ -1624,12 +1984,20 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
     costDocumentId: v.id("costDocuments"),
   })
   .returns(
-    v.object({
-      fileName: v.string(),
-      mimeType: v.string(),
-      order: v.number(),
-      storageId: v.id("_storage"),
-    })
+    v.union(
+      v.object({
+        fileName: v.string(),
+        mimeType: v.string(),
+        order: v.number(),
+        status: v.literal("authorized"),
+        storageId: v.id("_storage"),
+      }),
+      v.object({
+        actionRequired: v.literal(true),
+        kind: costDocumentIntegrityKindValidator,
+        status: v.literal("integrity_exception"),
+      })
+    )
   )
   .handler(async (ctx, args) => {
     const authorization = await authorizeCostDocumentIntent(ctx, {
@@ -1660,14 +2028,35 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
     ) {
       throw new Error("The Cost Document page is unavailable.");
     }
-    const asset = await ctx.db.get(page.assetId);
+    const scopedAsset = await ctx.db.get(page.assetId);
     if (
-      !asset ||
-      asset.organizationId !== authorization.organizationId ||
-      asset.brokerageId !== authorization.brokerage._id ||
-      asset.buildId !== authorization.build._id ||
-      !isCleanCollaborationAsset(asset)
+      scopedAsset &&
+      (scopedAsset.organizationId !== authorization.organizationId ||
+        scopedAsset.brokerageId !== authorization.brokerage._id ||
+        scopedAsset.buildId !== authorization.build._id)
     ) {
+      throw new Error("The Cost Document page is unavailable.");
+    }
+    const integrity = await inspectCostDocumentPageIntegrity(
+      ctx,
+      authorization,
+      document,
+      page
+    );
+    if (integrity.kind) {
+      await recordCostDocumentIntegrityException(ctx, authorization, document, {
+        detectedHashSha256: integrity.asset?.contentHashSha256,
+        kind: integrity.kind,
+        page,
+      });
+      return {
+        actionRequired: true as const,
+        kind: integrity.kind,
+        status: "integrity_exception" as const,
+      };
+    }
+    const asset = integrity.asset;
+    if (!asset) {
       throw new Error("The Cost Document page is unavailable.");
     }
     await ctx.db.insert("auditEvents", {
@@ -1690,8 +2079,53 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
       fileName: page.fileNameSnapshot,
       mimeType: page.mimeTypeSnapshot,
       order: page.order,
+      status: "authorized" as const,
       storageId: asset.storageId,
     };
+  })
+  .internal();
+
+export const recordCostDocumentPageDeliveryFailure = authenticatedMutation
+  .input({
+    ...activeBuildScopeFields,
+    assetId: v.id("buildCollaborationAssets"),
+    costDocumentId: v.id("costDocuments"),
+    kind: v.union(v.literal("missing"), v.literal("unavailable")),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "submitted.read",
+    });
+    const document = await ctx.db.get(args.costDocumentId);
+    if (
+      !(
+        isCostDocumentInScopeForAuthorization(document, authorization) &&
+        (await canReadSubmittedCostDocument(ctx, authorization, document))
+      )
+    ) {
+      throw new Error("The Cost Document is unavailable.");
+    }
+    const page = await ctx.db
+      .query("costDocumentPages")
+      .withIndex("by_costDocumentId_and_assetId", (query) =>
+        query.eq("costDocumentId", document._id).eq("assetId", args.assetId)
+      )
+      .unique();
+    if (
+      !page ||
+      page.organizationId !== authorization.organizationId ||
+      page.brokerageId !== authorization.brokerage._id ||
+      page.buildId !== authorization.build._id
+    ) {
+      throw new Error("The Cost Document page is unavailable.");
+    }
+    await recordCostDocumentIntegrityException(ctx, authorization, document, {
+      kind: args.kind,
+      page,
+    });
+    return null;
   })
   .internal();
 
@@ -2035,6 +2469,31 @@ async function assertSubmittedReplayPages(
     const storage = asset
       ? await ctx.db.system.get("_storage", asset.storageId)
       : null;
+    const sourceDocument = document.supersedesCostDocumentId
+      ? await ctx.db.get(document.supersedesCostDocumentId)
+      : null;
+    const sourcePage = sourceDocument
+      ? await ctx.db
+          .query("costDocumentPages")
+          .withIndex("by_costDocumentId_and_assetId", (query) =>
+            query
+              .eq("costDocumentId", sourceDocument._id)
+              .eq("assetId", submittedPage.assetId)
+          )
+          .unique()
+      : null;
+    const publicationMatches = Boolean(
+      asset &&
+        (asset.publishedAt === document.submittedAt ||
+          (sourceDocument &&
+            sourcePage &&
+            sourceDocument.organizationId === authorization.organizationId &&
+            sourceDocument.brokerageId === authorization.brokerage._id &&
+            sourceDocument.buildId === authorization.build._id &&
+            sourcePage.contentHashSha256Snapshot ===
+              submittedPage.contentHashSha256Snapshot &&
+            asset.publishedAt === sourceDocument.submittedAt))
+    );
     if (
       !(asset && storage) ||
       asset.organizationId !== authorization.organizationId ||
@@ -2042,7 +2501,7 @@ async function assertSubmittedReplayPages(
       asset.buildId !== authorization.build._id ||
       asset.state !== "available" ||
       !isCleanCollaborationAsset(asset) ||
-      asset.publishedAt !== document.submittedAt ||
+      !publicationMatches ||
       asset.fileName !== submittedPage.fileNameSnapshot ||
       asset.mimeType !== submittedPage.mimeTypeSnapshot ||
       asset.contentHashSha256 !== submittedPage.contentHashSha256Snapshot
@@ -2415,21 +2874,21 @@ async function projectCostDocumentDraft(
         query.eq("draftId", draft._id).eq("state", "active")
       )
       .order("asc")
-      .collect(),
+      .take(MAX_PAGES + 1),
     ctx.db
       .query("costDocumentDraftAllocations")
       .withIndex("by_draftId_and_order", (query) =>
         query.eq("draftId", draft._id)
       )
       .order("asc")
-      .collect(),
+      .take(MAX_ALLOCATIONS + 1),
     ctx.db
       .query("costDocumentDraftFinancialComponents")
       .withIndex("by_draftId_and_order", (query) =>
         query.eq("draftId", draft._id)
       )
       .order("asc")
-      .collect(),
+      .take(MAX_FINANCIAL_COMPONENTS + 1),
   ]);
   for (const page of pageRows) {
     assertDraftPageScope(page, draft, authorization);
@@ -2526,33 +2985,6 @@ async function requireAvailableDraftSourcePages(
   const pages: Doc<"buildCollaborationAssets">[] = [];
   for (const assetId of input.pageAssetIds) {
     const asset = await ctx.db.get(assetId);
-    const session = asset?.stagingSessionId
-      ? await ctx.db.get(asset.stagingSessionId)
-      : null;
-    const sessionBelongsToDraft = Boolean(
-      session &&
-        session.contextKind === "costDocumentDraft" &&
-        session.contextRecordId === String(input.draft._id)
-    );
-    const sessionIsFreshlyFinalized = Boolean(
-      sessionBelongsToDraft &&
-        session &&
-        session.state === "finalized" &&
-        session.expiresAt > input.now
-    );
-    const sessionIsConsumed = Boolean(
-      sessionBelongsToDraft && session && session.state === "consumed"
-    );
-    const isAlreadyBound = boundAssetIds.has(assetId);
-    // A page that is already durable in this exact Draft is shared Draft
-    // state, not an uploader-owned staging entitlement. An exact collaborator
-    // may retain, reorder, or remove a consumed creator page. Any page that is
-    // not yet consumed must still be a current actor's freshly finalized
-    // staging upload, which prevents cross-Draft and cross-actor injection.
-    const isExistingConsumedDraftPage = isAlreadyBound && sessionIsConsumed;
-    const isCurrentActorFreshDraftUpload =
-      sessionIsFreshlyFinalized &&
-      session?.ownerWorkosUserId === authorization.viewer.subject;
     if (
       !asset ||
       asset.organizationId !== authorization.organizationId ||
@@ -2560,15 +2992,12 @@ async function requireAvailableDraftSourcePages(
       asset.buildId !== authorization.build._id ||
       asset.state !== "available" ||
       !isCleanCollaborationAsset(asset) ||
-      asset.publishedAt ||
-      !session ||
-      session.organizationId !== authorization.organizationId ||
-      session.brokerageId !== authorization.brokerage._id ||
-      session.buildId !== authorization.build._id ||
-      !(
-        sessionBelongsToDraft &&
-        (isExistingConsumedDraftPage || isCurrentActorFreshDraftUpload)
-      )
+      !(await hasCostDocumentDraftSourceAuthority(ctx, authorization, {
+        asset,
+        draft: input.draft,
+        isAlreadyBound: boundAssetIds.has(assetId),
+        now: input.now,
+      }))
     ) {
       throw new Error(
         "Every Cost Document draft source page must be available."
@@ -2577,6 +3006,60 @@ async function requireAvailableDraftSourcePages(
     pages.push(asset);
   }
   return pages;
+}
+
+async function hasCostDocumentDraftSourceAuthority(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  input: {
+    asset: Doc<"buildCollaborationAssets">;
+    draft: Doc<"costDocumentDrafts">;
+    isAlreadyBound: boolean;
+    now: number;
+  }
+) {
+  const supersedesId = input.draft.supersedesCostDocumentId;
+  if (supersedesId && input.isAlreadyBound && input.asset.publishedAt) {
+    const sourcePage = await ctx.db
+      .query("costDocumentPages")
+      .withIndex("by_costDocumentId_and_assetId", (query) =>
+        query.eq("costDocumentId", supersedesId).eq("assetId", input.asset._id)
+      )
+      .unique();
+    if (
+      sourcePage &&
+      sourcePage.organizationId === authorization.organizationId &&
+      sourcePage.brokerageId === authorization.brokerage._id &&
+      sourcePage.buildId === authorization.build._id &&
+      sourcePage.contentHashSha256Snapshot === input.asset.contentHashSha256
+    ) {
+      return true;
+    }
+  }
+  if (input.asset.publishedAt) {
+    return false;
+  }
+  const session = input.asset.stagingSessionId
+    ? await ctx.db.get(input.asset.stagingSessionId)
+    : null;
+  if (
+    !session ||
+    session.organizationId !== authorization.organizationId ||
+    session.brokerageId !== authorization.brokerage._id ||
+    session.buildId !== authorization.build._id ||
+    session.contextKind !== "costDocumentDraft" ||
+    session.contextRecordId !== String(input.draft._id)
+  ) {
+    return false;
+  }
+  if (input.isAlreadyBound && session.state === "consumed") {
+    return true;
+  }
+  return (
+    session.state === "finalized" &&
+    session.expiresAt > input.now &&
+    session.ownerWorkosUserId === authorization.viewer.subject
+  );
 }
 
 async function replaceDraftPages(
@@ -3167,6 +3650,10 @@ async function insertSubmittedCostDocument(
   input: PreparedCostDocument & {
     batchId: Id<"costDocumentBatches">;
     draftId: Id<"costDocumentDrafts">;
+    duplicateAssessment: Awaited<
+      ReturnType<typeof assessCostDocumentDuplicates>
+    >;
+    duplicateOverrideReason?: string;
     now: number;
     uploaderEmail: string;
   }
@@ -3182,11 +3669,20 @@ async function insertSubmittedCostDocument(
     description: input.description,
     documentDate: input.documentDate,
     draftId: input.draftId,
+    duplicateOverrideReason:
+      input.duplicateAssessment.likelyDuplicateCostDocumentIds.length > 0
+        ? input.duplicateOverrideReason
+        : undefined,
     grossTotalCents: input.grossTotalCents,
     kind: input.kind,
+    likelyDuplicateFingerprint:
+      input.duplicateAssessment.likelyDuplicateFingerprint,
     organizationId: authorization.organizationId,
+    revisionNumber: input.duplicateAssessment.revisionNumber,
+    sourceHashDigest: input.duplicateAssessment.sourceHashDigest,
     state: "submitted",
     submittedAt: input.now,
+    supersedesCostDocumentId: input.draft.supersedesCostDocumentId,
     title: input.title,
     uploaderEmailSnapshot: input.uploaderEmail,
     uploaderWorkosUserId: authorization.viewer.subject,
@@ -3205,7 +3701,9 @@ async function insertSubmittedCostDocument(
       order: index + 1,
       organizationId: authorization.organizationId,
     });
-    await ctx.db.patch(asset._id, { publishedAt: input.now });
+    if (asset.publishedAt === undefined) {
+      await ctx.db.patch(asset._id, { publishedAt: input.now });
+    }
   }
   for (const [index, allocation] of input.allocations.entries()) {
     await ctx.db.insert("costDocumentAllocations", {
@@ -3252,10 +3750,17 @@ async function insertSubmittedCostDocument(
       grossTotalCents: input.grossTotalCents,
       kind: input.kind,
       pageCount: input.pages.length,
+      revisionNumber: input.duplicateAssessment.revisionNumber,
       state: "submitted",
+      supersedesCostDocumentId: input.draft.supersedesCostDocumentId,
     }),
     organizationId: authorization.organizationId,
-    warnings: [],
+    warnings:
+      input.duplicateAssessment.likelyDuplicateCostDocumentIds.length > 0
+        ? [
+            `Likely duplicate override: ${input.duplicateOverrideReason ?? "unspecified"}`,
+          ]
+        : [],
   });
   await ctx.db.insert("eventOutbox", {
     brokerageId: authorization.brokerage._id,
@@ -3317,6 +3822,34 @@ async function recordCostDocumentBatchAudit(
   });
 }
 
+async function recordCostDocumentAudit(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  costDocumentId: Id<"costDocuments">,
+  input: {
+    command: string;
+    eventType: string;
+    newState?: string;
+    now: number;
+    priorState?: string;
+  }
+) {
+  await ctx.db.insert("auditEvents", {
+    actorRoles: authorization.viewer.roles,
+    actorWorkosUserId: authorization.viewer.subject,
+    brokerageId: authorization.brokerage._id,
+    command: input.command,
+    createdAt: input.now,
+    entityId: String(costDocumentId),
+    entityType: "costDocument",
+    eventType: input.eventType,
+    newState: input.newState,
+    organizationId: authorization.organizationId,
+    priorState: input.priorState,
+    warnings: [],
+  });
+}
+
 async function recordCostDocumentDraftAudit(
   ctx: MutationCtx,
   authorization: ActiveBuildAuthorization,
@@ -3362,40 +3895,98 @@ async function projectCostDocument(
   ctx: QueryCtx,
   document: Doc<"costDocuments">
 ) {
-  const [pages, allocations, financialComponents, activity] = await Promise.all(
-    [
-      ctx.db
-        .query("costDocumentPages")
-        .withIndex("by_costDocumentId_and_order", (query) =>
-          query.eq("costDocumentId", document._id)
-        )
-        .order("asc")
-        .collect(),
-      ctx.db
-        .query("costDocumentAllocations")
-        .withIndex("by_costDocumentId_and_order", (query) =>
-          query.eq("costDocumentId", document._id)
-        )
-        .order("asc")
-        .collect(),
-      ctx.db
-        .query("costDocumentFinancialComponents")
-        .withIndex("by_costDocumentId_and_order", (query) =>
-          query.eq("costDocumentId", document._id)
-        )
-        .order("asc")
-        .collect(),
-      ctx.db
-        .query("auditEvents")
-        .withIndex("by_entity", (query) =>
-          query
-            .eq("entityType", "costDocument")
-            .eq("entityId", String(document._id))
-        )
-        .order("desc")
-        .take(50),
-    ]
+  const [
+    pages,
+    allocations,
+    financialComponents,
+    activity,
+    builderReview,
+    brokerageReview,
+    integrityExceptions,
+  ] = await Promise.all([
+    ctx.db
+      .query("costDocumentPages")
+      .withIndex("by_costDocumentId_and_order", (query) =>
+        query.eq("costDocumentId", document._id)
+      )
+      .order("asc")
+      .take(MAX_PAGES + 1),
+    ctx.db
+      .query("costDocumentAllocations")
+      .withIndex("by_costDocumentId_and_order", (query) =>
+        query.eq("costDocumentId", document._id)
+      )
+      .order("asc")
+      .take(MAX_ALLOCATIONS + 1),
+    ctx.db
+      .query("costDocumentFinancialComponents")
+      .withIndex("by_costDocumentId_and_order", (query) =>
+        query.eq("costDocumentId", document._id)
+      )
+      .order("asc")
+      .take(MAX_FINANCIAL_COMPONENTS + 1),
+    ctx.db
+      .query("auditEvents")
+      .withIndex("by_entity", (query) =>
+        query
+          .eq("entityType", "costDocument")
+          .eq("entityId", String(document._id))
+      )
+      .order("desc")
+      .take(50),
+    ctx.db
+      .query("costDocumentReviewAnnotations")
+      .withIndex("by_costDocumentId_and_reviewType_and_revision", (query) =>
+        query.eq("costDocumentId", document._id).eq("reviewType", "builder")
+      )
+      .order("desc")
+      .first(),
+    ctx.db
+      .query("costDocumentReviewAnnotations")
+      .withIndex("by_costDocumentId_and_reviewType_and_revision", (query) =>
+        query.eq("costDocumentId", document._id).eq("reviewType", "brokerage")
+      )
+      .order("desc")
+      .first(),
+    ctx.db
+      .query("costDocumentIntegrityExceptions")
+      .withIndex("by_costDocumentId_and_createdAt", (query) =>
+        query.eq("costDocumentId", document._id)
+      )
+      .order("desc")
+      .take(50),
+  ]);
+  await assertReadableCostDocumentProjectionGraph(ctx, document, {
+    activity,
+    allocations,
+    brokerageReview,
+    builderReview,
+    financialComponents,
+    integrityExceptions,
+    pages,
+  });
+  const openIntegrityExceptions = integrityExceptions.filter(
+    (exception) =>
+      exception.resolvedAt === undefined &&
+      exception.organizationId === document.organizationId &&
+      exception.brokerageId === document.brokerageId &&
+      exception.buildId === document.buildId
   );
+  const projectReview = (
+    review: Doc<"costDocumentReviewAnnotations"> | null
+  ) =>
+    review &&
+    review.organizationId === document.organizationId &&
+    review.brokerageId === document.brokerageId &&
+    review.buildId === document.buildId
+      ? {
+          actorWorkosUserId: review.actorWorkosUserId,
+          annotation: review.annotation,
+          createdAt: review.createdAt,
+          outcome: review.outcome,
+          revision: review.revision,
+        }
+      : undefined;
   return {
     _id: document._id,
     activity: activity.map((event) => ({
@@ -3422,6 +4013,32 @@ async function projectCostDocument(
     })),
     grossTotalCents: document.grossTotalCents,
     kind: document.kind,
+    duplicateWarning: document.duplicateOverrideReason
+      ? {
+          overridden: true as const,
+          reason: document.duplicateOverrideReason,
+        }
+      : undefined,
+    integrity: {
+      healthy: openIntegrityExceptions.length === 0,
+      openExceptions: openIntegrityExceptions.map((exception) => ({
+        actionRequired: exception.actionRequired,
+        assetId: exception.assetId,
+        createdAt: exception.createdAt,
+        kind: exception.kind,
+        pageId: exception.pageId,
+      })),
+    },
+    lifecycle: {
+      state: document.voidedAt
+        ? ("voided" as const)
+        : document.supersededByCostDocumentId
+          ? ("superseded" as const)
+          : ("current" as const),
+      supersededAt: document.supersededAt,
+      voidedAt: document.voidedAt,
+      voidReason: document.voidReason,
+    },
     pages: pages.map((page) => ({
       assetId: page.assetId,
       contentHashSha256: page.contentHashSha256Snapshot,
@@ -3429,11 +4046,931 @@ async function projectCostDocument(
       mimeType: page.mimeTypeSnapshot,
       order: page.order,
     })),
+    reviews: {
+      brokerage: projectReview(brokerageReview),
+      builder: projectReview(builderReview),
+    },
+    revision: {
+      number: document.revisionNumber ?? 1,
+      supersededByCostDocumentId: document.supersededByCostDocumentId,
+      supersedesCostDocumentId: document.supersedesCostDocumentId,
+    },
     state: document.state,
     submittedAt: document.submittedAt,
     supportingContextDisclosure: SUPPORTING_CONTEXT_DISCLOSURE,
     title: document.title,
     vendorName: document.vendorName,
+  };
+}
+
+async function assertReadableCostDocumentProjectionGraph(
+  ctx: QueryCtx,
+  document: Doc<"costDocuments">,
+  graph: {
+    activity: Doc<"auditEvents">[];
+    allocations: Doc<"costDocumentAllocations">[];
+    brokerageReview: Doc<"costDocumentReviewAnnotations"> | null;
+    builderReview: Doc<"costDocumentReviewAnnotations"> | null;
+    financialComponents: Doc<"costDocumentFinancialComponents">[];
+    integrityExceptions: Doc<"costDocumentIntegrityExceptions">[];
+    pages: Doc<"costDocumentPages">[];
+  }
+) {
+  if (
+    graph.pages.length < 1 ||
+    graph.pages.length > MAX_PAGES ||
+    graph.allocations.length < 1 ||
+    graph.allocations.length > MAX_ALLOCATIONS ||
+    graph.financialComponents.length > MAX_FINANCIAL_COMPONENTS ||
+    !hasSequentialCostDocumentOrders(graph.pages) ||
+    !hasSequentialCostDocumentOrders(graph.allocations) ||
+    !hasSequentialCostDocumentOrders(graph.financialComponents)
+  ) {
+    throwCostDocumentProjectionGraphUnavailable();
+  }
+  const scopedChildren = [
+    ...graph.pages,
+    ...graph.allocations,
+    ...graph.financialComponents,
+    ...graph.integrityExceptions,
+    ...(graph.builderReview ? [graph.builderReview] : []),
+    ...(graph.brokerageReview ? [graph.brokerageReview] : []),
+  ];
+  if (
+    scopedChildren.some(
+      (child) =>
+        child.organizationId !== document.organizationId ||
+        child.brokerageId !== document.brokerageId ||
+        child.buildId !== document.buildId ||
+        child.costDocumentId !== document._id
+    ) ||
+    graph.activity.some(
+      (event) =>
+        event.organizationId !== document.organizationId ||
+        event.brokerageId !== document.brokerageId ||
+        event.entityType !== "costDocument" ||
+        event.entityId !== String(document._id)
+    )
+  ) {
+    throwCostDocumentProjectionGraphUnavailable();
+  }
+  const [assets, submilestones] = await Promise.all([
+    Promise.all(graph.pages.map((page) => ctx.db.get(page.assetId))),
+    Promise.all(
+      graph.allocations.map((allocation) =>
+        ctx.db.get(allocation.buildSubmilestoneId)
+      )
+    ),
+  ]);
+  if (
+    assets.some(
+      (asset) =>
+        !asset ||
+        asset.organizationId !== document.organizationId ||
+        asset.brokerageId !== document.brokerageId ||
+        asset.buildId !== document.buildId
+    ) ||
+    submilestones.some(
+      (submilestone) =>
+        !submilestone ||
+        submilestone.organizationId !== document.organizationId ||
+        submilestone.brokerageId !== document.brokerageId ||
+        submilestone.buildId !== document.buildId
+    )
+  ) {
+    throwCostDocumentProjectionGraphUnavailable();
+  }
+}
+
+function hasSequentialCostDocumentOrders(rows: { order: number }[]) {
+  return rows.every((row, index) => row.order === index + 1);
+}
+
+function throwCostDocumentProjectionGraphUnavailable(): never {
+  throw new Error("The Cost Document durable graph is unavailable.");
+}
+
+async function requireReadableCostDocument(
+  ctx: AuthorizedCostDocumentCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    costDocumentId: Id<"costDocuments">;
+    organizationId: string;
+  }
+) {
+  const authorization = await authorizeCostDocumentIntent(ctx, {
+    buildId: input.buildId,
+    intent: "submitted.read",
+    organizationId: input.organizationId,
+  });
+  const document = await ctx.db.get(input.costDocumentId);
+  if (
+    !(
+      isCostDocumentInScopeForAuthorization(document, authorization) &&
+      (await canReadSubmittedCostDocument(ctx, authorization, document))
+    )
+  ) {
+    throw new Error("The Cost Document is unavailable.");
+  }
+  return { authorization, document };
+}
+
+function assertCostDocumentReviewerRole(
+  authorization: ActiveBuildAuthorization,
+  reviewType: "builder" | "brokerage"
+) {
+  const role = authorization.effectiveRole.role;
+  const allowed =
+    reviewType === "builder"
+      ? ["builder", "builder-staff", "homeowner"].includes(role)
+      : ["admin", "principle-broker", "broker", "broker-staff"].includes(role);
+  if (!allowed) {
+    throw new Error(`The ${reviewType} Cost Document review is unavailable.`);
+  }
+}
+
+function assertCostDocumentLifecycleManager(
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">
+) {
+  const role = authorization.effectiveRole.role;
+  const roleCanManage = [
+    "admin",
+    "principle-broker",
+    "broker",
+    "builder",
+  ].includes(role);
+  const uploaderCanManage =
+    document.uploaderWorkosUserId === authorization.viewer.subject &&
+    ["builder", "homeowner", "contractor"].includes(role);
+  if (!(roleCanManage || uploaderCanManage)) {
+    throw new Error("The Cost Document lifecycle action is unavailable.");
+  }
+}
+
+function assertCostDocumentCorrectionManager(
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">
+) {
+  assertCostDocumentLifecycleManager(authorization, document);
+  if (
+    document.contractorProfileId &&
+    document.uploaderWorkosUserId !== authorization.viewer.subject
+  ) {
+    throw new Error("The Contractor Cost Document correction is unavailable.");
+  }
+}
+
+async function assessCostDocumentDuplicates(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  draft: Doc<"costDocumentDrafts">
+) {
+  const pages = await currentDraftPages(ctx, draft);
+  if (pages.length < 1 || pages.length > MAX_PAGES) {
+    throw new Error(`A Cost Document requires 1-${MAX_PAGES} source pages.`);
+  }
+  const assets: Doc<"buildCollaborationAssets">[] = [];
+  for (const page of pages) {
+    assertDraftPageScope(page, draft, authorization);
+    const asset = await ctx.db.get(page.assetId);
+    if (
+      !asset ||
+      asset.organizationId !== authorization.organizationId ||
+      asset.brokerageId !== authorization.brokerage._id ||
+      asset.buildId !== authorization.build._id ||
+      !asset.contentHashSha256
+    ) {
+      throw new Error("Every Cost Document source page must be available.");
+    }
+    assets.push(asset);
+  }
+  const facts = requiredDraftFacts(draft);
+  return await assessCostDocumentIdentity(ctx, authorization, {
+    category: draft.category,
+    documentDate: facts.documentDate,
+    draft,
+    grossTotalCents: positiveCents(
+      draft.grossTotalCents ?? 0,
+      "Gross Document Total"
+    ),
+    kind: draft.kind,
+    pages: assets,
+    vendorName: facts.vendorName,
+  });
+}
+
+async function validateBatchDuplicateAssessments(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  prepared: PreparedCostDocument[],
+  requestedOverrideReason: string | undefined
+) {
+  const duplicateOverrideReason = optionalText(
+    requestedOverrideReason,
+    "Likely duplicate override reason",
+    1000
+  );
+  const duplicateAssessments: Awaited<
+    ReturnType<typeof assessCostDocumentDuplicates>
+  >[] = [];
+  const batchSourceManifests = new Map<string, string>();
+  for (const document of prepared) {
+    const assessment = await assessCostDocumentDuplicates(
+      ctx,
+      authorization,
+      document.draft
+    );
+    if (assessment.exactDuplicateCostDocumentId) {
+      throw new Error(
+        `This source is an exact duplicate of Cost Document ${assessment.exactDuplicateCostDocumentId}.`
+      );
+    }
+    const sourceManifest = document.pages
+      .map(requiredAssetHash)
+      .sort((left, right) => left.localeCompare(right))
+      .join("\n");
+    const priorManifest = batchSourceManifests.get(assessment.sourceHashDigest);
+    if (priorManifest === sourceManifest) {
+      throw new Error(
+        "This source is an exact duplicate of another Cost Document draft in this batch."
+      );
+    }
+    batchSourceManifests.set(assessment.sourceHashDigest, sourceManifest);
+    if (
+      assessment.likelyDuplicateCostDocumentIds.length > 0 &&
+      !duplicateOverrideReason
+    ) {
+      throw new Error(
+        "This appears to be a likely duplicate. Record an override reason before submission."
+      );
+    }
+    duplicateAssessments.push(assessment);
+  }
+  return { duplicateAssessments, duplicateOverrideReason };
+}
+
+async function assessCostDocumentIdentity(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  input: {
+    category: "labour" | "materials";
+    documentDate: string;
+    draft: Doc<"costDocumentDrafts">;
+    grossTotalCents: number;
+    kind: "invoice" | "receipt";
+    pages: Doc<"buildCollaborationAssets">[];
+    vendorName: string;
+  }
+) {
+  const sourceHashDigest = await sha256Text(
+    input.pages
+      .map(requiredAssetHash)
+      .sort((left, right) => left.localeCompare(right))
+      .join("\n")
+  );
+  const sourceHashes = input.pages
+    .map(requiredAssetHash)
+    .sort((left, right) => left.localeCompare(right));
+  const likelyDuplicateFingerprint = await sha256Text(
+    JSON.stringify({
+      category: input.category,
+      documentDate: input.documentDate,
+      grossTotalCents: input.grossTotalCents,
+      kind: input.kind,
+      vendorName: normalizeDuplicateText(input.vendorName),
+    })
+  );
+  const lineage = await costDocumentRevisionLineageIds(
+    ctx,
+    authorization,
+    input.draft.supersedesCostDocumentId
+  );
+  const exactCandidates = await ctx.db
+    .query("costDocuments")
+    .withIndex("by_buildId_and_sourceHashDigest", (query) =>
+      query
+        .eq("buildId", authorization.build._id)
+        .eq("sourceHashDigest", sourceHashDigest)
+    )
+    .take(MAX_SUBMITTED_DOCUMENT_LIST_SCAN);
+  const legacyExactCandidates = await ctx.db
+    .query("costDocuments")
+    .withIndex("by_buildId_and_sourceHashDigest", (query) =>
+      query
+        .eq("buildId", authorization.build._id)
+        .eq("sourceHashDigest", undefined)
+    )
+    .take(MAX_SUBMITTED_DOCUMENT_LIST_SCAN + 1);
+  if (legacyExactCandidates.length > MAX_SUBMITTED_DOCUMENT_LIST_SCAN) {
+    throw new Error(
+      "Legacy Cost Document source digests require backfill before submission."
+    );
+  }
+  let exactDuplicate: Doc<"costDocuments"> | undefined;
+  for (const candidate of [...exactCandidates, ...legacyExactCandidates]) {
+    if (
+      candidate.organizationId === authorization.organizationId &&
+      candidate.brokerageId === authorization.brokerage._id &&
+      !lineage.has(String(candidate._id)) &&
+      (await hasExactCostDocumentSourceHashes(ctx, candidate, sourceHashes))
+    ) {
+      exactDuplicate = candidate;
+      break;
+    }
+  }
+  const likelyCandidates = await ctx.db
+    .query("costDocuments")
+    .withIndex("by_buildId_and_likelyDuplicateFingerprint", (query) =>
+      query
+        .eq("buildId", authorization.build._id)
+        .eq("likelyDuplicateFingerprint", likelyDuplicateFingerprint)
+    )
+    .take(21);
+  const likelyDuplicateCostDocumentIds: Id<"costDocuments">[] = [];
+  for (const candidate of likelyCandidates) {
+    if (
+      likelyDuplicateCostDocumentIds.length >= 20 ||
+      !isCurrentCostDocument(candidate) ||
+      candidate.organizationId !== authorization.organizationId ||
+      candidate.brokerageId !== authorization.brokerage._id ||
+      lineage.has(String(candidate._id)) ||
+      (await hasExactCostDocumentSourceHashes(ctx, candidate, sourceHashes))
+    ) {
+      continue;
+    }
+    likelyDuplicateCostDocumentIds.push(candidate._id);
+  }
+  const supersedes = input.draft.supersedesCostDocumentId
+    ? await ctx.db.get(input.draft.supersedesCostDocumentId)
+    : null;
+  return {
+    exactDuplicateCostDocumentId: exactDuplicate?._id,
+    likelyDuplicateCostDocumentIds,
+    likelyDuplicateFingerprint,
+    requiresOverride: likelyDuplicateCostDocumentIds.length > 0,
+    revisionNumber: supersedes ? (supersedes.revisionNumber ?? 1) + 1 : 1,
+    sourceHashDigest,
+  };
+}
+
+async function hasExactCostDocumentSourceHashes(
+  ctx: QueryCtx | MutationCtx,
+  candidate: Doc<"costDocuments">,
+  expectedHashes: string[]
+) {
+  const pages = await ctx.db
+    .query("costDocumentPages")
+    .withIndex("by_costDocumentId_and_order", (query) =>
+      query.eq("costDocumentId", candidate._id)
+    )
+    .take(MAX_PAGES + 1);
+  if (pages.length !== expectedHashes.length) {
+    return false;
+  }
+  const candidateHashes = pages
+    .map((page) => page.contentHashSha256Snapshot)
+    .sort((left, right) => left.localeCompare(right));
+  return candidateHashes.every((hash, index) => hash === expectedHashes[index]);
+}
+
+async function costDocumentRevisionLineageIds(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  startId: Id<"costDocuments"> | undefined
+) {
+  const result = new Set<string>();
+  let currentId = startId;
+  for (let depth = 0; currentId && depth < 100; depth += 1) {
+    const current = await ctx.db.get(currentId);
+    if (
+      !current ||
+      current.organizationId !== authorization.organizationId ||
+      current.brokerageId !== authorization.brokerage._id ||
+      current.buildId !== authorization.build._id
+    ) {
+      throw new Error("The Cost Document correction lineage is unavailable.");
+    }
+    result.add(String(current._id));
+    currentId = current.supersedesCostDocumentId;
+  }
+  if (currentId) {
+    throw new Error("The Cost Document correction lineage is too deep.");
+  }
+  return result;
+}
+
+function isCurrentCostDocument(document: Doc<"costDocuments">) {
+  return (
+    document.voidedAt === undefined &&
+    document.supersededByCostDocumentId === undefined
+  );
+}
+
+function normalizeDuplicateText(value: string) {
+  return value
+    .trim()
+    .toLocaleLowerCase("en-CA")
+    .replace(/[^a-z0-9]+/g, " ");
+}
+
+async function sha256Text(value: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value)
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+}
+
+async function replayCostDocumentCorrection(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">,
+  input: { idempotencyKey: string }
+) {
+  const existingBatch = await ctx.db
+    .query("costDocumentBatches")
+    .withIndex("by_organizationId_and_createIdempotencyKey", (query) =>
+      query
+        .eq("organizationId", authorization.organizationId)
+        .eq("createIdempotencyKey", input.idempotencyKey)
+    )
+    .unique();
+  if (!existingBatch) {
+    return;
+  }
+  const drafts = await listBatchDrafts(ctx, existingBatch._id);
+  const draft = drafts[0];
+  if (
+    drafts.length !== 1 ||
+    !draft ||
+    existingBatch.correctionSourceCostDocumentId !== document._id ||
+    existingBatch.organizationId !== authorization.organizationId ||
+    existingBatch.brokerageId !== authorization.brokerage._id ||
+    existingBatch.buildId !== authorization.build._id ||
+    existingBatch.ownerWorkosUserId !== authorization.viewer.subject ||
+    draft.supersedesCostDocumentId !== document._id
+  ) {
+    throw new Error("The Cost Document correction key is unavailable.");
+  }
+  return { batchId: existingBatch._id, draftId: draft._id, replayed: true };
+}
+
+async function requireCostDocumentCorrectionSource(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">,
+  input: { reuseSourcePages: boolean }
+) {
+  if (!isCurrentCostDocument(document)) {
+    throw new Error("Corrections must start from the newest revision.");
+  }
+  const [submittedChild, draftChildren, pages, allocations, components] =
+    await Promise.all([
+      ctx.db
+        .query("costDocuments")
+        .withIndex("by_supersedesCostDocumentId", (query) =>
+          query.eq("supersedesCostDocumentId", document._id)
+        )
+        .first(),
+      ctx.db
+        .query("costDocumentDrafts")
+        .withIndex("by_supersedesCostDocumentId", (query) =>
+          query.eq("supersedesCostDocumentId", document._id)
+        )
+        .take(100),
+      ctx.db
+        .query("costDocumentPages")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", document._id)
+        )
+        .order("asc")
+        .collect(),
+      ctx.db
+        .query("costDocumentAllocations")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", document._id)
+        )
+        .order("asc")
+        .collect(),
+      ctx.db
+        .query("costDocumentFinancialComponents")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", document._id)
+        )
+        .order("asc")
+        .collect(),
+    ]);
+  for (const draftChild of draftChildren) {
+    const draftChildBatch = await ctx.db.get(draftChild.batchId);
+    if (draftChildBatch?.state !== "abandoned") {
+      throw new Error("Corrections must start from the newest revision.");
+    }
+  }
+  if (submittedChild) {
+    throw new Error("Corrections must start from the newest revision.");
+  }
+  if (allocations.length < 1 || (input.reuseSourcePages && pages.length < 1)) {
+    throw new Error("The Cost Document correction source is incomplete.");
+  }
+  for (const row of [...pages, ...allocations, ...components]) {
+    if (
+      row.organizationId !== authorization.organizationId ||
+      row.brokerageId !== authorization.brokerage._id ||
+      row.buildId !== authorization.build._id
+    ) {
+      throw new Error("The Cost Document correction source is unavailable.");
+    }
+  }
+  await assertCurrentCostDocumentAllocationScope(ctx, {
+    allocationSubmilestoneIds: allocations.map(
+      (allocation) => allocation.buildSubmilestoneId
+    ),
+    authorization,
+    contractorProfileId: document.contractorProfileId,
+    ownerWorkosUserId: authorization.viewer.subject,
+    purpose: "draft.write",
+  });
+  return { allocations, components, pages };
+}
+
+async function createCostDocumentCorrection(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">,
+  input: { idempotencyKey: string; reuseSourcePages: boolean }
+) {
+  const replay = await replayCostDocumentCorrection(
+    ctx,
+    authorization,
+    document,
+    input
+  );
+  if (replay) {
+    return replay;
+  }
+  const { allocations, components, pages } =
+    await requireCostDocumentCorrectionSource(ctx, authorization, document, {
+      reuseSourcePages: input.reuseSourcePages,
+    });
+  const now = Date.now();
+  const batchId = await ctx.db.insert("costDocumentBatches", {
+    brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    contractorProfileId: document.contractorProfileId,
+    correctionSourceCostDocumentId: document._id,
+    createIdempotencyKey: input.idempotencyKey,
+    createdAt: now,
+    organizationId: authorization.organizationId,
+    ownerWorkosUserId: authorization.viewer.subject,
+    revision: 1,
+    state: "active",
+    updatedAt: now,
+  });
+  const draftId = await ctx.db.insert("costDocumentDrafts", {
+    activeStep: "capture_confirm",
+    batchId,
+    brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    category: document.category,
+    contractorProfileId: document.contractorProfileId,
+    createdAt: now,
+    currency: "CAD",
+    description: document.description,
+    documentDate: document.documentDate,
+    grossTotalCents: document.grossTotalCents,
+    kind: document.kind,
+    lifecycle: "draft",
+    order: 1,
+    organizationId: authorization.organizationId,
+    ownerWorkosUserId: authorization.viewer.subject,
+    revision: 1,
+    supersedesCostDocumentId: document._id,
+    title: document.title,
+    updatedAt: now,
+    vendorName: document.vendorName,
+  });
+  if (input.reuseSourcePages) {
+    for (const page of pages) {
+      await ctx.db.insert("costDocumentDraftPages", {
+        assetId: page.assetId,
+        batchId,
+        brokerageId: authorization.brokerage._id,
+        buildId: authorization.build._id,
+        createdAt: now,
+        draftId,
+        order: page.order,
+        organizationId: authorization.organizationId,
+        state: "active",
+      });
+    }
+  }
+  for (const allocation of allocations) {
+    await ctx.db.insert("costDocumentDraftAllocations", {
+      amountCents: allocation.amountCents,
+      batchId,
+      brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
+      buildSubmilestoneId: allocation.buildSubmilestoneId,
+      createdAt: now,
+      draftId,
+      order: allocation.order,
+      organizationId: authorization.organizationId,
+      submilestoneKeySnapshot: allocation.submilestoneKeySnapshot,
+      submilestoneNameSnapshot: allocation.submilestoneNameSnapshot,
+    });
+  }
+  for (const component of components) {
+    await ctx.db.insert("costDocumentDraftFinancialComponents", {
+      amountCents: component.amountCents,
+      batchId,
+      brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
+      createdAt: now,
+      draftId,
+      kind: component.kind,
+      label: component.label,
+      order: component.order,
+      organizationId: authorization.organizationId,
+    });
+  }
+  await recordCostDocumentAudit(ctx, authorization, document._id, {
+    command: "startCostDocumentCorrection",
+    eventType: "cost_document.correction_started",
+    newState: JSON.stringify({
+      batchId,
+      draftId,
+      reuseSourcePages: input.reuseSourcePages,
+    }),
+    now,
+  });
+  return { batchId, draftId, replayed: false };
+}
+
+async function linkSubmittedCostDocumentCorrection(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  input: {
+    costDocumentId: Id<"costDocuments">;
+    draft: Doc<"costDocumentDrafts">;
+    now: number;
+  }
+) {
+  const supersedesId = input.draft.supersedesCostDocumentId;
+  if (!supersedesId) {
+    return;
+  }
+  const source = await ctx.db.get(supersedesId);
+  if (
+    !source ||
+    source.organizationId !== authorization.organizationId ||
+    source.brokerageId !== authorization.brokerage._id ||
+    source.buildId !== authorization.build._id ||
+    !isCurrentCostDocument(source)
+  ) {
+    throw new Error("Corrections must submit from the newest revision.");
+  }
+  const existingChild = await ctx.db
+    .query("costDocuments")
+    .withIndex("by_supersedesCostDocumentId", (query) =>
+      query.eq("supersedesCostDocumentId", source._id)
+    )
+    .filter((query) => query.neq(query.field("_id"), input.costDocumentId))
+    .first();
+  if (existingChild) {
+    throw new Error("Corrections must form one linear revision chain.");
+  }
+  await ctx.db.patch(source._id, {
+    supersededAt: input.now,
+    supersededByCostDocumentId: input.costDocumentId,
+  });
+  await recordCostDocumentAudit(ctx, authorization, source._id, {
+    command: "submitCostDocumentBatch",
+    eventType: "cost_document.superseded",
+    newState: JSON.stringify({
+      state: "superseded",
+      supersededAt: input.now,
+      supersededByCostDocumentId: input.costDocumentId,
+    }),
+    now: input.now,
+    priorState: JSON.stringify({ state: "current" }),
+  });
+}
+
+async function reconcileSubmittedCostDocumentIntegrity(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">
+) {
+  const pages = await ctx.db
+    .query("costDocumentPages")
+    .withIndex("by_costDocumentId_and_order", (query) =>
+      query.eq("costDocumentId", document._id)
+    )
+    .order("asc")
+    .collect();
+  const exceptions: {
+    actionRequired: boolean;
+    assetId: Id<"buildCollaborationAssets">;
+    createdAt: number;
+    kind: "unavailable" | "quarantined" | "missing" | "corrupt";
+    pageId: Id<"costDocumentPages">;
+  }[] = [];
+  for (const page of pages) {
+    if (
+      page.organizationId !== authorization.organizationId ||
+      page.brokerageId !== authorization.brokerage._id ||
+      page.buildId !== authorization.build._id
+    ) {
+      throw new Error("The Cost Document integrity graph is unavailable.");
+    }
+    const inspection = await inspectCostDocumentPageIntegrity(
+      ctx,
+      authorization,
+      document,
+      page
+    );
+    if (inspection.kind) {
+      exceptions.push(
+        await recordCostDocumentIntegrityException(
+          ctx,
+          authorization,
+          document,
+          {
+            detectedHashSha256: inspection.asset?.contentHashSha256,
+            kind: inspection.kind,
+            page,
+          }
+        )
+      );
+    } else {
+      await resolveCostDocumentPageIntegrityExceptions(ctx, page);
+    }
+  }
+  return { exceptions, healthy: exceptions.length === 0 };
+}
+
+async function inspectCostDocumentPageIntegrity(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">,
+  page: Doc<"costDocumentPages">
+) {
+  const asset = await ctx.db.get(page.assetId);
+  if (!asset) {
+    return { asset: null, kind: "missing" as const };
+  }
+  if (
+    asset.organizationId !== authorization.organizationId ||
+    asset.brokerageId !== authorization.brokerage._id ||
+    asset.buildId !== authorization.build._id ||
+    page.costDocumentId !== document._id
+  ) {
+    return { asset, kind: "unavailable" as const };
+  }
+  const storage = await ctx.db.system.get("_storage", asset.storageId);
+  if (!storage || asset.storageDeletedAt !== undefined) {
+    return { asset, kind: "missing" as const };
+  }
+  if (asset.state === "quarantined") {
+    return { asset, kind: "quarantined" as const };
+  }
+  if (
+    asset.contentHashSha256 !== page.contentHashSha256Snapshot ||
+    asset.fileName !== page.fileNameSnapshot ||
+    asset.mimeType !== page.mimeTypeSnapshot
+  ) {
+    return { asset, kind: "corrupt" as const };
+  }
+  if (!isCleanCollaborationAsset(asset)) {
+    return { asset, kind: "unavailable" as const };
+  }
+  return { asset, kind: undefined };
+}
+
+async function recordCostDocumentIntegrityException(
+  ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">,
+  input: {
+    detectedHashSha256?: string;
+    kind: "unavailable" | "quarantined" | "missing" | "corrupt";
+    page: Doc<"costDocumentPages">;
+  }
+) {
+  await resolveCostDocumentPageIntegrityExceptions(ctx, input.page, input.kind);
+  const existing = await ctx.db
+    .query("costDocumentIntegrityExceptions")
+    .withIndex("by_costDocumentId_and_pageId_and_kind", (query) =>
+      query
+        .eq("costDocumentId", document._id)
+        .eq("pageId", input.page._id)
+        .eq("kind", input.kind)
+    )
+    .order("desc")
+    .first();
+  if (existing && existing.resolvedAt === undefined) {
+    return projectIntegrityException(existing);
+  }
+  const now = Date.now();
+  const exceptionId = await ctx.db.insert("costDocumentIntegrityExceptions", {
+    actionRequired: true,
+    assetId: input.page.assetId,
+    brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    costDocumentId: document._id,
+    createdAt: now,
+    detectedHashSha256: input.detectedHashSha256,
+    expectedHashSha256: input.page.contentHashSha256Snapshot,
+    kind: input.kind,
+    organizationId: authorization.organizationId,
+    pageId: input.page._id,
+  });
+  await recordCostDocumentAudit(ctx, authorization, document._id, {
+    command: "reconcileCostDocumentIntegrity",
+    eventType: "cost_document.integrity_exception",
+    newState: JSON.stringify({
+      actionRequired: true,
+      assetId: input.page.assetId,
+      exceptionId,
+      kind: input.kind,
+      pageId: input.page._id,
+    }),
+    now,
+  });
+  await ctx.db.insert("eventOutbox", {
+    brokerageId: authorization.brokerage._id,
+    createdAt: now,
+    eventType: "cost_document.integrity_exception",
+    organizationId: authorization.organizationId,
+    payloadPreview: JSON.stringify({
+      actionRequired: true,
+      buildId: authorization.build._id,
+      kind: input.kind,
+      pageId: input.page._id,
+    }),
+    relatedEntityId: String(document._id),
+    relatedEntityType: "costDocument",
+    status: "pending",
+  });
+  await enqueueTransactionalEmail(ctx, {
+    brokerageId: authorization.brokerage._id,
+    idempotencyKey: `cost-document:${document._id}:integrity:${input.page._id}:${input.kind}:${exceptionId}`,
+    organizationId: authorization.organizationId,
+    recipientEmail: document.uploaderEmailSnapshot,
+    relatedEntityId: String(document._id),
+    relatedEntityType: "costDocument",
+    subject: `Action required: Cost Document source ${input.kind}`,
+    text: [
+      `A source page for “${document.title}” is ${input.kind} and requires review.`,
+      "The submitted record and revision lineage were preserved.",
+    ].join("\n\n"),
+  });
+  const inserted = await ctx.db.get(exceptionId);
+  if (!inserted) {
+    throw new Error("The Cost Document integrity exception is unavailable.");
+  }
+  return projectIntegrityException(inserted);
+}
+
+async function resolveCostDocumentPageIntegrityExceptions(
+  ctx: MutationCtx,
+  page: Doc<"costDocumentPages">,
+  exceptKind?: "unavailable" | "quarantined" | "missing" | "corrupt"
+) {
+  const kinds = ["unavailable", "quarantined", "missing", "corrupt"] as const;
+  const now = Date.now();
+  for (const kind of kinds) {
+    if (kind === exceptKind) {
+      continue;
+    }
+    const exception = await ctx.db
+      .query("costDocumentIntegrityExceptions")
+      .withIndex("by_costDocumentId_and_pageId_and_kind", (query) =>
+        query
+          .eq("costDocumentId", page.costDocumentId)
+          .eq("pageId", page._id)
+          .eq("kind", kind)
+      )
+      .order("desc")
+      .first();
+    if (exception && exception.resolvedAt === undefined) {
+      await ctx.db.patch(exception._id, { resolvedAt: now });
+    }
+  }
+}
+
+function projectIntegrityException(
+  exception: Doc<"costDocumentIntegrityExceptions">
+) {
+  return {
+    actionRequired: exception.actionRequired,
+    assetId: exception.assetId,
+    createdAt: exception.createdAt,
+    kind: exception.kind,
+    pageId: exception.pageId,
   };
 }
 

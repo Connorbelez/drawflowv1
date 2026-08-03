@@ -6549,6 +6549,18 @@ export default defineSchema({
     currency: v.literal("CAD"),
     uploaderWorkosUserId: v.string(),
     uploaderEmailSnapshot: v.string(),
+    // Integrity/lifecycle metadata is append-only or lifecycle-only. The
+    // submitted source facts above remain immutable after insertion.
+    sourceHashDigest: v.optional(v.string()),
+    likelyDuplicateFingerprint: v.optional(v.string()),
+    duplicateOverrideReason: v.optional(v.string()),
+    revisionNumber: v.optional(v.number()),
+    supersedesCostDocumentId: v.optional(v.id("costDocuments")),
+    supersededByCostDocumentId: v.optional(v.id("costDocuments")),
+    supersededAt: v.optional(v.number()),
+    voidedAt: v.optional(v.number()),
+    voidedByWorkosUserId: v.optional(v.string()),
+    voidReason: v.optional(v.string()),
     submittedAt: v.number(),
     createdAt: v.number(),
   })
@@ -6563,7 +6575,13 @@ export default defineSchema({
       "buildId",
       "uploaderWorkosUserId",
       "submittedAt",
-    ]),
+    ])
+    .index("by_buildId_and_sourceHashDigest", ["buildId", "sourceHashDigest"])
+    .index("by_buildId_and_likelyDuplicateFingerprint", [
+      "buildId",
+      "likelyDuplicateFingerprint",
+    ])
+    .index("by_supersedesCostDocumentId", ["supersedesCostDocumentId"]),
   costDocumentPages: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -6607,12 +6625,57 @@ export default defineSchema({
     order: v.number(),
     createdAt: v.number(),
   }).index("by_costDocumentId_and_order", ["costDocumentId", "order"]),
+  costDocumentReviewAnnotations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    costDocumentId: v.id("costDocuments"),
+    reviewType: v.union(v.literal("builder"), v.literal("brokerage")),
+    outcome: v.union(v.literal("accepted"), v.literal("needs_correction")),
+    annotation: v.string(),
+    revision: v.number(),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_costDocumentId_and_reviewType_and_revision", [
+      "costDocumentId",
+      "reviewType",
+      "revision",
+    ])
+    .index("by_buildId_and_createdAt", ["buildId", "createdAt"]),
+  costDocumentIntegrityExceptions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    costDocumentId: v.id("costDocuments"),
+    pageId: v.id("costDocumentPages"),
+    assetId: v.id("buildCollaborationAssets"),
+    kind: v.union(
+      v.literal("unavailable"),
+      v.literal("quarantined"),
+      v.literal("missing"),
+      v.literal("corrupt")
+    ),
+    actionRequired: v.boolean(),
+    detectedHashSha256: v.optional(v.string()),
+    expectedHashSha256: v.string(),
+    resolvedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_costDocumentId_and_createdAt", ["costDocumentId", "createdAt"])
+    .index("by_costDocumentId_and_pageId_and_kind", [
+      "costDocumentId",
+      "pageId",
+      "kind",
+    ]),
   costDocumentBatches: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
     buildId: v.id("activeBuilds"),
     ownerWorkosUserId: v.string(),
     contractorProfileId: v.optional(v.id("contractorProfiles")),
+    correctionSourceCostDocumentId: v.optional(v.id("costDocuments")),
     state: costDocumentBatchStateValidator,
     createIdempotencyKey: v.optional(v.string()),
     submitIdempotencyKey: v.optional(v.string()),
@@ -6655,6 +6718,7 @@ export default defineSchema({
     lifecycle: costDocumentDraftLifecycleValidator,
     completedAt: v.optional(v.number()),
     submittedCostDocumentId: v.optional(v.id("costDocuments")),
+    supersedesCostDocumentId: v.optional(v.id("costDocuments")),
     // Optimistic revision for all material draft edits and collaboration
     // decisions. Legacy rows default to revision 1 at read/write time.
     revision: v.optional(v.number()),
@@ -6667,7 +6731,8 @@ export default defineSchema({
       "ownerWorkosUserId",
       "lifecycle",
     ])
-    .index("by_batchId_and_lifecycle", ["batchId", "lifecycle"]),
+    .index("by_batchId_and_lifecycle", ["batchId", "lifecycle"])
+    .index("by_supersedesCostDocumentId", ["supersedesCostDocumentId"]),
   costDocumentDraftCollaborationEvents: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
