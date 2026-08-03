@@ -48,6 +48,7 @@ import {
   CostDocumentDraftCollaboration,
   type CostDocumentDraftCollaborator,
 } from "./CostDocumentDraftCollaboration.tsx";
+import { CostDocumentRoadmapReconciliation } from "./CostDocumentRoadmapReconciliation.tsx";
 import {
   type CostDocumentSubmilestoneOption,
   formatCad,
@@ -248,6 +249,19 @@ export interface CostDocumentBatchWorkspaceProps {
   draftId?: string;
   onBatchIdChange: (batchId?: string) => void;
   organizationId: string;
+  /**
+   * Builder Build Workspace only. Contractor capture keeps its existing
+   * owner-private history surface; this route-owned configuration adds the
+   * canonical Milestone reconciliation without introducing another dashboard.
+   */
+  reconciliation?: {
+    onCostDocumentIdChange: (costDocumentId?: string) => void;
+    onCostDocumentCorrectionStarted: (input: {
+      batchId: string;
+      draftId: string;
+    }) => void;
+    selectedCostDocumentId?: string;
+  };
   submilestones: CostDocumentSubmilestoneOption[];
 }
 
@@ -323,11 +337,14 @@ export function CostDocumentBatchWorkspace({
   draftId,
   onBatchIdChange,
   organizationId,
+  reconciliation,
   submilestones,
 }: CostDocumentBatchWorkspaceProps) {
   const activeBatchRecoveryQuery = useQuery(
     api.cost_documents.getActiveCostDocumentBatch,
-    batchId || draftId ? "skip" : { buildId, organizationId }
+    batchId || draftId || reconciliation?.selectedCostDocumentId
+      ? "skip"
+      : { buildId, organizationId }
   ) as BatchProjection | null | undefined;
   const routeBatchQuery = useQuery(
     api.cost_documents.getCostDocumentBatch,
@@ -1647,7 +1664,7 @@ export function CostDocumentBatchWorkspace({
   };
 
   if (!sheetOpen) {
-    return (
+    const launchPanel = (
       <CostDocumentBatchLaunchPanel
         activeBatch={activeBatch}
         data-testid="cost-document-batch-workspace"
@@ -1656,6 +1673,23 @@ export function CostDocumentBatchWorkspace({
         onStart={startBatch}
         starting={startingBatch}
       />
+    );
+    if (!reconciliation) {
+      return launchPanel;
+    }
+    return (
+      <div className="space-y-4">
+        <CostDocumentRoadmapReconciliation
+          buildId={buildId}
+          onCloseCostDocument={() => reconciliation.onCostDocumentIdChange()}
+          onOpenCostDocument={reconciliation.onCostDocumentIdChange}
+          onStartCorrection={reconciliation.onCostDocumentCorrectionStarted}
+          organizationId={organizationId}
+          selectedCostDocumentId={reconciliation.selectedCostDocumentId}
+          submilestones={submilestones}
+        />
+        {launchPanel}
+      </div>
     );
   }
 

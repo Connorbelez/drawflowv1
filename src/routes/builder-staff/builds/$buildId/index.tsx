@@ -4,19 +4,12 @@ import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTy
 import {
   type BuilderBuildSearch,
   BuilderBuildWorkspaceRoute,
+  normalizeCostDocumentSearch,
 } from "#/routes/builder/builds/$buildId/index.tsx";
-
-function normalizeOptionalSearchString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
 
 export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
-    const costDocumentDraft = normalizeOptionalSearchString(
-      search.costDocumentDraft
-    );
-    const costBatch =
-      !costDocumentDraft && normalizeOptionalSearchString(search.costBatch);
+    const costDocumentSearch = normalizeCostDocumentSearch(search);
     const tab =
       search.tab === "timeline" ||
       search.tab === "costs" ||
@@ -47,8 +40,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     return {
-      ...(costBatch ? { costBatch } : {}),
-      ...(costDocumentDraft ? { costDocumentDraft } : {}),
+      ...costDocumentSearch,
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),

@@ -40,6 +40,7 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 
 export interface BuilderBuildSearch {
   costBatch?: string;
+  costDocument?: string;
   costDocumentDraft?: string;
   focus?: string;
   milestone?: string;
@@ -137,13 +138,44 @@ function normalizeOptionalSearchString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+const CONVEX_DOCUMENT_ID_PATTERN = /^[a-z0-9]{32}$/;
+
+function normalizeCostDocumentId(value: unknown) {
+  const normalized = normalizeOptionalSearchString(value);
+  return normalized && CONVEX_DOCUMENT_ID_PATTERN.test(normalized)
+    ? normalized
+    : undefined;
+}
+
+/**
+ * Cost capture, immutable-record detail, and exact Draft recovery are mutually
+ * exclusive route states. Preserve the most specific context so a pasted URL
+ * cannot surface a private batch alongside a selected submitted record.
+ */
+export function normalizeCostDocumentSearch(
+  search: Record<string, unknown>
+): Pick<
+  BuilderBuildSearch,
+  "costBatch" | "costDocument" | "costDocumentDraft"
+> {
+  const costDocumentDraft = normalizeOptionalSearchString(
+    search.costDocumentDraft
+  );
+  const costDocument =
+    !costDocumentDraft && normalizeCostDocumentId(search.costDocument);
+  const costBatch =
+    !(costDocumentDraft || costDocument) &&
+    normalizeOptionalSearchString(search.costBatch);
+  return {
+    ...(costBatch ? { costBatch } : {}),
+    ...(costDocument ? { costDocument } : {}),
+    ...(costDocumentDraft ? { costDocumentDraft } : {}),
+  };
+}
+
 export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {
-    const costDocumentDraft = normalizeOptionalSearchString(
-      search.costDocumentDraft
-    );
-    const costBatch =
-      !costDocumentDraft && normalizeOptionalSearchString(search.costBatch);
+    const costDocumentSearch = normalizeCostDocumentSearch(search);
     const tab =
       search.tab === "timeline" ||
       search.tab === "costs" ||
@@ -184,8 +216,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
     return {
-      ...(costBatch ? { costBatch } : {}),
-      ...(costDocumentDraft ? { costDocumentDraft } : {}),
+      ...costDocumentSearch,
       ...(focus ? { focus } : {}),
       ...(timeframe ? { timeframe } : {}),
       ...(milestone ? { milestone } : {}),
@@ -854,6 +885,7 @@ export function BuilderBuildWorkspaceRoute({
                 search: {
                   ...search,
                   costBatch: batchId,
+                  costDocument: undefined,
                   costDocumentDraft: undefined,
                   tab: "costs",
                 },
@@ -861,9 +893,39 @@ export function BuilderBuildWorkspaceRoute({
               } as never)
             }
             organizationId={workosOrganizationId}
+            reconciliation={{
+              onCostDocumentCorrectionStarted: ({ batchId, draftId }) =>
+                navigate({
+                  params: { buildId },
+                  replace: false,
+                  search: {
+                    ...search,
+                    costBatch: batchId,
+                    costDocument: undefined,
+                    costDocumentDraft: draftId,
+                    tab: "costs",
+                  },
+                  to: `${routeBase}/builds/$buildId` as never,
+                } as never),
+              onCostDocumentIdChange: (costDocumentId) =>
+                navigate({
+                  params: { buildId },
+                  replace: !costDocumentId,
+                  search: {
+                    ...search,
+                    costBatch: undefined,
+                    costDocument: costDocumentId,
+                    costDocumentDraft: undefined,
+                    tab: "costs",
+                  },
+                  to: `${routeBase}/builds/$buildId` as never,
+                } as never),
+              selectedCostDocumentId: search.costDocument,
+            }}
             submilestones={(detail.submilestones ?? []).map((submilestone) => ({
               id: submilestone._id as Id<"buildSubmilestones">,
               label: `${submilestone.milestoneKey} · ${submilestone.name}`,
+              milestoneKey: submilestone.milestoneKey,
             }))}
           />
         }

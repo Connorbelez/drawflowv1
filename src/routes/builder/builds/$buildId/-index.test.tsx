@@ -68,13 +68,23 @@ vi.mock(
       batchId,
       draftId,
       onBatchIdChange,
+      reconciliation,
     }: {
       batchId?: string;
       draftId?: string;
       onBatchIdChange: (batchId?: string) => void;
+      reconciliation?: {
+        onCostDocumentCorrectionStarted: (input: {
+          batchId: string;
+          draftId: string;
+        }) => void;
+        onCostDocumentIdChange: (costDocumentId?: string) => void;
+        selectedCostDocumentId?: string;
+      };
     }) => (
       <div
         data-batch-id={batchId}
+        data-cost-document-id={reconciliation?.selectedCostDocumentId}
         data-draft-id={draftId}
         data-testid="cost-document-batch-workspace"
       >
@@ -84,6 +94,35 @@ vi.mock(
         <button onClick={() => onBatchIdChange(undefined)} type="button">
           Close Cost Document batch
         </button>
+        {reconciliation ? (
+          <>
+            <button
+              onClick={() =>
+                reconciliation.onCostDocumentIdChange("cost-document-01")
+              }
+              type="button"
+            >
+              Open Cost Document reconciliation
+            </button>
+            <button
+              onClick={() => reconciliation.onCostDocumentIdChange(undefined)}
+              type="button"
+            >
+              Close Cost Document reconciliation
+            </button>
+            <button
+              onClick={() =>
+                reconciliation.onCostDocumentCorrectionStarted({
+                  batchId: "correction-batch-01",
+                  draftId: "correction-draft-01",
+                })
+              }
+              type="button"
+            >
+              Correct Cost Document reconciliation
+            </button>
+          </>
+        ) : null}
       </div>
     ),
   })
@@ -305,6 +344,7 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
         replace: true,
         search: expect.objectContaining({
           costBatch: "batch-01",
+          costDocument: undefined,
           costDocumentDraft: undefined,
           tab: "costs",
         }),
@@ -318,6 +358,7 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
         replace: true,
         search: expect.objectContaining({
           costBatch: undefined,
+          costDocument: undefined,
           costDocumentDraft: undefined,
           tab: "costs",
         }),
@@ -326,6 +367,7 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
   });
 
   test("validates Cost Document batch deep links without leaking other values", () => {
+    const costDocumentId = "ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r";
     const validateSearch = (
       Route as unknown as {
         validateSearch: (
@@ -342,6 +384,7 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
     expect(
       validateSearch({
         costBatch: "batch-private",
+        costDocument: costDocumentId,
         costDocumentDraft: " draft-shared ",
         tab: "costs",
       })
@@ -349,10 +392,77 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
     expect(
       validateSearch({
         costBatch: " batch-private ",
+        costDocument: ` ${costDocumentId} `,
         costDocumentDraft: 42,
         tab: "costs",
       })
+    ).toEqual({ costDocument: costDocumentId, tab: "costs" });
+    expect(
+      validateSearch({ costBatch: "batch-private", costDocument: 42, tab: "costs" })
     ).toEqual({ costBatch: "batch-private", tab: "costs" });
+    expect(
+      validateSearch({ costDocument: "not-an-id", tab: "costs" })
+    ).toEqual({ tab: "costs" });
+  });
+
+  test("keeps Cost Document selection route-owned and browser-history durable", () => {
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="active-build-01"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder"
+        search={{ costDocument: "cost-document-deep-link", tab: "costs" }}
+        workosOrganizationId="org_builder"
+      />
+    );
+
+    const workspace = screen.getByTestId("cost-document-batch-workspace");
+    expect(workspace.getAttribute("data-cost-document-id")).toBe(
+      "cost-document-deep-link"
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Cost Document reconciliation" })
+    );
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        replace: false,
+        search: expect.objectContaining({
+          costBatch: undefined,
+          costDocument: "cost-document-01",
+          costDocumentDraft: undefined,
+          tab: "costs",
+        }),
+      })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close Cost Document reconciliation" })
+    );
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        replace: true,
+        search: expect.objectContaining({
+          costDocument: undefined,
+          tab: "costs",
+        }),
+      })
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Correct Cost Document reconciliation",
+      })
+    );
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        replace: false,
+        search: expect.objectContaining({
+          costBatch: "correction-batch-01",
+          costDocument: undefined,
+          costDocumentDraft: "correction-draft-01",
+          tab: "costs",
+        }),
+      })
+    );
   });
 
   test("passes an exact shared Draft deep link without a creator batch", () => {

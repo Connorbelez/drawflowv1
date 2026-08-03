@@ -107,6 +107,20 @@ describe("Cost Document public contract", () => {
     expect(result).not.toHaveProperty("receipt");
     expect(result).not.toHaveProperty("uploaderEmailSnapshot");
     expect(result).not.toHaveProperty("uploaderWorkosUserId");
+    await expect(
+      fixture.builder.query((api as any).cost_documents.getCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId: "not-an-id",
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toBeNull();
+    await expect(
+      fixture.builder.query((api as any).cost_documents.getCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toBeNull();
 
     const pagePath = `/api/cost-documents/page?${new URLSearchParams({
       assetId: firstPageId,
@@ -3403,6 +3417,189 @@ describe("Cost Document public contract", () => {
     ).rejects.toThrow("already voided");
   });
 
+  test("projects an auditable, tenant-scoped Roadmap Reconciliation without exposing uploader identity", async () => {
+    const fixture = await seedFixture();
+    const submitted = await submitIntegrityFixtureDocument(fixture, {
+      assetFileName: "roadmap-reconciliation-source.pdf",
+      key: "roadmap-reconciliation",
+    });
+    await fixture.base.run(async (ctx) => {
+      const document = await ctx.db.get(submitted.costDocumentId);
+      const page = await ctx.db
+        .query("costDocumentPages")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", submitted.costDocumentId)
+        )
+        .first();
+      if (!document || !page) {
+        throw new Error("Roadmap reconciliation fixture graph is incomplete.");
+      }
+      await ctx.db.insert("costDocumentIntegrityExceptions", {
+        actionRequired: true,
+        assetId: page.assetId,
+        brokerageId: document.brokerageId,
+        buildId: document.buildId,
+        costDocumentId: document._id,
+        createdAt: 1_600_000_000_000,
+        expectedHashSha256: page.contentHashSha256Snapshot,
+        kind: "missing",
+        organizationId: document.organizationId,
+        pageId: page._id,
+      });
+      for (let index = 0; index < 51; index += 1) {
+        await ctx.db.insert("costDocumentIntegrityExceptions", {
+          actionRequired: false,
+          assetId: page.assetId,
+          brokerageId: document.brokerageId,
+          buildId: document.buildId,
+          costDocumentId: document._id,
+          createdAt: 1_700_000_000_000 + index,
+          expectedHashSha256: page.contentHashSha256Snapshot,
+          kind: "unavailable",
+          organizationId: document.organizationId,
+          pageId: page._id,
+          resolvedAt: 1_700_000_100_000 + index,
+        });
+      }
+    });
+    const args = {
+      buildId: fixture.buildId,
+      organizationId: ORGANIZATION_ID,
+      paginationOpts: { cursor: null, numItems: 50 },
+    };
+    const beforeVoid = await fixture.builder.query(
+      (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+      args
+    );
+    expect(beforeVoid.page).toEqual([
+      expect.objectContaining({
+        _id: submitted.costDocumentId,
+        allocations: [
+          expect.objectContaining({
+            buildSubmilestoneId: fixture.buildSubmilestoneId,
+          }),
+        ],
+        category: "labour",
+        duplicateWarning: false,
+        integrity: { healthy: false, openExceptionKinds: ["missing"] },
+        lifecycle: { state: "current" },
+        reviewAttention: "unreviewed",
+        uploaderScope: "self",
+      }),
+    ]);
+    expect(beforeVoid.page[0]).not.toHaveProperty("uploaderWorkosUserId");
+
+    const detail = await fixture.builder.query(
+      (api as any).cost_documents.getCostDocument,
+      {
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(detail).toMatchObject({
+      capabilities: {
+        canRecordBrokerageReview: false,
+        canRecordBuilderReview: true,
+        canStartCorrection: true,
+        canVoid: true,
+      },
+      integrity: {
+        healthy: false,
+        openExceptions: [expect.objectContaining({ kind: "missing" })],
+      },
+      uploaderScope: "self",
+    });
+    expect(detail).not.toHaveProperty("uploaderWorkosUserId");
+    const otherViewerDetail = await fixture.admin.query(
+      (api as any).cost_documents.getCostDocument,
+      {
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(otherViewerDetail).toMatchObject({ uploaderScope: "other" });
+    expect(JSON.stringify(otherViewerDetail)).not.toContain("builder_owner");
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(submitted.assetId, { state: "quarantined" });
+    });
+    await fixture.builder.mutation(
+      (api as any).cost_documents.reconcileCostDocumentIntegrity,
+      {
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    const withIntegrityAttention = await fixture.builder.query(
+      (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+      args
+    );
+    expect(withIntegrityAttention.page).toEqual([
+      expect.objectContaining({
+        _id: submitted.costDocumentId,
+        integrity: { healthy: false, openExceptionKinds: ["quarantined"] },
+      }),
+    ]);
+
+    await fixture.builder.mutation((api as any).cost_documents.voidCostDocument, {
+      buildId: fixture.buildId,
+      costDocumentId: submitted.costDocumentId,
+      organizationId: ORGANIZATION_ID,
+      reason: "Duplicate uploaded during reconciliation test.",
+    });
+    const afterVoid = await fixture.builder.query(
+      (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+      args
+    );
+    expect(afterVoid.page).toEqual([
+      expect.objectContaining({
+        _id: submitted.costDocumentId,
+        lifecycle: { state: "voided" },
+      }),
+    ]);
+
+    for (let index = 0; index < 10; index += 1) {
+      await submitIntegrityFixtureDocument(fixture, {
+        assetFileName: `roadmap-page-boundary-${index}.pdf`,
+        key: `roadmap-page-boundary-${index}`,
+        sequence: index + 1,
+      });
+    }
+    const boundedFirstPage = await fixture.builder.query(
+      (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+      args
+    );
+    expect(boundedFirstPage.page).toHaveLength(5);
+    expect(boundedFirstPage.isDone).toBe(false);
+    const boundedSecondPage = await fixture.builder.query(
+      (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+      {
+        ...args,
+        paginationOpts: {
+          cursor: boundedFirstPage.continueCursor,
+          numItems: 50,
+        },
+      }
+    );
+    expect(boundedSecondPage.page).toHaveLength(5);
+    expect(boundedSecondPage.isDone).toBe(false);
+    const boundedThirdPage = await fixture.builder.query(
+      (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+      {
+        ...args,
+        paginationOpts: {
+          cursor: boundedSecondPage.continueCursor,
+          numItems: 50,
+        },
+      }
+    );
+    expect(boundedThirdPage.page).toHaveLength(1);
+    expect(boundedThirdPage.isDone).toBe(true);
+  });
+
   test("creates linear corrected revisions and records durable action-required integrity exceptions", async () => {
     const fixture = await seedFixture();
     const original = await submitIntegrityFixtureDocument(fixture, {
@@ -4404,6 +4601,7 @@ async function prepareIntegrityFixtureDraft(
     actor?: CostDocumentActor;
     assetFileName: string;
     key: string;
+    sequence?: number;
   }
 ) {
   const actor = input.actor ?? fixture.builder;
@@ -4427,15 +4625,19 @@ async function prepareIntegrityFixtureDraft(
     {
       allocations: [
         {
-          amountCents: 12_345,
+          amountCents: 12_345 + (input.sequence ?? 0),
           buildSubmilestoneId: fixture.buildSubmilestoneId,
         },
       ],
       documentDate: "2026-08-01",
-      grossTotalCents: 12_345,
+      grossTotalCents: 12_345 + (input.sequence ?? 0),
       pageAssetIds: [assetId],
-      title: "Foundation invoice",
-      vendorName: "Cedar Forming Ltd.",
+      title: input.sequence
+        ? `Foundation invoice ${input.sequence}`
+        : "Foundation invoice",
+      vendorName: input.sequence
+        ? `Cedar Forming ${input.sequence} Ltd.`
+        : "Cedar Forming Ltd.",
     },
     actor
   );
@@ -4445,7 +4647,7 @@ async function prepareIntegrityFixtureDraft(
 
 async function submitIntegrityFixtureDocument(
   fixture: CostDocumentFixture,
-  input: { assetFileName: string; key: string }
+  input: { assetFileName: string; key: string; sequence?: number }
 ) {
   const prepared = await prepareIntegrityFixtureDraft(fixture, input);
   const submitted = await fixture.builder.mutation(

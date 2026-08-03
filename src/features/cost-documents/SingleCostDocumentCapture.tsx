@@ -41,6 +41,8 @@ const TRAILING_SLASH_PATTERN = /\/$/;
 export interface CostDocumentSubmilestoneOption {
   id: Id<"buildSubmilestones">;
   label: string;
+  /** Canonical roadmap Milestone key for reconciliation grouping/filtering. */
+  milestoneKey?: string;
 }
 
 export function SingleCostDocumentCapture({

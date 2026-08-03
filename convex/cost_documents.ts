@@ -43,6 +43,13 @@ const MAX_BATCH_DRAFTS = 10;
 const MAX_BATCH_PAGES = 100;
 const MAX_BATCH_ALLOCATIONS = 200;
 const MAX_BATCH_FINANCIAL_COMPONENTS = 200;
+const MAX_ROADMAP_RECONCILIATION_INTEGRITY_EXCEPTIONS = 50;
+const COST_DOCUMENT_INTEGRITY_KINDS = [
+  "unavailable",
+  "quarantined",
+  "missing",
+  "corrupt",
+] as const;
 // Submitted Cost Documents are authorization-filtered after their indexed
 // candidate lookup. The raw query can return more than `numItems` while a
 // reactive page interval is being replayed, so every returned candidate must
@@ -105,7 +112,6 @@ const costDocumentFinancialComponentProjectionValidator = v.object({
 });
 
 const costDocumentActivityProjectionValidator = v.object({
-  actorWorkosUserId: v.string(),
   createdAt: v.number(),
   eventType: v.string(),
 });
@@ -119,7 +125,6 @@ const costDocumentReviewOutcomeValidator = v.union(
   v.literal("needs_correction")
 );
 const costDocumentReviewProjectionValidator = v.object({
-  actorWorkosUserId: v.string(),
   annotation: v.string(),
   createdAt: v.number(),
   outcome: costDocumentReviewOutcomeValidator,
@@ -130,6 +135,17 @@ const costDocumentIntegrityKindValidator = v.union(
   v.literal("quarantined"),
   v.literal("missing"),
   v.literal("corrupt")
+);
+const costDocumentLifecycleStateValidator = v.union(
+  v.literal("current"),
+  v.literal("superseded"),
+  v.literal("voided")
+);
+const costDocumentReviewAttentionValidator = v.union(
+  v.literal("unreviewed"),
+  v.literal("partially_reviewed"),
+  v.literal("reviewed"),
+  v.literal("needs_correction")
 );
 const costDocumentIntegrityExceptionProjectionValidator = v.object({
   actionRequired: v.boolean(),
@@ -151,11 +167,41 @@ const costDocumentSummaryValidator = v.object({
   vendorName: v.string(),
 });
 
+const costDocumentRoadmapReconciliationSummaryValidator = v.object({
+  _id: v.id("costDocuments"),
+  allocations: v.array(costDocumentAllocationProjectionValidator),
+  category: costDocumentCategoryValidator,
+  currency: v.literal("CAD"),
+  documentDate: v.string(),
+  duplicateWarning: v.boolean(),
+  grossTotalCents: v.number(),
+  integrity: v.object({
+    healthy: v.boolean(),
+    openExceptionKinds: v.array(costDocumentIntegrityKindValidator),
+  }),
+  kind: costDocumentKindValidator,
+  lifecycle: v.object({ state: costDocumentLifecycleStateValidator }),
+  reviewAttention: costDocumentReviewAttentionValidator,
+  state: v.literal("submitted"),
+  submittedAt: v.number(),
+  title: v.string(),
+  uploaderScope: v.union(v.literal("self"), v.literal("other")),
+  vendorName: v.string(),
+});
+
+const costDocumentCapabilitiesValidator = v.object({
+  canRecordBrokerageReview: v.boolean(),
+  canRecordBuilderReview: v.boolean(),
+  canStartCorrection: v.boolean(),
+  canVoid: v.boolean(),
+});
+
 const costDocumentProjectionValidator = v.object({
   _id: v.id("costDocuments"),
   activity: v.array(costDocumentActivityProjectionValidator),
   allocations: v.array(costDocumentAllocationProjectionValidator),
   category: costDocumentCategoryValidator,
+  capabilities: costDocumentCapabilitiesValidator,
   currency: v.literal("CAD"),
   description: v.optional(v.string()),
   documentDate: v.string(),
@@ -198,6 +244,7 @@ const costDocumentProjectionValidator = v.object({
   submittedAt: v.number(),
   supportingContextDisclosure: v.string(),
   title: v.string(),
+  uploaderScope: v.union(v.literal("self"), v.literal("other")),
   vendorName: v.string(),
 });
 
@@ -356,7 +403,10 @@ export const submitCostDocument = authenticatedMutation
 export const getCostDocument = authenticatedQuery
   .input({
     ...activeBuildScopeFields,
-    costDocumentId: v.id("costDocuments"),
+    // Route/search state is untrusted. Accept the serialized value here and
+    // normalize it against the exact table before any document read so a
+    // malformed or wrong-table ID cannot fail the entire reactive ledger.
+    costDocumentId: v.string(),
   })
   .returns(v.union(costDocumentProjectionValidator, v.null()))
   .handler(async (ctx, args) => {
@@ -364,7 +414,14 @@ export const getCostDocument = authenticatedQuery
       ...args,
       intent: "submitted.read",
     });
-    const document = await ctx.db.get(args.costDocumentId);
+    const costDocumentId = ctx.db.normalizeId(
+      "costDocuments",
+      args.costDocumentId
+    );
+    if (!costDocumentId) {
+      return null;
+    }
+    const document = await ctx.db.get(costDocumentId);
     if (
       !(
         isCostDocumentInScopeForAuthorization(document, authorization) &&
@@ -373,7 +430,7 @@ export const getCostDocument = authenticatedQuery
     ) {
       return null;
     }
-    return await projectCostDocument(ctx, document);
+    return await projectCostDocument(ctx, authorization, document);
   })
   .public();
 
@@ -422,6 +479,51 @@ export const listCostDocuments = authenticatedQuery
       authorization,
       contractorSubmittedReadScope,
       paginationOpts: args.paginationOpts,
+      project: projectCostDocumentSummary,
+    });
+  })
+  .public();
+
+/**
+ * A bounded, Build-scoped ledger projection for the canonical Build Workspace
+ * Costs tab. Unlike the compact submitted-record list, this deliberately
+ * retains superseded and voided documents so reconciliation remains auditable.
+ * It does not alter payment, completion, reimbursement, Draw, or approval
+ * state; Cost Documents remain supporting context only.
+ */
+export const listCostDocumentRoadmapReconciliation = authenticatedQuery
+  .input({
+    ...activeBuildScopeFields,
+    paginationOpts: paginationOptsValidator,
+  })
+  .returns(
+    paginationResultValidator(costDocumentRoadmapReconciliationSummaryValidator)
+  )
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "submitted.list",
+    });
+    const contractorSubmittedReadScope =
+      await resolveContractorSubmittedReadScope(ctx, authorization);
+    if (contractorSubmittedReadScope === null) {
+      return { continueCursor: "", isDone: true, page: [] };
+    }
+    return await listAuthorizedCostDocumentPage(ctx, {
+      authorization,
+      contractorSubmittedReadScope,
+      includeLifecycleHistory: true,
+      // Keep the worst-case projection comfortably below Convex's 4,096
+      // document-read transaction ceiling. The client drains every bounded
+      // page before presenting totals, search results, or empty states.
+      maxRequestedCount: 5,
+      paginationOpts: args.paginationOpts,
+      project: (document) =>
+        projectCostDocumentRoadmapReconciliationSummary(
+          ctx,
+          authorization,
+          document
+        ),
     });
   })
   .public();
@@ -444,16 +546,19 @@ async function resolveContractorSubmittedReadScope(
   }
 }
 
-async function listAuthorizedCostDocumentPage(
+async function listAuthorizedCostDocumentPage<T>(
   ctx: QueryCtx,
   input: {
     authorization: ActiveBuildAuthorization;
     contractorSubmittedReadScope?: CurrentCostDocumentContractorScope;
+    includeLifecycleHistory?: boolean;
+    maxRequestedCount?: number;
     paginationOpts: PaginationOptions;
+    project: (document: Doc<"costDocuments">) => Promise<T> | T;
   }
 ) {
   const requestedCount = Math.min(
-    50,
+    input.maxRequestedCount ?? 50,
     Math.max(1, input.paginationOpts.numItems)
   );
   // Convex read budgets and split metadata describe one native pagination
@@ -475,10 +580,11 @@ async function listAuthorizedCostDocumentPage(
       authorization: input.authorization,
       contractorSubmittedReadScope: input.contractorSubmittedReadScope,
       documents: rawPage.page,
+      includeLifecycleHistory: input.includeLifecycleHistory,
     });
     return {
       ...rawPage,
-      page: readable.map(projectCostDocumentSummary),
+      page: await Promise.all(readable.map(input.project)),
     };
   }
   const rawScanLimit = Math.max(
@@ -524,6 +630,7 @@ async function listAuthorizedCostDocumentPage(
         authorization: input.authorization,
         contractorSubmittedReadScope: input.contractorSubmittedReadScope,
         documents: rawPage.page,
+        includeLifecycleHistory: input.includeLifecycleHistory,
       }))
     );
 
@@ -539,7 +646,7 @@ async function listAuthorizedCostDocumentPage(
   }
 
   return {
-    page: inScope.map(projectCostDocumentSummary),
+    page: await Promise.all(inScope.map(input.project)),
     continueCursor,
     isDone,
     ...(splitCursor === undefined ? {} : { splitCursor }),
@@ -584,12 +691,14 @@ async function listReadableCostDocuments(
     authorization: ActiveBuildAuthorization;
     contractorSubmittedReadScope?: CurrentCostDocumentContractorScope;
     documents: Doc<"costDocuments">[];
+    includeLifecycleHistory?: boolean;
   }
 ) {
   const readable = await Promise.all(
     input.documents.map((document) =>
-      document.voidedAt === undefined &&
-      document.supersededByCostDocumentId === undefined
+      input.includeLifecycleHistory ||
+      (document.voidedAt === undefined &&
+        document.supersededByCostDocumentId === undefined)
         ? canReadSubmittedCostDocument(
             ctx,
             input.authorization,
@@ -614,6 +723,163 @@ function projectCostDocumentSummary(document: Doc<"costDocuments">) {
     title: document.title,
     vendorName: document.vendorName,
   };
+}
+
+async function listCurrentOpenCostDocumentIntegrityExceptions(
+  ctx: QueryCtx,
+  document: Doc<"costDocuments">,
+  pages: Doc<"costDocumentPages">[]
+) {
+  if (pages.length < 1 || pages.length > MAX_PAGES) {
+    throwCostDocumentProjectionGraphUnavailable();
+  }
+  const latestByPageAndKind = await Promise.all(
+    pages.flatMap((page) =>
+      COST_DOCUMENT_INTEGRITY_KINDS.map(async (kind) => ({
+        exception: await ctx.db
+          .query("costDocumentIntegrityExceptions")
+          .withIndex("by_costDocumentId_and_pageId_and_kind", (query) =>
+            query
+              .eq("costDocumentId", document._id)
+              .eq("pageId", page._id)
+              .eq("kind", kind)
+          )
+          .order("desc")
+          .first(),
+        kind,
+        page,
+      }))
+    )
+  );
+  const openExceptions: Doc<"costDocumentIntegrityExceptions">[] = [];
+  for (const { exception, kind, page } of latestByPageAndKind) {
+    if (!exception) {
+      continue;
+    }
+    if (
+      exception.organizationId !== document.organizationId ||
+      exception.brokerageId !== document.brokerageId ||
+      exception.buildId !== document.buildId ||
+      exception.costDocumentId !== document._id ||
+      exception.pageId !== page._id ||
+      exception.assetId !== page.assetId ||
+      exception.kind !== kind
+    ) {
+      throwCostDocumentProjectionGraphUnavailable();
+    }
+    if (exception.resolvedAt === undefined) {
+      openExceptions.push(exception);
+    }
+  }
+  return openExceptions;
+}
+
+async function projectCostDocumentRoadmapReconciliationSummary(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">
+) {
+  const [allocations, builderReview, brokerageReview, pages] =
+    await Promise.all([
+      ctx.db
+        .query("costDocumentAllocations")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", document._id)
+        )
+        .order("asc")
+        .take(MAX_ALLOCATIONS + 1),
+      ctx.db
+        .query("costDocumentReviewAnnotations")
+        .withIndex("by_costDocumentId_and_reviewType_and_revision", (query) =>
+          query.eq("costDocumentId", document._id).eq("reviewType", "builder")
+        )
+        .order("desc")
+        .first(),
+      ctx.db
+        .query("costDocumentReviewAnnotations")
+        .withIndex("by_costDocumentId_and_reviewType_and_revision", (query) =>
+          query.eq("costDocumentId", document._id).eq("reviewType", "brokerage")
+        )
+        .order("desc")
+        .first(),
+      ctx.db
+        .query("costDocumentPages")
+        .withIndex("by_costDocumentId_and_order", (query) =>
+          query.eq("costDocumentId", document._id)
+        )
+        .order("asc")
+        .take(MAX_PAGES + 1),
+    ]);
+  const integrityExceptions =
+    await listCurrentOpenCostDocumentIntegrityExceptions(ctx, document, pages);
+  await assertReadableCostDocumentRoadmapProjectionGraph(ctx, document, {
+    allocations,
+    brokerageReview,
+    builderReview,
+    integrityExceptions,
+  });
+  const openIntegrityExceptions = integrityExceptions;
+  return {
+    _id: document._id,
+    allocations: allocations.map((allocation) => ({
+      amountCents: allocation.amountCents,
+      buildSubmilestoneId: allocation.buildSubmilestoneId,
+      order: allocation.order,
+      submilestoneKey: allocation.submilestoneKeySnapshot,
+      submilestoneName: allocation.submilestoneNameSnapshot,
+    })),
+    category: document.category,
+    currency: document.currency,
+    documentDate: document.documentDate,
+    duplicateWarning: document.duplicateOverrideReason !== undefined,
+    grossTotalCents: document.grossTotalCents,
+    integrity: {
+      healthy: openIntegrityExceptions.length === 0,
+      openExceptionKinds: [
+        ...new Set(openIntegrityExceptions.map((item) => item.kind)),
+      ],
+    },
+    kind: document.kind,
+    lifecycle: { state: costDocumentLifecycleState(document) },
+    reviewAttention: costDocumentReviewAttention(
+      builderReview,
+      brokerageReview
+    ),
+    state: document.state,
+    submittedAt: document.submittedAt,
+    title: document.title,
+    uploaderScope:
+      document.uploaderWorkosUserId === authorization.viewer.subject
+        ? ("self" as const)
+        : ("other" as const),
+    vendorName: document.vendorName,
+  };
+}
+
+function costDocumentLifecycleState(document: Doc<"costDocuments">) {
+  return document.voidedAt
+    ? ("voided" as const)
+    : document.supersededByCostDocumentId
+      ? ("superseded" as const)
+      : ("current" as const);
+}
+
+function costDocumentReviewAttention(
+  builderReview: Doc<"costDocumentReviewAnnotations"> | null,
+  brokerageReview: Doc<"costDocumentReviewAnnotations"> | null
+) {
+  if (
+    builderReview?.outcome === "needs_correction" ||
+    brokerageReview?.outcome === "needs_correction"
+  ) {
+    return "needs_correction" as const;
+  }
+  if (builderReview && brokerageReview) {
+    return "reviewed" as const;
+  }
+  return builderReview || brokerageReview
+    ? ("partially_reviewed" as const)
+    : ("unreviewed" as const);
 }
 
 export const setCostDocumentReviewAnnotation = authenticatedMutation
@@ -3893,6 +4159,7 @@ function costDocumentDraftLifecycleState(
 
 async function projectCostDocument(
   ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
   document: Doc<"costDocuments">
 ) {
   const [
@@ -3902,7 +4169,6 @@ async function projectCostDocument(
     activity,
     builderReview,
     brokerageReview,
-    integrityExceptions,
   ] = await Promise.all([
     ctx.db
       .query("costDocumentPages")
@@ -3948,14 +4214,9 @@ async function projectCostDocument(
       )
       .order("desc")
       .first(),
-    ctx.db
-      .query("costDocumentIntegrityExceptions")
-      .withIndex("by_costDocumentId_and_createdAt", (query) =>
-        query.eq("costDocumentId", document._id)
-      )
-      .order("desc")
-      .take(50),
   ]);
+  const integrityExceptions =
+    await listCurrentOpenCostDocumentIntegrityExceptions(ctx, document, pages);
   await assertReadableCostDocumentProjectionGraph(ctx, document, {
     activity,
     allocations,
@@ -3980,7 +4241,6 @@ async function projectCostDocument(
     review.brokerageId === document.brokerageId &&
     review.buildId === document.buildId
       ? {
-          actorWorkosUserId: review.actorWorkosUserId,
           annotation: review.annotation,
           createdAt: review.createdAt,
           outcome: review.outcome,
@@ -3990,7 +4250,6 @@ async function projectCostDocument(
   return {
     _id: document._id,
     activity: activity.map((event) => ({
-      actorWorkosUserId: event.actorWorkosUserId,
       createdAt: event.createdAt,
       eventType: event.eventType,
     })),
@@ -4002,6 +4261,7 @@ async function projectCostDocument(
       submilestoneName: allocation.submilestoneNameSnapshot,
     })),
     category: document.category,
+    capabilities: costDocumentCapabilities(authorization, document),
     currency: document.currency,
     description: document.description,
     documentDate: document.documentDate,
@@ -4030,11 +4290,7 @@ async function projectCostDocument(
       })),
     },
     lifecycle: {
-      state: document.voidedAt
-        ? ("voided" as const)
-        : document.supersededByCostDocumentId
-          ? ("superseded" as const)
-          : ("current" as const),
+      state: costDocumentLifecycleState(document),
       supersededAt: document.supersededAt,
       voidedAt: document.voidedAt,
       voidReason: document.voidReason,
@@ -4059,6 +4315,10 @@ async function projectCostDocument(
     submittedAt: document.submittedAt,
     supportingContextDisclosure: SUPPORTING_CONTEXT_DISCLOSURE,
     title: document.title,
+    uploaderScope:
+      document.uploaderWorkosUserId === authorization.viewer.subject
+        ? ("self" as const)
+        : ("other" as const),
     vendorName: document.vendorName,
   };
 }
@@ -4082,6 +4342,8 @@ async function assertReadableCostDocumentProjectionGraph(
     graph.allocations.length < 1 ||
     graph.allocations.length > MAX_ALLOCATIONS ||
     graph.financialComponents.length > MAX_FINANCIAL_COMPONENTS ||
+    graph.integrityExceptions.length >
+      MAX_ROADMAP_RECONCILIATION_INTEGRITY_EXCEPTIONS ||
     !hasSequentialCostDocumentOrders(graph.pages) ||
     !hasSequentialCostDocumentOrders(graph.allocations) ||
     !hasSequentialCostDocumentOrders(graph.financialComponents)
@@ -4142,6 +4404,86 @@ async function assertReadableCostDocumentProjectionGraph(
   }
 }
 
+async function assertReadableCostDocumentRoadmapProjectionGraph(
+  ctx: QueryCtx,
+  document: Doc<"costDocuments">,
+  graph: {
+    allocations: Doc<"costDocumentAllocations">[];
+    brokerageReview: Doc<"costDocumentReviewAnnotations"> | null;
+    builderReview: Doc<"costDocumentReviewAnnotations"> | null;
+    integrityExceptions: Doc<"costDocumentIntegrityExceptions">[];
+  }
+) {
+  if (
+    graph.allocations.length < 1 ||
+    graph.allocations.length > MAX_ALLOCATIONS ||
+    graph.integrityExceptions.length >
+      MAX_ROADMAP_RECONCILIATION_INTEGRITY_EXCEPTIONS ||
+    !hasSequentialCostDocumentOrders(graph.allocations)
+  ) {
+    throwCostDocumentProjectionGraphUnavailable();
+  }
+  const scopedChildren = [
+    ...graph.allocations,
+    ...graph.integrityExceptions,
+    ...(graph.builderReview ? [graph.builderReview] : []),
+    ...(graph.brokerageReview ? [graph.brokerageReview] : []),
+  ];
+  if (
+    scopedChildren.some(
+      (child) =>
+        child.organizationId !== document.organizationId ||
+        child.brokerageId !== document.brokerageId ||
+        child.buildId !== document.buildId ||
+        child.costDocumentId !== document._id
+    )
+  ) {
+    throwCostDocumentProjectionGraphUnavailable();
+  }
+  const [submilestones, integrityAssets, integrityPages] = await Promise.all([
+    Promise.all(
+      graph.allocations.map((allocation) =>
+        ctx.db.get(allocation.buildSubmilestoneId)
+      )
+    ),
+    Promise.all(
+      graph.integrityExceptions.map((exception) =>
+        ctx.db.get(exception.assetId)
+      )
+    ),
+    Promise.all(
+      graph.integrityExceptions.map((exception) => ctx.db.get(exception.pageId))
+    ),
+  ]);
+  if (
+    submilestones.some(
+      (submilestone) =>
+        !submilestone ||
+        submilestone.organizationId !== document.organizationId ||
+        submilestone.brokerageId !== document.brokerageId ||
+        submilestone.buildId !== document.buildId
+    ) ||
+    integrityAssets.some(
+      (asset) =>
+        !asset ||
+        asset.organizationId !== document.organizationId ||
+        asset.brokerageId !== document.brokerageId ||
+        asset.buildId !== document.buildId
+    ) ||
+    integrityPages.some(
+      (page, index) =>
+        !page ||
+        page.organizationId !== document.organizationId ||
+        page.brokerageId !== document.brokerageId ||
+        page.buildId !== document.buildId ||
+        page.costDocumentId !== document._id ||
+        page.assetId !== graph.integrityExceptions[index]?.assetId
+    )
+  ) {
+    throwCostDocumentProjectionGraphUnavailable();
+  }
+}
+
 function hasSequentialCostDocumentOrders(rows: { order: number }[]) {
   return rows.every((row, index) => row.order === index + 1);
 }
@@ -4179,17 +4521,31 @@ function assertCostDocumentReviewerRole(
   authorization: ActiveBuildAuthorization,
   reviewType: "builder" | "brokerage"
 ) {
-  const role = authorization.effectiveRole.role;
-  const allowed =
-    reviewType === "builder"
-      ? ["builder", "builder-staff", "homeowner"].includes(role)
-      : ["admin", "principle-broker", "broker", "broker-staff"].includes(role);
-  if (!allowed) {
+  if (!canRecordCostDocumentReview(authorization, reviewType)) {
     throw new Error(`The ${reviewType} Cost Document review is unavailable.`);
   }
 }
 
 function assertCostDocumentLifecycleManager(
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">
+) {
+  if (!canManageCostDocumentLifecycle(authorization, document)) {
+    throw new Error("The Cost Document lifecycle action is unavailable.");
+  }
+}
+
+function canRecordCostDocumentReview(
+  authorization: ActiveBuildAuthorization,
+  reviewType: "builder" | "brokerage"
+) {
+  const role = authorization.effectiveRole.role;
+  return reviewType === "builder"
+    ? ["builder", "builder-staff", "homeowner"].includes(role)
+    : ["admin", "principle-broker", "broker", "broker-staff"].includes(role);
+}
+
+function canManageCostDocumentLifecycle(
   authorization: ActiveBuildAuthorization,
   document: Doc<"costDocuments">
 ) {
@@ -4203,22 +4559,56 @@ function assertCostDocumentLifecycleManager(
   const uploaderCanManage =
     document.uploaderWorkosUserId === authorization.viewer.subject &&
     ["builder", "homeowner", "contractor"].includes(role);
-  if (!(roleCanManage || uploaderCanManage)) {
-    throw new Error("The Cost Document lifecycle action is unavailable.");
-  }
+  return roleCanManage || uploaderCanManage;
 }
 
 function assertCostDocumentCorrectionManager(
   authorization: ActiveBuildAuthorization,
   document: Doc<"costDocuments">
 ) {
-  assertCostDocumentLifecycleManager(authorization, document);
+  if (!canManageCostDocumentCorrection(authorization, document)) {
+    if (!canManageCostDocumentLifecycle(authorization, document)) {
+      throw new Error("The Cost Document lifecycle action is unavailable.");
+    }
+    throw new Error("The Contractor Cost Document correction is unavailable.");
+  }
+}
+
+function canManageCostDocumentCorrection(
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">
+) {
+  if (!canManageCostDocumentLifecycle(authorization, document)) {
+    return false;
+  }
   if (
     document.contractorProfileId &&
     document.uploaderWorkosUserId !== authorization.viewer.subject
   ) {
-    throw new Error("The Contractor Cost Document correction is unavailable.");
+    return false;
   }
+  return true;
+}
+
+function costDocumentCapabilities(
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">
+) {
+  const isCurrent = isCurrentCostDocument(document);
+  return {
+    canRecordBrokerageReview: canRecordCostDocumentReview(
+      authorization,
+      "brokerage"
+    ),
+    canRecordBuilderReview: canRecordCostDocumentReview(
+      authorization,
+      "builder"
+    ),
+    canStartCorrection:
+      isCurrent && canManageCostDocumentCorrection(authorization, document),
+    canVoid:
+      isCurrent && canManageCostDocumentLifecycle(authorization, document),
+  };
 }
 
 async function assessCostDocumentDuplicates(

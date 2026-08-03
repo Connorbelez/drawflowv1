@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const mutationByRef = new Map<string, (...args: unknown[]) => unknown>();
 const actionByRef = new Map<string, (...args: unknown[]) => unknown>();
+const usePaginatedQuery = vi.fn();
 const useQuery = vi.fn();
 const uploadAssets = vi.fn();
 const abandonAssets = vi.fn();
@@ -21,6 +22,7 @@ vi.mock("convex/react", () => ({
     actionByRef.get(getFunctionName(ref)),
   useMutation: (ref: Parameters<typeof getFunctionName>[0]) =>
     mutationByRef.get(getFunctionName(ref)),
+  usePaginatedQuery: (...args: unknown[]) => usePaginatedQuery(...args),
   useQuery: (ref: unknown, args: unknown) => useQuery(ref, args),
 }));
 
@@ -201,15 +203,32 @@ describe("CostDocumentBatchWorkspace", () => {
   let routeBatchQuery: BatchProjection | null | undefined;
   let exactDraftQuery: ExactDraftProjection | null | undefined;
 
-  const renderWorkspace = (input?: { batchId?: string; draftId?: string }) => {
+  const renderWorkspace = (input?: {
+    batchId?: string;
+    draftId?: string;
+    selectedCostDocumentId?: string;
+  }) => {
     const onBatchIdChange = vi.fn();
-    const workspace = (next?: { batchId?: string; draftId?: string }) => (
+    const workspace = (next?: {
+      batchId?: string;
+      draftId?: string;
+      selectedCostDocumentId?: string;
+    }) => (
       <CostDocumentBatchWorkspace
         batchId={next?.batchId}
         buildId={"build-1" as Id<"activeBuilds">}
         draftId={next?.draftId}
         onBatchIdChange={onBatchIdChange}
         organizationId="org-1"
+        reconciliation={
+          next?.selectedCostDocumentId
+            ? {
+                onCostDocumentCorrectionStarted: vi.fn(),
+                onCostDocumentIdChange: vi.fn(),
+                selectedCostDocumentId: next.selectedCostDocumentId,
+              }
+            : undefined
+        }
         submilestones={[
           {
             id: "submilestone-foundation" as Id<"buildSubmilestones">,
@@ -238,6 +257,11 @@ describe("CostDocumentBatchWorkspace", () => {
     activeBatchQuery = undefined;
     routeBatchQuery = undefined;
     exactDraftQuery = undefined;
+    usePaginatedQuery.mockReturnValue({
+      loadMore: vi.fn(),
+      results: [],
+      status: "Exhausted",
+    });
     useQuery.mockImplementation((ref: unknown, args: unknown) => {
       const functionName = getFunctionName(
         ref as Parameters<typeof getFunctionName>[0]
@@ -422,6 +446,20 @@ describe("CostDocumentBatchWorkspace", () => {
       screen.getByTestId("cost-document-batch-editor").textContent
     ).toContain("Route-resolved source");
     expect(screen.queryByText("Recovery-only source")).toBeNull();
+  });
+
+  test("does not recover or open an active batch over a submitted-record deep link", () => {
+    currentBatch = makeBatch({
+      _id: "batch-recovery-only" as Id<"costDocumentBatches">,
+    });
+
+    renderWorkspace({ selectedCostDocumentId: "cost-document-deep-link" });
+
+    expect(useQuery).toHaveBeenCalledWith(
+      api.cost_documents.getActiveCostDocumentBatch,
+      "skip"
+    );
+    expect(screen.queryByTestId("cost-document-batch-editor")).toBeNull();
   });
 
   test("fails closed to the scoped unavailable state for a malformed batch deep link", () => {
