@@ -2,7 +2,6 @@
 
 import {
   Activity,
-  AlertTriangle,
   ArrowRight,
   Banknote,
   CalendarDays,
@@ -10,7 +9,6 @@ import {
   ChevronRight,
   Circle,
   ClipboardCheck,
-  Clock3,
   FileCheck2,
   FileText,
   GitCompareArrows,
@@ -24,7 +22,7 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { PrototypeSwitcher } from "#/components/prototype-switcher.tsx";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar.tsx";
@@ -32,6 +30,7 @@ import { Badge, type BadgeProps } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Card,
+  CardDescription,
   CardFooter,
   CardHeader,
   CardPanel,
@@ -102,9 +101,9 @@ interface PrototypeEvent {
 }
 
 const VARIANTS = [
-  { label: "Workfront board", value: "A" },
-  { label: "Event ledger", value: "B" },
-  { label: "Operations console", value: "C" },
+  { label: "Inline workboard", value: "A" },
+  { label: "Inline work + history", value: "B" },
+  { label: "Tabbed post app", value: "C" },
 ] as const;
 
 const ROLE_OPTIONS: { label: string; value: SystemPostPrototypeRole }[] = [
@@ -242,15 +241,17 @@ const INITIAL_EVENTS: PrototypeEvent[] = [
   },
 ];
 
+const MAYA_TAG_OPTION: CollaborationTagOption = {
+  eyebrow: "Builder",
+  id: "maya-kim",
+  initials: "MK",
+  kind: "participant",
+  label: "Maya Kim",
+  summary: "Build manager",
+};
+
 const BRIEF_TAG_OPTIONS: CollaborationTagOption[] = [
-  {
-    eyebrow: "Builder",
-    id: "maya-kim",
-    initials: "MK",
-    kind: "participant",
-    label: "Maya Kim",
-    summary: "Build manager",
-  },
+  MAYA_TAG_OPTION,
   {
     eyebrow: "Contractor",
     id: "alex-lee",
@@ -269,7 +270,7 @@ const BRIEF_TAG_OPTIONS: CollaborationTagOption[] = [
 ];
 
 const DRAW_BRIEF_TAG_OPTIONS: CollaborationTagOption[] = [
-  BRIEF_TAG_OPTIONS[0]!,
+  MAYA_TAG_OPTION,
   {
     eyebrow: "Lender staff",
     id: "nora-patel",
@@ -325,6 +326,7 @@ export function SystemPostExperiencePrototype({
   const [events, setEvents] = useState(() => [...INITIAL_EVENTS]);
   const [drawState, setDrawState] = useState<DrawState>("requested");
   const [coordinationItems, setCoordinationItems] = useState<string[]>([]);
+  const [postTab, setPostTab] = useState<"actions" | "discussion" | null>(null);
   const selected =
     items.find((item) => item.id === selectedId) ?? items[0] ?? null;
 
@@ -340,9 +342,13 @@ export function SystemPostExperiencePrototype({
   };
 
   const advanceSelected = () => {
-    if (!selected) return;
+    if (!selected) {
+      return;
+    }
     const command = commandForWorkItem(selected.state, role);
-    if (!command.enabled || !command.nextState) return;
+    if (!(command.enabled && command.nextState)) {
+      return;
+    }
     setItems((current) =>
       current.map((item) =>
         item.id === selected.id
@@ -369,7 +375,9 @@ export function SystemPostExperiencePrototype({
 
   const advanceDraw = () => {
     const command = commandForDraw(drawState, role);
-    if (!command.enabled || !command.nextState) return;
+    if (!(command.enabled && command.nextState)) {
+      return;
+    }
     setDrawState(command.nextState);
     appendEvent({
       actor: roleLabel(role),
@@ -380,7 +388,9 @@ export function SystemPostExperiencePrototype({
   };
 
   const addCoordinationItem = () => {
-    if (coordinationItems.length > 0) return;
+    if (coordinationItems.length > 0) {
+      return;
+    }
     setCoordinationItems(["Confirm lender inspection availability"]);
     appendEvent({
       actor: roleLabel(role),
@@ -396,6 +406,7 @@ export function SystemPostExperiencePrototype({
     setEvents([...INITIAL_EVENTS]);
     setDrawState("requested");
     setCoordinationItems([]);
+    setPostTab(null);
   };
 
   const shared: VariantProps = {
@@ -413,11 +424,14 @@ export function SystemPostExperiencePrototype({
   };
 
   return (
-    <main className="min-h-svh bg-muted/30 px-3 py-4 pb-28 text-foreground sm:px-5 lg:px-7">
-      <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
+    <main className="min-h-svh bg-muted/30 px-3 py-4 pb-28 text-foreground sm:px-5">
+      <div className="mx-auto flex max-w-3xl flex-col gap-4">
         <PrototypeHeader
           drawState={drawState}
-          onPostChange={onPostChange}
+          onPostChange={(nextPost) => {
+            setPostTab(null);
+            onPostChange(nextPost);
+          }}
           onReset={resetScenario}
           onRoleChange={onRoleChange}
           post={post}
@@ -425,9 +439,40 @@ export function SystemPostExperiencePrototype({
           selected={selected}
           variant={variant}
         />
-        {variant === "A" ? <BoardFirstVariant {...shared} /> : null}
-        {variant === "B" ? <EventFirstVariant {...shared} /> : null}
-        {variant === "C" ? <ControlRoomVariant {...shared} /> : null}
+        <CollaborationFeedContext>
+          <OrdinaryCollaborationPost
+            author="Maya Kim"
+            initials="MK"
+            meta="Builder · Today at 8:42 AM"
+          >
+            Morning update: excavation is clear and the foundation crew is
+            mobilizing now. I’ve attached the revised access plan for today’s
+            work.
+          </OrdinaryCollaborationPost>
+          <SystemCollaborationPost
+            actionItemCount={
+              post === "milestone" ? items.length : coordinationItems.length
+            }
+            post={post}
+            postTab={postTab}
+            setPostTab={setPostTab}
+          >
+            {variant === "A" ? <BoardFirstVariant {...shared} /> : null}
+            {variant === "B" ? <EventFirstVariant {...shared} /> : null}
+            {variant === "C" ? (
+              <ControlRoomVariant key={post} {...shared} />
+            ) : null}
+          </SystemCollaborationPost>
+          <OrdinaryCollaborationPost
+            author="Nora Patel"
+            initials="NP"
+            meta="Lender staff · Yesterday at 4:18 PM"
+          >
+            I’ve reviewed the latest foundation evidence. The
+            location-unverified photo remains preserved and will be handled
+            during the scheduled site review.
+          </OrdinaryCollaborationPost>
+        </CollaborationFeedContext>
       </div>
       <PrototypeSwitcher
         current={variant}
@@ -439,9 +484,9 @@ export function SystemPostExperiencePrototype({
 }
 
 interface VariantProps {
+  addCoordinationItem: () => void;
   advanceDraw: () => void;
   advanceSelected: () => void;
-  addCoordinationItem: () => void;
   coordinationItems: string[];
   drawState: DrawState;
   events: PrototypeEvent[];
@@ -472,41 +517,32 @@ function PrototypeHeader({
   variant: SystemPostPrototypeVariant;
 }) {
   const questions = {
-    A: "Can the existing Milestone board remain the fastest control plane without implying free-form workflow mutation?",
-    B: "Does one event ledger make domain facts, evidence, discussion, and audit easier to understand—especially on mobile?",
-    C: "Can a role-aware queue and gate dock make the next governed action obvious across Milestones and Draws?",
+    A: "Can a compact workboard remain usable when it is fully contained inside a feed post?",
+    B: "Can work and audit history read as one inline post without becoming a detached workspace?",
+    C: "Can a stateful tabbed application feel native while remaining bounded by the post shell?",
   };
   return (
     <Frame>
-      <FramePanel className="space-y-4 p-4 lg:p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <FramePanel className="space-y-3 p-3 sm:p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="warning">Throwaway prototype</Badge>
-              <Badge variant="outline">Build Collaboration</Badge>
-              <Badge variant="outline">1480 St. Clair Ave W</Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="warning">Prototype controls</Badge>
+              <Badge variant="outline">Not part of the post</Badge>
             </div>
-            <h1 className="mt-3 font-semibold text-2xl tracking-tight">
-              System Posts · interaction model
-            </h1>
-            <p className="mt-1 max-w-3xl text-muted-foreground text-sm">
-              One existing collaboration surface. Milestones project governed
-              Sub-milestone work; Draws project canonical finance state and
-              generate zero Action Items.
-            </p>
+            <p className="mt-2 font-medium text-sm">{questions[variant]}</p>
           </div>
-          <div className="max-w-xl rounded-lg border border-dashed bg-muted/40 px-3 py-2">
-            <p className="font-medium text-xs">Question this variant answers</p>
-            <p className="mt-1 text-muted-foreground text-sm">
-              {questions[variant]}
-            </p>
-          </div>
+          <Button onClick={onReset} size="sm" type="button" variant="ghost">
+            <RotateCcw className="mr-1 size-3.5" /> Reset
+          </Button>
         </div>
-        <div className="flex flex-col gap-3 border-t pt-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col gap-2 border-t pt-3">
+          <div className="flex min-w-0 flex-wrap gap-2">
             <SegmentedChoice
               label="Post type"
-              onChange={(value) => onPostChange(value as SystemPostPrototypeKind)}
+              onChange={(value) =>
+                onPostChange(value as SystemPostPrototypeKind)
+              }
               options={[
                 { label: "Milestone", value: "milestone" },
                 { label: "Draw", value: "draw" },
@@ -515,23 +551,248 @@ function PrototypeHeader({
             />
             <SegmentedChoice
               label="Viewer"
-              onChange={(value) => onRoleChange(value as SystemPostPrototypeRole)}
+              onChange={(value) =>
+                onRoleChange(value as SystemPostPrototypeRole)
+              }
               options={ROLE_OPTIONS}
               value={role}
             />
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <Badge variant="secondary">
-              State · {post === "milestone" ? stateLabel(selected?.state) : drawStateLabel(drawState)}
+              State ·{" "}
+              {post === "milestone"
+                ? stateLabel(selected?.state)
+                : drawStateLabel(drawState)}
             </Badge>
             <Badge variant="secondary">Role · {roleLabel(role)}</Badge>
-            <Button onClick={onReset} size="sm" type="button" variant="ghost">
-              <RotateCcw className="mr-1 size-3.5" /> Reset scenario
-            </Button>
           </div>
         </div>
       </FramePanel>
     </Frame>
+  );
+}
+
+function CollaborationFeedContext({ children }: { children: ReactNode }) {
+  return (
+    <section aria-label="Build collaboration feed" className="space-y-3">
+      <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-muted-foreground text-xs uppercase tracking-wider">
+            1480 St. Clair Ave W
+          </p>
+          <h1 className="mt-1 font-semibold text-2xl tracking-tight">
+            Collaboration
+          </h1>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Updates, governed work, evidence, and decisions for this Build.
+          </p>
+        </div>
+        <Button size="sm" type="button">
+          Share update
+        </Button>
+      </div>
+      <Card>
+        <CardPanel className="flex items-center gap-3 p-3 sm:p-4">
+          <Avatar className="size-9">
+            <AvatarFallback>MK</AvatarFallback>
+          </Avatar>
+          <button
+            className="min-h-10 flex-1 rounded-xl border bg-muted/35 px-3 text-left text-muted-foreground text-sm"
+            type="button"
+          >
+            Share an update with this Build…
+          </button>
+        </CardPanel>
+      </Card>
+      <div className="flex flex-wrap gap-1 border-b pb-2">
+        {["All", "Actionable", "Pinned", "Following"].map((label, index) => (
+          <Button
+            key={label}
+            size="sm"
+            type="button"
+            variant={index === 0 ? "secondary" : "ghost"}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function OrdinaryCollaborationPost({
+  author,
+  children,
+  initials: avatarInitials,
+  meta,
+}: {
+  author: string;
+  children: ReactNode;
+  initials: string;
+  meta: string;
+}) {
+  return (
+    <Card>
+      <CardHeader className="gap-3 p-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <Avatar className="size-9">
+            <AvatarFallback>{avatarInitials}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <CardTitle className="text-sm">{author}</CardTitle>
+            <CardDescription className="mt-0.5 text-xs">
+              {meta} · Update
+            </CardDescription>
+          </div>
+          <Button
+            aria-label={`More actions for ${author}'s post`}
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          >
+            ···
+          </Button>
+        </div>
+      </CardHeader>
+      <CardPanel className="px-4 pt-0 pb-4 text-sm leading-6">
+        {children}
+      </CardPanel>
+      <CardFooter className="flex items-center justify-between border-t px-4 py-3 text-muted-foreground text-xs">
+        <span>Discussion 2</span>
+        <span>Seen by 8</span>
+      </CardFooter>
+    </Card>
+  );
+}
+
+function SystemCollaborationPost({
+  actionItemCount,
+  children,
+  post,
+  postTab,
+  setPostTab,
+}: {
+  actionItemCount: number;
+  children: ReactNode;
+  post: SystemPostPrototypeKind;
+  postTab: "actions" | "discussion" | null;
+  setPostTab: (tab: "actions" | "discussion" | null) => void;
+}) {
+  const milestone = post === "milestone";
+  return (
+    <Card className="ring-1 ring-primary/15">
+      <CardHeader className="gap-3 p-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <Avatar className="size-9">
+            <AvatarFallback>DF</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-sm">DrawFlow System</CardTitle>
+              <Badge variant="info">System post</Badge>
+            </div>
+            <CardDescription className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+              <span>System</span>
+              <span aria-hidden="true">·</span>
+              <span>Today at 9:14 AM</span>
+              <Badge variant="outline">
+                {milestone ? "Milestone" : "Draw"}
+              </Badge>
+              <Badge variant="success">Open</Badge>
+            </CardDescription>
+          </div>
+          <Button
+            aria-label="More actions for this System Post"
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          >
+            ···
+          </Button>
+        </div>
+      </CardHeader>
+      <CardPanel className="space-y-4 px-4 pt-0 pb-4">
+        <div>
+          <h2 className="font-semibold text-lg tracking-tight">
+            {milestone
+              ? "M-04 · Foundation & below-grade"
+              : "Draw 04 · Foundation reimbursement"}
+          </h2>
+          <p className="mt-1 text-muted-foreground text-sm">
+            {milestone
+              ? "This Milestone has started. Governed Sub-milestone work is ready for the Build participants assigned below."
+              : "A reimbursement Draw Request is active. Financial approval remains governed by the canonical Draw workflow."}
+          </p>
+        </div>
+        {children}
+      </CardPanel>
+      <div className="grid grid-cols-2 border-y">
+        <button
+          aria-expanded={postTab === "discussion"}
+          className={cn(
+            "flex min-h-11 items-center justify-center gap-2 border-r text-sm",
+            postTab === "discussion" && "bg-primary/10"
+          )}
+          onClick={() =>
+            setPostTab(postTab === "discussion" ? null : "discussion")
+          }
+          type="button"
+        >
+          <MessageCircle className="size-4" /> Discussion 4
+        </button>
+        <button
+          aria-expanded={postTab === "actions"}
+          className={cn(
+            "flex min-h-11 items-center justify-center gap-2 text-sm",
+            postTab === "actions" && "bg-primary/10"
+          )}
+          onClick={() => setPostTab(postTab === "actions" ? null : "actions")}
+          type="button"
+        >
+          <ListChecks className="size-4" /> Action Items {actionItemCount}
+        </button>
+      </div>
+      {postTab ? (
+        <CardPanel className="border-b p-4">
+          {postTab === "discussion" ? (
+            <div className="space-y-3">
+              <p className="font-medium text-sm">
+                Discussion remains ordinary collaboration
+              </p>
+              <p className="text-muted-foreground text-sm">
+                Replies, mentions, rich text, attachments, revision history, and
+                unread state use the existing post thread.
+              </p>
+              <Button size="sm" type="button" variant="outline">
+                Reply to thread
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="font-medium text-sm">
+                {milestone
+                  ? "Governed work is summarized in the System Post above."
+                  : "Only manually added coordination work appears here."}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {milestone
+                  ? "Sub-milestone transitions still invoke canonical commands."
+                  : "Draw coordination never satisfies or advances a financial gate."}
+              </p>
+            </div>
+          )}
+        </CardPanel>
+      ) : null}
+      <CardFooter className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-muted-foreground text-xs">
+        <div className="flex gap-3">
+          <span>Acknowledge</span>
+          <span>Follow</span>
+        </div>
+        <span>Seen by 11</span>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -548,14 +809,14 @@ function SegmentedChoice({
 }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1 rounded-lg border bg-background p-1">
-      <span className="w-full px-2 pt-1 text-xs text-muted-foreground uppercase tracking-wider sm:w-auto sm:pt-0">
+      <span className="w-full px-2 pt-1 text-muted-foreground text-xs uppercase tracking-wider sm:w-auto sm:pt-0">
         {label}
       </span>
       {options.map((option) => (
         <Button
           aria-pressed={value === option.value}
-          key={option.value}
           className="px-2 text-xs sm:px-3 sm:text-sm"
+          key={option.value}
           onClick={() => onChange(option.value)}
           size="sm"
           type="button"
@@ -574,63 +835,57 @@ function BoardFirstVariant(props: VariantProps) {
   }
   return (
     <div className="space-y-4">
-      <SystemPostIdentity kind="milestone" />
       <MilestoneSummary items={props.items} />
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_25rem]">
-        <Frame className="min-w-0">
-          <FramePanel className="min-w-0 overflow-hidden p-3 sm:p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h2 className="font-semibold text-sm">Sub-milestone workfront</h2>
-                <p className="text-muted-foreground text-xs">
-                  Read-only projection · drag locked · cards invoke canonical commands
-                </p>
-              </div>
-              <Badge variant="outline">5 constrained cards</Badge>
+      <Frame className="min-w-0">
+        <FramePanel className="min-w-0 overflow-hidden p-3 sm:p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-sm">Sub-milestone workboard</h3>
+              <p className="text-muted-foreground text-xs">
+                Inline projection · drag locked · commands only
+              </p>
             </div>
-            <div className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
-              <div className="grid min-w-[68rem] grid-cols-5 gap-2 rounded-xl border bg-background/30 p-2.5">
-                {STATE_COLUMNS.map((column) => {
-                  const columnItems = props.items.filter(
-                    (item) => item.state === column.key
-                  );
-                  return (
-                    <section className="min-w-0" key={column.key}>
-                      <div className="mb-2 flex items-center justify-between px-1">
-                        <span className="font-medium text-xs text-muted-foreground uppercase tracking-wide">
-                          {column.label}
-                        </span>
-                        <Badge size="sm" variant="secondary">
-                          {columnItems.length}
-                        </Badge>
-                      </div>
-                      <div className="space-y-2">
-                        {columnItems.map((item) => (
-                          <WorkItemCard
-                            item={item}
-                            key={item.id}
-                            onSelect={props.onSelect}
-                            selected={props.selected?.id === item.id}
-                          />
-                        ))}
-                        {columnItems.length === 0 ? (
-                          <p className="rounded-lg border border-dashed p-3 text-muted-foreground text-xs">
-                            No work in this state.
-                          </p>
-                        ) : null}
-                      </div>
-                    </section>
-                  );
-                })}
-              </div>
+            <Badge variant="outline">5 governed items</Badge>
+          </div>
+          <div className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
+            <div className="grid min-w-[62rem] grid-cols-5 gap-2 rounded-xl border bg-background/30 p-2.5">
+              {STATE_COLUMNS.map((column) => {
+                const columnItems = props.items.filter(
+                  (item) => item.state === column.key
+                );
+                return (
+                  <section className="min-w-0" key={column.key}>
+                    <div className="mb-2 flex items-center justify-between px-1">
+                      <span className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+                        {column.label}
+                      </span>
+                      <Badge size="sm" variant="secondary">
+                        {columnItems.length}
+                      </Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {columnItems.map((item) => (
+                        <WorkItemCard
+                          item={item}
+                          key={item.id}
+                          onSelect={props.onSelect}
+                          selected={props.selected?.id === item.id}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
-          </FramePanel>
-        </Frame>
+          </div>
+        </FramePanel>
+      </Frame>
+      <div className="border-t pt-4">
         <GateInspector
           onAdvance={props.advanceSelected}
           role={props.role}
           selected={props.selected}
-          variant="board"
+          variant="console"
         />
       </div>
     </div>
@@ -645,40 +900,14 @@ function EventFirstVariant(props: VariantProps) {
     : props.events;
   return (
     <div className="space-y-4">
-      <SystemPostIdentity kind={props.post} />
       {props.post === "milestone" ? (
         <MilestoneSummary compact items={props.items} />
       ) : (
         <DrawSummary drawState={props.drawState} />
       )}
-      <div
-        className={cn(
-          "grid min-w-0 gap-4",
-          props.post === "milestone" &&
-            "lg:grid-cols-[18rem_minmax(0,1fr)]"
-        )}
-      >
+      <div className="space-y-4">
         {props.post === "milestone" ? (
-          <Frame>
-            <FramePanel className="p-3">
-              <div className="mb-3">
-                <h2 className="font-semibold text-sm">Work index</h2>
-                <p className="text-muted-foreground text-xs">
-                  Filter the ledger by Sub-milestone
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                {props.items.map((item) => (
-                  <WorkIndexRow
-                    item={item}
-                    key={item.id}
-                    onSelect={props.onSelect}
-                    selected={props.selected?.id === item.id}
-                  />
-                ))}
-              </div>
-            </FramePanel>
-          </Frame>
+          <MilestoneLedger items={props.items} onSelect={props.onSelect} />
         ) : null}
         <Frame>
           <FramePanel className="p-4 sm:p-5">
@@ -696,22 +925,18 @@ function EventFirstVariant(props: VariantProps) {
               role={props.role}
             />
             <div className="mt-5 flex flex-wrap gap-2 border-b pb-3">
-              {[
-                "All",
-                "Work",
-                "Evidence",
-                "Reviews",
-                "Discussion",
-              ].map((filter, index) => (
-                <Button
-                  key={filter}
-                  size="sm"
-                  type="button"
-                  variant={index === 0 ? "secondary" : "ghost"}
-                >
-                  {filter}
-                </Button>
-              ))}
+              {["All", "Work", "Evidence", "Reviews", "Discussion"].map(
+                (filter, index) => (
+                  <Button
+                    key={filter}
+                    size="sm"
+                    type="button"
+                    variant={index === 0 ? "secondary" : "ghost"}
+                  >
+                    {filter}
+                  </Button>
+                )
+              )}
               {props.selected ? (
                 <Badge className="ml-auto" variant="outline">
                   {props.selected.code} · filtered
@@ -736,141 +961,70 @@ function EventFirstVariant(props: VariantProps) {
 }
 
 function ControlRoomVariant(props: VariantProps) {
+  const [view, setView] = useState<"details" | "history" | "work">("work");
   return (
-    <div className="grid min-w-0 gap-3 xl:grid-cols-[19rem_minmax(32rem,1fr)_23rem]">
-      <Frame>
-        <FramePanel className="p-3">
-          <div className="border-b pb-3">
-            <p className="font-semibold text-sm">Build operations</p>
+    <Frame className="min-w-0">
+      <FramePanel className="min-w-0 p-3 sm:p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+          <div>
+            <p className="font-semibold text-sm">System Post application</p>
             <p className="text-muted-foreground text-xs">
-              {roleLabel(props.role)} · permission-safe queue
+              Stateful, but fully bounded by this post
             </p>
           </div>
-          <div className="mt-3 flex gap-1">
-            <Button size="sm" type="button" variant="secondary">
-              Needs you
-            </Button>
-            <Button size="sm" type="button" variant="ghost">
-              All active
-            </Button>
-          </div>
-          <QueueGroup label="Attention">
-            {props.post === "milestone" ? (
-              props.items
-                .filter((item) =>
-                  ["behind_schedule", "in_review"].includes(item.state)
-                )
-                .map((item) => (
-                  <QueueRow
-                    item={item}
-                    key={item.id}
-                    onSelect={props.onSelect}
-                    selected={props.selected?.id === item.id}
-                  />
-                ))
-            ) : (
-              <DrawQueueRow drawState={props.drawState} />
-            )}
-          </QueueGroup>
-          {props.post === "milestone" ? (
-            <QueueGroup label="Upcoming">
-              {props.items
-                .filter((item) => item.state === "backlog")
-                .map((item) => (
-                  <QueueRow
-                    item={item}
-                    key={item.id}
-                    onSelect={props.onSelect}
-                    selected={props.selected?.id === item.id}
-                  />
-                ))}
-            </QueueGroup>
-          ) : null}
-        </FramePanel>
-      </Frame>
-      <Frame className="min-w-0">
-        <FramePanel className="p-4 sm:p-5">
-          <SystemPostIdentity compact kind={props.post} />
-          <div className="mt-4 flex gap-1 border-b pb-2">
-            <Button size="sm" type="button" variant="secondary">
-              Work
-            </Button>
-            <Button size="sm" type="button" variant="ghost">
-              Details
-            </Button>
-            <Button size="sm" type="button" variant="ghost">
-              Discussion & history
-            </Button>
-          </div>
-          {props.post === "milestone" ? (
-            <MilestoneLedger items={props.items} onSelect={props.onSelect} />
-          ) : (
-            <div className="mt-5 space-y-5">
-              <DrawSummary drawState={props.drawState} />
-              <DrawCoordination
-                items={props.coordinationItems}
-                onAdd={props.addCoordinationItem}
-              />
-            </div>
-          )}
-          <OperationsBrief key={props.post} kind={props.post} />
-        </FramePanel>
-      </Frame>
-      <GateInspector
-        drawState={props.drawState}
-        onAdvance={
-          props.post === "milestone"
-            ? props.advanceSelected
-            : props.advanceDraw
-        }
-        post={props.post}
-        role={props.role}
-        selected={props.selected}
-        variant="console"
-      />
-    </div>
-  );
-}
-
-function SystemPostIdentity({
-  compact = false,
-  kind,
-}: {
-  compact?: boolean;
-  kind: SystemPostPrototypeKind;
-}) {
-  const milestone = kind === "milestone";
-  const content = (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="info">DrawFlow System</Badge>
-          <Badge variant="outline">{milestone ? "Milestone" : "Draw"}</Badge>
-          <Badge variant="success">Open</Badge>
+          <Badge variant="outline">Viewer · {roleLabel(props.role)}</Badge>
         </div>
-        <h2 className="mt-2 font-semibold text-lg tracking-tight">
-          {milestone ? "M-04 · Foundation & below-grade" : "Draw 04 · Foundation reimbursement"}
-        </h2>
-        <p className="mt-1 text-muted-foreground text-sm">
-          {milestone
-            ? "Activated Aug 1 at Build-local midnight · planning revision 6"
-            : "Scheduled Aug 15 · requested Aug 12 by Maya Kim"}
-        </p>
-      </div>
-      <div className="text-left text-xs sm:text-right">
-        <p className="font-medium">Domain-derived audience</p>
-        <p className="mt-1 text-muted-foreground">
-          {milestone
-            ? "Assigned operators + authorized Build reviewers"
-            : "Organization members involved in this Build"}
-        </p>
-      </div>
-    </div>
-  );
-  if (compact) return content;
-  return (
-    <Frame>
-      <FramePanel className="p-4 sm:p-5">{content}</FramePanel>
+        <div className="mt-3 flex flex-wrap gap-1">
+          {(["work", "details", "history"] as const).map((tab) => (
+            <Button
+              key={tab}
+              onClick={() => setView(tab)}
+              size="sm"
+              type="button"
+              variant={view === tab ? "secondary" : "ghost"}
+            >
+              {tab === "work"
+                ? "Work"
+                : tab === "details"
+                  ? "Planning details"
+                  : "Audit history"}
+            </Button>
+          ))}
+        </div>
+        {view === "work" ? (
+          <div className="mt-4 space-y-4">
+            {props.post === "milestone" ? (
+              <MilestoneLedger items={props.items} onSelect={props.onSelect} />
+            ) : (
+              <>
+                <DrawSummary drawState={props.drawState} />
+                <DrawCoordination
+                  items={props.coordinationItems}
+                  onAdd={props.addCoordinationItem}
+                />
+              </>
+            )}
+            <GateInspector
+              drawState={props.drawState}
+              onAdvance={
+                props.post === "milestone"
+                  ? props.advanceSelected
+                  : props.advanceDraw
+              }
+              post={props.post}
+              role={props.role}
+              selected={props.selected}
+              variant="console"
+            />
+          </div>
+        ) : view === "details" ? (
+          <OperationsBrief key={props.post} kind={props.post} />
+        ) : (
+          <div className="mt-4">
+            <EventLedger events={props.events} />
+          </div>
+        )}
+      </FramePanel>
     </Frame>
   );
 }
@@ -887,7 +1041,9 @@ function MilestoneSummary({
       <FramePanel
         className={cn(
           "grid gap-3 p-3",
-          compact ? "grid-cols-2 sm:grid-cols-5" : "sm:grid-cols-3 xl:grid-cols-6"
+          compact
+            ? "grid-cols-2 sm:grid-cols-5"
+            : "sm:grid-cols-3 xl:grid-cols-6"
         )}
       >
         {STATE_COLUMNS.map((column) => (
@@ -895,16 +1051,14 @@ function MilestoneSummary({
             key={column.key}
             label={column.label}
             tone={stateTone(column.key)}
-            value={String(items.filter((item) => item.state === column.key).length)}
+            value={String(
+              items.filter((item) => item.state === column.key).length
+            )}
           />
         ))}
-        {!compact ? (
-          <SummaryMetric
-            label="Plan changed"
-            tone="warning"
-            value="r6 → r7"
-          />
-        ) : null}
+        {compact ? null : (
+          <SummaryMetric label="Plan changed" tone="warning" value="r6 → r7" />
+        )}
       </FramePanel>
     </Frame>
   );
@@ -925,7 +1079,11 @@ function SummaryMetric({
       <div className="mt-1 flex items-center justify-between gap-2">
         <p className="font-semibold text-base">{value}</p>
         <Badge size="sm" variant={tone}>
-          {label === "Plan changed" ? <GitCompareArrows className="size-3" /> : ""}
+          {label === "Plan changed" ? (
+            <GitCompareArrows className="size-3" />
+          ) : (
+            ""
+          )}
         </Badge>
       </div>
     </div>
@@ -952,7 +1110,7 @@ function WorkItemCard({
     >
       <CardHeader className="gap-2 p-3 pb-2 text-left">
         <div>
-          <p className="font-mono text-xs text-muted-foreground">{item.code}</p>
+          <p className="font-mono text-muted-foreground text-xs">{item.code}</p>
           <CardTitle className="mt-1 text-sm leading-5">{item.title}</CardTitle>
         </div>
         <Badge size="sm" variant={stateTone(item.state)}>
@@ -976,7 +1134,9 @@ function WorkItemCard({
             </Badge>
           ) : null}
           {item.assignee === "Assignment required" ? (
-            <Badge size="sm" variant="warning">Assignment required</Badge>
+            <Badge size="sm" variant="warning">
+              Assignment required
+            </Badge>
           ) : null}
         </div>
       </CardPanel>
@@ -984,76 +1144,6 @@ function WorkItemCard({
         <span>{item.evidence}</span>
         <ChevronRight className="size-3.5" />
       </CardFooter>
-    </Card>
-  );
-}
-
-function WorkIndexRow({
-  item,
-  onSelect,
-  selected,
-}: {
-  item: WorkItem;
-  onSelect: (id: string) => void;
-  selected: boolean;
-}) {
-  return (
-    <Card
-      className={cn("shadow-none", selected && "border-primary bg-primary/5")}
-      onClick={() => onSelect(item.id)}
-      render={<button type="button" />}
-    >
-      <CardPanel className="flex items-start gap-2 p-2.5 text-left">
-        <StateDot state={item.state} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-xs">{item.title}</p>
-          <p className="mt-1 truncate text-muted-foreground text-xs">
-            {item.assignee} · {stateLabel(item.state)}
-          </p>
-        </div>
-        <ChevronRight className="size-3.5 text-muted-foreground" />
-      </CardPanel>
-    </Card>
-  );
-}
-
-function QueueGroup({ children, label }: { children: ReactNode; label: string }) {
-  return (
-    <section className="mt-5">
-      <p className="mb-2 px-1 font-medium text-xs text-muted-foreground uppercase tracking-wider">
-        {label}
-      </p>
-      <div className="space-y-1.5">{children}</div>
-    </section>
-  );
-}
-
-function QueueRow({
-  item,
-  onSelect,
-  selected,
-}: {
-  item: WorkItem;
-  onSelect: (id: string) => void;
-  selected: boolean;
-}) {
-  return <WorkIndexRow item={item} onSelect={onSelect} selected={selected} />;
-}
-
-function DrawQueueRow({ drawState }: { drawState: DrawState }) {
-  return (
-    <Card className="border-primary bg-primary/5 shadow-none">
-      <CardPanel className="p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="font-medium text-xs">Draw 04 · $184,000</p>
-            <p className="mt-1 text-muted-foreground text-xs">
-              {drawStateLabel(drawState)} · release pending
-            </p>
-          </div>
-          <Badge size="sm" variant="warning">Needs you</Badge>
-        </div>
-      </CardPanel>
     </Card>
   );
 }
@@ -1076,7 +1166,9 @@ function MilestoneLedger({
             type="button"
           >
             <span className="min-w-0">
-              <span className="block truncate font-medium text-sm">{item.title}</span>
+              <span className="block truncate font-medium text-sm">
+                {item.title}
+              </span>
               <span className="mt-1 block truncate text-muted-foreground text-xs">
                 {item.code} · {item.assignee}
               </span>
@@ -1084,8 +1176,12 @@ function MilestoneLedger({
             <Badge className="w-fit" variant={stateTone(item.state)}>
               {stateLabel(item.state)}
             </Badge>
-            <span className="text-muted-foreground text-xs">{item.evidence}</span>
-            <span className="text-right text-muted-foreground text-xs">{item.planned}</span>
+            <span className="text-muted-foreground text-xs">
+              {item.evidence}
+            </span>
+            <span className="text-right text-muted-foreground text-xs">
+              {item.planned}
+            </span>
           </button>
         ))}
       </div>
@@ -1121,7 +1217,9 @@ function GateInspector({
               {variant === "console" ? "Current gate" : "Selected work"}
             </p>
             <p className="mt-1 text-muted-foreground text-xs">
-              {post === "milestone" ? selected?.code : "Canonical Draw projection"}
+              {post === "milestone"
+                ? selected?.code
+                : "Canonical Draw projection"}
             </p>
           </div>
           <Badge variant={command.enabled ? "info" : "outline"}>
@@ -1133,11 +1231,31 @@ function GateInspector({
         </h3>
         {post === "milestone" && selected ? (
           <div className="mt-4 space-y-3 text-sm">
-            <MetaRow icon={<Users />} label="Work Allocation" value={selected.assignee} />
-            <MetaRow icon={<CalendarDays />} label="Plan" value={selected.planned} />
-            <MetaRow icon={<ListChecks />} label="Dependencies" value={selected.dependencies} />
-            <MetaRow icon={<FileCheck2 />} label="Evidence" value={selected.evidence} />
-            <MetaRow icon={<MapPin />} label="Site Visit" value={selected.siteVisit} />
+            <MetaRow
+              icon={<Users />}
+              label="Work Allocation"
+              value={selected.assignee}
+            />
+            <MetaRow
+              icon={<CalendarDays />}
+              label="Plan"
+              value={selected.planned}
+            />
+            <MetaRow
+              icon={<ListChecks />}
+              label="Dependencies"
+              value={selected.dependencies}
+            />
+            <MetaRow
+              icon={<FileCheck2 />}
+              label="Evidence"
+              value={selected.evidence}
+            />
+            <MetaRow
+              icon={<MapPin />}
+              label="Site Visit"
+              value={selected.siteVisit}
+            />
             <div>
               <div className="mb-1 flex justify-between text-xs">
                 <span>Reported progress</span>
@@ -1152,8 +1270,16 @@ function GateInspector({
         ) : (
           <div className="mt-4 space-y-3 text-sm">
             <MetaRow icon={<Banknote />} label="Requested" value="$184,000" />
-            <MetaRow icon={<ShieldCheck />} label="Policy limit" value="Within approved availability" />
-            <MetaRow icon={<FileCheck2 />} label="Generated work" value="0 Action Items" />
+            <MetaRow
+              icon={<ShieldCheck />}
+              label="Policy limit"
+              value="Within approved availability"
+            />
+            <MetaRow
+              icon={<FileCheck2 />}
+              label="Generated work"
+              value="0 Action Items"
+            />
           </div>
         )}
         <div className="mt-5 rounded-lg border border-dashed bg-muted/35 p-3">
@@ -1194,11 +1320,20 @@ function NextGateBand({
           </div>
           <div>
             <p className="font-semibold text-sm">Next required gate</p>
-            <p className="mt-1 text-muted-foreground text-xs">{command.reason}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Viewer · {roleLabel(role)}</p>
+            <p className="mt-1 text-muted-foreground text-xs">
+              {command.reason}
+            </p>
+            <p className="mt-1 text-muted-foreground text-xs">
+              Viewer · {roleLabel(role)}
+            </p>
           </div>
         </div>
-        <Button disabled={!command.enabled} onClick={onAdvance} size="sm" type="button">
+        <Button
+          disabled={!command.enabled}
+          onClick={onAdvance}
+          size="sm"
+          type="button"
+        >
           {command.label}
         </Button>
       </CardPanel>
@@ -1213,7 +1348,8 @@ function EventLedger({ events }: { events: PrototypeEvent[] }) {
         <div>
           <h2 className="font-semibold text-sm">Operational event ledger</h2>
           <p className="text-muted-foreground text-xs">
-            Immutable domain facts and editable discussion share one chronology without sharing authority.
+            Immutable domain facts and editable discussion share one chronology
+            without sharing authority.
           </p>
         </div>
         <Badge variant="outline">Newest first</Badge>
@@ -1223,17 +1359,24 @@ function EventLedger({ events }: { events: PrototypeEvent[] }) {
           <article className="relative pb-5" key={event.id}>
             <span
               className={cn(
-                "absolute -left-[1.7rem] top-1 grid size-5 place-items-center rounded-full border bg-background",
+                "absolute top-1 -left-[1.7rem] grid size-5 place-items-center rounded-full border bg-background",
                 event.kind === "domain" && "border-primary text-primary",
                 event.kind === "evidence" && "border-amber-500 text-amber-700",
                 event.kind === "planning" && "border-violet-500 text-violet-700"
               )}
             >
-              {event.kind === "discussion" ? <MessageCircle className="size-3" /> : <Activity className="size-3" />}
+              {event.kind === "discussion" ? (
+                <MessageCircle className="size-3" />
+              ) : (
+                <Activity className="size-3" />
+              )}
             </span>
             <div className="flex flex-wrap items-center gap-2">
               <p className="font-medium text-sm">{event.title}</p>
-              <Badge size="sm" variant={event.kind === "discussion" ? "outline" : "secondary"}>
+              <Badge
+                size="sm"
+                variant={event.kind === "discussion" ? "outline" : "secondary"}
+              >
                 {event.kind === "discussion" ? "Discussion" : "System fact"}
               </Badge>
             </div>
@@ -1255,10 +1398,13 @@ function DiscussionComposer() {
         <div className="flex items-center gap-2">
           <MessageCircle className="size-4 text-muted-foreground" />
           <p className="font-medium text-sm">Continue discussion</p>
-          <Badge className="ml-auto" size="sm" variant="outline">Does not reopen workflow</Badge>
+          <Badge className="ml-auto" size="sm" variant="outline">
+            Does not reopen workflow
+          </Badge>
         </div>
         <p className="mt-2 text-muted-foreground text-xs">
-          Rich text, mentions, replies, revisions, and discussion attachments use existing collaboration support.
+          Rich text, mentions, replies, revisions, and discussion attachments
+          use existing collaboration support.
         </p>
       </CardPanel>
     </Card>
@@ -1284,7 +1430,9 @@ function OperationsBrief({
             Editable collaboration context · domain facts remain immutable
           </p>
         </div>
-        <Badge size="sm" variant="outline">revision 4</Badge>
+        <Badge size="sm" variant="outline">
+          revision 4
+        </Badge>
       </div>
       <div className="mt-3 rounded-xl bg-muted/55 p-3">
         <CollaborationRichTextEditor
@@ -1320,27 +1468,41 @@ function BoardlessDraw({
 }: VariantProps & { mode: "board" }) {
   return (
     <div className="space-y-4">
-      <SystemPostIdentity kind="draw" />
       <DrawSummary drawState={drawState} />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_25rem]">
-        <Frame>
-          <FramePanel className="space-y-5 p-4 sm:p-5">
-            <DrawLifecycle drawState={drawState} />
-            <div className="grid gap-3 sm:grid-cols-3">
-              <FactCard icon={<Banknote />} label="Requested amount" value="$184,000" />
-              <FactCard icon={<FileText />} label="Evidence Package" value="Revision 3 · complete" />
-              <FactCard icon={<MapPin />} label="Site Visit" value="Required · not ordered" />
-            </div>
-            <DrawCoordination items={coordinationItems} onAdd={addCoordinationItem} />
-          </FramePanel>
-        </Frame>
+      <Frame>
+        <FramePanel className="space-y-5 p-4 sm:p-5">
+          <DrawLifecycle drawState={drawState} />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <FactCard
+              icon={<Banknote />}
+              label="Requested amount"
+              value="$184,000"
+            />
+            <FactCard
+              icon={<FileText />}
+              label="Evidence Package"
+              value="Revision 3 · complete"
+            />
+            <FactCard
+              icon={<MapPin />}
+              label="Site Visit"
+              value="Required · not ordered"
+            />
+          </div>
+          <DrawCoordination
+            items={coordinationItems}
+            onAdd={addCoordinationItem}
+          />
+        </FramePanel>
+      </Frame>
+      <div className="border-t pt-4">
         <GateInspector
           drawState={drawState}
           onAdvance={advanceDraw}
           post="draw"
           role={role}
           selected={null}
-          variant="board"
+          variant="console"
         />
       </div>
     </div>
@@ -1351,10 +1513,18 @@ function DrawSummary({ drawState }: { drawState: DrawState }) {
   return (
     <Frame>
       <FramePanel className="grid gap-3 p-3 sm:grid-cols-4">
-        <SummaryMetric label="Canonical state" tone="warning" value={drawStateLabel(drawState)} />
+        <SummaryMetric
+          label="Canonical state"
+          tone="warning"
+          value={drawStateLabel(drawState)}
+        />
         <SummaryMetric label="Requested" tone="info" value="$184,000" />
         <SummaryMetric label="Generated items" tone="success" value="0" />
-        <SummaryMetric label="Post lifecycle" tone="outline" value={drawState === "released" ? "Resolved" : "Open"} />
+        <SummaryMetric
+          label="Post lifecycle"
+          tone="outline"
+          value={drawState === "released" ? "Resolved" : "Open"}
+        />
       </FramePanel>
     </Frame>
   );
@@ -1375,21 +1545,37 @@ function DrawLifecycle({ drawState }: { drawState: DrawState }) {
       <div>
         <h2 className="font-semibold text-sm">Canonical Draw lifecycle</h2>
         <p className="text-muted-foreground text-xs">
-          Projection only · the System Post never requests or releases funds by itself
+          Projection only · the System Post never requests or releases funds by
+          itself
         </p>
       </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-6">
         {states.map((state, index) => (
-          <div className="flex items-center gap-2 sm:flex-col sm:items-start" key={state}>
+          <div
+            className="flex items-center gap-2 sm:flex-col sm:items-start"
+            key={state}
+          >
             <span
               className={cn(
                 "grid size-6 shrink-0 place-items-center rounded-full border",
-                index <= activeIndex && "border-primary bg-primary text-primary-foreground"
+                index <= activeIndex &&
+                  "border-primary bg-primary text-primary-foreground"
               )}
             >
-              {index < activeIndex ? <CheckCircle2 className="size-3.5" /> : <Circle className="size-3" />}
+              {index < activeIndex ? (
+                <CheckCircle2 className="size-3.5" />
+              ) : (
+                <Circle className="size-3" />
+              )}
             </span>
-            <p className={cn("text-xs", index === activeIndex ? "font-semibold" : "text-muted-foreground")}>
+            <p
+              className={cn(
+                "text-xs",
+                index === activeIndex
+                  ? "font-semibold"
+                  : "text-muted-foreground"
+              )}
+            >
               {drawStateLabel(state)}
             </p>
           </div>
@@ -1399,7 +1585,13 @@ function DrawLifecycle({ drawState }: { drawState: DrawState }) {
   );
 }
 
-function DrawCoordination({ items, onAdd }: { items: string[]; onAdd: () => void }) {
+function DrawCoordination({
+  items,
+  onAdd,
+}: {
+  items: string[];
+  onAdd: () => void;
+}) {
   return (
     <section className="border-t pt-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1433,7 +1625,9 @@ function DrawCoordination({ items, onAdd }: { items: string[]; onAdd: () => void
                 <ClipboardCheck className="size-4 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-sm">{item}</p>
-                  <p className="text-muted-foreground text-xs">Manually added · coordination only</p>
+                  <p className="text-muted-foreground text-xs">
+                    Manually added · coordination only
+                  </p>
                 </div>
                 <Badge variant="secondary">To do</Badge>
               </CardPanel>
@@ -1445,7 +1639,15 @@ function DrawCoordination({ items, onAdd }: { items: string[]; onAdd: () => void
   );
 }
 
-function FactCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function FactCard({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
   return (
     <Card className="shadow-none">
       <CardPanel className="p-3">
@@ -1457,30 +1659,25 @@ function FactCard({ icon, label, value }: { icon: ReactNode; label: string; valu
   );
 }
 
-function MetaRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function MetaRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
   return (
     <div className="flex gap-2">
-      <span className="mt-0.5 text-muted-foreground [&>svg]:size-4">{icon}</span>
+      <span className="mt-0.5 text-muted-foreground [&>svg]:size-4">
+        {icon}
+      </span>
       <div className="min-w-0">
         <p className="text-muted-foreground text-xs">{label}</p>
         <p className="mt-0.5 font-medium text-sm">{value}</p>
       </div>
     </div>
-  );
-}
-
-function StateDot({ state }: { state: WorkState }) {
-  return (
-    <span
-      className={cn(
-        "mt-1 size-2.5 shrink-0 rounded-full",
-        state === "backlog" && "bg-muted-foreground/45",
-        state === "behind_schedule" && "bg-destructive",
-        state === "in_progress" && "bg-blue-500",
-        state === "in_review" && "bg-amber-500",
-        state === "approved" && "bg-emerald-500"
-      )}
-    />
   );
 }
 
@@ -1491,12 +1688,26 @@ interface CommandPresentation {
   reason: string;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The explicit role-by-state matrix is intentionally auditable in this disposable prototype.
 function commandForWorkItem(
   state: WorkState | undefined,
   role: SystemPostPrototypeRole
 ): CommandPresentation {
-  if (!state) return { enabled: false, label: "No work selected", reason: "Select a Sub-milestone to inspect its canonical gates." };
-  if (state === "approved") return { enabled: false, label: "Approved", reason: "This child is approved. Only a formal Lender Admin retraction can reopen affected work." };
+  if (!state) {
+    return {
+      enabled: false,
+      label: "No work selected",
+      reason: "Select a Sub-milestone to inspect its canonical gates.",
+    };
+  }
+  if (state === "approved") {
+    return {
+      enabled: false,
+      label: "Approved",
+      reason:
+        "This child is approved. Only a formal Lender Admin retraction can reopen affected work.",
+    };
+  }
   if (state === "backlog" || state === "behind_schedule") {
     const enabled = role === "builder" || role === "contractor";
     return {
@@ -1512,7 +1723,9 @@ function commandForWorkItem(
     const enabled = role === "builder" || role === "contractor";
     return {
       enabled,
-      label: enabled ? "Submit completion" : "Waiting for completion submission",
+      label: enabled
+        ? "Submit completion"
+        : "Waiting for completion submission",
       nextState: enabled ? "in_review" : undefined,
       reason: enabled
         ? "The demo assumes required evidence is frozen. Completion remains an explicit command separate from 100% progress."
@@ -1520,48 +1733,113 @@ function commandForWorkItem(
     };
   }
   if (role === "lender_admin") {
-    return { enabled: true, label: "Approve Sub-milestone", nextState: "approved", reason: "Evidence and the required Site Visit are ready. Final child approval is a Lender Admin command." };
+    return {
+      enabled: true,
+      label: "Approve Sub-milestone",
+      nextState: "approved",
+      reason:
+        "Evidence and the required Site Visit are ready. Final child approval is a Lender Admin command.",
+    };
   }
   if (role === "lender_staff") {
-    return { enabled: true, label: "Request changes", nextState: "in_progress", reason: "Lender Staff may review and request remediation, but cannot grant final approval." };
+    return {
+      enabled: true,
+      label: "Request changes",
+      nextState: "in_progress",
+      reason:
+        "Lender Staff may review and request remediation, but cannot grant final approval.",
+    };
   }
-  return { enabled: false, label: "In lender review", reason: "The frozen submission is under lender review. Discussion remains available without changing state." };
+  return {
+    enabled: false,
+    label: "In lender review",
+    reason:
+      "The frozen submission is under lender review. Discussion remains available without changing state.",
+  };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The explicit role-by-state matrix is intentionally auditable in this disposable prototype.
 function commandForDraw(
   state: DrawState,
   role: SystemPostPrototypeRole
 ): CommandPresentation {
-  if (state === "released") return { enabled: false, label: "Released", reason: "Funds were released and the System Post is resolved. Collaboration cannot reopen the Draw." };
+  if (state === "released") {
+    return {
+      enabled: false,
+      label: "Released",
+      reason:
+        "Funds were released and the System Post is resolved. Collaboration cannot reopen the Draw.",
+    };
+  }
   if (state === "scheduled") {
     const enabled = role === "builder";
-    return { enabled, label: enabled ? "Request draw" : "No Draw Request", nextState: enabled ? "requested" : undefined, reason: enabled ? "Submit the canonical reimbursement request. Scheduled activation did not request funds." : "The Builder has not submitted the canonical Draw Request." };
+    return {
+      enabled,
+      label: enabled ? "Request draw" : "No Draw Request",
+      nextState: enabled ? "requested" : undefined,
+      reason: enabled
+        ? "Submit the canonical reimbursement request. Scheduled activation did not request funds."
+        : "The Builder has not submitted the canonical Draw Request.",
+    };
   }
   if (state === "requested") {
     const enabled = role === "lender_staff";
-    return { enabled, label: enabled ? "Start review" : "Waiting for lender review", nextState: enabled ? "in_review" : undefined, reason: "The Draw Request exists. Coordination items do not satisfy or block this review gate." };
+    return {
+      enabled,
+      label: enabled ? "Start review" : "Waiting for lender review",
+      nextState: enabled ? "in_review" : undefined,
+      reason:
+        "The Draw Request exists. Coordination items do not satisfy or block this review gate.",
+    };
   }
   if (state === "in_review") {
     const enabled = role === "lender_staff";
-    return { enabled, label: enabled ? "Send to admin" : "Lender review in progress", nextState: enabled ? "ready_for_admin" : undefined, reason: "Lender Staff can recommend and advance review, while final approval remains with Lender Admin." };
+    return {
+      enabled,
+      label: enabled ? "Send to admin" : "Lender review in progress",
+      nextState: enabled ? "ready_for_admin" : undefined,
+      reason:
+        "Lender Staff can recommend and advance review, while final approval remains with Lender Admin.",
+    };
   }
   if (state === "ready_for_admin") {
     const enabled = role === "lender_admin";
-    return { enabled, label: enabled ? "Approve draw" : "Ready for Lender Admin", nextState: enabled ? "approved" : undefined, reason: "Only Lender Admin may grant final Draw approval." };
+    return {
+      enabled,
+      label: enabled ? "Approve draw" : "Ready for Lender Admin",
+      nextState: enabled ? "approved" : undefined,
+      reason: "Only Lender Admin may grant final Draw approval.",
+    };
   }
   const enabled = role === "lender_admin";
-  return { enabled, label: enabled ? "Release funds" : "Approved · awaiting release", nextState: enabled ? "released" : undefined, reason: "Approval keeps the post open. Only canonical release resolves it and begins interest." };
+  return {
+    enabled,
+    label: enabled ? "Release funds" : "Approved · awaiting release",
+    nextState: enabled ? "released" : undefined,
+    reason:
+      "Approval keeps the post open. Only canonical release resolves it and begins interest.",
+  };
 }
 
 function stateLabel(state: WorkState | undefined) {
-  return STATE_COLUMNS.find((column) => column.key === state)?.label ?? "Unknown";
+  return (
+    STATE_COLUMNS.find((column) => column.key === state)?.label ?? "Unknown"
+  );
 }
 
 function stateTone(state: WorkState): BadgeProps["variant"] {
-  if (state === "behind_schedule") return "error";
-  if (state === "in_progress") return "info";
-  if (state === "in_review") return "warning";
-  if (state === "approved") return "success";
+  if (state === "behind_schedule") {
+    return "error";
+  }
+  if (state === "in_progress") {
+    return "info";
+  }
+  if (state === "in_review") {
+    return "warning";
+  }
+  if (state === "approved") {
+    return "success";
+  }
   return "secondary";
 }
 
