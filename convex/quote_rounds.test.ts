@@ -1760,6 +1760,12 @@ describe("Quote Invitation immutable response submissions", () => {
         reason: "This Quote Invitation is unavailable.",
       },
       revisionCount: 0,
+      revisionAcknowledgement: {
+        acknowledgedFieldKeys: [],
+        changedFieldKeys: [],
+        required: false,
+        status: "acknowledged",
+      },
       revisions: [],
       status: "unavailable",
     });
@@ -1848,6 +1854,12 @@ describe("Quote Invitation immutable response submissions", () => {
         reason: "This Quote Invitation is unavailable.",
       },
       revisionCount: 0,
+      revisionAcknowledgement: {
+        acknowledgedFieldKeys: [],
+        changedFieldKeys: [],
+        required: false,
+        status: "acknowledged",
+      },
       revisions: [],
       status: "unavailable",
     });
@@ -3582,5 +3594,1249 @@ describe("Quote Round draft-to-open aggregate", () => {
         workosOrganizationId: ORGANIZATION_ID,
       })
     ).rejects.toThrow(/must be in the future/);
+  });
+});
+
+describe("Quote Round governed lifecycle", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  async function closeOpenRound(
+    fixture: Awaited<ReturnType<typeof openedSubmissionFixture>>,
+    reason = "Close this Quote Round for lifecycle coverage."
+  ) {
+    const round = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId: fixture.invitation.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    return await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.closeQuoteRound,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        expectedRevision: round.revision,
+        quoteRoundId: fixture.invitation.quoteRoundId,
+        reason,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+  }
+
+  async function reopenClosedRound(
+    fixture: Awaited<ReturnType<typeof openedSubmissionFixture>>,
+    expectedRevision: number,
+    changedFieldKeys: string[] = ["responseDeadline"]
+  ) {
+    return await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.reopenQuoteRoundWithRevision,
+      {
+        buildId: fixture.buildId,
+        changedFieldKeys,
+        confirmed: true,
+        expectedRevision,
+        quoteRoundId: fixture.invitation.quoteRoundId,
+        reason: "Reopen this Quote Round for lifecycle coverage.",
+        responseDeadline: Date.now() + 2 * DAY_MS,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+  }
+
+  test("closes read-only, reopens with the same Invitation identity, and gates the new Package Revision until acknowledgement", async () => {
+    const fixture = await openedSubmissionFixture();
+    const quoteRoundId = fixture.invitation.quoteRoundId;
+    const beforeClose = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(beforeClose).toMatchObject({ revision: 2, state: "open" });
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_round_lifecycle.closeQuoteRound,
+        {
+          buildId: fixture.buildId,
+          confirmed: false,
+          expectedRevision: beforeClose.revision,
+          quoteRoundId,
+          reason: "Close after the bidding window.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/Explicit confirmation/);
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_round_lifecycle.closeQuoteRound,
+        {
+          buildId: fixture.buildId,
+          confirmed: true,
+          expectedRevision: beforeClose.revision,
+          quoteRoundId,
+          reason: "   ",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/closure reason is required/);
+
+    const closed = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.closeQuoteRound,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        expectedRevision: beforeClose.revision,
+        quoteRoundId,
+        reason: "Close after the bidding window.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(closed).toMatchObject({
+      quoteRoundId,
+      revision: 3,
+      state: "closed",
+      status: "closed",
+    });
+
+    const closedAccess = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(closedAccess.status).toBe("read_only");
+    const closedLine = closedAccess.access.package.labourLines[0];
+    const blockedSave = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: {
+          linePatches: [
+            {
+              lineKey: `labour:${closedLine.sourceLineId}`,
+              quotedAmountCents: 145_000_00,
+              scope: "labour",
+              source: "package_labour",
+              sourcePackageRevisionLabourLineId: closedLine.sourceLineId,
+            },
+          ],
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(blockedSave).toEqual({ status: "read_only" });
+
+    const reopenedDeadline = Date.now() + 2 * DAY_MS;
+    const reopened = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.reopenQuoteRoundWithRevision,
+      {
+        buildId: fixture.buildId,
+        changedFieldKeys: ["responseDeadline"],
+        confirmed: true,
+        expectedRevision: closed.revision,
+        quoteRoundId,
+        reason: "Extend the response window for the corrected schedule.",
+        responseDeadline: reopenedDeadline,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(reopened).toMatchObject({
+      invitationIds: [fixture.invitation._id],
+      packageRevisionNumber: 2,
+      quoteRoundId,
+      revision: 4,
+      responseDeadline: reopenedDeadline,
+      state: "open",
+      status: "reopened",
+    });
+    expect(reopened.packageRevisionId).not.toBe(
+      fixture.invitation.quotePackageRevisionId
+    );
+
+    const persisted = await fixture.base.run(async (ctx) => {
+      const round = await ctx.db.get(quoteRoundId);
+      const invitations = await ctx.db
+        .query("quoteRoundInvitations")
+        .withIndex("by_quoteRoundId_and_participationState", (query) =>
+          query.eq("quoteRoundId", quoteRoundId).eq("participationState", "active")
+        )
+        .collect();
+      const revisions = await ctx.db
+        .query("quotePackageRevisions")
+        .withIndex("by_quoteRoundId_and_revision", (query) =>
+          query.eq("quoteRoundId", quoteRoundId)
+        )
+        .collect();
+      const acknowledgement = await ctx.db
+        .query("quoteInvitationPackageRevisionAcknowledgements")
+        .withIndex("by_quoteRoundInvitationId_and_quotePackageRevisionId", (query) =>
+          query
+            .eq("quoteRoundInvitationId", fixture.invitation._id)
+            .eq("quotePackageRevisionId", reopened.packageRevisionId)
+        )
+        .unique();
+      const notices = await ctx.db
+        .query("quoteRoundRecipientNoticeIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .order("desc")
+        .collect();
+      const audits = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query.eq("entityType", "quoteRound").eq("entityId", String(quoteRoundId))
+        )
+        .collect();
+      return { acknowledgement, audits, invitations, notices, revisions, round };
+    });
+    expect(persisted.round).toMatchObject({
+      currentPackageRevisionId: reopened.packageRevisionId,
+      revision: 4,
+      state: "open",
+    });
+    expect(persisted.invitations).toHaveLength(1);
+    expect(persisted.invitations[0]).toMatchObject({
+      _id: fixture.invitation._id,
+      currentQuotePackageRevisionId: reopened.packageRevisionId,
+      participationState: "active",
+      quotePackageRevisionId: fixture.invitation.quotePackageRevisionId,
+    });
+    expect(persisted.revisions).toHaveLength(2);
+    expect(persisted.revisions.find((row) => row._id === reopened.packageRevisionId)).toMatchObject({
+      previousPackageRevisionId: fixture.invitation.quotePackageRevisionId,
+      revision: 2,
+    });
+    expect(persisted.acknowledgement).toMatchObject({
+      acknowledgedFieldKeys: [],
+      changedFieldKeys: ["responseDeadline"],
+      status: "pending",
+    });
+    expect(persisted.notices[0]).toMatchObject({
+      kind: "package_revision_published",
+      reason: "Extend the response window for the corrected schedule.",
+      status: "pending",
+    });
+    expect(persisted.audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "quote_round.closed",
+          reason: "Close after the bidding window.",
+        }),
+        expect.objectContaining({
+          eventType: "quote_round.reopened",
+          reason: "Extend the response window for the corrected schedule.",
+        }),
+      ])
+    );
+
+    const reopenedAccess = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(reopenedAccess).toMatchObject({
+      access: { package: { revision: 2 } },
+      status: "available",
+    });
+    const reopenedLine = reopenedAccess.access.package.labourLines[0];
+    const acknowledgementRequired = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: {
+          linePatches: [
+            {
+              lineKey: `labour:${reopenedLine.sourceLineId}`,
+              quotedAmountCents: 145_000_00,
+              scope: "labour",
+              source: "package_labour",
+              sourcePackageRevisionLabourLineId: reopenedLine.sourceLineId,
+            },
+          ],
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(acknowledgementRequired).toEqual({
+      status: "acknowledgement_required",
+    });
+
+    const acknowledged = await fixture.base.mutation(
+      (api as any).quote_round_lifecycle.acknowledgeQuoteInvitationPackageRevision,
+      {
+        acknowledgedFieldKeys: ["responseDeadline"],
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(acknowledged).toMatchObject({
+      acknowledgedFieldKeys: ["responseDeadline"],
+      quotePackageRevisionId: reopened.packageRevisionId,
+      status: "acknowledged",
+    });
+    const savedAfterAcknowledgement = await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: {
+          linePatches: [
+            {
+              lineKey: `labour:${reopenedLine.sourceLineId}`,
+              quotedAmountCents: 145_000_00,
+              scope: "labour",
+              source: "package_labour",
+              sourcePackageRevisionLabourLineId: reopenedLine.sourceLineId,
+            },
+          ],
+        },
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(savedAfterAcknowledgement).toMatchObject({
+      draft: { version: 1 },
+      status: "saved",
+    });
+
+    const acknowledgementAfterSave = await fixture.base.run(async (ctx) => {
+      const acknowledgement = await ctx.db
+        .query("quoteInvitationPackageRevisionAcknowledgements")
+        .withIndex("by_quoteRoundInvitationId_and_quotePackageRevisionId", (query) =>
+          query
+            .eq("quoteRoundInvitationId", fixture.invitation._id)
+            .eq("quotePackageRevisionId", reopened.packageRevisionId)
+        )
+        .unique();
+      const notice = await ctx.db
+        .query("quoteRoundRecipientNoticeIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .order("desc")
+        .first();
+      return { acknowledgement, notice };
+    });
+    expect(acknowledgementAfterSave.acknowledgement).toMatchObject({
+      acknowledgedFieldKeys: ["responseDeadline"],
+      status: "acknowledged",
+    });
+    expect(acknowledgementAfterSave.notice).toMatchObject({
+      acknowledgedAt: expect.any(Number),
+      status: "acknowledged",
+    });
+  });
+
+  test("cancels terminally without relabeling active Invitations and removes all recipient access", async () => {
+    const fixture = await openedSubmissionFixture();
+    const quoteRoundId = fixture.invitation.quoteRoundId;
+    const beforeCancel = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_round_lifecycle.cancelQuoteRound,
+        {
+          buildId: fixture.buildId,
+          confirmed: false,
+          expectedRevision: beforeCancel.revision,
+          quoteRoundId,
+          reason: "Cancel this solicitation.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/Explicit confirmation/);
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_round_lifecycle.cancelQuoteRound,
+        {
+          buildId: fixture.buildId,
+          confirmed: true,
+          expectedRevision: beforeCancel.revision,
+          quoteRoundId,
+          reason: "  ",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/cancellation reason is required/);
+
+    const cancelled = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.cancelQuoteRound,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        expectedRevision: beforeCancel.revision,
+        quoteRoundId,
+        reason: "Solicitation cancelled after the scope was withdrawn.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(cancelled).toMatchObject({
+      quoteRoundId,
+      revision: beforeCancel.revision + 1,
+      state: "cancelled",
+      status: "cancelled",
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_round_lifecycle.cancelQuoteRound,
+        {
+          buildId: fixture.buildId,
+          confirmed: true,
+          expectedRevision: cancelled.revision,
+          quoteRoundId,
+          reason: "Try to cancel it twice.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/terminal/);
+
+    const unavailable = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(unavailable).toEqual({ status: "unavailable" });
+    const exchangedAfterCancel = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken: fixture.magicToken }
+    );
+    expect(exchangedAfterCancel).toEqual({ status: "unavailable" });
+
+    const persisted = await fixture.base.run(async (ctx) => {
+      const round = await ctx.db.get(quoteRoundId);
+      const invitations = await ctx.db
+        .query("quoteRoundInvitations")
+        .withIndex("by_quoteRoundId_and_participationState", (query) =>
+          query.eq("quoteRoundId", quoteRoundId).eq("participationState", "active")
+        )
+        .collect();
+      const credentials = await ctx.db
+        .query("quoteInvitationAccessCredentials")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect();
+      const sessions = await ctx.db
+        .query("quoteInvitationBrowserSessions")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect();
+      const audits = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query.eq("entityType", "quoteRound").eq("entityId", String(quoteRoundId))
+        )
+        .collect();
+      return { audits, credentials, invitations, round, sessions };
+    });
+    expect(persisted.round).toMatchObject({
+      cancellationReason: "Solicitation cancelled after the scope was withdrawn.",
+      state: "cancelled",
+    });
+    expect(persisted.invitations).toHaveLength(1);
+    expect(persisted.invitations[0]).toMatchObject({
+      _id: fixture.invitation._id,
+      currentQuotePackageRevisionId: fixture.invitation.quotePackageRevisionId,
+      participationState: "active",
+      quotePackageRevisionId: fixture.invitation.quotePackageRevisionId,
+    });
+    expect(persisted.credentials).toEqual(
+      expect.arrayContaining([expect.objectContaining({ state: "revoked" })])
+    );
+    expect(persisted.sessions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ state: "revoked" })])
+    );
+    expect(persisted.audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "quote_round.cancelled",
+          reason: "Solicitation cancelled after the scope was withdrawn.",
+        }),
+      ])
+    );
+  });
+
+  test("rotates and revokes Invitation credentials and browser sessions, and preserves audit reasons", async () => {
+    const fixture = await openedSubmissionFixture();
+    const oldCredential = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quoteInvitationAccessCredentials")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query
+            .eq("quoteRoundInvitationId", fixture.invitation._id)
+            .eq("state", "active")
+        )
+        .unique()
+    );
+    if (!oldCredential) {
+      throw new Error("Expected the initial active Quote Invitation credential.");
+    }
+    const rotated = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.rotateQuoteInvitationAccess,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        quoteRoundInvitationId: fixture.invitation._id,
+        reason: "Rotate the link after a delivery security review.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(rotated).toMatchObject({
+      accessGeneration: 2,
+      invitationId: fixture.invitation._id,
+      status: "rotated",
+    });
+    if (!rotated.credentialId) {
+      throw new Error("Expected a replacement credential after rotation.");
+    }
+    await replaceCredentialMagicToken(
+      fixture,
+      rotated.credentialId,
+      "rotated-browser-token"
+    );
+
+    const oldExchange = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken: fixture.magicToken }
+    );
+    expect(oldExchange).toEqual({ status: "unavailable" });
+    const oldSessionRead = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(oldSessionRead).toEqual({ status: "unavailable" });
+    const rotatedExchange = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken: "rotated-browser-token" }
+    );
+    if (rotatedExchange.status !== "available") {
+      throw new Error("Expected the rotated credential to exchange.");
+    }
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_round_lifecycle.revokeQuoteRoundInvitation,
+        {
+          buildId: fixture.buildId,
+          confirmed: false,
+          quoteRoundInvitationId: fixture.invitation._id,
+          reason: "Revoke the Invitation after the project was withdrawn.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/Explicit confirmation/);
+    const revoked = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.revokeQuoteRoundInvitation,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        quoteRoundInvitationId: fixture.invitation._id,
+        reason: "Revoke the Invitation after the project was withdrawn.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(revoked).toMatchObject({
+      invitationId: fixture.invitation._id,
+      status: "revoked",
+    });
+    const rotatedExchangeAfterRevoke = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken: "rotated-browser-token" }
+    );
+    expect(rotatedExchangeAfterRevoke).toEqual({ status: "unavailable" });
+    const revokedSessionRead = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: rotatedExchange.sessionToken,
+      }
+    );
+    expect(revokedSessionRead).toEqual({ status: "unavailable" });
+
+    const persisted = await fixture.base.run(async (ctx) => {
+      const credentials = await ctx.db
+        .query("quoteInvitationAccessCredentials")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect();
+      const sessions = await ctx.db
+        .query("quoteInvitationBrowserSessions")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect();
+      const invitation = await ctx.db.get(fixture.invitation._id);
+      const audits = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("entityType", "quoteRoundInvitation")
+            .eq("entityId", String(fixture.invitation._id))
+        )
+        .collect();
+      return { audits, credentials, invitation, sessions };
+    });
+    expect(persisted.invitation).toMatchObject({
+      participationState: "revoked",
+      revocationReason: "Revoke the Invitation after the project was withdrawn.",
+    });
+    expect(persisted.credentials).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ _id: oldCredential._id, state: "rotated" }),
+        expect.objectContaining({ _id: rotated.credentialId, state: "revoked" }),
+      ])
+    );
+    expect(persisted.sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ state: "revoked" }),
+      ])
+    );
+    expect(persisted.audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "quote_invitation.access_rotated",
+          reason: "Rotate the link after a delivery security review.",
+        }),
+        expect.objectContaining({
+          eventType: "quote_invitation.revoked",
+          reason: "Revoke the Invitation after the project was withdrawn.",
+        }),
+      ])
+    );
+  });
+
+  test("replaces a corrected recipient email without transferring Draft or submission history", async () => {
+    const fixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(fixture, 102_000_00);
+    const accepted = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "recipient-replacement-submit-001",
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(accepted).toMatchObject({
+      status: "accepted",
+      submission: { revision: 1 },
+    });
+    const started = await fixture.base.mutation(
+      (api as any).quote_response_submissions.startQuoteInvitationResponseRevision,
+      {
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(started).toMatchObject({ status: "draft_ready", draft: { version: 1 } });
+
+    const replaced = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.replaceQuoteRoundInvitationEmail,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        correctedEmail: " Corrected.Recipient@Example.com ",
+        quoteRoundInvitationId: fixture.invitation._id,
+        reason: "Correct a typo in the recipient email address.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(replaced).toMatchObject({
+      invitationId: fixture.invitation._id,
+      status: "replaced",
+    });
+    if (!replaced.replacementInvitationId) {
+      throw new Error("Expected a replacement Invitation row.");
+    }
+
+    const persisted = await fixture.base.run(async (ctx) => {
+      const oldInvitation = await ctx.db.get(fixture.invitation._id);
+      const replacement = await ctx.db.get(replaced.replacementInvitationId!);
+      const drafts = await ctx.db.query("quoteInvitationResponseDrafts").collect();
+      const submissions = await ctx.db
+        .query("quoteInvitationResponseSubmissionRevisions")
+        .collect();
+      const credentials = await ctx.db
+        .query("quoteInvitationAccessCredentials")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect();
+      const replacementCredentials = await ctx.db
+        .query("quoteInvitationAccessCredentials")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query.eq("quoteRoundInvitationId", replaced.replacementInvitationId!)
+        )
+        .collect();
+      const audits = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("entityType", "quoteRoundInvitation")
+            .eq("entityId", String(fixture.invitation._id))
+        )
+        .collect();
+      const outbox = await ctx.db
+        .query("eventOutbox")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("relatedEntityType", "quoteRoundInvitation")
+            .eq("relatedEntityId", String(fixture.invitation._id))
+        )
+        .collect();
+      return {
+        audits,
+        credentials,
+        drafts,
+        oldInvitation,
+        outbox,
+        replacement,
+        replacementCredentials,
+        submissions,
+      };
+    });
+    expect(persisted.oldInvitation).toMatchObject({
+      participationState: "revoked",
+      recipientEmailSnapshot: "quote-recipient@example.com",
+      revocationReason: "Correct a typo in the recipient email address.",
+    });
+    expect(persisted.replacement).toMatchObject({
+      _id: replaced.replacementInvitationId,
+      currentQuotePackageRevisionId: fixture.invitation.quotePackageRevisionId,
+      participationState: "active",
+      quotePackageRevisionId: fixture.invitation.quotePackageRevisionId,
+      recipientEmailSnapshot: "corrected.recipient@example.com",
+      supersedesInvitationId: fixture.invitation._id,
+    });
+    expect(persisted.drafts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          quoteRoundInvitationId: fixture.invitation._id,
+          version: 1,
+        }),
+      ])
+    );
+    expect(persisted.drafts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          quoteRoundInvitationId: replaced.replacementInvitationId,
+        }),
+      ])
+    );
+    expect(persisted.submissions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          quoteRoundInvitationId: fixture.invitation._id,
+          revision: 1,
+        }),
+      ])
+    );
+    expect(persisted.submissions).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          quoteRoundInvitationId: replaced.replacementInvitationId,
+        }),
+      ])
+    );
+    expect(persisted.credentials).toEqual(
+      expect.arrayContaining([expect.objectContaining({ state: "revoked" })])
+    );
+    expect(persisted.replacementCredentials).toEqual(
+      expect.arrayContaining([expect.objectContaining({ state: "active" })])
+    );
+    expect(persisted.audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "quote_invitation.recipient_replaced",
+          reason: "Correct a typo in the recipient email address.",
+        }),
+      ])
+    );
+    const replacementOutbox = persisted.outbox.find(
+      (event) => event.eventType === "quote_invitation.recipient_replaced"
+    );
+    expect(replacementOutbox).toBeDefined();
+    expect(replacementOutbox?.payloadPreview).not.toContain(
+      "corrected.recipient@example.com"
+    );
+
+    const oldSessionRead = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(oldSessionRead).toEqual({ status: "unavailable" });
+  });
+
+  test("requires Reminder and Rotation to target an open Quote Round", async () => {
+    const fixture = await openedSubmissionFixture();
+    await closeOpenRound(fixture);
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_round_lifecycle.remindQuoteInvitationAccess,
+        {
+          buildId: fixture.buildId,
+          confirmed: true,
+          quoteRoundInvitationId: fixture.invitation._id,
+          reason: "Reminder must not reopen a closed Round.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/live Round/);
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_round_lifecycle.rotateQuoteInvitationAccess,
+        {
+          buildId: fixture.buildId,
+          confirmed: true,
+          quoteRoundInvitationId: fixture.invitation._id,
+          reason: "Rotation must not reopen a closed Round.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/live Round/);
+  });
+
+  test("Reminder revokes prior access and leaves exactly one active credential and browser session", async () => {
+    const fixture = await openedSubmissionFixture();
+    const oldSessionToken = fixture.exchanged.sessionToken;
+    const reminded = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.remindQuoteInvitationAccess,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        quoteRoundInvitationId: fixture.invitation._id,
+        reason: "Send a fresh access reminder.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(reminded).toMatchObject({
+      accessGeneration: 1,
+      status: "reminded",
+    });
+    if (!reminded.credentialId) {
+      throw new Error("Expected the Reminder credential.");
+    }
+    await replaceCredentialMagicToken(
+      fixture,
+      reminded.credentialId,
+      "reminder-browser-token"
+    );
+    const oldExchange = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken: fixture.magicToken }
+    );
+    expect(oldExchange).toEqual({ status: "unavailable" });
+    const oldSessionRead = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: oldSessionToken,
+      }
+    );
+    expect(oldSessionRead).toEqual({ status: "unavailable" });
+    const replacementExchange = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken: "reminder-browser-token" }
+    );
+    expect(replacementExchange.status).toBe("available");
+
+    const accessRows = await fixture.base.run(async (ctx) => {
+      const credentials = await ctx.db
+        .query("quoteInvitationAccessCredentials")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query
+            .eq("quoteRoundInvitationId", fixture.invitation._id)
+            .eq("state", "active")
+        )
+        .collect();
+      const sessions = await ctx.db
+        .query("quoteInvitationBrowserSessions")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query
+            .eq("quoteRoundInvitationId", fixture.invitation._id)
+            .eq("state", "active")
+        )
+        .collect();
+      return { credentials, sessions };
+    });
+    expect(accessRows.credentials).toHaveLength(1);
+    expect(accessRows.credentials[0]?._id).toBe(reminded.credentialId);
+    expect(accessRows.sessions).toHaveLength(1);
+    expect(accessRows.sessions[0]?.quoteInvitationAccessCredentialId).toBe(
+      reminded.credentialId
+    );
+  });
+
+  test("acknowledgement patches only the current package-published notice, not access notices", async () => {
+    const fixture = await openedSubmissionFixture();
+    const closed = await closeOpenRound(fixture);
+    const reopened = await reopenClosedRound(fixture, closed.revision);
+
+    const reminded = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.remindQuoteInvitationAccess,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        quoteRoundInvitationId: fixture.invitation._id,
+        reason: "Remind after publishing the revised package.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    if (!reminded.credentialId) {
+      throw new Error("Expected the Reminder credential.");
+    }
+    await replaceCredentialMagicToken(
+      fixture,
+      reminded.credentialId,
+      "notice-reminder-browser-token"
+    );
+    await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken: "notice-reminder-browser-token" }
+    );
+
+    const rotated = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.rotateQuoteInvitationAccess,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        quoteRoundInvitationId: fixture.invitation._id,
+        reason: "Rotate the reminder credential before acknowledgement.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    if (!rotated.credentialId) {
+      throw new Error("Expected the Rotation credential.");
+    }
+    await replaceCredentialMagicToken(
+      fixture,
+      rotated.credentialId,
+      "notice-rotation-browser-token"
+    );
+    const rotationExchange = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken: "notice-rotation-browser-token" }
+    );
+    if (rotationExchange.status !== "available") {
+      throw new Error("Expected the Rotation credential exchange.");
+    }
+
+    await fixture.base.mutation(
+      (api as any).quote_round_lifecycle.acknowledgeQuoteInvitationPackageRevision,
+      {
+        acknowledgedFieldKeys: ["responseDeadline"],
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: rotationExchange.sessionToken,
+      }
+    );
+    const notices = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quoteRoundRecipientNoticeIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect()
+    );
+    expect(
+      notices.find(
+        (notice) =>
+          notice.kind === "package_revision_published" &&
+          notice.quotePackageRevisionId === reopened.packageRevisionId
+      )
+    ).toMatchObject({ status: "acknowledged" });
+    expect(
+      notices.find((notice) => notice.kind === "access_reminder")
+    ).toMatchObject({ status: "pending" });
+    expect(
+      notices.find((notice) => notice.kind === "access_rotated")
+    ).toMatchObject({ status: "pending" });
+  });
+
+  test("uses the active Build authorization role instead of a caller JWT role claim", async () => {
+    const fixture = await openedSubmissionFixture();
+    const memberIdentity = withIdentity(
+      fixture.base,
+      ["member"],
+      "user_builder",
+      ORGANIZATION_ID
+    );
+    const round = await fixture.builder.query(
+      (api as any).quote_rounds.getQuoteRound,
+      {
+        buildId: fixture.buildId,
+        quoteRoundId: fixture.invitation.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const closed = await memberIdentity.mutation(
+      (api as any).quote_round_lifecycle.closeQuoteRound,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        expectedRevision: round.revision,
+        quoteRoundId: fixture.invitation.quoteRoundId,
+        reason: "Close using the active Build participant grant.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(closed).toMatchObject({ state: "closed", status: "closed" });
+  });
+
+  test("keeps changed fields and the required responseDeadline within the 100-field cap", async () => {
+    const fixture = await openedSubmissionFixture();
+    const closed = await closeOpenRound(fixture);
+    const tooMany = Array.from({ length: 100 }, (_, index) => `changed-${index}`);
+    await expect(
+      reopenClosedRound(fixture, closed.revision, tooMany)
+    ).rejects.toThrow(/at most 100 changed fields/);
+
+    const accepted = await reopenClosedRound(
+      fixture,
+      closed.revision,
+      Array.from({ length: 99 }, (_, index) => `changed-${index}`)
+    );
+    if (!accepted.packageRevisionId) {
+      throw new Error("Expected the reopened Package Revision.");
+    }
+    const packageRevision = await fixture.base.run((ctx) =>
+      ctx.db.get(accepted.packageRevisionId as Id<"quotePackageRevisions">)
+    );
+    expect(packageRevision?.changedFieldKeys).toHaveLength(100);
+    expect(packageRevision?.changedFieldKeys).toContain("responseDeadline");
+  });
+
+  test("rejects acknowledgement input above the changed-field safety cap", async () => {
+    const fixture = await openedSubmissionFixture();
+    const closed = await closeOpenRound(fixture);
+    await reopenClosedRound(fixture, closed.revision, ["responseDeadline"]);
+    await expect(
+      fixture.base.mutation(
+        (api as any).quote_round_lifecycle.acknowledgeQuoteInvitationPackageRevision,
+        {
+          acknowledgedFieldKeys: Array.from(
+            { length: 101 },
+            (_, index) => `ack-${index}`
+          ),
+          quoteRoundInvitationId: fixture.invitation._id,
+          sessionToken: fixture.exchanged.sessionToken,
+        }
+      )
+    ).rejects.toThrow(/acknowledgement may include at most 100 fields/);
+  });
+
+  test("migrates a prior-revision Draft by stable package identities before acknowledgement unlocks writes", async () => {
+    const fixture = await openedSubmissionFixture();
+    const { before } = await saveCompleteSubmissionDraft(fixture);
+    const priorLine = before.access.package.labourLines[0];
+    const priorField = before.access.package.responseFields.find(
+      (field: { fieldKey: string }) => field.fieldKey === "approach"
+    );
+    if (!(priorLine && priorField)) {
+      throw new Error("Expected the prior Package Revision response fields.");
+    }
+    await fixture.base.run(async (ctx) => {
+      const draft = await ctx.db
+        .query("quoteInvitationResponseDrafts")
+        .withIndex(
+          "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+          (query) =>
+            query
+              .eq("quoteRoundInvitationId", fixture.invitation._id)
+              .eq(
+                "quotePackageRevisionId",
+                fixture.invitation.quotePackageRevisionId
+              )
+        )
+        .unique();
+      if (!draft) {
+        throw new Error("Expected the prior Field Ledger draft.");
+      }
+      const storageId = await ctx.storage.store(
+        new Blob(["migration attachment"], { type: "text/plain" })
+      );
+      await ctx.db.insert("quoteInvitationResponseDraftAttachments", {
+        brokerageId: fixture.invitation.brokerageId,
+        buildId: fixture.invitation.buildId,
+        createdAt: Date.now(),
+        fileName: "migration.txt",
+        mimeType: "text/plain",
+        organizationId: fixture.invitation.organizationId,
+        quoteInvitationResponseDraftId: draft._id,
+        quotePackageRevisionId: fixture.invitation.quotePackageRevisionId,
+        quoteRoundId: fixture.invitation.quoteRoundId,
+        quoteRoundInvitationId: fixture.invitation._id,
+        sizeBytes: 20,
+        sourcePackageRevisionResponseFieldId: priorField.sourceFieldId,
+        storageId,
+      });
+    });
+    const closed = await closeOpenRound(fixture);
+    const reopened = await reopenClosedRound(fixture, closed.revision);
+    if (!reopened.packageRevisionId) {
+      throw new Error("Expected the reopened Package Revision.");
+    }
+    await expect(
+      fixture.base.mutation(
+        (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+        {
+          expectedVersion: 1,
+          patch: {
+            commentsHtml: "<p>Must remain acknowledgement-gated.</p>",
+          },
+          quoteRoundInvitationId: fixture.invitation._id,
+          sessionToken: fixture.exchanged.sessionToken,
+        }
+      )
+    ).resolves.toEqual({ status: "acknowledgement_required" });
+
+    const acknowledged = await fixture.base.mutation(
+      (api as any).quote_round_lifecycle.acknowledgeQuoteInvitationPackageRevision,
+      {
+        acknowledgedFieldKeys: ["responseDeadline"],
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(acknowledged).toMatchObject({ status: "acknowledged" });
+
+    const migrated = await fixture.base.query(
+      (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+      {
+        presentationNow: Date.now(),
+        quoteRoundInvitationId: fixture.invitation._id,
+        sessionToken: fixture.exchanged.sessionToken,
+      }
+    );
+    expect(migrated).toMatchObject({
+      access: { package: { revision: 2 } },
+      draft: {
+        version: 1,
+      },
+      status: "available",
+    });
+    if (migrated.status !== "available" || !migrated.draft) {
+      throw new Error("Expected a migrated current-revision Draft.");
+    }
+    const migratedLine = migrated.draft.lineItems.find(
+      (line: { source: string }) => line.source === "package_labour"
+    );
+    const migratedAnswer = migrated.draft.responses.find(
+      (answer: { value: string }) =>
+        answer.value === "<p>We will stage the crew before framing.</p>"
+    );
+    expect(migratedLine).toMatchObject({ quotedAmountCents: 125_000_00 });
+    expect(migratedLine?.sourcePackageRevisionLabourLineId).not.toBe(
+      priorLine.sourceLineId
+    );
+    expect(migratedAnswer?.sourcePackageRevisionResponseFieldId).not.toBe(
+      priorField.sourceFieldId
+    );
+    expect(migrated.draft.attachments).toHaveLength(1);
+    expect(
+      migrated.draft.attachments[0]?.sourcePackageRevisionResponseFieldId
+    ).not.toBe(priorField.sourceFieldId);
+
+    const drafts = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quoteInvitationResponseDrafts")
+        .withIndex(
+          "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+          (query) => query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect()
+    );
+    expect(drafts).toHaveLength(2);
+    expect(
+      drafts.some(
+        (draft) => draft.quotePackageRevisionId === reopened.packageRevisionId
+      )
+    ).toBe(true);
+  });
+
+  test("rejects an oversized Package Revision clone before changing the closed Round", async () => {
+    const fixture = await openedSubmissionFixture();
+    const quoteRoundId = fixture.invitation.quoteRoundId;
+    const previousPackageRevisionId = fixture.invitation.quotePackageRevisionId;
+    const oversizedFileName = `oversized-${"x".repeat(799_992)}`;
+
+    // Keep setup transactions small while making the source revision's
+    // serialized clone payload exceed the lifecycle safety threshold.
+    for (let index = 0; index < 16; index += 1) {
+      await fixture.base.run(async (ctx) => {
+        await ctx.db.insert("quotePackageRevisionAttachments", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          contentHashSha256Snapshot: "c".repeat(64),
+          createdAt: Date.now() + index,
+          fileNameSnapshot: oversizedFileName,
+          kind: "inherited",
+          mimeTypeSnapshot: "application/pdf",
+          order: 10 + index,
+          organizationId: ORGANIZATION_ID,
+          quotePackageRevisionId: previousPackageRevisionId,
+          quoteRoundId,
+          sizeBytesSnapshot: oversizedFileName.length,
+          sourceBuildDocumentId: fixture.supporting.documentId,
+          sourceDocumentVersionSnapshot: 1,
+        });
+      });
+    }
+
+    const closed = await closeOpenRound(fixture);
+    await expect(reopenClosedRound(fixture, closed.revision)).rejects.toThrow(
+      /transaction size safety limit/
+    );
+
+    const persisted = await fixture.base.run(async (ctx) => {
+      const round = await ctx.db.get(quoteRoundId);
+      const revisions = await ctx.db
+        .query("quotePackageRevisions")
+        .withIndex("by_quoteRoundId_and_revision", (query) =>
+          query.eq("quoteRoundId", quoteRoundId)
+        )
+        .collect();
+      return { revisions, round };
+    });
+    expect(persisted.round).toMatchObject({
+      currentPackageRevisionId: previousPackageRevisionId,
+      revision: closed.revision,
+      state: "closed",
+    });
+    expect(persisted.revisions).toHaveLength(1);
   });
 });

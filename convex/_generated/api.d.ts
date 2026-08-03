@@ -159,6 +159,7 @@ import type * as quote_response_drafts from "../quote_response_drafts.js";
 import type * as quote_response_submissions from "../quote_response_submissions.js";
 import type * as quote_response_template_migrations from "../quote_response_template_migrations.js";
 import type * as quote_response_templates from "../quote_response_templates.js";
+import type * as quote_round_lifecycle from "../quote_round_lifecycle.js";
 import type * as quote_rounds from "../quote_rounds.js";
 import type * as siteVisitGuidance from "../siteVisitGuidance.js";
 import type * as todos from "../todos.js";
@@ -325,6 +326,7 @@ declare const fullApi: ApiFromModules<{
   quote_response_submissions: typeof quote_response_submissions;
   quote_response_template_migrations: typeof quote_response_template_migrations;
   quote_response_templates: typeof quote_response_templates;
+  quote_round_lifecycle: typeof quote_round_lifecycle;
   quote_rounds: typeof quote_rounds;
   siteVisitGuidance: typeof siteVisitGuidance;
   todos: typeof todos;

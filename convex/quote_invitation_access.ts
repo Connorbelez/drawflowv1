@@ -151,6 +151,67 @@ export interface InvitationScope {
   round: Doc<"quoteRounds">;
 }
 
+/**
+ * New Package Revisions may require an explicit recipient review gate. Initial
+ * revisions have no acknowledgement row and therefore remain immediately
+ * writable; reopened revisions create one pending row per existing Invitation
+ * while advancing its current package projection.
+ */
+export async function quoteInvitationPackageRevisionAcknowledgement(
+  ctx: InvitationAccessCtx,
+  scope: InvitationScope
+) {
+  const acknowledgement = await ctx.db
+    .query("quoteInvitationPackageRevisionAcknowledgements")
+    .withIndex(
+      "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+      (query) =>
+        query
+          .eq("quoteRoundInvitationId", scope.invitation._id)
+          .eq("quotePackageRevisionId", scope.packageRevision._id)
+    )
+    .unique();
+  if (!acknowledgement) {
+    return {
+      acknowledged: true,
+      acknowledgedFieldKeys: [] as string[],
+      changedFieldKeys: [] as string[],
+      required: false,
+      status: "acknowledged" as const,
+    };
+  }
+  if (
+    acknowledgement.brokerageId !== scope.invitation.brokerageId ||
+    acknowledgement.organizationId !== scope.invitation.organizationId ||
+    acknowledgement.buildId !== scope.invitation.buildId ||
+    acknowledgement.quoteRoundId !== scope.invitation.quoteRoundId
+  ) {
+    throw new ConvexError(
+      "Quote Package Revision acknowledgement crosses invitation scope."
+    );
+  }
+  return {
+    acknowledged: acknowledgement.status === "acknowledged",
+    acknowledgedFieldKeys: acknowledgement.acknowledgedFieldKeys,
+    changedFieldKeys: acknowledgement.changedFieldKeys,
+    required: true,
+    status: acknowledgement.status,
+  };
+}
+
+export async function requireAcknowledgedPackageRevision(
+  ctx: MutationCtx,
+  scope: InvitationScope
+) {
+  const acknowledgement = await quoteInvitationPackageRevisionAcknowledgement(
+    ctx,
+    scope
+  );
+  return acknowledgement.acknowledged
+    ? null
+    : ({ status: "acknowledgement_required" } as const);
+}
+
 export type QuoteInvitationResponseAccessState =
   | "available"
   | "read_only"
@@ -182,11 +243,14 @@ export type QuoteInvitationClaimedAccess =
 
 interface QuoteInvitationCredentialDispatchInput {
   accessExpiresAt: number;
+  accessGeneration?: number;
   brokerage: Doc<"brokerages">;
   build: Doc<"activeBuilds">;
+  credentialVersion?: number;
   invitation: Doc<"quoteRoundInvitations">;
   packageRevision: Doc<"quotePackageRevisions">;
   publishedAt: number;
+  purpose?: "initial" | "reminder" | "renewal" | "rotation";
   quoteRound: Doc<"quoteRounds">;
   responseDeadline: number;
 }
@@ -267,16 +331,19 @@ export async function createInitialQuoteInvitationCredentialAndDispatch(
   const magicToken = randomSecret();
   const credentialVerifier = await quoteInvitationSecretVerifier(magicToken);
   const now = input.publishedAt;
+  const accessGeneration = input.accessGeneration ?? 1;
+  const credentialVersion = input.credentialVersion ?? 1;
+  const purpose = input.purpose ?? "initial";
   const credentialId = await ctx.db.insert("quoteInvitationAccessCredentials", {
     accessExpiresAt: input.accessExpiresAt,
-    accessGeneration: 1,
+    accessGeneration,
     brokerageId: input.brokerage._id,
     buildId: input.build._id,
     credentialVerifier,
-    credentialVersion: 1,
+    credentialVersion,
     createdAt: now,
     organizationId: input.brokerage.workosOrganizationId,
-    purpose: "initial",
+    purpose,
     quoteRoundId: input.quoteRound._id,
     quoteRoundInvitationId: input.invitation._id,
     state: "active",
@@ -289,7 +356,7 @@ export async function createInitialQuoteInvitationCredentialAndDispatch(
       invitationUrl,
       recipientName: input.invitation.recipientNameSnapshot,
     }),
-    idempotencyKey: `quote-invitation:${input.invitation._id}:access-generation:1:credential:1`,
+    idempotencyKey: `quote-invitation:${input.invitation._id}:access-generation:${accessGeneration}:credential:${credentialVersion}`,
     organizationId: input.brokerage.workosOrganizationId,
     recipientEmail: input.invitation.recipientEmailSnapshot,
     relatedEntityId: String(input.invitation._id),
@@ -620,7 +687,8 @@ function assertCredentialDispatchScope(
     input.invitation.organizationId !== input.brokerage.workosOrganizationId ||
     input.invitation.buildId !== input.build._id ||
     input.invitation.quoteRoundId !== input.quoteRound._id ||
-    input.invitation.quotePackageRevisionId !== input.packageRevision._id ||
+    (input.invitation.currentQuotePackageRevisionId ??
+      input.invitation.quotePackageRevisionId) !== input.packageRevision._id ||
     input.packageRevision.brokerageId !== input.brokerage._id ||
     input.packageRevision.organizationId !==
       input.brokerage.workosOrganizationId ||
@@ -755,13 +823,26 @@ export async function resolveInvitationScope(
   ) {
     return null;
   }
-  const [round, packageRevision, profile, brokerage] = await Promise.all([
-    ctx.db.get(invitation.quoteRoundId),
-    ctx.db.get(invitation.quotePackageRevisionId),
-    ctx.db.get(invitation.recipientProfileId),
-    ctx.db.get(invitation.brokerageId),
-  ]);
-  if (!(round && packageRevision && profile && brokerage)) {
+  const currentPackageRevisionId =
+    invitation.currentQuotePackageRevisionId ??
+    invitation.quotePackageRevisionId;
+  const [round, originalPackageRevision, packageRevision, profile, brokerage] =
+    await Promise.all([
+      ctx.db.get(invitation.quoteRoundId),
+      ctx.db.get(invitation.quotePackageRevisionId),
+      ctx.db.get(currentPackageRevisionId),
+      ctx.db.get(invitation.recipientProfileId),
+      ctx.db.get(invitation.brokerageId),
+    ]);
+  if (
+    !(
+      round &&
+      originalPackageRevision &&
+      packageRevision &&
+      profile &&
+      brokerage
+    )
+  ) {
     return null;
   }
   if (
@@ -770,6 +851,10 @@ export async function resolveInvitationScope(
     round.brokerageId !== invitation.brokerageId ||
     round.organizationId !== invitation.organizationId ||
     round.buildId !== invitation.buildId ||
+    originalPackageRevision.brokerageId !== invitation.brokerageId ||
+    originalPackageRevision.organizationId !== invitation.organizationId ||
+    originalPackageRevision.buildId !== invitation.buildId ||
+    originalPackageRevision.quoteRoundId !== invitation.quoteRoundId ||
     packageRevision.brokerageId !== invitation.brokerageId ||
     packageRevision.organizationId !== invitation.organizationId ||
     packageRevision.buildId !== invitation.buildId ||

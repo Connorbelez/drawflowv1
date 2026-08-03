@@ -73,7 +73,7 @@ type LifecycleReadResult = FunctionReturnType<
   typeof api.quote_response_submissions.getQuoteInvitationResponseLifecycle
 >;
 type ReadableLifecycleResult = LifecycleReadResult & {
-  status: "available" | "read_only";
+  status: "available" | "read_only" | "acknowledgement_required";
 };
 type ResponseLedgerSource =
   | QuoteDraft
@@ -222,6 +222,12 @@ export function QuoteFieldLedger({
   const withdrawClaimedResponse = useMutation(
     api.quote_response_submissions.withdrawClaimedQuoteInvitationResponse
   );
+  const acknowledgeBrowserRevision = useMutation(
+    api.quote_round_lifecycle.acknowledgeQuoteInvitationPackageRevision
+  );
+  const acknowledgeClaimedRevision = useMutation(
+    api.quote_round_lifecycle.acknowledgeClaimedQuoteInvitationPackageRevision
+  );
 
   const access = activeRead.access;
 
@@ -243,11 +249,18 @@ export function QuoteFieldLedger({
   const [lifecyclePending, setLifecyclePending] = useState<
     "submit" | "revise" | "withdraw" | null
   >(null);
-  const controlsLocked =
+  const revisionAcknowledgementRequired =
+    lifecycle?.result.status === "acknowledgement_required" &&
+    lifecycle.result.revisionAcknowledgement.required &&
+    lifecycle.result.revisionAcknowledgement.status === "pending";
+  const [acknowledgementPending, setAcknowledgementPending] = useState(false);
+  const responseWritesLocked =
     readOnly ||
-    Boolean(conflict) ||
+    revisionAcknowledgementRequired ||
+    acknowledgementPending ||
     Boolean(lifecyclePending) ||
     Boolean(lifecycle?.result.currentSubmission && !lifecycle.result.draft);
+  const controlsLocked = responseWritesLocked || Boolean(conflict);
   const [lifecycleMessage, setLifecycleMessage] = useState<string | null>(null);
   const [withdrawalExplanation, setWithdrawalExplanation] = useState("");
   const [expandedTitle, setExpandedTitle] = useState("");
@@ -264,6 +277,51 @@ export function QuoteFieldLedger({
   const conflictRef = useRef<DraftConflict | null>(null);
   const stagedAttachmentRef = useRef<StagedAttachment | null>(null);
   const submissionIdempotencyKeyRef = useRef<string | null>(null);
+
+  const acknowledgeRevision = useCallback(async () => {
+    const projection = lifecycle?.result.revisionAcknowledgement;
+    if (!(revisionAcknowledgementRequired && projection)) {
+      return;
+    }
+    setAcknowledgementPending(true);
+    setSyncError(null);
+    try {
+      const input = {
+        acknowledgedFieldKeys: projection.changedFieldKeys,
+        quoteRoundInvitationId: access.invitationId,
+      };
+      const result = usingClaimedAccess
+        ? await acknowledgeClaimedRevision(input)
+        : sessionToken
+          ? await acknowledgeBrowserRevision({ ...input, sessionToken })
+          : { status: "unavailable" as const };
+      if (result.status === "acknowledged") {
+        setLifecycleMessage("Package revision acknowledged. You can now edit.");
+      } else {
+        setSyncError(
+          "This invitation session ended before the package revision could be acknowledged."
+        );
+      }
+    } catch (error) {
+      setSyncError(
+        draftSaveErrorMessage(
+          error instanceof Error
+            ? error
+            : "The package revision could not be acknowledged."
+        )
+      );
+    } finally {
+      setAcknowledgementPending(false);
+    }
+  }, [
+    access.invitationId,
+    acknowledgeBrowserRevision,
+    acknowledgeClaimedRevision,
+    lifecycle,
+    revisionAcknowledgementRequired,
+    sessionToken,
+    usingClaimedAccess,
+  ]);
 
   useEffect(() => {
     conflictRef.current = conflict;
@@ -321,7 +379,7 @@ export function QuoteFieldLedger({
     if (
       flushingRef.current ||
       !pendingRef.current ||
-      readOnly ||
+      responseWritesLocked ||
       conflictRef.current
     ) {
       return;
@@ -362,6 +420,11 @@ export function QuoteFieldLedger({
             "The current quote is already submitted. Start Revise quote before making changes."
           );
           break;
+        case "acknowledgement_required":
+          setSyncError(
+            "Review and acknowledge the updated package before making changes."
+          );
+          break;
         case "read_only":
           setSyncError(
             "The response window closed before this change could save."
@@ -383,11 +446,11 @@ export function QuoteFieldLedger({
       setSyncError(draftSaveErrorMessage(error));
     } finally {
       flushingRef.current = false;
-      if (pendingRef.current && !readOnly && !conflictRef.current) {
+      if (pendingRef.current && !responseWritesLocked && !conflictRef.current) {
         scheduleFlush(timerRef, flush);
       }
     }
-  }, [invokeSave, readOnly]);
+  }, [invokeSave, responseWritesLocked]);
 
   useEffect(() => {
     flushRef.current = flush;
@@ -431,7 +494,7 @@ export function QuoteFieldLedger({
 
   const queuePatch = useCallback(
     (patch: DraftPatch) => {
-      if (readOnly) {
+      if (controlsLocked) {
         return;
       }
       localEditsRef.current = true;
@@ -440,7 +503,7 @@ export function QuoteFieldLedger({
       setSyncError(null);
       scheduleFlush(timerRef, flush);
     },
-    [flush, readOnly]
+    [controlsLocked, flush]
   );
 
   const updateAmount = (line: DraftLinePatch, value: string) => {
@@ -611,6 +674,7 @@ export function QuoteFieldLedger({
           throw new Error(result.message);
         case "read_only":
         case "revision_required":
+        case "acknowledgement_required":
         case "superseded":
         case "unavailable":
           throw new Error(uploadFailureMessage(result.status));
@@ -646,7 +710,7 @@ export function QuoteFieldLedger({
   ) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || readOnly) {
+    if (!file || controlsLocked) {
       return;
     }
     if (conflictRef.current) {
@@ -698,7 +762,7 @@ export function QuoteFieldLedger({
   };
 
   const submitCurrentDraft = async () => {
-    if (!lifecycle || lifecyclePending || readOnly) {
+    if (!lifecycle || lifecyclePending || controlsLocked) {
       return;
     }
     setLifecyclePending("submit");
@@ -751,7 +815,11 @@ export function QuoteFieldLedger({
 
   const startResponseRevision = async () => {
     const currentSubmission = lifecycle?.result.currentSubmission;
-    if (!(lifecycle && currentSubmission) || lifecyclePending || readOnly) {
+    if (
+      !(lifecycle && currentSubmission) ||
+      lifecyclePending ||
+      controlsLocked
+    ) {
       return;
     }
     setLifecyclePending("revise");
@@ -787,7 +855,11 @@ export function QuoteFieldLedger({
 
   const withdrawCurrentResponse = async () => {
     const currentSubmission = lifecycle?.result.currentSubmission;
-    if (!(lifecycle && currentSubmission) || lifecyclePending || readOnly) {
+    if (
+      !(lifecycle && currentSubmission) ||
+      lifecyclePending ||
+      controlsLocked
+    ) {
       return;
     }
     setLifecyclePending("withdraw");
@@ -861,6 +933,13 @@ export function QuoteFieldLedger({
         <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
           <Frame className="min-w-0">
             <FramePanel className="overflow-hidden p-0">
+              {revisionAcknowledgementRequired ? (
+                <RevisionAcknowledgementPanel
+                  acknowledgement={lifecycle.result.revisionAcknowledgement}
+                  onAcknowledge={acknowledgeRevision}
+                  pending={acknowledgementPending}
+                />
+              ) : null}
               {readOnly ? (
                 <LedgerNotice
                   icon={<CalendarClock />}
@@ -1280,6 +1359,54 @@ function LedgerNotice({
         <AlertTitle>{title}</AlertTitle>
         <AlertDescription>{children}</AlertDescription>
       </Alert>
+    </div>
+  );
+}
+
+function RevisionAcknowledgementPanel({
+  acknowledgement,
+  onAcknowledge,
+  pending,
+}: {
+  acknowledgement: ReadableLifecycleResult["revisionAcknowledgement"];
+  onAcknowledge: () => Promise<void>;
+  pending: boolean;
+}) {
+  return (
+    <div className="border-b p-4 sm:p-5">
+      <Frame>
+        <FramePanel className="p-4">
+          <Alert variant="info">
+            <ShieldCheck />
+            <AlertTitle>Review the updated quote package</AlertTitle>
+            <AlertDescription>
+              This Quote Round was reopened with a new package revision. Review
+              every changed field before editing or submitting your response.
+              <ul
+                aria-label="Changed package fields"
+                className="mt-3 list-disc space-y-1 pl-5"
+              >
+                {acknowledgement.changedFieldKeys.map((fieldKey) => (
+                  <li key={fieldKey}>{formatChangedFieldKey(fieldKey)}</li>
+                ))}
+              </ul>
+              <Button
+                className="mt-4"
+                disabled={pending}
+                onClick={onAcknowledge}
+                size="sm"
+              >
+                {pending ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <ShieldCheck />
+                )}
+                {pending ? "Acknowledging…" : "Acknowledge package revision"}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </FramePanel>
+      </Frame>
     </div>
   );
 }
@@ -2627,7 +2754,9 @@ function isReadableLifecycle(
 ): result is ReadableLifecycleResult {
   return Boolean(
     result &&
-      (result.status === "available" || result.status === "read_only") &&
+      (result.status === "available" ||
+        result.status === "read_only" ||
+        result.status === "acknowledgement_required") &&
       "eligibility" in result
   );
 }
@@ -2695,6 +2824,8 @@ function lifecycleFailureMessage(status: string) {
       return "No submitted quote revision is available for this action.";
     case "confirmation_required":
       return "Confirm withdrawal before removing the quote from comparison.";
+    case "acknowledgement_required":
+      return "Review and acknowledge the updated package before continuing.";
     case "read_only":
       return "The response window closed before this action reached the server.";
     case "superseded":
@@ -2839,6 +2970,12 @@ function formatDate(value: string) {
     new Date(`${value}T12:00:00`)
   );
 }
+function formatChangedFieldKey(value: string) {
+  return value
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
 function formatDateTime(value: number) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -2862,13 +2999,20 @@ function safeClientKey() {
     : `${Date.now()}${Math.random().toString(36).slice(2)}`;
 }
 function uploadFailureMessage(
-  status: "read_only" | "revision_required" | "superseded" | "unavailable"
+  status:
+    | "read_only"
+    | "revision_required"
+    | "acknowledgement_required"
+    | "superseded"
+    | "unavailable"
 ) {
   return status === "read_only"
     ? "The response window closed before this file could attach."
     : status === "revision_required"
       ? "Start Revise quote before attaching files to a submitted response."
-      : status === "superseded"
-        ? "This package was replaced before the file could attach."
-        : "This invitation session ended before the file could attach.";
+      : status === "acknowledgement_required"
+        ? "Review and acknowledge the updated package before attaching files."
+        : status === "superseded"
+          ? "This package was replaced before the file could attach."
+          : "This invitation session ended before the file could attach.";
 }

@@ -2870,9 +2870,11 @@ export const publishQuoteRoundDraft = authenticatedMutation
     const invitationIds: Id<"quoteRoundInvitations">[] = [];
     for (const recipient of prepared.recipients) {
       const invitationId = await ctx.db.insert("quoteRoundInvitations", {
+        accessGeneration: 1,
         brokerageId: authorization.brokerage._id,
         buildId: authorization.build._id,
         createdAt: now,
+        currentQuotePackageRevisionId: packageRevisionId,
         organizationId: authorization.organizationId,
         participationState: "active",
         quotePackageRevisionId: packageRevisionId,

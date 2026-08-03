@@ -683,7 +683,8 @@ const quoteInvitationCredentialStateValidator = v.union(
 const quoteInvitationCredentialPurposeValidator = v.union(
   v.literal("initial"),
   v.literal("reminder"),
-  v.literal("renewal")
+  v.literal("renewal"),
+  v.literal("rotation")
 );
 
 const quoteInvitationBrowserSessionStateValidator = v.union(
@@ -697,6 +698,24 @@ const quoteInvitationAccessEventTypeValidator = v.union(
   v.literal("session_exchanged"),
   v.literal("session_reused"),
   v.literal("profile_claimed")
+);
+
+const quoteRoundRecipientNoticeKindValidator = v.union(
+  v.literal("package_revision_published"),
+  v.literal("access_reminder"),
+  v.literal("access_rotated"),
+  v.literal("recipient_replaced")
+);
+
+const quoteRoundRecipientNoticeStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("acknowledged"),
+  v.literal("cancelled")
+);
+
+const quoteInvitationPackageRevisionAcknowledgementStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("acknowledged")
 );
 
 // A recipient response is deliberately a separate mutable aggregate from the
@@ -2406,6 +2425,12 @@ export default defineSchema({
     // draft-to-open transition. Package Revision numbers are independent.
     revision: v.number(),
     currentPackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    closedAt: v.optional(v.number()),
+    closedByWorkosUserId: v.optional(v.string()),
+    closeReason: v.optional(v.string()),
+    cancelledAt: v.optional(v.number()),
+    cancelledByWorkosUserId: v.optional(v.string()),
+    cancellationReason: v.optional(v.string()),
     createdByWorkosUserId: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2499,6 +2524,8 @@ export default defineSchema({
     quoteRoundId: v.id("quoteRounds"),
     revision: v.number(),
     sourceDraftRevision: v.number(),
+    previousPackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    changedFieldKeys: v.optional(v.array(v.string())),
     templateId: v.id("quoteResponseTemplates"),
     templateVersionId: v.id("quoteResponseTemplateVersions"),
     responseDeadline: v.number(),
@@ -2975,11 +3002,20 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     quoteRoundId: v.id("quoteRounds"),
     quotePackageRevisionId: v.id("quotePackageRevisions"),
+    // Immutable provenance for the Invitation. During a Quote Round reopen,
+    // this value remains pinned while currentQuotePackageRevisionId advances
+    // so recipient Drafts and Submissions retain their original revision
+    // scope without creating a second Invitation row.
+    currentQuotePackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    supersedesInvitationId: v.optional(v.id("quoteRoundInvitations")),
     recipientProfileId: v.id("contractorProfiles"),
     recipientNameSnapshot: v.string(),
     recipientEmailSnapshot: v.string(),
     recipientCapabilitiesSnapshot: v.array(quoteRecipientCapabilityValidator),
     participationState: quoteInvitationParticipationStateValidator,
+    accessGeneration: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revocationReason: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -3012,6 +3048,10 @@ export default defineSchema({
     .index("by_quoteRoundInvitationId_and_state", [
       "quoteRoundInvitationId",
       "state",
+    ])
+    .index("by_quoteRoundInvitationId_and_credentialVersion", [
+      "quoteRoundInvitationId",
+      "credentialVersion",
     ])
     .index("by_credentialVerifier", ["credentialVerifier"]),
   // Browser leases are exchange artifacts, not bearer credentials. The raw
@@ -3085,6 +3125,54 @@ export default defineSchema({
       "organizationId",
       "idempotencyKey",
     ]),
+  // Durable recipient notice intent. Provider delivery/outbox mechanics are
+  // deliberately owned by the notification ticket; lifecycle transitions
+  // still record one organization-scoped intent per active recipient.
+  quoteRoundRecipientNoticeIntents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    kind: quoteRoundRecipientNoticeKindValidator,
+    reason: v.string(),
+    status: quoteRoundRecipientNoticeStatusValidator,
+    createdAt: v.number(),
+    acknowledgedAt: v.optional(v.number()),
+  })
+    .index("by_quoteRoundInvitationId_and_createdAt", [
+      "quoteRoundInvitationId",
+      "createdAt",
+    ])
+    .index("by_quoteRoundInvitationId_and_quotePackageRevisionId_and_kind", [
+      "quoteRoundInvitationId",
+      "quotePackageRevisionId",
+      "kind",
+    ])
+    .index("by_quoteRoundId_and_createdAt", ["quoteRoundId", "createdAt"]),
+  // A new Package Revision never silently migrates a recipient response. The
+  // row is an explicit review/acknowledgement gate for changed or added
+  // recipient-visible fields.
+  quoteInvitationPackageRevisionAcknowledgements: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    previousPackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    changedFieldKeys: v.array(v.string()),
+    acknowledgedFieldKeys: v.array(v.string()),
+    status: quoteInvitationPackageRevisionAcknowledgementStatusValidator,
+    acknowledgedAt: v.optional(v.number()),
+    acknowledgedByWorkosUserId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_quoteRoundInvitationId_and_quotePackageRevisionId", [
+    "quoteRoundInvitationId",
+    "quotePackageRevisionId",
+  ]),
   proposalTemplateMilestones: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

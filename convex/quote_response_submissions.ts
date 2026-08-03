@@ -13,11 +13,14 @@ import {
   type InvitationScope,
   quoteInvitationAccessProjection,
   quoteInvitationAccessProjectionValidator,
+  quoteInvitationPackageRevisionAcknowledgement,
+  requireAcknowledgedPackageRevision,
   resolveQuoteInvitationBrowserReadAccess,
   resolveQuoteInvitationBrowserWriteAccess,
   resolveQuoteInvitationClaimedReadAccess,
   resolveQuoteInvitationClaimedWriteAccess,
 } from "./quote_invitation_access";
+import { migratePriorRevisionDraftForAccess } from "./quote_response_drafts";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_DRAFT_LINE_ITEMS = 340;
@@ -141,17 +144,26 @@ const lifecycleEligibilityValidator = v.object({
   reason: v.optional(v.string()),
 });
 
+const revisionAcknowledgementValidator = v.object({
+  acknowledgedFieldKeys: v.array(v.string()),
+  changedFieldKeys: v.array(v.string()),
+  required: v.boolean(),
+  status: v.union(v.literal("pending"), v.literal("acknowledged")),
+});
+
 const lifecycleResultValidator = v.object({
   access: v.optional(quoteInvitationAccessProjectionValidator),
   currentSubmission: v.union(submissionProjectionValidator, v.null()),
   draft: v.union(draftProjectionValidator, v.null()),
   hasMoreRevisions: v.boolean(),
   eligibility: lifecycleEligibilityValidator,
+  revisionAcknowledgement: revisionAcknowledgementValidator,
   revisionCount: v.number(),
   revisions: v.array(submissionSummaryValidator),
   status: v.union(
     v.literal("available"),
     v.literal("read_only"),
+    v.literal("acknowledgement_required"),
     v.literal("superseded"),
     v.literal("unavailable")
   ),
@@ -162,6 +174,7 @@ const submissionRevisionReadResultValidator = v.object({
   status: v.union(
     v.literal("available"),
     v.literal("read_only"),
+    v.literal("acknowledgement_required"),
     v.literal("superseded"),
     v.literal("unavailable")
   ),
@@ -176,6 +189,7 @@ const submitResultValidator = v.object({
     v.literal("invalid"),
     v.literal("no_draft"),
     v.literal("read_only"),
+    v.literal("acknowledgement_required"),
     v.literal("superseded"),
     v.literal("unavailable")
   ),
@@ -190,6 +204,7 @@ const startRevisionResultValidator = v.object({
     v.literal("conflict"),
     v.literal("no_submission"),
     v.literal("read_only"),
+    v.literal("acknowledgement_required"),
     v.literal("superseded"),
     v.literal("unavailable")
   ),
@@ -447,10 +462,11 @@ async function lifecycleForAccess(ctx: QueryCtx, access: ReadAccess) {
     return emptyLifecycle(access.status);
   }
   const scope = access.scope;
-  const [draft, state, revisionHistory] = await Promise.all([
+  const [draft, state, revisionHistory, acknowledgement] = await Promise.all([
     findDraft(ctx, scope),
     findSubmissionState(ctx, scope),
     listLifecycleSubmissionRevisions(ctx, scope),
+    quoteInvitationPackageRevisionAcknowledgement(ctx, scope),
   ]);
   const revisions = revisionHistory.revisions;
   const byId = new Map(revisions.map((revision) => [revision._id, revision]));
@@ -468,6 +484,10 @@ async function lifecycleForAccess(ctx: QueryCtx, access: ReadAccess) {
     ? await submissionProjection(ctx, scope, currentRevision)
     : null;
   const summaries = await submissionSummaries(ctx, scope, revisions);
+  const lifecycleStatus =
+    access.status === "available" && !acknowledgement.acknowledged
+      ? ("acknowledgement_required" as const)
+      : access.status;
   const lifecycle = {
     access: await quoteInvitationAccessProjection(
       ctx,
@@ -478,15 +498,26 @@ async function lifecycleForAccess(ctx: QueryCtx, access: ReadAccess) {
     ),
     currentSubmission,
     draft: draft ? await draftProjection(ctx, scope, draft) : null,
-    eligibility: lifecycleEligibility(access.status, {
-      hasDraft: Boolean(draft),
-      hasLatestSubmission: Boolean(state),
-      hasActiveSubmission: Boolean(state?.activeSubmissionRevisionId),
-    }),
+    eligibility: lifecycleEligibility(
+      lifecycleStatus === "acknowledgement_required"
+        ? "read_only"
+        : lifecycleStatus,
+      {
+        hasDraft: Boolean(draft),
+        hasLatestSubmission: Boolean(state),
+        hasActiveSubmission: Boolean(state?.activeSubmissionRevisionId),
+      }
+    ),
     hasMoreRevisions: revisionHistory.hasMore,
+    revisionAcknowledgement: {
+      acknowledgedFieldKeys: acknowledgement.acknowledgedFieldKeys,
+      changedFieldKeys: acknowledgement.changedFieldKeys,
+      required: acknowledgement.required,
+      status: acknowledgement.status,
+    },
     revisionCount: state?.latestRevision ?? 0,
     revisions: summaries,
-    status: access.status,
+    status: lifecycleStatus,
   } as const;
   return lifecycle;
 }
@@ -568,6 +599,14 @@ async function submitForAccess(
   if (access.status !== "available") {
     return { status: access.status };
   }
+  const acknowledgementRequired = await requireAcknowledgedPackageRevision(
+    ctx,
+    scope
+  );
+  if (acknowledgementRequired) {
+    return acknowledgementRequired;
+  }
+  await migratePriorRevisionDraftForAccess(ctx, scope);
   const draft = await findDraft(ctx, scope);
   if (!draft) {
     return { status: "no_draft" as const };
@@ -791,6 +830,14 @@ async function startRevisionForAccess(
     return { status: access.status };
   }
   const scope = access.scope;
+  const acknowledgementRequired = await requireAcknowledgedPackageRevision(
+    ctx,
+    scope
+  );
+  if (acknowledgementRequired) {
+    return acknowledgementRequired;
+  }
+  await migratePriorRevisionDraftForAccess(ctx, scope);
   const state = await findSubmissionState(ctx, scope);
   if (!state) {
     return { status: "no_submission" as const };
@@ -968,6 +1015,12 @@ function emptyLifecycle(
       hasLatestSubmission: false,
     }),
     hasMoreRevisions: false,
+    revisionAcknowledgement: {
+      acknowledgedFieldKeys: [],
+      changedFieldKeys: [],
+      required: false,
+      status: "acknowledged" as const,
+    },
     revisionCount: 0,
     revisions: [],
     status,
