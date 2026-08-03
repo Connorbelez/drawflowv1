@@ -5,7 +5,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   defaultQuoteInvitationAccessExpiry,
   quoteInvitationUrl,
@@ -2466,6 +2466,202 @@ async function replaceCredentialMagicToken(
   });
 }
 
+async function publishComparisonRound(
+  fixture: Awaited<ReturnType<typeof seedQuoteFixture>>,
+  recipientProfileIds: Id<"contractorProfiles">[] = [fixture.recipientId]
+) {
+  const created = await configureRound(fixture, "combined", {
+    recipientProfileIds,
+  });
+  await fixture.builder.mutation(
+    (api as any).quote_rounds.publishQuoteRoundDraft,
+    {
+      buildId: fixture.buildId,
+      expectedRevision: 1,
+      idempotencyKey: `comparison-publish-${String(created.quoteRoundId)}`,
+      quoteRoundId: created.quoteRoundId,
+      workosOrganizationId: ORGANIZATION_ID,
+    }
+  );
+  const invitations = await fixture.base.run(async (ctx) =>
+    await ctx.db
+      .query("quoteRoundInvitations")
+      .withIndex("by_quoteRoundId_and_participationState", (query) =>
+        query
+          .eq("quoteRoundId", created.quoteRoundId)
+          .eq("participationState", "active")
+      )
+      .take(recipientProfileIds.length + 1)
+  );
+  expect(invitations).toHaveLength(recipientProfileIds.length);
+  return { invitations, quoteRoundId: created.quoteRoundId };
+}
+
+async function submitComparisonCandidate(
+  fixture: Awaited<ReturnType<typeof seedQuoteFixture>>,
+  invitation: Doc<"quoteRoundInvitations">,
+  input: {
+    attachment?: boolean;
+    commentsHtml?: string;
+    labourCents: number;
+    materialCents: number;
+    tokenSuffix: string;
+  }
+) {
+  const credential = await fixture.base.run(async (ctx) =>
+    await ctx.db
+      .query("quoteInvitationAccessCredentials")
+      .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+        query.eq("quoteRoundInvitationId", invitation._id).eq("state", "active")
+      )
+      .first()
+  );
+  if (!credential) {
+    throw new Error("Expected an active comparison credential.");
+  }
+  const magicToken = `comparison-browser-${input.tokenSuffix}`;
+  await replaceCredentialMagicToken(fixture, credential._id, magicToken);
+  const exchanged = await fixture.base.mutation(
+    (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+    { magicToken }
+  );
+  if (exchanged.status !== "available") {
+    throw new Error("Expected comparison invitation access.");
+  }
+  const access = await fixture.base.query(
+    (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
+    {
+      presentationNow: Date.now(),
+      quoteRoundInvitationId: invitation._id,
+      sessionToken: exchanged.sessionToken,
+    }
+  );
+  const labourLine = access.access.package.labourLines[0];
+  const materialLine = access.access.package.materialLines[0];
+  const requiredAnswer = access.access.package.responseFields.find(
+    (field: { fieldKey: string }) => field.fieldKey === "approach"
+  );
+  if (!(labourLine && materialLine && requiredAnswer)) {
+    throw new Error("Expected mixed comparison Package facts.");
+  }
+  const saved = await fixture.base.mutation(
+    (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+    {
+      expectedVersion: 0,
+      patch: {
+        answerPatches: [
+          {
+            sourcePackageRevisionResponseFieldId: requiredAnswer.sourceFieldId,
+            value: `<p>Schedule ${input.tokenSuffix}: mobilize in 5 days.</p>`,
+          },
+        ],
+        commentsHtml:
+          input.commentsHtml ?? `<p>Commercial note ${input.tokenSuffix}.</p>`,
+        linePatches: [
+          {
+            lineKey: `labour:${labourLine.sourceLineId}`,
+            quotedAmountCents: input.labourCents,
+            scope: "labour",
+            source: "package_labour",
+            sourcePackageRevisionLabourLineId: labourLine.sourceLineId,
+          },
+          {
+            lineKey: `material:${materialLine.sourceLineId}`,
+            quotedAmountCents: input.materialCents,
+            scope: "materials",
+            source: "package_material",
+            sourcePackageRevisionMaterialLineId: materialLine.sourceLineId,
+          },
+          {
+            lineKey: `expanded:alternate-${input.tokenSuffix}`,
+            quotedAmountCents: 250_00,
+            scope: "labour",
+            source: "expanded_scope",
+            title: `Alternate ${input.tokenSuffix}`,
+          },
+          {
+            lineKey: `expanded:exclusion-${input.tokenSuffix}`,
+            scope: "materials",
+            source: "expanded_scope",
+            title: `Exclusion ${input.tokenSuffix}`,
+          },
+        ],
+      },
+      quoteRoundInvitationId: invitation._id,
+      sessionToken: exchanged.sessionToken,
+    }
+  );
+  expect(saved).toMatchObject({ status: "saved", draft: { version: 1 } });
+
+  if (input.attachment) {
+    await fixture.base.run(async (ctx) => {
+      const draft = await ctx.db
+        .query("quoteInvitationResponseDrafts")
+        .withIndex(
+          "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+          (query) =>
+            query
+              .eq("quoteRoundInvitationId", invitation._id)
+              .eq("quotePackageRevisionId", invitation.quotePackageRevisionId)
+        )
+        .unique();
+      if (!draft) {
+        throw new Error("Expected comparison response Draft.");
+      }
+      const bytes = new Blob([`comparison-${input.tokenSuffix}`], {
+        type: "application/pdf",
+      });
+      const storageId = await ctx.storage.store(bytes);
+      await ctx.db.insert("quoteInvitationResponseDraftAttachments", {
+        brokerageId: invitation.brokerageId,
+        buildId: invitation.buildId,
+        createdAt: Date.now(),
+        fileName: `comparison-${input.tokenSuffix}.pdf`,
+        mimeType: "application/pdf",
+        organizationId: invitation.organizationId,
+        quoteInvitationResponseDraftId: draft._id,
+        quotePackageRevisionId: invitation.quotePackageRevisionId,
+        quoteRoundId: invitation.quoteRoundId,
+        quoteRoundInvitationId: invitation._id,
+        sizeBytes: bytes.size,
+        storageId,
+      });
+      await ctx.db.patch(draft._id, {
+        attachmentCount: draft.attachmentCount + 1,
+        updatedAt: Date.now(),
+      });
+    });
+  }
+
+  const submitted = await fixture.base.mutation(
+    (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+    {
+      expectedDraftVersion: 1,
+      idempotencyKey: `comparison-submit-${input.tokenSuffix}`,
+      quoteRoundInvitationId: invitation._id,
+      sessionToken: exchanged.sessionToken,
+    }
+  );
+  expect(submitted).toMatchObject({ status: "accepted", submission: { revision: 1 } });
+  const submissionRevisionId = await fixture.base.run(async (ctx) => {
+    const state = await ctx.db
+      .query("quoteInvitationResponseSubmissionStates")
+      .withIndex(
+        "by_quoteRoundInvitationId_and_quotePackageRevisionId",
+        (query) =>
+          query
+            .eq("quoteRoundInvitationId", invitation._id)
+            .eq("quotePackageRevisionId", invitation.quotePackageRevisionId)
+      )
+      .unique();
+    if (!state?.activeSubmissionRevisionId) {
+      throw new Error("Expected an active comparison submission.");
+    }
+    return state.activeSubmissionRevisionId;
+  });
+  return { exchanged, submissionRevisionId, submitted };
+}
+
 describe("Quote Round draft-to-open aggregate", () => {
   test("requires HTTPS for bearer invitation URLs outside explicit loopback development origins", () => {
     vi.stubEnv("QUOTE_INVITATION_PUBLIC_ORIGIN", "http://drawflow.test");
@@ -3669,6 +3865,782 @@ describe("Quote Round draft-to-open aggregate", () => {
     ).rejects.toThrow(/must be in the future/);
   });
 });
+
+describe("Quote Round immutable response comparison and Preferred Quote", () => {
+  const compare = async (
+    fixture: Awaited<ReturnType<typeof seedQuoteFixture>>,
+    quoteRoundId: Id<"quoteRounds">,
+    viewer = fixture.builder,
+    organizationId = ORGANIZATION_ID
+  ) =>
+    await viewer.query((api as any).quote_comparisons.getQuoteRoundComparison, {
+      buildId: fixture.buildId,
+      quoteRoundId,
+      workosOrganizationId: organizationId,
+    });
+
+  const setPreferred = async (
+    fixture: Awaited<ReturnType<typeof seedQuoteFixture>>,
+    quoteRoundId: Id<"quoteRounds">,
+    submissionRevisionId: Id<"quoteInvitationResponseSubmissionRevisions">,
+    expectedStateVersion = 0
+  ) =>
+    await fixture.builder.mutation(
+      (api as any).quote_comparisons.setPreferredQuoteSubmissionRevision,
+      {
+        buildId: fixture.buildId,
+        expectedStateVersion,
+        quoteRoundId,
+        reason: "Best commercial fit after normalized review.",
+        submissionRevisionId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+
+  async function preferredFixture(tokenSuffix: string) {
+    const fixture = await seedQuoteFixture();
+    const published = await publishComparisonRound(fixture);
+    const candidate = await submitComparisonCandidate(
+      fixture,
+      published.invitations[0]!,
+      {
+        labourCents: 90_000_00,
+        materialCents: 40_000_00,
+        tokenSuffix,
+      }
+    );
+    await setPreferred(
+      fixture,
+      published.quoteRoundId,
+      candidate.submissionRevisionId
+    );
+    return { candidate, fixture, invitation: published.invitations[0]!, published };
+  }
+
+  test("renders an empty immutable comparison without projecting Draft content", async () => {
+    const fixture = await seedQuoteFixture();
+    const published = await publishComparisonRound(fixture);
+    const access = await fixture.base.run(async (ctx) => {
+      const credential = await ctx.db
+        .query("quoteInvitationAccessCredentials")
+        .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+          query
+            .eq("quoteRoundInvitationId", published.invitations[0]!._id)
+            .eq("state", "active")
+        )
+        .first();
+      if (!credential) {
+        throw new Error("Expected an invitation credential.");
+      }
+      return credential;
+    });
+    await replaceCredentialMagicToken(fixture, access._id, "comparison-draft-only");
+    const exchanged = await fixture.base.mutation(
+      (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken: "comparison-draft-only" }
+    );
+    if (exchanged.status !== "available") {
+      throw new Error("Expected invitation access.");
+    }
+    await fixture.base.mutation(
+      (api as any).quote_response_drafts.saveQuoteInvitationResponseDraft,
+      {
+        expectedVersion: 0,
+        patch: { commentsHtml: "<p>Private recipient Draft wording.</p>" },
+        quoteRoundInvitationId: published.invitations[0]!._id,
+        sessionToken: exchanged.sessionToken,
+      }
+    );
+
+    const result = await compare(fixture, published.quoteRoundId);
+    expect(result).toMatchObject({
+      candidates: [],
+      canClearPreferred: false,
+      preferred: null,
+      stateVersion: 0,
+      status: "available",
+    });
+    expect(JSON.stringify(result)).not.toContain("Private recipient Draft wording");
+  });
+
+  test("normalizes one immutable mixed response while preserving package, provenance, schedule, comments, attachment, tax, alternate, and exclusion facts", async () => {
+    const fixture = await seedQuoteFixture();
+    const published = await publishComparisonRound(fixture);
+    await fixture.base.run(async (ctx) => {
+      const field = await ctx.db
+        .query("quotePackageRevisionResponseFields")
+        .withIndex("by_quotePackageRevisionId_and_fieldKey", (query) =>
+          query
+            .eq(
+              "quotePackageRevisionId",
+              published.invitations[0]!.quotePackageRevisionId
+            )
+            .eq("fieldKey", "approach")
+        )
+        .unique();
+      if (!field) {
+        throw new Error("Expected immutable Package response facts.");
+      }
+      await ctx.db.patch(field._id, {
+        allowAlternates: true,
+        allowExclusions: true,
+        supportsTax: true,
+        tax: { label: "HST", rateBps: 1300 },
+      });
+    });
+    const submitted = await submitComparisonCandidate(
+      fixture,
+      published.invitations[0]!,
+      {
+        attachment: true,
+        commentsHtml: "<p>Pricing valid for thirty days.</p>",
+        labourCents: 80_000_00,
+        materialCents: 45_000_00,
+        tokenSuffix: "single",
+      }
+    );
+
+    const result = await compare(fixture, published.quoteRoundId);
+    expect(result).toMatchObject({
+      candidates: [
+        {
+          attachments: [
+            {
+              fileName: "comparison-single.pdf",
+              mimeType: "application/pdf",
+            },
+          ],
+          commentsHtml: "<p>Pricing valid for thirty days.</p>",
+          invitation: { _id: published.invitations[0]!._id },
+          labourLines: [
+            {
+              quotedAmountCents: 80_000_00,
+              source: "package_labour",
+            },
+          ],
+          materialLines: [
+            {
+              quotedAmountCents: 45_000_00,
+              source: "package_material",
+            },
+          ],
+          answers: [
+            { fieldKey: "approach", value: expect.stringContaining("5 days") },
+          ],
+          submission: {
+            _id: submitted.submissionRevisionId,
+            canonicalTotalCents: 125_250_00,
+            revision: 1,
+          },
+          totals: {
+            canonicalTotalCents: 125_250_00,
+            expandedScopeCents: 250_00,
+            labourCents: 80_000_00,
+            materialsCents: 45_000_00,
+          },
+        },
+      ],
+      package: {
+        attachments: expect.arrayContaining([
+          expect.objectContaining({ fileNameSnapshot: "permit.pdf" }),
+          expect.objectContaining({ fileNameSnapshot: "framing-plan.pdf" }),
+        ]),
+        responseFields: expect.arrayContaining([
+          expect.objectContaining({
+            allowAlternates: true,
+            allowExclusions: true,
+            fieldKey: "approach",
+            supportsTax: true,
+            tax: { label: "HST", rateBps: 1300 },
+          }),
+        ]),
+        revision: 1,
+      },
+      status: "available",
+    });
+    expect(result.candidates[0].expandedScopeLines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          quotedAmountCents: 250_00,
+          source: "expanded_scope",
+          title: "Alternate single",
+        }),
+        expect.objectContaining({
+          source: "expanded_scope",
+          title: "Exclusion single",
+        }),
+      ])
+    );
+    expect(result.candidates[0].totals.canonicalTotalCents).toBe(
+      result.candidates[0].labourLines.reduce(
+        (total: number, row: { quotedAmountCents?: number }) =>
+          total + (row.quotedAmountCents ?? 0),
+        0
+      ) +
+        result.candidates[0].materialLines.reduce(
+          (total: number, row: { quotedAmountCents?: number }) =>
+            total + (row.quotedAmountCents ?? 0),
+          0
+        ) +
+        result.candidates[0].expandedScopeLines.reduce(
+          (total: number, row: { quotedAmountCents?: number }) =>
+            total + (row.quotedAmountCents ?? 0),
+          0
+        )
+    );
+  });
+
+  test("compares multiple current submissions only and never leaks another Build or recipient route", async () => {
+    const fixture = await seedQuoteFixture();
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(fixture.contractorOnlyRecipientId, {
+        quoteRecipientCapabilities: ["contractor", "supplier"],
+        updatedAt: Date.now(),
+      })
+    );
+    const published = await publishComparisonRound(fixture, [
+      fixture.recipientId,
+      fixture.contractorOnlyRecipientId,
+    ]);
+    const first = await submitComparisonCandidate(fixture, published.invitations[0]!, {
+      labourCents: 90_000_00,
+      materialCents: 40_000_00,
+      tokenSuffix: "multi-a",
+    });
+    const second = await submitComparisonCandidate(fixture, published.invitations[1]!, {
+      labourCents: 84_000_00,
+      materialCents: 44_000_00,
+      tokenSuffix: "multi-b",
+    });
+    const result = await compare(fixture, published.quoteRoundId);
+    expect(result.candidates).toHaveLength(2);
+    expect(
+      new Set(
+        result.candidates.map((candidate: { submission: { _id: string } }) =>
+          candidate.submission._id
+        )
+      )
+    ).toEqual(new Set([first.submissionRevisionId, second.submissionRevisionId]));
+
+    const wrongBuildId = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Expected comparison Build.");
+      }
+      const { _creationTime: _ignoredCreationTime, _id: _ignoredId, ...copy } =
+        build;
+      return await ctx.db.insert("activeBuilds", {
+        ...copy,
+        buildName: "Wrong comparison Build",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      fixture.builder.query((api as any).quote_comparisons.getQuoteRoundComparison, {
+        buildId: wrongBuildId,
+        quoteRoundId: published.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    ).rejects.toThrow(/unavailable|Build|Quote Round/i);
+
+    const foreignOrganizationBuilder = withIdentity(
+      fixture.base,
+      ["builder"],
+      "user_builder",
+      "org_foreign_comparison"
+    );
+    await expect(
+      compare(
+        fixture,
+        published.quoteRoundId,
+        foreignOrganizationBuilder,
+        "org_foreign_comparison"
+      )
+    ).rejects.toThrow(/organization|brokerage|access|unavailable/i);
+  });
+
+  test("admits authorized Builder and Builder Staff reads while excluding recipient access, superseded revisions, and withdrawn submissions", async () => {
+    const fixture = await seedQuoteFixture();
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(fixture.contractorOnlyRecipientId, {
+        quoteRecipientCapabilities: ["contractor", "supplier"],
+        updatedAt: Date.now(),
+      })
+    );
+    const published = await publishComparisonRound(fixture, [
+      fixture.recipientId,
+      fixture.contractorOnlyRecipientId,
+    ]);
+    const current = await submitComparisonCandidate(fixture, published.invitations[0]!, {
+      labourCents: 81_000_00,
+      materialCents: 42_000_00,
+      tokenSuffix: "role-current",
+    });
+    const withdrawn = await submitComparisonCandidate(
+      fixture,
+      published.invitations[1]!,
+      {
+        labourCents: 83_000_00,
+        materialCents: 43_000_00,
+        tokenSuffix: "role-withdrawn",
+      }
+    );
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.startQuoteInvitationResponseRevision,
+      {
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: published.invitations[0]!._id,
+        sessionToken: current.exchanged.sessionToken,
+      }
+    );
+    const resubmitted = await fixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "comparison-role-resubmit",
+        quoteRoundInvitationId: published.invitations[0]!._id,
+        sessionToken: current.exchanged.sessionToken,
+      }
+    );
+    await fixture.base.mutation(
+      (api as any).quote_response_submissions.withdrawQuoteInvitationResponse,
+      {
+        confirmed: true,
+        expectedSubmissionRevision: 1,
+        quoteRoundInvitationId: published.invitations[1]!._id,
+        sessionToken: withdrawn.exchanged.sessionToken,
+      }
+    );
+
+    const builderResult = await compare(fixture, published.quoteRoundId);
+    expect(builderResult.candidates).toHaveLength(1);
+    expect(builderResult.candidates[0]).toMatchObject({
+      history: [
+        { revision: 2, status: "active" },
+        { revision: 1, status: "superseded", supersededByRevision: 2 },
+      ],
+      submission: { revision: 2 },
+    });
+    expect(JSON.stringify(builderResult)).not.toContain(
+      String(current.submissionRevisionId)
+    );
+    expect(JSON.stringify(builderResult)).not.toContain(
+      String(withdrawn.submissionRevisionId)
+    );
+
+    const builderStaff = withIdentity(
+      fixture.base,
+      ["builder-staff"],
+      "user_builder"
+    );
+    expect(await compare(fixture, published.quoteRoundId, builderStaff)).toEqual(
+      builderResult
+    );
+    const recipient = withIdentity(
+      fixture.base,
+      ["member"],
+      "comparison-recipient",
+      ORGANIZATION_ID,
+      "quote-recipient@example.com"
+    );
+    await expect(
+      compare(fixture, published.quoteRoundId, recipient)
+    ).rejects.toThrow(/Builder|Staff|participation|access/i);
+
+    await expect(
+      setPreferred(
+        fixture,
+        published.quoteRoundId,
+        withdrawn.submissionRevisionId
+      )
+    ).rejects.toThrow(/current|withdrawn|eligible|active/i);
+    await expect(
+      setPreferred(
+        fixture,
+        published.quoteRoundId,
+        current.submissionRevisionId
+      )
+    ).rejects.toThrow(/current|superseded|eligible|active/i);
+  });
+
+  test("sets and reversibly clears exactly one Preferred pointer in Open and Closed rounds with optimistic concurrency and audit only", async () => {
+    const fixture = await seedQuoteFixture();
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(fixture.contractorOnlyRecipientId, {
+        quoteRecipientCapabilities: ["contractor", "supplier"],
+        updatedAt: Date.now(),
+      })
+    );
+    const published = await publishComparisonRound(fixture, [
+      fixture.recipientId,
+      fixture.contractorOnlyRecipientId,
+    ]);
+    const first = await submitComparisonCandidate(fixture, published.invitations[0]!, {
+      labourCents: 90_000_00,
+      materialCents: 40_000_00,
+      tokenSuffix: "preferred-a",
+    });
+    const second = await submitComparisonCandidate(fixture, published.invitations[1]!, {
+      labourCents: 84_000_00,
+      materialCents: 44_000_00,
+      tokenSuffix: "preferred-b",
+    });
+    const beforeSideEffects = await comparisonSideEffectCounts(fixture);
+
+    const selected = await setPreferred(
+      fixture,
+      published.quoteRoundId,
+      first.submissionRevisionId
+    );
+    expect(selected).toMatchObject({
+      idempotentReplay: false,
+      preferred: { submissionRevisionId: first.submissionRevisionId },
+      stateVersion: 1,
+      status: "selected",
+    });
+    const replay = await setPreferred(
+      fixture,
+      published.quoteRoundId,
+      first.submissionRevisionId,
+      1
+    );
+    expect(replay).toMatchObject({
+      idempotentReplay: true,
+      preferred: { submissionRevisionId: first.submissionRevisionId },
+      stateVersion: 1,
+      status: "selected",
+    });
+    const conflict = await setPreferred(
+      fixture,
+      published.quoteRoundId,
+      second.submissionRevisionId,
+      0
+    );
+    expect(conflict).toMatchObject({
+      idempotentReplay: false,
+      preferred: { submissionRevisionId: first.submissionRevisionId },
+      stateVersion: 1,
+      status: "conflict",
+    });
+    const pointerRows = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("quoteRoundPreferredSubmissionStates")
+        .withIndex("by_quoteRoundId", (query) =>
+          query.eq("quoteRoundId", published.quoteRoundId)
+        )
+        .take(2)
+    );
+    expect(pointerRows).toHaveLength(1);
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(published.quoteRoundId, {
+        state: "closed",
+        updatedAt: Date.now(),
+      });
+    });
+    const changed = await setPreferred(
+      fixture,
+      published.quoteRoundId,
+      second.submissionRevisionId,
+      1
+    );
+    expect(changed).toMatchObject({
+      preferred: { submissionRevisionId: second.submissionRevisionId },
+      stateVersion: 2,
+      status: "selected",
+    });
+    const cleared = await fixture.builder.mutation(
+      (api as any).quote_comparisons.clearPreferredQuoteSubmissionRevision,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        expectedStateVersion: 2,
+        quoteRoundId: published.quoteRoundId,
+        reason: "Commercial review reopened.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(cleared).toMatchObject({
+      preferred: null,
+      stateVersion: 3,
+      status: "cleared",
+    });
+    const afterSideEffects = await comparisonSideEffectCounts(fixture);
+    expect(afterSideEffects).toEqual(beforeSideEffects);
+    const audits = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("entityType", "quoteRound")
+            .eq("entityId", String(published.quoteRoundId))
+        )
+        .collect()
+    );
+    expect(audits.map((audit) => audit.eventType)).toEqual(
+      expect.arrayContaining([
+        "quote_round.preferred_quote_set",
+        "quote_round.preferred_quote_cleared",
+      ])
+    );
+  });
+
+  test("keeps a stale Preferred pointer recoverable without projecting an ineligible target", async () => {
+    const { candidate, fixture, invitation, published } =
+      await preferredFixture("stale-recovery");
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(invitation._id, {
+        participationState: "revoked",
+        revokedAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    );
+
+    const comparison = await compare(fixture, published.quoteRoundId);
+    expect(comparison).toMatchObject({
+      canClearPreferred: true,
+      preferred: null,
+      stateVersion: 1,
+      status: "available",
+    });
+    const conflict = await setPreferred(
+      fixture,
+      published.quoteRoundId,
+      candidate.submissionRevisionId,
+      0
+    );
+    expect(conflict).toMatchObject({
+      preferred: null,
+      stateVersion: 1,
+      status: "conflict",
+    });
+    const cleared = await fixture.builder.mutation(
+      (api as any).quote_comparisons.clearPreferredQuoteSubmissionRevision,
+      {
+        buildId: fixture.buildId,
+        confirmed: true,
+        expectedStateVersion: 1,
+        quoteRoundId: published.quoteRoundId,
+        reason: "Clear a stale Preferred Quote pointer after reconciliation.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(cleared).toMatchObject({
+      preferred: null,
+      stateVersion: 2,
+      status: "cleared",
+    });
+  });
+
+  test("clears Preferred instead of migrating it on resubmit, withdrawal, revocation, recipient replacement, Package supersession, and cancellation", async () => {
+    const cases = [
+      "resubmit",
+      "withdraw",
+      "revoke",
+      "replace",
+      "supersede_package",
+      "cancel",
+    ] as const;
+
+    for (const lifecycleCase of cases) {
+      const { candidate, fixture, invitation, published } =
+        await preferredFixture(`clear-${lifecycleCase}`);
+
+      switch (lifecycleCase) {
+        case "resubmit": {
+          const started = await fixture.base.mutation(
+            (api as any).quote_response_submissions
+              .startQuoteInvitationResponseRevision,
+            {
+              expectedSubmissionRevision: 1,
+              quoteRoundInvitationId: invitation._id,
+              sessionToken: candidate.exchanged.sessionToken,
+            }
+          );
+          expect(started).toMatchObject({
+            draft: { version: 1 },
+            status: "draft_ready",
+          });
+          await fixture.base.mutation(
+            (api as any).quote_response_submissions
+              .submitQuoteInvitationResponse,
+            {
+              expectedDraftVersion: 1,
+              idempotencyKey: "comparison-preferred-resubmit",
+              quoteRoundInvitationId: invitation._id,
+              sessionToken: candidate.exchanged.sessionToken,
+            }
+          );
+          break;
+        }
+        case "withdraw":
+          await fixture.base.mutation(
+            (api as any).quote_response_submissions
+              .withdrawQuoteInvitationResponse,
+            {
+              confirmed: true,
+              expectedSubmissionRevision: 1,
+              explanation: "Withdraw the previously Preferred commercial response.",
+              quoteRoundInvitationId: invitation._id,
+              sessionToken: candidate.exchanged.sessionToken,
+            }
+          );
+          break;
+        case "revoke":
+          await fixture.builder.mutation(
+            (api as any).quote_round_lifecycle.revokeQuoteRoundInvitation,
+            {
+              buildId: fixture.buildId,
+              confirmed: true,
+              quoteRoundInvitationId: invitation._id,
+              reason: "Recipient is no longer eligible for this solicitation.",
+              workosOrganizationId: ORGANIZATION_ID,
+            }
+          );
+          break;
+        case "replace":
+          await fixture.builder.mutation(
+            (api as any).quote_round_lifecycle.replaceQuoteRoundInvitationEmail,
+            {
+              buildId: fixture.buildId,
+              confirmed: true,
+              correctedEmail: "preferred.replacement@example.com",
+              quoteRoundInvitationId: invitation._id,
+              reason: "Correct the recipient identity without transferring history.",
+              workosOrganizationId: ORGANIZATION_ID,
+            }
+          );
+          break;
+        case "supersede_package": {
+          const round = await fixture.builder.query(
+            (api as any).quote_rounds.getQuoteRound,
+            {
+              buildId: fixture.buildId,
+              quoteRoundId: published.quoteRoundId,
+              workosOrganizationId: ORGANIZATION_ID,
+            }
+          );
+          const closed = await fixture.builder.mutation(
+            (api as any).quote_round_lifecycle.closeQuoteRound,
+            {
+              buildId: fixture.buildId,
+              confirmed: true,
+              expectedRevision: round.revision,
+              quoteRoundId: published.quoteRoundId,
+              reason: "Close before publishing a superseding Package Revision.",
+              workosOrganizationId: ORGANIZATION_ID,
+            }
+          );
+          await fixture.builder.mutation(
+            (api as any).quote_round_lifecycle.reopenQuoteRoundWithRevision,
+            {
+              buildId: fixture.buildId,
+              changedFieldKeys: ["responseDeadline"],
+              confirmed: true,
+              expectedRevision: closed.revision,
+              quoteRoundId: published.quoteRoundId,
+              reason: "Publish the superseding Package Revision.",
+              responseDeadline: Date.now() + 2 * 24 * 60 * 60 * 1000,
+              workosOrganizationId: ORGANIZATION_ID,
+            }
+          );
+          break;
+        }
+        case "cancel": {
+          const round = await fixture.builder.query(
+            (api as any).quote_rounds.getQuoteRound,
+            {
+              buildId: fixture.buildId,
+              quoteRoundId: published.quoteRoundId,
+              workosOrganizationId: ORGANIZATION_ID,
+            }
+          );
+          await fixture.builder.mutation(
+            (api as any).quote_round_lifecycle.cancelQuoteRound,
+            {
+              buildId: fixture.buildId,
+              confirmed: true,
+              expectedRevision: round.revision,
+              quoteRoundId: published.quoteRoundId,
+              reason: "Cancel the solicitation and clear commercial tracking.",
+              workosOrganizationId: ORGANIZATION_ID,
+            }
+          );
+          break;
+        }
+      }
+
+      const after = await compare(fixture, published.quoteRoundId);
+      if (lifecycleCase === "cancel") {
+        expect(after, lifecycleCase).toMatchObject({ status: "unavailable" });
+      } else {
+        expect(after.preferred, lifecycleCase).toBeNull();
+      }
+      const state = await fixture.base.run(async (ctx) =>
+        await ctx.db
+          .query("quoteRoundPreferredSubmissionStates")
+          .withIndex("by_quoteRoundId", (query) =>
+            query.eq("quoteRoundId", published.quoteRoundId)
+          )
+          .unique()
+      );
+      expect(state, lifecycleCase).toMatchObject({ stateVersion: 2 });
+      expect(
+        state?.quoteInvitationResponseSubmissionRevisionId,
+        lifecycleCase
+      ).toBeUndefined();
+      const audits = await fixture.base.run(async (ctx) =>
+        await ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (query) =>
+            query
+              .eq("entityType", "quoteRound")
+              .eq("entityId", String(published.quoteRoundId))
+          )
+          .collect()
+      );
+      expect(
+        audits.some(
+          (audit) =>
+            audit.eventType === "quote_round.preferred_quote_cleared" &&
+            Boolean(audit.reason?.trim())
+        ),
+        lifecycleCase
+      ).toBe(true);
+    }
+  });
+});
+
+async function comparisonSideEffectCounts(
+  fixture: Awaited<ReturnType<typeof seedQuoteFixture>>
+) {
+  return await fixture.base.run(async (ctx) => ({
+    activeBuildBudgetRevisionRequests: (
+      await ctx.db.query("activeBuildBudgetRevisionRequests").collect()
+    ).length,
+    activeBuildDrawRequests: (
+      await ctx.db.query("activeBuildDrawRequests").collect()
+    ).length,
+    buildContractorAssignments: (
+      await ctx.db.query("buildContractorAssignments").collect()
+    ).length,
+    communicationIntents: (
+      await ctx.db.query("communicationIntents").collect()
+    ).length,
+    costDocuments: (await ctx.db.query("costDocuments").collect()).length,
+    eventOutbox: (await ctx.db.query("eventOutbox").collect()).length,
+    milestoneContractorAssignments: (
+      await ctx.db.query("milestoneContractorAssignments").collect()
+    ).length,
+    noticeIntents: (
+      await ctx.db.query("quoteRoundRecipientNoticeIntents").collect()
+    ).length,
+    plannedDrawScheduleRows: (
+      await ctx.db.query("plannedDrawScheduleRows").collect()
+    ).length,
+  }));
+}
 
 describe("Quote Round governed lifecycle", () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
@@ -5328,6 +6300,135 @@ describe("Quote Round operations register projection", () => {
       }
     );
   }
+
+  test("projects the exact Preferred Submission Revision into the control register without duplicating commercial state", async () => {
+    const fixture = await seedQuoteFixture();
+    const published = await publishComparisonRound(fixture);
+    const candidate = await submitComparisonCandidate(
+      fixture,
+      published.invitations[0]!,
+      {
+        labourCents: 90_000_00,
+        materialCents: 40_000_00,
+        tokenSuffix: "register-preferred",
+      }
+    );
+
+    await fixture.builder.mutation(
+      (api as any).quote_comparisons.setPreferredQuoteSubmissionRevision,
+      {
+        buildId: fixture.buildId,
+        expectedStateVersion: 0,
+        quoteRoundId: published.quoteRoundId,
+        reason: "Expose the reviewed immutable revision in the register.",
+        submissionRevisionId: candidate.submissionRevisionId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+
+    const result = await register(fixture);
+    const row = result.rounds.find(
+      (candidateRow: { _id: string }) =>
+        candidateRow._id === published.quoteRoundId
+    );
+    expect(row?.preferredQuote).toMatchObject({
+      canonicalTotalCents: 130_250_00,
+      invitationId: published.invitations[0]!._id,
+      packageRevisionId: published.invitations[0]!.quotePackageRevisionId,
+      revision: 1,
+      submissionRevisionId: candidate.submissionRevisionId,
+    });
+    expect(row?.preferredQuote?.submittedAt).toEqual(expect.any(Number));
+    expect(row?.preferredQuote).not.toHaveProperty("commentsHtml");
+    expect(row?.preferredQuote).not.toHaveProperty("lineItems");
+  });
+
+  test("treats an inactive Preferred invitation as a stale register projection", async () => {
+    const fixture = await seedQuoteFixture();
+    const published = await publishComparisonRound(fixture);
+    const candidate = await submitComparisonCandidate(
+      fixture,
+      published.invitations[0]!,
+      {
+        labourCents: 90_000_00,
+        materialCents: 40_000_00,
+        tokenSuffix: "register-inactive-preferred",
+      }
+    );
+    await fixture.builder.mutation(
+      (api as any).quote_comparisons.setPreferredQuoteSubmissionRevision,
+      {
+        buildId: fixture.buildId,
+        expectedStateVersion: 0,
+        quoteRoundId: published.quoteRoundId,
+        reason: "Select before simulating a stale invitation projection.",
+        submissionRevisionId: candidate.submissionRevisionId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(published.invitations[0]!._id, {
+        participationState: "revoked",
+        updatedAt: Date.now(),
+      });
+    });
+
+    const result = await register(fixture);
+    expect(
+      result.rounds.find(
+        (row: { _id: string }) => row._id === published.quoteRoundId
+      )?.preferredQuote
+    ).toBeNull();
+  });
+
+  test("treats an old-package Preferred pointer as a stale register projection", async () => {
+    const fixture = await seedQuoteFixture();
+    const published = await publishComparisonRound(fixture);
+    const otherRound = await publishComparisonRound(fixture);
+    const candidate = await submitComparisonCandidate(
+      fixture,
+      published.invitations[0]!,
+      {
+        labourCents: 90_000_00,
+        materialCents: 40_000_00,
+        tokenSuffix: "register-stale-package-preferred",
+      }
+    );
+    await fixture.builder.mutation(
+      (api as any).quote_comparisons.setPreferredQuoteSubmissionRevision,
+      {
+        buildId: fixture.buildId,
+        expectedStateVersion: 0,
+        quoteRoundId: published.quoteRoundId,
+        reason: "Select before simulating a stale package pointer.",
+        submissionRevisionId: candidate.submissionRevisionId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      const state = await ctx.db
+        .query("quoteRoundPreferredSubmissionStates")
+        .withIndex("by_quoteRoundId", (query) =>
+          query.eq("quoteRoundId", published.quoteRoundId)
+        )
+        .unique();
+      if (!state) {
+        throw new Error("Expected Preferred Quote state.");
+      }
+      await ctx.db.patch(state._id, {
+        quotePackageRevisionId:
+          otherRound.invitations[0]!.quotePackageRevisionId,
+        updatedAt: Date.now(),
+      });
+    });
+
+    const result = await register(fixture);
+    expect(
+      result.rounds.find(
+        (row: { _id: string }) => row._id === published.quoteRoundId
+      )?.preferredQuote
+    ).toBeNull();
+  });
 
   test("projects independent recipient, delivery, participation, access, response, deadline, and attention facts", async () => {
     const fixture = await openedSubmissionFixture();

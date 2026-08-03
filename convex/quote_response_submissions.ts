@@ -21,6 +21,7 @@ import {
   resolveQuoteInvitationClaimedReadAccess,
   resolveQuoteInvitationClaimedWriteAccess,
 } from "./quote_invitation_access";
+import { clearPreferredForSubmission } from "./quote_preferred";
 import { migratePriorRevisionDraftForAccess } from "./quote_response_drafts";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
@@ -714,6 +715,18 @@ async function acceptValidatedDraftSubmission(
   // advancing monotonic clock, so validation cannot cross the deadline while
   // still receiving a pre-deadline receipt.
   const now = finalWriteAccess.checkedAt;
+  if (priorActive) {
+    await clearPreferredForSubmission(ctx, priorActive, {
+      actor: {
+        actorRoles: ["quote-recipient"],
+        actorWorkosUserId:
+          request.actor.workosUserId ?? `quote-recipient:${scope.profile._id}`,
+      },
+      command: "submitQuoteInvitationResponse",
+      reason:
+        "Quote response resubmission superseded the previously Preferred Quote.",
+    });
+  }
   const revision = (state?.latestRevision ?? 0) + 1;
   const submissionRevisionId = await ctx.db.insert(
     "quoteInvitationResponseSubmissionRevisions",
@@ -985,6 +998,16 @@ async function withdrawForAccess(
     );
   }
   const now = finalWriteAccess.checkedAt;
+  await clearPreferredForSubmission(ctx, active, {
+    actor: {
+      actorRoles: ["quote-recipient"],
+      actorWorkosUserId:
+        actor.workosUserId ?? `quote-recipient:${scope.profile._id}`,
+    },
+    command: "withdrawQuoteInvitationResponse",
+    reason:
+      explanation ?? "Quote response withdrawal cleared the Preferred Quote.",
+  });
   await ctx.db.insert("quoteInvitationResponseSubmissionLifecycleEvents", {
     actorKind: actor.kind,
     actorWorkosUserId: actor.workosUserId,

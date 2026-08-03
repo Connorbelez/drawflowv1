@@ -30,6 +30,7 @@ import {
   FrameTitle,
 } from "#/components/ui/frame.tsx";
 import { api } from "../../../convex/_generated/api";
+import { QuoteRoundComparisonSurface } from "./QuoteRoundComparisonSurface.tsx";
 import {
   QuoteRoundComposer,
   type QuoteRoundComposerData,
@@ -659,31 +660,12 @@ function QuoteRoundComposerRouteQuery({
   }
   if (round.state !== "draft") {
     return (
-      <main className="min-h-[calc(100vh-4rem)] bg-muted/30 p-3 sm:p-5">
-        <div className="mx-auto max-w-3xl">
-          <Frame>
-            <FrameHeader>
-              <FrameTitle>{round.title}</FrameTitle>
-              <FrameDescription>
-                This Quote Round is {round.state}; its package revision is
-                immutable.
-              </FrameDescription>
-            </FrameHeader>
-            <FramePanel className="space-y-3 p-4">
-              <Badge variant="success">{round.state}</Badge>
-              <p className="text-muted-foreground text-sm">
-                {round.packageRevision
-                  ? `Package revision ${round.packageRevision.number ?? 1} is preserved with its active invitation snapshot.`
-                  : "This Quote Round has no editable draft."}
-              </p>
-              <Button onClick={exit}>
-                <ArrowLeft />
-                Build Quotes
-              </Button>
-            </FramePanel>
-          </Frame>
-        </div>
-      </main>
+      <QuoteRoundComparisonSurface
+        buildId={buildId}
+        onExit={exit}
+        organizationId={normalizedOrganizationId}
+        quoteRoundId={String(rawRoundQuery._id)}
+      />
     );
   }
   return (

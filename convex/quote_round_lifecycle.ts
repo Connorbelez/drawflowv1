@@ -15,6 +15,10 @@ import {
   resolveQuoteInvitationBrowserWriteAccess,
   resolveQuoteInvitationClaimedWriteAccess,
 } from "./quote_invitation_access";
+import {
+  clearPreferredForInvitation,
+  clearPreferredForRound,
+} from "./quote_preferred";
 import { migratePriorRevisionDraftForAccess } from "./quote_response_drafts";
 import type { Doc, Id, MutationCtx } from "./types";
 
@@ -274,38 +278,6 @@ async function nextCredentialVersion(
   return (latestCredential?.credentialVersion ?? 0) + 1;
 }
 
-async function clearSubmissionComparison(
-  ctx: MutationCtx,
-  round: Doc<"quoteRounds">
-) {
-  const invitations = await ctx.db
-    .query("quoteRoundInvitations")
-    .withIndex("by_quoteRoundId_and_participationState", (query) =>
-      query.eq("quoteRoundId", round._id).eq("participationState", "active")
-    )
-    .take(101);
-  if (invitations.length > 100) {
-    throw new ConvexError("Quote Round has too many active Invitations.");
-  }
-  for (const invitation of invitations) {
-    const states = await ctx.db
-      .query("quoteInvitationResponseSubmissionStates")
-      .withIndex(
-        "by_quoteRoundInvitationId_and_quotePackageRevisionId",
-        (query) => query.eq("quoteRoundInvitationId", invitation._id)
-      )
-      .take(101);
-    for (const state of states) {
-      if (state.activeSubmissionRevisionId) {
-        await ctx.db.patch(state._id, {
-          activeSubmissionRevisionId: undefined,
-          updatedAt: Date.now(),
-        });
-      }
-    }
-  }
-}
-
 export const closeQuoteRound = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
@@ -421,7 +393,14 @@ export const cancelQuoteRound = authenticatedMutation
           templateKey: "quote_invitation_cancelled",
         });
       }
-      await clearSubmissionComparison(ctx, round);
+      await clearPreferredForRound(ctx, round, {
+        actor: {
+          actorRoles: authorization.viewer.roles,
+          actorWorkosUserId: authorization.viewer.subject,
+        },
+        command: "cancelQuoteRound",
+        reason,
+      });
     }
     const revision = round.revision + 1;
     await ctx.db.patch(round._id, {
@@ -499,6 +478,15 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
         "A reopened Quote Round requires an extended future deadline."
       );
     }
+    await clearPreferredForRound(ctx, round, {
+      actor: {
+        actorRoles: authorization.viewer.roles,
+        actorWorkosUserId: authorization.viewer.subject,
+      },
+      command: "reopenQuoteRoundWithRevision",
+      reason:
+        "Quote Package Revision supersession cleared the Preferred Quote.",
+    });
     const changedFieldKeys = normalizeChangedFieldKeys([
       ...(args.changedFieldKeys ?? []),
       "responseDeadline",
@@ -706,6 +694,14 @@ export const revokeQuoteRoundInvitation = authenticatedMutation
       revocationReason: reason,
       updatedAt: now,
     });
+    await clearPreferredForInvitation(ctx, invitation, {
+      actor: {
+        actorRoles: authorization.viewer.roles,
+        actorWorkosUserId: authorization.viewer.subject,
+      },
+      command: "revokeQuoteRoundInvitation",
+      reason,
+    });
     await enqueueCommunicationIntent(ctx, {
       brokerageId: authorization.brokerage._id,
       buildId: authorization.build._id,
@@ -721,7 +717,6 @@ export const revokeQuoteRoundInvitation = authenticatedMutation
       relatedEntityType: "quoteRoundInvitation",
       templateKey: "quote_invitation_revoked",
     });
-    await clearInvitationSubmissionComparison(ctx, invitation);
     await appendLifecycleAudit(
       ctx,
       authorization,
@@ -1051,6 +1046,14 @@ export const replaceQuoteRoundInvitationEmail = authenticatedMutation
       revocationReason: reason,
       updatedAt: now,
     });
+    await clearPreferredForInvitation(ctx, invitation, {
+      actor: {
+        actorRoles: authorization.viewer.roles,
+        actorWorkosUserId: authorization.viewer.subject,
+      },
+      command: "replaceQuoteRoundInvitationEmail",
+      reason,
+    });
     const replacementId = await ctx.db.insert("quoteRoundInvitations", {
       accessGeneration: 1,
       brokerageId: authorization.brokerage._id,
@@ -1256,27 +1259,6 @@ async function acknowledgeForAccess(
     quotePackageRevisionId: scope.packageRevision._id,
     status: "acknowledged" as const,
   };
-}
-
-async function clearInvitationSubmissionComparison(
-  ctx: MutationCtx,
-  invitation: Doc<"quoteRoundInvitations">
-) {
-  const states = await ctx.db
-    .query("quoteInvitationResponseSubmissionStates")
-    .withIndex(
-      "by_quoteRoundInvitationId_and_quotePackageRevisionId",
-      (query) => query.eq("quoteRoundInvitationId", invitation._id)
-    )
-    .take(101);
-  for (const state of states) {
-    if (state.activeSubmissionRevisionId) {
-      await ctx.db.patch(state._id, {
-        activeSubmissionRevisionId: undefined,
-        updatedAt: Date.now(),
-      });
-    }
-  }
 }
 
 function normalizeChangedFieldKeys(values: string[] | undefined) {

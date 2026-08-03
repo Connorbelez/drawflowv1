@@ -3030,6 +3030,30 @@ export default defineSchema({
     "quoteRoundInvitationId",
     "quotePackageRevisionId",
   ]),
+  // A Quote Round has at most one current Preferred Quote pointer. The
+  // selected submission remains immutable; lifecycle changes clear this
+  // projection and record the reason in auditEvents.
+  quoteRoundPreferredSubmissionStates: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    quoteRoundInvitationId: v.optional(v.id("quoteRoundInvitations")),
+    quoteInvitationResponseSubmissionRevisionId: v.optional(
+      v.id("quoteInvitationResponseSubmissionRevisions")
+    ),
+    submissionRevision: v.optional(v.number()),
+    stateVersion: v.number(),
+    selectedAt: v.optional(v.number()),
+    selectedByWorkosUserId: v.optional(v.string()),
+    updatedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_quoteRoundId", ["quoteRoundId"])
+    .index("by_preferredSubmissionRevisionId", [
+      "quoteInvitationResponseSubmissionRevisionId",
+    ]),
   // Replaying a client command returns the exact receipt even if its original
   // network response was lost. The fingerprint makes key reuse with a stale
   // Draft version a hard conflict rather than a second commercial response.

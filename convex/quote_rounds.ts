@@ -22,6 +22,10 @@ import {
   quoteInvitationCommunicationProjection,
   quoteInvitationCommunicationProjectionValidator,
 } from "./quote_notifications";
+import {
+  getPreferredState,
+  preferredPointerFromState,
+} from "./quote_preferred";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_DRAFT_LABOUR_LINES = 100;
@@ -406,7 +410,17 @@ const quoteRoundSummaryValidator = v.object({
     revoked: v.number(),
     total: v.number(),
   }),
-  preferredQuote: v.null(),
+  preferredQuote: v.union(
+    v.object({
+      canonicalTotalCents: v.number(),
+      invitationId: v.id("quoteRoundInvitations"),
+      packageRevisionId: v.id("quotePackageRevisions"),
+      revision: v.number(),
+      submittedAt: v.number(),
+      submissionRevisionId: v.id("quoteInvitationResponseSubmissionRevisions"),
+    }),
+    v.null()
+  ),
   recipients: v.object({
     active: v.number(),
     revoked: v.number(),
@@ -2775,6 +2789,61 @@ export const listQuoteRounds = authenticatedQuery
               "Quote Package Revision crosses Build scope."
             );
           }
+          let preferredQuote: {
+            canonicalTotalCents: number;
+            invitationId: Id<"quoteRoundInvitations">;
+            packageRevisionId: Id<"quotePackageRevisions">;
+            revision: number;
+            submittedAt: number;
+            submissionRevisionId: Id<"quoteInvitationResponseSubmissionRevisions">;
+          } | null = null;
+          if (
+            packageRevision &&
+            (round.state === "open" || round.state === "closed")
+          ) {
+            const preferredState = await getPreferredState(ctx, round._id);
+            const pointer = preferredPointerFromState(preferredState);
+            if (preferredState && pointer) {
+              if (
+                preferredState.brokerageId !== authorization.brokerage._id ||
+                preferredState.organizationId !==
+                  authorization.organizationId ||
+                preferredState.buildId !== authorization.build._id
+              ) {
+                throw new ConvexError(
+                  "Preferred Quote state crosses Build scope."
+                );
+              }
+              if (pointer.quotePackageRevisionId === packageRevision._id) {
+                const [preferredSubmission, preferredInvitation] =
+                  await Promise.all([
+                    ctx.db.get(
+                      pointer.quoteInvitationResponseSubmissionRevisionId
+                    ),
+                    ctx.db.get(pointer.quoteRoundInvitationId),
+                  ]);
+                if (
+                  preferredSubmission?.quoteRoundId === round._id &&
+                  preferredSubmission.quotePackageRevisionId ===
+                    packageRevision._id &&
+                  preferredSubmission.quoteRoundInvitationId ===
+                    preferredInvitation?._id &&
+                  preferredInvitation.quoteRoundId === round._id &&
+                  preferredInvitation.participationState === "active"
+                ) {
+                  preferredQuote = {
+                    canonicalTotalCents:
+                      preferredSubmission.canonicalTotalCents,
+                    invitationId: preferredInvitation._id,
+                    packageRevisionId: packageRevision._id,
+                    revision: preferredSubmission.revision,
+                    submittedAt: preferredSubmission.submittedAt,
+                    submissionRevisionId: preferredSubmission._id,
+                  };
+                }
+              }
+            }
+          }
           const [
             packageLabourLines,
             packageMaterialLines,
@@ -3147,7 +3216,7 @@ export const listQuoteRounds = authenticatedQuery
               revoked: revokedInvitations.length,
               total: allInvitations.length,
             },
-            preferredQuote: null,
+            preferredQuote,
             recipients: {
               active: activeInvitations.length,
               revoked: revokedInvitations.length,

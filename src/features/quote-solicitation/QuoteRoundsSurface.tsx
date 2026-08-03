@@ -765,7 +765,7 @@ function DesktopControlRegister({
                     {row.responses.drafting} drafting
                   </p>
                 </div>
-                <PreferredQuote />
+                <PreferredQuote row={row} />
                 <div className="text-right">
                   <Button
                     aria-label={onOpen ? undefined : DETAIL_UNAVAILABLE_LABEL}
@@ -884,8 +884,28 @@ function currentStateIcon(row: QuoteRoundRegisterRow): LucideIcon {
   }
 }
 
-function PreferredQuote() {
-  return <span className="text-muted-foreground text-xs">Not selected</span>;
+function formatPreferredTotal(value: number) {
+  return new Intl.NumberFormat("en-CA", {
+    currency: "CAD",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value / 100);
+}
+
+function PreferredQuote({ row }: { row: QuoteRoundRegisterRow }) {
+  if (!row.preferredQuote) {
+    return <span className="text-muted-foreground text-xs">Not selected</span>;
+  }
+  return (
+    <span className="grid gap-0.5 text-xs">
+      <span className="font-medium text-success">Preferred Quote</span>
+      <span className="text-muted-foreground">
+        R{row.preferredQuote.revision} ·{" "}
+        {formatPreferredTotal(row.preferredQuote.canonicalTotalCents)}
+      </span>
+    </span>
+  );
 }
 
 function RecipientDisclosure({
@@ -1127,7 +1147,7 @@ function MobileControlRegister({
                 <div className="mt-4 grid gap-3 border-t pt-3 text-xs">
                   <div>
                     <p className="text-muted-foreground">Preferred Quote</p>
-                    <PreferredQuote />
+                    <PreferredQuote row={row} />
                   </div>
                   <div>
                     <p className="text-muted-foreground">Delivery and access</p>
