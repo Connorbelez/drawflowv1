@@ -46,10 +46,20 @@ export interface CostDocumentSubmilestoneOption {
 export function SingleCostDocumentCapture({
   buildId,
   organizationId,
+  readOnly = false,
+  submittedCostDocumentId,
   submilestones,
 }: {
   buildId: Id<"activeBuilds">;
   organizationId: string;
+  /**
+   * Reuses the immutable submitted-record panel without exposing the legacy
+   * single-document capture form. Contractor normal-completion recovery uses
+   * this mode so own submitted documents remain readable/downloadable while
+   * new Draft creation is no longer allowed.
+   */
+  readOnly?: boolean;
+  submittedCostDocumentId?: Id<"costDocuments">;
   submilestones: CostDocumentSubmilestoneOption[];
 }) {
   const { getAccessToken } = useAccessToken();
@@ -69,7 +79,7 @@ export function SingleCostDocumentCapture({
   );
   const submitCostDocument = useMutation(api.cost_documents.submitCostDocument);
   const [submittedId, setSubmittedId] = useState<Id<"costDocuments"> | null>(
-    null
+    submittedCostDocumentId ?? null
   );
   const submitted = useQuery(
     api.cost_documents.getCostDocument,
@@ -301,6 +311,20 @@ export function SingleCostDocumentCapture({
             </Alert>
           ) : null}
         </FramePanel>
+      </Frame>
+    );
+  }
+
+  if (readOnly) {
+    return (
+      <Frame data-testid="cost-document-submitted-unavailable">
+        <FrameHeader>
+          <FrameTitle>Submitted Cost Document unavailable</FrameTitle>
+          <FrameDescription>
+            This submitted Cost Document is no longer available under your
+            current Build access.
+          </FrameDescription>
+        </FrameHeader>
       </Frame>
     );
   }

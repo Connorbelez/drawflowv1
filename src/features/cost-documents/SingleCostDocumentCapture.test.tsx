@@ -171,6 +171,26 @@ describe("SingleCostDocumentCapture", () => {
     ).not.toBeNull();
   });
 
+  test("reuses the immutable submitted-record panel without rendering another capture form", () => {
+    render(
+      <SingleCostDocumentCapture
+        buildId={"build-1" as Id<"activeBuilds">}
+        organizationId="org-1"
+        readOnly
+        submittedCostDocumentId={"cost-document-1" as Id<"costDocuments">}
+        submilestones={[]}
+      />
+    );
+
+    expect(screen.getByText("Cost Document frozen")).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Download page 1: invoice.pdf" })
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Submit Cost Document" })
+    ).toBeNull();
+  });
+
   test("rejects more than 50 pages before uploading any asset", async () => {
     render(
       <SingleCostDocumentCapture

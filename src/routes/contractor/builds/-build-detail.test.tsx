@@ -7,16 +7,31 @@ const acknowledge = vi.fn();
 const clarify = vi.fn();
 const dispute = vi.fn();
 const startAssignedSubmilestone = vi.fn();
+const navigate = vi.fn();
 const useQuery = vi.fn();
+const usePaginatedQuery = vi.fn();
 let mutationIndex = 0;
 let routeRoles = ["contractor"];
+let routeSearch: Record<string, unknown> = {
+  assignmentId: "assignment_01",
+};
+let submittedCostDocuments: {
+  loadMore: ReturnType<typeof vi.fn>;
+  results: Array<{ _id: string; title: string }>;
+  status: string;
+} = {
+  loadMore: vi.fn(),
+  results: [],
+  status: "Exhausted",
+};
 
 vi.mock("convex/react", () => ({
   useMutation: () =>
     [acknowledge, clarify, dispute, startAssignedSubmilestone][
       mutationIndex++ % 4
-    ],
+  ],
   useQuery: (...args: unknown[]) => useQuery(...args),
+  usePaginatedQuery: (...args: unknown[]) => usePaginatedQuery(...args),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -28,10 +43,17 @@ vi.mock("@tanstack/react-router", () => ({
       role: routeRoles[0],
       roles: routeRoles,
     }),
-    useSearch: () => ({ assignmentId: "assignment_01" }),
+    useSearch: () => routeSearch,
   }),
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
-    <a href={to}>{children}</a>
+  useNavigate: () => navigate,
+  Link: ({
+    children,
+    to,
+    ...props
+  }: { children: React.ReactNode; to: string } & React.ComponentProps<"a">) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
   ),
 }));
 
@@ -54,7 +76,55 @@ vi.mock(
   })
 );
 
-import { ContractorBuildDetail } from "./$buildId";
+vi.mock(
+  "#/features/cost-documents/CostDocumentBatchWorkspace.tsx",
+  () => ({
+    CostDocumentBatchWorkspace: ({
+      batchId,
+      draftId,
+      onBatchIdChange,
+      submilestones,
+    }: {
+      batchId?: string;
+      draftId?: string;
+      onBatchIdChange: (batchId?: string) => void;
+      submilestones: Array<{ id: string; label: string }>;
+    }) => (
+      <div
+        data-batch-id={batchId}
+        data-draft-id={draftId}
+        data-submilestones={submilestones.map((scope) => scope.id).join(",")}
+        data-testid="contractor-cost-document-workspace"
+      >
+        <button onClick={() => onBatchIdChange("cost-batch-02")} type="button">
+          Open Cost Document batch
+        </button>
+      </div>
+    ),
+  })
+);
+
+vi.mock(
+  "#/features/cost-documents/SingleCostDocumentCapture.tsx",
+  () => ({
+    SingleCostDocumentCapture: ({
+      readOnly,
+      submittedCostDocumentId,
+    }: {
+      readOnly?: boolean;
+      submittedCostDocumentId?: string;
+    }) => (
+      <div
+        data-read-only={readOnly ? "true" : "false"}
+        data-testid="contractor-submitted-cost-document"
+      >
+        {submittedCostDocumentId}
+      </div>
+    ),
+  })
+);
+
+import { ContractorBuildDetail, Route } from "./$buildId";
 
 const detail = {
   assignedScope: [
@@ -62,6 +132,8 @@ const detail = {
       acknowledgement: { state: "pending_acknowledgement" },
       actualStartedAt: null,
       assignmentId: "assignment_01",
+      buildSubmilestoneId: "submilestone_forms",
+      costDocumentCaptureEligible: true,
       dependencyBlockers: [],
       milestoneKey: "foundation",
       milestoneName: "Foundation",
@@ -96,19 +168,28 @@ let contractorDetail = detail;
 describe("ContractorBuildDetail", () => {
   beforeEach(() => {
     routeRoles = ["contractor"];
+    routeSearch = { assignmentId: "assignment_01" };
+    submittedCostDocuments = {
+      loadMore: vi.fn(),
+      results: [],
+      status: "Exhausted",
+    };
     contractorDetail = detail;
     participationScope = linkedParticipationScope;
     mutationIndex = 0;
+    navigate.mockReset();
     acknowledge.mockResolvedValue("ack_01");
     clarify.mockResolvedValue("issue_01");
     dispute.mockResolvedValue("issue_02");
     startAssignedSubmilestone.mockResolvedValue("start_01");
     useQuery.mockImplementation(
-      (_query: unknown, input: Record<string, unknown> | "skip") =>
-        input !== "skip" && "organizationId" in input
+      (_query: unknown, input: Record<string, unknown> | "skip") => {
+        return input !== "skip" && "organizationId" in input
           ? participationScope
-          : contractorDetail
+          : contractorDetail;
+      }
     );
+    usePaginatedQuery.mockImplementation(() => submittedCostDocuments);
   });
 
   afterEach(() => {
@@ -143,6 +224,243 @@ describe("ContractorBuildDetail", () => {
     expect(
       screen.getByTestId("build-collaboration-workspace").textContent
     ).toBe("active_build_01:org_01");
+    expect(
+      screen.getByTestId("contractor-cost-document-workspace").getAttribute(
+        "data-submilestones"
+      )
+    ).toBe("submilestone_forms");
+  });
+
+  test("reuses the Cost Document batch workspace with only active assigned scope at desktop and compact widths", () => {
+    for (const width of [1440, 390]) {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: width,
+        writable: true,
+      });
+      const rendered = render(<ContractorBuildDetail />);
+      expect(screen.getByTestId("contractor-cost-documents").className).toContain(
+        "min-w-0"
+      );
+      expect(
+        screen.getByTestId("contractor-cost-document-workspace").getAttribute(
+          "data-submilestones"
+        )
+      ).toBe("submilestone_forms");
+      rendered.unmount();
+    }
+  });
+
+  test("normalizes private Cost Document deep links and keeps an exact Draft ahead of a Batch", () => {
+    const validateSearch = (Route as unknown as {
+      validateSearch: (search: Record<string, unknown>) => unknown;
+    }).validateSearch;
+    expect(
+      validateSearch({
+        costBatch: " batch-private ",
+        costDocumentDraft: " draft-private ",
+      })
+    ).toEqual({ costDocumentDraft: "draft-private" });
+    expect(validateSearch({ costBatch: " batch-private " })).toEqual({
+      costBatch: "batch-private",
+    });
+  });
+
+  test("routes Cost Document batch lifecycle within the contractor Build route", () => {
+    routeSearch = {
+      assignmentId: "assignment_01",
+      costBatch: "cost-batch-01",
+      focus: "build-note:note-01",
+    };
+    render(<ContractorBuildDetail />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Cost Document batch" })
+    );
+
+    expect(navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: { buildId: "active_build_01" },
+        replace: true,
+        search: {
+          assignmentId: "assignment_01",
+          costBatch: "cost-batch-02",
+          costDocumentDraft: undefined,
+          focus: "build-note:note-01",
+        },
+        to: "/contractor/builds/$buildId",
+      })
+    );
+  });
+
+  test("uses first-party recovery instead of mounting capture for a completed assignment or stale deep link", () => {
+    routeSearch = {
+      costBatch: "private-stale-batch",
+      costDocumentDraft: "private-stale-draft",
+    };
+    contractorDetail = {
+      ...detail,
+      assignedScope: detail.assignedScope.map((scope) => ({
+        ...scope,
+        status: "completed",
+      })),
+    };
+
+    render(<ContractorBuildDetail />);
+
+    expect(
+      screen.getByTestId("contractor-cost-documents-recovery")
+    ).toBeTruthy();
+    expect(screen.queryByTestId("contractor-cost-document-workspace")).toBeNull();
+    expect(
+      screen
+        .getByRole("link", { name: "Return to current work" })
+        .className
+    ).toContain("min-h-11");
+  });
+
+  test("does not mount capture when the server projection rejects the parent assignment boundary", () => {
+    contractorDetail = {
+      ...detail,
+      assignedScope: detail.assignedScope.map((scope) => ({
+        ...scope,
+        costDocumentCaptureEligible: false,
+      })),
+    };
+
+    render(<ContractorBuildDetail />);
+
+    expect(
+      screen.getByTestId("contractor-cost-documents-recovery")
+    ).toBeTruthy();
+    expect(screen.queryByTestId("contractor-cost-document-workspace")).toBeNull();
+  });
+
+  test("keeps the Contractor's own submitted records readable in normal-completion recovery", () => {
+    contractorDetail = {
+      ...detail,
+      assignedScope: detail.assignedScope.map((scope) => ({
+        ...scope,
+        status: "completed",
+      })),
+    };
+    submittedCostDocuments = {
+      loadMore: vi.fn(),
+      results: [
+        {
+          _id: "submitted-cost-document-01",
+          title: "Completed footings receipt",
+        },
+      ],
+      status: "Exhausted",
+    };
+
+    render(<ContractorBuildDetail />);
+
+    expect(
+      screen.getByTestId("contractor-submitted-cost-documents")
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("contractor-submitted-cost-document").textContent
+    ).toBe("submitted-cost-document-01");
+    expect(
+      screen
+        .getByTestId("contractor-submitted-cost-document")
+        .getAttribute("data-read-only")
+    ).toBe("true");
+  });
+
+  test("keeps scoped capture and normally completed submitted history together for mixed Contractor scope", () => {
+    contractorDetail = {
+      ...detail,
+      assignedScope: [
+        ...detail.assignedScope,
+        {
+          ...detail.assignedScope[0],
+          assignmentId: "assignment_completed_01",
+          buildSubmilestoneId: "submilestone_completed_01",
+          status: "completed",
+          submilestoneKey: "waterproofing",
+          submilestoneName: "Waterproofing",
+        },
+      ],
+    };
+    submittedCostDocuments = {
+      loadMore: vi.fn(),
+      results: [
+        {
+          _id: "submitted-cost-document-completed-01",
+          title: "Completed waterproofing receipt",
+        },
+      ],
+      status: "Exhausted",
+    };
+
+    render(<ContractorBuildDetail />);
+
+    expect(
+      screen.getByTestId("contractor-cost-document-workspace").getAttribute(
+        "data-submilestones"
+      )
+    ).toBe("submilestone_forms");
+    expect(
+      screen.getByTestId("contractor-submitted-cost-documents")
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("contractor-submitted-cost-document").textContent
+    ).toBe("submitted-cost-document-completed-01");
+    expect(
+      screen
+        .getByTestId("contractor-submitted-cost-document")
+        .getAttribute("data-read-only")
+    ).toBe("true");
+    expect(
+      screen.queryByTestId("contractor-cost-documents-recovery")
+    ).toBeNull();
+    expect(usePaginatedQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      { buildId: "active_build_01", organizationId: "org_01" },
+      { initialNumItems: 20 }
+    );
+  });
+
+  test("consumes a truthful submitted-record continuation before any readable result arrives", () => {
+    contractorDetail = {
+      ...detail,
+      assignedScope: detail.assignedScope.map((scope) => ({
+        ...scope,
+        status: "completed",
+      })),
+    };
+    const loadMore = vi.fn();
+    submittedCostDocuments = {
+      loadMore,
+      results: [],
+      status: "CanLoadMore",
+    };
+
+    for (const width of [1440, 390]) {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: width,
+        writable: true,
+      });
+      const rendered = render(<ContractorBuildDetail />);
+      const button = screen.getByRole("button", {
+        name: "Load more submitted Cost Documents",
+      });
+      expect(
+        screen.queryByText(
+          "No submitted Cost Documents are available under your current Build access."
+        )
+      ).toBeNull();
+      expect(button.className).toContain("min-h-11");
+      expect(button.className).toContain("w-full");
+      fireEvent.click(button);
+      expect(loadMore).toHaveBeenCalledWith(20);
+      rendered.unmount();
+      loadMore.mockClear();
+    }
   });
 
   test("renders collaboration for a grant-only Contractor without a linked profile or assignment projection", () => {

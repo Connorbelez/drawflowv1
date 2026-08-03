@@ -330,7 +330,7 @@ async function costDocumentAssetReadDecision(
         page.brokerageId === input.authorization.brokerage._id &&
         page.buildId === input.authorization.build._id &&
         document &&
-        canReadSubmittedCostDocument(input.authorization, document)
+        (await canReadSubmittedCostDocument(ctx, input.authorization, document))
       ) {
         return {
           decision: {

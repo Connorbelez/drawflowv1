@@ -1,5 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation, useQuery } from "convex/react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button.tsx";
@@ -11,13 +11,21 @@ import {
 } from "#/features/backoffice-build-detail/MilestoneStartDialog.tsx";
 import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
+import { CostDocumentBatchWorkspace } from "#/features/cost-documents/CostDocumentBatchWorkspace.tsx";
+import { SingleCostDocumentCapture } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 interface ContractorBuildSearch {
   assignmentId?: string;
+  costBatch?: string;
+  costDocumentDraft?: string;
   focus?: string;
+}
+
+function normalizeOptionalSearchString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 export const Route = createFileRoute("/contractor/builds/$buildId")({
@@ -27,9 +35,16 @@ export const Route = createFileRoute("/contractor/builds/$buildId")({
   validateSearch: (search: Record<string, unknown>): ContractorBuildSearch => {
     const assignmentId =
       typeof search.assignmentId === "string" ? search.assignmentId : undefined;
+    const costDocumentDraft = normalizeOptionalSearchString(
+      search.costDocumentDraft
+    );
+    const costBatch =
+      !costDocumentDraft && normalizeOptionalSearchString(search.costBatch);
     const focus = normalizeBuildCollaborationFocus(search.focus);
     return {
       ...(assignmentId ? { assignmentId } : {}),
+      ...(costBatch ? { costBatch } : {}),
+      ...(costDocumentDraft ? { costDocumentDraft } : {}),
       ...(focus ? { focus } : {}),
     };
   },
@@ -41,6 +56,8 @@ interface ContractorScope {
   acknowledgement: { state: string } | null;
   actualStartedAt: number | null;
   assignmentId: Id<"milestoneContractorAssignments">;
+  buildSubmilestoneId: Id<"buildSubmilestones"> | null;
+  costDocumentCaptureEligible: boolean;
   dependencyBlockers: Array<{
     milestoneKey: string;
     milestoneName: string;
@@ -66,7 +83,9 @@ interface ContractorPermitDocument {
  */
 export function ContractorBuildDetail() {
   const { buildId } = Route.useParams();
-  const { assignmentId, focus } = Route.useSearch();
+  const { assignmentId, costBatch, costDocumentDraft, focus } =
+    Route.useSearch();
+  const navigate = useNavigate();
   const routeContext = Route.useRouteContext();
   const participationScope = useQuery(
     api.build_participants.getMyBuildParticipationScope,
@@ -193,6 +212,31 @@ export function ContractorBuildDetail() {
       </main>
     );
   }
+
+  // This route receives only the contractor-safe Build projection. The server
+  // is the authority for every write, but keeping this list to currently
+  // active assigned Sub-milestones makes stale/deep-linked capture recover in
+  // first-party context without exposing unrelated Build scope.
+  const costDocumentSubmilestones = [
+    ...new Map(
+      detail.assignedScope
+        .filter(
+          (scope: ContractorScope) =>
+            scope.status === "active" &&
+            scope.costDocumentCaptureEligible &&
+            scope.buildSubmilestoneId
+        )
+        .map((scope: ContractorScope) => [
+          String(scope.buildSubmilestoneId),
+          {
+            id: scope.buildSubmilestoneId as Id<"buildSubmilestones">,
+            label: `${scope.milestoneKey} · ${
+              scope.submilestoneName ?? scope.submilestoneKey ?? "Sub-milestone"
+            }`,
+          },
+        ])
+    ).values(),
+  ];
 
   const acknowledgeAssignment = async (scope: ContractorScope) => {
     const actionKey = `acknowledge:${scope.assignmentId}`;
@@ -489,6 +533,26 @@ export function ContractorBuildDetail() {
             </Frame>
           </div>
         </div>
+        <ContractorCostDocumentSection
+          batchId={costBatch}
+          buildId={buildId as Id<"activeBuilds">}
+          draftId={costDocumentDraft}
+          onBatchIdChange={(nextBatchId) =>
+            navigate({
+              params: { buildId },
+              replace: Boolean(costBatch) || !nextBatchId,
+              search: {
+                assignmentId,
+                costBatch: nextBatchId,
+                costDocumentDraft: undefined,
+                focus,
+              },
+              to: "/contractor/builds/$buildId",
+            } as never)
+          }
+          organizationId={detail.build.organizationId}
+          submilestones={costDocumentSubmilestones}
+        />
         <BuildCollaborationSection
           buildId={buildId}
           focus={focus}
@@ -527,6 +591,212 @@ export function ContractorBuildDetail() {
         />
       ) : null}
     </main>
+  );
+}
+
+function ContractorCostDocumentSection({
+  batchId,
+  buildId,
+  draftId,
+  onBatchIdChange,
+  organizationId,
+  submilestones,
+}: {
+  batchId?: string;
+  buildId: Id<"activeBuilds">;
+  draftId?: string;
+  onBatchIdChange: (batchId?: string) => void;
+  organizationId: string;
+  submilestones: Array<{
+    id: Id<"buildSubmilestones">;
+    label: string;
+  }>;
+}) {
+  if (submilestones.length === 0) {
+    return (
+      <ContractorCostDocumentRecovery
+        buildId={buildId}
+        organizationId={organizationId}
+      />
+    );
+  }
+
+  return (
+    <section
+      aria-labelledby="contractor-cost-documents"
+      className="min-w-0 space-y-3"
+      data-testid="contractor-cost-documents"
+    >
+      <div>
+        <h2 className="font-semibold text-lg" id="contractor-cost-documents">
+          Invoices & receipts
+        </h2>
+        <p className="mt-1 text-muted-foreground text-sm">
+          Capture an Invoice or Receipt only for your assigned Sub-milestones.
+        </p>
+      </div>
+      <CostDocumentBatchWorkspace
+        batchId={batchId}
+        buildId={buildId}
+        draftId={draftId}
+        onBatchIdChange={onBatchIdChange}
+        organizationId={organizationId}
+        submilestones={submilestones}
+      />
+      <ContractorSubmittedCostDocumentHistory
+        buildId={buildId}
+        organizationId={organizationId}
+      />
+    </section>
+  );
+}
+
+function ContractorCostDocumentRecovery({
+  buildId,
+  organizationId,
+}: {
+  buildId: Id<"activeBuilds">;
+  organizationId: string;
+}) {
+  return (
+    <section
+      aria-labelledby="contractor-cost-documents"
+      className="min-w-0"
+      data-testid="contractor-cost-documents-recovery"
+    >
+      <Frame>
+        <FramePanel className="space-y-2 p-4 sm:p-5">
+          <h2 className="font-semibold text-lg" id="contractor-cost-documents">
+            Invoices & receipts unavailable
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            New Cost Documents are available only while you have a current
+            assigned Sub-milestone. Return to current work to review your active
+            scope.
+          </p>
+          <Button
+            className="min-h-11"
+            render={<Link to="/contractor/work" />}
+            size="sm"
+            variant="outline"
+          >
+            Return to current work
+          </Button>
+        </FramePanel>
+      </Frame>
+      <ContractorSubmittedCostDocumentHistory
+        buildId={buildId}
+        className="mt-3"
+        organizationId={organizationId}
+      />
+    </section>
+  );
+}
+
+function ContractorSubmittedCostDocumentHistory({
+  buildId,
+  className,
+  organizationId,
+}: {
+  buildId: Id<"activeBuilds">;
+  className?: string;
+  organizationId: string;
+}) {
+  const submittedCostDocuments = usePaginatedQuery(
+    api.cost_documents.listCostDocuments,
+    { buildId, organizationId },
+    { initialNumItems: 20 }
+  );
+  const [selectedSubmittedCostDocumentId, setSelectedSubmittedCostDocumentId] =
+    useState<string>();
+  const ownSubmittedDocuments = submittedCostDocuments.results;
+  const submittedDocumentsLoading =
+    submittedCostDocuments.status === "LoadingFirstPage";
+  const canLoadMoreSubmittedDocuments =
+    submittedCostDocuments.status === "CanLoadMore";
+  const loadingMoreSubmittedDocuments =
+    submittedCostDocuments.status === "LoadingMore";
+  const selectedSubmittedDocument = ownSubmittedDocuments.find(
+    (document) => document._id === selectedSubmittedCostDocumentId
+  );
+  const submittedDocumentToRead =
+    selectedSubmittedDocument ?? ownSubmittedDocuments[0];
+  const shouldShowEmptyState =
+    ownSubmittedDocuments.length === 0 &&
+    !canLoadMoreSubmittedDocuments &&
+    !loadingMoreSubmittedDocuments;
+
+  return (
+    <Frame
+      className={className}
+      data-testid="contractor-submitted-cost-documents"
+    >
+      <FramePanel className="space-y-3 p-4 sm:p-5">
+        <div>
+          <h3 className="font-semibold text-sm">
+            Your submitted Cost Documents
+          </h3>
+          <p className="mt-1 text-muted-foreground text-sm">
+            Submitted records remain available after normal assignment
+            completion. Access is rechecked for every record and download.
+          </p>
+        </div>
+        {submittedDocumentsLoading ? (
+          <p className="text-muted-foreground text-sm">
+            Loading your submitted Cost Documents…
+          </p>
+        ) : shouldShowEmptyState ? (
+          <p className="text-muted-foreground text-sm">
+            No submitted Cost Documents are available under your current Build
+            access.
+          </p>
+        ) : (
+          <>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {ownSubmittedDocuments.map((document) => (
+                <Button
+                  aria-pressed={document._id === submittedDocumentToRead?._id}
+                  className="min-h-11 justify-start text-left"
+                  key={document._id}
+                  onClick={() =>
+                    setSelectedSubmittedCostDocumentId(document._id)
+                  }
+                  variant={
+                    document._id === submittedDocumentToRead?._id
+                      ? "secondary"
+                      : "outline"
+                  }
+                >
+                  <span className="truncate">{document.title}</span>
+                </Button>
+              ))}
+            </div>
+            {submittedDocumentToRead ? (
+              <SingleCostDocumentCapture
+                buildId={buildId}
+                key={submittedDocumentToRead._id}
+                organizationId={organizationId}
+                readOnly
+                submilestones={[]}
+                submittedCostDocumentId={submittedDocumentToRead._id}
+              />
+            ) : null}
+            {canLoadMoreSubmittedDocuments || loadingMoreSubmittedDocuments ? (
+              <Button
+                className="min-h-11 w-full"
+                disabled={loadingMoreSubmittedDocuments}
+                onClick={() => submittedCostDocuments.loadMore(20)}
+                variant="outline"
+              >
+                {loadingMoreSubmittedDocuments
+                  ? "Loading more submitted Cost Documents…"
+                  : "Load more submitted Cost Documents"}
+              </Button>
+            ) : null}
+          </>
+        )}
+      </FramePanel>
+    </Frame>
   );
 }
 

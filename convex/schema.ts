@@ -6145,6 +6145,11 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     batchId: v.optional(v.id("costDocumentBatches")),
     draftId: v.optional(v.id("costDocumentDrafts")),
+    // Immutable creator provenance for Contractor-owned records. Optional
+    // only so pre-cutover Builder/Homeowner rows remain readable; Contractor
+    // access fails closed when this value is absent or no longer matches the
+    // exact linked profile.
+    contractorProfileId: v.optional(v.id("contractorProfiles")),
     kind: v.union(v.literal("invoice"), v.literal("receipt")),
     category: v.union(v.literal("labour"), v.literal("materials")),
     state: v.literal("submitted"),
@@ -6219,6 +6224,7 @@ export default defineSchema({
     organizationId: v.string(),
     buildId: v.id("activeBuilds"),
     ownerWorkosUserId: v.string(),
+    contractorProfileId: v.optional(v.id("contractorProfiles")),
     state: costDocumentBatchStateValidator,
     createIdempotencyKey: v.optional(v.string()),
     submitIdempotencyKey: v.optional(v.string()),
@@ -6244,6 +6250,7 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     batchId: v.id("costDocumentBatches"),
     ownerWorkosUserId: v.string(),
+    contractorProfileId: v.optional(v.id("contractorProfiles")),
     order: v.number(),
     kind: v.union(v.literal("invoice"), v.literal("receipt")),
     category: v.union(v.literal("labour"), v.literal("materials")),

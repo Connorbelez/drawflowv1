@@ -1,4 +1,5 @@
 import {
+  type PaginationOptions,
   paginationOptsValidator,
   paginationResultValidator,
 } from "convex/server";
@@ -9,9 +10,12 @@ import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { isCleanCollaborationAsset } from "./build_collaboration_asset_access";
 import { abandonUnpublishedCostDocumentDraftAsset } from "./build_collaboration_assets";
 import {
+  assertCurrentCostDocumentAllocationScope,
   assertExpectedCostDocumentBatchRevision,
   assertExpectedCostDocumentDraftRevision,
   authorizeCostDocumentIntent,
+  type CurrentCostDocumentContractorScope,
+  canManageCostDocumentDraftCollaboration,
   canReadSubmittedCostDocument,
   costDocumentDraftCapabilities,
   currentCostDocumentBatchRevision,
@@ -22,6 +26,7 @@ import {
   listEligibleCostDocumentDraftCollaborators,
   requireCostDocumentBatchCreator,
   requireCostDocumentDraftAccess,
+  requireCurrentContractorCostDocumentScope,
   requireEligibleCostDocumentDraftCollaborator,
 } from "./cost_document_access";
 import { normalizeCostDocumentWorkingStateJson } from "./cost_document_working_state";
@@ -38,6 +43,11 @@ const MAX_BATCH_DRAFTS = 10;
 const MAX_BATCH_PAGES = 100;
 const MAX_BATCH_ALLOCATIONS = 200;
 const MAX_BATCH_FINANCIAL_COMPONENTS = 200;
+// Submitted Cost Documents are authorization-filtered after their indexed
+// candidate lookup. The raw query can return more than `numItems` while a
+// reactive page interval is being replayed, so every returned candidate must
+// be authorized before we advance its native cursor.
+const MAX_SUBMITTED_DOCUMENT_LIST_SCAN = 100;
 const COST_DOCUMENT_DRAFT_STEPS = [
   "capture_confirm",
   "balance_allocate",
@@ -293,7 +303,7 @@ export const getCostDocument = authenticatedQuery
     if (
       !(
         isCostDocumentInScopeForAuthorization(document, authorization) &&
-        canReadSubmittedCostDocument(authorization, document)
+        (await canReadSubmittedCostDocument(ctx, authorization, document))
       )
     ) {
       return null;
@@ -313,50 +323,218 @@ export const listCostDocuments = authenticatedQuery
       ...args,
       intent: "submitted.list",
     });
-    const contractorOnly = authorization.effectiveRole.role === "contractor";
-    const page = await ctx.db
-      .query("costDocuments")
-      .withIndex(
-        contractorOnly
-          ? "by_buildId_and_uploaderWorkosUserId_and_submittedAt"
-          : "by_buildId_and_submittedAt",
-        (query) =>
-          contractorOnly
-            ? query
-                .eq("buildId", authorization.build._id)
-                .eq("uploaderWorkosUserId", authorization.viewer.subject)
-            : query.eq("buildId", authorization.build._id)
-      )
-      .order("desc")
-      .paginate({
-        cursor: args.paginationOpts.cursor,
-        numItems: Math.min(50, Math.max(1, args.paginationOpts.numItems)),
-      });
-    const inScope = page.page.filter((document) =>
-      canReadSubmittedCostDocument(authorization, document)
-    );
-    return {
-      ...page,
-      page: inScope.map((document) => ({
-        _id: document._id,
-        category: document.category,
-        currency: document.currency,
-        grossTotalCents: document.grossTotalCents,
-        kind: document.kind,
-        state: document.state,
-        submittedAt: document.submittedAt,
-        title: document.title,
-        vendorName: document.vendorName,
-      })),
-    };
+    const contractorSubmittedReadScope =
+      await resolveContractorSubmittedReadScope(ctx, authorization);
+    if (contractorSubmittedReadScope === null) {
+      // The public list is non-enumerating. A Contractor with no current or
+      // normally completed scope has no authorized submitted-record result
+      // set, even when raw indexed rows still exist.
+      return { continueCursor: "", isDone: true, page: [] };
+    }
+    return await listAuthorizedCostDocumentPage(ctx, {
+      authorization,
+      contractorSubmittedReadScope,
+      paginationOpts: args.paginationOpts,
+    });
   })
   .public();
+
+async function resolveContractorSubmittedReadScope(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization
+): Promise<CurrentCostDocumentContractorScope | null | undefined> {
+  if (authorization.effectiveRole.role !== "contractor") {
+    return;
+  }
+  try {
+    return await requireCurrentContractorCostDocumentScope(ctx, {
+      authorization,
+      purpose: "submitted.read",
+      workosUserId: authorization.viewer.subject,
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function listAuthorizedCostDocumentPage(
+  ctx: QueryCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    contractorSubmittedReadScope?: CurrentCostDocumentContractorScope;
+    paginationOpts: PaginationOptions;
+  }
+) {
+  const requestedCount = Math.min(
+    50,
+    Math.max(1, input.paginationOpts.numItems)
+  );
+  // Convex read budgets and split metadata describe one native pagination
+  // interval. Never reset either budget across the row-at-a-time filtering
+  // loop: authorize the complete bounded native interval once and forward its
+  // cursor/status unchanged.
+  if (
+    input.paginationOpts.maximumRowsRead !== undefined ||
+    input.paginationOpts.maximumBytesRead !== undefined
+  ) {
+    const rawPage = await loadRawCostDocumentPage(ctx, {
+      authorization: input.authorization,
+      paginationOpts: {
+        ...input.paginationOpts,
+        numItems: requestedCount,
+      },
+    });
+    const readable = await listReadableCostDocuments(ctx, {
+      authorization: input.authorization,
+      contractorSubmittedReadScope: input.contractorSubmittedReadScope,
+      documents: rawPage.page,
+    });
+    return {
+      ...rawPage,
+      page: readable.map(projectCostDocumentSummary),
+    };
+  }
+  const rawScanLimit = Math.max(
+    1,
+    Math.min(
+      MAX_SUBMITTED_DOCUMENT_LIST_SCAN,
+      input.paginationOpts.maximumRowsRead ?? MAX_SUBMITTED_DOCUMENT_LIST_SCAN
+    )
+  );
+  let rawCursor = input.paginationOpts.cursor;
+  let continueCursor = rawCursor ?? "";
+  let isDone = false;
+  let scannedCount = 0;
+  let splitCursor: string | null | undefined;
+  let pageStatus: "SplitRecommended" | "SplitRequired" | null | undefined;
+  const inScope: Doc<"costDocuments">[] = [];
+
+  while (
+    !isDone &&
+    inScope.length < requestedCount &&
+    scannedCount < rawScanLimit
+  ) {
+    const rawPage = await loadRawCostDocumentPage(ctx, {
+      authorization: input.authorization,
+      paginationOpts: {
+        ...input.paginationOpts,
+        cursor: rawCursor,
+        maximumRowsRead: rawScanLimit - scannedCount,
+        numItems: 1,
+      },
+    });
+    isDone = rawPage.isDone;
+    continueCursor = rawPage.continueCursor;
+    splitCursor = rawPage.splitCursor;
+    pageStatus = rawPage.pageStatus;
+    if (rawPage.page.length === 0) {
+      break;
+    }
+    scannedCount += rawPage.page.length;
+    rawCursor = rawPage.continueCursor;
+    inScope.push(
+      ...(await listReadableCostDocuments(ctx, {
+        authorization: input.authorization,
+        contractorSubmittedReadScope: input.contractorSubmittedReadScope,
+        documents: rawPage.page,
+      }))
+    );
+
+    // A split cursor describes this exact native interval. Return it now
+    // rather than consuming another interval and hiding the metadata from
+    // `usePaginatedQuery`.
+    if (splitCursor !== null && splitCursor !== undefined) {
+      break;
+    }
+    if (pageStatus) {
+      break;
+    }
+  }
+
+  return {
+    page: inScope.map(projectCostDocumentSummary),
+    continueCursor,
+    isDone,
+    ...(splitCursor === undefined ? {} : { splitCursor }),
+    ...(pageStatus === undefined ? {} : { pageStatus }),
+  };
+}
+
+async function loadRawCostDocumentPage(
+  ctx: QueryCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    paginationOpts: PaginationOptions;
+  }
+) {
+  const contractorOnly =
+    input.authorization.effectiveRole.role === "contractor";
+  if (contractorOnly) {
+    return await ctx.db
+      .query("costDocuments")
+      .withIndex(
+        "by_buildId_and_uploaderWorkosUserId_and_submittedAt",
+        (query) =>
+          query
+            .eq("buildId", input.authorization.build._id)
+            .eq("uploaderWorkosUserId", input.authorization.viewer.subject)
+      )
+      .order("desc")
+      .paginate(input.paginationOpts);
+  }
+  return await ctx.db
+    .query("costDocuments")
+    .withIndex("by_buildId_and_submittedAt", (query) =>
+      query.eq("buildId", input.authorization.build._id)
+    )
+    .order("desc")
+    .paginate(input.paginationOpts);
+}
+
+async function listReadableCostDocuments(
+  ctx: QueryCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    contractorSubmittedReadScope?: CurrentCostDocumentContractorScope;
+    documents: Doc<"costDocuments">[];
+  }
+) {
+  const readable = await Promise.all(
+    input.documents.map((document) =>
+      canReadSubmittedCostDocument(
+        ctx,
+        input.authorization,
+        document,
+        input.contractorSubmittedReadScope
+      )
+    )
+  );
+  return input.documents.filter((_, index) => readable[index]);
+}
+
+function projectCostDocumentSummary(document: Doc<"costDocuments">) {
+  return {
+    _id: document._id,
+    category: document.category,
+    currency: document.currency,
+    grossTotalCents: document.grossTotalCents,
+    kind: document.kind,
+    state: document.state,
+    submittedAt: document.submittedAt,
+    title: document.title,
+    vendorName: document.vendorName,
+  };
+}
 
 export const getActiveCostDocumentBatch = authenticatedQuery
   .input(activeBuildScopeFields)
   .returns(v.union(costDocumentBatchProjectionValidator, v.null()))
   .handler(async (ctx, args) => {
     const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const contractorProfileId = await currentCostDocumentCreatorProfileId(
+      ctx,
+      authorization
+    );
     const batch = await ctx.db
       .query("costDocumentBatches")
       .withIndex("by_buildId_and_ownerWorkosUserId_and_state", (query) =>
@@ -371,6 +549,9 @@ export const getActiveCostDocumentBatch = authenticatedQuery
       return null;
     }
     assertBatchOwnership(batch, authorization);
+    if (batch.contractorProfileId !== contractorProfileId) {
+      return null;
+    }
     return await projectCostDocumentBatch(ctx, batch, authorization);
   })
   .public();
@@ -394,8 +575,18 @@ export const getCostDocumentBatch = authenticatedQuery
       return null;
     }
     const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const contractorProfileId = await currentCostDocumentCreatorProfileId(
+      ctx,
+      authorization
+    );
     const batch = await ctx.db.get(batchId);
-    if (!(batch && isBatchOwnedBy(batch, authorization))) {
+    if (
+      !(
+        batch &&
+        isBatchOwnedBy(batch, authorization) &&
+        batch.contractorProfileId === contractorProfileId
+      )
+    ) {
       return null;
     }
     return await projectCostDocumentBatch(ctx, batch, authorization);
@@ -493,7 +684,7 @@ export const grantCostDocumentDraftCollaborator = authenticatedMutation
       access.mode !== "creator" ||
       access.batch.state !== "active" ||
       access.draft.lifecycle !== "draft" ||
-      !isBuilderCostDocumentCreator(access.authorization)
+      !canManageCostDocumentDraftCollaboration(access.authorization)
     ) {
       throw new Error("The Cost Document draft is unavailable.");
     }
@@ -580,7 +771,7 @@ export const revokeCostDocumentDraftCollaborator = authenticatedMutation
       access.mode !== "creator" ||
       access.batch.state !== "active" ||
       access.draft.lifecycle !== "draft" ||
-      !isBuilderCostDocumentCreator(access.authorization)
+      !canManageCostDocumentDraftCollaboration(access.authorization)
     ) {
       throw new Error("The Cost Document draft is unavailable.");
     }
@@ -648,6 +839,16 @@ export const createCostDocumentBatch = authenticatedMutation
   .returns(v.id("costDocumentBatches"))
   .handler(async (ctx, args) => {
     const authorization = await authorizeCostDocumentBuilder(ctx, args);
+    const contractorProfileId =
+      authorization.effectiveRole.role === "contractor"
+        ? (
+            await requireCurrentContractorCostDocumentScope(ctx, {
+              authorization,
+              purpose: "draft.write",
+              workosUserId: authorization.viewer.subject,
+            })
+          ).contractorId
+        : undefined;
     const idempotencyKey = optionalIdempotencyKey(args.idempotencyKey);
     if (idempotencyKey) {
       const existingByKey = await ctx.db
@@ -660,6 +861,9 @@ export const createCostDocumentBatch = authenticatedMutation
         .unique();
       if (existingByKey) {
         assertBatchOwnership(existingByKey, authorization);
+        if (existingByKey.contractorProfileId !== contractorProfileId) {
+          throw new Error("The Cost Document batch is unavailable.");
+        }
         return existingByKey._id;
       }
     }
@@ -675,6 +879,9 @@ export const createCostDocumentBatch = authenticatedMutation
       .first();
     if (existingActive) {
       assertBatchOwnership(existingActive, authorization);
+      if (existingActive.contractorProfileId !== contractorProfileId) {
+        throw new Error("The Cost Document batch is unavailable.");
+      }
       return existingActive._id;
     }
     const now = Date.now();
@@ -683,6 +890,7 @@ export const createCostDocumentBatch = authenticatedMutation
       buildId: authorization.build._id,
       createIdempotencyKey: idempotencyKey,
       createdAt: now,
+      contractorProfileId,
       organizationId: authorization.organizationId,
       ownerWorkosUserId: authorization.viewer.subject,
       revision: 1,
@@ -735,6 +943,7 @@ export const addCostDocumentDraft = authenticatedMutation
       brokerageId: authorization.brokerage._id,
       buildId: authorization.build._id,
       category: args.category,
+      contractorProfileId: batch.contractorProfileId,
       currency: "CAD",
       createdAt: now,
       kind: args.kind,
@@ -912,6 +1121,15 @@ export const saveCostDocumentDraft = authenticatedMutation
         authorization,
         args.allocations
       );
+      await assertCurrentCostDocumentAllocationScope(ctx, {
+        allocationSubmilestoneIds: allocations.map(
+          (allocation) => allocation.submilestone._id
+        ),
+        authorization,
+        contractorProfileId: draft.contractorProfileId,
+        ownerWorkosUserId: draft.ownerWorkosUserId,
+        purpose: "draft.write",
+      });
       await replaceDraftAllocations(
         ctx,
         authorization,
@@ -1422,7 +1640,7 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
     if (
       !(
         isCostDocumentInScopeForAuthorization(document, authorization) &&
-        canReadSubmittedCostDocument(authorization, document)
+        (await canReadSubmittedCostDocument(ctx, authorization, document))
       )
     ) {
       throw new Error("The Cost Document is unavailable.");
@@ -1488,11 +1706,20 @@ async function authorizeCostDocumentBuilder(
   return await authorizeCostDocumentIntent(ctx, { ...input, intent: "create" });
 }
 
-function isBuilderCostDocumentCreator(authorization: ActiveBuildAuthorization) {
+async function currentCostDocumentCreatorProfileId(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization
+) {
+  if (authorization.effectiveRole.role !== "contractor") {
+    return;
+  }
   return (
-    authorization.effectiveRole.role === "builder" ||
-    authorization.effectiveRole.role === "builder-staff"
-  );
+    await requireCurrentContractorCostDocumentScope(ctx, {
+      authorization,
+      purpose: "draft.write",
+      workosUserId: authorization.viewer.subject,
+    })
+  ).contractorId;
 }
 
 async function requireCostDocumentBatchOwner(
@@ -1663,6 +1890,8 @@ async function requireSubmittedCostDocumentReplay(
     document.buildId !== authorization.build._id ||
     document.uploaderWorkosUserId !== draft.ownerWorkosUserId ||
     document.uploaderWorkosUserId !== authorization.viewer.subject ||
+    document.contractorProfileId !== draft.contractorProfileId ||
+    document.contractorProfileId !== batch.contractorProfileId ||
     document.submittedAt !== batch.submittedAt ||
     document.createdAt !== batch.submittedAt ||
     document.category !== draft.category ||
@@ -2036,7 +2265,8 @@ function assertDraftOwnershipScope(
     batch.organizationId !== draft.organizationId ||
     batch.brokerageId !== draft.brokerageId ||
     batch.buildId !== draft.buildId ||
-    batch.ownerWorkosUserId !== draft.ownerWorkosUserId
+    batch.ownerWorkosUserId !== draft.ownerWorkosUserId ||
+    batch.contractorProfileId !== draft.contractorProfileId
   ) {
     throw new Error("The Cost Document draft is unavailable.");
   }
@@ -2120,11 +2350,12 @@ async function projectCostDocumentBatch(
   for (const draft of drafts) {
     assertDraftOwnershipScope(draft, batch, authorization);
   }
-  // Only the Builder-side creator receives a collaboration management ledger.
-  // A collaborator's exact-Draft projection never traverses this batch path,
-  // and homeowner-owned batches cannot create Builder-side grants.
+  // A collaborator's exact-Draft projection never traverses this batch path.
+  // A qualifying Contractor creator can project the same eligible Builder-side
+  // grant ledger, while homeowner-owned batches cannot create any grants.
   const canProjectCollaboration =
-    batch.state === "active" && isBuilderCostDocumentCreator(authorization);
+    batch.state === "active" &&
+    canManageCostDocumentDraftCollaboration(authorization);
   const eligibleCollaborators = canProjectCollaboration
     ? await listEligibleCostDocumentDraftCollaborators(ctx, authorization)
     : [];
@@ -2732,6 +2963,19 @@ async function validateDraftBalance(
       throw new Error("Cost Allocation Sub-milestone is unavailable.");
     }
   }
+  // Recheck the persisted graph immediately before completion/submission. This
+  // is intentionally separate from the mutation-entry guard so an assignment
+  // that goes stale between Draft saves cannot be carried into an immutable
+  // submitted Cost Document.
+  await assertCurrentCostDocumentAllocationScope(ctx, {
+    allocationSubmilestoneIds: allocations.map(
+      (allocation) => allocation.buildSubmilestoneId
+    ),
+    authorization,
+    contractorProfileId: draft.contractorProfileId,
+    ownerWorkosUserId: draft.ownerWorkosUserId,
+    purpose: "draft.write",
+  });
   if (allocatedCents !== grossTotalCents) {
     throw new Error(
       "Cost Allocations must equal the Gross Document Total exactly."
@@ -2932,6 +3176,7 @@ async function insertSubmittedCostDocument(
     brokerageId: authorization.brokerage._id,
     buildId: authorization.build._id,
     category: input.category,
+    contractorProfileId: input.draft.contractorProfileId,
     createdAt: input.now,
     currency: "CAD",
     description: input.description,

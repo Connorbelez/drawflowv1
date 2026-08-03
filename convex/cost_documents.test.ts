@@ -11,7 +11,7 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 const ORGANIZATION_ID = "org_cost_documents";
 type CostDocumentFixture = Awaited<ReturnType<typeof seedFixture>>;
-type CostDocumentActor = CostDocumentFixture["builder"];
+type CostDocumentActor = ReturnType<typeof withIdentity>;
 
 if (false) {
   // @ts-expect-error The storage authorizer is intentionally HTTP-internal only.
@@ -479,6 +479,57 @@ describe("Cost Document public contract", () => {
       await ctx.db.patch(batchId, { organizationId: "org_corrupt" });
     });
     expect(await getBatch(fixture, batchId)).toBeNull();
+  });
+
+  test("does not recover a Contractor batch through a replacement linked profile", async () => {
+    const fixture = await seedFixture();
+    const original = await addQualifyingContractor(
+      fixture,
+      "contractor_profile_replacement"
+    );
+    const batchId = await createBatch(
+      fixture,
+      "contractor-profile-replacement",
+      original.contractor
+    );
+    await addDraft(
+      fixture,
+      batchId,
+      "invoice",
+      "labour",
+      original.contractor
+    );
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(original.contractorId, {
+        accountWorkosUserId: undefined,
+        updatedAt: Date.now(),
+      })
+    );
+    const replacement = await addQualifyingContractor(
+      fixture,
+      "contractor_profile_replacement"
+    );
+    expect(replacement.contractorId).not.toBe(original.contractorId);
+
+    await expect(
+      replacement.contractor.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toBeNull();
+    await expect(
+      replacement.contractor.query(
+        (api as any).cost_documents.getCostDocumentBatch,
+        {
+          batchId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toBeNull();
   });
 
   test("refuses to reuse a corrupted active batch when creating", async () => {
@@ -1930,10 +1981,11 @@ describe("Cost Document public contract", () => {
       roles: ["principle-broker"],
       subject: "principle_broker_matrix",
     });
-    const contractor = withIdentity(fixture.base, {
-      roles: ["contractor"],
-      subject: "contractor_matrix",
-    });
+    const contractorScope = await addQualifyingContractor(
+      fixture,
+      "contractor_matrix"
+    );
+    const contractor = contractorScope.contractor;
     await Promise.all([
       addActiveBuildParticipant(fixture, {
         role: "homeowner",
@@ -2169,6 +2221,7 @@ describe("Cost Document public contract", () => {
         brokerageId: build.brokerageId,
         buildId: build._id,
         category: "materials",
+        contractorProfileId: contractorScope.contractorId,
         createdAt: now,
         currency: "CAD",
         documentDate: "2026-08-03",
@@ -2193,6 +2246,18 @@ describe("Cost Document public contract", () => {
         mimeTypeSnapshot: asset.mimeType,
         order: 1,
         organizationId: ORGANIZATION_ID,
+      });
+      await ctx.db.insert("costDocumentAllocations", {
+        amountCents: 3_300,
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        buildSubmilestoneId: fixture.buildSubmilestoneId,
+        costDocumentId,
+        createdAt: now,
+        order: 1,
+        organizationId: ORGANIZATION_ID,
+        submilestoneKeySnapshot: "foundation",
+        submilestoneNameSnapshot: "Footings",
       });
       return costDocumentId;
     });
@@ -2236,6 +2301,625 @@ describe("Cost Document public contract", () => {
         }
       )
     ).resolves.toContain("http");
+  });
+
+  // ENG-392 owns submitted correction/revision creation and its supersedes
+  // lineage. There is no correction endpoint in this public contract yet; the
+  // existing Draft paths below prove the exported qualification seam that a
+  // future correction endpoint must reuse.
+  test("rechecks Contractor scope on every existing Draft mutation, reopen, submission, and governed asset path", async () => {
+    const fixture = await seedFixture();
+    const contractorScope = await addQualifyingContractor(
+      fixture,
+      "contractor_draft_scope"
+    );
+    const contractor = contractorScope.contractor;
+    const builderStaff = await addEligibleBuilderStaff(
+      fixture,
+      "builder_staff_contractor_scope"
+    );
+    const batchId = await createBatch(
+      fixture,
+      "contractor-draft-scope",
+      contractor
+    );
+    const draftId = await addDraft(
+      fixture,
+      batchId,
+      "invoice",
+      "labour",
+      contractor
+    );
+    const assetId = await stageDraftAsset(
+      fixture,
+      draftId,
+      "contractor-draft-scope.pdf",
+      contractor
+    );
+    await saveDraft(
+      fixture,
+      draftId,
+      {
+        allocations: [
+          {
+            amountCents: 4_200,
+            buildSubmilestoneId: fixture.buildSubmilestoneId,
+          },
+        ],
+        documentDate: "2026-08-03",
+        grossTotalCents: 4_200,
+        pageAssetIds: [assetId],
+        title: "Contractor scope invoice",
+        vendorName: "Scope Concrete Ltd.",
+      },
+      contractor
+    );
+    await contractor.mutation(
+      (api as any).cost_documents.grantCostDocumentDraftCollaborator,
+      {
+        collaboratorWorkosUserId: "builder_staff_contractor_scope",
+        draftId,
+        expectedRevision: await draftRevision(fixture, draftId),
+      }
+    );
+    await expect(
+      contractor.mutation(
+        (api as any).cost_documents.grantCostDocumentDraftCollaborator,
+        {
+          collaboratorWorkosUserId: "unassigned_contractor",
+          draftId,
+          expectedRevision: await draftRevision(fixture, draftId),
+        }
+      )
+    ).rejects.toThrow("collaborator is unavailable");
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        { title: "Builder-side scoped collaboration" },
+        builderStaff
+      )
+    ).resolves.toMatchObject({ revision: expect.any(Number) });
+
+    const unassignedSubmilestoneId = await addSecondSubmilestone(fixture);
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        {
+          allocations: [
+            {
+              amountCents: 4_200,
+              buildSubmilestoneId: unassignedSubmilestoneId,
+            },
+          ],
+        },
+        builderStaff
+      )
+    ).rejects.toThrow("contractor assignment is unavailable");
+
+    // An exact collaborator grant and active Build participation cannot keep
+    // a Contractor-owned Draft alive after its immutable profile provenance
+    // is unlinked.
+    await addActiveBuildParticipant(fixture, {
+      role: "contractor",
+      subject: "contractor_draft_scope",
+    });
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.contractorId, {
+        accountWorkosUserId: undefined,
+        updatedAt: Date.now(),
+      })
+    );
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        { title: "Unlinked profile collaborator overwrite" },
+        builderStaff
+      )
+    ).rejects.toThrow("contractor assignment is unavailable");
+    await expect(
+      contractor.query((api as any).cost_documents.getCostDocumentDraft, {
+        buildId: fixture.buildId,
+        draftId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toBeNull();
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.contractorId, {
+        accountWorkosUserId: "contractor_draft_scope",
+        updatedAt: Date.now(),
+      })
+    );
+
+    await completeDraft(fixture, draftId, contractor);
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.milestoneContractorAssignmentId, {
+        status: "completed",
+        updatedAt: Date.now(),
+      })
+    );
+
+    await expect(
+      createBatch(fixture, "contractor-completed-no-new-batch", contractor)
+    ).rejects.toThrow("contractor assignment is unavailable");
+    await expect(
+      addDraft(fixture, batchId, "receipt", "materials", contractor)
+    ).rejects.toThrow("contractor assignment is unavailable");
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        { title: "Stale Contractor draft overwrite" },
+        contractor
+      )
+    ).rejects.toThrow("contractor assignment is unavailable");
+    await expect(
+      setDraftStep(
+        fixture,
+        { draftId, step: "share" },
+        contractor
+      )
+    ).rejects.toThrow("contractor assignment is unavailable");
+    await expect(
+      contractor.mutation((api as any).cost_documents.submitCostDocumentBatch, {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "contractor-completed-submit",
+      })
+    ).rejects.toThrow("contractor assignment is unavailable");
+    await expect(
+      stageDraftAsset(
+        fixture,
+        draftId,
+        "contractor-completed-new-page.pdf",
+        contractor
+      )
+    ).rejects.toThrow("unavailable");
+    await expect(
+      builderStaff.mutation((api as any).cost_documents.saveCostDocumentDraft, {
+        draftId,
+        expectedRevision: await draftRevision(fixture, draftId),
+        title: "Collaborator stale overwrite",
+      })
+    ).rejects.toThrow("contractor assignment is unavailable");
+    await expect(
+      contractor.query((api as any).cost_documents.getCostDocumentDraft, {
+        buildId: fixture.buildId,
+        draftId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toBeNull();
+    await expect(
+      contractor.query(
+        (api as any).build_collaboration_assets
+          .listBuildCollaborationAssetStatuses,
+        {
+          assetIds: [assetId],
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toEqual([]);
+  });
+
+  test("fails closed for Contractor allocation, assignment-child, and tenant forgeries", async () => {
+    const fixture = await seedFixture();
+    const contractorScope = await addQualifyingContractor(
+      fixture,
+      "contractor_forged_scope"
+    );
+    const contractor = contractorScope.contractor;
+    const batchId = await createBatch(
+      fixture,
+      "contractor-forged-scope",
+      contractor
+    );
+    const draftId = await addDraft(fixture, batchId, "invoice", "labour", contractor);
+    const foreignScope = await addCrossBuildSubmilestone(fixture);
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        {
+          allocations: [
+            {
+              amountCents: 7_000,
+              buildSubmilestoneId: foreignScope.buildSubmilestoneId,
+            },
+          ],
+        },
+        contractor
+      )
+    ).rejects.toThrow("Cost Allocation Sub-milestone is unavailable");
+
+    const currentAssignment = await fixture.base.run((ctx) =>
+      ctx.db.get(contractorScope.milestoneContractorAssignmentId)
+    );
+    if (!currentAssignment) {
+      throw new Error("Missing Contractor assignment forgery fixture");
+    }
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.milestoneContractorAssignmentId, {
+        buildMilestoneId: foreignScope.buildMilestoneId,
+        buildSubmilestoneId: foreignScope.buildSubmilestoneId,
+        updatedAt: Date.now(),
+      })
+    );
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        { title: "Forged cross-Build assignment child" },
+        contractor
+      )
+    ).rejects.toThrow("contractor assignment is unavailable");
+
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.milestoneContractorAssignmentId, {
+        buildMilestoneId: currentAssignment.buildMilestoneId,
+        buildSubmilestoneId: currentAssignment.buildSubmilestoneId,
+        organizationId: "org_forged_contractors",
+        updatedAt: Date.now(),
+      })
+    );
+    await expect(
+      saveDraft(
+        fixture,
+        draftId,
+        { title: "Forged cross-tenant assignment child" },
+        contractor
+      )
+    ).rejects.toThrow("contractor assignment is unavailable");
+  });
+
+  test("filter-aware pagination reaches more than 20 normally completed records past removed Contractor scope", async () => {
+    const fixture = await seedFixture();
+    const contractorScope = await addQualifyingContractor(
+      fixture,
+      "contractor_paginated_submitted_scope"
+    );
+    const removedSubmilestoneId = await addSecondSubmilestone(fixture);
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.milestoneContractorAssignmentId, {
+        status: "completed",
+        updatedAt: Date.now(),
+      })
+    );
+    await addContractorCostDocumentAssignment(fixture, {
+      buildSubmilestoneId: removedSubmilestoneId,
+      contractorId: contractorScope.contractorId,
+      status: "removed",
+      subject: "contractor_paginated_submitted_scope",
+    });
+
+    const retainedIds = await seedSubmittedContractorCostDocuments(fixture, {
+      buildSubmilestoneId: fixture.buildSubmilestoneId,
+      contractorProfileId: contractorScope.contractorId,
+      count: 23,
+      submittedAtStart: 10_000,
+      subject: "contractor_paginated_submitted_scope",
+      titlePrefix: "Retained completed scope",
+    });
+    const removedIds = await seedSubmittedContractorCostDocuments(fixture, {
+      buildSubmilestoneId: removedSubmilestoneId,
+      contractorProfileId: contractorScope.contractorId,
+      count: 8,
+      submittedAtStart: 20_000,
+      subject: "contractor_paginated_submitted_scope",
+      titlePrefix: "Removed assignment scope",
+    });
+
+    const firstPage = await contractorScope.contractor.query(
+      (api as any).cost_documents.listCostDocuments,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }
+    );
+    const firstPageIds = firstPage.page.map(
+      (document: { _id: Id<"costDocuments"> }) => document._id
+    );
+    expect(firstPageIds).toHaveLength(20);
+    expect(firstPage.isDone).toBe(false);
+    expect(firstPage.continueCursor).toEqual(expect.any(String));
+    expect(firstPageIds.every((id: Id<"costDocuments">) => retainedIds.includes(id))).toBe(
+      true
+    );
+    expect(firstPageIds.some((id: Id<"costDocuments">) => removedIds.includes(id))).toBe(
+      false
+    );
+
+    // An explicit endCursor is how Convex replays/splits reactive page
+    // intervals. Even though numItems is one here, the native page can
+    // contain the whole interval, so every candidate must be authorized
+    // before the returned continuation advances past it.
+    const reactiveInterval = await contractorScope.contractor.query(
+      (api as any).cost_documents.listCostDocuments,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: {
+          cursor: null,
+          endCursor: firstPage.continueCursor,
+          numItems: 1,
+        },
+      }
+    );
+    const reactiveIntervalIds = reactiveInterval.page.map(
+      (document: { _id: Id<"costDocuments"> }) => document._id
+    );
+    expect(reactiveInterval.continueCursor).toBe(firstPage.continueCursor);
+    expect(reactiveIntervalIds).toEqual(firstPageIds);
+    expect(
+      reactiveIntervalIds.some((id: Id<"costDocuments">) =>
+        removedIds.includes(id)
+      )
+    ).toBe(false);
+
+    const rowBoundedInterval = await contractorScope.contractor.query(
+      (api as any).cost_documents.listCostDocuments,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: {
+          cursor: null,
+          maximumRowsRead: 2,
+          numItems: 20,
+        },
+      }
+    );
+    expect(rowBoundedInterval.page.length).toBeLessThanOrEqual(2);
+    expect(["SplitRequired", "SplitRecommended"]).toContain(
+      rowBoundedInterval.pageStatus
+    );
+    expect(rowBoundedInterval.splitCursor).toEqual(expect.any(String));
+
+    const byteBoundedInterval = await contractorScope.contractor.query(
+      (api as any).cost_documents.listCostDocuments,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: {
+          cursor: null,
+          maximumBytesRead: 1,
+          numItems: 20,
+        },
+      }
+    );
+    expect(byteBoundedInterval.page).toEqual([]);
+    expect(["SplitRequired", "SplitRecommended"]).toContain(
+      byteBoundedInterval.pageStatus
+    );
+    expect(byteBoundedInterval).toHaveProperty("splitCursor", null);
+
+    const secondPage = await contractorScope.contractor.query(
+      (api as any).cost_documents.listCostDocuments,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: firstPage.continueCursor, numItems: 20 },
+      }
+    );
+    const allListedIds = [
+      ...firstPageIds,
+      ...secondPage.page.map(
+        (document: { _id: Id<"costDocuments"> }) => document._id
+      ),
+    ];
+    expect(secondPage.isDone).toBe(true);
+    expect(allListedIds).toHaveLength(retainedIds.length);
+    expect(new Set(allListedIds)).toEqual(new Set(retainedIds));
+  });
+
+  test("preserves only a normally completed Contractor's own submitted read and download, then removes all future access on scope or security removal", async () => {
+    const fixture = await seedFixture();
+    const contractorScope = await addQualifyingContractor(
+      fixture,
+      "contractor_submitted_scope"
+    );
+    const contractor = contractorScope.contractor;
+    const batchId = await createBatch(
+      fixture,
+      "contractor-submitted-scope",
+      contractor
+    );
+    const draftId = await addDraft(fixture, batchId, "receipt", "materials", contractor);
+    const assetId = await stageDraftAsset(
+      fixture,
+      draftId,
+      "contractor-submitted-scope.pdf",
+      contractor
+    );
+    await saveDraft(
+      fixture,
+      draftId,
+      {
+        allocations: [
+          {
+            amountCents: 5_100,
+            buildSubmilestoneId: fixture.buildSubmilestoneId,
+          },
+        ],
+        documentDate: "2026-08-03",
+        grossTotalCents: 5_100,
+        pageAssetIds: [assetId],
+        title: "Contractor submitted receipt",
+        vendorName: "Completed scope vendor",
+      },
+      contractor
+    );
+    await completeDraft(fixture, draftId, contractor);
+    const submitted = await contractor.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "contractor-submitted-scope-submit",
+      }
+    );
+    const costDocumentId = submitted.costDocumentIds[0] as Id<"costDocuments">;
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.milestoneContractorAssignmentId, {
+        status: "completed",
+        updatedAt: Date.now(),
+      })
+    );
+
+    await expect(
+      contractor.query((api as any).cost_documents.getCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toMatchObject({ _id: costDocumentId });
+    await expect(
+      contractor.query((api as any).cost_documents.listCostDocuments, {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      })
+    ).resolves.toMatchObject({
+      page: [expect.objectContaining({ _id: costDocumentId })],
+    });
+    await expect(
+      contractor.mutation(
+        (api as any).cost_documents.authorizeCostDocumentPageDownload,
+        {
+          assetId,
+          buildId: fixture.buildId,
+          costDocumentId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toMatchObject({ storageId: expect.any(String) });
+    await expect(
+      contractor.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toContain("http");
+
+    await addActiveBuildParticipant(fixture, {
+      role: "contractor",
+      subject: "contractor_submitted_scope",
+    });
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.contractorId, {
+        accountWorkosUserId: undefined,
+        updatedAt: Date.now(),
+      })
+    );
+    await expect(
+      contractor.query((api as any).cost_documents.getCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toBeNull();
+    await expect(
+      contractor.mutation(
+        (api as any).cost_documents.authorizeCostDocumentPageDownload,
+        {
+          assetId,
+          buildId: fixture.buildId,
+          costDocumentId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("Cost Document is unavailable");
+    await expect(
+      contractor.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("collaboration asset is unavailable");
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.contractorId, {
+        accountWorkosUserId: "contractor_submitted_scope",
+        updatedAt: Date.now(),
+      })
+    );
+
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.milestoneContractorAssignmentId, {
+        status: "removed",
+        updatedAt: Date.now(),
+      })
+    );
+    await expect(
+      contractor.query((api as any).cost_documents.getCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toBeNull();
+    await expect(
+      contractor.query((api as any).cost_documents.listCostDocuments, {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      })
+    ).resolves.toMatchObject({ page: [] });
+    await expect(
+      contractor.mutation(
+        (api as any).cost_documents.authorizeCostDocumentPageDownload,
+        {
+          assetId,
+          buildId: fixture.buildId,
+          costDocumentId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("Cost Document is unavailable");
+
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(contractorScope.milestoneContractorAssignmentId, {
+        status: "completed",
+        updatedAt: Date.now(),
+      })
+    );
+    await addActiveBuildParticipant(fixture, {
+      role: "contractor",
+      subject: "contractor_submitted_scope",
+    });
+    await fixture.base.run(async (ctx) => {
+      const participation = await ctx.db
+        .query("buildParticipants")
+        .withIndex("by_buildId_and_workosUserId_and_participationPeriod", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("workosUserId", "contractor_submitted_scope")
+        )
+        .order("desc")
+        .first();
+      if (!participation) {
+        throw new Error("Missing Contractor security-removal fixture");
+      }
+      await ctx.db.patch(participation._id, {
+        status: "removed",
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      contractor.query((api as any).cost_documents.getCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).rejects.toThrow("active build participation revoked");
   });
 });
 
@@ -2460,6 +3144,197 @@ async function addEligibleBuilderStaff(
     });
   });
   return staff;
+}
+
+async function addQualifyingContractor(
+  fixture: CostDocumentFixture,
+  subject: string,
+  input: { buildSubmilestoneId?: Id<"buildSubmilestones"> } = {}
+) {
+  const contractor = withIdentity(fixture.base, {
+    roles: ["contractor"],
+    subject,
+  });
+  const assignment = await fixture.base.run(async (ctx) => {
+    const [build, submilestone] = await Promise.all([
+      ctx.db.get(fixture.buildId),
+      ctx.db.get(input.buildSubmilestoneId ?? fixture.buildSubmilestoneId),
+    ]);
+    if (!(build && submilestone)) {
+      throw new Error("Missing Contractor Cost Document fixture scope");
+    }
+    const milestone = await ctx.db.get(submilestone.buildMilestoneId);
+    if (!milestone) {
+      throw new Error("Missing Contractor Cost Document fixture milestone");
+    }
+    const now = Date.now();
+    const contractorId = await ctx.db.insert("contractorProfiles", {
+      accountWorkosUserId: subject,
+      brokerageId: build.brokerageId,
+      createdAt: now,
+      name: `${subject} contractor`,
+      organizationId: ORGANIZATION_ID,
+      status: "active",
+      trades: ["concrete"],
+      updatedAt: now,
+    });
+    const buildContractorAssignmentId = await ctx.db.insert(
+      "buildContractorAssignments",
+      {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        contractorId,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        role: "Concrete contractor",
+        status: "active",
+        updatedAt: now,
+      }
+    );
+    const milestoneContractorAssignmentId = await ctx.db.insert(
+      "milestoneContractorAssignments",
+      {
+        assignedAt: now,
+        assignedByWorkosUserId: "builder_owner",
+        brokerageId: build.brokerageId,
+        buildContractorAssignmentId,
+        buildId: build._id,
+        buildMilestoneId: milestone._id,
+        buildSubmilestoneId: submilestone._id,
+        contractorId,
+        createdAt: now,
+        milestoneKey: milestone.key,
+        note: "Cost Document Contractor fixture",
+        organizationId: ORGANIZATION_ID,
+        postHoc: false,
+        role: "Concrete contractor",
+        status: "active",
+        submilestoneKey: submilestone.key,
+        updatedAt: now,
+      }
+    );
+    return {
+      buildContractorAssignmentId,
+      contractorId,
+      milestoneContractorAssignmentId,
+    };
+  });
+  return { contractor, ...assignment };
+}
+
+async function addContractorCostDocumentAssignment(
+  fixture: CostDocumentFixture,
+  input: {
+    buildSubmilestoneId: Id<"buildSubmilestones">;
+    contractorId: Id<"contractorProfiles">;
+    status: Doc<"milestoneContractorAssignments">["status"];
+    subject: string;
+  }
+) {
+  return await fixture.base.run(async (ctx) => {
+    const [build, submilestone] = await Promise.all([
+      ctx.db.get(fixture.buildId),
+      ctx.db.get(input.buildSubmilestoneId),
+    ]);
+    if (!(build && submilestone)) {
+      throw new Error("Missing additional Contractor Cost Document scope");
+    }
+    const milestone = await ctx.db.get(submilestone.buildMilestoneId);
+    if (!milestone) {
+      throw new Error("Missing additional Contractor Cost Document milestone");
+    }
+    const now = Date.now();
+    const buildContractorAssignmentId = await ctx.db.insert(
+      "buildContractorAssignments",
+      {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        contractorId: input.contractorId,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        role: "Concrete contractor",
+        status: "active",
+        updatedAt: now,
+      }
+    );
+    return await ctx.db.insert("milestoneContractorAssignments", {
+      assignedAt: now,
+      assignedByWorkosUserId: "builder_owner",
+      brokerageId: build.brokerageId,
+      buildContractorAssignmentId,
+      buildId: build._id,
+      buildMilestoneId: milestone._id,
+      buildSubmilestoneId: submilestone._id,
+      contractorId: input.contractorId,
+      createdAt: now,
+      milestoneKey: milestone.key,
+      note: "Additional Cost Document Contractor fixture",
+      organizationId: ORGANIZATION_ID,
+      postHoc: false,
+      role: "Concrete contractor",
+      status: input.status,
+      submilestoneKey: submilestone.key,
+      updatedAt: now,
+    });
+  });
+}
+
+async function seedSubmittedContractorCostDocuments(
+  fixture: CostDocumentFixture,
+  input: {
+    buildSubmilestoneId: Id<"buildSubmilestones">;
+    contractorProfileId: Id<"contractorProfiles">;
+    count: number;
+    submittedAtStart: number;
+    subject: string;
+    titlePrefix: string;
+  }
+) {
+  return await fixture.base.run(async (ctx) => {
+    const [build, submilestone] = await Promise.all([
+      ctx.db.get(fixture.buildId),
+      ctx.db.get(input.buildSubmilestoneId),
+    ]);
+    if (!(build && submilestone)) {
+      throw new Error("Missing submitted Contractor Cost Document scope");
+    }
+    const costDocumentIds: Id<"costDocuments">[] = [];
+    for (let index = 0; index < input.count; index += 1) {
+      const submittedAt = input.submittedAtStart + index;
+      const costDocumentId = await ctx.db.insert("costDocuments", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        category: "materials",
+        contractorProfileId: input.contractorProfileId,
+        createdAt: submittedAt,
+        currency: "CAD",
+        documentDate: "2026-08-03",
+        grossTotalCents: 1_000 + index,
+        kind: "receipt",
+        organizationId: ORGANIZATION_ID,
+        state: "submitted",
+        submittedAt,
+        title: `${input.titlePrefix} ${index + 1}`,
+        uploaderEmailSnapshot: `${input.subject}@example.com`,
+        uploaderWorkosUserId: input.subject,
+        vendorName: "Completed scope vendor",
+      });
+      await ctx.db.insert("costDocumentAllocations", {
+        amountCents: 1_000 + index,
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        buildSubmilestoneId: submilestone._id,
+        costDocumentId,
+        createdAt: submittedAt,
+        order: 1,
+        organizationId: ORGANIZATION_ID,
+        submilestoneKeySnapshot: submilestone.key,
+        submilestoneNameSnapshot: submilestone.name,
+      });
+      costDocumentIds.push(costDocumentId);
+    }
+    return costDocumentIds;
+  });
 }
 
 async function addActiveBuildParticipant(
@@ -2784,6 +3659,46 @@ async function addSecondSubmilestone(
       status: "planned",
       updatedAt: now,
     });
+  });
+}
+
+async function addCrossBuildSubmilestone(
+  fixture: Awaited<ReturnType<typeof seedFixture>>
+) {
+  const otherBuildId = await addSecondAccessibleBuild(fixture);
+  return await fixture.base.run(async (ctx) => {
+    const [milestone, submilestone] = await Promise.all([
+      ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .first(),
+      ctx.db.get(fixture.buildSubmilestoneId),
+    ]);
+    if (!(milestone && submilestone)) {
+      throw new Error("Missing cross-Build Cost Document fixture scope");
+    }
+    const { _creationTime: _milestoneCreationTime, _id: _milestoneId, ...milestoneFields } =
+      milestone;
+    const {
+      _creationTime: _submilestoneCreationTime,
+      _id: _submilestoneId,
+      ...submilestoneFields
+    } = submilestone;
+    const now = Date.now();
+    const buildMilestoneId = await ctx.db.insert("buildMilestones", {
+      ...milestoneFields,
+      buildId: otherBuildId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const buildSubmilestoneId = await ctx.db.insert("buildSubmilestones", {
+      ...submilestoneFields,
+      buildId: otherBuildId,
+      buildMilestoneId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { buildMilestoneId, buildSubmilestoneId };
   });
 }
 

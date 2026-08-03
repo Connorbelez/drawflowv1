@@ -705,6 +705,30 @@ export const getContractorBuildDetail = contractorRoleQuery
       };
     }
 
+    // The contractor workspace can continue to show completed assignment
+    // history, but Cost Document capture may only be offered for a current
+    // parent Build assignment. The Cost Document command boundary repeats the
+    // complete graph check; this boolean is a conservative route projection,
+    // never an authorization grant.
+    const buildContractorAssignments = await ctx.db
+      .query("buildContractorAssignments")
+      .withIndex("by_build_contractor", (query) =>
+        query.eq("buildId", build._id).eq("contractorId", contractor._id)
+      )
+      .take(201);
+    const currentBuildContractorAssignmentIds = new Set(
+      buildContractorAssignments.length > 200
+        ? []
+        : buildContractorAssignments
+            .filter(
+              (assignment) =>
+                assignment.organizationId === build.organizationId &&
+                assignment.brokerageId === build.brokerageId &&
+                assignment.status !== "inactive"
+            )
+            .map((assignment) => assignment._id)
+    );
+
     const assignedMilestoneIds = new Set(
       myAssignments.map((a) => a.buildMilestoneId)
     );
@@ -773,6 +797,23 @@ export const getContractorBuildDetail = contractorRoleQuery
             milestoneName: candidate?.name,
             status: candidate?.status,
           }));
+        const costDocumentCaptureEligible = Boolean(
+          contractor.status === "active" &&
+            assignment.status === "active" &&
+            assignment.buildSubmilestoneId &&
+            currentBuildContractorAssignmentIds.has(
+              assignment.buildContractorAssignmentId
+            ) &&
+            milestone &&
+            submilestone &&
+            milestone._id === submilestone.buildMilestoneId &&
+            milestone.key === assignment.milestoneKey &&
+            submilestone.organizationId === build.organizationId &&
+            submilestone.brokerageId === build.brokerageId &&
+            submilestone.buildId === build._id &&
+            submilestone.milestoneKey === assignment.milestoneKey &&
+            submilestone.key === assignment.submilestoneKey
+        );
         return {
           assignmentId: assignment._id,
           acknowledgement:
@@ -782,6 +823,8 @@ export const getContractorBuildDetail = contractorRoleQuery
           dependencyBlockers,
           actualStartedAt: submilestone?.actualStartedAt ?? null,
           startReportedAt: submilestone?.startReportedAt ?? null,
+          buildSubmilestoneId: assignment.buildSubmilestoneId ?? null,
+          costDocumentCaptureEligible,
           submilestoneKey: assignment.submilestoneKey ?? null,
           submilestoneName: submilestone?.name ?? null,
           workStatus: submilestone?.status ?? null,
