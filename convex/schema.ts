@@ -787,6 +787,60 @@ const emailMessageStatusValidator = v.union(
   v.literal("cancelled")
 );
 
+// Application-owned communication intents are the durable, organization-scoped
+// email outbox. They are deliberately separate from the official Resend
+// component's internal queue: a domain mutation commits this row atomically,
+// while a bounded worker dispatches it after commit.
+const communicationIntentKindValidator = v.union(
+  v.literal("cost_document_integrity_action_required"),
+  v.literal("cost_document_receipt"),
+  v.literal("quote_invitation_initial"),
+  v.literal("quote_package_revision"),
+  v.literal("quote_invitation_rotation"),
+  v.literal("quote_invitation_recipient_replaced"),
+  v.literal("quote_invitation_reminder_manual"),
+  v.literal("quote_invitation_reminder_auto"),
+  v.literal("quote_invitation_revoked"),
+  v.literal("quote_round_cancelled"),
+  v.literal("quote_response_submitted"),
+  v.literal("quote_response_resubmitted"),
+  v.literal("quote_response_withdrawn")
+);
+
+const communicationIntentStatusValidator = v.union(
+  v.literal("pending"),
+  v.literal("dispatching"),
+  v.literal("sent"),
+  v.literal("retry_scheduled"),
+  v.literal("delivered"),
+  v.literal("suppressed"),
+  v.literal("action_required"),
+  v.literal("cancelled")
+);
+
+const communicationAttemptStateValidator = v.union(
+  v.literal("claimed"),
+  v.literal("enqueued"),
+  v.literal("failed"),
+  v.literal("completed"),
+  v.literal("abandoned")
+);
+
+const communicationOutcomeTypeValidator = v.union(
+  v.literal("dispatch_queued"),
+  v.literal("dispatch_failed"),
+  v.literal("dispatch_suppressed"),
+  v.literal("action_required"),
+  v.literal("email.sent"),
+  v.literal("email.delivered"),
+  v.literal("email.delivery_delayed"),
+  v.literal("email.complained"),
+  v.literal("email.bounced"),
+  v.literal("email.opened"),
+  v.literal("email.clicked"),
+  v.literal("email.failed")
+);
+
 const resendEmailEventTypeValidator = v.union(
   v.literal("email.sent"),
   v.literal("email.delivered"),
@@ -2437,6 +2491,7 @@ export default defineSchema({
   })
     .index("by_buildId", ["buildId"])
     .index("by_buildId_and_state", ["buildId", "state"])
+    .index("by_state_and_updatedAt", ["state", "updatedAt"])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   quoteRoundDrafts: defineTable({
     brokerageId: v.id("brokerages"),
@@ -3747,6 +3802,7 @@ export default defineSchema({
     .index("by_entity", ["relatedEntityType", "relatedEntityId"]),
   emailMessages: defineTable({
     brokerageId: v.id("brokerages"),
+    buildId: v.optional(v.id("activeBuilds")),
     organizationId: v.string(),
     idempotencyKey: v.string(),
     relatedEntityType: v.string(),
@@ -3761,6 +3817,9 @@ export default defineSchema({
     finalizedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    communicationIntentId: v.optional(v.id("communicationIntents")),
+    communicationAttemptId: v.optional(v.id("communicationAttempts")),
+    providerEventType: v.optional(resendEmailEventTypeValidator),
   })
     .index("by_organization_and_idempotencyKey", [
       "organizationId",
@@ -3776,6 +3835,10 @@ export default defineSchema({
       "organizationId",
       "status",
       "updatedAt",
+    ])
+    .index("by_communicationIntentId_and_createdAt", [
+      "communicationIntentId",
+      "createdAt",
     ]),
   emailDeliveryEvents: defineTable({
     brokerageId: v.id("brokerages"),
@@ -3794,6 +3857,115 @@ export default defineSchema({
       "providerCreatedAt",
     ])
     .index("by_organization_and_receivedAt", ["organizationId", "receivedAt"]),
+  // This is the application-level durable outbox. It contains only safe
+  // template data and references; bearer secrets are derived transiently by
+  // the dispatcher from the intent identity and never stored here.
+  communicationIntents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    channel: v.literal("email"),
+    kind: communicationIntentKindValidator,
+    status: communicationIntentStatusValidator,
+    idempotencyKey: v.string(),
+    templateKey: v.string(),
+    payloadSnapshot: v.string(),
+    recipientEmailSnapshot: v.string(),
+    recipientNameSnapshot: v.optional(v.string()),
+    relatedEntityType: v.string(),
+    relatedEntityId: v.string(),
+    quoteRoundId: v.optional(v.id("quoteRounds")),
+    quoteRoundInvitationId: v.optional(v.id("quoteRoundInvitations")),
+    quotePackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    quoteInvitationAccessCredentialId: v.optional(
+      v.id("quoteInvitationAccessCredentials")
+    ),
+    attemptCount: v.number(),
+    nextAttemptAt: v.number(),
+    lastAttemptAt: v.optional(v.number()),
+    lastOutcomeAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    suppressionReason: v.optional(v.string()),
+    actionRequiredReason: v.optional(v.string()),
+    providerEmailMessageId: v.optional(v.id("emailMessages")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organizationId_and_idempotencyKey", [
+      "organizationId",
+      "idempotencyKey",
+    ])
+    .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"])
+    .index("by_quoteRoundInvitationId_and_createdAt", [
+      "quoteRoundInvitationId",
+      "createdAt",
+    ])
+    .index("by_relatedEntityType_and_relatedEntityId_and_createdAt", [
+      "relatedEntityType",
+      "relatedEntityId",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  // Dispatch attempts are append-only so operators can distinguish a retry,
+  // provider acceptance, and a permanent action-required failure.
+  communicationAttempts: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    communicationIntentId: v.id("communicationIntents"),
+    attemptNumber: v.number(),
+    state: communicationAttemptStateValidator,
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    providerEmailMessageId: v.optional(v.id("emailMessages")),
+    providerResendEmailId: v.optional(v.string()),
+    retryAt: v.optional(v.number()),
+    safeError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_communicationIntentId_and_attemptNumber", [
+      "communicationIntentId",
+      "attemptNumber",
+    ])
+    .index("by_communicationIntentId_and_createdAt", [
+      "communicationIntentId",
+      "createdAt",
+    ])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  // Provider and dispatcher outcomes are append-only. eventFingerprint makes
+  // webhook replay idempotent; precedence is explicit for equal timestamps.
+  communicationOutcomes: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    communicationIntentId: v.id("communicationIntents"),
+    communicationAttemptId: v.optional(v.id("communicationAttempts")),
+    eventFingerprint: v.string(),
+    outcomeType: communicationOutcomeTypeValidator,
+    providerResendEmailId: v.optional(v.string()),
+    providerCreatedAt: v.number(),
+    receivedAt: v.number(),
+    precedence: v.number(),
+    safeDetail: v.optional(v.string()),
+  })
+    .index("by_eventFingerprint", ["eventFingerprint"])
+    .index("by_communicationIntentId_and_providerCreatedAt", [
+      "communicationIntentId",
+      "providerCreatedAt",
+    ])
+    .index("by_organizationId_and_receivedAt", [
+      "organizationId",
+      "receivedAt",
+    ]),
+  communicationSweepStates: defineTable({
+    createdAt: v.number(),
+    cursor: v.optional(v.string()),
+    kind: v.literal("quote_invitation_reminders"),
+    lastRoundUpdatedAt: v.optional(v.number()),
+    sweepStartedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_kind", ["kind"]),
   recipientDeliveries: defineTable({
     actionLabel: v.string(),
     actionRequired: v.boolean(),

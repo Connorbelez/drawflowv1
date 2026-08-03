@@ -18,6 +18,10 @@ import {
   createInitialQuoteInvitationCredentialAndDispatch,
   defaultQuoteInvitationAccessExpiry,
 } from "./quote_invitation_access";
+import {
+  quoteInvitationCommunicationProjection,
+  quoteInvitationCommunicationProjectionValidator,
+} from "./quote_notifications";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_DRAFT_LABOUR_LINES = 100;
@@ -408,6 +412,7 @@ const quoteRoundSummaryValidator = v.object({
     revoked: v.number(),
     total: v.number(),
   }),
+  recipientDelivery: v.array(quoteInvitationCommunicationProjectionValidator),
   responseDeadline: v.optional(v.number()),
   responses: v.object({
     drafting: v.number(),
@@ -2188,8 +2193,8 @@ async function replayQuoteRoundPublication(
             .eq("quoteRoundInvitationId", invitation._id)
             .eq("state", "active")
         )
-        .take(2);
-      if (credentials.length !== 1) {
+        .take(1);
+      if (credentials.length === 0) {
         throw new ConvexError(
           "Quote Round invitation credential is inconsistent."
         );
@@ -2749,6 +2754,16 @@ export const listQuoteRounds = authenticatedQuery
             );
           }
           const allInvitations = [...activeInvitations, ...revokedInvitations];
+          for (const invitation of allInvitations) {
+            if (
+              invitation.buildId !== authorization.build._id ||
+              invitation.organizationId !== authorization.organizationId ||
+              invitation.brokerageId !== authorization.brokerage._id ||
+              invitation.quoteRoundId !== round._id
+            ) {
+              throw new ConvexError("Quote Invitation crosses Build scope.");
+            }
+          }
           if (
             packageRevision &&
             (packageRevision.quoteRoundId !== round._id ||
@@ -2990,8 +3005,16 @@ export const listQuoteRounds = authenticatedQuery
                         ? "delivered"
                         : "pending"
                   : "not_dispatched";
+                const communication =
+                  await quoteInvitationCommunicationProjection(ctx, {
+                    hasCurrentSubmission: hasSubmitted,
+                    invitation,
+                    now,
+                    responseDeadline: packageRevision?.responseDeadline,
+                  });
                 return {
                   credentials,
+                  communication,
                   deliveryStatus,
                   hasDraft,
                   hasPendingAcknowledgement: pendingAcknowledgement,
@@ -3034,6 +3057,28 @@ export const listQuoteRounds = authenticatedQuery
             }
           );
           delivery.status = quoteRoundDeliveryStatus(delivery);
+          const activeCommunicationByInvitationId = new Map(
+            activeProjection.map((projection) => [
+              projection.communication.invitationId,
+              projection.communication,
+            ])
+          );
+          const recipientDelivery = await Promise.all(
+            allInvitations.map((invitation) => {
+              const activeCommunication = activeCommunicationByInvitationId.get(
+                invitation._id
+              );
+              if (activeCommunication) {
+                return activeCommunication;
+              }
+              return quoteInvitationCommunicationProjection(ctx, {
+                hasCurrentSubmission: false,
+                invitation,
+                now,
+                responseDeadline: packageRevision?.responseDeadline,
+              });
+            })
+          );
           const access = activeProjection.reduce(
             (counts, projection) => {
               const credentialCounts = quoteRoundCredentialStateCounts(
@@ -3064,12 +3109,7 @@ export const listQuoteRounds = authenticatedQuery
             (projection) => projection.hasPendingAcknowledgement
           );
           const reminderEligible = activeProjection.some(
-            (projection) =>
-              !(
-                projection.hasSubmitted ||
-                projection.hasDraft ||
-                projection.hasPendingReminder
-              )
+            (projection) => projection.communication.reminderEligible
           );
           const responseDeadline =
             packageRevision?.responseDeadline ?? draft[0]?.responseDeadline;
@@ -3113,6 +3153,7 @@ export const listQuoteRounds = authenticatedQuery
               revoked: revokedInvitations.length,
               total: allInvitations.length,
             },
+            recipientDelivery,
             responseDeadline,
             responses,
             revision: round.revision,

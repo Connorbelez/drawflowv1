@@ -10,7 +10,11 @@ import {
   authenticatedQuery,
 } from "./authz";
 import { normalizeContractorEmail } from "./contractorWorkspace";
-import { enqueueTransactionalEmail } from "./email_transport";
+import {
+  type CommunicationIntentKind,
+  deriveCommunicationSecret,
+  enqueueCommunicationIntent,
+} from "./email_transport";
 import { publicMutation } from "./fluent";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
@@ -246,6 +250,22 @@ interface QuoteInvitationCredentialDispatchInput {
   accessGeneration?: number;
   brokerage: Doc<"brokerages">;
   build: Doc<"activeBuilds">;
+  communicationIdempotencyKey?: string;
+  communicationKind?: Extract<
+    CommunicationIntentKind,
+    | "quote_invitation_initial"
+    | "quote_package_revision"
+    | "quote_invitation_rotation"
+    | "quote_invitation_reminder_manual"
+    | "quote_invitation_reminder_auto"
+    | "quote_invitation_recipient_replaced"
+  >;
+  /**
+   * Safe, non-identity metadata rendered into the notification body. Domain
+   * transitions may include revision changed-field keys and their reason here;
+   * provider delivery remains a post-commit concern.
+   */
+  communicationPayload?: Record<string, unknown>;
   credentialVersion?: number;
   invitation: Doc<"quoteRoundInvitations">;
   packageRevision: Doc<"quotePackageRevisions">;
@@ -328,12 +348,51 @@ export async function createInitialQuoteInvitationCredentialAndDispatch(
     responseDeadline: input.responseDeadline,
   });
 
-  const magicToken = randomSecret();
-  const credentialVerifier = await quoteInvitationSecretVerifier(magicToken);
   const now = input.publishedAt;
   const accessGeneration = input.accessGeneration ?? 1;
   const credentialVersion = input.credentialVersion ?? 1;
   const purpose = input.purpose ?? "initial";
+  const communicationKind = quoteInvitationCommunicationKind(input, purpose);
+  const intentId = await enqueueCommunicationIntent(ctx, {
+    brokerageId: input.brokerage._id,
+    buildId: input.build._id,
+    idempotencyKey:
+      input.communicationIdempotencyKey ??
+      `quote-invitation:${input.invitation._id}:access-generation:${accessGeneration}:credential:${credentialVersion}`,
+    kind: communicationKind,
+    organizationId: input.brokerage.workosOrganizationId,
+    payloadSnapshot: JSON.stringify({
+      ...input.communicationPayload,
+      accessExpiresAt: input.accessExpiresAt,
+      accessGeneration,
+      credentialVersion,
+      packageRevisionId: String(input.packageRevision._id),
+      responseDeadline: input.responseDeadline,
+      purpose,
+    }),
+    quotePackageRevisionId: input.packageRevision._id,
+    quoteRoundId: input.quoteRound._id,
+    quoteRoundInvitationId: input.invitation._id,
+    recipientEmailSnapshot: input.invitation.recipientEmailSnapshot,
+    recipientNameSnapshot: input.invitation.recipientNameSnapshot,
+    relatedEntityId: String(input.invitation._id),
+    relatedEntityType: "quoteRoundInvitation",
+    templateKey: quoteInvitationTemplateKey(communicationKind),
+  });
+  const existingIntent = await ctx.db.get(intentId);
+  if (!existingIntent) {
+    throw new ConvexError("Quote Invitation communication intent disappeared.");
+  }
+  if (existingIntent.quoteInvitationAccessCredentialId) {
+    const existingCredential = await ctx.db.get(
+      existingIntent.quoteInvitationAccessCredentialId
+    );
+    if (existingCredential) {
+      return existingCredential._id;
+    }
+  }
+  const magicToken = await deriveCommunicationSecret(String(intentId));
+  const credentialVerifier = await quoteInvitationSecretVerifier(magicToken);
   const credentialId = await ctx.db.insert("quoteInvitationAccessCredentials", {
     accessExpiresAt: input.accessExpiresAt,
     accessGeneration,
@@ -349,29 +408,49 @@ export async function createInitialQuoteInvitationCredentialAndDispatch(
     state: "active",
     updatedAt: now,
   });
-  const invitationUrl = quoteInvitationUrl(magicToken);
-  const emailMessageId = await enqueueTransactionalEmail(ctx, {
-    brokerageId: input.brokerage._id,
-    html: quoteInvitationEmailHtml({
-      invitationUrl,
-      recipientName: input.invitation.recipientNameSnapshot,
-    }),
-    idempotencyKey: `quote-invitation:${input.invitation._id}:access-generation:${accessGeneration}:credential:${credentialVersion}`,
-    organizationId: input.brokerage.workosOrganizationId,
-    recipientEmail: input.invitation.recipientEmailSnapshot,
-    relatedEntityId: String(input.invitation._id),
-    relatedEntityType: "quoteRoundInvitation",
-    subject: `Quote requested by ${input.brokerage.displayName}`,
-    text: quoteInvitationEmailText({
-      invitationUrl,
-      recipientName: input.invitation.recipientNameSnapshot,
-    }),
-  });
-  await ctx.db.patch(credentialId, {
-    deliveryEmailMessageId: emailMessageId,
+  await ctx.db.patch(intentId, {
+    quoteInvitationAccessCredentialId: credentialId,
     updatedAt: now,
   });
   return credentialId;
+}
+
+function quoteInvitationCommunicationKind(
+  input: QuoteInvitationCredentialDispatchInput,
+  purpose: NonNullable<QuoteInvitationCredentialDispatchInput["purpose"]>
+) {
+  if (input.communicationKind) {
+    return input.communicationKind;
+  }
+  if (purpose === "renewal") {
+    return "quote_package_revision" as const;
+  }
+  if (purpose === "rotation") {
+    return "quote_invitation_rotation" as const;
+  }
+  if (purpose === "reminder") {
+    return "quote_invitation_reminder_manual" as const;
+  }
+  return "quote_invitation_initial" as const;
+}
+
+function quoteInvitationTemplateKey(kind: CommunicationIntentKind) {
+  if (kind === "quote_package_revision") {
+    return "quote_invitation_revision";
+  }
+  if (kind === "quote_invitation_recipient_replaced") {
+    return "quote_invitation_replaced";
+  }
+  if (kind === "quote_invitation_rotation") {
+    return "quote_invitation_rotation";
+  }
+  if (
+    kind === "quote_invitation_reminder_manual" ||
+    kind === "quote_invitation_reminder_auto"
+  ) {
+    return "quote_invitation_reminder";
+  }
+  return "quote_invitation";
 }
 
 /**
@@ -745,41 +824,6 @@ export function quoteInvitationUrl(magicToken: string) {
     `/quote-invitation/${encodeURIComponent(magicToken)}`,
     origin
   ).toString();
-}
-
-function quoteInvitationEmailText(input: {
-  invitationUrl: string;
-  recipientName: string;
-}) {
-  return `Hello ${input.recipientName},\n\nYou have been invited to review a private DrawFlow Quote Package. Open your secure invitation: ${input.invitationUrl}\n\nThis link is reusable until its stated access expiry.`;
-}
-
-function quoteInvitationEmailHtml(input: {
-  invitationUrl: string;
-  recipientName: string;
-}) {
-  const name = escapeHtml(input.recipientName);
-  const url = escapeHtml(input.invitationUrl);
-  return `<p>Hello ${name},</p><p>You have been invited to review a private DrawFlow Quote Package.</p><p><a href="${url}">Open your secure invitation</a></p><p>This link is reusable until its stated access expiry.</p>`;
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>'"]/g, (character) => {
-    switch (character) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case "'":
-        return "&#39;";
-      case '"':
-        return "&quot;";
-      default:
-        return character;
-    }
-  });
 }
 
 function expiredAccessResult(scope: InvitationScope, expiresAt: number) {

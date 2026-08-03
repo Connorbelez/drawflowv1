@@ -48,6 +48,31 @@ const lifecycleRows = [
     participation: { active: 1, revoked: 0, total: 1 },
     preferredQuote: null,
     recipients: { active: 1, revoked: 0, total: 1 },
+    recipientDelivery: [
+      {
+        actionRequired: true,
+        attemptCount: 3,
+        cooldownUntil: TEST_NOW + 24 * 60 * 60 * 1000,
+        history: [
+          {
+            createdAt: TEST_NOW - 60_000,
+            kind: "quote_invitation_initial",
+            lastOutcomeAt: TEST_NOW - 30_000,
+            status: "action_required",
+          },
+          {
+            createdAt: TEST_NOW - 120_000,
+            kind: "quote_invitation_reminder_manual",
+            status: "retry_scheduled",
+          },
+        ],
+        invitationId: "invitation-open",
+        latestOutcomeAt: TEST_NOW - 30_000,
+        latestStatus: "action_required",
+        recoveryState: "action_required",
+        reminderEligible: true,
+      },
+    ],
     responseDeadline: TEST_NOW + 5 * 24 * 60 * 60 * 1000,
     responses: { drafting: 1, submitted: 0, total: 1 },
     revision: 3,
@@ -107,6 +132,7 @@ const lifecycleRows = [
     participation: { active: 1, revoked: 0, total: 1 },
     preferredQuote: null,
     recipients: { active: 1, revoked: 0, total: 1 },
+    recipientDelivery: [],
     responseDeadline: TEST_NOW - 5 * 24 * 60 * 60 * 1000,
     responses: { drafting: 0, submitted: 1, total: 1 },
     revision: 4,
@@ -133,6 +159,7 @@ const lifecycleRows = [
     participation: { active: 0, revoked: 1, total: 1 },
     preferredQuote: null,
     recipients: { active: 0, revoked: 1, total: 1 },
+    recipientDelivery: [],
     responses: { drafting: 0, submitted: 0, total: 0 },
     revision: 2,
     scope: "Framing lumber",
@@ -306,6 +333,63 @@ describe("QuoteRoundsSurface", () => {
     expect(
       screen.getByRole("region", { name: "Framing bid recipient activity" })
     ).toBeTruthy();
+  });
+
+  test("surfaces per-recipient delivery recovery and reminder eligibility without recipient identity", () => {
+    renderSurface({ onOpen: vi.fn() });
+    const desktopTitleButton = screen
+      .getAllByText("Framing bid")
+      .map((element) => element.closest("button"))
+      .find((button) =>
+        button?.getAttribute("aria-controls")?.startsWith("quote-round-desktop")
+      );
+    if (!desktopTitleButton) {
+      throw new Error("Expected the desktop lifecycle disclosure button.");
+    }
+    fireEvent.click(desktopTitleButton);
+    const activity = screen.getByRole("region", {
+      name: "Framing bid recipient activity",
+    });
+    expect(activity.textContent).toContain("1 tracked · 1 action required · 1 reminder eligible");
+    expect(activity.textContent).toContain(
+      "Recipient 1: action_required · action required · reminder eligible"
+    );
+    expect(activity.textContent).not.toContain("quote-recipient@example.com");
+    expect(activity.textContent).not.toContain("notifications@updates.fairlend.ca");
+
+    const history = screen.getAllByTestId(
+      "quote-recipient-communication-history"
+    )[0];
+    if (!history) {
+      throw new Error("Expected a recipient communication history disclosure.");
+    }
+    const summary = history.querySelector("summary");
+    if (!summary) {
+      throw new Error("Expected a communication history summary.");
+    }
+    fireEvent.click(summary);
+    expect(history.textContent).toContain("Latest: action_required");
+    expect(history.textContent).toContain("Recovery: action_required · action required · reminder eligible");
+    expect(history.textContent).toContain("3 attempts");
+    expect(history.textContent).toContain("quote_invitation_initial");
+    expect(history.textContent).not.toContain("quote-recipient@example.com");
+  });
+
+  test("keeps recipient recovery read-only when the register is opened in read-only mode", () => {
+    renderSurface({ onOpen: vi.fn(), readOnly: true });
+    const desktopTitleButton = screen
+      .getAllByText("Framing bid")
+      .map((element) => element.closest("button"))
+      .find((button) =>
+        button?.getAttribute("aria-controls")?.startsWith("quote-round-desktop")
+      );
+    if (!desktopTitleButton) {
+      throw new Error("Expected the desktop lifecycle disclosure button.");
+    }
+    fireEvent.click(desktopTitleButton);
+    expect(screen.getByRole("region", { name: "Framing bid recipient activity" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Remind|Retry|Send/i })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "View" }).length).toBeGreaterThan(0);
   });
 
   test("filters by scope and mode, and sorts the visible register deterministically", () => {

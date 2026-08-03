@@ -58,6 +58,20 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  "schedule quote invitation reminders",
+  { minutes: 1 },
+  internal.quote_notifications.scheduleQuoteInvitationReminders,
+  {}
+);
+
+crons.interval(
+  "dispatch communication intents",
+  { minutes: 1 },
+  internal.quote_notifications.processDueCommunicationIntents,
+  {}
+);
+
 crons.hourly(
   "process Build Action Item deadlines",
   { minuteUTC: 5 },

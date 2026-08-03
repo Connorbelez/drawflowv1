@@ -8,6 +8,7 @@ import {
   normalizeOperationalIdempotencyKey,
   operationalRequestFingerprint,
 } from "./build_operational_idempotency";
+import { enqueueCommunicationIntent } from "./email_transport";
 import { publicMutation, publicQuery } from "./fluent";
 import {
   type InvitationScope,
@@ -648,6 +649,32 @@ interface ValidatedSubmissionRequest {
   requestFingerprint: string;
 }
 
+async function loadPriorSubmissionRevisions(
+  ctx: MutationCtx,
+  scope: InvitationScope,
+  state: Doc<"quoteInvitationResponseSubmissionStates"> | null
+) {
+  const priorLatest = state
+    ? await ctx.db.get(state.latestSubmissionRevisionId)
+    : null;
+  if (state && !priorLatest) {
+    throw new ConvexError("Quote response submission state is inconsistent.");
+  }
+  if (priorLatest) {
+    assertSubmissionScope(priorLatest, scope);
+  }
+  const priorActive = state?.activeSubmissionRevisionId
+    ? await ctx.db.get(state.activeSubmissionRevisionId)
+    : null;
+  if (state?.activeSubmissionRevisionId && !priorActive) {
+    throw new ConvexError("Quote response current submission is inconsistent.");
+  }
+  if (priorActive) {
+    assertSubmissionScope(priorActive, scope);
+  }
+  return { priorActive, priorLatest };
+}
+
 async function acceptValidatedDraftSubmission(
   ctx: MutationCtx,
   scope: InvitationScope,
@@ -669,24 +696,11 @@ async function acceptValidatedDraftSubmission(
       ],
     };
   }
-  const priorLatest = state
-    ? await ctx.db.get(state.latestSubmissionRevisionId)
-    : null;
-  if (state && !priorLatest) {
-    throw new ConvexError("Quote response submission state is inconsistent.");
-  }
-  if (priorLatest) {
-    assertSubmissionScope(priorLatest, scope);
-  }
-  const priorActive = state?.activeSubmissionRevisionId
-    ? await ctx.db.get(state.activeSubmissionRevisionId)
-    : null;
-  if (state?.activeSubmissionRevisionId && !priorActive) {
-    throw new ConvexError("Quote response current submission is inconsistent.");
-  }
-  if (priorActive) {
-    assertSubmissionScope(priorActive, scope);
-  }
+  const { priorActive, priorLatest } = await loadPriorSubmissionRevisions(
+    ctx,
+    scope,
+    state
+  );
   const finalWriteAccess = await finalWriteAccessStatus(
     ctx,
     scope,
@@ -799,6 +813,28 @@ async function acceptValidatedDraftSubmission(
       : { status: "none" },
     submissionRevisionId,
     now,
+  });
+  await enqueueCommunicationIntent(ctx, {
+    brokerageId: scope.invitation.brokerageId,
+    buildId: scope.invitation.buildId,
+    idempotencyKey: `quote-response:${scope.invitation._id}:revision:${revision}:submitted`,
+    kind: priorLatest
+      ? "quote_response_resubmitted"
+      : "quote_response_submitted",
+    organizationId: scope.invitation.organizationId,
+    payloadSnapshot: JSON.stringify({
+      canonicalTotalCents,
+      event: priorLatest ? "resubmitted" : "submitted",
+      revision,
+    }),
+    quotePackageRevisionId: scope.packageRevision._id,
+    quoteRoundId: scope.invitation.quoteRoundId,
+    quoteRoundInvitationId: scope.invitation._id,
+    recipientEmailSnapshot: scope.invitation.recipientEmailSnapshot,
+    recipientNameSnapshot: scope.invitation.recipientNameSnapshot,
+    relatedEntityId: String(submissionRevisionId),
+    relatedEntityType: "quoteResponseSubmissionRevision",
+    templateKey: "quote_response",
   });
   const submission = await ctx.db.get(submissionRevisionId);
   if (!submission) {
@@ -979,6 +1015,26 @@ async function withdrawForAccess(
     reason: explanation,
     submissionRevisionId: active._id,
     now,
+  });
+  await enqueueCommunicationIntent(ctx, {
+    brokerageId: scope.invitation.brokerageId,
+    buildId: scope.invitation.buildId,
+    idempotencyKey: `quote-response:${scope.invitation._id}:revision:${active.revision}:withdrawn`,
+    kind: "quote_response_withdrawn",
+    organizationId: scope.invitation.organizationId,
+    payloadSnapshot: JSON.stringify({
+      event: "withdrawn",
+      explanation,
+      revision: active.revision,
+    }),
+    quotePackageRevisionId: scope.packageRevision._id,
+    quoteRoundId: scope.invitation.quoteRoundId,
+    quoteRoundInvitationId: scope.invitation._id,
+    recipientEmailSnapshot: scope.invitation.recipientEmailSnapshot,
+    recipientNameSnapshot: scope.invitation.recipientNameSnapshot,
+    relatedEntityId: String(active._id),
+    relatedEntityType: "quoteResponseSubmissionRevision",
+    templateKey: "quote_response",
   });
   return {
     status: "withdrawn" as const,

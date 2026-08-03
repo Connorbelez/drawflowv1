@@ -188,6 +188,178 @@ describe("Cost Document public contract", () => {
     expect(revokedResponse.status).toBe(403);
   });
 
+  test("creates one immutable Receipt communication intent atomically and replays without duplicating it", async () => {
+    const fixture = await seedFixture();
+    const batchId = await createBatch(fixture, "receipt-email-atomic");
+    const draftId = await addDraft(fixture, batchId, "receipt", "materials");
+    const assetId = await stageDraftAsset(fixture, draftId, "receipt.pdf");
+    await saveDraft(fixture, draftId, {
+      allocations: [
+        {
+          amountCents: 7_500,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      documentDate: "2026-08-03",
+      grossTotalCents: 7_500,
+      pageAssetIds: [assetId],
+      title: "Foundation receipt",
+      vendorName: "Cedar Supply Ltd.",
+    });
+    await completeDraft(fixture, draftId);
+
+    const submitted = await fixture.builder.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "receipt-email-atomic-submit",
+      }
+    );
+    const costDocumentId = submitted.costDocumentIds[0] as Id<"costDocuments">;
+    const intents = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_relatedEntityType_and_relatedEntityId_and_createdAt", (query) =>
+          query
+            .eq("relatedEntityType", "costDocument")
+            .eq("relatedEntityId", String(costDocumentId))
+        )
+        .collect()
+    );
+    expect(intents).toEqual([
+      expect.objectContaining({
+        idempotencyKey: `cost-document:${costDocumentId}:submitted-receipt`,
+        kind: "cost_document_receipt",
+        recipientEmailSnapshot: "builder_owner@example.com",
+        relatedEntityId: String(costDocumentId),
+        relatedEntityType: "costDocument",
+        status: "pending",
+        templateKey: "cost_document_upload_receipt_v1",
+      }),
+    ]);
+    expect(
+      await fixture.base.run(async (ctx) =>
+        await ctx.db
+          .query("emailMessages")
+          .withIndex("by_entity_and_createdAt", (query) =>
+            query
+              .eq("relatedEntityType", "costDocument")
+              .eq("relatedEntityId", String(costDocumentId))
+          )
+          .collect()
+      )
+    ).toEqual([]);
+
+    const replay = await fixture.builder.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "receipt-email-atomic-submit",
+      }
+    );
+    expect(replay).toEqual({ ...submitted, replayed: true });
+    const intentsAfterReplay = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_relatedEntityType_and_relatedEntityId_and_createdAt", (query) =>
+          query
+            .eq("relatedEntityType", "costDocument")
+            .eq("relatedEntityId", String(costDocumentId))
+        )
+        .collect()
+    );
+    expect(intentsAfterReplay).toHaveLength(1);
+  });
+
+  test("keeps Receipt publication durable when provider configuration is unavailable", async () => {
+    const fixture = await seedFixture();
+    const batchId = await createBatch(fixture, "receipt-email-rollback");
+    const draftId = await addDraft(fixture, batchId, "receipt", "materials");
+    const assetId = await stageDraftAsset(fixture, draftId, "receipt-rollback.pdf");
+    await saveDraft(fixture, draftId, {
+      allocations: [
+        {
+          amountCents: 8_500,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      documentDate: "2026-08-03",
+      grossTotalCents: 8_500,
+      pageAssetIds: [assetId],
+      title: "Receipt transport rollback",
+      vendorName: "Cedar Supply Ltd.",
+    });
+    await completeDraft(fixture, draftId);
+    vi.stubEnv("RESEND_FROM_EMAIL", "");
+
+    const submitted = await fixture.builder.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "receipt-email-rollback-submit",
+      }
+    );
+    const costDocumentId = submitted.costDocumentIds[0] as Id<"costDocuments">;
+
+    const state = await fixture.base.run(async (ctx) => ({
+      audits: await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) => query.eq("entityType", "costDocument"))
+        .collect(),
+      batch: await ctx.db.get(batchId),
+      documents: await ctx.db
+        .query("costDocuments")
+        .withIndex("by_buildId_and_submittedAt", (query) =>
+          query.eq("buildId", fixture.buildId)
+        )
+        .collect(),
+      emails: await ctx.db
+        .query("emailMessages")
+        .withIndex("by_entity_and_createdAt", (query) =>
+          query
+            .eq("relatedEntityType", "costDocument")
+            .eq("relatedEntityId", String(costDocumentId))
+        )
+        .collect(),
+      intents: await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_relatedEntityType_and_relatedEntityId_and_createdAt", (query) =>
+          query
+            .eq("relatedEntityType", "costDocument")
+            .eq("relatedEntityId", String(costDocumentId))
+        )
+        .collect(),
+      outbox: await ctx.db
+        .query("eventOutbox")
+        .withIndex("by_entity", (query) =>
+          query.eq("relatedEntityType", "costDocument")
+        )
+        .collect(),
+    }));
+    expect(state.batch).toMatchObject({ state: "submitted" });
+    expect(state.documents).toEqual([
+      expect.objectContaining({ _id: costDocumentId, state: "submitted" }),
+    ]);
+    expect(state.audits).toEqual([
+      expect.objectContaining({ eventType: "cost_document.submitted" }),
+    ]);
+    expect(state.emails).toEqual([]);
+    expect(state.outbox).toEqual([
+      expect.objectContaining({ eventType: "cost_document.submitted" }),
+    ]);
+    expect(state.intents).toEqual([
+      expect.objectContaining({
+        idempotencyKey: `cost-document:${costDocumentId}:submitted-receipt`,
+        kind: "cost_document_receipt",
+        status: "pending",
+        templateKey: "cost_document_upload_receipt_v1",
+      }),
+    ]);
+  });
+
   test("rejects forged Cost Document page and asset child graphs before authorizing a download", async () => {
     const fixture = await seedFixture();
     const batchId = await createBatch(fixture, "page-download-child-graph");
@@ -4620,17 +4792,20 @@ describe("Cost Document public contract", () => {
     expect(response.status).toBe(409);
     expect(response.headers.get("Cache-Control")).toContain("no-store");
     const durable = await fixture.base.run(async (ctx) => ({
-      emails: await ctx.db
-        .query("emailMessages")
-        .withIndex("by_entity_and_createdAt", (query) =>
+      intents: await ctx.db
+        .query("communicationIntents")
+        .withIndex(
+          "by_relatedEntityType_and_relatedEntityId_and_createdAt",
+          (query) =>
           query
             .eq("relatedEntityType", "costDocument")
             .eq("relatedEntityId", String(submitted.costDocumentId))
         )
         .collect()
-        .then((messages) =>
-          messages.filter((message) =>
-            message.subject.startsWith("Action required:")
+        .then((intents) =>
+          intents.filter(
+            (intent) =>
+              intent.kind === "cost_document_integrity_action_required"
           )
         ),
       exceptions: await ctx.db
@@ -4652,7 +4827,13 @@ describe("Cost Document public contract", () => {
       expect.objectContaining({ kind: "unavailable" }),
     ]);
     expect(durable.exceptions[0]).not.toHaveProperty("resolvedAt");
-    expect(durable.emails).toHaveLength(1);
+    expect(durable.intents).toEqual([
+      expect.objectContaining({
+        kind: "cost_document_integrity_action_required",
+        status: "pending",
+        templateKey: "cost_document_integrity_action_required_v1",
+      }),
+    ]);
     expect(
       durable.outbox.filter(
         (event) => event.eventType === "cost_document.integrity_exception"
@@ -4726,17 +4907,20 @@ describe("Cost Document public contract", () => {
     );
 
     const durable = await fixture.base.run(async (ctx) => ({
-      emails: await ctx.db
-        .query("emailMessages")
-        .withIndex("by_entity_and_createdAt", (query) =>
+      intents: await ctx.db
+        .query("communicationIntents")
+        .withIndex(
+          "by_relatedEntityType_and_relatedEntityId_and_createdAt",
+          (query) =>
           query
             .eq("relatedEntityType", "costDocument")
             .eq("relatedEntityId", String(submitted.costDocumentId))
         )
         .collect()
-        .then((messages) =>
-          messages.filter((message) =>
-            message.subject.startsWith("Action required:")
+        .then((intents) =>
+          intents.filter(
+            (intent) =>
+              intent.kind === "cost_document_integrity_action_required"
           )
         ),
       exceptions: await ctx.db
@@ -4750,7 +4934,7 @@ describe("Cost Document public contract", () => {
     expect(
       durable.exceptions.filter((exception) => exception.resolvedAt === undefined)
     ).toEqual([expect.objectContaining({ kind: "corrupt" })]);
-    expect(durable.emails).toHaveLength(3);
+    expect(durable.intents).toHaveLength(3);
   });
 });
 

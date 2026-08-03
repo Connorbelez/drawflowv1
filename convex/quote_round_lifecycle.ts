@@ -6,6 +6,7 @@ import {
 } from "./activeBuildAccess";
 import { type AuthorizedViewer, authenticatedMutation } from "./authz";
 import { normalizeContractorEmail } from "./contractorWorkspace";
+import { enqueueCommunicationIntent } from "./email_transport";
 import { publicMutation } from "./fluent";
 import {
   createInitialQuoteInvitationCredentialAndDispatch,
@@ -42,12 +43,14 @@ const lifecycleResultValidator = v.object({
 });
 
 const invitationLifecycleResultValidator = v.object({
+  cooldownUntil: v.optional(v.number()),
   invitationId: v.id("quoteRoundInvitations"),
   status: v.union(
     v.literal("revoked"),
     v.literal("replaced"),
     v.literal("reminded"),
-    v.literal("rotated")
+    v.literal("rotated"),
+    v.literal("preview")
   ),
   replacementInvitationId: v.optional(v.id("quoteRoundInvitations")),
   accessGeneration: v.optional(v.number()),
@@ -102,6 +105,30 @@ async function authorizeLifecyclePath(
   });
   assertLifecycleRole(authorization);
   return authorization;
+}
+
+async function quoteInvitationReminderCooldownUntil(
+  ctx: MutationCtx,
+  invitationId: Id<"quoteRoundInvitations">,
+  now: number
+) {
+  const reminders = await ctx.db
+    .query("communicationIntents")
+    .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+      query.eq("quoteRoundInvitationId", invitationId)
+    )
+    .order("desc")
+    .take(20);
+  const latestReminder = reminders.find(
+    (intent) =>
+      (intent.kind === "quote_invitation_reminder_manual" ||
+        intent.kind === "quote_invitation_reminder_auto") &&
+      intent.status !== "suppressed" &&
+      intent.createdAt + 24 * 60 * 60 * 1000 > now
+  );
+  return latestReminder
+    ? latestReminder.createdAt + 24 * 60 * 60 * 1000
+    : undefined;
 }
 
 function requireRound(
@@ -375,6 +402,24 @@ export const cancelQuoteRound = authenticatedMutation
       }
       for (const invitation of invitations) {
         await endInvitationAccess(ctx, invitation, now, "revoked");
+        await enqueueCommunicationIntent(ctx, {
+          brokerageId: authorization.brokerage._id,
+          buildId: authorization.build._id,
+          idempotencyKey: `quote-round:${round._id}:invitation:${invitation._id}:cancelled:${round.revision + 1}`,
+          kind: "quote_round_cancelled",
+          organizationId: authorization.organizationId,
+          payloadSnapshot: JSON.stringify({
+            event: "cancelled",
+            reason,
+          }),
+          quoteRoundId: round._id,
+          quoteRoundInvitationId: invitation._id,
+          recipientEmailSnapshot: invitation.recipientEmailSnapshot,
+          recipientNameSnapshot: invitation.recipientNameSnapshot,
+          relatedEntityId: String(round._id),
+          relatedEntityType: "quoteRound",
+          templateKey: "quote_invitation_cancelled",
+        });
       }
       await clearSubmissionComparison(ctx, round);
     }
@@ -540,6 +585,11 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
         packageRevision,
         publishedAt: now,
         purpose: "renewal",
+        communicationKind: "quote_package_revision",
+        communicationPayload: {
+          changedFieldKeys,
+          reason,
+        },
         quoteRound: round,
         responseDeadline: args.responseDeadline,
       });
@@ -656,6 +706,21 @@ export const revokeQuoteRoundInvitation = authenticatedMutation
       revocationReason: reason,
       updatedAt: now,
     });
+    await enqueueCommunicationIntent(ctx, {
+      brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
+      idempotencyKey: `quote-invitation:${invitation._id}:revoked:${now}`,
+      kind: "quote_invitation_revoked",
+      organizationId: authorization.organizationId,
+      payloadSnapshot: JSON.stringify({ event: "revoked", reason }),
+      quoteRoundId: invitation.quoteRoundId,
+      quoteRoundInvitationId: invitation._id,
+      recipientEmailSnapshot: invitation.recipientEmailSnapshot,
+      recipientNameSnapshot: invitation.recipientNameSnapshot,
+      relatedEntityId: String(invitation._id),
+      relatedEntityType: "quoteRoundInvitation",
+      templateKey: "quote_invitation_revoked",
+    });
     await clearInvitationSubmissionComparison(ctx, invitation);
     await appendLifecycleAudit(
       ctx,
@@ -680,6 +745,7 @@ export const remindQuoteInvitationAccess = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
     confirmed: v.boolean(),
+    preview: v.optional(v.boolean()),
     quoteRoundInvitationId: v.id("quoteRoundInvitations"),
     reason: v.string(),
     workosOrganizationId: v.string(),
@@ -687,7 +753,6 @@ export const remindQuoteInvitationAccess = authenticatedMutation
   .returns(invitationLifecycleResultValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeLifecyclePath(ctx, args);
-    requiredConfirmation(args.confirmed, "send a Quote Invitation reminder");
     const reason = requiredReason(
       args.reason,
       "A Quote Invitation reminder reason"
@@ -712,8 +777,25 @@ export const remindQuoteInvitationAccess = authenticatedMutation
       );
     }
     const now = Date.now();
+    const cooldownUntil = await quoteInvitationReminderCooldownUntil(
+      ctx,
+      scope.invitation._id,
+      now
+    );
+    if (args.preview) {
+      return {
+        cooldownUntil,
+        invitationId: scope.invitation._id,
+        status: "preview" as const,
+      };
+    }
+    requiredConfirmation(args.confirmed, "send a Quote Invitation reminder");
+    if (cooldownUntil) {
+      throw new ConvexError(
+        `A Quote Invitation reminder was already sent recently. Try again after ${new Date(cooldownUntil).toISOString()}.`
+      );
+    }
     const generation = scope.invitation.accessGeneration ?? 1;
-    await endInvitationAccess(ctx, scope.invitation, now, "rotated");
     const credentialVersion = await nextCredentialVersion(
       ctx,
       scope.invitation._id
@@ -735,6 +817,8 @@ export const remindQuoteInvitationAccess = authenticatedMutation
         publishedAt: now,
         credentialVersion,
         purpose: "reminder",
+        communicationKind: "quote_invitation_reminder_manual",
+        communicationPayload: { reason },
         quoteRound: scope.round,
         responseDeadline: scope.packageRevision.responseDeadline,
       });
@@ -838,6 +922,8 @@ export const rotateQuoteInvitationAccess = authenticatedMutation
         packageRevision,
         publishedAt: now,
         purpose: "rotation",
+        communicationKind: "quote_invitation_rotation",
+        communicationPayload: { reason },
         quoteRound: scope.round,
         responseDeadline: packageRevision.responseDeadline,
       });
@@ -1003,6 +1089,8 @@ export const replaceQuoteRoundInvitationEmail = authenticatedMutation
       invitation: replacement,
       packageRevision,
       publishedAt: now,
+      communicationKind: "quote_invitation_recipient_replaced",
+      communicationPayload: { reason },
       quoteRound: round,
       responseDeadline: packageRevision.responseDeadline,
     });

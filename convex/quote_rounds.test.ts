@@ -17,6 +17,10 @@ const modules = import.meta.glob("./**/*.ts");
 const ORGANIZATION_ID = "org_quote_rounds";
 
 beforeEach(() => {
+  vi.stubEnv(
+    "COMMUNICATION_TOKEN_SECRET",
+    "quote-rounds-test-secret-at-least-32-bytes"
+  );
   vi.stubEnv("RESEND_API_KEY", "re_quote_rounds_test_key");
   vi.stubEnv(
     "RESEND_FROM_EMAIL",
@@ -813,9 +817,26 @@ describe("Quote Invitation immutable response submissions", () => {
       submissions: await ctx.db
         .query("quoteInvitationResponseSubmissionRevisions")
         .collect(),
+      intents: await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect(),
     }));
     expect(persisted.drafts).toHaveLength(0);
     expect(persisted.submissions).toHaveLength(1);
+    expect(persisted.intents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "quote_response_submitted",
+          payloadSnapshot: expect.stringContaining('"event":"submitted"'),
+          relatedEntityType: "quoteResponseSubmissionRevision",
+          status: "pending",
+          templateKey: "quote_response",
+        }),
+      ])
+    );
     const lifecycle = await fixture.base.query(
       (api as any).quote_response_submissions
         .getQuoteInvitationResponseLifecycle,
@@ -1259,6 +1280,28 @@ describe("Quote Invitation immutable response submissions", () => {
         { revision: 2, status: "active" },
       ],
     });
+    const intents = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect()
+    );
+    expect(intents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "quote_response_submitted",
+          payloadSnapshot: expect.stringContaining('"revision":1'),
+          status: "pending",
+        }),
+        expect.objectContaining({
+          kind: "quote_response_resubmitted",
+          payloadSnapshot: expect.stringContaining('"revision":2'),
+          status: "pending",
+        }),
+      ])
+    );
   });
 
   test("withdraws only after confirmation, keeps the event immutable, and permits resubmission", async () => {
@@ -1337,6 +1380,33 @@ describe("Quote Invitation immutable response submissions", () => {
       status: "accepted",
       submission: { revision: 2, status: "active" },
     });
+    const intents = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect()
+    );
+    expect(intents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "quote_response_submitted",
+          status: "pending",
+        }),
+        expect.objectContaining({
+          kind: "quote_response_withdrawn",
+          payloadSnapshot: expect.stringContaining(
+            "Scope has changed; please ignore this quote."
+          ),
+          status: "pending",
+        }),
+        expect.objectContaining({
+          kind: "quote_response_resubmitted",
+          status: "pending",
+        }),
+      ])
+    );
   });
 
   test("uses server deadline time to make drafts read-only and never writes a late response", async () => {
@@ -2529,10 +2599,10 @@ describe("Quote Round draft-to-open aggregate", () => {
           q.eq("quotePackageRevisionId", round.currentPackageRevisionId!)
         )
         .collect();
-      const messages = await ctx.db
-        .query("emailMessages")
-        .withIndex("by_organization_and_idempotencyKey", (q) =>
-          q.eq("organizationId", ORGANIZATION_ID)
+      const communicationIntents = await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (q) =>
+          q.eq("quoteRoundInvitationId", invitations[0]!._id)
         )
         .collect();
       return {
@@ -2540,7 +2610,7 @@ describe("Quote Round draft-to-open aggregate", () => {
         credentials,
         fields,
         invitations,
-        messages,
+        communicationIntents,
         packageRevision,
         round,
       };
@@ -2579,17 +2649,20 @@ describe("Quote Round draft-to-open aggregate", () => {
     expect(persisted.packageRevision?.accessExpiresAt).toBeGreaterThan(
       persisted.packageRevision?.responseDeadline ?? 0
     );
-    expect(persisted.messages).toHaveLength(1);
-    expect(persisted.messages[0]).toMatchObject({
+    expect(persisted.communicationIntents).toHaveLength(1);
+    expect(persisted.communicationIntents[0]).toMatchObject({
       idempotencyKey: `quote-invitation:${persisted.invitations[0]!._id}:access-generation:1:credential:1`,
+      kind: "quote_invitation_initial",
       organizationId: ORGANIZATION_ID,
-      recipientEmail: "quote-recipient@example.com",
+      recipientEmailSnapshot: "quote-recipient@example.com",
       relatedEntityType: "quoteRoundInvitation",
-      status: "queued",
+      status: "pending",
+      templateKey: "quote_invitation",
     });
-    expect(persisted.credentials[0]?.deliveryEmailMessageId).toBe(
-      persisted.messages[0]?._id
+    expect(persisted.communicationIntents[0]?.quoteInvitationAccessCredentialId).toBe(
+      persisted.credentials[0]?._id
     );
+    expect(persisted.credentials[0]?.deliveryEmailMessageId).toBeUndefined();
 
     await fixture.base.run(async (ctx) => {
       await ctx.db.patch(fixture.submilestoneId, {
@@ -3790,13 +3863,28 @@ describe("Quote Round governed lifecycle", () => {
         )
         .order("desc")
         .collect();
+      const intents = await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .order("desc")
+        .collect();
       const audits = await ctx.db
         .query("auditEvents")
         .withIndex("by_entity", (query) =>
           query.eq("entityType", "quoteRound").eq("entityId", String(quoteRoundId))
         )
         .collect();
-      return { acknowledgement, audits, invitations, notices, revisions, round };
+      return {
+        acknowledgement,
+        audits,
+        intents,
+        invitations,
+        notices,
+        revisions,
+        round,
+      };
     });
     expect(persisted.round).toMatchObject({
       currentPackageRevisionId: reopened.packageRevisionId,
@@ -3820,6 +3908,22 @@ describe("Quote Round governed lifecycle", () => {
       changedFieldKeys: ["responseDeadline"],
       status: "pending",
     });
+    expect(persisted.intents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "quote_invitation_initial",
+          status: "pending",
+        }),
+        expect.objectContaining({
+          kind: "quote_package_revision",
+          payloadSnapshot: expect.stringContaining(
+            "Extend the response window for the corrected schedule."
+          ),
+          quotePackageRevisionId: reopened.packageRevisionId,
+          status: "pending",
+        }),
+      ])
+    );
     expect(persisted.notices[0]).toMatchObject({
       kind: "package_revision_published",
       reason: "Extend the response window for the corrected schedule.",
@@ -4049,7 +4153,15 @@ describe("Quote Round governed lifecycle", () => {
           query.eq("entityType", "quoteRound").eq("entityId", String(quoteRoundId))
         )
         .collect();
-      return { audits, credentials, invitations, round, sessions };
+      const intents = await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_relatedEntityType_and_relatedEntityId_and_createdAt", (query) =>
+          query
+            .eq("relatedEntityType", "quoteRound")
+            .eq("relatedEntityId", String(quoteRoundId))
+        )
+        .collect();
+      return { audits, credentials, intents, invitations, round, sessions };
     });
     expect(persisted.round).toMatchObject({
       cancellationReason: "Solicitation cancelled after the scope was withdrawn.",
@@ -4067,6 +4179,18 @@ describe("Quote Round governed lifecycle", () => {
     );
     expect(persisted.sessions).toEqual(
       expect.arrayContaining([expect.objectContaining({ state: "revoked" })])
+    );
+    expect(persisted.intents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "quote_round_cancelled",
+          payloadSnapshot: expect.stringContaining(
+            "Solicitation cancelled after the scope was withdrawn."
+          ),
+          status: "pending",
+          templateKey: "quote_invitation_cancelled",
+        }),
+      ])
     );
     expect(persisted.audits).toEqual(
       expect.arrayContaining([
@@ -4194,6 +4318,12 @@ describe("Quote Round governed lifecycle", () => {
         )
         .collect();
       const invitation = await ctx.db.get(fixture.invitation._id);
+      const intents = await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect();
       const audits = await ctx.db
         .query("auditEvents")
         .withIndex("by_entity", (query) =>
@@ -4202,7 +4332,7 @@ describe("Quote Round governed lifecycle", () => {
             .eq("entityId", String(fixture.invitation._id))
         )
         .collect();
-      return { audits, credentials, invitation, sessions };
+      return { audits, credentials, intents, invitation, sessions };
     });
     expect(persisted.invitation).toMatchObject({
       participationState: "revoked",
@@ -4217,6 +4347,22 @@ describe("Quote Round governed lifecycle", () => {
     expect(persisted.sessions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ state: "revoked" }),
+      ])
+    );
+    expect(persisted.intents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "quote_invitation_rotation",
+          status: "pending",
+          templateKey: "quote_invitation_rotation",
+        }),
+        expect.objectContaining({
+          kind: "quote_invitation_revoked",
+          payloadSnapshot: expect.stringContaining(
+            "Revoke the Invitation after the project was withdrawn."
+          ),
+          status: "pending",
+        }),
       ])
     );
     expect(persisted.audits).toEqual(
@@ -4297,6 +4443,12 @@ describe("Quote Round governed lifecycle", () => {
           query.eq("quoteRoundInvitationId", replaced.replacementInvitationId!)
         )
         .collect();
+      const replacementIntents = await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", replaced.replacementInvitationId!)
+        )
+        .collect();
       const audits = await ctx.db
         .query("auditEvents")
         .withIndex("by_entity", (query) =>
@@ -4321,6 +4473,7 @@ describe("Quote Round governed lifecycle", () => {
         outbox,
         replacement,
         replacementCredentials,
+        replacementIntents,
         submissions,
       };
     });
@@ -4372,6 +4525,21 @@ describe("Quote Round governed lifecycle", () => {
     );
     expect(persisted.replacementCredentials).toEqual(
       expect.arrayContaining([expect.objectContaining({ state: "active" })])
+    );
+    expect(persisted.replacementIntents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "quote_invitation_recipient_replaced",
+          payloadSnapshot: expect.stringContaining(
+            "Correct a typo in the recipient email address."
+          ),
+          recipientEmailSnapshot: "corrected.recipient@example.com",
+          status: "pending",
+        }),
+      ])
+    );
+    expect(JSON.stringify(persisted.replacementIntents)).not.toContain(
+      "magicToken"
     );
     expect(persisted.audits).toEqual(
       expect.arrayContaining([
@@ -4430,14 +4598,31 @@ describe("Quote Round governed lifecycle", () => {
     ).rejects.toThrow(/live Round/);
   });
 
-  test("Reminder revokes prior access and leaves exactly one active credential and browser session", async () => {
+  test("Reminder is previewable, additive, and cooldown-guarded without invalidating the old link", async () => {
     const fixture = await openedSubmissionFixture();
     const oldSessionToken = fixture.exchanged.sessionToken;
+    const preview = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.remindQuoteInvitationAccess,
+      {
+        buildId: fixture.buildId,
+        confirmed: false,
+        preview: true,
+        quoteRoundInvitationId: fixture.invitation._id,
+        reason: "Preview a fresh access reminder.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(preview).toMatchObject({
+      invitationId: fixture.invitation._id,
+      status: "preview",
+    });
+    expect(preview.cooldownUntil).toBeUndefined();
     const reminded = await fixture.builder.mutation(
       (api as any).quote_round_lifecycle.remindQuoteInvitationAccess,
       {
         buildId: fixture.buildId,
         confirmed: true,
+        preview: false,
         quoteRoundInvitationId: fixture.invitation._id,
         reason: "Send a fresh access reminder.",
         workosOrganizationId: ORGANIZATION_ID,
@@ -4459,7 +4644,7 @@ describe("Quote Round governed lifecycle", () => {
       (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
       { magicToken: fixture.magicToken }
     );
-    expect(oldExchange).toEqual({ status: "unavailable" });
+    expect(oldExchange).toMatchObject({ status: "available" });
     const oldSessionRead = await fixture.base.query(
       (api as any).quote_response_drafts.getQuoteInvitationResponseDraft,
       {
@@ -4468,12 +4653,42 @@ describe("Quote Round governed lifecycle", () => {
         sessionToken: oldSessionToken,
       }
     );
-    expect(oldSessionRead).toEqual({ status: "unavailable" });
+    expect(oldSessionRead).toMatchObject({ status: "available" });
     const replacementExchange = await fixture.base.mutation(
       (api as any).quote_invitation_access.exchangeQuoteInvitationAccess,
       { magicToken: "reminder-browser-token" }
     );
     expect(replacementExchange.status).toBe("available");
+
+    const cooldownPreview = await fixture.builder.mutation(
+      (api as any).quote_round_lifecycle.remindQuoteInvitationAccess,
+      {
+        buildId: fixture.buildId,
+        confirmed: false,
+        preview: true,
+        quoteRoundInvitationId: fixture.invitation._id,
+        reason: "Preview a duplicate reminder during cooldown.",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(cooldownPreview).toMatchObject({
+      invitationId: fixture.invitation._id,
+      status: "preview",
+      cooldownUntil: expect.any(Number),
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).quote_round_lifecycle.remindQuoteInvitationAccess,
+        {
+          buildId: fixture.buildId,
+          confirmed: true,
+          preview: false,
+          quoteRoundInvitationId: fixture.invitation._id,
+          reason: "Try to send a duplicate reminder during cooldown.",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/already sent recently|cooldown/i);
 
     const accessRows = await fixture.base.run(async (ctx) => {
       const credentials = await ctx.db
@@ -4492,14 +4707,253 @@ describe("Quote Round governed lifecycle", () => {
             .eq("state", "active")
         )
         .collect();
-      return { credentials, sessions };
+      const intents = await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .collect();
+      return { credentials, intents, sessions };
     });
-    expect(accessRows.credentials).toHaveLength(1);
-    expect(accessRows.credentials[0]?._id).toBe(reminded.credentialId);
-    expect(accessRows.sessions).toHaveLength(1);
-    expect(accessRows.sessions[0]?.quoteInvitationAccessCredentialId).toBe(
-      reminded.credentialId
+    expect(accessRows.credentials).toHaveLength(2);
+    expect(accessRows.credentials).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ state: "active" }),
+        expect.objectContaining({
+          _id: reminded.credentialId,
+          purpose: "reminder",
+          state: "active",
+        }),
+      ])
     );
+    expect(accessRows.sessions).toHaveLength(3);
+    expect(accessRows.sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ state: "active" }),
+        expect.objectContaining({
+          quoteInvitationAccessCredentialId: reminded.credentialId,
+          state: "active",
+        }),
+      ])
+    );
+    expect(accessRows.intents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "quote_invitation_initial",
+          status: "pending",
+        }),
+        expect.objectContaining({
+          kind: "quote_invitation_reminder_manual",
+          payloadSnapshot: expect.stringContaining(
+            "Send a fresh access reminder."
+          ),
+          quoteInvitationAccessCredentialId: reminded.credentialId,
+          status: "pending",
+        }),
+      ])
+    );
+  });
+
+  test("schedules automatic 72h and 24h reminder intents with bounded eligibility", async () => {
+    const publishReminderFixture = async (remainingMs: number, label: string) => {
+      const fixture = await openedSubmissionFixture();
+      const now = Date.now();
+      await fixture.base.run(async (ctx) => {
+        await ctx.db.patch(fixture.invitation.quotePackageRevisionId, {
+          responseDeadline: now + remainingMs,
+        });
+        const initialIntent = await ctx.db
+          .query("communicationIntents")
+          .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+            query.eq("quoteRoundInvitationId", fixture.invitation._id)
+          )
+          .unique();
+        if (!initialIntent) {
+          throw new Error("Expected the initial Quote Invitation intent.");
+        }
+        await ctx.db.patch(initialIntent._id, {
+          createdAt: now - 13 * 60 * 60 * 1000,
+          status: "sent",
+          updatedAt: now - 13 * 60 * 60 * 1000,
+        });
+      });
+      await fixture.base.action(
+        internal.quote_notifications.scheduleQuoteInvitationReminders,
+        { now }
+      );
+      const persisted = await fixture.base.run(async (ctx) => ({
+        intents: await ctx.db
+          .query("communicationIntents")
+          .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+            query.eq("quoteRoundInvitationId", fixture.invitation._id)
+          )
+          .collect(),
+        notices: await ctx.db
+          .query("quoteRoundRecipientNoticeIntents")
+          .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+            query.eq("quoteRoundInvitationId", fixture.invitation._id)
+          )
+          .collect(),
+      }));
+      const reminder = persisted.intents.find(
+        (intent) => intent.kind === "quote_invitation_reminder_auto"
+      );
+      expect(reminder, label).toMatchObject({
+        kind: "quote_invitation_reminder_auto",
+        payloadSnapshot: expect.stringContaining(`"stage":"${label}"`),
+        status: "pending",
+        templateKey: "quote_invitation_reminder",
+      });
+      expect(JSON.stringify(reminder)).not.toContain("magicToken");
+      expect(persisted.notices).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "access_reminder",
+            reason: `Automatic ${label} reminder.`,
+            status: "pending",
+          }),
+        ])
+      );
+    };
+
+    await publishReminderFixture(60 * 60 * 60 * 1000, "72h");
+    await publishReminderFixture(12 * 60 * 60 * 1000, "24h");
+  });
+
+  test("suppresses automatic reminders inside the twelve-hour post-send window and skips valid submissions", async () => {
+    const suppressedFixture = await openedSubmissionFixture();
+    const suppressionNow = Date.now();
+    await suppressedFixture.base.run(async (ctx) => {
+      await ctx.db.patch(suppressedFixture.invitation.quotePackageRevisionId, {
+        responseDeadline: suppressionNow + 60 * 60 * 60 * 1000,
+      });
+      const initialIntent = await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", suppressedFixture.invitation._id)
+        )
+        .unique();
+      if (!initialIntent) {
+        throw new Error("Expected the initial Quote Invitation intent.");
+      }
+      await ctx.db.patch(initialIntent._id, {
+        createdAt: suppressionNow - 60 * 60 * 1000,
+        status: "sent",
+        updatedAt: suppressionNow - 60 * 60 * 1000,
+      });
+    });
+    await suppressedFixture.base.action(
+      internal.quote_notifications.scheduleQuoteInvitationReminders,
+      { now: suppressionNow }
+    );
+    await suppressedFixture.base.action(
+      internal.quote_notifications.scheduleQuoteInvitationReminders,
+      { now: suppressionNow }
+    );
+    const suppressed = await suppressedFixture.base.run(async (ctx) => ({
+      intent: await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", suppressedFixture.invitation._id)
+        )
+        .order("desc")
+        .first(),
+      outcomes: await ctx.db.query("communicationOutcomes").collect(),
+    }));
+    expect(suppressed.intent).toMatchObject({
+      kind: "quote_invitation_reminder_auto",
+      status: "suppressed",
+      suppressionReason: "post_send_suppression",
+    });
+    expect(suppressed.outcomes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          outcomeType: "dispatch_suppressed",
+          safeDetail: "post_send_suppression",
+        }),
+      ])
+    );
+    expect(
+      suppressed.outcomes.filter(
+        (outcome) => outcome.outcomeType === "dispatch_suppressed"
+      )
+    ).toHaveLength(1);
+    await suppressedFixture.base.action(
+      internal.quote_notifications.scheduleQuoteInvitationReminders,
+      { now: suppressionNow + 13 * 60 * 60 * 1000 }
+    );
+    const resumedIntents = await suppressedFixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", suppressedFixture.invitation._id)
+        )
+        .collect()
+    );
+    expect(resumedIntents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          idempotencyKey: expect.stringContaining(":72h:suppressed"),
+          status: "suppressed",
+        }),
+        expect.objectContaining({
+          idempotencyKey: expect.stringMatching(/:72h$/),
+          status: "pending",
+        }),
+      ])
+    );
+
+    const submittedFixture = await openedSubmissionFixture();
+    await saveCompleteSubmissionDraft(submittedFixture);
+    await submittedFixture.base.mutation(
+      (api as any).quote_response_submissions.submitQuoteInvitationResponse,
+      {
+        expectedDraftVersion: 1,
+        idempotencyKey: "auto-reminder-submission-exclusion-001",
+        quoteRoundInvitationId: submittedFixture.invitation._id,
+        sessionToken: submittedFixture.exchanged.sessionToken,
+      }
+    );
+    const submissionNow = Date.now();
+    await submittedFixture.base.run(async (ctx) => {
+      await ctx.db.patch(submittedFixture.invitation.quotePackageRevisionId, {
+        responseDeadline: submissionNow + 60 * 60 * 60 * 1000,
+      });
+      const initialIntent = await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", submittedFixture.invitation._id)
+        )
+        .filter((query) =>
+          query.eq(query.field("kind"), "quote_invitation_initial")
+        )
+        .unique();
+      if (!initialIntent) {
+        throw new Error("Expected the submitted fixture initial intent.");
+      }
+      await ctx.db.patch(initialIntent._id, {
+        createdAt: submissionNow - 13 * 60 * 60 * 1000,
+        status: "sent",
+        updatedAt: submissionNow - 13 * 60 * 60 * 1000,
+      });
+    });
+    await submittedFixture.base.action(
+      internal.quote_notifications.scheduleQuoteInvitationReminders,
+      { now: submissionNow }
+    );
+    const submissionIntents = await submittedFixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", submittedFixture.invitation._id)
+        )
+        .collect()
+    );
+    expect(
+      submissionIntents.some(
+        (intent) => intent.kind === "quote_invitation_reminder_auto"
+      )
+    ).toBe(false);
   });
 
   test("acknowledgement patches only the current package-published notice, not access notices", async () => {
@@ -4892,25 +5346,44 @@ describe("Quote Round operations register projection", () => {
       throw new Error("Expected the initial Quote Invitation credential.");
     }
     await fixture.base.run(async (ctx) => {
+      const intent = await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", fixture.invitation._id)
+        )
+        .unique();
+      if (!intent) {
+        throw new Error("Expected the initial Quote Invitation communication intent.");
+      }
+      const now = Date.now();
+      const emailMessageId = await ctx.db.insert("emailMessages", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        communicationIntentId: intent._id,
+        createdAt: now,
+        idempotencyKey: intent.idempotencyKey,
+        organizationId: ORGANIZATION_ID,
+        recipientEmail: intent.recipientEmailSnapshot,
+        relatedEntityId: intent.relatedEntityId,
+        relatedEntityType: intent.relatedEntityType,
+        resendEmailId: "projection-provider-email",
+        sender: "DrawFlow <notifications@updates.fairlend.ca>",
+        status: "failed",
+        subject: "Quote requested",
+        updatedAt: now,
+        lastError: "Provider rejected this delivery.",
+      });
+      await ctx.db.patch(intent._id, {
+        actionRequiredReason: "Provider rejected this delivery.",
+        lastError: "Provider rejected this delivery.",
+        status: "action_required",
+        updatedAt: now,
+      });
       await ctx.db.patch(credential._id, {
         state: "expired",
-        updatedAt: Date.now(),
+        deliveryEmailMessageId: emailMessageId,
+        updatedAt: now,
       });
-      const messages = await ctx.db
-        .query("emailMessages")
-        .withIndex("by_entity_and_createdAt", (query) =>
-          query
-            .eq("relatedEntityType", "quoteRoundInvitation")
-            .eq("relatedEntityId", String(fixture.invitation._id))
-        )
-        .collect();
-      for (const message of messages) {
-        await ctx.db.patch(message._id, {
-          lastError: "Provider rejected this delivery.",
-          status: "failed",
-          updatedAt: Date.now(),
-        });
-      }
     });
 
     const result = await register(fixture);
@@ -4936,12 +5409,33 @@ describe("Quote Round operations register projection", () => {
       participation: { active: 1, revoked: 0, total: 1 },
       preferredQuote: null,
       recipients: { active: 1, revoked: 0, total: 1 },
+      recipientDelivery: [
+        expect.objectContaining({
+          actionRequired: true,
+          invitationId: fixture.invitation._id,
+          latestStatus: "action_required",
+          recoveryState: "action_required",
+          reminderEligible: true,
+        }),
+      ],
       responses: { drafting: 1, submitted: 0, total: 1 },
       scope: "Frame exterior walls · Framing lumber",
       state: "open",
     });
     expect(row.responseDeadline).toBeGreaterThan(Date.now());
     expect(row.lastActivityAt).toEqual(expect.any(Number));
+    expect(row.recipientDelivery[0]?.history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          detail: "Delivery attempt failed.",
+          kind: "quote_invitation_initial",
+          status: "action_required",
+        }),
+      ])
+    );
+    expect(JSON.stringify(row.recipientDelivery)).not.toContain(
+      "Provider rejected this delivery."
+    );
   });
 
   test("supports deterministic scope search and mode filtering without changing round identity", async () => {
@@ -5054,10 +5548,45 @@ describe("Quote Round operations register projection", () => {
       if (!first) throw new Error("Expected first active credential.");
       await ctx.db.patch(first._id, { deliveryEmailMessageId: undefined });
       const second = credentials[1];
-      if (!second?.deliveryEmailMessageId) {
-        throw new Error("Expected second dispatched email.");
+      if (!second) {
+        throw new Error("Expected second active credential.");
       }
-      await ctx.db.patch(second.deliveryEmailMessageId, {
+      const intent = await ctx.db
+        .query("communicationIntents")
+        .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+          query.eq("quoteRoundInvitationId", second.quoteRoundInvitationId)
+        )
+        .unique();
+      if (!intent) {
+        throw new Error("Expected second communication intent.");
+      }
+      const now = Date.now();
+      const emailMessageId = await ctx.db.insert("emailMessages", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        communicationIntentId: intent._id,
+        createdAt: now,
+        idempotencyKey: intent.idempotencyKey,
+        organizationId: ORGANIZATION_ID,
+        recipientEmail: intent.recipientEmailSnapshot,
+        relatedEntityId: intent.relatedEntityId,
+        relatedEntityType: intent.relatedEntityType,
+        resendEmailId: `projection-provider-${String(second._id)}`,
+        sender: "DrawFlow <notifications@updates.fairlend.ca>",
+        status: "delivered",
+        subject: "Quote requested",
+        updatedAt: now,
+      });
+      await ctx.db.patch(second._id, {
+        deliveryEmailMessageId: emailMessageId,
+        updatedAt: now,
+      });
+      await ctx.db.patch(intent._id, {
+        providerEmailMessageId: emailMessageId,
+        status: "delivered",
+        updatedAt: now,
+      });
+      await ctx.db.patch(emailMessageId, {
         status: "delivered",
       });
     });

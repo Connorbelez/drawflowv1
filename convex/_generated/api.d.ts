@@ -155,6 +155,7 @@ import type * as production_proposals from "../production_proposals.js";
 import type * as proposal_collaboration from "../proposal_collaboration.js";
 import type * as proposal_collaboration_model from "../proposal_collaboration_model.js";
 import type * as quote_invitation_access from "../quote_invitation_access.js";
+import type * as quote_notifications from "../quote_notifications.js";
 import type * as quote_response_drafts from "../quote_response_drafts.js";
 import type * as quote_response_submissions from "../quote_response_submissions.js";
 import type * as quote_response_template_migrations from "../quote_response_template_migrations.js";
@@ -322,6 +323,7 @@ declare const fullApi: ApiFromModules<{
   proposal_collaboration: typeof proposal_collaboration;
   proposal_collaboration_model: typeof proposal_collaboration_model;
   quote_invitation_access: typeof quote_invitation_access;
+  quote_notifications: typeof quote_notifications;
   quote_response_drafts: typeof quote_response_drafts;
   quote_response_submissions: typeof quote_response_submissions;
   quote_response_template_migrations: typeof quote_response_template_migrations;

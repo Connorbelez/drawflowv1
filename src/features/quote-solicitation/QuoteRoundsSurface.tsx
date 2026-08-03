@@ -25,6 +25,7 @@ import { Component, useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { Card } from "#/components/ui/card.tsx";
 import {
   Frame,
   FrameDescription,
@@ -191,6 +192,30 @@ function deliveryLabel(row: QuoteRoundRegisterRow) {
     parts.push(`${row.delivery.undispatched} not dispatched`);
   }
   return parts.join(" · ") || "Not dispatched";
+}
+
+function communicationSummary(row: QuoteRoundRegisterRow) {
+  const recipientDelivery = row.recipientDelivery ?? [];
+  const actionRequired = recipientDelivery.filter(
+    (recipient) => recipient.actionRequired
+  ).length;
+  const retrying = recipientDelivery.filter(
+    (recipient) => recipient.recoveryState === "retrying"
+  ).length;
+  const reminders = recipientDelivery.filter(
+    (recipient) => recipient.reminderEligible
+  ).length;
+  const parts = [`${recipientDelivery.length} tracked`];
+  if (actionRequired) {
+    parts.push(`${actionRequired} action required`);
+  }
+  if (retrying) {
+    parts.push(`${retrying} retrying`);
+  }
+  if (reminders) {
+    parts.push(`${reminders} reminder${reminders === 1 ? "" : "s"} eligible`);
+  }
+  return parts.join(" · ");
 }
 
 export function QuoteRoundsSurface(props: QuoteRoundsSurfaceProps) {
@@ -872,6 +897,7 @@ function RecipientDisclosure({
   onOpen?: (roundId: string) => void;
   row: QuoteRoundRegisterRow;
 }) {
+  const recipientDelivery = row.recipientDelivery ?? [];
   return (
     <section
       aria-label={`${row.title} recipient activity`}
@@ -883,6 +909,20 @@ function RecipientDisclosure({
         <p className="mt-1 text-muted-foreground">
           {row.recipients.active} active · {row.recipients.revoked} revoked
         </p>
+        <p className="mt-1 text-muted-foreground">
+          {communicationSummary(row)}
+        </p>
+        {recipientDelivery.length > 0 ? (
+          <ul className="mt-2 grid gap-1 text-muted-foreground">
+            {recipientDelivery.slice(0, 6).map((recipient, index) => (
+              <li key={recipient.invitationId}>
+                Recipient {index + 1}: {recipient.latestStatus ?? "not sent"}
+                {recipient.actionRequired ? " · action required" : ""}
+                {recipient.reminderEligible ? " · reminder eligible" : ""}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       <div>
         <p className="font-medium">Delivery</p>
@@ -912,7 +952,78 @@ function RecipientDisclosure({
       >
         Open detail <ChevronRight />
       </Button>
+      <RecipientCommunicationHistory row={row} />
     </section>
+  );
+}
+
+function RecipientCommunicationHistory({
+  row,
+}: {
+  row: QuoteRoundRegisterRow;
+}) {
+  const recipientDelivery = row.recipientDelivery ?? [];
+  return (
+    <details
+      className="col-span-full border-t pt-3"
+      data-testid="quote-recipient-communication-history"
+    >
+      <summary className="cursor-pointer font-medium text-xs">
+        Communication history · {communicationSummary(row)}
+      </summary>
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        {recipientDelivery.length === 0 ? (
+          <p className="text-muted-foreground">
+            No communication intents recorded.
+          </p>
+        ) : (
+          recipientDelivery.map((recipient, index) => (
+            <Card
+              className="gap-0 rounded-lg p-3 shadow-none"
+              key={recipient.invitationId}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium">Recipient {index + 1}</p>
+                  <p className="mt-1 text-muted-foreground">
+                    Latest: {recipient.latestStatus ?? "not sent"}
+                    {recipient.latestOutcomeAt
+                      ? ` · ${formatLastActivity(recipient.latestOutcomeAt)}`
+                      : ""}
+                  </p>
+                </div>
+                <span className="text-muted-foreground text-xs">
+                  {recipient.attemptCount} attempt
+                  {recipient.attemptCount === 1 ? "" : "s"}
+                </span>
+              </div>
+              <p className="mt-2 text-muted-foreground">
+                Recovery: {recipient.recoveryState}
+                {recipient.actionRequired ? " · action required" : ""}
+                {recipient.reminderEligible ? " · reminder eligible" : ""}
+                {recipient.cooldownUntil
+                  ? ` · cooldown until ${formatLastActivity(recipient.cooldownUntil)}`
+                  : ""}
+              </p>
+              <ol className="mt-2 grid gap-1 border-t pt-2 text-muted-foreground">
+                {recipient.history.map((entry) => (
+                  <li
+                    className="grid gap-0.5 text-[0.6875rem]"
+                    key={`${entry.createdAt}:${entry.lastOutcomeAt ?? "none"}:${entry.kind}:${entry.status}:${entry.detail ?? "none"}`}
+                  >
+                    <span>
+                      {formatLastActivity(entry.createdAt)} · {entry.kind} ·{" "}
+                      {entry.status}
+                    </span>
+                    {entry.detail ? <span>{entry.detail}</span> : null}
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          ))
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -1010,6 +1121,9 @@ function MobileControlRegister({
                 id={`quote-round-details-${row._id}`}
               >
                 <VerticalLifecycle phase={row.state} row={row} />
+                <div className="mt-4">
+                  <RecipientCommunicationHistory row={row} />
+                </div>
                 <div className="mt-4 grid gap-3 border-t pt-3 text-xs">
                   <div>
                     <p className="text-muted-foreground">Preferred Quote</p>
@@ -1020,6 +1134,9 @@ function MobileControlRegister({
                     <p className="mt-1">
                       {deliveryLabel(row)} · {row.access.active} active
                       credential
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      {communicationSummary(row)}
                     </p>
                   </div>
                 </div>

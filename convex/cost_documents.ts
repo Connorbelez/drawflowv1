@@ -32,7 +32,7 @@ import {
   requireEligibleCostDocumentDraftCollaborator,
 } from "./cost_document_access";
 import { normalizeCostDocumentWorkingStateJson } from "./cost_document_working_state";
-import { enqueueTransactionalEmail } from "./email_transport";
+import { enqueueCommunicationIntent } from "./email_transport";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const SUPPORTING_CONTEXT_DISCLOSURE =
@@ -4243,18 +4243,22 @@ async function insertSubmittedCostDocument(
     relatedEntityType: "costDocument",
     status: "pending",
   });
-  await enqueueTransactionalEmail(ctx, {
+  await enqueueCommunicationIntent(ctx, {
     brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    kind: "cost_document_receipt",
     idempotencyKey: `cost-document:${costDocumentId}:submitted-receipt`,
     organizationId: authorization.organizationId,
-    recipientEmail: input.uploaderEmail,
+    payloadSnapshot: JSON.stringify({
+      grossTotalCents: input.grossTotalCents,
+      kind: input.kind,
+      supportingContextDisclosure: SUPPORTING_CONTEXT_DISCLOSURE,
+      title: input.title,
+    }),
+    recipientEmailSnapshot: input.uploaderEmail,
     relatedEntityId: String(costDocumentId),
     relatedEntityType: "costDocument",
-    subject: `Cost Document submitted: ${input.title}`,
-    text: [
-      `${input.kind === "invoice" ? "Invoice" : "Receipt"} “${input.title}” was submitted for ${formatCad(input.grossTotalCents)} CAD.`,
-      SUPPORTING_CONTEXT_DISCLOSURE,
-    ].join("\n\n"),
+    templateKey: "cost_document_upload_receipt_v1",
   });
   return costDocumentId;
 }
@@ -5529,18 +5533,21 @@ async function recordCostDocumentIntegrityException(
     relatedEntityType: "costDocument",
     status: "pending",
   });
-  await enqueueTransactionalEmail(ctx, {
+  await enqueueCommunicationIntent(ctx, {
     brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
+    kind: "cost_document_integrity_action_required",
     idempotencyKey: `cost-document:${document._id}:integrity:${input.page._id}:${input.kind}:${exceptionId}`,
     organizationId: authorization.organizationId,
-    recipientEmail: document.uploaderEmailSnapshot,
+    payloadSnapshot: JSON.stringify({
+      kind: input.kind,
+      pageId: String(input.page._id),
+      title: document.title,
+    }),
+    recipientEmailSnapshot: document.uploaderEmailSnapshot,
     relatedEntityId: String(document._id),
     relatedEntityType: "costDocument",
-    subject: `Action required: Cost Document source ${input.kind}`,
-    text: [
-      `A source page for “${document.title}” is ${input.kind} and requires review.`,
-      "The submitted record and revision lineage were preserved.",
-    ].join("\n\n"),
+    templateKey: "cost_document_integrity_action_required_v1",
   });
   const inserted = await ctx.db.get(exceptionId);
   if (!inserted) {
@@ -5686,11 +5693,4 @@ function requiredAssetHash(asset: Doc<"buildCollaborationAssets">) {
     );
   }
   return asset.contentHashSha256;
-}
-
-function formatCad(amountCents: number) {
-  return new Intl.NumberFormat("en-CA", {
-    currency: "CAD",
-    style: "currency",
-  }).format(amountCents / 100);
 }
