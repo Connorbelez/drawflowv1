@@ -789,8 +789,8 @@ function VersionInspectionPanel({
                 <div><dt className="inline font-medium">Exclusions: </dt><dd className="inline">{field.allowExclusions ? "Allowed" : "Not allowed"}</dd></div>
                 <div><dt className="inline font-medium">Tax: </dt><dd className="inline">{field.supportsTax ? `${field.tax?.label ?? "Enabled"}${field.tax ? ` (${field.tax.rateBps} bps)` : ""}` : "Not supported"}</dd></div>
               </dl>
-              {field.choiceOptions?.length ? <div><span className="font-medium">Choices: </span>{field.choiceOptions.join(" · ")}</div> : null}
-              {field.validation ? <div><span className="font-medium">Validation: </span>{formatFieldValidation(field.validation)}</div> : null}
+              {field.choiceOptions?.length ? <div><span className="font-medium">Choices: {field.choiceOptions.join(" · ")}</span></div> : null}
+              {field.validation ? <div><span className="font-medium">Validation: {formatFieldValidation(field.validation)}</span></div> : null}
               {field.renderer === "tiptap" && field.richTextDefaultHtml ? <div className="space-y-1"><span className="font-medium">TipTap default HTML</span><code className="block max-h-20 overflow-auto rounded bg-muted p-2 text-[11px]">{field.richTextDefaultHtml}</code></div> : null}
             </CardPanel>
           </Card>
@@ -1006,7 +1006,9 @@ function AnatomyStep({ fields, onUpdate }: { fields: QuoteTemplateField[]; onUpd
 }
 
 function PreviewStep({ customFields, fields }: { customFields: QuoteTemplateField[]; fields: QuoteTemplateField[] }) {
-  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold text-sm">Recipient mobile preview</p><p className="text-muted-foreground text-xs">One continuous form · no Labour/Materials tabs</p></div><Badge variant="success">Ready</Badge></div><QuoteCategoryPreview icon={HardHat} items={fields.find((field) => field.fieldKey === "labour_line_items")?.label ?? "Labour"} label="Labour" /><QuoteCategoryPreview icon={PackageCheck} items={fields.find((field) => field.fieldKey === "materials_line_items")?.label ?? "Materials"} label="Materials" /><div><p className="mb-2 font-semibold text-sm">Additional questions</p><div className="grid gap-3 sm:grid-cols-2">{customFields.map((field) => <RecipientPreviewField field={field} key={field.fieldKey} />)}</div></div><Card className="border-primary/25 bg-primary/5"><CardHeader className="p-4 pb-2"><div className="flex items-center gap-2"><FileText className="size-4 text-primary" /><CardTitle>Additional comments</CardTitle><Badge className="ml-auto" variant="outline">Always included</Badge></div></CardHeader><CardPanel className="p-4 pt-0"><FieldRichTextPreview ariaLabel="Additional comments configured TipTap preview" value={fields.find((field) => field.fieldKey === "additional_comments")?.richTextDefaultHtml ?? "<p>Explain assumptions, alternates, exclusions, and anything else we should understand.</p>"} /></CardPanel></Card></div>;
+  const labour = fields.find((field) => field.fieldKey === "labour_line_items");
+  const materials = fields.find((field) => field.fieldKey === "materials_line_items");
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold text-sm">Recipient mobile preview</p><p className="text-muted-foreground text-xs">One continuous form · no Labour/Materials tabs</p></div><Badge variant="success">Ready</Badge></div><QuoteCategoryPreview field={labour} icon={HardHat} label="Labour" /><QuoteCategoryPreview field={materials} icon={PackageCheck} label="Materials" /><div><p className="mb-2 font-semibold text-sm">Additional questions</p><div className="grid gap-3 sm:grid-cols-2">{customFields.map((field) => <RecipientPreviewField field={field} key={field.fieldKey} />)}</div></div><Card className="border-primary/25 bg-primary/5"><CardHeader className="p-4 pb-2"><div className="flex items-center gap-2"><FileText className="size-4 text-primary" /><CardTitle>Additional comments</CardTitle><Badge className="ml-auto" variant="outline">Always included</Badge></div></CardHeader><CardPanel className="p-4 pt-0"><FieldRichTextPreview ariaLabel="Additional comments configured TipTap preview" value={fields.find((field) => field.fieldKey === "additional_comments")?.richTextDefaultHtml ?? "<p>Explain assumptions, alternates, exclusions, and anything else we should understand.</p>"} /></CardPanel></Card></div>;
 }
 
 function RecipientPreviewField({ field }: { field: QuoteTemplateField }) {
@@ -1015,27 +1017,69 @@ function RecipientPreviewField({ field }: { field: QuoteTemplateField }) {
   const requiredBadge = field.required ? <Badge variant="secondary">Required</Badge> : null;
   const repeatableBadge = field.repeatable ? <Badge variant="outline">Repeatable</Badge> : null;
   const metadata = <div className="flex flex-wrap items-center gap-1.5"><span className="font-medium">{field.label}</span>{requiredBadge}{repeatableBadge}</div>;
+  const disclosureId = `${inputId}-contract`;
+  const validation = field.validation;
 
   if (field.kind === "priced_line") {
-    return <div className="space-y-1.5"><div className="flex flex-wrap items-center justify-between gap-2">{metadata}<Badge variant="outline">Priced line</Badge></div><div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-2"><Input aria-label={`${accessibleLabel} line title`} id={inputId} placeholder="Line title" /><Input aria-label={`${accessibleLabel} amount in cents`} inputMode="numeric" placeholder="0" type="number" /></div></div>;
+    return <div className="space-y-1.5"><div className="flex flex-wrap items-center justify-between gap-2">{metadata}<Badge variant="outline">Priced line</Badge></div><div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-2"><Input aria-label={`${accessibleLabel} line title`} id={inputId} placeholder="Line title" required={field.required} /><Input aria-describedby={disclosureId} aria-label={`${accessibleLabel} amount in cents`} inputMode="numeric" max={validation?.maxValueCents} min={validation?.minValueCents} placeholder="0" required={field.required} step={1} type="number" /></div><PreviewContractDisclosure field={field} id={disclosureId} /></div>;
   }
   if (field.kind === "long_text" && field.renderer === "tiptap") {
-    return <div className="space-y-1.5">{metadata}<Badge variant="outline">TipTap rich text</Badge><FieldRichTextPreview ariaLabel={`${accessibleLabel} TipTap preview`} value={field.richTextDefaultHtml ?? "<p>Rich text response</p>"} /></div>;
+    return <div className="space-y-1.5">{metadata}<Badge variant="outline">TipTap rich text</Badge><FieldRichTextPreview ariaLabel={`${accessibleLabel} TipTap preview`} value={field.richTextDefaultHtml ?? "<p>Rich text response</p>"} />{validation ? <PreviewContractDisclosure field={field} id={disclosureId} /> : null}</div>;
   }
   if (field.kind === "long_text") {
-    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Textarea aria-label={accessibleLabel} id={inputId} placeholder="Long text response" /></label>;
+    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Textarea aria-describedby={validation ? disclosureId : undefined} aria-label={accessibleLabel} id={inputId} maxLength={validation?.maxLength} minLength={validation?.minLength} placeholder="Long text response" required={field.required} />{validation ? <PreviewContractDisclosure field={field} id={disclosureId} /> : null}</label>;
   }
   if (field.kind === "date") {
-    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input aria-label={accessibleLabel} id={inputId} type="date" /></label>;
+    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input aria-label={accessibleLabel} id={inputId} type="date" required={field.required} /></label>;
   }
   if (field.kind === "choice") {
-    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<NativeSelect aria-label={accessibleLabel} id={inputId}><NativeSelectOption value="">Choose an option</NativeSelectOption>{(field.choiceOptions ?? []).map((option) => <NativeSelectOption key={option} value={option}>{option}</NativeSelectOption>)}</NativeSelect></label>;
+    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<NativeSelect aria-label={accessibleLabel} id={inputId} required={field.required}><NativeSelectOption value="">Choose an option</NativeSelectOption>{(field.choiceOptions ?? []).map((option) => <NativeSelectOption key={option} value={option}>{option}</NativeSelectOption>)}</NativeSelect></label>;
   }
   if (field.kind === "attachment") {
     const maxFiles = field.validation?.maxFiles;
-    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input accept={field.validation?.allowedMimeTypes?.join(",")} aria-label={accessibleLabel} id={inputId} multiple={maxFiles === undefined || maxFiles > 1} type="file" /></label>;
+    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input accept={field.validation?.allowedMimeTypes?.join(",")} aria-describedby={validation ? disclosureId : undefined} aria-label={accessibleLabel} id={inputId} multiple={maxFiles === undefined || maxFiles > 1} required={field.required} type="file" />{validation ? <PreviewContractDisclosure field={field} id={disclosureId} /> : null}</label>;
   }
-  return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input aria-label={accessibleLabel} id={inputId} placeholder="Short text response" /></label>;
+  return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input aria-describedby={validation ? disclosureId : undefined} aria-label={accessibleLabel} id={inputId} maxLength={validation?.maxLength} minLength={validation?.minLength} pattern={validation?.pattern} placeholder="Short text response" required={field.required} /></label>;
+}
+
+function PreviewContractDisclosure({ field, id }: { field: QuoteTemplateField; id: string }) {
+  const details: string[] = [];
+  if (field.kind === "priced_line") {
+    details.push(formatPreviewAmountBounds(field.validation));
+    details.push(field.supportsTax ? `Tax: ${field.tax?.label ?? "enabled"}${field.tax ? ` (${field.tax.rateBps} bps)` : ""}` : "Tax: not supported");
+    details.push(field.allowAlternates ? "Alternates: allowed" : "Alternates: not allowed");
+    details.push(field.allowExclusions ? "Exclusions: allowed" : "Exclusions: not allowed");
+  } else if (field.kind === "attachment") {
+    if (field.validation?.minFiles !== undefined || field.validation?.maxFiles !== undefined) {
+      details.push(`File count: ${formatFileCountBounds(field.validation)}`);
+    }
+    if (field.validation?.allowedMimeTypes?.length) {
+      details.push(`MIME: ${field.validation.allowedMimeTypes.join(", ")}`);
+    }
+  } else if (field.validation) {
+    const validation = formatFieldValidation(field.validation);
+    if (validation) details.push(`Text constraints: ${validation}`);
+  }
+  if (!details.length) return null;
+  return <p className="text-muted-foreground text-[11px]" id={id}>Quote contract: {details.join(" · ")}</p>;
+}
+
+function formatPreviewAmountBounds(validation: QuoteTemplateField["validation"]) {
+  const min = validation?.minValueCents;
+  const max = validation?.maxValueCents;
+  if (min !== undefined && max !== undefined) return `Amount bounds: ${min}–${max}¢`;
+  if (min !== undefined) return `Amount bounds: ${min}¢ minimum`;
+  if (max !== undefined) return `Amount bounds: ${max}¢ maximum`;
+  return "Amount bounds: unrestricted";
+}
+
+function formatFileCountBounds(validation: NonNullable<QuoteTemplateField["validation"]>) {
+  const min = validation.minFiles;
+  const max = validation.maxFiles;
+  if (min !== undefined && max !== undefined) return `${min}–${max}`;
+  if (min !== undefined) return `${min} minimum`;
+  if (max !== undefined) return `${max} maximum`;
+  return "unrestricted";
 }
 
 function PublishStep({ fields, releaseNote, setReleaseNote }: { fields: QuoteTemplateField[]; releaseNote: string; setReleaseNote: (value: string) => void }) {
@@ -1048,8 +1092,10 @@ function PermanentFormAnatomy({ compact = false }: { compact?: boolean }) {
   return <div className={cn("grid gap-2", !compact && "sm:grid-cols-3")}>{regions.map(({ description, icon: Icon, label }) => <Card className="border-primary/25 bg-primary/5" key={label}><CardPanel className="flex items-center gap-3 p-3"><span className="grid size-9 place-items-center rounded-lg bg-background text-primary"><Icon className="size-4" /></span><span className="min-w-0 flex-1"><span className="block font-medium text-sm">{label}</span><span className="block text-muted-foreground text-xs">{description}</span></span><Badge variant="outline">Always</Badge></CardPanel></Card>)}</div>;
 }
 
-function QuoteCategoryPreview({ icon: Icon, items, label }: { icon: typeof HardHat; items: string; label: string }) {
-  return <Card><CardHeader className="p-4 pb-2"><div className="flex items-center gap-2"><Icon className="size-4" /><CardTitle>{items || label}</CardTitle><Badge className="ml-auto" variant="outline">Always included</Badge></div></CardHeader><CardPanel className="space-y-2 p-4 pt-0"><div className="grid grid-cols-[1fr_7rem] gap-2"><Input aria-label={`${label} line title`} placeholder={`${label} line title`} /><Input aria-label={`${label} amount in cents`} inputMode="numeric" placeholder="0" type="number" /></div><Button size="sm" variant="outline"><Plus />New {label.toLowerCase()} line</Button></CardPanel></Card>;
+function QuoteCategoryPreview({ field, icon: Icon, label }: { field?: QuoteTemplateField; icon: typeof HardHat; label: string }) {
+  const inputId = `preview-${label.toLowerCase()}-line`;
+  const disclosureId = `${inputId}-contract`;
+  return <Card><CardHeader className="p-4 pb-2"><div className="flex items-center gap-2"><Icon className="size-4" /><CardTitle>{field?.label || label}</CardTitle><Badge className="ml-auto" variant="outline">Always included</Badge></div></CardHeader><CardPanel className="space-y-2 p-4 pt-0"><div className="grid grid-cols-[1fr_7rem] gap-2"><Input aria-label={`${label} line title`} id={inputId} placeholder={`${label} line title`} required={field?.required} /><Input aria-describedby={disclosureId} aria-label={`${label} amount in cents`} inputMode="numeric" max={field?.validation?.maxValueCents} min={field?.validation?.minValueCents} placeholder="0" required={field?.required} step={1} type="number" /></div><PreviewContractDisclosure field={field ?? { fieldKey: `${label.toLowerCase()}_line_items`, kind: "priced_line", label, order: 0, required: false, scope: label.toLowerCase() === "labour" ? "labour" : "materials" }} id={disclosureId} /><Button size="sm" variant="outline"><Plus />New {label.toLowerCase()} line</Button></CardPanel></Card>;
 }
 
 function TemplateContractRow({ label, value }: { label: string; value: string }) {

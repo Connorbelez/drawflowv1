@@ -186,12 +186,6 @@ type QuoteTemplateFieldInput = {
   };
 };
 
-type QuoteTemplateIdentity = {
-  audience: "contractor" | "supplier" | "either";
-  description?: string;
-  name: string;
-};
-
 type TemplateAuthorization = {
   brokerage: Doc<"brokerages">;
   organizationId: string;
@@ -559,8 +553,7 @@ async function insertVersionFields(
 
 async function readVersion(
   ctx: QueryCtx | MutationCtx,
-  version: Doc<"quoteResponseTemplateVersions">,
-  fallbackIdentity: QuoteTemplateIdentity
+  version: Doc<"quoteResponseTemplateVersions">
 ) {
   const fields = await ctx.db
     .query("quoteResponseTemplateFields")
@@ -568,9 +561,9 @@ async function readVersion(
     .collect();
   return {
     _id: version._id,
-    audience: version.audience ?? fallbackIdentity.audience,
+    audience: version.audience,
     createdAt: version.createdAt,
-    description: version.description ?? fallbackIdentity.description,
+    description: version.description,
     fields: fields.map((field) => ({
       _id: field._id,
       allowAlternates: field.allowAlternates,
@@ -592,7 +585,7 @@ async function readVersion(
     })),
     publishedAt: version.publishedAt,
     releaseNote: version.releaseNote,
-    name: version.name ?? fallbackIdentity.name,
+    name: version.name,
     status: version.status,
     updatedAt: version.updatedAt,
     validationState: version.validationState,
@@ -600,16 +593,52 @@ async function readVersion(
   };
 }
 
-function readVersionSummary(
-  version: Doc<"quoteResponseTemplateVersions">,
-  fallbackIdentity: QuoteTemplateIdentity
+function validateTemplateVersionPointer(
+  template: Doc<"quoteResponseTemplates">,
+  version: Doc<"quoteResponseTemplateVersions"> | null,
+  pointer: "currentVersionId" | "selectedVersionId"
 ) {
+  if (
+    !version ||
+    version.templateId !== template._id ||
+    version.organizationId !== template.organizationId ||
+    version.brokerageId !== template.brokerageId
+  ) {
+    throw new ConvexError(
+      `Template ${template._id} has an unavailable or cross-scope ${pointer} pointer.`
+    );
+  }
+  return version;
+}
+
+async function readTemplateVersionPointers(
+  ctx: QueryCtx | MutationCtx,
+  template: Doc<"quoteResponseTemplates">
+) {
+  const currentVersion = template.currentVersionId
+    ? validateTemplateVersionPointer(
+        template,
+        await ctx.db.get(template.currentVersionId),
+        "currentVersionId"
+      )
+    : null;
+  const selectedVersion = template.selectedVersionId
+    ? validateTemplateVersionPointer(
+        template,
+        await ctx.db.get(template.selectedVersionId),
+        "selectedVersionId"
+      )
+    : currentVersion;
+  return { currentVersion, selectedVersion };
+}
+
+function readVersionSummary(version: Doc<"quoteResponseTemplateVersions">) {
   return {
     _id: version._id,
-    audience: version.audience ?? fallbackIdentity.audience,
+    audience: version.audience,
     createdAt: version.createdAt,
-    description: version.description ?? fallbackIdentity.description,
-    name: version.name ?? fallbackIdentity.name,
+    description: version.description,
+    name: version.name,
     publishedAt: version.publishedAt,
     releaseNote: version.releaseNote,
     status: version.status,
@@ -628,35 +657,21 @@ async function readTemplate(
     .withIndex("by_template_version", (query) => query.eq("templateId", template._id))
     .order("desc")
     .take(50);
-  const currentVersion = template.currentVersionId
-    ? await ctx.db.get(template.currentVersionId)
-    : null;
-  const selectedVersion = template.selectedVersionId
-    ? await ctx.db.get(template.selectedVersionId)
-    : currentVersion;
-  const templateIdentity: QuoteTemplateIdentity = {
-    audience: template.audience,
-    description: template.description,
-    name: template.name,
-  };
+  const { currentVersion, selectedVersion } = await readTemplateVersionPointers(ctx, template);
   const identityVersion = currentVersion ?? selectedVersion;
   return {
     _id: template._id,
     audience: identityVersion?.audience ?? template.audience,
     createdAt: template.createdAt,
     createdByWorkosUserId: template.createdByWorkosUserId,
-    currentVersion: currentVersion
-      ? await readVersion(ctx, currentVersion, templateIdentity)
-      : null,
+    currentVersion: currentVersion ? await readVersion(ctx, currentVersion) : null,
     description: identityVersion?.description ?? template.description,
     name: identityVersion?.name ?? template.name,
-    selectedVersion: selectedVersion
-      ? await readVersion(ctx, selectedVersion, templateIdentity)
-      : null,
+    selectedVersion: selectedVersion ? await readVersion(ctx, selectedVersion) : null,
     status: template.status,
     templateKey: template.templateKey,
     updatedAt: template.updatedAt,
-    versions: versions.map((version) => readVersionSummary(version, templateIdentity)),
+    versions: versions.map(readVersionSummary),
   };
 }
 
@@ -664,31 +679,17 @@ async function readTemplateSummary(
   ctx: QueryCtx | MutationCtx,
   template: Doc<"quoteResponseTemplates">
 ) {
-  const currentVersion = template.currentVersionId
-    ? await ctx.db.get(template.currentVersionId)
-    : null;
-  const selectedVersion = template.selectedVersionId
-    ? await ctx.db.get(template.selectedVersionId)
-    : currentVersion;
-  const templateIdentity: QuoteTemplateIdentity = {
-    audience: template.audience,
-    description: template.description,
-    name: template.name,
-  };
+  const { currentVersion, selectedVersion } = await readTemplateVersionPointers(ctx, template);
   const identityVersion = currentVersion ?? selectedVersion;
   return {
     _id: template._id,
     audience: identityVersion?.audience ?? template.audience,
     createdAt: template.createdAt,
     createdByWorkosUserId: template.createdByWorkosUserId,
-    currentVersion: currentVersion
-      ? readVersionSummary(currentVersion, templateIdentity)
-      : null,
+    currentVersion: currentVersion ? readVersionSummary(currentVersion) : null,
     description: identityVersion?.description ?? template.description,
     name: identityVersion?.name ?? template.name,
-    selectedVersion: selectedVersion
-      ? readVersionSummary(selectedVersion, templateIdentity)
-      : null,
+    selectedVersion: selectedVersion ? readVersionSummary(selectedVersion) : null,
     status: template.status,
     templateKey: template.templateKey,
     updatedAt: template.updatedAt,
@@ -703,6 +704,12 @@ function validationIssues(fields: QuoteTemplateFieldInput[]) {
     issues.push(error instanceof Error ? error.message : "Template fields are invalid.");
   }
   return issues;
+}
+
+function validatePaginationSize(numItems: number) {
+  if (!Number.isInteger(numItems) || numItems < 1 || numItems > 100) {
+    throw new ConvexError("Pagination page size must be an integer between 1 and 100.");
+  }
 }
 
 async function auditTemplate(
@@ -753,6 +760,7 @@ export const listQuoteResponseTemplates = builderQuery
   .returns(registryResultValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
+    validatePaginationSize(args.paginationOpts.numItems);
     const templates = await ctx.db
       .query("quoteResponseTemplates")
       .withIndex("by_organization_status", (query) =>
@@ -776,6 +784,7 @@ export const listQuoteResponseTemplateVersions = builderQuery
   .returns(paginationResultValidator(quoteTemplateVersionSummaryValidator))
   .handler(async (ctx, args) => {
     const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
+    validatePaginationSize(args.paginationOpts.numItems);
     const template = await ctx.db.get(args.templateId);
     if (
       !template ||
@@ -784,11 +793,6 @@ export const listQuoteResponseTemplateVersions = builderQuery
     ) {
       throw new ConvexError("Template is unavailable.");
     }
-    const templateIdentity: QuoteTemplateIdentity = {
-      audience: template.audience,
-      description: template.description,
-      name: template.name,
-    };
     const versions = await ctx.db
       .query("quoteResponseTemplateVersions")
       .withIndex("by_template_version", (query) =>
@@ -798,9 +802,7 @@ export const listQuoteResponseTemplateVersions = builderQuery
       .paginate(args.paginationOpts);
     return {
       ...versions,
-      page: versions.page.map((version) =>
-        readVersionSummary(version, templateIdentity)
-      ),
+      page: versions.page.map(readVersionSummary),
     };
   })
   .public();
@@ -840,11 +842,7 @@ export const getQuoteResponseTemplateVersion = builderQuery
     ) {
       return null;
     }
-    return await readVersion(ctx, version, {
-      audience: template.audience,
-      description: template.description,
-      name: template.name,
-    });
+    return await readVersion(ctx, version);
   })
   .public();
 
@@ -1085,10 +1083,10 @@ export const publishQuoteResponseTemplate = builderMutation
       validationState: "valid",
     });
     await ctx.db.patch(template._id, {
-      audience: version.audience ?? template.audience,
+      audience: version.audience,
       currentVersionId: version._id,
-      description: version.description ?? template.description,
-      name: version.name ?? template.name,
+      description: version.description,
+      name: version.name,
       selectedVersionId: version._id,
       updatedAt: now,
     });

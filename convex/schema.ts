@@ -2230,12 +2230,9 @@ export default defineSchema({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
     templateId: v.id("quoteResponseTemplates"),
-    // Compatibility-stage fields: legacy versions predate immutable identity
-    // snapshots. The backfill makes these values durable before the strict
-    // cutover removes the optional wrappers.
-    name: v.optional(v.string()),
+    name: v.string(),
     description: v.optional(v.string()),
-    audience: v.optional(quoteResponseTemplateAudienceValidator),
+    audience: quoteResponseTemplateAudienceValidator,
     version: v.number(),
     status: v.union(v.literal("draft"), v.literal("published")),
     releaseNote: v.optional(v.string()),

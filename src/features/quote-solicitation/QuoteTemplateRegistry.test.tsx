@@ -36,14 +36,14 @@ const registry = {
         createdAt: 1,
         description: "Reusable trade response.",
         fields: [
-          { allowAlternates: true, allowExclusions: true, fieldKey: "labour_line_items", isPermanent: true, kind: "priced_line", label: "Labour", order: 0, repeatable: true, required: false, scope: "labour", supportsTax: true },
+          { allowAlternates: true, allowExclusions: true, fieldKey: "labour_line_items", isPermanent: true, kind: "priced_line", label: "Labour", order: 0, repeatable: true, required: false, scope: "labour", supportsTax: true, tax: { label: "GST", rateBps: 500 }, validation: { minValueCents: 1000, maxValueCents: 500000 } },
           { allowAlternates: true, allowExclusions: true, fieldKey: "materials_line_items", isPermanent: true, kind: "priced_line", label: "Materials", order: 1, repeatable: true, required: false, scope: "materials", supportsTax: true },
           { fieldKey: "additional_comments", isPermanent: true, kind: "long_text", label: "Additional comments", order: 2, renderer: "tiptap", required: false, richTextDefaultHtml: "<p>Explain assumptions.</p>", scope: "whole_quote" },
-          { fieldKey: "crew_size", kind: "short_text", label: "Estimated crew size", order: 3, required: false, scope: "labour", validation: { maxLength: 24 } },
+          { fieldKey: "crew_size", kind: "short_text", label: "Estimated crew size", order: 3, required: false, scope: "labour", validation: { minLength: 1, maxLength: 24, pattern: "^[A-Z]" } },
           { allowAlternates: true, allowExclusions: true, fieldKey: "equipment_line", kind: "priced_line", label: "Equipment allowance", order: 4, repeatable: true, required: false, scope: "materials", supportsTax: false },
           { fieldKey: "available_date", kind: "date", label: "Available date", order: 5, required: false, scope: "whole_quote" },
           { choiceOptions: ["Included", "Excluded"], fieldKey: "warranty", kind: "choice", label: "Warranty", order: 6, required: true, scope: "whole_quote" },
-          { fieldKey: "insurance_certificate", kind: "attachment", label: "Insurance certificate", order: 7, required: false, scope: "whole_quote", validation: { allowedMimeTypes: ["application/pdf"], maxFiles: 2 } },
+          { fieldKey: "insurance_certificate", kind: "attachment", label: "Insurance certificate", order: 7, required: true, scope: "whole_quote", validation: { allowedMimeTypes: ["application/pdf"], maxFiles: 2 } },
           { fieldKey: "scope_notes", kind: "long_text", label: "Scope notes", order: 8, renderer: "tiptap", required: false, richTextDefaultHtml: "<p>Describe scope.</p>", scope: "whole_quote" },
         ],
         publishedAt: 2,
@@ -61,7 +61,7 @@ const registry = {
         audience: "either",
         createdAt: 1,
         description: "Reusable trade response.",
-        fields: [],
+        fields: [] as any[],
         publishedAt: 2,
         releaseNote: "Initial",
         status: "published",
@@ -125,7 +125,7 @@ describe("QuoteTemplateRegistry", () => {
     fireEvent.click(screen.getByRole("button", { name: "Inspect" }));
     expect(screen.getByText("Inspecting v1 · Read-only")).toBeTruthy();
     expect(screen.getAllByText("Permanent").length).toBeGreaterThan(0);
-    expect(screen.getByText("Included · Excluded")).toBeTruthy();
+    expect(screen.getByText("Choices: Included · Excluded")).toBeTruthy();
     expect(screen.getByText(/MIME application\/pdf/)).toBeTruthy();
     expect(screen.getAllByText("TipTap default HTML").length).toBeGreaterThan(0);
     expect(select).not.toHaveBeenCalled();
@@ -154,8 +154,20 @@ describe("QuoteTemplateRegistry", () => {
     expect(screen.getByLabelText("Labour line title")).toBeTruthy();
     expect(screen.getByLabelText("Available date")).toBeTruthy();
     expect(screen.getByLabelText("Warranty (required)")).toBeTruthy();
-    expect(screen.getByLabelText("Insurance certificate")).toBeTruthy();
+    expect(screen.getByLabelText("Insurance certificate (required)")).toBeTruthy();
     expect(screen.getByLabelText("Scope notes TipTap preview")).toBeTruthy();
+    expect(screen.getByText(/Amount bounds: 1000–500000¢/)).toBeTruthy();
+    expect(screen.getAllByText(/Tax: GST \(500 bps\)/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Alternates: allowed/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Exclusions: allowed/).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Estimated crew size").getAttribute("minlength")).toBe("1");
+    expect(screen.getByLabelText("Estimated crew size").getAttribute("maxlength")).toBe("80");
+    expect(screen.getByLabelText("Estimated crew size").getAttribute("pattern")).toBe("^[A-Z]");
+    expect(screen.getByLabelText("Warranty (required)").getAttribute("required")).toBe("");
+    expect(screen.getByLabelText("Insurance certificate (required)").getAttribute("required")).toBe("");
+    expect(screen.getByLabelText("Labour amount in cents").getAttribute("min")).toBe("1000");
+    expect(screen.getByLabelText("Labour amount in cents").getAttribute("max")).toBe("500000");
+    expect(screen.getByLabelText("Labour amount in cents").getAttribute("aria-describedby")).toBe("preview-labour-line-contract");
   });
 
   test("does not publish when saving the draft fails", async () => {

@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { resolveQuoteResponseTemplateVersionIdentity } from "./quote_response_template_migrations";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -136,6 +137,51 @@ function allFields() {
       supportsTax: true,
     },
   ];
+}
+
+async function seedMigrationRows(base: ReturnType<typeof convexTest>, count: number) {
+  return await base.run(async (ctx: any) => {
+    const brokerage = await ctx.db
+      .query("brokerages")
+      .withIndex("by_workos_organization", (query: any) =>
+        query.eq("workosOrganizationId", ORGANIZATION_ID)
+      )
+      .unique();
+    if (!brokerage) throw new Error("Missing brokerage fixture.");
+    const now = Date.now();
+    const templateId = await ctx.db.insert("quoteResponseTemplates", {
+      audience: "either",
+      brokerageId: brokerage._id,
+      createdAt: now,
+      createdByWorkosUserId: "migration-author",
+      description: "Migration fixture",
+      name: "Migration fixture",
+      organizationId: ORGANIZATION_ID,
+      status: "active",
+      templateKey: `migration-fixture-${now.toString(36)}-${count}`,
+      updatedAt: now,
+    });
+    const versionIds = [];
+    for (let version = 1; version <= count; version += 1) {
+      versionIds.push(
+        await ctx.db.insert("quoteResponseTemplateVersions", {
+          audience: "either",
+          brokerageId: brokerage._id,
+          createdAt: now + version,
+          createdByWorkosUserId: "migration-author",
+          description: undefined,
+          name: `Migration fixture v${version}`,
+          organizationId: ORGANIZATION_ID,
+          status: "published",
+          templateId,
+          updatedAt: now + version,
+          validationState: "valid",
+          version,
+        })
+      );
+    }
+    return { brokerageId: brokerage._id, templateId, versionIds };
+  });
 }
 
 describe("Quote Response Template public contract", () => {
@@ -561,65 +607,204 @@ describe("Quote Response Template public contract", () => {
     ).rejects.toThrow("organization scope");
   });
 
-  test("reads and backfills legacy version identity without crossing tenant scope", async () => {
-    const { admin, base, builder } = await fixture();
+  test("preserves an intentionally cleared description instead of inheriting the parent", async () => {
+    const { builder } = await fixture();
     const created = await builder.mutation(
       (api as any).quote_response_templates.createQuoteResponseTemplateDraft,
       {
         audience: "contractor",
-        description: "Legacy-compatible contract.",
-        name: "Legacy trade quote",
+        description: "Initial description",
+        name: "Description contract",
         workosOrganizationId: ORGANIZATION_ID,
       }
     );
-    const legacyVersionId = await base.run(async (ctx) => {
-      const brokerage = await ctx.db
-        .query("brokerages")
-        .withIndex("by_workos_organization", (query) =>
-          query.eq("workosOrganizationId", ORGANIZATION_ID)
-        )
-        .first();
-      if (!brokerage) throw new Error("Missing brokerage fixture.");
-      const versionId = await ctx.db.insert("quoteResponseTemplateVersions", {
-        brokerageId: brokerage._id,
-        createdAt: Date.now(),
-        createdByWorkosUserId: "legacy-author",
-        organizationId: ORGANIZATION_ID,
-        status: "published",
+    await builder.mutation(
+      (api as any).quote_response_templates.updateQuoteResponseTemplateDraft,
+      {
+        audience: "contractor",
+        description: "",
+        fields: allFields(),
+        name: "Description contract",
         templateId: created.templateId,
-        updatedAt: Date.now(),
-        validationState: "valid",
-        version: 2,
-      });
-      await ctx.db.patch(created.templateId, { currentVersionId: versionId });
-      return versionId;
-    });
-
-    const legacyRead = await builder.query(
-      (api as any).quote_response_templates.getQuoteResponseTemplateVersion,
+        versionId: created.versionId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await builder.mutation(
+      (api as any).quote_response_templates.publishQuoteResponseTemplate,
       {
         templateId: created.templateId,
-        versionId: legacyVersionId,
+        versionId: created.versionId,
         workosOrganizationId: ORGANIZATION_ID,
       }
     );
-    expect(legacyRead).toMatchObject({
-      audience: "contractor",
-      description: "Legacy-compatible contract.",
-      name: "Legacy trade quote",
-      version: 2,
-    });
+    const saved = await builder.query(
+      (api as any).quote_response_templates.getQuoteResponseTemplate,
+      {
+        templateId: created.templateId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(saved?.description).toBeUndefined();
+    expect(saved?.currentVersion?.description).toBeUndefined();
+    expect(saved?.selectedVersion?.description).toBeUndefined();
+  });
 
-    await admin.mutation(
+  test("fails closed when current or selected version pointers cross template scope", async () => {
+    const { base, builder } = await fixture();
+    const first = await builder.mutation(
+      (api as any).quote_response_templates.createQuoteResponseTemplateDraft,
+      {
+        audience: "contractor",
+        name: "First pointer contract",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const second = await builder.mutation(
+      (api as any).quote_response_templates.createQuoteResponseTemplateDraft,
+      {
+        audience: "supplier",
+        name: "Second pointer contract",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await base.run(async (ctx) => {
+      await ctx.db.patch(first.templateId, { currentVersionId: second.versionId });
+    });
+    await expect(
+      builder.query(
+        (api as any).quote_response_templates.getQuoteResponseTemplate,
+        { templateId: first.templateId, workosOrganizationId: ORGANIZATION_ID }
+      )
+    ).rejects.toThrow(/currentVersionId|cross-scope/);
+
+    await base.run(async (ctx) => {
+      await ctx.db.patch(first.templateId, { currentVersionId: first.versionId, selectedVersionId: second.versionId });
+    });
+    await expect(
+      builder.query(
+        (api as any).quote_response_templates.getQuoteResponseTemplate,
+        { templateId: first.templateId, workosOrganizationId: ORGANIZATION_ID }
+      )
+    ).rejects.toThrow(/selectedVersionId|cross-scope/);
+    await expect(
+      builder.query(
+        (api as any).quote_response_templates.listQuoteResponseTemplates,
+        {
+          paginationOpts: { cursor: null, numItems: 10 },
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/selectedVersionId|cross-scope/);
+  });
+
+  test("dry-runs without writes, replays idempotently, and processes migration batches", async () => {
+    const { admin, base } = await fixture();
+    const seeded = await seedMigrationRows(base, 51);
+    const before = await base.run(async (ctx) =>
+      Promise.all(seeded.versionIds.map((versionId) => ctx.db.get(versionId)))
+    );
+    let dryRunError: unknown;
+    try {
+      await admin.mutation(
+        (internal as any).quote_response_template_migrations
+          .backfillQuoteResponseTemplateVersionIdentity,
+        { batchSize: 25, cursor: null, dryRun: true, oneBatchOnly: true }
+      );
+    } catch (error) {
+      dryRunError = error;
+    }
+    expect(dryRunError).toBeDefined();
+    await expect(
+      base.run(async (ctx) =>
+        Promise.all(seeded.versionIds.map((versionId) => ctx.db.get(versionId)))
+      )
+    ).resolves.toEqual(before);
+
+    let cursor: string | null = null;
+    let processed = 0;
+    let isDone = false;
+    let batches = 0;
+    while (!isDone) {
+      const result: { continueCursor: string; isDone: boolean; processed: number } = await admin.mutation(
+        (internal as any).quote_response_template_migrations
+          .backfillQuoteResponseTemplateVersionIdentity,
+        { batchSize: 25, cursor, dryRun: false, oneBatchOnly: true }
+      );
+      processed += result.processed;
+      isDone = result.isDone;
+      cursor = result.continueCursor;
+      batches += 1;
+    }
+    expect({ batches, processed }).toEqual({ batches: 3, processed: 51 });
+
+    const replay = await admin.mutation(
       (internal as any).quote_response_template_migrations
         .backfillQuoteResponseTemplateVersionIdentity,
-      { cursor: null, dryRun: false, oneBatchOnly: true }
+      { batchSize: 25, cursor: null, dryRun: false, oneBatchOnly: true }
     );
-    await expect(base.run((ctx) => ctx.db.get(legacyVersionId))).resolves.toMatchObject({
-      audience: "contractor",
+    expect(replay).toMatchObject({ isDone: false, processed: 25 });
+    await expect(
+      base.run(async (ctx) =>
+        Promise.all(seeded.versionIds.map((versionId) => ctx.db.get(versionId)))
+      )
+    ).resolves.toEqual(before);
+  });
+
+  test("fails the identity migration for missing parents and cross-scope rows", async () => {
+    const missingParent = await fixture();
+    const orphan = await seedMigrationRows(missingParent.base, 1);
+    await missingParent.base.run(async (ctx) => {
+      await ctx.db.delete(orphan.templateId);
+    });
+    await expect(
+      missingParent.admin.mutation(
+        (internal as any).quote_response_template_migrations
+          .backfillQuoteResponseTemplateVersionIdentity,
+        { cursor: null, dryRun: false, oneBatchOnly: true }
+      )
+    ).rejects.toThrow(/missing template/);
+
+    const crossScope = await fixture();
+    const mismatched = await seedMigrationRows(crossScope.base, 1);
+    await crossScope.base.run(async (ctx) => {
+      await ctx.db.patch(mismatched.versionIds[0]!, { organizationId: "org_other" });
+    });
+    await expect(
+      crossScope.admin.mutation(
+        (internal as any).quote_response_template_migrations
+          .backfillQuoteResponseTemplateVersionIdentity,
+        { cursor: null, dryRun: false, oneBatchOnly: true }
+      )
+    ).rejects.toThrow(/crosses organization or brokerage scope/);
+  });
+
+  test("keeps the legacy identity resolver tenant-safe for the strict cutover", async () => {
+    const legacyVersion = {
+      _id: "legacy-version",
+      audience: undefined,
+      brokerageId: "brokerage-1",
+      description: undefined,
+      name: undefined,
+      organizationId: ORGANIZATION_ID,
+    };
+    const template = {
+      audience: "contractor" as const,
+      brokerageId: "brokerage-1",
       description: "Legacy-compatible contract.",
       name: "Legacy trade quote",
+      organizationId: ORGANIZATION_ID,
+    };
+    expect(resolveQuoteResponseTemplateVersionIdentity(legacyVersion, template)).toEqual({
+      audience: "contractor",
+      name: "Legacy trade quote",
     });
+    expect(() =>
+      resolveQuoteResponseTemplateVersionIdentity(
+        { ...legacyVersion, organizationId: "org_other" },
+        template
+      )
+    ).toThrow(/crosses organization or brokerage scope/);
   });
 
   test("paginates version history with the Convex cursor contract", async () => {
@@ -657,6 +842,28 @@ describe("Quote Response Template public contract", () => {
       return ids;
     });
     expect(versionIds).toHaveLength(51);
+
+    for (const numItems of [0, 101]) {
+      await expect(
+        builder.query(
+          (api as any).quote_response_templates.listQuoteResponseTemplates,
+          {
+            paginationOpts: { cursor: null, numItems },
+            workosOrganizationId: ORGANIZATION_ID,
+          }
+        )
+      ).rejects.toThrow(/between 1 and 100/);
+      await expect(
+        builder.query(
+          (api as any).quote_response_templates.listQuoteResponseTemplateVersions,
+          {
+            paginationOpts: { cursor: null, numItems },
+            templateId: created.templateId,
+            workosOrganizationId: ORGANIZATION_ID,
+          }
+        )
+      ).rejects.toThrow(/between 1 and 100/);
+    }
 
     const firstPage = await builder.query(
       (api as any).quote_response_templates.listQuoteResponseTemplateVersions,
