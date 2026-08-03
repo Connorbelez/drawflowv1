@@ -24,6 +24,7 @@ import { Route as ContractorIndexRouteImport } from './routes/contractor/index'
 import { Route as BuilderIndexRouteImport } from './routes/builder/index'
 import { Route as BuilderStaffIndexRouteImport } from './routes/builder-staff/index'
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
+import { Route as PrototypeSystemPostsRouteImport } from './routes/prototype/system-posts'
 import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
 import { Route as PrototypeActionItemsRouteImport } from './routes/prototype/action-items'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
@@ -175,6 +176,11 @@ const BackofficeIndexRoute = BackofficeIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => BackofficeRouteRoute,
+} as any)
+const PrototypeSystemPostsRoute = PrototypeSystemPostsRouteImport.update({
+  id: '/prototype/system-posts',
+  path: '/prototype/system-posts',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const PrototypeBuildCollaborationRoute =
   PrototypeBuildCollaborationRouteImport.update({
@@ -633,6 +639,7 @@ export interface FileRoutesByFullPath {
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/prototype/system-posts': typeof PrototypeSystemPostsRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
   '/builder/': typeof BuilderIndexRoute
@@ -713,6 +720,7 @@ export interface FileRoutesByTo {
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/prototype/system-posts': typeof PrototypeSystemPostsRoute
   '/backoffice': typeof BackofficeIndexRoute
   '/builder-staff': typeof BuilderStaffIndexRoute
   '/builder': typeof BuilderIndexRoute
@@ -801,6 +809,7 @@ export interface FileRoutesById {
   '/proposal-claim/$claimToken': typeof ProposalClaimClaimTokenRoute
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
+  '/prototype/system-posts': typeof PrototypeSystemPostsRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
   '/builder/': typeof BuilderIndexRoute
@@ -896,6 +905,7 @@ export interface FileRouteTypes {
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
+    | '/prototype/system-posts'
     | '/backoffice/'
     | '/builder-staff/'
     | '/builder/'
@@ -976,6 +986,7 @@ export interface FileRouteTypes {
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
+    | '/prototype/system-posts'
     | '/backoffice'
     | '/builder-staff'
     | '/builder'
@@ -1063,6 +1074,7 @@ export interface FileRouteTypes {
     | '/proposal-claim/$claimToken'
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
+    | '/prototype/system-posts'
     | '/backoffice/'
     | '/builder-staff/'
     | '/builder/'
@@ -1134,6 +1146,7 @@ export interface RootRouteChildren {
   ProposalClaimClaimTokenRoute: typeof ProposalClaimClaimTokenRoute
   PrototypeActionItemsRoute: typeof PrototypeActionItemsRoute
   PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
+  PrototypeSystemPostsRoute: typeof PrototypeSystemPostsRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
   NewsitevisitBuildIdSiteVisitTokenRoute: typeof NewsitevisitBuildIdSiteVisitTokenRoute
@@ -1245,6 +1258,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/backoffice/'
       preLoaderRoute: typeof BackofficeIndexRouteImport
       parentRoute: typeof BackofficeRouteRoute
+    }
+    '/prototype/system-posts': {
+      id: '/prototype/system-posts'
+      path: '/prototype/system-posts'
+      fullPath: '/prototype/system-posts'
+      preLoaderRoute: typeof PrototypeSystemPostsRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/prototype/build-collaboration': {
       id: '/prototype/build-collaboration'
@@ -2188,6 +2208,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProposalClaimClaimTokenRoute: ProposalClaimClaimTokenRoute,
   PrototypeActionItemsRoute: PrototypeActionItemsRoute,
   PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,
+  PrototypeSystemPostsRoute: PrototypeSystemPostsRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
   NewsitevisitBuildIdSiteVisitTokenRoute:
