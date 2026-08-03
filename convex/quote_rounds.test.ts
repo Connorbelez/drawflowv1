@@ -1,23 +1,43 @@
 /// <reference types="vite/client" />
 
+import resendTest from "@convex-dev/resend/test";
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import {
+  defaultQuoteInvitationAccessExpiry,
+  quoteInvitationUrl,
+  quoteInvitationSecretVerifier,
+} from "./quote_invitation_access";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 const ORGANIZATION_ID = "org_quote_rounds";
 
+beforeEach(() => {
+  vi.stubEnv("RESEND_API_KEY", "re_quote_rounds_test_key");
+  vi.stubEnv(
+    "RESEND_FROM_EMAIL",
+    "DrawFlow <notifications@updates.fairlend.ca>"
+  );
+  vi.stubEnv("QUOTE_INVITATION_PUBLIC_ORIGIN", "https://drawflow.test");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 function withIdentity(
   base: ReturnType<typeof convexTest>,
   roles: string[],
   subject: string,
-  organizationId = ORGANIZATION_ID
+  organizationId = ORGANIZATION_ID,
+  email = `${subject}@example.com`
 ) {
   return base.withIdentity({
-    email: `${subject}@example.com`,
+    email,
     name: subject,
     organizationId,
     role: roles[0],
@@ -45,6 +65,7 @@ async function seedQuoteFixture(
     "recipient_shareable"
 ) {
   const base = convexTest(schema, modules);
+  resendTest.register(base);
   const admin = withIdentity(base, ["admin", "principle-broker"], "user_admin");
   const builder = withIdentity(base, ["builder"], "user_builder");
   const foundation = await admin.mutation(
@@ -288,6 +309,7 @@ async function seedQuoteFixture(
       createdAt: now,
       email: "quote-recipient@example.com",
       name: "Existing Trade and Supply Co.",
+      normalizedEmail: "quote-recipient@example.com",
       organizationId: ORGANIZATION_ID,
       quoteRecipientCapabilities: ["contractor", "supplier"],
       status: "active",
@@ -357,6 +379,7 @@ async function seedQuoteFixture(
       versionId: templateVersionId,
     });
     return {
+      brokerageId: foundation.brokerageId,
       buildId,
       contractorOnlyRecipientId,
       costItemId,
@@ -414,7 +437,89 @@ async function configureRound(
   return created;
 }
 
+async function publishCombinedRound(
+  fixture: Awaited<ReturnType<typeof seedQuoteFixture>>,
+  idempotencyKey: string
+) {
+  const created = await configureRound(fixture, "combined");
+  await fixture.builder.mutation((api as any).quote_rounds.publishQuoteRoundDraft, {
+    buildId: fixture.buildId,
+    expectedRevision: 1,
+    idempotencyKey,
+    quoteRoundId: created.quoteRoundId,
+    workosOrganizationId: ORGANIZATION_ID,
+  });
+  return await fixture.base.run(async (ctx) => {
+    const invitation = await ctx.db
+      .query("quoteRoundInvitations")
+      .withIndex("by_quoteRoundId_and_participationState", (query) =>
+        query
+          .eq("quoteRoundId", created.quoteRoundId)
+          .eq("participationState", "active")
+      )
+      .unique();
+    if (!invitation) {
+      throw new Error("Expected a published Quote invitation.");
+    }
+    const credential = await ctx.db
+      .query("quoteInvitationAccessCredentials")
+      .withIndex("by_quoteRoundInvitationId_and_state", (query) =>
+        query
+          .eq("quoteRoundInvitationId", invitation._id)
+          .eq("state", "active")
+      )
+      .unique();
+    if (!credential) {
+      throw new Error("Expected an active Quote invitation credential.");
+    }
+    return { credential, invitation };
+  });
+}
+
+async function replaceCredentialMagicToken(
+  fixture: Awaited<ReturnType<typeof seedQuoteFixture>>,
+  credentialId: Id<"quoteInvitationAccessCredentials">,
+  magicToken: string,
+  accessExpiresAt?: number
+) {
+  const credentialVerifier = await quoteInvitationSecretVerifier(magicToken);
+  await fixture.base.run(async (ctx) => {
+    await ctx.db.patch(credentialId, {
+      ...(accessExpiresAt === undefined ? {} : { accessExpiresAt }),
+      credentialVerifier,
+      state: "active",
+      updatedAt: Date.now(),
+    });
+  });
+}
+
 describe("Quote Round draft-to-open aggregate", () => {
+  test("requires HTTPS for bearer invitation URLs outside explicit loopback development origins", () => {
+    vi.stubEnv("QUOTE_INVITATION_PUBLIC_ORIGIN", "http://drawflow.test");
+    expect(() => quoteInvitationUrl("raw-bearer-token")).toThrow(/HTTPS/);
+
+    vi.stubEnv("QUOTE_INVITATION_PUBLIC_ORIGIN", "http://127.0.0.1:3000");
+    expect(quoteInvitationUrl("raw-bearer-token")).toBe(
+      "http://127.0.0.1:3000/quote-invitation/raw-bearer-token"
+    );
+  });
+
+  test("caps the default invitation access window at 90 days after publication", () => {
+    const day = 24 * 60 * 60 * 1000;
+    expect(() =>
+      defaultQuoteInvitationAccessExpiry({
+        publishedAt: 0,
+        responseDeadline: 90 * day,
+      })
+    ).toThrow(/90 days after publication/);
+    expect(
+      defaultQuoteInvitationAccessExpiry({
+        publishedAt: 0,
+        responseDeadline: 83 * day,
+      })
+    ).toBe(90 * day);
+  });
+
   test("opens a combined round atomically with immutable rich scope, hashed attachments, credentials, and idempotency", async () => {
     const fixture = await seedQuoteFixture();
     const composer = await fixture.builder.query(
@@ -521,7 +626,21 @@ describe("Quote Round draft-to-open aggregate", () => {
           q.eq("quotePackageRevisionId", round.currentPackageRevisionId!)
         )
         .collect();
-      return { attachments, credentials, fields, packageRevision, round };
+      const messages = await ctx.db
+        .query("emailMessages")
+        .withIndex("by_organization_and_idempotencyKey", (q) =>
+          q.eq("organizationId", ORGANIZATION_ID)
+        )
+        .collect();
+      return {
+        attachments,
+        credentials,
+        fields,
+        invitations,
+        messages,
+        packageRevision,
+        round,
+      };
     });
     expect(persisted.round).toMatchObject({ revision: 2, state: "open" });
     expect(persisted.packageRevision).toMatchObject({
@@ -548,10 +667,26 @@ describe("Quote Round draft-to-open aggregate", () => {
     expect(persisted.fields).toHaveLength(1);
     expect(persisted.credentials).toHaveLength(1);
     expect(persisted.credentials[0]).toMatchObject({
+      accessGeneration: 1,
       credentialVersion: 1,
+      purpose: "initial",
       state: "active",
     });
     expect(persisted.credentials[0]?.credentialVerifier).toMatch(/^[a-f0-9]{64}$/);
+    expect(persisted.packageRevision?.accessExpiresAt).toBeGreaterThan(
+      persisted.packageRevision?.responseDeadline ?? 0
+    );
+    expect(persisted.messages).toHaveLength(1);
+    expect(persisted.messages[0]).toMatchObject({
+      idempotencyKey: `quote-invitation:${persisted.invitations[0]!._id}:access-generation:1:credential:1`,
+      organizationId: ORGANIZATION_ID,
+      recipientEmail: "quote-recipient@example.com",
+      relatedEntityType: "quoteRoundInvitation",
+      status: "queued",
+    });
+    expect(persisted.credentials[0]?.deliveryEmailMessageId).toBe(
+      persisted.messages[0]?._id
+    );
 
     await fixture.base.run(async (ctx) => {
       await ctx.db.patch(fixture.submilestoneId, {
@@ -583,6 +718,416 @@ describe("Quote Round draft-to-open aggregate", () => {
         workosOrganizationId: ORGANIZATION_ID,
       })
     ).rejects.toThrow(/immutable/);
+  });
+
+  test("provisions one brokerage-scoped cold recipient and attaches the complete mode capability", async () => {
+    const fixture = await seedQuoteFixture();
+    const draft = await fixture.builder.mutation(
+      api.quote_rounds.createQuoteRoundDraft,
+      {
+        buildId: fixture.buildId,
+        mode: "combined",
+        title: "Cold recipient round",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const first = await fixture.builder.mutation(
+      api.quote_invitation_access.ensureQuoteRoundRecipient,
+      {
+        buildId: fixture.buildId,
+        displayName: "Cold Trade and Supply Co.",
+        email: " Cold.Recipient@Example.com ",
+        quoteRoundId: draft.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const replay = await fixture.builder.mutation(
+      api.quote_invitation_access.ensureQuoteRoundRecipient,
+      {
+        buildId: fixture.buildId,
+        email: "cold.recipient@example.com",
+        quoteRoundId: draft.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+
+    expect(first).toEqual({
+      capabilities: ["contractor", "supplier"],
+      created: true,
+      email: "cold.recipient@example.com",
+      name: "Cold Trade and Supply Co.",
+      profileId: first.profileId,
+      provisioningState: "provisional",
+    });
+    expect(replay).toEqual({ ...first, created: false });
+    const profiles = await fixture.base.run((ctx) =>
+      ctx.db
+        .query("contractorProfiles")
+        .withIndex("by_brokerage_normalized_email", (query) =>
+          query
+            .eq("brokerageId", fixture.brokerageId)
+            .eq("normalizedEmail", "cold.recipient@example.com")
+        )
+        .collect()
+    );
+    // The direct profile read below deliberately avoids trusting a client-side
+    // identity cache; the one canonical profile owns both capabilities.
+    const profile = await fixture.base.run((ctx) => ctx.db.get(first.profileId));
+    expect(profile).toMatchObject({
+      email: "cold.recipient@example.com",
+      normalizedEmail: "cold.recipient@example.com",
+      onboardingStatus: "profile_only",
+      quoteRecipientCapabilities: ["contractor", "supplier"],
+      quoteRecipientProvisioningState: "provisional",
+      source: "builder_created",
+      status: "active",
+    });
+    expect(profiles).toHaveLength(1);
+
+    const updated = await fixture.builder.mutation(
+      api.quote_rounds.updateQuoteRoundDraft,
+      {
+        buildId: fixture.buildId,
+        expectedRevision: 0,
+        labourSubmilestoneIds: [fixture.submilestoneId],
+        materialRows: [
+          {
+            assignedSubmilestoneIds: [fixture.submilestoneId],
+            rowKey: "cold-recipient-lumber",
+            source: "build_cost_item",
+            sourceBuildCostItemId: fixture.costItemId,
+          },
+        ],
+        quoteRoundId: draft.quoteRoundId,
+        recipientProfileIds: [first.profileId],
+        responseDeadline: Date.now() + 86_400_000,
+        templateVersionId: fixture.templateVersionId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.builder.mutation(api.quote_rounds.publishQuoteRoundDraft, {
+        buildId: fixture.buildId,
+        expectedRevision: updated.revision,
+        idempotencyKey: "publish-cold-recipient-001",
+        quoteRoundId: draft.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toMatchObject({ invitationCount: 1, state: "open" });
+  });
+
+  test("reuses and canonicalizes an exact legacy recipient email before creating a provisional identity", async () => {
+    const fixture = await seedQuoteFixture();
+    const draft = await fixture.builder.mutation(
+      api.quote_rounds.createQuoteRoundDraft,
+      {
+        buildId: fixture.buildId,
+        mode: "labour",
+        title: "Legacy recipient round",
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    const reused = await fixture.builder.mutation(
+      api.quote_invitation_access.ensureQuoteRoundRecipient,
+      {
+        buildId: fixture.buildId,
+        email: " CONTRACTOR-ONLY@EXAMPLE.COM ",
+        quoteRoundId: draft.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(reused).toMatchObject({
+      created: false,
+      profileId: fixture.contractorOnlyRecipientId,
+    });
+    expect(
+      await fixture.base.run((ctx) =>
+        ctx.db.get(fixture.contractorOnlyRecipientId)
+      )
+    ).toMatchObject({ normalizedEmail: "contractor-only@example.com" });
+  });
+
+  test("exchanges a reusable private credential into a bounded browser lease without exposing recipient peers", async () => {
+    const fixture = await seedQuoteFixture();
+    const { credential } = await publishCombinedRound(
+      fixture,
+      "access-session-exchange-001"
+    );
+    const magicToken = "a".repeat(64);
+    await replaceCredentialMagicToken(fixture, credential._id, magicToken);
+
+    const first = await fixture.base.mutation(
+      api.quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken }
+    );
+    expect(first.status).toBe("available");
+    if (first.status !== "available") {
+      throw new Error("Expected Quote invitation access.");
+    }
+    const replay = await fixture.base.mutation(
+      api.quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken, sessionToken: first.sessionToken }
+    );
+    expect(replay).toMatchObject({
+      sessionToken: first.sessionToken,
+      status: "available",
+    });
+    if (replay.status !== "available") {
+      throw new Error("Expected reusable Quote invitation access.");
+    }
+    expect(first.access).toMatchObject({
+      accessExpiresAt: credential.accessExpiresAt,
+      roundState: "open",
+    });
+    expect(first.access.package).not.toHaveProperty("recipients");
+    expect(replay.sessionExpiresAt).toBeLessThanOrEqual(
+      replay.access.accessExpiresAt
+    );
+
+    const persisted = await fixture.base.run(async (ctx) => ({
+      events: await ctx.db
+        .query("quoteInvitationAccessEvents")
+        .withIndex("by_quoteInvitationAccessCredentialId_and_createdAt", (query) =>
+          query.eq("quoteInvitationAccessCredentialId", credential._id)
+        )
+        .collect(),
+      sessions: await ctx.db
+        .query("quoteInvitationBrowserSessions")
+        .withIndex("by_quoteInvitationAccessCredentialId_and_state", (query) =>
+          query
+            .eq("quoteInvitationAccessCredentialId", credential._id)
+            .eq("state", "active")
+        )
+        .collect(),
+    }));
+    expect(persisted.sessions).toHaveLength(1);
+    expect(persisted.sessions[0]?.sessionVerifier).toMatch(/^[a-f0-9]{64}$/);
+    expect(persisted.events.map((event) => event.eventType)).toEqual(
+      expect.arrayContaining(["session_exchanged", "session_reused"])
+    );
+  });
+
+  test("returns expiry-only access failure and never discloses a revoked invitation", async () => {
+    const fixture = await seedQuoteFixture();
+    const { credential, invitation } = await publishCombinedRound(
+      fixture,
+      "access-expiry-and-revocation-001"
+    );
+    const magicToken = "b".repeat(64);
+    const expiresAt = Date.now() - 1;
+    await replaceCredentialMagicToken(
+      fixture,
+      credential._id,
+      magicToken,
+      expiresAt
+    );
+
+    const expired = await fixture.base.mutation(
+      api.quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken }
+    );
+    expect(expired).toMatchObject({ expiresAt, status: "expired" });
+    expect(Object.keys(expired).sort()).toEqual([
+      "expiresAt",
+      "issuerName",
+      "status",
+    ]);
+
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(invitation._id, {
+        participationState: "revoked",
+        updatedAt: Date.now(),
+      })
+    );
+    await expect(
+      fixture.base.mutation(api.quote_invitation_access.exchangeQuoteInvitationAccess, {
+        magicToken,
+      })
+    ).resolves.toEqual({ status: "unavailable" });
+  });
+
+  test("claims a recipient only for an exact verified WorkOS email and retains invitation-scoped access", async () => {
+    const fixture = await seedQuoteFixture();
+    const { credential, invitation } = await publishCombinedRound(
+      fixture,
+      "exact-workos-claim-001"
+    );
+    const magicToken = "c".repeat(64);
+    await replaceCredentialMagicToken(fixture, credential._id, magicToken);
+    const exchanged = await fixture.base.mutation(
+      api.quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken }
+    );
+    if (exchanged.status !== "available") {
+      throw new Error("Expected a live Quote invitation session.");
+    }
+    await fixture.base.run((ctx) =>
+      ctx.db.insert("users", {
+        authId: "auth_quote_claimant",
+        email: "quote-recipient@example.com",
+        emailVerified: true,
+        name: "Quote claimant",
+        status: "active",
+        workosUserId: "user_quote_claimant",
+      })
+    );
+    const claimant = withIdentity(
+      fixture.base,
+      ["member"],
+      "user_quote_claimant",
+      ORGANIZATION_ID,
+      "quote-recipient@example.com"
+    );
+    const claimed = await claimant.mutation(
+      api.quote_invitation_access.claimQuoteInvitationProfile,
+      { sessionToken: exchanged.sessionToken }
+    );
+    expect(claimed).toMatchObject({
+      invitationId: invitation._id,
+      profileId: fixture.recipientId,
+      status: "claimed",
+    });
+    const profile = await fixture.base.run((ctx) =>
+      ctx.db.get(fixture.recipientId)
+    );
+    expect(profile).toMatchObject({
+      accountWorkosUserId: "user_quote_claimant",
+      onboardingStatus: "account_linked",
+      quoteRecipientProvisioningState: "claimed",
+    });
+    const claimedAccess = await claimant.query(
+      api.quote_invitation_access.getClaimedQuoteInvitationAccess,
+      { quoteRoundInvitationId: invitation._id }
+    );
+    expect(claimedAccess).toMatchObject({
+      invitationId: invitation._id,
+      package: { responseDeadline: expect.any(Number) },
+      roundState: "open",
+    });
+  });
+
+  test("rejects a claim from a deleted WorkOS user projection", async () => {
+    const fixture = await seedQuoteFixture();
+    const { credential } = await publishCombinedRound(
+      fixture,
+      "deleted-workos-claim-001"
+    );
+    const magicToken = "e".repeat(64);
+    await replaceCredentialMagicToken(fixture, credential._id, magicToken);
+    const exchanged = await fixture.base.mutation(
+      api.quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken }
+    );
+    if (exchanged.status !== "available") {
+      throw new Error("Expected a live Quote invitation session.");
+    }
+    await fixture.base.run((ctx) =>
+      ctx.db.insert("users", {
+        authId: "auth_deleted_quote_claimant",
+        deletedAt: Date.now(),
+        email: "quote-recipient@example.com",
+        emailVerified: true,
+        name: "Deleted quote claimant",
+        status: "deleted",
+        workosUserId: "user_deleted_quote_claimant",
+      })
+    );
+    const claimant = withIdentity(
+      fixture.base,
+      ["member"],
+      "user_deleted_quote_claimant",
+      ORGANIZATION_ID,
+      "quote-recipient@example.com"
+    );
+
+    await expect(
+      claimant.mutation(
+        api.quote_invitation_access.claimQuoteInvitationProfile,
+        { sessionToken: exchanged.sessionToken }
+      )
+    ).rejects.toThrow(/verified WorkOS email/);
+    const profile = await fixture.base.run((ctx) =>
+      ctx.db.get(fixture.recipientId)
+    );
+    expect(profile?.accountWorkosUserId).toBeUndefined();
+  });
+
+  test("refuses an exact-email WorkOS claim when that account already owns another brokerage profile", async () => {
+    const fixture = await seedQuoteFixture();
+    const { credential } = await publishCombinedRound(
+      fixture,
+      "conflicting-workos-claim-001"
+    );
+    const magicToken = "d".repeat(64);
+    await replaceCredentialMagicToken(fixture, credential._id, magicToken);
+    const exchanged = await fixture.base.mutation(
+      api.quote_invitation_access.exchangeQuoteInvitationAccess,
+      { magicToken }
+    );
+    if (exchanged.status !== "available") {
+      throw new Error("Expected a live Quote invitation session.");
+    }
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId: "auth_quote_claim_conflict",
+        email: "quote-recipient@example.com",
+        emailVerified: true,
+        name: "Conflicting quote claimant",
+        status: "active",
+        workosUserId: "user_quote_claim_conflict",
+      });
+      const now = Date.now();
+      const foreignBrokerageId = await ctx.db.insert("brokerages", {
+        createdAt: now,
+        displayName: "Foreign claim-conflict Brokerage",
+        legalName: "Foreign claim-conflict Brokerage Ltd.",
+        status: "active",
+        updatedAt: now,
+        workosOrganizationId: "org_quote_claim_conflict_foreign",
+      });
+      for (let index = 0; index < 21; index += 1) {
+        await ctx.db.insert("contractorProfiles", {
+          accountWorkosUserId: "user_quote_claim_conflict",
+          brokerageId: foreignBrokerageId,
+          createdAt: Date.now() + index,
+          email: `foreign-${index}@example.com`,
+          name: `Foreign linked identity ${index}`,
+          normalizedEmail: `foreign-${index}@example.com`,
+          organizationId: "org_quote_claim_conflict_foreign",
+          status: "active",
+          trades: [],
+          updatedAt: Date.now() + index,
+        });
+      }
+      await ctx.db.insert("contractorProfiles", {
+        accountWorkosUserId: "user_quote_claim_conflict",
+        brokerageId: fixture.brokerageId,
+        createdAt: Date.now(),
+        email: "already-linked@example.com",
+        name: "Already linked identity",
+        normalizedEmail: "already-linked@example.com",
+        organizationId: ORGANIZATION_ID,
+        status: "active",
+        trades: [],
+        updatedAt: Date.now(),
+      });
+    });
+    const claimant = withIdentity(
+      fixture.base,
+      ["member"],
+      "user_quote_claim_conflict",
+      ORGANIZATION_ID,
+      "quote-recipient@example.com"
+    );
+    await expect(
+      claimant.mutation(api.quote_invitation_access.claimQuoteInvitationProfile, {
+        sessionToken: exchanged.sessionToken,
+      })
+    ).rejects.toThrow(/already linked to another Quote recipient/);
+    const profile = await fixture.base.run((ctx) =>
+      ctx.db.get(fixture.recipientId)
+    );
+    expect(profile?.accountWorkosUserId).toBeUndefined();
   });
 
   test("publishes Labour and Material independently and enforces canonical source and recipient capability", async () => {

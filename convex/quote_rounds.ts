@@ -14,6 +14,10 @@ import {
   normalizeOperationalIdempotencyKey,
   operationalRequestFingerprint,
 } from "./build_operational_idempotency";
+import {
+  createInitialQuoteInvitationCredentialAndDispatch,
+  defaultQuoteInvitationAccessExpiry,
+} from "./quote_invitation_access";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_DRAFT_LABOUR_LINES = 100;
@@ -34,7 +38,6 @@ const MAX_INHERITED_ATTACHMENTS = 200;
 // links that are intentionally excluded from the attachment result.
 const MAX_INHERITED_LINKS_SCANNED = 1000;
 const MAX_CURRENT_PERMIT_CANDIDATES = 500;
-const ACCESS_WINDOW_AFTER_DEADLINE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_TIPTAP_JSON_LENGTH = 250_000;
 const MATERIAL_ROW_KEY_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 
@@ -174,6 +177,9 @@ const quoteRecipientProjectionValidator = v.object({
   email: v.string(),
   name: v.string(),
   quoteRecipientCapabilities: v.array(quoteRecipientCapabilityValidator),
+  quoteRecipientProvisioningState: v.optional(
+    v.union(v.literal("provisional"), v.literal("claimed"))
+  ),
 });
 
 const composerProjectionValidator = v.object({
@@ -689,21 +695,6 @@ function assertAdHocSourceInput(input: DraftMaterialRowInput) {
       "Ad-hoc material rows cannot point at a Build Cost Item."
     );
   }
-}
-
-function randomCredentialSecret() {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function credentialVerifier(secret: string) {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(secret)
-  );
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 async function readDraftState(
@@ -2352,6 +2343,8 @@ export const getQuoteRoundComposer = authenticatedQuery
                   email,
                   name: profile.name,
                   quoteRecipientCapabilities: profileCapabilities(profile),
+                  quoteRecipientProvisioningState:
+                    profile.quoteRecipientProvisioningState,
                 },
               ]
             : [];
@@ -2719,13 +2712,12 @@ export const publishQuoteRoundDraft = authenticatedMutation
       state,
       now
     );
-    const accessExpiresAt = prepared.deadline + ACCESS_WINDOW_AFTER_DEADLINE_MS;
-    if (!Number.isSafeInteger(accessExpiresAt)) {
-      throw new ConvexError(
-        "Quote Response Deadline is outside the supported credential window."
-      );
-    }
+    const accessExpiresAt = defaultQuoteInvitationAccessExpiry({
+      publishedAt: now,
+      responseDeadline: prepared.deadline,
+    });
     const packageRevisionId = await ctx.db.insert("quotePackageRevisions", {
+      accessExpiresAt,
       brokerageId: authorization.brokerage._id,
       buildId: authorization.build._id,
       permitDocumentId: prepared.permit.document._id,
@@ -2871,6 +2863,10 @@ export const publishQuoteRoundDraft = authenticatedMutation
         validation: field.validation,
       });
     }
+    const packageRevision = await ctx.db.get(packageRevisionId);
+    if (!packageRevision) {
+      throw new ConvexError("Quote Package Revision was not created.");
+    }
     const invitationIds: Id<"quoteRoundInvitations">[] = [];
     for (const recipient of prepared.recipients) {
       const invitationId = await ctx.db.insert("quoteRoundInvitations", {
@@ -2887,22 +2883,19 @@ export const publishQuoteRoundDraft = authenticatedMutation
         recipientProfileId: recipient.profile._id,
         updatedAt: now,
       });
-      // Credentials deliberately persist only a SHA-256 verifier. ENG-390 is
-      // responsible for actual delivery/provisional identities; no raw secret
-      // enters a document, audit event, or outbox payload here.
-      const secret = randomCredentialSecret();
-      await ctx.db.insert("quoteInvitationAccessCredentials", {
+      const invitation = await ctx.db.get(invitationId);
+      if (!invitation) {
+        throw new ConvexError("Quote Invitation was not created.");
+      }
+      await createInitialQuoteInvitationCredentialAndDispatch(ctx, {
         accessExpiresAt,
-        brokerageId: authorization.brokerage._id,
-        buildId: authorization.build._id,
-        credentialVerifier: await credentialVerifier(secret),
-        credentialVersion: 1,
-        createdAt: now,
-        organizationId: authorization.organizationId,
-        quoteRoundId: round._id,
-        quoteRoundInvitationId: invitationId,
-        state: "active",
-        updatedAt: now,
+        brokerage: authorization.brokerage,
+        build: authorization.build,
+        invitation,
+        packageRevision,
+        publishedAt: now,
+        quoteRound: round,
+        responseDeadline: prepared.deadline,
       });
       invitationIds.push(invitationId);
     }

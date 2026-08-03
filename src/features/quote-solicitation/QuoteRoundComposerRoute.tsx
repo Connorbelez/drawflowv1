@@ -41,6 +41,8 @@ import {
 type QuoteRoundComposerProjection = NonNullable<
   FunctionReturnType<typeof api.quote_rounds.getQuoteRoundComposer>
 >;
+type QuoteRoundComposerRecipient =
+  QuoteRoundComposerProjection["eligibleRecipients"][number];
 type QuoteRoundProjection = FunctionReturnType<
   typeof api.quote_rounds.getQuoteRound
 >;
@@ -71,6 +73,7 @@ export function normalizeQuoteRoundComposerData(
       contractorProfileId: candidate._id,
       displayName: candidate.name,
       email: candidate.email,
+      provisioningState: candidate.quoteRecipientProvisioningState,
       recipientKey: candidate._id,
     })),
     labourSubmilestones: source.labourSubmilestones.map((item) => ({
@@ -459,6 +462,9 @@ function QuoteRoundComposerRouteQuery({
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string>();
+  const [provisionedRecipients, setProvisionedRecipients] = useState<
+    QuoteRoundComposerRecipient[]
+  >([]);
   const normalizedOrganizationId =
     normalizeQuoteRoundOrganizationId(organizationId);
   const composerQuery = useQuery(
@@ -481,14 +487,35 @@ function QuoteRoundComposerRouteQuery({
       : "skip"
   );
   const createDraft = useMutation(api.quote_rounds.createQuoteRoundDraft);
+  const ensureQuoteRoundRecipient = useMutation(
+    api.quote_invitation_access.ensureQuoteRoundRecipient
+  );
   const updateDraft = useMutation(api.quote_rounds.updateQuoteRoundDraft);
   const publishDraft = useMutation(api.quote_rounds.publishQuoteRoundDraft);
+  const composerSource = useMemo(() => {
+    if (!composerQuery) {
+      return;
+    }
+    const recipientById = new Map<string, QuoteRoundComposerRecipient>(
+      composerQuery.eligibleRecipients.map((recipient) => [
+        String(recipient._id),
+        recipient,
+      ])
+    );
+    for (const recipient of provisionedRecipients) {
+      recipientById.set(String(recipient._id), recipient);
+    }
+    return {
+      ...composerQuery,
+      eligibleRecipients: [...recipientById.values()],
+    };
+  }, [composerQuery, provisionedRecipients]);
   const data = useMemo(
     () =>
-      composerQuery
-        ? normalizeQuoteRoundComposerData(composerQuery)
+      composerSource
+        ? normalizeQuoteRoundComposerData(composerSource)
         : undefined,
-    [composerQuery]
+    [composerSource]
   );
   const round = useMemo(
     () =>
@@ -552,6 +579,41 @@ function QuoteRoundComposerRouteQuery({
     } finally {
       setCreating(false);
     }
+  };
+
+  const createColdRecipient = async (input: {
+    displayName?: string;
+    email: string;
+  }) => {
+    if (!(composerQuery && rawRoundQuery && normalizedOrganizationId)) {
+      throw new Error("Quote Round recipient provisioning is unavailable.");
+    }
+    const result = await ensureQuoteRoundRecipient({
+      buildId: composerQuery.build._id,
+      displayName: input.displayName,
+      email: input.email,
+      quoteRoundId: rawRoundQuery._id,
+      workosOrganizationId: normalizedOrganizationId,
+    });
+    const recipient: QuoteRoundComposerRecipient = {
+      _id: result.profileId,
+      email: result.email,
+      name: result.name,
+      quoteRecipientCapabilities: result.capabilities,
+      quoteRecipientProvisioningState: result.provisioningState,
+    };
+    setProvisionedRecipients((current) => [
+      ...current.filter((item) => item._id !== recipient._id),
+      recipient,
+    ]);
+    return {
+      capabilities: result.capabilities,
+      contractorProfileId: String(result.profileId),
+      displayName: result.name,
+      email: result.email,
+      provisioningState: result.provisioningState,
+      recipientKey: String(result.profileId),
+    };
   };
 
   if (!normalizedOrganizationId) {
@@ -627,6 +689,7 @@ function QuoteRoundComposerRouteQuery({
   return (
     <QuoteRoundComposer
       actions={{
+        onCreateColdRecipient: createColdRecipient,
         onExit: exit,
         onPublish: ({ expectedRevision, idempotencyKey }) => {
           const publishInput: FunctionArgs<
@@ -651,7 +714,7 @@ function QuoteRoundComposerRouteQuery({
               draft: draftInput,
               organizationId: normalizedOrganizationId,
               quoteRoundId: rawRoundQuery._id,
-              source: composerQuery,
+              source: composerSource ?? composerQuery,
             })
           ),
       }}

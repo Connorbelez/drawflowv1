@@ -25,6 +25,7 @@ import { Route as BuilderIndexRouteImport } from './routes/builder/index'
 import { Route as BuilderStaffIndexRouteImport } from './routes/builder-staff/index'
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
 import { Route as PrototypeSystemPostsRouteImport } from './routes/prototype/system-posts'
+import { Route as QuoteInvitationMagicTokenRouteImport } from './routes/quote-invitation.$magicToken'
 import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
 import { Route as PrototypeActionItemsRouteImport } from './routes/prototype/action-items'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
@@ -186,6 +187,12 @@ const PrototypeSystemPostsRoute = PrototypeSystemPostsRouteImport.update({
   path: '/prototype/system-posts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const QuoteInvitationMagicTokenRoute =
+  QuoteInvitationMagicTokenRouteImport.update({
+    id: '/quote-invitation/$magicToken',
+    path: '/quote-invitation/$magicToken',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const PrototypeBuildCollaborationRoute =
   PrototypeBuildCollaborationRouteImport.update({
     id: '/prototype/build-collaboration',
@@ -669,6 +676,7 @@ export interface FileRoutesByFullPath {
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
+  '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
   '/builder/': typeof BuilderIndexRoute
@@ -754,6 +762,7 @@ export interface FileRoutesByTo {
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
+  '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice': typeof BackofficeIndexRoute
   '/builder-staff': typeof BuilderStaffIndexRoute
   '/builder': typeof BuilderIndexRoute
@@ -847,6 +856,7 @@ export interface FileRoutesById {
   '/prototype/action-items': typeof PrototypeActionItemsRoute
   '/prototype/build-collaboration': typeof PrototypeBuildCollaborationRoute
   '/prototype/system-posts': typeof PrototypeSystemPostsRoute
+  '/quote-invitation/$magicToken': typeof QuoteInvitationMagicTokenRoute
   '/backoffice/': typeof BackofficeIndexRoute
   '/builder-staff/': typeof BuilderStaffIndexRoute
   '/builder/': typeof BuilderIndexRoute
@@ -947,6 +957,7 @@ export interface FileRouteTypes {
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
     | '/prototype/system-posts'
+    | '/quote-invitation/$magicToken'
     | '/backoffice/'
     | '/builder-staff/'
     | '/builder/'
@@ -1032,6 +1043,7 @@ export interface FileRouteTypes {
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
     | '/prototype/system-posts'
+    | '/quote-invitation/$magicToken'
     | '/backoffice'
     | '/builder-staff'
     | '/builder'
@@ -1124,6 +1136,7 @@ export interface FileRouteTypes {
     | '/prototype/action-items'
     | '/prototype/build-collaboration'
     | '/prototype/system-posts'
+    | '/quote-invitation/$magicToken'
     | '/backoffice/'
     | '/builder-staff/'
     | '/builder/'
@@ -1198,6 +1211,7 @@ export interface RootRouteChildren {
   PrototypeActionItemsRoute: typeof PrototypeActionItemsRoute
   PrototypeBuildCollaborationRoute: typeof PrototypeBuildCollaborationRoute
   PrototypeSystemPostsRoute: typeof PrototypeSystemPostsRoute
+  QuoteInvitationMagicTokenRoute: typeof QuoteInvitationMagicTokenRoute
   ApiAuthSignInRoute: typeof ApiAuthSignInRoute
   ApiAuthSignUpRoute: typeof ApiAuthSignUpRoute
   NewsitevisitBuildIdSiteVisitTokenRoute: typeof NewsitevisitBuildIdSiteVisitTokenRoute
@@ -1315,6 +1329,13 @@ declare module '@tanstack/react-router' {
       path: '/prototype/system-posts'
       fullPath: '/prototype/system-posts'
       preLoaderRoute: typeof PrototypeSystemPostsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/quote-invitation/$magicToken': {
+      id: '/quote-invitation/$magicToken'
+      path: '/quote-invitation/$magicToken'
+      fullPath: '/quote-invitation/$magicToken'
+      preLoaderRoute: typeof QuoteInvitationMagicTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/prototype/build-collaboration': {
@@ -2297,6 +2318,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrototypeActionItemsRoute: PrototypeActionItemsRoute,
   PrototypeBuildCollaborationRoute: PrototypeBuildCollaborationRoute,
   PrototypeSystemPostsRoute: PrototypeSystemPostsRoute,
+  QuoteInvitationMagicTokenRoute: QuoteInvitationMagicTokenRoute,
   ApiAuthSignInRoute: ApiAuthSignInRoute,
   ApiAuthSignUpRoute: ApiAuthSignUpRoute,
   NewsitevisitBuildIdSiteVisitTokenRoute:

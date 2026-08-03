@@ -103,6 +103,7 @@ export interface QuoteRoundRecipientCandidate {
   contractorProfileId: string;
   displayName: string;
   email?: string;
+  provisioningState?: "claimed" | "provisional";
   recipientKey: string;
 }
 
@@ -190,6 +191,10 @@ export interface QuoteRoundPublishReceipt {
 }
 
 export interface QuoteRoundComposerActions {
+  onCreateColdRecipient?: (input: {
+    displayName?: string;
+    email: string;
+  }) => Promise<QuoteRoundRecipientCandidate>;
   onExit: () => void;
   onPublish: (input: {
     expectedRevision: number;
@@ -506,6 +511,7 @@ export function QuoteRoundComposer({
         candidates={data.compatibleRecipients}
         mode={mode}
         onChange={setRecipients}
+        onCreateColdRecipient={actions.onCreateColdRecipient}
         selections={recipients}
       />
     ),

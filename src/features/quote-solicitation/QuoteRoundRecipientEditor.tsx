@@ -23,12 +23,15 @@ import {
   FramePanel,
   FrameTitle,
 } from "#/components/ui/frame.tsx";
+import { Input } from "#/components/ui/input.tsx";
 import type {
   QuoteRoundMode,
   QuoteRoundRecipientCandidate,
   QuoteRoundRecipientSelection,
   QuoteRoundTemplateVersion,
 } from "./QuoteRoundComposer.tsx";
+
+const CONVEX_ERROR_PREFIX = /^\[.*?\]\s*/;
 
 function candidateCapabilities(candidate: QuoteRoundRecipientCandidate) {
   return candidate.capabilities;
@@ -64,15 +67,24 @@ export function QuoteRoundRecipientEditor({
   candidates,
   mode,
   onChange,
+  onCreateColdRecipient,
   selections,
 }: {
   candidates: QuoteRoundRecipientCandidate[];
   mode: QuoteRoundMode;
   onChange: (next: QuoteRoundRecipientSelection[]) => void;
+  onCreateColdRecipient?: (input: {
+    displayName?: string;
+    email: string;
+  }) => Promise<QuoteRoundRecipientCandidate>;
   selections: QuoteRoundRecipientSelection[];
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [coldRecipientEmail, setColdRecipientEmail] = useState("");
+  const [coldRecipientName, setColdRecipientName] = useState("");
+  const [coldRecipientError, setColdRecipientError] = useState<string>();
+  const [creatingColdRecipient, setCreatingColdRecipient] = useState(false);
   const selectedKeys = new Set(
     selections.map((selection) => selection.recipientKey)
   );
@@ -101,6 +113,46 @@ export function QuoteRoundRecipientEditor({
     ]);
     setOpen(false);
     setQuery("");
+  };
+  const createColdRecipient = async () => {
+    if (!onCreateColdRecipient || creatingColdRecipient) {
+      return;
+    }
+    const email = coldRecipientEmail.trim();
+    if (!email) {
+      setColdRecipientError("Enter the recipient email address first.");
+      return;
+    }
+    setCreatingColdRecipient(true);
+    setColdRecipientError(undefined);
+    try {
+      const candidate = await onCreateColdRecipient({
+        displayName: coldRecipientName.trim() || undefined,
+        email,
+      });
+      if (!candidateSupportsMode(candidate, mode)) {
+        throw new Error(
+          "The recipient profile does not satisfy this Quote Round capability."
+        );
+      }
+      onChange([
+        ...selections,
+        {
+          contractorProfileId: candidate.contractorProfileId,
+          recipientKey: candidate.recipientKey,
+        },
+      ]);
+      setColdRecipientEmail("");
+      setColdRecipientName("");
+    } catch (error) {
+      setColdRecipientError(
+        error instanceof Error
+          ? error.message.replace(CONVEX_ERROR_PREFIX, "")
+          : "We could not add this private recipient."
+      );
+    } finally {
+      setCreatingColdRecipient(false);
+    }
   };
 
   return (
@@ -190,11 +242,66 @@ export function QuoteRoundRecipientEditor({
           </ComboboxList>
         </ComboboxPopup>
       </Combobox>
-      <p className="text-muted-foreground text-xs">
-        Cold-email and provisional identity creation are intentionally not
-        available in this release path; invitation access remains
-        identity-bound.
-      </p>
+      {onCreateColdRecipient ? (
+        <Frame>
+          <FrameHeader>
+            <FrameTitle className="text-sm">Invite a new email</FrameTitle>
+            <FrameDescription>
+              DrawFlow creates the minimum brokerage-scoped provisional
+              Contractor or Supplier identity for this private invitation. No
+              WorkOS account, partner enrollment, or Build assignment is
+              required.
+            </FrameDescription>
+          </FrameHeader>
+          <FramePanel className="space-y-3 p-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-sm" htmlFor="quote-cold-name">
+                <span className="font-medium">Contact or company name</span>
+                <Input
+                  aria-label="New quote recipient name"
+                  id="quote-cold-name"
+                  onChange={(event) => setColdRecipientName(event.target.value)}
+                  placeholder="Optional"
+                  value={coldRecipientName}
+                />
+              </label>
+              <label
+                className="grid gap-1.5 text-sm"
+                htmlFor="quote-cold-email"
+              >
+                <span className="font-medium">Recipient email</span>
+                <Input
+                  aria-label="New quote recipient email"
+                  id="quote-cold-email"
+                  inputMode="email"
+                  onChange={(event) =>
+                    setColdRecipientEmail(event.target.value)
+                  }
+                  placeholder="pricing@example.com"
+                  type="email"
+                  value={coldRecipientEmail}
+                />
+              </label>
+            </div>
+            {coldRecipientError ? (
+              <Alert variant="error">
+                <AlertTitle>Recipient could not be added</AlertTitle>
+                <AlertDescription>{coldRecipientError}</AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="flex justify-end">
+              <Button
+                loading={creatingColdRecipient}
+                onClick={createColdRecipient}
+                type="button"
+                variant="outline"
+              >
+                Add private recipient
+              </Button>
+            </div>
+          </FramePanel>
+        </Frame>
+      ) : null}
       <div className="space-y-2">
         {selections.map((selection) => {
           const candidate = candidates.find(
@@ -214,7 +321,11 @@ export function QuoteRoundRecipientEditor({
                     <p className="truncate font-medium text-sm">
                       {candidate?.displayName ?? "Unavailable identity"}
                     </p>
-                    <Badge variant="outline">Existing identity</Badge>
+                    <Badge variant="outline">
+                      {candidate?.provisioningState === "provisional"
+                        ? "Provisional identity"
+                        : "Existing identity"}
+                    </Badge>
                   </div>
                   <p className="truncate text-muted-foreground text-xs">
                     {candidate?.email ?? selection.contractorProfileId}

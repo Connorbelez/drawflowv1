@@ -451,6 +451,9 @@ const quoteRecipientCapabilityValidator = v.union(
   v.literal("supplier")
 );
 
+// A cold Quote recipient is still represented by the canonical,
+// brokerage-scoped contractorProfiles identity. Capabilities distinguish a
+// Contractor from a Supplier without creating a second identity system.
 const quoteRecipientProvisioningStateValidator = v.union(
   v.literal("provisional"),
   v.literal("claimed")
@@ -675,6 +678,25 @@ const quoteInvitationCredentialStateValidator = v.union(
   v.literal("expired"),
   v.literal("rotated"),
   v.literal("revoked")
+);
+
+const quoteInvitationCredentialPurposeValidator = v.union(
+  v.literal("initial"),
+  v.literal("reminder"),
+  v.literal("renewal")
+);
+
+const quoteInvitationBrowserSessionStateValidator = v.union(
+  v.literal("active"),
+  v.literal("expired"),
+  v.literal("revoked")
+);
+
+const quoteInvitationAccessEventTypeValidator = v.union(
+  v.literal("credential_expired"),
+  v.literal("session_exchanged"),
+  v.literal("session_reused"),
+  v.literal("profile_claimed")
 );
 
 const quotePackageAttachmentKindValidator = v.union(
@@ -1918,6 +1940,9 @@ export default defineSchema({
     quoteRecipientCapabilities: v.optional(
       v.array(quoteRecipientCapabilityValidator)
     ),
+    // A provisional quote profile is intentionally not a partner-network
+    // membership, Build assignment, or Contractor Workspace admission. An
+    // exact-email WorkOS claim changes only this local ownership marker.
     quoteRecipientProvisioningState: v.optional(
       quoteRecipientProvisioningStateValidator
     ),
@@ -2436,6 +2461,10 @@ export default defineSchema({
     templateId: v.id("quoteResponseTemplates"),
     templateVersionId: v.id("quoteResponseTemplateVersions"),
     responseDeadline: v.number(),
+    // One immutable Access Window applies to every invitation sent with this
+    // package revision. Individual credentials can rotate, but cannot outlive
+    // this shared window.
+    accessExpiresAt: v.optional(v.number()),
     permitDocumentId: v.id("buildDocuments"),
     permitDocumentVersion: v.number(),
     siteAddressSnapshot: v.string(),
@@ -2614,8 +2643,13 @@ export default defineSchema({
     buildId: v.id("activeBuilds"),
     quoteRoundId: v.id("quoteRounds"),
     quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    // Never persist a raw bearer secret. The secure delivery transport receives
+    // it only as the outgoing email body; application rows retain this verifier.
     credentialVerifier: v.string(),
     credentialVersion: v.number(),
+    accessGeneration: v.optional(v.number()),
+    purpose: v.optional(quoteInvitationCredentialPurposeValidator),
+    deliveryEmailMessageId: v.optional(v.id("emailMessages")),
     state: quoteInvitationCredentialStateValidator,
     accessExpiresAt: v.number(),
     createdAt: v.number(),
@@ -2626,6 +2660,58 @@ export default defineSchema({
       "state",
     ])
     .index("by_credentialVerifier", ["credentialVerifier"]),
+  // Browser leases are exchange artifacts, not bearer credentials. The raw
+  // session secret is returned once to the browser and this table stores only
+  // its verifier, bounded by both inactivity and the invitation Access Window.
+  quoteInvitationBrowserSessions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quoteInvitationAccessCredentialId: v.id("quoteInvitationAccessCredentials"),
+    sessionVerifier: v.string(),
+    state: quoteInvitationBrowserSessionStateValidator,
+    accessExpiresAt: v.number(),
+    sessionExpiresAt: v.number(),
+    lastActiveAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_sessionVerifier", ["sessionVerifier"])
+    .index("by_quoteRoundInvitationId_and_state", [
+      "quoteRoundInvitationId",
+      "state",
+    ])
+    .index("by_quoteInvitationAccessCredentialId_and_state", [
+      "quoteInvitationAccessCredentialId",
+      "state",
+    ]),
+  // Privacy-preserving access telemetry. It supports the invitation lifecycle
+  // without retaining raw magic links, browser metadata, or response content.
+  quoteInvitationAccessEvents: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    quoteInvitationAccessCredentialId: v.optional(
+      v.id("quoteInvitationAccessCredentials")
+    ),
+    quoteInvitationBrowserSessionId: v.optional(
+      v.id("quoteInvitationBrowserSessions")
+    ),
+    eventType: quoteInvitationAccessEventTypeValidator,
+    createdAt: v.number(),
+  })
+    .index("by_quoteRoundInvitationId_and_createdAt", [
+      "quoteRoundInvitationId",
+      "createdAt",
+    ])
+    .index("by_quoteInvitationAccessCredentialId_and_createdAt", [
+      "quoteInvitationAccessCredentialId",
+      "createdAt",
+    ]),
   quoteRoundPublicationRequests: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
