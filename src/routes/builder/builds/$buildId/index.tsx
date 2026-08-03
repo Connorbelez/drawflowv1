@@ -33,6 +33,7 @@ import {
   getVisualParityActiveBuildTimelineWorkspace,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
+import { QuoteRoundsSurface } from "#/features/quote-solicitation/QuoteRoundsSurface.tsx";
 import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -53,6 +54,7 @@ export interface BuilderBuildSearch {
     | "gantt"
     | "materials"
     | "milestones"
+    | "quotes"
     | "staff"
     | "timeline";
   timeframe?: CalendarTimeframe;
@@ -150,6 +152,7 @@ export const Route = createFileRoute("/builder/builds/$buildId/")({
       search.tab === "contractors" ||
       search.tab === "milestones" ||
       search.tab === "materials" ||
+      search.tab === "quotes" ||
       search.tab === "staff" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
@@ -879,6 +882,26 @@ export function BuilderBuildWorkspaceRoute({
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
         prototypeMilestoneStartTrigger={milestoneStartPrototypeEnabled}
+        quotes={
+          <QuoteRoundsSurface
+            buildId={String(activeBuildId)}
+            onCreate={() =>
+              navigate({
+                params: { buildId },
+                search: {},
+                to: `${routeBase}/builds/$buildId/quotes/new` as never,
+              } as never)
+            }
+            onOpen={(roundId) =>
+              navigate({
+                params: { buildId },
+                search: { roundId },
+                to: `${routeBase}/builds/$buildId/quotes/new` as never,
+              } as never)
+            }
+            organizationId={workosOrganizationId}
+          />
+        }
         rail={search.rail}
         staff={
           includeStaffTab ? (
@@ -911,6 +934,7 @@ export function BuilderBuildWorkspaceRoute({
                 "milestones",
                 "contractors",
                 "materials",
+                "quotes",
                 "timeline",
                 "evidence",
                 "calendar",

@@ -156,6 +156,7 @@ import type * as proposal_collaboration from "../proposal_collaboration.js";
 import type * as proposal_collaboration_model from "../proposal_collaboration_model.js";
 import type * as quote_response_template_migrations from "../quote_response_template_migrations.js";
 import type * as quote_response_templates from "../quote_response_templates.js";
+import type * as quote_rounds from "../quote_rounds.js";
 import type * as siteVisitGuidance from "../siteVisitGuidance.js";
 import type * as todos from "../todos.js";
 import type * as types from "../types.js";
@@ -317,6 +318,7 @@ declare const fullApi: ApiFromModules<{
   proposal_collaboration_model: typeof proposal_collaboration_model;
   quote_response_template_migrations: typeof quote_response_template_migrations;
   quote_response_templates: typeof quote_response_templates;
+  quote_rounds: typeof quote_rounds;
   siteVisitGuidance: typeof siteVisitGuidance;
   todos: typeof todos;
   types: typeof types;

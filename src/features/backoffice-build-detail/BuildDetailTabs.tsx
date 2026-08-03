@@ -12,6 +12,7 @@ export type BuildDetailSubTab =
   | "gantt"
   | "materials"
   | "milestones"
+  | "quotes"
   | "staff"
   | "timeline";
 
@@ -23,6 +24,7 @@ export const BUILD_DETAIL_TABS: { value: BuildDetailSubTab; label: string }[] =
     { value: "milestones", label: "Milestones" },
     { value: "contractors", label: "Contractors" },
     { value: "materials", label: "Materials" },
+    { value: "quotes", label: "Quotes" },
     { value: "timeline", label: "Timeline" },
     { value: "evidence", label: "Evidence" },
     { value: "staff", label: "Staff" },

@@ -25,6 +25,7 @@ export const Route = createFileRoute("/builder-staff/builds/$buildId/")({
       search.tab === "contractors" ||
       search.tab === "milestones" ||
       search.tab === "materials" ||
+      search.tab === "quotes" ||
       search.tab === "calendar" ||
       search.tab === "gantt" ||
       search.tab === "details"

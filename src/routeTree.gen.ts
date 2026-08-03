@@ -103,6 +103,8 @@ import { Route as BuilderDemoDashboardProposalsIndexRouteImport } from './routes
 import { Route as BuilderDemoDashboardBuildsIndexRouteImport } from './routes/builder/demo/dashboard/builds/index'
 import { Route as BuilderDemoDashboardProposalsDraftIdRouteImport } from './routes/builder/demo/dashboard/proposals/$draftId'
 import { Route as BuilderDemoDashboardBuildsBuildIdRouteImport } from './routes/builder/demo/dashboard/builds/$buildId'
+import { Route as BuilderBuildsBuildIdQuotesNewRouteImport } from './routes/builder/builds/$buildId/quotes/new'
+import { Route as BuilderStaffBuildsBuildIdQuotesNewRouteImport } from './routes/builder-staff/builds/$buildId/quotes/new'
 
 const ProtectedAccessRoute = ProtectedAccessRouteImport.update({
   id: '/protected-access',
@@ -613,6 +615,18 @@ const BuilderDemoDashboardBuildsBuildIdRoute =
     path: '/$buildId',
     getParentRoute: () => BuilderDemoDashboardBuildsRouteRoute,
   } as any)
+const BuilderBuildsBuildIdQuotesNewRoute =
+  BuilderBuildsBuildIdQuotesNewRouteImport.update({
+    id: '/builds/$buildId/quotes/new',
+    path: '/builds/$buildId/quotes/new',
+    getParentRoute: () => BuilderRouteRoute,
+  } as any)
+const BuilderStaffBuildsBuildIdQuotesNewRoute =
+  BuilderStaffBuildsBuildIdQuotesNewRouteImport.update({
+    id: '/$buildId/quotes/new',
+    path: '/$buildId/quotes/new',
+    getParentRoute: () => BuilderStaffBuildsRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -705,6 +719,8 @@ export interface FileRoutesByFullPath {
   '/builder/builds/$buildId/': typeof BuilderBuildsBuildIdIndexRoute
   '/builder/demo/dashboard/': typeof BuilderDemoDashboardIndexRoute
   '/builder/proposals/$proposalId/': typeof BuilderProposalsProposalIdIndexRoute
+  '/builder-staff/builds/$buildId/quotes/new': typeof BuilderStaffBuildsBuildIdQuotesNewRoute
+  '/builder/builds/$buildId/quotes/new': typeof BuilderBuildsBuildIdQuotesNewRoute
   '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
   '/builder/demo/dashboard/proposals/$draftId': typeof BuilderDemoDashboardProposalsDraftIdRoute
   '/builder/demo/dashboard/builds/': typeof BuilderDemoDashboardBuildsIndexRoute
@@ -782,6 +798,8 @@ export interface FileRoutesByTo {
   '/builder/builds/$buildId': typeof BuilderBuildsBuildIdIndexRoute
   '/builder/demo/dashboard': typeof BuilderDemoDashboardIndexRoute
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdIndexRoute
+  '/builder-staff/builds/$buildId/quotes/new': typeof BuilderStaffBuildsBuildIdQuotesNewRoute
+  '/builder/builds/$buildId/quotes/new': typeof BuilderBuildsBuildIdQuotesNewRoute
   '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
   '/builder/demo/dashboard/proposals/$draftId': typeof BuilderDemoDashboardProposalsDraftIdRoute
   '/builder/demo/dashboard/builds': typeof BuilderDemoDashboardBuildsIndexRoute
@@ -879,6 +897,8 @@ export interface FileRoutesById {
   '/builder/builds/$buildId/': typeof BuilderBuildsBuildIdIndexRoute
   '/builder/demo/dashboard/': typeof BuilderDemoDashboardIndexRoute
   '/builder/proposals/$proposalId/': typeof BuilderProposalsProposalIdIndexRoute
+  '/builder-staff/builds/$buildId/quotes/new': typeof BuilderStaffBuildsBuildIdQuotesNewRoute
+  '/builder/builds/$buildId/quotes/new': typeof BuilderBuildsBuildIdQuotesNewRoute
   '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
   '/builder/demo/dashboard/proposals/$draftId': typeof BuilderDemoDashboardProposalsDraftIdRoute
   '/builder/demo/dashboard/builds/': typeof BuilderDemoDashboardBuildsIndexRoute
@@ -977,6 +997,8 @@ export interface FileRouteTypes {
     | '/builder/builds/$buildId/'
     | '/builder/demo/dashboard/'
     | '/builder/proposals/$proposalId/'
+    | '/builder-staff/builds/$buildId/quotes/new'
+    | '/builder/builds/$buildId/quotes/new'
     | '/builder/demo/dashboard/builds/$buildId'
     | '/builder/demo/dashboard/proposals/$draftId'
     | '/builder/demo/dashboard/builds/'
@@ -1054,6 +1076,8 @@ export interface FileRouteTypes {
     | '/builder/builds/$buildId'
     | '/builder/demo/dashboard'
     | '/builder/proposals/$proposalId'
+    | '/builder-staff/builds/$buildId/quotes/new'
+    | '/builder/builds/$buildId/quotes/new'
     | '/builder/demo/dashboard/builds/$buildId'
     | '/builder/demo/dashboard/proposals/$draftId'
     | '/builder/demo/dashboard/builds'
@@ -1150,6 +1174,8 @@ export interface FileRouteTypes {
     | '/builder/builds/$buildId/'
     | '/builder/demo/dashboard/'
     | '/builder/proposals/$proposalId/'
+    | '/builder-staff/builds/$buildId/quotes/new'
+    | '/builder/builds/$buildId/quotes/new'
     | '/builder/demo/dashboard/builds/$buildId'
     | '/builder/demo/dashboard/proposals/$draftId'
     | '/builder/demo/dashboard/builds/'
@@ -1837,6 +1863,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BuilderDemoDashboardBuildsBuildIdRouteImport
       parentRoute: typeof BuilderDemoDashboardBuildsRouteRoute
     }
+    '/builder/builds/$buildId/quotes/new': {
+      id: '/builder/builds/$buildId/quotes/new'
+      path: '/builds/$buildId/quotes/new'
+      fullPath: '/builder/builds/$buildId/quotes/new'
+      preLoaderRoute: typeof BuilderBuildsBuildIdQuotesNewRouteImport
+      parentRoute: typeof BuilderRouteRoute
+    }
+    '/builder-staff/builds/$buildId/quotes/new': {
+      id: '/builder-staff/builds/$buildId/quotes/new'
+      path: '/$buildId/quotes/new'
+      fullPath: '/builder-staff/builds/$buildId/quotes/new'
+      preLoaderRoute: typeof BuilderStaffBuildsBuildIdQuotesNewRouteImport
+      parentRoute: typeof BuilderStaffBuildsRouteRoute
+    }
   }
 }
 
@@ -2078,6 +2118,7 @@ interface BuilderRouteRouteChildren {
   BuilderIndexRoute: typeof BuilderIndexRoute
   BuilderContractorsContractorIdRoute: typeof BuilderContractorsContractorIdRoute
   BuilderBuildsBuildIdIndexRoute: typeof BuilderBuildsBuildIdIndexRoute
+  BuilderBuildsBuildIdQuotesNewRoute: typeof BuilderBuildsBuildIdQuotesNewRoute
 }
 
 const BuilderRouteRouteChildren: BuilderRouteRouteChildren = {
@@ -2087,6 +2128,7 @@ const BuilderRouteRouteChildren: BuilderRouteRouteChildren = {
   BuilderIndexRoute: BuilderIndexRoute,
   BuilderContractorsContractorIdRoute: BuilderContractorsContractorIdRoute,
   BuilderBuildsBuildIdIndexRoute: BuilderBuildsBuildIdIndexRoute,
+  BuilderBuildsBuildIdQuotesNewRoute: BuilderBuildsBuildIdQuotesNewRoute,
 }
 
 const BuilderRouteRouteWithChildren = BuilderRouteRoute._addFileChildren(
@@ -2096,12 +2138,15 @@ const BuilderRouteRouteWithChildren = BuilderRouteRoute._addFileChildren(
 interface BuilderStaffBuildsRouteRouteChildren {
   BuilderStaffBuildsIndexRoute: typeof BuilderStaffBuildsIndexRoute
   BuilderStaffBuildsBuildIdIndexRoute: typeof BuilderStaffBuildsBuildIdIndexRoute
+  BuilderStaffBuildsBuildIdQuotesNewRoute: typeof BuilderStaffBuildsBuildIdQuotesNewRoute
 }
 
 const BuilderStaffBuildsRouteRouteChildren: BuilderStaffBuildsRouteRouteChildren =
   {
     BuilderStaffBuildsIndexRoute: BuilderStaffBuildsIndexRoute,
     BuilderStaffBuildsBuildIdIndexRoute: BuilderStaffBuildsBuildIdIndexRoute,
+    BuilderStaffBuildsBuildIdQuotesNewRoute:
+      BuilderStaffBuildsBuildIdQuotesNewRoute,
   }
 
 const BuilderStaffBuildsRouteRouteWithChildren =

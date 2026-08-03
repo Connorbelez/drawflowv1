@@ -71,6 +71,7 @@ import {
   ensureActiveBuildPlanningActivationRevision,
   recordApprovedActiveBuildPlanningRevision,
 } from "./build_collaboration_planning_reconciliation";
+import { isCleanCollaborationAsset } from "./build_collaboration_asset_access";
 import {
   evidenceLocationMateriallyChanged,
   normalizeOperationalIdempotencyKey,
@@ -361,6 +362,7 @@ const submilestoneInput = v.object({
   key: v.string(),
   name: v.string(),
   order: v.number(),
+  scopeOfWorkTiptapJson: v.optional(v.string()),
   startDay: v.optional(v.number()),
 });
 
@@ -765,13 +767,19 @@ const productionCostItemCreateInput = {
   budgetTreatment: v.optional(productionCostItemBudgetTreatment),
   costCents: v.number(),
   description: v.optional(v.string()),
+  deliveryEndDay: v.optional(v.number()),
+  deliveryInstructions: v.optional(v.string()),
+  deliveryLocation: v.optional(v.string()),
+  deliveryStartDay: v.optional(v.number()),
   itemType: productionCostItemType,
   milestoneKey: v.string(),
   quantity: v.number(),
   reason: v.optional(v.string()),
   relevantSubmilestoneKeys: v.array(v.string()),
+  specificationTiptapJson: v.optional(v.string()),
   supplier: v.optional(v.string()),
   title: v.string(),
+  unit: v.optional(v.string()),
 };
 
 const proposalDraftCostItemInput = v.object(productionCostItemCreateInput);
@@ -791,14 +799,20 @@ const productionCostItemUpdateInput = {
   budgetTreatment: v.optional(productionCostItemBudgetTreatment),
   costCents: v.optional(v.number()),
   description: v.optional(v.string()),
+  deliveryEndDay: v.optional(v.number()),
+  deliveryInstructions: v.optional(v.string()),
+  deliveryLocation: v.optional(v.string()),
+  deliveryStartDay: v.optional(v.number()),
   itemId: v.id("proposalCostItems"),
   itemType: v.optional(productionCostItemType),
   milestoneKey: v.optional(v.string()),
   quantity: v.optional(v.number()),
   reason: v.optional(v.string()),
   relevantSubmilestoneKeys: v.optional(v.array(v.string())),
+  specificationTiptapJson: v.optional(v.string()),
   supplier: v.optional(v.string()),
   title: v.optional(v.string()),
+  unit: v.optional(v.string()),
 };
 
 const productionBuildCostItemUpdateInput = {
@@ -806,14 +820,20 @@ const productionBuildCostItemUpdateInput = {
   budgetTreatment: v.optional(productionCostItemBudgetTreatment),
   costCents: v.optional(v.number()),
   description: v.optional(v.string()),
+  deliveryEndDay: v.optional(v.number()),
+  deliveryInstructions: v.optional(v.string()),
+  deliveryLocation: v.optional(v.string()),
+  deliveryStartDay: v.optional(v.number()),
   itemId: v.id("buildCostItems"),
   itemType: v.optional(productionCostItemType),
   milestoneKey: v.optional(v.string()),
   quantity: v.optional(v.number()),
   reason: v.optional(v.string()),
   relevantSubmilestoneKeys: v.optional(v.array(v.string())),
+  specificationTiptapJson: v.optional(v.string()),
   supplier: v.optional(v.string()),
   title: v.optional(v.string()),
+  unit: v.optional(v.string()),
 };
 
 export const dev_seedProductionFoundation = authenticatedMutation
@@ -1666,6 +1686,7 @@ interface DraftProposalSubmilestoneInput {
   key: string;
   name: string;
   order: number;
+  scopeOfWorkTiptapJson?: string;
   startDay?: number;
 }
 
@@ -1692,6 +1713,7 @@ type ProductionSubmilestoneScheduleInput = {
   key: string;
   name: string;
   order: number;
+  scopeOfWorkTiptapJson?: string;
   startDay?: number;
 };
 
@@ -1805,12 +1827,18 @@ interface DraftProposalCostItemInput {
   budgetTreatment?: CostItemBudgetTreatment;
   costCents: number;
   description?: string;
+  deliveryEndDay?: number;
+  deliveryInstructions?: string;
+  deliveryLocation?: string;
+  deliveryStartDay?: number;
   itemType: "equipment" | "material";
   milestoneKey: string;
   quantity: number;
   relevantSubmilestoneKeys: string[];
+  specificationTiptapJson?: string;
   supplier?: string;
   title: string;
+  unit?: string;
 }
 
 interface DraftProposalContractorAssignmentInput {
@@ -1998,6 +2026,10 @@ async function insertDraftProposalSubmilestone(
     organizationId: input.workosOrganizationId,
     proposalId: input.proposalId,
     proposalMilestoneId: milestone.milestoneId,
+    scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
+      milestone.submilestone.scopeOfWorkTiptapJson,
+      "Sub-milestone Scope of Work",
+    ),
     startDay: milestone.submilestone.startDay,
     updatedAt: input.now,
   });
@@ -2164,6 +2196,7 @@ async function insertDraftProposalCostItem(
   const costCents = normalizeCostItemCost(costItem.costCents);
   const quantity = normalizeCostItemQuantity(costItem.quantity);
   const title = normalizeRequiredText(costItem.title, "Cost item title");
+  const delivery = validateCostItemDeliveryWindow(costItem);
   const item = {
     brokerageId: input.auth.brokerage._id,
     budgetSubmilestoneKey,
@@ -2171,6 +2204,10 @@ async function insertDraftProposalCostItem(
     costCents,
     createdAt: input.now,
     createdByWorkosUserId: input.auth.subject,
+    deliveryEndDay: delivery.deliveryEndDay,
+    deliveryInstructions: normalizeOptionalText(costItem.deliveryInstructions),
+    deliveryLocation: normalizeOptionalText(costItem.deliveryLocation),
+    deliveryStartDay: delivery.deliveryStartDay,
     description: normalizeOptionalText(costItem.description),
     itemKey: await nextProposalCostItemKey(
       ctx,
@@ -2185,8 +2222,13 @@ async function insertDraftProposalCostItem(
     proposalMilestoneId: milestone._id,
     quantity,
     relevantSubmilestoneKeys,
+    specificationTiptapJson: normalizeOptionalTiptapJson(
+      costItem.specificationTiptapJson,
+      "Material specification",
+    ),
     supplier: normalizeOptionalText(costItem.supplier),
     title,
+    unit: normalizeOptionalText(costItem.unit),
     updatedAt: input.now,
     updatedByWorkosUserId: input.auth.subject,
   };
@@ -3043,6 +3085,7 @@ export const updateProductionTimelineMilestone = authenticatedMutation
               key: submilestone.key,
               name: submilestone.name,
               order: submilestone.order,
+              scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
               startDay:
                 submilestone.startDay === undefined
                   ? undefined
@@ -3237,6 +3280,7 @@ export const createProposalCostItem = authenticatedMutation
     const now = Date.now();
     const costCents = normalizeCostItemCost(args.costCents);
     const quantity = normalizeCostItemQuantity(args.quantity);
+    const delivery = validateCostItemDeliveryWindow(args);
     const item = {
       brokerageId: auth.brokerage._id,
       budgetSubmilestoneKey,
@@ -3244,6 +3288,10 @@ export const createProposalCostItem = authenticatedMutation
       costCents,
       createdAt: now,
       createdByWorkosUserId: auth.subject,
+      deliveryEndDay: delivery.deliveryEndDay,
+      deliveryInstructions: normalizeOptionalText(args.deliveryInstructions),
+      deliveryLocation: normalizeOptionalText(args.deliveryLocation),
+      deliveryStartDay: delivery.deliveryStartDay,
       description: normalizeOptionalText(args.description),
       itemKey: await nextProposalCostItemKey(
         ctx,
@@ -3258,8 +3306,13 @@ export const createProposalCostItem = authenticatedMutation
       proposalMilestoneId: milestone._id,
       quantity,
       relevantSubmilestoneKeys,
+      specificationTiptapJson: normalizeOptionalTiptapJson(
+        args.specificationTiptapJson,
+        "Material specification",
+      ),
       supplier: normalizeOptionalText(args.supplier),
       title: normalizeRequiredText(args.title, "Cost item title"),
+      unit: normalizeOptionalText(args.unit),
       updatedAt: now,
       updatedByWorkosUserId: auth.subject,
     };
@@ -3339,6 +3392,16 @@ export const updateProposalCostItem = authenticatedMutation
           item.budgetSubmilestoneKey !== undefined),
     );
     const now = Date.now();
+    const delivery = validateCostItemDeliveryWindow({
+      deliveryEndDay:
+        args.deliveryEndDay === undefined
+          ? item.deliveryEndDay
+          : args.deliveryEndDay,
+      deliveryStartDay:
+        args.deliveryStartDay === undefined
+          ? item.deliveryStartDay
+          : args.deliveryStartDay,
+    });
     const patch = {
       budgetSubmilestoneKey,
       budgetTreatment,
@@ -3348,6 +3411,22 @@ export const updateProposalCostItem = authenticatedMutation
       ...(args.description === undefined
         ? {}
         : { description: normalizeOptionalText(args.description) }),
+      ...(args.deliveryEndDay === undefined
+        ? {}
+        : { deliveryEndDay: delivery.deliveryEndDay }),
+      ...(args.deliveryInstructions === undefined
+        ? {}
+        : {
+            deliveryInstructions: normalizeOptionalText(
+              args.deliveryInstructions,
+            ),
+          }),
+      ...(args.deliveryLocation === undefined
+        ? {}
+        : { deliveryLocation: normalizeOptionalText(args.deliveryLocation) }),
+      ...(args.deliveryStartDay === undefined
+        ? {}
+        : { deliveryStartDay: delivery.deliveryStartDay }),
       ...(args.itemType === undefined ? {} : { itemType: args.itemType }),
       ...(milestoneChanged
         ? {
@@ -3362,9 +3441,20 @@ export const updateProposalCostItem = authenticatedMutation
       ...(args.supplier === undefined
         ? {}
         : { supplier: normalizeOptionalText(args.supplier) }),
+      ...(args.specificationTiptapJson === undefined
+        ? {}
+        : {
+            specificationTiptapJson: normalizeOptionalTiptapJson(
+              args.specificationTiptapJson,
+              "Material specification",
+            ),
+          }),
       ...(args.title === undefined
         ? {}
         : { title: normalizeRequiredText(args.title, "Cost item title") }),
+      ...(args.unit === undefined
+        ? {}
+        : { unit: normalizeOptionalText(args.unit) }),
       updatedAt: now,
       updatedByWorkosUserId: auth.subject,
     };
@@ -3471,6 +3561,7 @@ export const createActiveBuildCostItem = authenticatedMutation
     const now = Date.now();
     const costCents = normalizeCostItemCost(args.costCents);
     const quantity = normalizeCostItemQuantity(args.quantity);
+    const delivery = validateCostItemDeliveryWindow(args);
     const item = {
       brokerageId: auth.brokerage._id,
       budgetSubmilestoneKey,
@@ -3480,6 +3571,10 @@ export const createActiveBuildCostItem = authenticatedMutation
       costCents,
       createdAt: now,
       createdByWorkosUserId: auth.subject,
+      deliveryEndDay: delivery.deliveryEndDay,
+      deliveryInstructions: normalizeOptionalText(args.deliveryInstructions),
+      deliveryLocation: normalizeOptionalText(args.deliveryLocation),
+      deliveryStartDay: delivery.deliveryStartDay,
       description: normalizeOptionalText(args.description),
       itemKey: await nextBuildCostItemKey(ctx, args.buildId, args.title, now),
       itemType: args.itemType,
@@ -3488,8 +3583,13 @@ export const createActiveBuildCostItem = authenticatedMutation
       proposalId: auth.proposal._id,
       quantity,
       relevantSubmilestoneKeys,
+      specificationTiptapJson: normalizeOptionalTiptapJson(
+        args.specificationTiptapJson,
+        "Material specification",
+      ),
       supplier: normalizeOptionalText(args.supplier),
       title: normalizeRequiredText(args.title, "Cost item title"),
+      unit: normalizeOptionalText(args.unit),
       updatedAt: now,
       updatedByWorkosUserId: auth.subject,
     };
@@ -3576,6 +3676,16 @@ export const updateActiveBuildCostItem = authenticatedMutation
       budgetTreatment,
     );
     const now = Date.now();
+    const delivery = validateCostItemDeliveryWindow({
+      deliveryEndDay:
+        args.deliveryEndDay === undefined
+          ? item.deliveryEndDay
+          : args.deliveryEndDay,
+      deliveryStartDay:
+        args.deliveryStartDay === undefined
+          ? item.deliveryStartDay
+          : args.deliveryStartDay,
+    });
     const patch = {
       budgetSubmilestoneKey,
       budgetTreatment,
@@ -3585,6 +3695,22 @@ export const updateActiveBuildCostItem = authenticatedMutation
       ...(args.description === undefined
         ? {}
         : { description: normalizeOptionalText(args.description) }),
+      ...(args.deliveryEndDay === undefined
+        ? {}
+        : { deliveryEndDay: delivery.deliveryEndDay }),
+      ...(args.deliveryInstructions === undefined
+        ? {}
+        : {
+            deliveryInstructions: normalizeOptionalText(
+              args.deliveryInstructions,
+            ),
+          }),
+      ...(args.deliveryLocation === undefined
+        ? {}
+        : { deliveryLocation: normalizeOptionalText(args.deliveryLocation) }),
+      ...(args.deliveryStartDay === undefined
+        ? {}
+        : { deliveryStartDay: delivery.deliveryStartDay }),
       ...(args.itemType === undefined ? {} : { itemType: args.itemType }),
       ...(milestoneChanged
         ? {
@@ -3599,9 +3725,20 @@ export const updateActiveBuildCostItem = authenticatedMutation
       ...(args.supplier === undefined
         ? {}
         : { supplier: normalizeOptionalText(args.supplier) }),
+      ...(args.specificationTiptapJson === undefined
+        ? {}
+        : {
+            specificationTiptapJson: normalizeOptionalTiptapJson(
+              args.specificationTiptapJson,
+              "Material specification",
+            ),
+          }),
       ...(args.title === undefined
         ? {}
         : { title: normalizeRequiredText(args.title, "Cost item title") }),
+      ...(args.unit === undefined
+        ? {}
+        : { unit: normalizeOptionalText(args.unit) }),
       updatedAt: now,
       updatedByWorkosUserId: auth.subject,
     };
@@ -16633,6 +16770,7 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
               key: submilestone.key,
               name: submilestone.name,
               order: submilestone.order,
+              scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
               startDay:
                 submilestone.startDay === undefined
                   ? undefined
@@ -18096,6 +18234,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
     milestoneKey: v.string(),
     progressPercent: v.optional(v.number()),
     reason: v.optional(v.string()),
+    scopeOfWorkTiptapJson: v.optional(v.union(v.string(), v.null())),
     status: v.optional(
       v.union(
         v.literal("planned"),
@@ -18114,7 +18253,11 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireActiveBuildAppPermission(ctx, auth, "submilestone", "update");
-    if (args.actualCostCents !== undefined || args.fieldNote !== undefined) {
+    if (
+      args.actualCostCents !== undefined ||
+      args.fieldNote !== undefined ||
+      args.scopeOfWorkTiptapJson !== undefined
+    ) {
       await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
     }
     if (
@@ -18232,7 +18375,17 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
       ...(args.progressPercent === undefined
         ? {}
         : { progressPercent: Math.round(args.progressPercent) }),
-      ...(args.status === undefined
+      ...(args.scopeOfWorkTiptapJson === undefined
+        ? {}
+        : {
+            scopeOfWorkTiptapJson:
+              args.scopeOfWorkTiptapJson === null
+                ? undefined
+                : normalizeOptionalTiptapJson(
+                    args.scopeOfWorkTiptapJson,
+                    "Sub-milestone Scope of Work",
+                  ),
+          }),      ...(args.status === undefined
         ? {}
         : {
             completedAt:
@@ -18280,6 +18433,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         fieldNote: patch.fieldNote,
         milestoneKey: milestone.key,
         progressPercent: patch.progressPercent,
+        scopeOfWorkTiptapJson: patch.scopeOfWorkTiptapJson,
         status: nextStatus,
         submilestoneKey: submilestone.key,
       }),
@@ -18288,6 +18442,7 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         completionForecastDate: submilestone.completionForecastDate,
         fieldNote: submilestone.fieldNote,
         progressPercent: submilestone.progressPercent,
+        scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
         status: submilestone.status,
       }),
       reason: args.reason,
@@ -20294,6 +20449,7 @@ export const addActiveBuildDocument = authenticatedMutation
       v.literal("supporting"),
     ),
     fileName: v.string(),
+    governedAssetId: v.optional(v.id("buildCollaborationAssets")),
     mimeType: v.string(),
     sizeBytes: v.number(),
     storageId: v.optional(v.id("_storage")),
@@ -20321,6 +20477,7 @@ export const addActiveBuildDocument = authenticatedMutation
     const clientOperationFingerprint = await operationalRequestFingerprint({
       documentType: args.documentType,
       fileName,
+      governedAssetId: args.governedAssetId ? String(args.governedAssetId) : null,
       mimeType: args.mimeType,
       sizeBytes: Math.max(0, Math.round(args.sizeBytes)),
       storageId: args.storageId ? String(args.storageId) : null,
@@ -20346,6 +20503,26 @@ export const addActiveBuildDocument = authenticatedMutation
         );
       }
       return null;
+    }
+    const governedAsset = args.governedAssetId
+      ? await ctx.db.get(args.governedAssetId)
+      : undefined;
+    if (
+      governedAsset &&
+      (governedAsset.buildId !== args.buildId ||
+        governedAsset.organizationId !== args.workosOrganizationId ||
+        governedAsset.brokerageId !== auth.brokerage._id ||
+        !isCleanCollaborationAsset(governedAsset))
+    ) {
+      throw new Error("The governed Document asset is unavailable for this Build.");
+    }
+    if (
+      args.governedAssetId &&
+      (!args.storageId || !governedAsset || governedAsset.storageId !== args.storageId)
+    ) {
+      throw new Error(
+        "A governed Document asset must be clean and reference the same stored file.",
+      );
     }
     const typeDocuments = await ctx.db
       .query("buildDocuments")
@@ -20421,6 +20598,7 @@ export const addActiveBuildDocument = authenticatedMutation
       createdAt: now,
       documentType: args.documentType,
       fileName,
+      governedAssetId: args.governedAssetId,
       mimeType: args.mimeType,
       organizationId: args.workosOrganizationId,
       proposalId: auth.proposal._id,
@@ -29630,6 +29808,70 @@ function normalizeOptionalText(value: string | undefined) {
   return text ? text : undefined;
 }
 
+function normalizeOptionalNonNegativeDay(
+  value: number | undefined,
+  label: string,
+) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative whole day.`);
+  }
+  return value;
+}
+
+function normalizeOptionalTiptapJson(value: string | undefined, label: string) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value.trim()) {
+    return undefined;
+  }
+  if (value.length > 250_000) {
+    throw new Error(`${label} exceeds the supported length.`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`${label} must be valid TipTap JSON.`);
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !("type" in parsed) ||
+    parsed.type !== "doc"
+  ) {
+    throw new Error(`${label} must contain a TipTap document root.`);
+  }
+  // Preserve the supplied canonical JSON exactly; quote-package snapshots use
+  // this content verbatim rather than flattening or reserializing it.
+  return value;
+}
+
+function validateCostItemDeliveryWindow(input: {
+  deliveryEndDay?: number;
+  deliveryStartDay?: number;
+}) {
+  const deliveryStartDay = normalizeOptionalNonNegativeDay(
+    input.deliveryStartDay,
+    "Delivery start day",
+  );
+  const deliveryEndDay = normalizeOptionalNonNegativeDay(
+    input.deliveryEndDay,
+    "Delivery end day",
+  );
+  if (
+    deliveryStartDay !== undefined &&
+    deliveryEndDay !== undefined &&
+    deliveryEndDay < deliveryStartDay
+  ) {
+    throw new Error("Delivery end day cannot precede delivery start day.");
+  }
+  return { deliveryEndDay, deliveryStartDay };
+}
+
 function normalizeCostItemCost(value: number) {
   if (!Number.isFinite(value)) {
     throw new Error("Cost item cost must be finite.");
@@ -30063,6 +30305,7 @@ async function insertProductionMilestoneFromInput(
       key: string;
       name: string;
       order: number;
+      scopeOfWorkTiptapJson?: string;
       startDay?: number;
     }[];
     tone?: string;
@@ -30147,6 +30390,7 @@ async function replaceProductionSubmilestones(
       key: string;
       name: string;
       order: number;
+      scopeOfWorkTiptapJson?: string;
       startDay?: number;
     }[];
   },
@@ -30218,6 +30462,10 @@ async function replaceProductionSubmilestones(
       organizationId: auth.proposal.organizationId,
       proposalId: input.proposalId,
       proposalMilestoneId: input.milestone._id,
+      scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
+        row.scopeOfWorkTiptapJson,
+        "Sub-milestone Scope of Work",
+      ),
       startDay: row.startDay,
       updatedAt: now,
     });
@@ -30897,6 +31145,10 @@ async function copyProposalOperationalRowsToActiveBuild(
       costCents: item.costCents,
       createdAt: input.now,
       createdByWorkosUserId: item.createdByWorkosUserId,
+      deliveryEndDay: item.deliveryEndDay,
+      deliveryInstructions: item.deliveryInstructions,
+      deliveryLocation: item.deliveryLocation,
+      deliveryStartDay: item.deliveryStartDay,
       description: item.description,
       itemKey: item.itemKey,
       itemType: item.itemType,
@@ -30906,8 +31158,10 @@ async function copyProposalOperationalRowsToActiveBuild(
       proposalId: input.proposalId,
       quantity: item.quantity,
       relevantSubmilestoneKeys: item.relevantSubmilestoneKeys,
+      specificationTiptapJson: item.specificationTiptapJson,
       supplier: item.supplier,
       title: item.title,
+      unit: item.unit,
       updatedAt: input.now,
       updatedByWorkosUserId: item.updatedByWorkosUserId,
     });
@@ -31626,6 +31880,7 @@ async function insertActiveBuildMilestoneFromInput(
       key: string;
       name: string;
       order: number;
+      scopeOfWorkTiptapJson?: string;
       startDay?: number;
     }[];
   },
@@ -31729,6 +31984,7 @@ async function replaceActiveBuildSubmilestones(
       key: string;
       name: string;
       order: number;
+      scopeOfWorkTiptapJson?: string;
       startDay?: number;
     }[];
   },
@@ -31848,6 +32104,10 @@ async function replaceActiveBuildSubmilestones(
         name: normalizedName,
         order: Math.max(1, Math.round(row.order)),
         planningState: "active",
+        scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
+          row.scopeOfWorkTiptapJson,
+          "Sub-milestone Scope of Work",
+        ),
         startDay: row.startDay,
         supersededAt: undefined,
         supersededByPlanningRevision: undefined,
@@ -31862,6 +32122,10 @@ async function replaceActiveBuildSubmilestones(
           key: row.key,
           name: normalizedName,
           order: Math.max(1, Math.round(row.order)),
+          scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
+            row.scopeOfWorkTiptapJson,
+            "Sub-milestone Scope of Work",
+          ),
           startDay: row.startDay,
           updatedAt: now,
         });
@@ -31880,6 +32144,10 @@ async function replaceActiveBuildSubmilestones(
       organizationId: auth.build.organizationId,
       proposalId: auth.proposal._id,
       proposalMilestoneId: input.milestone.proposalMilestoneId,
+      scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
+        row.scopeOfWorkTiptapJson,
+        "Sub-milestone Scope of Work",
+      ),
       startDay: row.startDay,
       updatedAt: now,
     });
@@ -31897,6 +32165,10 @@ async function replaceActiveBuildSubmilestones(
       organizationId: auth.build.organizationId,
       proposalSubmilestoneId,
       planningState: "active",
+      scopeOfWorkTiptapJson: normalizeOptionalTiptapJson(
+        row.scopeOfWorkTiptapJson,
+        "Sub-milestone Scope of Work",
+      ),
       startDay: row.startDay,
       status: "planned",
       updatedAt: now,
@@ -32662,7 +32934,17 @@ async function getActiveBuildSiteVisitPermit(
   ctx: QueryCtx | MutationCtx,
   documents: Doc<"buildDocuments">[],
 ) {
-  const permit = documents.sort((a, b) => b.createdAt - a.createdAt)[0];
+  const permit = documents
+    .filter(
+      (document) =>
+        document.status !== "superseded" && !document.supersededByDocumentId,
+    )
+    .sort(
+      (left, right) =>
+        (right.version ?? 1) - (left.version ?? 1) ||
+        right.updatedAt - left.updatedAt ||
+        right.createdAt - left.createdAt,
+    )[0];
   if (!permit) {
     return null;
   }
@@ -36872,6 +37154,7 @@ async function seedCloseProposal(
       order: submilestone.order,
       organizationId: input.organizationId,
       proposalSubmilestoneId: submilestone._id,
+      scopeOfWorkTiptapJson: submilestone.scopeOfWorkTiptapJson,
       startDay: submilestone.startDay,
       status: "planned",
       updatedAt: input.now,

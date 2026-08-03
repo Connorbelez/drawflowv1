@@ -644,6 +644,50 @@ const quoteResponseTemplateTaxValidator = v.object({
   rateBps: v.number(),
 });
 
+// Quote solicitation is intentionally modelled as a Build-scoped aggregate.
+// Draft rows are mutable only while a Round is in `draft`; recipient-visible
+// Package Revision rows are append-only snapshots.
+const quoteRoundModeValidator = v.union(
+  v.literal("labour"),
+  v.literal("material"),
+  v.literal("combined")
+);
+
+const quoteRoundStateValidator = v.union(
+  v.literal("draft"),
+  v.literal("open"),
+  v.literal("closed"),
+  v.literal("cancelled")
+);
+
+const quoteRoundMaterialSourceValidator = v.union(
+  v.literal("build_cost_item"),
+  v.literal("ad_hoc")
+);
+
+const quoteInvitationParticipationStateValidator = v.union(
+  v.literal("active"),
+  v.literal("revoked")
+);
+
+const quoteInvitationCredentialStateValidator = v.union(
+  v.literal("active"),
+  v.literal("expired"),
+  v.literal("rotated"),
+  v.literal("revoked")
+);
+
+const quotePackageAttachmentKindValidator = v.union(
+  v.literal("permit"),
+  v.literal("inherited")
+);
+
+const buildSubmilestoneDocumentLinkVisibilityValidator = v.union(
+  v.literal("recipient_shareable"),
+  v.literal("internal"),
+  v.literal("unclassified")
+);
+
 const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
@@ -1867,7 +1911,10 @@ export default defineSchema({
     organizationId: v.string(),
     name: v.string(),
     kind: v.optional(contractorKindValidator),
-    // Live quote-solicitation fields; optional so legacy profiles remain valid.
+    // A Contractor Profile is the existing, brokerage-scoped quote-recipient
+    // identity. The optional capability list and provisioning state are additive
+    // so legacy profiles remain valid Contractor recipients while
+    // Supplier/Combined solicitation requires an explicit compatible capability.
     quoteRecipientCapabilities: v.optional(
       v.array(quoteRecipientCapabilityValidator)
     ),
@@ -2281,6 +2328,323 @@ export default defineSchema({
     .index("by_version_order", ["versionId", "order"])
     .index("by_version_fieldKey", ["versionId", "fieldKey"])
     .index("by_organization", ["organizationId"]),
+  quoteRounds: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    mode: quoteRoundModeValidator,
+    state: quoteRoundStateValidator,
+    title: v.string(),
+    // Optimistic revision of mutable draft configuration and the terminal
+    // draft-to-open transition. Package Revision numbers are independent.
+    revision: v.number(),
+    currentPackageRevisionId: v.optional(v.id("quotePackageRevisions")),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildId", ["buildId"])
+    .index("by_buildId_and_state", ["buildId", "state"])
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+  quoteRoundDrafts: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    templateVersionId: v.optional(v.id("quoteResponseTemplateVersions")),
+    responseDeadline: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_quoteRoundId", ["quoteRoundId"]),
+  quoteRoundDraftLabourScope: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_order", ["quoteRoundId", "order"])
+    .index("by_quoteRoundId_and_buildSubmilestoneId", [
+      "quoteRoundId",
+      "buildSubmilestoneId",
+    ]),
+  quoteRoundDraftMaterialRows: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    rowKey: v.string(),
+    source: quoteRoundMaterialSourceValidator,
+    sourceBuildCostItemId: v.optional(v.id("buildCostItems")),
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    quantity: v.optional(v.number()),
+    unit: v.optional(v.string()),
+    specificationTiptapJson: v.optional(v.string()),
+    deliveryLocation: v.optional(v.string()),
+    deliveryStartDay: v.optional(v.number()),
+    deliveryEndDay: v.optional(v.number()),
+    deliveryInstructions: v.optional(v.string()),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_order", ["quoteRoundId", "order"])
+    .index("by_quoteRoundId_and_rowKey", ["quoteRoundId", "rowKey"]),
+  quoteRoundDraftMaterialAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundDraftMaterialRowId: v.id("quoteRoundDraftMaterialRows"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundDraftMaterialRowId_and_order", [
+      "quoteRoundDraftMaterialRowId",
+      "order",
+    ])
+    .index("by_quoteRoundId", ["quoteRoundId"]),
+  quoteRoundDraftRecipients: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    recipientProfileId: v.id("contractorProfiles"),
+    order: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_order", ["quoteRoundId", "order"])
+    .index("by_quoteRoundId_and_recipientProfileId", [
+      "quoteRoundId",
+      "recipientProfileId",
+    ]),
+  quotePackageRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    revision: v.number(),
+    sourceDraftRevision: v.number(),
+    templateId: v.id("quoteResponseTemplates"),
+    templateVersionId: v.id("quoteResponseTemplateVersions"),
+    responseDeadline: v.number(),
+    permitDocumentId: v.id("buildDocuments"),
+    permitDocumentVersion: v.number(),
+    siteAddressSnapshot: v.string(),
+    siteLatitudeSnapshot: v.optional(v.number()),
+    siteLongitudeSnapshot: v.optional(v.number()),
+    sitePlaceIdSnapshot: v.optional(v.string()),
+    siteMapUrlSnapshot: v.string(),
+    timelineStartDateSnapshot: v.string(),
+    timelineCurrentDaySnapshot: v.optional(v.number()),
+    timelineRangeMinSnapshot: v.optional(v.number()),
+    timelineRangeMaxSnapshot: v.optional(v.number()),
+    roadmapSnapshotFingerprint: v.string(),
+    publishedByWorkosUserId: v.string(),
+    publishedAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_revision", ["quoteRoundId", "revision"])
+    .index("by_buildId_and_publishedAt", ["buildId", "publishedAt"]),
+  quotePackageRevisionLabourLines: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    milestoneName: v.string(),
+    submilestoneKey: v.string(),
+    submilestoneName: v.string(),
+    order: v.number(),
+    startDay: v.optional(v.number()),
+    durationDays: v.optional(v.number()),
+    budgetCents: v.optional(v.number()),
+    scopeOfWorkTiptapJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_quotePackageRevisionId_and_order", [
+      "quotePackageRevisionId",
+      "order",
+    ])
+    .index("by_quotePackageRevisionId_and_buildSubmilestoneId", [
+      "quotePackageRevisionId",
+      "buildSubmilestoneId",
+    ]),
+  quotePackageRevisionMaterialLines: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    source: quoteRoundMaterialSourceValidator,
+    sourceBuildCostItemId: v.optional(v.id("buildCostItems")),
+    sourceDraftRowKey: v.optional(v.string()),
+    title: v.string(),
+    description: v.optional(v.string()),
+    quantity: v.number(),
+    unit: v.string(),
+    specificationTiptapJson: v.string(),
+    deliveryLocation: v.string(),
+    deliveryStartDay: v.number(),
+    deliveryEndDay: v.number(),
+    deliveryInstructions: v.string(),
+    order: v.number(),
+    createdAt: v.number(),
+  }).index("by_quotePackageRevisionId_and_order", [
+    "quotePackageRevisionId",
+    "order",
+  ]),
+  quotePackageRevisionMaterialAssignments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    quotePackageRevisionMaterialLineId: v.id(
+      "quotePackageRevisionMaterialLines"
+    ),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    milestoneName: v.string(),
+    submilestoneKey: v.string(),
+    submilestoneName: v.string(),
+    startDay: v.optional(v.number()),
+    durationDays: v.optional(v.number()),
+    order: v.number(),
+    createdAt: v.number(),
+  }).index("by_quotePackageRevisionMaterialLineId_and_order", [
+    "quotePackageRevisionMaterialLineId",
+    "order",
+  ]),
+  quotePackageRevisionResponseFields: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    sourceTemplateFieldId: v.id("quoteResponseTemplateFields"),
+    fieldKey: v.string(),
+    label: v.string(),
+    kind: quoteResponseTemplateFieldKindValidator,
+    scope: quoteResponseTemplateFieldScopeValidator,
+    order: v.number(),
+    required: v.boolean(),
+    isPermanent: v.boolean(),
+    repeatable: v.boolean(),
+    renderer: quoteResponseTemplateFieldRendererValidator,
+    choiceOptions: v.optional(v.array(v.string())),
+    validation: v.optional(quoteResponseTemplateFieldValidationValidator),
+    tax: v.optional(quoteResponseTemplateTaxValidator),
+    supportsTax: v.boolean(),
+    allowAlternates: v.boolean(),
+    allowExclusions: v.boolean(),
+    richTextDefaultHtml: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_quotePackageRevisionId_and_order", [
+      "quotePackageRevisionId",
+      "order",
+    ])
+    .index("by_quotePackageRevisionId_and_fieldKey", [
+      "quotePackageRevisionId",
+      "fieldKey",
+    ]),
+  quotePackageRevisionAttachments: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    kind: quotePackageAttachmentKindValidator,
+    sourceBuildDocumentId: v.id("buildDocuments"),
+    sourceBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    fileNameSnapshot: v.string(),
+    mimeTypeSnapshot: v.string(),
+    sizeBytesSnapshot: v.number(),
+    storageIdSnapshot: v.optional(v.id("_storage")),
+    contentHashSha256Snapshot: v.string(),
+    sourceDocumentVersionSnapshot: v.number(),
+    order: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_quotePackageRevisionId_and_order", [
+      "quotePackageRevisionId",
+      "order",
+    ])
+    .index("by_quotePackageRevisionId_and_sourceBuildDocumentId", [
+      "quotePackageRevisionId",
+      "sourceBuildDocumentId",
+    ]),
+  quoteRoundInvitations: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    recipientProfileId: v.id("contractorProfiles"),
+    recipientNameSnapshot: v.string(),
+    recipientEmailSnapshot: v.string(),
+    recipientCapabilitiesSnapshot: v.array(quoteRecipientCapabilityValidator),
+    participationState: quoteInvitationParticipationStateValidator,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_participationState", [
+      "quoteRoundId",
+      "participationState",
+    ])
+    .index("by_quoteRoundId_and_recipientProfileId", [
+      "quoteRoundId",
+      "recipientProfileId",
+    ]),
+  quoteInvitationAccessCredentials: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    quoteRoundInvitationId: v.id("quoteRoundInvitations"),
+    credentialVerifier: v.string(),
+    credentialVersion: v.number(),
+    state: quoteInvitationCredentialStateValidator,
+    accessExpiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_quoteRoundInvitationId_and_state", [
+      "quoteRoundInvitationId",
+      "state",
+    ])
+    .index("by_credentialVerifier", ["credentialVerifier"]),
+  quoteRoundPublicationRequests: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    quoteRoundId: v.id("quoteRounds"),
+    idempotencyKey: v.string(),
+    requestFingerprint: v.string(),
+    expectedDraftRevision: v.number(),
+    quotePackageRevisionId: v.id("quotePackageRevisions"),
+    createdAt: v.number(),
+  })
+    .index("by_quoteRoundId_and_idempotencyKey", [
+      "quoteRoundId",
+      "idempotencyKey",
+    ])
+    .index("by_organizationId_and_idempotencyKey", [
+      "organizationId",
+      "idempotencyKey",
+    ]),
   proposalTemplateMilestones: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -2575,13 +2939,13 @@ export default defineSchema({
     specificationTiptapJson: v.optional(v.string()),
     costCents: v.number(),
     quantity: v.number(),
-    budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
-    budgetSubmilestoneKey: v.optional(v.string()),
-    supplier: v.optional(v.string()),
     deliveryLocation: v.optional(v.string()),
     deliveryStartDay: v.optional(v.number()),
     deliveryEndDay: v.optional(v.number()),
     deliveryInstructions: v.optional(v.string()),
+    budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
+    budgetSubmilestoneKey: v.optional(v.string()),
+    supplier: v.optional(v.string()),
     relevantSubmilestoneKeys: v.array(v.string()),
     createdByWorkosUserId: v.string(),
     updatedByWorkosUserId: v.string(),
@@ -5424,12 +5788,15 @@ export default defineSchema({
     documentType: productionDocumentTypeValidator,
     status: buildDocumentStatusValidator,
     fileName: v.string(),
-    // A Build Document may be the durable document projection of a scanned,
-    // versioned collaboration asset. Keep this optional for legacy documents.
-    governedAssetId: v.optional(v.id("buildCollaborationAssets")),
     mimeType: v.string(),
     sizeBytes: v.number(),
     storageId: v.optional(v.id("_storage")),
+    // A Build Document may be the durable document projection of a scanned,
+    // versioned collaboration asset. Recipient-visible package sources resolve
+    // through a clean governed asset; this pointer contributes scan state and
+    // immutable SHA-256 provenance without a parallel file model. Keep this
+    // optional for legacy documents.
+    governedAssetId: v.optional(v.id("buildCollaborationAssets")),
     // Permits are contractor-visible by default (PRD §3.17, §15). Non-permit
     // documents require an explicit contractor-visible ACL flag (PRD §3.34).
     contractorVisible: v.optional(v.boolean()),
@@ -5759,10 +6126,12 @@ export default defineSchema({
     order: v.number(),
     budgetCents: v.optional(v.number()),
     actualCostCents: v.optional(v.number()),
-    scopeOfWorkTiptapJson: v.optional(v.string()),
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     fieldNote: v.optional(v.string()),
+    // Canonical scope content for recipient-visible Quote Package snapshots.
+    // Legacy fieldNote remains a plain-text fallback until this field is set.
+    scopeOfWorkTiptapJson: v.optional(v.string()),
     progressPercent: v.optional(v.number()),
     completionForecastDate: v.optional(v.string()),
     evidencePackageRevisionId: v.optional(
@@ -5817,6 +6186,23 @@ export default defineSchema({
     .index("by_build", ["buildId"])
     .index("by_milestone", ["buildMilestoneId"])
     .index("by_milestone_and_key", ["buildMilestoneId", "key"]),
+  buildSubmilestoneDocumentLinks: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    buildDocumentId: v.id("buildDocuments"),
+    visibility: buildSubmilestoneDocumentLinkVisibilityValidator,
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_buildSubmilestoneId", ["buildSubmilestoneId"])
+    .index("by_buildId_and_visibility", ["buildId", "visibility"])
+    .index("by_buildSubmilestoneId_and_buildDocumentId", [
+      "buildSubmilestoneId",
+      "buildDocumentId",
+    ]),
   buildSubmilestoneSiteVisitRequirements: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -6054,8 +6440,7 @@ export default defineSchema({
   }).index("by_submilestone_idempotency", [
     "buildSubmilestoneId",
     "idempotencyKey",
-  ]),
-  milestoneStartEvents: defineTable({
+  ]),  milestoneStartEvents: defineTable({
     actualStartedAt: v.optional(v.number()),
     actorRoles: v.array(v.string()),
     actorWorkosUserId: v.string(),
@@ -6121,13 +6506,16 @@ export default defineSchema({
     specificationTiptapJson: v.optional(v.string()),
     costCents: v.number(),
     quantity: v.number(),
-    budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
-    budgetSubmilestoneKey: v.optional(v.string()),
-    supplier: v.optional(v.string()),
+    // Material solicitation fields belong on canonical Build cost items, not
+    // on a parallel quote-planning source. Quote drafts may additionally own
+    // explicitly ad-hoc rows without mutating this budget record.
     deliveryLocation: v.optional(v.string()),
     deliveryStartDay: v.optional(v.number()),
     deliveryEndDay: v.optional(v.number()),
     deliveryInstructions: v.optional(v.string()),
+    budgetTreatment: v.optional(productionCostItemBudgetTreatmentValidator),
+    budgetSubmilestoneKey: v.optional(v.string()),
+    supplier: v.optional(v.string()),
     relevantSubmilestoneKeys: v.array(v.string()),
     createdByWorkosUserId: v.string(),
     updatedByWorkosUserId: v.string(),
