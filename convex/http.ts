@@ -250,6 +250,7 @@ http.route({
     }
     const requestUrl = new URL(request.url);
     const assetId = requestUrl.searchParams.get("assetId");
+    const actorCapacity = requestUrl.searchParams.get("actorCapacity");
     const buildId = requestUrl.searchParams.get("buildId");
     const costDocumentId = requestUrl.searchParams.get("costDocumentId");
     const organizationId = requestUrl.searchParams.get("organizationId");
@@ -263,6 +264,7 @@ http.route({
         internal.cost_documents.authorizeCostDocumentPageDownload,
         {
           assetId: assetId as never,
+          ...(actorCapacity ? { actorCapacity: actorCapacity as never } : {}),
           buildId: buildId as never,
           costDocumentId: costDocumentId as never,
           organizationId,
@@ -283,6 +285,7 @@ http.route({
           internal.cost_documents.recordCostDocumentPageDeliveryFailure,
           {
             assetId: assetId as never,
+            ...(actorCapacity ? { actorCapacity: actorCapacity as never } : {}),
             buildId: buildId as never,
             costDocumentId: costDocumentId as never,
             kind: "missing",
@@ -305,6 +308,7 @@ http.route({
           internal.cost_documents.recordCostDocumentPageDeliveryFailure,
           {
             assetId: assetId as never,
+            ...(actorCapacity ? { actorCapacity: actorCapacity as never } : {}),
             buildId: buildId as never,
             costDocumentId: costDocumentId as never,
             kind: "unavailable",
@@ -324,6 +328,7 @@ http.route({
           internal.cost_documents.recordCostDocumentPageDeliveryFailure,
           {
             assetId: assetId as never,
+            ...(actorCapacity ? { actorCapacity: actorCapacity as never } : {}),
             buildId: buildId as never,
             costDocumentId: costDocumentId as never,
             kind: "unavailable",

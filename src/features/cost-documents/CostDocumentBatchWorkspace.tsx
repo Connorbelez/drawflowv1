@@ -244,6 +244,11 @@ interface CostDocumentDraftSaveInput {
 }
 
 export interface CostDocumentBatchWorkspaceProps {
+  /**
+   * Locks a multi-role identity to the capacity chosen by its Build-local
+   * workspace. The server still reauthorizes every request.
+   */
+  actorCapacity?: "homeowner" | "contractor";
   batchId?: string;
   buildId: Id<"activeBuilds">;
   draftId?: string;
@@ -332,6 +337,7 @@ function useReconcileOptimisticCostDocumentDrafts({
  */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This route coordinator intentionally owns the ordered autosave, upload, and draft-state transitions so those durable boundaries cannot diverge across hooks.
 export function CostDocumentBatchWorkspace({
+  actorCapacity,
   batchId,
   buildId,
   draftId,
@@ -340,30 +346,33 @@ export function CostDocumentBatchWorkspace({
   reconciliation,
   submilestones,
 }: CostDocumentBatchWorkspaceProps) {
+  const actorCapacityInput = actorCapacity ? { actorCapacity } : {};
   const activeBatchRecoveryQuery = useQuery(
     api.cost_documents.getActiveCostDocumentBatch,
     batchId || draftId || reconciliation?.selectedCostDocumentId
       ? "skip"
-      : { buildId, organizationId }
+      : ({ buildId, organizationId, ...actorCapacityInput } as never)
   ) as BatchProjection | null | undefined;
   const routeBatchQuery = useQuery(
     api.cost_documents.getCostDocumentBatch,
     batchId && !draftId
-      ? {
+      ? ({
           batchId,
           buildId,
           organizationId,
-        }
+          ...actorCapacityInput,
+        } as never)
       : "skip"
   ) as BatchProjection | null | undefined;
   const exactDraftQuery = useQuery(
     api.cost_documents.getCostDocumentDraft,
     draftId
-      ? {
+      ? ({
           buildId,
           draftId: draftId as Id<"costDocumentDrafts">,
           organizationId,
-        }
+          ...actorCapacityInput,
+        } as never)
       : "skip"
   ) as ExactDraftProjection | null | undefined;
   const batchQuery = batchId ? routeBatchQuery : activeBatchRecoveryQuery;
@@ -637,7 +646,11 @@ export function CostDocumentBatchWorkspace({
   const saveDraftWithRevision = async (input: CostDocumentDraftSaveInput) => {
     const draftKey = String(input.draftId);
     const expectedRevision = revisionForDraft(draftKey);
-    const result = await saveDraft({ ...input, expectedRevision });
+    const result = await saveDraft({
+      ...input,
+      ...actorCapacityInput,
+      expectedRevision,
+    } as never);
     recordDraftRevision(draftKey, result, expectedRevision);
     return result;
   };
@@ -649,7 +662,11 @@ export function CostDocumentBatchWorkspace({
   }) => {
     const draftKey = String(input.draftId);
     const expectedRevision = revisionForDraft(draftKey);
-    const result = await setDraftStep({ ...input, expectedRevision });
+    const result = await setDraftStep({
+      ...input,
+      ...actorCapacityInput,
+      expectedRevision,
+    } as never);
     recordDraftRevision(draftKey, result, expectedRevision);
     return result;
   };
@@ -661,7 +678,11 @@ export function CostDocumentBatchWorkspace({
   }) => {
     const draftKey = String(input.draftId);
     const expectedRevision = revisionForDraft(draftKey);
-    const result = await bindDraftPageAsset({ ...input, expectedRevision });
+    const result = await bindDraftPageAsset({
+      ...input,
+      ...actorCapacityInput,
+      expectedRevision,
+    } as never);
     recordDraftRevision(draftKey, result, expectedRevision);
     return result;
   };
@@ -875,7 +896,8 @@ export function CostDocumentBatchWorkspace({
         buildId,
         idempotencyKey: createIdempotencyKey.current,
         organizationId,
-      });
+        ...actorCapacityInput,
+      } as never);
       setDismissedBatchId(undefined);
       lastReportedBatchId.current = String(createdBatchId);
       onBatchIdChange(String(createdBatchId));
@@ -913,7 +935,8 @@ export function CostDocumentBatchWorkspace({
         batchId: activeBatch._id,
         category: newCategory,
         kind: newKind,
-      });
+        ...actorCapacityInput,
+      } as never);
       const draft: BatchDraft = {
         _id: draftId,
         activeStep: "capture_confirm",
@@ -1571,7 +1594,8 @@ export function CostDocumentBatchWorkspace({
         collaboratorWorkosUserId: granteeWorkosUserId,
         draftId: activeDraft._id,
         expectedRevision,
-      });
+        ...actorCapacityInput,
+      } as never);
       recordDraftRevision(String(activeDraft._id), result, expectedRevision);
     } catch (cause) {
       const message = errorMessage(
@@ -1602,7 +1626,8 @@ export function CostDocumentBatchWorkspace({
         collaboratorWorkosUserId,
         draftId: activeDraft._id,
         expectedRevision,
-      });
+        ...actorCapacityInput,
+      } as never);
       recordDraftRevision(String(activeDraft._id), result, expectedRevision);
     } catch (cause) {
       const message = errorMessage(
@@ -1636,7 +1661,8 @@ export function CostDocumentBatchWorkspace({
         duplicateOverrideReason: duplicateOverrideReason.trim() || undefined,
         expectedRevision: activeBatch.revision,
         idempotencyKey: key,
-      });
+        ...actorCapacityInput,
+      } as never);
       setDuplicateOverrideRequired(false);
       setDuplicateOverrideReason("");
       setDraftOverrides((current) =>
@@ -1680,7 +1706,11 @@ export function CostDocumentBatchWorkspace({
     return (
       <div className="space-y-4">
         <CostDocumentRoadmapReconciliation
+          actorCapacity={actorCapacity}
           buildId={buildId}
+          interactionMode={
+            actorCapacity === "homeowner" ? "read-only" : "standard"
+          }
           onCloseCostDocument={() => reconciliation.onCostDocumentIdChange()}
           onOpenCostDocument={reconciliation.onCostDocumentIdChange}
           onStartCorrection={reconciliation.onCostDocumentCorrectionStarted}

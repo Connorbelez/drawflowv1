@@ -85,10 +85,10 @@ export const getMyBuildParticipationScope = authenticatedQuery
       args.buildId,
       ctx.viewer.subject
     );
-    if (latest?.status === "active") {
-      if (args.workspaceRole && latest.role !== args.workspaceRole) {
-        return null;
-      }
+    if (
+      latest?.status === "active" &&
+      (!args.workspaceRole || latest.role === args.workspaceRole)
+    ) {
       const build = await ctx.db.get(args.buildId);
       if (!build || build.brokerageId !== latest.brokerageId) {
         throw new Error("Build participation is unavailable.");
@@ -122,15 +122,16 @@ export const getMyBuildParticipationScope = authenticatedQuery
     });
     if (
       args.workspaceRole &&
-      authorization.effectiveRole.role !== args.workspaceRole
+      !authorization.roles.includes(args.workspaceRole)
     ) {
       return null;
     }
+    const selectedRole = args.workspaceRole ?? authorization.effectiveRole.role;
     return {
       buildId: authorization.build._id,
       buildName: authorization.build.buildName,
       legacyContractorProfileLinked:
-        authorization.effectiveRole.role === "contractor"
+        selectedRole === "contractor"
           ? await hasLegacyContractorProfile(
               ctx,
               authorization.brokerage._id,
@@ -139,8 +140,11 @@ export const getMyBuildParticipationScope = authenticatedQuery
           : undefined,
       location: authorization.build.location,
       organizationId: authorization.organizationId,
-      participantId: latest?._id,
-      role: authorization.effectiveRole.role,
+      participantId:
+        latest?.status === "active" && latest.role === selectedRole
+          ? latest._id
+          : undefined,
+      role: selectedRole,
     };
   })
   .public();

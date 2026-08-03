@@ -1,6 +1,7 @@
 import {
   type ActiveBuildAuthorization,
   authorizeActiveBuildAccess,
+  selectActiveBuildAuthorizationCapacity,
 } from "./activeBuildAccess";
 import type { AuthorizedViewer } from "./authz";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
@@ -19,6 +20,8 @@ export type CostDocumentIntent =
   | "submitted.list"
   | "submitted.read"
   | "asset.read";
+
+export type CostDocumentActorCapacity = BuildCollaborationRole;
 
 export type CostDocumentDraftAccessMode = "creator" | "collaborator";
 
@@ -77,15 +80,26 @@ export interface CurrentCostDocumentContractorScope {
 export async function authorizeCostDocumentIntent(
   ctx: CostDocumentAccessCtx,
   input: {
+    actorCapacity?: CostDocumentActorCapacity;
     buildId: Id<"activeBuilds">;
     intent: CostDocumentIntent;
     organizationId: string;
   }
 ) {
-  const authorization = await authorizeActiveBuildAccess(ctx, {
+  const baseAuthorization = await authorizeActiveBuildAccess(ctx, {
+    backofficePolicy: "proposal-read",
     buildId: input.buildId,
     organizationId: input.organizationId,
   });
+  let authorization: ActiveBuildAuthorization;
+  try {
+    authorization = selectActiveBuildAuthorizationCapacity(
+      baseAuthorization,
+      input.actorCapacity
+    );
+  } catch {
+    throw new Error("The Cost Document is unavailable.");
+  }
   if (authorization.viewer.actorKind !== "human") {
     throw new Error("The Cost Document is unavailable.");
   }
@@ -124,6 +138,7 @@ export async function authorizeCostDocumentIntent(
 export async function requireCostDocumentDraftAccess(
   ctx: CostDocumentAccessCtx,
   input: {
+    actorCapacity?: CostDocumentActorCapacity;
     draftId: Id<"costDocumentDrafts">;
     intent: "draft.read" | "draft.edit" | "asset.read";
   }
@@ -135,6 +150,7 @@ export async function requireCostDocumentDraftAccess(
   }
   const authorization = await authorizeCostDocumentIntent(ctx, {
     buildId: draft.buildId,
+    actorCapacity: input.actorCapacity,
     intent: input.intent,
     organizationId: draft.organizationId,
   });
@@ -188,26 +204,49 @@ export async function resolveCostDocumentDraftAccessForAuthorization(
 ): Promise<CostDocumentDraftAuthorization | null> {
   const draft = await ctx.db.get(input.draftId);
   const batch = draft ? await ctx.db.get(draft.batchId) : null;
+  let authorization = input.authorization;
   if (
     !(draft && batch) ||
     batch.state !== "active" ||
-    draft.lifecycle === "submitted" ||
-    !canCreateOrCollaborateOnDrafts(input.authorization)
+    draft.lifecycle === "submitted"
   ) {
     return null;
   }
   try {
-    assertCostDocumentDraftGraph(draft, batch, input.authorization);
+    if (batch.ownerWorkosUserId === authorization.viewer.subject) {
+      authorization = selectActiveBuildAuthorizationCapacity(
+        authorization,
+        currentCostDocumentBatchCreatorCapacity(batch, authorization)
+      );
+    } else if (authorization.roles.includes("builder")) {
+      authorization = selectActiveBuildAuthorizationCapacity(
+        authorization,
+        "builder"
+      );
+    } else if (authorization.roles.includes("builder-staff")) {
+      authorization = selectActiveBuildAuthorizationCapacity(
+        authorization,
+        "builder-staff"
+      );
+    }
+  } catch {
+    return null;
+  }
+  if (!canCreateOrCollaborateOnDrafts(authorization)) {
+    return null;
+  }
+  try {
+    assertCostDocumentDraftGraph(draft, batch, authorization);
     await assertCurrentCostDocumentDraftScope(ctx, {
-      authorization: input.authorization,
+      authorization,
       draft,
     });
   } catch {
     return null;
   }
-  if (isDraftCreator(draft, batch, input.authorization)) {
+  if (isDraftCreator(draft, batch, authorization)) {
     return {
-      authorization: input.authorization,
+      authorization,
       batch,
       draft,
       mode: "creator",
@@ -215,7 +254,7 @@ export async function resolveCostDocumentDraftAccessForAuthorization(
   }
   if (
     !(
-      isBuilderCollaboratorRole(input.authorization.effectiveRole.role) &&
+      isBuilderCollaboratorRole(authorization.effectiveRole.role) &&
       (await hasCurrentDraftCollaborationGrant(ctx, {
         draft,
         workosUserId: input.authorization.viewer.subject,
@@ -225,7 +264,7 @@ export async function resolveCostDocumentDraftAccessForAuthorization(
     return null;
   }
   return {
-    authorization: input.authorization,
+    authorization,
     batch,
     draft,
     mode: "collaborator",
@@ -235,6 +274,7 @@ export async function resolveCostDocumentDraftAccessForAuthorization(
 export async function requireCostDocumentBatchCreator(
   ctx: CostDocumentAccessCtx,
   input: {
+    actorCapacity?: CostDocumentActorCapacity;
     batchId: Id<"costDocumentBatches">;
     intent: "create" | "draft.read" | "batch.submit";
   }
@@ -245,11 +285,18 @@ export async function requireCostDocumentBatchCreator(
   }
   const authorization = await authorizeCostDocumentIntent(ctx, {
     buildId: batch.buildId,
+    actorCapacity: input.actorCapacity,
     intent: input.intent,
     organizationId: batch.organizationId,
   });
   assertCostDocumentBatchScope(batch, authorization);
   if (batch.ownerWorkosUserId !== authorization.viewer.subject) {
+    throw new Error("The Cost Document batch is unavailable.");
+  }
+  if (
+    currentCostDocumentBatchCreatorCapacity(batch, authorization) !==
+    authorization.effectiveRole.role
+  ) {
     throw new Error("The Cost Document batch is unavailable.");
   }
   await assertCurrentCostDocumentBatchOwnerScope(ctx, {
@@ -262,11 +309,13 @@ export async function requireCostDocumentBatchCreator(
 export async function requireCostDocumentDraftCreator(
   ctx: CostDocumentAccessCtx,
   input: {
+    actorCapacity?: CostDocumentActorCapacity;
     draftId: Id<"costDocumentDrafts">;
     intent: "draft.read" | "draft.edit" | "batch.submit";
   }
 ) {
   const access = await requireCostDocumentDraftAccess(ctx, {
+    actorCapacity: input.actorCapacity,
     draftId: input.draftId,
     intent: input.intent === "batch.submit" ? "draft.edit" : input.intent,
   });
@@ -330,9 +379,9 @@ export function costDocumentDraftCapabilities(
   return {
     canDiscardBatch: creator && access.batch.state === "active",
     canEditDraft: editable,
-    // A homeowner can own and complete their own batch, but cannot project
-    // Builder-side staff access into it. Contractor creators may grant only
-    // the eligible Builder-side collaborators resolved below.
+    // Every eligible creator can invite only the Builder-side collaborators
+    // resolved below. The grant never widens the creator's allocation scope or
+    // changes authorship/provenance.
     canManageDraftCollaboration:
       creator &&
       editable &&
@@ -559,19 +608,14 @@ export async function assertCurrentCostDocumentAllocationScope(
     purpose: CostDocumentContractorScopePurpose;
   }
 ) {
-  const contractor = input.contractorProfileId
-    ? await requireExactContractorProfileProvenance(ctx, {
-        authorization: input.authorization,
-        contractorProfileId: input.contractorProfileId,
-        ownerWorkosUserId: input.ownerWorkosUserId,
-      })
-    : await resolveLinkedContractorProfile(ctx, {
-        authorization: input.authorization,
-        workosUserId: input.ownerWorkosUserId,
-      });
-  if (!contractor) {
+  if (!input.contractorProfileId) {
     return;
   }
+  const contractor = await requireExactContractorProfileProvenance(ctx, {
+    authorization: input.authorization,
+    contractorProfileId: input.contractorProfileId,
+    ownerWorkosUserId: input.ownerWorkosUserId,
+  });
   const scope = await resolveCurrentContractorCostDocumentScope(ctx, {
     authorization: input.authorization,
     purpose: input.purpose,
@@ -600,27 +644,14 @@ async function assertCurrentCostDocumentBatchOwnerScope(
     batch: Doc<"costDocumentBatches">;
   }
 ) {
-  const contractor = input.batch.contractorProfileId
-    ? await requireExactContractorProfileProvenance(ctx, {
-        authorization: input.authorization,
-        contractorProfileId: input.batch.contractorProfileId,
-        ownerWorkosUserId: input.batch.ownerWorkosUserId,
-      })
-    : await resolveLinkedContractorProfile(ctx, {
-        authorization: input.authorization,
-        workosUserId: input.batch.ownerWorkosUserId,
-      });
-  if (!contractor) {
-    if (
-      input.authorization.effectiveRole.role === "contractor" &&
-      input.batch.ownerWorkosUserId === input.authorization.viewer.subject
-    ) {
-      throw new Error(
-        "The Cost Document contractor assignment is unavailable."
-      );
-    }
+  if (!input.batch.contractorProfileId) {
     return;
   }
+  const contractor = await requireExactContractorProfileProvenance(ctx, {
+    authorization: input.authorization,
+    contractorProfileId: input.batch.contractorProfileId,
+    ownerWorkosUserId: input.batch.ownerWorkosUserId,
+  });
   const scope = await requireCurrentContractorCostDocumentScope(ctx, {
     authorization: input.authorization,
     purpose: "draft.write",
@@ -638,25 +669,14 @@ async function assertCurrentCostDocumentDraftScope(
     draft: Doc<"costDocumentDrafts">;
   }
 ) {
-  const contractor = input.draft.contractorProfileId
-    ? await requireExactContractorProfileProvenance(ctx, {
-        authorization: input.authorization,
-        contractorProfileId: input.draft.contractorProfileId,
-        ownerWorkosUserId: input.draft.ownerWorkosUserId,
-      })
-    : await resolveLinkedContractorProfile(ctx, {
-        authorization: input.authorization,
-        workosUserId: input.draft.ownerWorkosUserId,
-      });
-  if (!contractor) {
-    if (
-      input.authorization.effectiveRole.role === "contractor" &&
-      input.draft.ownerWorkosUserId === input.authorization.viewer.subject
-    ) {
-      throw new Error("The Cost Document draft is unavailable.");
-    }
+  if (!input.draft.contractorProfileId) {
     return;
   }
+  await requireExactContractorProfileProvenance(ctx, {
+    authorization: input.authorization,
+    contractorProfileId: input.draft.contractorProfileId,
+    ownerWorkosUserId: input.draft.ownerWorkosUserId,
+  });
   const allocations = await ctx.db
     .query("costDocumentDraftAllocations")
     .withIndex("by_draftId_and_order", (query) =>
@@ -939,10 +959,16 @@ export async function canReadSubmittedCostDocument(
     role === "broker" ||
     role === "broker-staff" ||
     role === "builder" ||
-    role === "builder-staff" ||
-    role === "homeowner"
+    role === "builder-staff"
   ) {
     return true;
+  }
+  if (role === "homeowner") {
+    // The dedicated governed submission flow remains visible to its Homeowner
+    // submitter. Other commercial records require an explicit collaboration
+    // share; until that canonical reference exists they must be absent from
+    // list, count, search, exact retrieval, and asset delivery.
+    return document.uploaderWorkosUserId === authorization.viewer.subject;
   }
   if (
     role !== "contractor" ||
@@ -1011,6 +1037,7 @@ export function canManageCostDocumentDraftCollaboration(
 ) {
   return (
     isBuilderCollaboratorRole(authorization.effectiveRole.role) ||
+    authorization.effectiveRole.role === "homeowner" ||
     authorization.effectiveRole.role === "contractor"
   );
 }
@@ -1026,8 +1053,38 @@ function isDraftCreator(
 ) {
   return (
     draft.ownerWorkosUserId === authorization.viewer.subject &&
-    batch.ownerWorkosUserId === authorization.viewer.subject
+    batch.ownerWorkosUserId === authorization.viewer.subject &&
+    currentCostDocumentBatchCreatorCapacity(batch, authorization) ===
+      authorization.effectiveRole.role
   );
+}
+
+export function currentCostDocumentBatchCreatorCapacity(
+  batch: Pick<
+    Doc<"costDocumentBatches">,
+    "contractorProfileId" | "creatorCapacity"
+  >,
+  authorization: ActiveBuildAuthorization
+): BuildCollaborationRole | undefined {
+  if (batch.creatorCapacity === "contractor" && !batch.contractorProfileId) {
+    return;
+  }
+  if (batch.creatorCapacity) {
+    return batch.creatorCapacity;
+  }
+  if (batch.contractorProfileId) {
+    return "contractor";
+  }
+  if (authorization.roles.includes("builder")) {
+    return "builder";
+  }
+  if (authorization.roles.includes("builder-staff")) {
+    return "builder-staff";
+  }
+  if (authorization.roles.includes("homeowner")) {
+    return "homeowner";
+  }
+  return;
 }
 
 function assertCostDocumentBatchScope(

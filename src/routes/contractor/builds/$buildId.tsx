@@ -12,7 +12,11 @@ import {
 import { BuildCollaborationWorkspace } from "#/features/build-collaboration/BuildCollaborationWorkspace.tsx";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import { CostDocumentBatchWorkspace } from "#/features/cost-documents/CostDocumentBatchWorkspace.tsx";
-import { SingleCostDocumentCapture } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
+import {
+  type CostDocumentDetail,
+  CostDocumentDetailSheet,
+} from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
+import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
 import { cn } from "#/lib/utils.ts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -20,12 +24,9 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 interface ContractorBuildSearch {
   assignmentId?: string;
   costBatch?: string;
+  costDocument?: string;
   costDocumentDraft?: string;
   focus?: string;
-}
-
-function normalizeOptionalSearchString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 export const Route = createFileRoute("/contractor/builds/$buildId")({
@@ -35,16 +36,11 @@ export const Route = createFileRoute("/contractor/builds/$buildId")({
   validateSearch: (search: Record<string, unknown>): ContractorBuildSearch => {
     const assignmentId =
       typeof search.assignmentId === "string" ? search.assignmentId : undefined;
-    const costDocumentDraft = normalizeOptionalSearchString(
-      search.costDocumentDraft
-    );
-    const costBatch =
-      !costDocumentDraft && normalizeOptionalSearchString(search.costBatch);
+    const costDocumentSearch = normalizeCostDocumentSearch(search);
     const focus = normalizeBuildCollaborationFocus(search.focus);
     return {
       ...(assignmentId ? { assignmentId } : {}),
-      ...(costBatch ? { costBatch } : {}),
-      ...(costDocumentDraft ? { costDocumentDraft } : {}),
+      ...costDocumentSearch,
       ...(focus ? { focus } : {}),
     };
   },
@@ -81,9 +77,9 @@ interface ContractorPermitDocument {
  * Active build detail (PRD §8.5). Scope-limited; raw ratings and financing
  * never reach the contractor (backend-enforced redaction).
  */
-export function ContractorBuildDetail() {
+function ContractorBuildDetail() {
   const { buildId } = Route.useParams();
-  const { assignmentId, costBatch, costDocumentDraft, focus } =
+  const { assignmentId, costBatch, costDocument, costDocumentDraft, focus } =
     Route.useSearch();
   const navigate = useNavigate();
   const routeContext = Route.useRouteContext();
@@ -536,6 +532,7 @@ export function ContractorBuildDetail() {
         <ContractorCostDocumentSection
           batchId={costBatch}
           buildId={buildId as Id<"activeBuilds">}
+          costDocumentId={costDocument}
           draftId={costDocumentDraft}
           onBatchIdChange={(nextBatchId) =>
             navigate({
@@ -544,6 +541,21 @@ export function ContractorBuildDetail() {
               search: {
                 assignmentId,
                 costBatch: nextBatchId,
+                costDocument: undefined,
+                costDocumentDraft: undefined,
+                focus,
+              },
+              to: "/contractor/builds/$buildId",
+            } as never)
+          }
+          onCostDocumentIdChange={(nextCostDocumentId) =>
+            navigate({
+              params: { buildId },
+              replace: !nextCostDocumentId,
+              search: {
+                assignmentId,
+                costBatch: undefined,
+                costDocument: nextCostDocumentId,
                 costDocumentDraft: undefined,
                 focus,
               },
@@ -597,15 +609,19 @@ export function ContractorBuildDetail() {
 function ContractorCostDocumentSection({
   batchId,
   buildId,
+  costDocumentId,
   draftId,
   onBatchIdChange,
+  onCostDocumentIdChange,
   organizationId,
   submilestones,
 }: {
   batchId?: string;
   buildId: Id<"activeBuilds">;
+  costDocumentId?: string;
   draftId?: string;
   onBatchIdChange: (batchId?: string) => void;
+  onCostDocumentIdChange: (costDocumentId?: string) => void;
   organizationId: string;
   submilestones: Array<{
     id: Id<"buildSubmilestones">;
@@ -616,6 +632,8 @@ function ContractorCostDocumentSection({
     return (
       <ContractorCostDocumentRecovery
         buildId={buildId}
+        costDocumentId={costDocumentId}
+        onCostDocumentIdChange={onCostDocumentIdChange}
         organizationId={organizationId}
       />
     );
@@ -636,6 +654,7 @@ function ContractorCostDocumentSection({
         </p>
       </div>
       <CostDocumentBatchWorkspace
+        actorCapacity="contractor"
         batchId={batchId}
         buildId={buildId}
         draftId={draftId}
@@ -645,6 +664,8 @@ function ContractorCostDocumentSection({
       />
       <ContractorSubmittedCostDocumentHistory
         buildId={buildId}
+        costDocumentId={costDocumentId}
+        onCostDocumentIdChange={onCostDocumentIdChange}
         organizationId={organizationId}
       />
     </section>
@@ -653,9 +674,13 @@ function ContractorCostDocumentSection({
 
 function ContractorCostDocumentRecovery({
   buildId,
+  costDocumentId,
+  onCostDocumentIdChange,
   organizationId,
 }: {
   buildId: Id<"activeBuilds">;
+  costDocumentId?: string;
+  onCostDocumentIdChange: (costDocumentId?: string) => void;
   organizationId: string;
 }) {
   return (
@@ -687,6 +712,8 @@ function ContractorCostDocumentRecovery({
       <ContractorSubmittedCostDocumentHistory
         buildId={buildId}
         className="mt-3"
+        costDocumentId={costDocumentId}
+        onCostDocumentIdChange={onCostDocumentIdChange}
         organizationId={organizationId}
       />
     </section>
@@ -696,19 +723,32 @@ function ContractorCostDocumentRecovery({
 function ContractorSubmittedCostDocumentHistory({
   buildId,
   className,
+  costDocumentId,
+  onCostDocumentIdChange,
   organizationId,
 }: {
   buildId: Id<"activeBuilds">;
   className?: string;
+  costDocumentId?: string;
+  onCostDocumentIdChange: (costDocumentId?: string) => void;
   organizationId: string;
 }) {
   const submittedCostDocuments = usePaginatedQuery(
     api.cost_documents.listCostDocuments,
-    { buildId, organizationId },
+    { actorCapacity: "contractor", buildId, organizationId } as never,
     { initialNumItems: 20 }
   );
-  const [selectedSubmittedCostDocumentId, setSelectedSubmittedCostDocumentId] =
-    useState<string>();
+  const selectedDocument = useQuery(
+    api.cost_documents.getCostDocument,
+    costDocumentId
+      ? ({
+          actorCapacity: "contractor",
+          buildId,
+          costDocumentId,
+          organizationId,
+        } as never)
+      : "skip"
+  ) as CostDocumentDetail | null | undefined;
   const ownSubmittedDocuments = submittedCostDocuments.results;
   const submittedDocumentsLoading =
     submittedCostDocuments.status === "LoadingFirstPage";
@@ -716,11 +756,6 @@ function ContractorSubmittedCostDocumentHistory({
     submittedCostDocuments.status === "CanLoadMore";
   const loadingMoreSubmittedDocuments =
     submittedCostDocuments.status === "LoadingMore";
-  const selectedSubmittedDocument = ownSubmittedDocuments.find(
-    (document) => document._id === selectedSubmittedCostDocumentId
-  );
-  const submittedDocumentToRead =
-    selectedSubmittedDocument ?? ownSubmittedDocuments[0];
   const shouldShowEmptyState =
     ownSubmittedDocuments.length === 0 &&
     !canLoadMoreSubmittedDocuments &&
@@ -755,30 +790,26 @@ function ContractorSubmittedCostDocumentHistory({
             <div className="grid gap-2 sm:grid-cols-2">
               {ownSubmittedDocuments.map((document) => (
                 <Button
-                  aria-pressed={document._id === submittedDocumentToRead?._id}
+                  aria-pressed={document._id === costDocumentId}
                   className="min-h-11 justify-start text-left"
                   key={document._id}
-                  onClick={() =>
-                    setSelectedSubmittedCostDocumentId(document._id)
-                  }
+                  onClick={() => onCostDocumentIdChange(String(document._id))}
                   variant={
-                    document._id === submittedDocumentToRead?._id
-                      ? "secondary"
-                      : "outline"
+                    document._id === costDocumentId ? "secondary" : "outline"
                   }
                 >
                   <span className="truncate">{document.title}</span>
                 </Button>
               ))}
             </div>
-            {submittedDocumentToRead ? (
-              <SingleCostDocumentCapture
+            {costDocumentId ? (
+              <CostDocumentDetailSheet
+                actorCapacity="contractor"
                 buildId={buildId}
-                key={submittedDocumentToRead._id}
+                document={selectedDocument}
+                interactionMode="read-only"
+                onClose={() => onCostDocumentIdChange(undefined)}
                 organizationId={organizationId}
-                readOnly
-                submilestones={[]}
-                submittedCostDocumentId={submittedDocumentToRead._id}
               />
             ) : null}
             {canLoadMoreSubmittedDocuments || loadingMoreSubmittedDocuments ? (

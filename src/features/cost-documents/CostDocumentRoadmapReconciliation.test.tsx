@@ -185,11 +185,13 @@ describe("CostDocumentRoadmapReconciliation", () => {
   let selectedDocument: ReturnType<typeof makeDetail> | null | undefined;
 
   const renderWorkspace = (input?: {
+    interactionMode?: "brokerage-review" | "read-only" | "standard";
     selectedCostDocumentId?: string;
   }) =>
     render(
       <CostDocumentRoadmapReconciliation
         buildId={"build-1" as Id<"activeBuilds">}
+        interactionMode={input?.interactionMode}
         onCloseCostDocument={onCloseCostDocument}
         onOpenCostDocument={onOpenCostDocument}
         onStartCorrection={onStartCorrection}
@@ -489,6 +491,86 @@ describe("CostDocumentRoadmapReconciliation", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Start correction" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Void record" })).toBeTruthy();
+  });
+
+  test("narrows ordinary Backoffice and Contractor detail controls without trusting capability unions", () => {
+    selectedDocument = makeDetail({
+      capabilities: {
+        canRecordBrokerageReview: true,
+        canRecordBuilderReview: true,
+        canStartCorrection: true,
+        canVoid: true,
+      },
+    });
+    const view = renderWorkspace({
+      interactionMode: "brokerage-review",
+      selectedCostDocumentId: "cost-materials",
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Record Brokerage review" })
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Record Builder review" })
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start correction" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Void record" })).toBeNull();
+
+    view.rerender(
+      <CostDocumentRoadmapReconciliation
+        buildId={"build-1" as Id<"activeBuilds">}
+        interactionMode="read-only"
+        onCloseCostDocument={onCloseCostDocument}
+        onOpenCostDocument={onOpenCostDocument}
+        organizationId="org-1"
+        selectedCostDocumentId="cost-materials"
+        submilestones={[]}
+      />
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Record Brokerage review" })
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Void record" })).toBeNull();
+  });
+
+  test("renders the redacted Homeowner ledger without inventing internal review or integrity facts", () => {
+    const redactedSummary = { ...materialsDocument } as Partial<Summary>;
+    delete redactedSummary.duplicateWarning;
+    delete redactedSummary.integrity;
+    delete redactedSummary.reviewAttention;
+    usePaginatedQuery.mockReturnValue({
+      loadMore,
+      results: [redactedSummary],
+      status: "Exhausted",
+    });
+    const redactedDetail = makeDetail() as Record<string, unknown>;
+    delete redactedDetail.duplicateWarning;
+    delete redactedDetail.integrity;
+    delete redactedDetail.reviews;
+    selectedDocument = redactedDetail as ReturnType<typeof makeDetail>;
+
+    renderWorkspace({
+      interactionMode: "read-only",
+      selectedCostDocumentId: "cost-materials",
+    });
+
+    expect(
+      screen.getAllByText("Waterproofing membrane receipt")
+    ).toHaveLength(2);
+    expect(screen.getByText("Source pages")).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Download page 1: waterproofing.pdf",
+      })
+    ).toBeTruthy();
+    expect(screen.queryByText("Reviews")).toBeNull();
+    expect(screen.queryByText("Duplicate signals")).toBeNull();
+    expect(screen.queryByText("Integrity attention")).toBeNull();
+    expect(
+      screen.queryByLabelText("Filter by review attention")
+    ).toBeNull();
+    expect(screen.queryByLabelText("Filter by file integrity")).toBeNull();
   });
 
   test("renders explicit loading and query-error recovery states", () => {

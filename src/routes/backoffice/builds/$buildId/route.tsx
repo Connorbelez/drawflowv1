@@ -4,21 +4,23 @@ import { useRef } from "react";
 import { toast } from "sonner";
 
 import { Frame, FramePanel } from "#/components/ui/frame.tsx";
-import { DocumentOperationIntentRegistry } from "#/features/backoffice-build-detail/documentOperationIntent.ts";
 import type { BuildDetailSubTab } from "#/features/backoffice-build-detail/BuildDetailTabs.tsx";
+import { DocumentOperationIntentRegistry } from "#/features/backoffice-build-detail/documentOperationIntent.ts";
 import {
   type ProductionBuildDetail,
   type ProductionBuildDetailActions,
   ProductionBuildDetailSurface,
 } from "#/features/backoffice-build-detail/ProductionBuildDetailSurface.tsx";
+import { SiteVisitScheduleIntentRegistry } from "#/features/backoffice-build-detail/siteVisitScheduleIntent.ts";
+import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import {
   canUseAppPermission,
   filterMaterialPlanningActionsForPermissions,
 } from "#/features/builder-staff/app-permissions.ts";
 import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
-import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
-import { SiteVisitScheduleIntentRegistry } from "#/features/backoffice-build-detail/siteVisitScheduleIntent.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import { CostDocumentRoadmapReconciliation } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
+import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
 import {
   getVisualParityActiveBuildDetail,
   getVisualParityActiveBuildTimelineWorkspace,
@@ -28,13 +30,15 @@ import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
-type BuildDetailSearch = {
+interface BuildDetailSearch {
+  costDocument?: string;
   focus?: string;
-  timeframe?: CalendarTimeframe;
   milestone?: string;
+  rail?: "open" | "closed";
   tab?:
     | "calendar"
     | "contractors"
+    | "costs"
     | "details"
     | "documents"
     | "evidence"
@@ -43,13 +47,15 @@ type BuildDetailSearch = {
     | "milestones"
     | "staff"
     | "timeline";
-  rail?: "open" | "closed";
-};
+  timeframe?: CalendarTimeframe;
+}
 
 export const Route = createFileRoute("/backoffice/builds/$buildId")({
   validateSearch: (search: Record<string, unknown>): BuildDetailSearch => {
+    const costDocumentSearch = normalizeCostDocumentSearch(search);
     const tab =
       search.tab === "timeline" ||
+      search.tab === "costs" ||
       search.tab === "documents" ||
       search.tab === "evidence" ||
       search.tab === "contractors" ||
@@ -83,8 +89,11 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
     if (milestone !== undefined) {
       out.milestone = milestone;
     }
-    if (tab !== undefined) {
-      out.tab = tab;
+    if (tab !== undefined || costDocumentSearch.costDocument !== undefined) {
+      out.tab = tab ?? "costs";
+    }
+    if (costDocumentSearch.costDocument !== undefined) {
+      out.costDocument = costDocumentSearch.costDocument;
     }
     if (rail !== undefined) {
       out.rail = rail;
@@ -272,7 +281,12 @@ function RouteComponent() {
     navigate({
       to: "/backoffice/builds/$buildId",
       params: { buildId },
-      search: { ...search, focus, tab },
+      search: {
+        ...search,
+        costDocument: tab === "costs" ? search.costDocument : undefined,
+        focus,
+        tab,
+      },
       replace: true,
     });
 
@@ -827,6 +841,35 @@ function RouteComponent() {
         calendarWorkspace={calendarWorkspaceQuery as any}
         contractorDetailHrefFor={(contractorId) =>
           `/backoffice/contractors/${contractorId}`
+        }
+        costs={
+          <CostDocumentRoadmapReconciliation
+            buildId={activeBuildId as Id<"activeBuilds">}
+            interactionMode="brokerage-review"
+            onCloseCostDocument={() =>
+              navigate({
+                params: { buildId },
+                replace: true,
+                search: { ...search, costDocument: undefined, tab: "costs" },
+                to: "/backoffice/builds/$buildId",
+              } as never)
+            }
+            onOpenCostDocument={(costDocument) =>
+              navigate({
+                params: { buildId },
+                replace: false,
+                search: { ...search, costDocument, tab: "costs" },
+                to: "/backoffice/builds/$buildId",
+              } as never)
+            }
+            organizationId={workosOrganizationId}
+            selectedCostDocumentId={search.costDocument}
+            submilestones={detail.submilestones.map((submilestone) => ({
+              id: submilestone._id as Id<"buildSubmilestones">,
+              label: `${submilestone.milestoneKey} · ${submilestone.name}`,
+              milestoneKey: submilestone.milestoneKey,
+            }))}
+          />
         }
         detail={detail}
         focusedReference={search.focus}

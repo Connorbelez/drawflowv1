@@ -201,6 +201,75 @@ describe("Build participant lifecycle and role-complete access", () => {
       return grants.length;
     });
     expect(principalGrantCount).toBe(0);
+
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const now = Date.now();
+      for (const participant of [
+        { role: "admin" as const, subject: "user_admin" },
+        {
+          role: "principle-broker" as const,
+          subject: "user_principal",
+        },
+      ]) {
+        await ctx.db.insert("buildParticipants", {
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          createdAt: now,
+          displayNameSnapshot: participant.subject,
+          organizationId: ORGANIZATION_ID,
+          participationPeriod: 1,
+          removedAt: now,
+          role: participant.role,
+          status: "removed",
+          updatedAt: now,
+          validFrom: now,
+          validUntil: now,
+          workosUserId: participant.subject,
+        });
+      }
+    });
+    for (const actor of [fixture.admin, principal]) {
+      await expect(readFeed(actor, fixture.buildId)).resolves.toBeDefined();
+    }
+  });
+
+  test("resolves an exact broker assignment beyond large Build assignment sets", async () => {
+    const fixture = await seedParticipantLifecycleBuilds();
+    const supportBroker = withIdentity(fixture.base, {
+      role: "broker",
+      subject: "user_support_broker",
+    });
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const now = Date.now();
+      for (let index = 0; index < 60; index += 1) {
+        await ctx.db.insert("buildBrokerAssignments", {
+          assignedBrokerWorkosUserId: `decoy_broker_${index}`,
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          createdAt: now + index,
+          organizationId: ORGANIZATION_ID,
+          role: "support",
+        });
+      }
+      await ctx.db.insert("buildBrokerAssignments", {
+        assignedBrokerWorkosUserId: "user_support_broker",
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now + 60,
+        organizationId: ORGANIZATION_ID,
+        role: "support",
+      });
+    });
+
+    await expect(readFeed(supportBroker, fixture.buildId)).resolves.toBeDefined();
   });
 
   test("invite, acceptance, removal, and reinvitation preserve immutable periods and immediately revoke access", async () => {

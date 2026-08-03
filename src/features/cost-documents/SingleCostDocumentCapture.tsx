@@ -603,6 +603,7 @@ export function formatCad(amountCents: number) {
 }
 
 export function costDocumentPageDownloadUrl(input: {
+  actorCapacity?: string;
   assetId: Id<"buildCollaborationAssets">;
   buildId: Id<"activeBuilds">;
   costDocumentId: Id<"costDocuments">;
@@ -621,5 +622,8 @@ export function costDocumentPageDownloadUrl(input: {
     costDocumentId: input.costDocumentId,
     organizationId: input.organizationId,
   });
+  if (input.actorCapacity) {
+    search.set("actorCapacity", input.actorCapacity);
+  }
   return `${siteUrl}/api/cost-documents/page?${search.toString()}`;
 }

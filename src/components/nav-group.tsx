@@ -34,6 +34,13 @@ export function NavGroup({ label, items }: SidebarNavGroup) {
           const childActive =
             item.subItems?.some((sub) => isNavItemActive(sub, pathname)) ??
             false;
+          if (!item.subItems?.length) {
+            return (
+              <SidebarMenuItem key={item.title}>
+                <NavLeafLink active={itemActive} item={item} />
+              </SidebarMenuItem>
+            );
+          }
           return (
             <Collapsible
               className="group/collapsible"
@@ -41,32 +48,26 @@ export function NavGroup({ label, items }: SidebarNavGroup) {
               key={item.title}
               render={<SidebarMenuItem />}
             >
-              {item.subItems?.length ? (
-                <>
-                  <CollapsibleTrigger
-                    render={<SidebarMenuButton isActive={itemActive} />}
-                  >
-                    {item.icon}
-                    <span>{item.title}</span>
-                    <HugeiconsIcon
-                      className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"
-                      icon={ArrowRight01Icon}
-                      strokeWidth={2}
-                    />
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <SidebarMenuSub>
-                      {item.subItems.map((sub) => (
-                        <SidebarMenuSubItem key={sub.title}>
-                          <NavSubLink item={sub} pathname={pathname} />
-                        </SidebarMenuSubItem>
-                      ))}
-                    </SidebarMenuSub>
-                  </CollapsibleContent>
-                </>
-              ) : (
-                <NavLeafLink active={itemActive} item={item} />
-              )}
+              <CollapsibleTrigger
+                render={<SidebarMenuButton isActive={itemActive} />}
+              >
+                {item.icon}
+                <span>{item.title}</span>
+                <HugeiconsIcon
+                  className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"
+                  icon={ArrowRight01Icon}
+                  strokeWidth={2}
+                />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <SidebarMenuSub>
+                  {item.subItems.map((sub) => (
+                    <SidebarMenuSubItem key={sub.title}>
+                      <NavSubLink item={sub} pathname={pathname} />
+                    </SidebarMenuSubItem>
+                  ))}
+                </SidebarMenuSub>
+              </CollapsibleContent>
             </Collapsible>
           );
         })}

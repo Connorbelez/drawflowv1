@@ -28,6 +28,7 @@ import {
 } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { CostDocumentBatchWorkspace } from "#/features/cost-documents/CostDocumentBatchWorkspace.tsx";
+import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
 import {
   getVisualParityActiveBuildDetail,
   getVisualParityActiveBuildTimelineWorkspace,
@@ -133,45 +134,6 @@ const VISUAL_ACTIVE_BUILD_STAFF_DIRECTORY: StaffDirectory = {
     },
   ],
 };
-
-function normalizeOptionalSearchString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-const CONVEX_DOCUMENT_ID_PATTERN = /^[a-z0-9]{32}$/;
-
-function normalizeCostDocumentId(value: unknown) {
-  const normalized = normalizeOptionalSearchString(value);
-  return normalized && CONVEX_DOCUMENT_ID_PATTERN.test(normalized)
-    ? normalized
-    : undefined;
-}
-
-/**
- * Cost capture, immutable-record detail, and exact Draft recovery are mutually
- * exclusive route states. Preserve the most specific context so a pasted URL
- * cannot surface a private batch alongside a selected submitted record.
- */
-export function normalizeCostDocumentSearch(
-  search: Record<string, unknown>
-): Pick<
-  BuilderBuildSearch,
-  "costBatch" | "costDocument" | "costDocumentDraft"
-> {
-  const costDocumentDraft = normalizeOptionalSearchString(
-    search.costDocumentDraft
-  );
-  const costDocument =
-    !costDocumentDraft && normalizeCostDocumentId(search.costDocument);
-  const costBatch =
-    !(costDocumentDraft || costDocument) &&
-    normalizeOptionalSearchString(search.costBatch);
-  return {
-    ...(costBatch ? { costBatch } : {}),
-    ...(costDocument ? { costDocument } : {}),
-    ...(costDocumentDraft ? { costDocumentDraft } : {}),
-  };
-}
 
 export const Route = createFileRoute("/builder/builds/$buildId/")({
   validateSearch: (search: Record<string, unknown>): BuilderBuildSearch => {

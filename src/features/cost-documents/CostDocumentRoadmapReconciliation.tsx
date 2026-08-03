@@ -71,12 +71,12 @@ interface CostDocumentSummary {
   category: "labour" | "materials";
   currency: "CAD";
   documentDate: string;
-  duplicateWarning: boolean;
+  duplicateWarning?: boolean;
   grossTotalCents: number;
-  integrity: { healthy: boolean; openExceptionKinds: string[] };
+  integrity?: { healthy: boolean; openExceptionKinds: string[] };
   kind: "invoice" | "receipt";
   lifecycle: { state: "current" | "superseded" | "voided" };
-  reviewAttention:
+  reviewAttention?:
     | "needs_correction"
     | "partially_reviewed"
     | "reviewed"
@@ -88,7 +88,10 @@ interface CostDocumentSummary {
   vendorName: string;
 }
 
-type CostDocumentDetail = CostDocumentSummary & {
+export type CostDocumentDetail = Omit<
+  CostDocumentSummary,
+  "duplicateWarning" | "integrity"
+> & {
   activity: Array<{ createdAt: number; eventType: string }>;
   capabilities: {
     canRecordBrokerageReview: boolean;
@@ -104,7 +107,7 @@ type CostDocumentDetail = CostDocumentSummary & {
     label?: string;
     order: number;
   }>;
-  integrity: {
+  integrity?: {
     healthy: boolean;
     openExceptions: Array<{
       actionRequired: boolean;
@@ -132,7 +135,7 @@ type CostDocumentDetail = CostDocumentSummary & {
     supersededByCostDocumentId?: Id<"costDocuments">;
     supersedesCostDocumentId?: Id<"costDocuments">;
   };
-  reviews: {
+  reviews?: {
     brokerage?: CostDocumentReview;
     builder?: CostDocumentReview;
   };
@@ -153,7 +156,7 @@ interface Filters {
   kind: "all" | "invoice" | "receipt";
   lifecycle: "all" | "current" | "superseded" | "voided";
   milestone: string;
-  review: CostDocumentSummary["reviewAttention"] | "all";
+  review: NonNullable<CostDocumentSummary["reviewAttention"]> | "all";
   submilestone: string;
   uploader: "all" | "other" | "self";
 }
@@ -170,8 +173,24 @@ const INITIAL_FILTERS: Filters = {
   uploader: "all",
 };
 
+export type CostDocumentInteractionMode =
+  | "brokerage-review"
+  | "read-only"
+  | "standard";
+
 export interface CostDocumentRoadmapReconciliationProps {
+  /**
+   * Pins Cost API calls and private source retrieval to the capacity selected
+   * by this Build-local surface. Authorization remains server-enforced.
+   */
+  actorCapacity?: "homeowner" | "contractor";
   buildId: Id<"activeBuilds">;
+  /**
+   * The surface-level action boundary. It can only narrow server-granted
+   * capabilities: Brokerages may record their own review, while Contractor
+   * history stays immutable and read-only.
+   */
+  interactionMode?: CostDocumentInteractionMode;
   onCloseCostDocument: () => void;
   onOpenCostDocument: (costDocumentId: string) => void;
   onStartCorrection?: (input: { batchId: string; draftId: string }) => void;
@@ -201,7 +220,9 @@ export function CostDocumentRoadmapReconciliation(
 }
 
 function CostDocumentRoadmapReconciliationContent({
+  actorCapacity,
   buildId,
+  interactionMode = "standard",
   onCloseCostDocument,
   onOpenCostDocument,
   onStartCorrection,
@@ -209,12 +230,13 @@ function CostDocumentRoadmapReconciliationContent({
   selectedCostDocumentId,
   submilestones,
 }: CostDocumentRoadmapReconciliationProps) {
+  const actorCapacityInput = actorCapacity ? { actorCapacity } : {};
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   const [search, setSearch] = useState("");
   const autoLoadBoundaryRef = useRef<number>();
   const { loadMore, results, status } = usePaginatedQuery(
     api.cost_documents.listCostDocumentRoadmapReconciliation,
-    { buildId, organizationId },
+    { buildId, organizationId, ...actorCapacityInput } as never,
     { initialNumItems: 5 }
   );
   useEffect(() => {
@@ -229,11 +251,12 @@ function CostDocumentRoadmapReconciliationContent({
   const selectedDocument = useQuery(
     api.cost_documents.getCostDocument,
     selectedCostDocumentId
-      ? {
+      ? ({
           buildId,
           costDocumentId: selectedCostDocumentId,
           organizationId,
-        }
+          ...actorCapacityInput,
+        } as never)
       : "skip"
   ) as CostDocumentDetail | null | undefined;
   const documents = results as CostDocumentSummary[];
@@ -383,55 +406,63 @@ function CostDocumentRoadmapReconciliationContent({
             ]}
             value={filters.lifecycle}
           />
-          <FilterSelect
-            id="cost-document-review-filter"
-            label="Filter by review attention"
-            onChange={(value) =>
-              updateFilters(setFilters, "review", value as Filters["review"])
-            }
-            options={[
-              ["all", "All review states"],
-              ["unreviewed", "Unreviewed"],
-              ["partially_reviewed", "Partially reviewed"],
-              ["reviewed", "Reviewed"],
-              ["needs_correction", "Needs correction"],
-            ]}
-            value={filters.review}
-          />
-          <FilterSelect
-            id="cost-document-duplicate-filter"
-            label="Filter by duplicate signal"
-            onChange={(value) =>
-              updateFilters(
-                setFilters,
-                "duplicate",
-                value as Filters["duplicate"]
-              )
-            }
-            options={[
-              ["all", "All duplicate states"],
-              ["has_duplicate", "Duplicate override"],
-              ["none", "No duplicate override"],
-            ]}
-            value={filters.duplicate}
-          />
-          <FilterSelect
-            id="cost-document-integrity-filter"
-            label="Filter by file integrity"
-            onChange={(value) =>
-              updateFilters(
-                setFilters,
-                "integrity",
-                value as Filters["integrity"]
-              )
-            }
-            options={[
-              ["all", "All integrity states"],
-              ["healthy", "Healthy files"],
-              ["attention", "Integrity attention"],
-            ]}
-            value={filters.integrity}
-          />
+          {interactionMode === "read-only" ? null : (
+            <>
+              <FilterSelect
+                id="cost-document-review-filter"
+                label="Filter by review attention"
+                onChange={(value) =>
+                  updateFilters(
+                    setFilters,
+                    "review",
+                    value as Filters["review"]
+                  )
+                }
+                options={[
+                  ["all", "All review states"],
+                  ["unreviewed", "Unreviewed"],
+                  ["partially_reviewed", "Partially reviewed"],
+                  ["reviewed", "Reviewed"],
+                  ["needs_correction", "Needs correction"],
+                ]}
+                value={filters.review}
+              />
+              <FilterSelect
+                id="cost-document-duplicate-filter"
+                label="Filter by duplicate signal"
+                onChange={(value) =>
+                  updateFilters(
+                    setFilters,
+                    "duplicate",
+                    value as Filters["duplicate"]
+                  )
+                }
+                options={[
+                  ["all", "All duplicate states"],
+                  ["has_duplicate", "Duplicate override"],
+                  ["none", "No duplicate override"],
+                ]}
+                value={filters.duplicate}
+              />
+              <FilterSelect
+                id="cost-document-integrity-filter"
+                label="Filter by file integrity"
+                onChange={(value) =>
+                  updateFilters(
+                    setFilters,
+                    "integrity",
+                    value as Filters["integrity"]
+                  )
+                }
+                options={[
+                  ["all", "All integrity states"],
+                  ["healthy", "Healthy files"],
+                  ["attention", "Integrity attention"],
+                ]}
+                value={filters.integrity}
+              />
+            </>
+          )}
           <FilterSelect
             id="cost-document-uploader-filter"
             label="Filter by uploader"
@@ -489,6 +520,7 @@ function CostDocumentRoadmapReconciliationContent({
                 group={group}
                 key={group.key}
                 onOpenCostDocument={onOpenCostDocument}
+                showInternalSignals={interactionMode !== "read-only"}
               />
             ))}
           </div>
@@ -506,8 +538,10 @@ function CostDocumentRoadmapReconciliationContent({
 
       {selectedCostDocumentId ? (
         <CostDocumentDetailSheet
+          actorCapacity={actorCapacity}
           buildId={buildId}
           document={selectedDocument}
+          interactionMode={interactionMode}
           onClose={onCloseCostDocument}
           onStartCorrection={onStartCorrection}
           organizationId={organizationId}
@@ -605,9 +639,11 @@ interface MilestoneGroup {
 function MilestoneReconciliationGroup({
   group,
   onOpenCostDocument,
+  showInternalSignals,
 }: {
   group: MilestoneGroup;
   onOpenCostDocument: (costDocumentId: string) => void;
+  showInternalSignals: boolean;
 }) {
   return (
     <Frame>
@@ -623,11 +659,13 @@ function MilestoneReconciliationGroup({
           category="materials"
           documents={group.materials}
           onOpenCostDocument={onOpenCostDocument}
+          showInternalSignals={showInternalSignals}
         />
         <CostDocumentLane
           category="labour"
           documents={group.labour}
           onOpenCostDocument={onOpenCostDocument}
+          showInternalSignals={showInternalSignals}
         />
       </FramePanel>
     </Frame>
@@ -638,10 +676,12 @@ function CostDocumentLane({
   category,
   documents,
   onOpenCostDocument,
+  showInternalSignals,
 }: {
   category: "labour" | "materials";
   documents: CostDocumentSummary[];
   onOpenCostDocument: (costDocumentId: string) => void;
+  showInternalSignals: boolean;
 }) {
   const title = category === "materials" ? "Materials" : "Labour";
   return (
@@ -664,6 +704,7 @@ function CostDocumentLane({
               document={document}
               key={document._id}
               onOpen={() => onOpenCostDocument(String(document._id))}
+              showInternalSignals={showInternalSignals}
             />
           ))
         )}
@@ -675,9 +716,11 @@ function CostDocumentLane({
 function CostDocumentCard({
   document,
   onOpen,
+  showInternalSignals,
 }: {
   document: CostDocumentSummary;
   onOpen: () => void;
+  showInternalSignals: boolean;
 }) {
   return (
     <Card
@@ -713,22 +756,24 @@ function CostDocumentCard({
           <Badge size="sm" variant="outline">
             {titleCase(document.category)}
           </Badge>
-          <Badge
-            size="sm"
-            variant={reviewBadgeVariant(document.reviewAttention)}
-          >
-            {reviewAttentionLabel(document.reviewAttention)}
-          </Badge>
-          {document.duplicateWarning ? (
+          {showInternalSignals && document.reviewAttention ? (
+            <Badge
+              size="sm"
+              variant={reviewBadgeVariant(document.reviewAttention)}
+            >
+              {reviewAttentionLabel(document.reviewAttention)}
+            </Badge>
+          ) : null}
+          {showInternalSignals && document.duplicateWarning ? (
             <Badge size="sm" variant="warning">
               Duplicate override
             </Badge>
           ) : null}
-          {document.integrity.healthy ? null : (
+          {showInternalSignals && document.integrity?.healthy === false ? (
             <Badge size="sm" variant="error">
               Integrity attention
             </Badge>
-          )}
+          ) : null}
         </div>
         <div className="space-y-1 text-muted-foreground text-xs">
           <p>
@@ -750,15 +795,19 @@ function CostDocumentCard({
   );
 }
 
-function CostDocumentDetailSheet({
+export function CostDocumentDetailSheet({
+  actorCapacity,
   buildId,
   document,
+  interactionMode = "standard",
   onClose,
   onStartCorrection,
   organizationId,
 }: {
+  actorCapacity?: "homeowner" | "contractor";
   buildId: Id<"activeBuilds">;
   document: CostDocumentDetail | null | undefined;
+  interactionMode?: CostDocumentInteractionMode;
   onClose: () => void;
   onStartCorrection?: (input: { batchId: string; draftId: string }) => void;
   organizationId: string;
@@ -800,8 +849,10 @@ function CostDocumentDetailSheet({
           </>
         ) : (
           <CostDocumentDetail
+            actorCapacity={actorCapacity}
             buildId={buildId}
             document={document}
+            interactionMode={interactionMode}
             onStartCorrection={onStartCorrection}
             organizationId={organizationId}
           />
@@ -811,17 +862,23 @@ function CostDocumentDetailSheet({
   );
 }
 
-function CostDocumentDetail({
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This canonical detail controller keeps private retrieval, role-scoped review commands, correction, voiding, and their shared error state on one live Cost Document surface.
+export function CostDocumentDetail({
+  actorCapacity,
   buildId,
   document,
+  interactionMode = "standard",
   onStartCorrection,
   organizationId,
 }: {
+  actorCapacity?: "homeowner" | "contractor";
   buildId: Id<"activeBuilds">;
   document: CostDocumentDetail;
+  interactionMode?: CostDocumentInteractionMode;
   onStartCorrection?: (input: { batchId: string; draftId: string }) => void;
   organizationId: string;
 }) {
+  const actorCapacityInput = actorCapacity ? { actorCapacity } : {};
   const { getAccessToken } = useAccessToken();
   const setReview = useMutation(
     api.cost_documents.setCostDocumentReviewAnnotation
@@ -843,6 +900,16 @@ function CostDocumentDetail({
     builder: "accepted" | "needs_correction";
   }>({ brokerage: "accepted", builder: "accepted" });
   const [voidReason, setVoidReason] = useState("");
+  const canRecordBuilderReview =
+    interactionMode === "standard" &&
+    document.capabilities.canRecordBuilderReview;
+  const canRecordBrokerageReview =
+    interactionMode !== "read-only" &&
+    document.capabilities.canRecordBrokerageReview;
+  const canStartCorrection =
+    interactionMode === "standard" && document.capabilities.canStartCorrection;
+  const canVoid =
+    interactionMode === "standard" && document.capabilities.canVoid;
 
   const recordReview = async (
     event: FormEvent<HTMLFormElement>,
@@ -862,7 +929,8 @@ function CostDocumentDetail({
         organizationId,
         outcome: reviewOutcomes[reviewType],
         reviewType,
-      });
+        ...actorCapacityInput,
+      } as never);
       setReviewAnnotations((current) => ({ ...current, [reviewType]: "" }));
     } catch (cause) {
       setActionError(messageForCostDocumentAction(cause));
@@ -883,7 +951,8 @@ function CostDocumentDetail({
         idempotencyKey,
         organizationId,
         reuseSourcePages: true,
-      });
+        ...actorCapacityInput,
+      } as never);
       onStartCorrection?.({
         batchId: String(correction.batchId),
         draftId: String(correction.draftId),
@@ -905,7 +974,8 @@ function CostDocumentDetail({
         costDocumentId: document._id,
         organizationId,
         reason: voidReason.trim(),
-      });
+        ...actorCapacityInput,
+      } as never);
       setVoidReason("");
     } catch (cause) {
       setActionError(messageForCostDocumentAction(cause));
@@ -936,6 +1006,7 @@ function CostDocumentDetail({
       }
       const response = await fetch(
         costDocumentPageDownloadUrl({
+          actorCapacity,
           assetId: page.assetId,
           buildId,
           costDocumentId: document._id,
@@ -1087,73 +1158,77 @@ function CostDocumentDetail({
           />
         </DetailSection>
 
-        <DetailSection title="Reviews">
-          <div className="space-y-3">
-            <ReviewSummary
-              label="Builder review"
-              review={document.reviews.builder}
-            />
-            <ReviewSummary
-              label="Brokerage review"
-              review={document.reviews.brokerage}
-            />
-          </div>
-          <div className="mt-4 grid gap-4">
-            {document.capabilities.canRecordBuilderReview ? (
-              <ReviewForm
-                annotation={reviewAnnotations.builder}
-                onAnnotationChange={(value) =>
-                  setReviewAnnotations((current) => ({
-                    ...current,
-                    builder: value,
-                  }))
-                }
-                onOutcomeChange={(value) =>
-                  setReviewOutcomes((current) => ({
-                    ...current,
-                    builder: value as "accepted" | "needs_correction",
-                  }))
-                }
-                onSubmit={(event) => recordReview(event, "builder")}
-                outcome={reviewOutcomes.builder}
-                reviewType="builder"
+        {interactionMode === "read-only" || !document.reviews ? null : (
+          <DetailSection title="Reviews">
+            <div className="space-y-3">
+              <ReviewSummary
+                label="Builder review"
+                review={document.reviews.builder}
               />
-            ) : null}
-            {document.capabilities.canRecordBrokerageReview ? (
-              <ReviewForm
-                annotation={reviewAnnotations.brokerage}
-                onAnnotationChange={(value) =>
-                  setReviewAnnotations((current) => ({
-                    ...current,
-                    brokerage: value,
-                  }))
-                }
-                onOutcomeChange={(value) =>
-                  setReviewOutcomes((current) => ({
-                    ...current,
-                    brokerage: value as "accepted" | "needs_correction",
-                  }))
-                }
-                onSubmit={(event) => recordReview(event, "brokerage")}
-                outcome={reviewOutcomes.brokerage}
-                reviewType="brokerage"
+              <ReviewSummary
+                label="Brokerage review"
+                review={document.reviews.brokerage}
               />
-            ) : null}
-          </div>
-        </DetailSection>
+            </div>
+            <div className="mt-4 grid gap-4">
+              {canRecordBuilderReview ? (
+                <ReviewForm
+                  annotation={reviewAnnotations.builder}
+                  onAnnotationChange={(value) =>
+                    setReviewAnnotations((current) => ({
+                      ...current,
+                      builder: value,
+                    }))
+                  }
+                  onOutcomeChange={(value) =>
+                    setReviewOutcomes((current) => ({
+                      ...current,
+                      builder: value as "accepted" | "needs_correction",
+                    }))
+                  }
+                  onSubmit={(event) => recordReview(event, "builder")}
+                  outcome={reviewOutcomes.builder}
+                  reviewType="builder"
+                />
+              ) : null}
+              {canRecordBrokerageReview ? (
+                <ReviewForm
+                  annotation={reviewAnnotations.brokerage}
+                  onAnnotationChange={(value) =>
+                    setReviewAnnotations((current) => ({
+                      ...current,
+                      brokerage: value,
+                    }))
+                  }
+                  onOutcomeChange={(value) =>
+                    setReviewOutcomes((current) => ({
+                      ...current,
+                      brokerage: value as "accepted" | "needs_correction",
+                    }))
+                  }
+                  onSubmit={(event) => recordReview(event, "brokerage")}
+                  outcome={reviewOutcomes.brokerage}
+                  reviewType="brokerage"
+                />
+              ) : null}
+            </div>
+          </DetailSection>
+        )}
 
-        <DetailSection title="Duplicate signals">
-          {document.duplicateWarning ? (
-            <p className="text-sm">
-              A likely-duplicate check was overridden with this reason:{" "}
-              {document.duplicateWarning.reason}
-            </p>
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              No duplicate override was recorded for this Cost Document.
-            </p>
-          )}
-        </DetailSection>
+        {interactionMode === "read-only" ? null : (
+          <DetailSection title="Duplicate signals">
+            {document.duplicateWarning ? (
+              <p className="text-sm">
+                A likely-duplicate check was overridden with this reason:{" "}
+                {document.duplicateWarning.reason}
+              </p>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No duplicate override was recorded for this Cost Document.
+              </p>
+            )}
+          </DetailSection>
+        )}
 
         <DetailSection title="Revision and void history">
           <DefinitionList
@@ -1181,12 +1256,12 @@ function CostDocumentDetail({
             ]}
           />
           <div className="mt-4 space-y-3">
-            {document.capabilities.canStartCorrection && onStartCorrection ? (
+            {canStartCorrection && onStartCorrection ? (
               <Button onClick={beginCorrection} type="button" variant="outline">
                 Start correction
               </Button>
             ) : null}
-            {document.capabilities.canVoid ? (
+            {canVoid ? (
               <form className="space-y-2" onSubmit={voidRecord}>
                 <Field>
                   <FieldLabel htmlFor="cost-document-void-reason">
@@ -1247,9 +1322,10 @@ function CostDocumentDetail({
           </p>
           <div className="space-y-2">
             {document.pages.map((page) => {
-              const integrityException = document.integrity.openExceptions.find(
-                (exception) => exception.assetId === page.assetId
-              );
+              const integrityException =
+                document.integrity?.openExceptions.find(
+                  (exception) => exception.assetId === page.assetId
+                );
               return (
                 <Card key={page.assetId}>
                   <CardPanel className="flex flex-wrap items-center justify-between gap-3 p-3">
@@ -1470,8 +1546,8 @@ function matchesFilters(
         : !document.duplicateWarning)) &&
     (filters.integrity === "all" ||
       (filters.integrity === "healthy"
-        ? document.integrity.healthy
-        : !document.integrity.healthy)) &&
+        ? document.integrity?.healthy === true
+        : document.integrity?.healthy === false)) &&
     (filters.uploader === "all" ||
       document.uploaderScope === filters.uploader) &&
     (filters.milestone === "all" ||
@@ -1553,7 +1629,9 @@ function updateFilters<Key extends keyof Filters>(
 }
 
 function reviewBadgeVariant(
-  review: CostDocumentSummary["reviewAttention"] | CostDocumentReview["outcome"]
+  review:
+    | NonNullable<CostDocumentSummary["reviewAttention"]>
+    | CostDocumentReview["outcome"]
 ) {
   if (review === "needs_correction") {
     return "warning" as const;
@@ -1565,7 +1643,9 @@ function reviewBadgeVariant(
 }
 
 function reviewAttentionLabel(
-  review: CostDocumentSummary["reviewAttention"] | CostDocumentReview["outcome"]
+  review:
+    | NonNullable<CostDocumentSummary["reviewAttention"]>
+    | CostDocumentReview["outcome"]
 ) {
   if (review === "needs_correction") {
     return "Needs correction";

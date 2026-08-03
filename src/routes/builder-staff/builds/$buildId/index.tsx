@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { normalizeBuildCollaborationFocus } from "#/features/build-collaboration/referenceFocus.ts";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
 import {
   type BuilderBuildSearch,
   BuilderBuildWorkspaceRoute,
-  normalizeCostDocumentSearch,
 } from "#/routes/builder/builds/$buildId/index.tsx";
 
 export const Route = createFileRoute("/builder-staff/builds/$buildId/")({

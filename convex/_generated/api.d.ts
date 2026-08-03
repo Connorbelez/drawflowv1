@@ -165,6 +165,7 @@ import type * as todos from "../todos.js";
 import type * as types from "../types.js";
 import type * as workosManagement from "../workosManagement.js";
 import type * as workosProjection from "../workosProjection.js";
+import type * as workos_permission_access from "../workos_permission_access.js";
 
 import type {
   ApiFromModules,
@@ -330,6 +331,7 @@ declare const fullApi: ApiFromModules<{
   types: typeof types;
   workosManagement: typeof workosManagement;
   workosProjection: typeof workosProjection;
+  workos_permission_access: typeof workos_permission_access;
 }>;
 
 /**

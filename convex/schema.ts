@@ -7114,6 +7114,9 @@ export default defineSchema({
     organizationId: v.string(),
     buildId: v.id("activeBuilds"),
     ownerWorkosUserId: v.string(),
+    // Capacity is durable provenance. A shared identity may hold independent
+    // Homeowner, Builder, Builder Staff, and Contractor working batches.
+    creatorCapacity: v.optional(buildCollaborationRoleValidator),
     contractorProfileId: v.optional(v.id("contractorProfiles")),
     correctionSourceCostDocumentId: v.optional(v.id("costDocuments")),
     state: costDocumentBatchStateValidator,
@@ -7129,6 +7132,12 @@ export default defineSchema({
     .index("by_buildId_and_ownerWorkosUserId_and_state", [
       "buildId",
       "ownerWorkosUserId",
+      "state",
+    ])
+    .index("by_buildId_and_ownerWorkosUserId_and_creatorCapacity_and_state", [
+      "buildId",
+      "ownerWorkosUserId",
+      "creatorCapacity",
       "state",
     ])
     .index("by_organizationId_and_createIdempotencyKey", [

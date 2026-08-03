@@ -583,6 +583,17 @@ describe("Cost Document public contract", () => {
     await expect(
       createBatch(wrongBrokerageFixture, "create-corrupt-brokerage-retry")
     ).rejects.toThrow("Cost Document batch is unavailable");
+
+    await expect(
+      wrongBrokerageFixture.builder.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          actorCapacity: "homeowner",
+          buildId: wrongBrokerageFixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("The Cost Document is unavailable.");
   });
 
   test("round-trips canonical owner-private working state and rejects malformed snapshots", async () => {
@@ -1975,6 +1986,611 @@ describe("Cost Document public contract", () => {
     ]);
   });
 
+  test("pins a shared identity to its explicit Homeowner Cost capacity", async () => {
+    const fixture = await seedFixture();
+    await addActiveBuildParticipant(fixture, {
+      role: "homeowner",
+      subject: "admin",
+    });
+
+    await expect(
+      fixture.admin.query(
+        (api as any).cost_documents.listCostDocumentSubmilestoneOptions,
+        {
+          actorCapacity: "homeowner",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toEqual([
+      {
+        id: fixture.buildSubmilestoneId,
+        label: "foundation · Footings",
+        milestoneKey: "foundation",
+      },
+    ]);
+    await expect(
+      fixture.admin.query(
+        (api as any).cost_documents.listCostDocumentSubmilestoneOptions,
+        {
+          actorCapacity: "contractor",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("The Cost Document is unavailable.");
+    await expect(
+      fixture.admin.mutation(
+        (api as any).cost_documents.createCostDocumentBatch,
+        {
+          buildId: fixture.buildId,
+          idempotencyKey: "shared-identity-without-capacity",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("draft is unavailable");
+    const batchId = await fixture.admin.mutation(
+      (api as any).cost_documents.createCostDocumentBatch,
+      {
+        actorCapacity: "homeowner",
+        buildId: fixture.buildId,
+        idempotencyKey: "shared-identity-homeowner-capacity",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    await expect(
+      fixture.admin.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          actorCapacity: "homeowner",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toMatchObject({ _id: batchId, state: "active" });
+  });
+
+  test("prefers an active Builder owner link over an active staff link", async () => {
+    const fixture = await seedFixture();
+    const subject = "dual_builder_capacity";
+    const actor = withIdentity(fixture.base, {
+      roles: ["builder", "builder-staff"],
+      subject,
+    });
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Missing dual-link Cost Document Build fixture");
+      }
+      const now = Date.now();
+      await ctx.db.insert("builderAccountLinks", {
+        assignedEmail: `${subject}@example.com`,
+        brokerageId: build.brokerageId,
+        builderProfileId: build.builderProfileId,
+        createdAt: now,
+        role: "staff",
+        status: "active",
+        updatedAt: now,
+        workosUserId: subject,
+      });
+      await ctx.db.insert("builderAccountLinks", {
+        assignedEmail: `${subject}@example.com`,
+        brokerageId: build.brokerageId,
+        builderProfileId: build.builderProfileId,
+        createdAt: now + 1,
+        role: "owner",
+        status: "active",
+        updatedAt: now + 1,
+        workosUserId: subject,
+      });
+    });
+
+    await expect(
+      actor.query(
+        (api as any).cost_documents.listCostDocumentSubmilestoneOptions,
+        {
+          actorCapacity: "builder",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toEqual([
+      {
+        id: fixture.buildSubmilestoneId,
+        label: "foundation · Footings",
+        milestoneKey: "foundation",
+      },
+    ]);
+  });
+
+  test("keeps active Cost batches independent across a shared Homeowner and Contractor identity", async () => {
+    const fixture = await seedFixture();
+    await addActiveBuildParticipant(fixture, {
+      role: "homeowner",
+      subject: "admin",
+    });
+    const contractorScope = await addQualifyingContractor(fixture, "admin");
+    const sharedActor = withIdentity(fixture.base, {
+      roles: ["admin", "principle-broker", "contractor"],
+      subject: "admin",
+    });
+
+    const contractorBatchId = (await sharedActor.mutation(
+      (api as any).cost_documents.createCostDocumentBatch,
+      {
+        actorCapacity: "contractor",
+        buildId: fixture.buildId,
+        idempotencyKey: "shared-contractor-capacity-batch",
+        organizationId: ORGANIZATION_ID,
+      }
+    )) as Id<"costDocumentBatches">;
+    const homeownerBatchId = (await sharedActor.mutation(
+      (api as any).cost_documents.createCostDocumentBatch,
+      {
+        actorCapacity: "homeowner",
+        buildId: fixture.buildId,
+        idempotencyKey: "shared-homeowner-capacity-batch",
+        organizationId: ORGANIZATION_ID,
+      }
+    )) as Id<"costDocumentBatches">;
+
+    expect(homeownerBatchId).not.toBe(contractorBatchId);
+    await expect(
+      sharedActor.mutation(
+        (api as any).cost_documents.createCostDocumentBatch,
+        {
+          actorCapacity: "homeowner",
+          buildId: fixture.buildId,
+          idempotencyKey: "shared-contractor-capacity-batch",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("batch is unavailable");
+    await expect(
+      sharedActor.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          actorCapacity: "contractor",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toMatchObject({ _id: contractorBatchId });
+    await expect(
+      sharedActor.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          actorCapacity: "homeowner",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toMatchObject({ _id: homeownerBatchId });
+    const [contractorBatch, homeownerBatch] = await fixture.base.run(
+      async (ctx) =>
+        await Promise.all([
+          ctx.db.get(contractorBatchId),
+          ctx.db.get(homeownerBatchId),
+        ])
+    );
+    expect(contractorBatch).toMatchObject({
+      contractorProfileId: contractorScope.contractorId,
+      creatorCapacity: "contractor",
+    });
+    expect(homeownerBatch).toMatchObject({
+      creatorCapacity: "homeowner",
+    });
+    expect(homeownerBatch?.contractorProfileId).toBeUndefined();
+    const capacityAuditRoles = await fixture.base.run(async (ctx) => {
+      const [contractorEvents, homeownerEvents] = await Promise.all([
+        ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (query) =>
+            query
+              .eq("entityType", "costDocumentBatch")
+              .eq("entityId", String(contractorBatchId))
+          )
+          .collect(),
+        ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (query) =>
+            query
+              .eq("entityType", "costDocumentBatch")
+              .eq("entityId", String(homeownerBatchId))
+          )
+          .collect(),
+      ]);
+      return [contractorEvents[0]?.actorRole, homeownerEvents[0]?.actorRole];
+    });
+    expect(capacityAuditRoles).toEqual(["contractor", "homeowner"]);
+    const homeownerDraftId = (await sharedActor.mutation(
+      (api as any).cost_documents.addCostDocumentDraft,
+      {
+        actorCapacity: "homeowner",
+        batchId: homeownerBatchId,
+        category: "materials",
+        kind: "receipt",
+      }
+    )) as Id<"costDocumentDrafts">;
+    const homeownerAssetId = await stageDraftAsset(
+      fixture,
+      homeownerDraftId,
+      "homeowner-shared-capacity-receipt.pdf",
+      sharedActor,
+      true
+    );
+    await sharedActor.mutation(
+      (api as any).build_collaboration_assets
+        .abandonMyBuildCollaborationAssets,
+      {
+        assetIds: [homeownerAssetId],
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        reason: "Legacy-session capacity audit regression",
+      }
+    );
+    const sourceAssetAuditRoles = await fixture.base.run(async (ctx) => {
+      const asset = await ctx.db.get(homeownerAssetId);
+      if (!asset?.stagingSessionId) {
+        throw new Error("Missing Homeowner source staging provenance");
+      }
+      const [sessionEvents, assetEvents] = await Promise.all([
+        ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (query) =>
+            query
+              .eq("entityType", "buildCollaborationAssetStagingSession")
+              .eq("entityId", String(asset.stagingSessionId))
+          )
+          .collect(),
+        ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (query) =>
+            query
+              .eq("entityType", "buildCollaborationAsset")
+              .eq("entityId", String(homeownerAssetId))
+          )
+          .collect(),
+      ]);
+      return {
+        assetRoles: assetEvents.flatMap((event) =>
+          event.actorRole ? [event.actorRole] : []
+        ),
+        sessionRoles: sessionEvents.flatMap((event) =>
+          event.actorRole ? [event.actorRole] : []
+        ),
+      };
+    });
+    expect(sourceAssetAuditRoles).toEqual({
+      assetRoles: ["homeowner", "homeowner"],
+      sessionRoles: ["homeowner"],
+    });
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(contractorBatchId, {
+        contractorProfileId: undefined,
+      });
+    });
+    await expect(
+      sharedActor.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          actorCapacity: "contractor",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toBeNull();
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(contractorScope.contractorId, {
+        status: "inactive",
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      sharedActor.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          actorCapacity: "homeowner",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toMatchObject({ _id: homeownerBatchId });
+    await expect(
+      sharedActor.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          actorCapacity: "contractor",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow();
+  });
+
+  test("recovers a pre-capacity active batch without creating a duplicate", async () => {
+    const fixture = await seedFixture();
+    const legacyBatchId = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Missing legacy Cost Document Build fixture");
+      }
+      const now = Date.now();
+      const legacyBatchId = await ctx.db.insert("costDocumentBatches", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        ownerWorkosUserId: "builder_owner",
+        revision: 1,
+        state: "active",
+        updatedAt: now,
+      });
+      for (let index = 1; index <= 6; index += 1) {
+        await ctx.db.insert("costDocumentBatches", {
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          createdAt: now + index,
+          creatorCapacity: "homeowner",
+          organizationId: ORGANIZATION_ID,
+          ownerWorkosUserId: "builder_owner",
+          revision: 1,
+          state: "active",
+          updatedAt: now + index,
+        });
+      }
+      return legacyBatchId;
+    });
+
+    await expect(
+      fixture.builder.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toMatchObject({ _id: legacyBatchId });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.createCostDocumentBatch,
+        {
+          buildId: fixture.buildId,
+          idempotencyKey: "recover-legacy-capacity-batch",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toBe(legacyBatchId);
+    const activeBatches = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("costDocumentBatches")
+        .withIndex("by_buildId_and_ownerWorkosUserId_and_state", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq("ownerWorkosUserId", "builder_owner")
+            .eq("state", "active")
+        )
+        .collect()
+    );
+    expect(
+      activeBatches.filter((batch) => batch.creatorCapacity === undefined)
+    ).toHaveLength(1);
+  });
+
+  test("recovers a pre-capacity Homeowner batch without widening or duplicating it", async () => {
+    const fixture = await seedFixture();
+    const homeowner = withIdentity(fixture.base, {
+      roles: ["homeowner"],
+      subject: "legacy_homeowner",
+    });
+    await addActiveBuildParticipant(fixture, {
+      role: "homeowner",
+      subject: "legacy_homeowner",
+    });
+    const legacyBatchId = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Missing legacy Homeowner Cost Document Build fixture");
+      }
+      const now = Date.now();
+      return await ctx.db.insert("costDocumentBatches", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        ownerWorkosUserId: "legacy_homeowner",
+        revision: 1,
+        state: "active",
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      homeowner.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          actorCapacity: "homeowner",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toMatchObject({ _id: legacyBatchId });
+    await expect(
+      homeowner.mutation(
+        (api as any).cost_documents.createCostDocumentBatch,
+        {
+          actorCapacity: "homeowner",
+          buildId: fixture.buildId,
+          idempotencyKey: "recover-legacy-homeowner-capacity-batch",
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toBe(legacyBatchId);
+  });
+
+  test("preserves valid shared derived capacities after an unrelated role is removed", async () => {
+    const fixture = await seedFixture();
+    await addQualifyingContractor(fixture, "builder_owner");
+    const sharedBuilderContractor = withIdentity(fixture.base, {
+      roles: ["builder", "contractor"],
+      subject: "builder_owner",
+    });
+
+    await expect(
+      sharedBuilderContractor.query(
+        (api as any).cost_documents.listCostDocumentSubmilestoneOptions,
+        {
+          actorCapacity: "contractor",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toEqual([
+      expect.objectContaining({ id: fixture.buildSubmilestoneId }),
+    ]);
+    await expect(
+      sharedBuilderContractor.query(
+        (api as any).build_participants.getMyBuildParticipationScope,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          workspaceRole: "contractor",
+        }
+      )
+    ).resolves.toMatchObject({ role: "contractor" });
+
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Missing Cost Document fixture build");
+      }
+      const now = Date.now();
+      await ctx.db.insert("buildParticipants", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        displayNameSnapshot: "Former homeowner capacity",
+        organizationId: ORGANIZATION_ID,
+        participationPeriod: 1,
+        removedAt: now,
+        role: "homeowner",
+        status: "removed",
+        updatedAt: now,
+        validFrom: now,
+        validUntil: now,
+        workosUserId: "builder_owner",
+      });
+    });
+
+    await expect(
+      sharedBuilderContractor.query(
+        (api as any).cost_documents.listCostDocumentSubmilestoneOptions,
+        {
+          actorCapacity: "builder",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toHaveLength(1);
+    await expect(
+      sharedBuilderContractor.query(
+        (api as any).cost_documents.listCostDocumentSubmilestoneOptions,
+        {
+          actorCapacity: "homeowner",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("The Cost Document is unavailable.");
+  });
+
+  test("applies the live Backoffice proposal-read policy to the canonical Cost ledger", async () => {
+    const fixture = await seedFixture();
+    const unassignedBroker = withIdentity(fixture.base, {
+      roles: ["broker"],
+      subject: "policy_cost_broker",
+    });
+    const brokerStaff = withIdentity(fixture.base, {
+      roles: ["broker-staff"],
+      subject: "policy_cost_staff",
+    });
+    const input = {
+      buildId: fixture.buildId,
+      organizationId: ORGANIZATION_ID,
+      paginationOpts: { cursor: null, numItems: 5 },
+    };
+
+    await expect(
+      brokerStaff.query(
+        (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+        input
+      )
+    ).rejects.toThrow("Forbidden");
+    await expect(
+      unassignedBroker.query(
+        (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+        input
+      )
+    ).rejects.toThrow("Forbidden");
+
+    const roleId = await fixture.base.run(async (ctx) =>
+      ctx.db.insert("workosOrganizationRoles", {
+        name: "Broker Staff",
+        permissionSlugs: ["proposals:read"],
+        resourceTypeSlug: "organization",
+        slug: "broker-staff",
+        sourceEventId: "eng-395-cost-policy",
+        sourceEventType: "test.seed",
+        status: "active",
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    );
+    await expect(
+      brokerStaff.query(
+        (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+        input
+      )
+    ).resolves.toMatchObject({ isDone: true, page: [] });
+
+    const brokerRoleId = await fixture.base.run(async (ctx) =>
+      ctx.db.insert("workosOrganizationRoles", {
+        name: "Broker",
+        permissionSlugs: ["proposals:read"],
+        resourceTypeSlug: "organization",
+        slug: "broker",
+        sourceEventId: "eng-395-broker-cost-policy",
+        sourceEventType: "test.seed",
+        status: "active",
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    );
+    await expect(
+      unassignedBroker.query(
+        (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+        input
+      )
+    ).resolves.toMatchObject({ isDone: true, page: [] });
+
+    await fixture.base.run(async (ctx) => {
+      await Promise.all([
+        ctx.db.patch(roleId, { status: "deleted" }),
+        ctx.db.patch(brokerRoleId, { status: "deleted" }),
+      ]);
+    });
+    await expect(
+      brokerStaff.query(
+        (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+        input
+      )
+    ).rejects.toThrow("Forbidden");
+    await expect(
+      unassignedBroker.query(
+        (api as any).cost_documents.listCostDocumentRoadmapReconciliation,
+        input
+      )
+    ).rejects.toThrow("Forbidden");
+  });
+
   test("enforces the active-role submitted-document and asset matrix, including homeowner ownership and contractor uploader isolation", async () => {
     const fixture = await seedFixture();
     const builderStaff = await addEligibleBuilderStaff(
@@ -2061,17 +2677,29 @@ describe("Cost Document public contract", () => {
       },
       homeowner
     );
-    await completeDraft(fixture, homeownerDraftId, homeowner);
     await expect(
       homeowner.mutation(
         (api as any).cost_documents.grantCostDocumentDraftCollaborator,
         {
+          actorCapacity: "homeowner",
           collaboratorWorkosUserId: "builder_staff_matrix",
           draftId: homeownerDraftId,
           expectedRevision: await draftRevision(fixture, homeownerDraftId),
         }
       )
-    ).rejects.toThrow("unavailable");
+    ).resolves.toMatchObject({
+      draftId: homeownerDraftId,
+      revision: expect.any(Number),
+    });
+    await expect(
+      builderStaff.query((api as any).cost_documents.getCostDocumentDraft, {
+        actorCapacity: "builder-staff",
+        buildId: fixture.buildId,
+        draftId: homeownerDraftId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toMatchObject({ _id: homeownerDraftId });
+    await completeDraft(fixture, homeownerDraftId, homeowner);
     await expect(
       builderStaff.mutation(
         (api as any).cost_documents.submitCostDocumentBatch,
@@ -2082,17 +2710,137 @@ describe("Cost Document public contract", () => {
         }
       )
     ).rejects.toThrow("unavailable");
-    await expect(
-      homeowner.mutation((api as any).cost_documents.submitCostDocumentBatch, {
+    const homeownerSubmission = await homeowner.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
         batchId: homeownerBatchId,
         expectedRevision: await batchRevision(fixture, homeownerBatchId),
         idempotencyKey: "homeowner-owned-submit",
-      })
-    ).resolves.toMatchObject({
+      }
+    );
+    expect(homeownerSubmission).toMatchObject({
       batchId: homeownerBatchId,
       costDocumentIds: [expect.any(String)],
       replayed: false,
     });
+    const homeownerCostDocumentId = homeownerSubmission
+      .costDocumentIds[0] as Id<"costDocuments">;
+    await fixture.builder.mutation(
+      (api as any).cost_documents.setCostDocumentReviewAnnotation,
+      {
+        annotation: "Internal Builder review must stay private.",
+        buildId: fixture.buildId,
+        costDocumentId: homeownerCostDocumentId,
+        organizationId: ORGANIZATION_ID,
+        outcome: "needs_correction",
+        reviewType: "builder",
+      }
+    );
+    await fixture.admin.mutation(
+      (api as any).cost_documents.setCostDocumentReviewAnnotation,
+      {
+        annotation: "Internal Brokerage review must stay private.",
+        buildId: fixture.buildId,
+        costDocumentId: homeownerCostDocumentId,
+        organizationId: ORGANIZATION_ID,
+        outcome: "accepted",
+        reviewType: "brokerage",
+      }
+    );
+    await fixture.base.run(async (ctx) => {
+      const [document, page] = await Promise.all([
+        ctx.db.get(homeownerCostDocumentId),
+        ctx.db
+          .query("costDocumentPages")
+          .withIndex("by_costDocumentId_and_order", (query) =>
+            query.eq("costDocumentId", homeownerCostDocumentId)
+          )
+          .first(),
+      ]);
+      if (!(document && page)) {
+        throw new Error("Missing Homeowner submitted projection fixture");
+      }
+      const now = Date.now();
+      await ctx.db.patch(document._id, {
+        duplicateOverrideReason: "Internal duplicate adjudication",
+      });
+      await ctx.db.insert("costDocumentIntegrityExceptions", {
+        actionRequired: true,
+        assetId: page.assetId,
+        brokerageId: document.brokerageId,
+        buildId: document.buildId,
+        costDocumentId: document._id,
+        createdAt: now,
+        expectedHashSha256: page.contentHashSha256Snapshot,
+        kind: "quarantined",
+        organizationId: document.organizationId,
+        pageId: page._id,
+      });
+      for (let index = 0; index < 60; index += 1) {
+        await ctx.db.insert("auditEvents", {
+          actorRole: "broker",
+          actorRoles: ["broker"],
+          actorWorkosUserId: "internal_reviewer",
+          brokerageId: document.brokerageId,
+          command: "internalCostReview",
+          createdAt: now + index,
+          entityId: String(document._id),
+          entityType: "costDocument",
+          eventType: "cost_document.internal_reviewed",
+          organizationId: document.organizationId,
+          warnings: [],
+        });
+      }
+    });
+    const homeownerDocument = await homeowner.query(
+      (api as any).cost_documents.getCostDocument,
+      {
+        actorCapacity: "homeowner",
+        buildId: fixture.buildId,
+        costDocumentId: homeownerCostDocumentId,
+        organizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(homeownerDocument).toMatchObject({
+      activity: [expect.objectContaining({ eventType: "cost_document.submitted" })],
+      capabilities: {
+        canRecordBrokerageReview: false,
+        canRecordBuilderReview: false,
+        canStartCorrection: false,
+        canVoid: false,
+      },
+    });
+    expect(homeownerDocument).not.toHaveProperty("duplicateWarning");
+    expect(homeownerDocument).not.toHaveProperty("integrity");
+    expect(homeownerDocument).not.toHaveProperty("reviews");
+    expect(
+      homeownerDocument.activity.map((event: { eventType: string }) =>
+        event.eventType
+      )
+    ).toEqual(["cost_document.submitted"]);
+    await expect(
+      homeowner.mutation(
+        (api as any).cost_documents.setCostDocumentReviewAnnotation,
+        {
+          actorCapacity: "homeowner",
+          annotation: "Homeowner must not author an authoritative review.",
+          buildId: fixture.buildId,
+          costDocumentId: homeownerCostDocumentId,
+          organizationId: ORGANIZATION_ID,
+          outcome: "accepted",
+          reviewType: "builder",
+        }
+      )
+    ).rejects.toThrow("review is unavailable");
+    await expect(
+      homeowner.mutation((api as any).cost_documents.voidCostDocument, {
+        actorCapacity: "homeowner",
+        buildId: fixture.buildId,
+        costDocumentId: homeownerCostDocumentId,
+        organizationId: ORGANIZATION_ID,
+        reason: "Homeowner submitted history stays immutable.",
+      })
+    ).rejects.toThrow("lifecycle action is unavailable");
 
     const builderBatchId = await createBatch(fixture, "submitted-role-matrix");
     const builderDraftId = await addDraft(fixture, builderBatchId);
@@ -2130,7 +2878,6 @@ describe("Cost Document public contract", () => {
       fixture.admin,
       fixture.builder,
       builderStaff,
-      homeowner,
       principleBroker,
       broker,
       brokerStaff,
@@ -2188,6 +2935,61 @@ describe("Cost Document public contract", () => {
         )
       ).resolves.toContain("http");
     }
+
+    await expect(
+      homeowner.query((api as any).cost_documents.getCostDocument, {
+        actorCapacity: "homeowner",
+        buildId: fixture.buildId,
+        costDocumentId: builderCostDocumentId,
+        organizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toBeNull();
+    await expect(
+      homeowner.query((api as any).cost_documents.listCostDocuments, {
+        actorCapacity: "homeowner",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      })
+    ).resolves.toMatchObject({
+      page: [expect.objectContaining({ _id: homeownerCostDocumentId })],
+    });
+    const homeownerList = await homeowner.query(
+      (api as any).cost_documents.listCostDocuments,
+      {
+        actorCapacity: "homeowner",
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      }
+    );
+    expect(
+      homeownerList.page.map(
+        (item: { _id: Id<"costDocuments"> }) => item._id
+      )
+    ).not.toContain(builderCostDocumentId);
+    await expect(
+      homeowner.query(
+        (api as any).build_collaboration_assets
+          .listBuildCollaborationAssetStatuses,
+        {
+          assetIds: [builderAssetId],
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toEqual([]);
+    await expect(
+      homeowner.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId: builderAssetId,
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow("asset is unavailable");
 
     await expect(
       contractor.query((api as any).cost_documents.getCostDocument, {
@@ -3364,7 +4166,15 @@ describe("Cost Document public contract", () => {
       },
     });
 
-    await fixture.admin.mutation((api as any).cost_documents.voidCostDocument, {
+    await expect(
+      fixture.admin.mutation((api as any).cost_documents.voidCostDocument, {
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+        reason: "An ordinary Backoffice session cannot silently override.",
+      })
+    ).rejects.toThrow("lifecycle action is unavailable");
+    await fixture.builder.mutation((api as any).cost_documents.voidCostDocument, {
       buildId: fixture.buildId,
       costDocumentId: submitted.costDocumentId,
       organizationId: ORGANIZATION_ID,
@@ -3408,7 +4218,7 @@ describe("Cost Document public contract", () => {
     expect(retained.allocations).toHaveLength(1);
     expect(retained.pages).toHaveLength(1);
     await expect(
-      fixture.admin.mutation((api as any).cost_documents.voidCostDocument, {
+      fixture.builder.mutation((api as any).cost_documents.voidCostDocument, {
         buildId: fixture.buildId,
         costDocumentId: submitted.costDocumentId,
         organizationId: ORGANIZATION_ID,
@@ -4403,6 +5213,7 @@ async function stageAsset(
   context: {
     contextKind?: "composer" | "costDocumentDraft";
     contextRecordId?: string;
+    legacySessionWithoutCapacity?: boolean;
   } = {},
   actor: CostDocumentActor = fixture.builder
 ) {
@@ -4418,6 +5229,13 @@ async function stageAsset(
       sizeBytes: fileName.length,
     }
   );
+  if (context.legacySessionWithoutCapacity) {
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(staged.stagingSessionId, {
+        actorCapacity: undefined,
+      });
+    });
+  }
   const storageId = await fixture.base.run((ctx) =>
     ctx.storage.store(new Blob([fileName], { type: "application/pdf" }))
   );
@@ -4489,12 +5307,20 @@ async function stageDraftAsset(
   fixture: CostDocumentFixture,
   draftId: Id<"costDocumentDrafts">,
   fileName: string,
-  actor: CostDocumentActor = fixture.builder
+  actor: CostDocumentActor = fixture.builder,
+  legacySessionWithoutCapacity = false
 ) {
-  return await stageAsset(fixture, fileName, true, {
-    contextKind: "costDocumentDraft",
-    contextRecordId: String(draftId),
-  }, actor);
+  return await stageAsset(
+    fixture,
+    fileName,
+    true,
+    {
+      contextKind: "costDocumentDraft",
+      contextRecordId: String(draftId),
+      legacySessionWithoutCapacity,
+    },
+    actor
+  );
 }
 
 async function saveDraft(

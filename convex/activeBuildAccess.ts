@@ -2,10 +2,12 @@ import type { AuthorizedViewer, RoleSlug } from "./authz";
 import { normalizeRoleSlugs } from "./authz";
 import {
   type BuildCollaborationRole,
+  collaborationRoleTier,
   normalizeBuildCollaborationRole,
   resolveEffectiveCollaborationRole,
 } from "./build_collaboration_model";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
+import { hasProjectedWorkosPermission } from "./workos_permission_access";
 
 type ActiveBuildAccessCtx = (QueryCtx | MutationCtx) & {
   viewer: AuthorizedViewer;
@@ -33,9 +35,37 @@ export interface ActiveBuildAuthorization {
   viewer: AuthorizedViewer;
 }
 
+/**
+ * Pin an authorization to the participant capacity selected by a role-specific
+ * workspace. This prevents a shared identity from silently inheriting its
+ * strongest unrelated capacity while operating inside Homeowner or Contractor
+ * routes. The requested capacity must still be present in the server-derived
+ * current authorization graph.
+ */
+export function selectActiveBuildAuthorizationCapacity(
+  authorization: ActiveBuildAuthorization,
+  requestedCapacity?: BuildCollaborationRole
+): ActiveBuildAuthorization {
+  if (!requestedCapacity) {
+    return authorization;
+  }
+  if (!authorization.roles.includes(requestedCapacity)) {
+    throw new Error("Forbidden: active build participant capacity");
+  }
+  return {
+    ...authorization,
+    effectiveRole: {
+      role: requestedCapacity,
+      tier: collaborationRoleTier(requestedCapacity),
+    },
+    roles: [requestedCapacity],
+  };
+}
+
 export async function authorizeActiveBuildAccess(
   ctx: ActiveBuildAccessCtx,
   input: {
+    backofficePolicy?: "proposal-read";
     buildId: Id<"activeBuilds">;
     organizationId: string;
   }
@@ -47,6 +77,7 @@ export async function authorizeActiveBuildAccessForViewer(
   ctx: QueryCtx | MutationCtx,
   viewer: AuthorizedViewer,
   input: {
+    backofficePolicy?: "proposal-read";
     buildId: Id<"activeBuilds">;
     organizationId: string;
   }
@@ -125,11 +156,29 @@ export async function authorizeActiveBuildAccessForViewer(
     )
     .order("desc")
     .first();
-  if (
-    latestViewerParticipation?.status === "removed" &&
-    !viewerRoles.includes("admin") &&
-    !viewerRoles.includes("principle-broker")
-  ) {
+  const latestRemovedParticipantRole =
+    latestViewerParticipation?.status === "removed"
+      ? latestViewerParticipation.role
+      : undefined;
+  // Admin and Principal Broker authority is organization-derived, never
+  // granted or revoked by a Build-local participant row.
+  const revokedGrantRole =
+    latestRemovedParticipantRole !== "admin" &&
+    latestRemovedParticipantRole !== "principle-broker"
+      ? latestRemovedParticipantRole
+      : undefined;
+  const hasUnrelatedPotentialCapacity = viewerRoles.some(
+    (role) =>
+      role !== revokedGrantRole &&
+      (role === "admin" ||
+        role === "principle-broker" ||
+        role === "broker" ||
+        role === "broker-staff" ||
+        role === "builder" ||
+        role === "builder-staff" ||
+        role === "contractor")
+  );
+  if (revokedGrantRole && !hasUnrelatedPotentialCapacity) {
     throw new Error("Forbidden: active build participation revoked");
   }
   const viewerGrant =
@@ -142,30 +191,29 @@ export async function authorizeActiveBuildAccessForViewer(
     viewer,
     viewerRoles,
   });
-  const derivedRole = await resolveDerivedBuildRole(ctx, {
+  const derivedRoles = await resolveDerivedBuildRoles(ctx, {
+    backofficePolicy: input.backofficePolicy,
     build,
     proposal,
     viewer,
     viewerRoles,
   });
-  const effectiveRole = resolveEffectiveCollaborationRole([
-    ...viewerRoles,
-    viewerGrant?.role,
-    derivedRole,
-  ]);
+  const currentRoles = [viewerGrant?.role, ...derivedRoles].filter(
+    (role): role is BuildCollaborationRole =>
+      role !== undefined && role !== revokedGrantRole
+  );
+  const effectiveRole = resolveEffectiveCollaborationRole(currentRoles);
   if (
     !(
       effectiveRole &&
-      (await canAccessBuild(ctx, {
-        build,
-        proposal,
-        viewer,
-        viewerGrant,
-        viewerRoles,
-      }))
+      (viewerGrant || derivedRoles.some((role) => role !== revokedGrantRole))
     )
   ) {
-    throw new Error("Forbidden: active build participation");
+    throw new Error(
+      latestRemovedParticipantRole
+        ? "Forbidden: active build participation revoked"
+        : "Forbidden: active build participation"
+    );
   }
 
   const participants = await projectActiveBuildParticipants(ctx, {
@@ -208,8 +256,7 @@ export async function authorizeActiveBuildAccessForViewer(
             .map((role) => normalizeBuildCollaborationRole(role))
             .filter((role): role is BuildCollaborationRole => role !== null),
           effectiveRole.role,
-          viewerGrant?.role,
-          derivedRole,
+          ...currentRoles,
         ].filter((role): role is BuildCollaborationRole => role !== undefined)
       ),
     ],
@@ -252,35 +299,75 @@ async function requireOrganizationAccess(
   }
 }
 
-async function canAccessBuild(
+async function resolveBrokerBuildAccess(
   ctx: QueryCtx | MutationCtx,
   input: {
+    backofficePolicy?: "proposal-read";
     build: Doc<"activeBuilds">;
     proposal: Doc<"buildProposals">;
     viewer: AuthorizedViewer;
-    viewerGrant?: Doc<"buildParticipants">;
     viewerRoles: RoleSlug[];
   }
-) {
-  if (
-    input.viewerRoles.includes("admin") ||
-    input.viewerRoles.includes("principle-broker") ||
-    input.viewerGrant
-  ) {
+): Promise<boolean | undefined> {
+  if (!input.viewerRoles.includes("broker")) {
+    return;
+  }
+  if (input.proposal.assignedBrokerWorkosUserId === input.viewer.subject) {
     return true;
   }
-  if (input.viewerRoles.includes("broker")) {
-    if (input.proposal.assignedBrokerWorkosUserId === input.viewer.subject) {
-      return true;
-    }
-    const assignments = await ctx.db
-      .query("buildBrokerAssignments")
-      .withIndex("by_build", (query) => query.eq("buildId", input.build._id))
-      .take(50);
-    return assignments.some(
-      (assignment) =>
-        assignment.assignedBrokerWorkosUserId === input.viewer.subject
-    );
+  const assignment = await ctx.db
+    .query("buildBrokerAssignments")
+    .withIndex("by_build_and_assignedBrokerWorkosUserId", (query) =>
+      query
+        .eq("buildId", input.build._id)
+        .eq("assignedBrokerWorkosUserId", input.viewer.subject)
+    )
+    .first();
+  if (assignment) {
+    return true;
+  }
+  return (
+    input.backofficePolicy === "proposal-read" &&
+    (await hasProjectedWorkosPermission(
+      ctx,
+      input.build.organizationId,
+      input.viewerRoles,
+      "proposals:read"
+    ))
+  );
+}
+
+async function resolveDerivedBuildRoles(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    backofficePolicy?: "proposal-read";
+    build: Doc<"activeBuilds">;
+    proposal: Doc<"buildProposals">;
+    viewer: AuthorizedViewer;
+    viewerRoles: RoleSlug[];
+  }
+): Promise<BuildCollaborationRole[]> {
+  const roles: BuildCollaborationRole[] = [];
+  if (input.viewerRoles.includes("admin")) {
+    roles.push("admin");
+  }
+  if (input.viewerRoles.includes("principle-broker")) {
+    roles.push("principle-broker");
+  }
+  if ((await resolveBrokerBuildAccess(ctx, input)) === true) {
+    roles.push("broker");
+  }
+  if (
+    input.backofficePolicy === "proposal-read" &&
+    input.viewerRoles.includes("broker-staff") &&
+    (await hasProjectedWorkosPermission(
+      ctx,
+      input.build.organizationId,
+      input.viewerRoles,
+      "proposals:read"
+    ))
+  ) {
+    roles.push("broker-staff");
   }
   if (
     input.viewerRoles.includes("builder") ||
@@ -294,92 +381,73 @@ async function canAccessBuild(
           .eq("workosUserId", input.viewer.subject)
       )
       .take(20);
-    const activeLink = links.find((link) => link.status === "active");
-    if (!activeLink) {
-      return false;
-    }
-    if (activeLink.role === "owner") {
-      return true;
-    }
-    const grants = await ctx.db
-      .query("builderStaffPermissionGrants")
-      .withIndex("by_build_link_resource", (query) =>
-        query
-          .eq("buildId", input.build._id)
-          .eq("builderAccountLinkId", activeLink._id)
-      )
-      .take(100);
-    return grants.some(
-      (grant) =>
-        grant.canView || grant.canCreate || grant.canUpdate || grant.canDelete
+    const activeOwnerLink = links.find(
+      (link) => link.status === "active" && link.role === "owner"
     );
-  }
-  if (input.viewerRoles.includes("contractor")) {
-    const contractorProfiles = await ctx.db
-      .query("contractorProfiles")
-      .withIndex("by_account_user", (query) =>
-        query.eq("accountWorkosUserId", input.viewer.subject)
-      )
-      .take(20);
-    for (const contractor of contractorProfiles) {
-      const assignment = await ctx.db
-        .query("buildContractorAssignments")
-        .withIndex("by_build_contractor", (query) =>
+    const activeStaffLink = links.find(
+      (link) => link.status === "active" && link.role === "staff"
+    );
+    if (activeOwnerLink) {
+      roles.push("builder");
+    } else if (activeStaffLink) {
+      const grants = await ctx.db
+        .query("builderStaffPermissionGrants")
+        .withIndex("by_build_link_resource", (query) =>
           query
             .eq("buildId", input.build._id)
-            .eq("contractorId", contractor._id)
+            .eq("builderAccountLinkId", activeStaffLink._id)
         )
-        .first();
-      if (assignment?.status !== "inactive") {
-        return Boolean(assignment);
+        .take(100);
+      if (
+        grants.some(
+          (grant) =>
+            grant.canView ||
+            grant.canCreate ||
+            grant.canUpdate ||
+            grant.canDelete
+        )
+      ) {
+        roles.push("builder-staff");
       }
     }
   }
-  return false;
+  if (
+    input.viewerRoles.includes("contractor") &&
+    (await hasCurrentContractorBuildAccess(ctx, input))
+  ) {
+    roles.push("contractor");
+  }
+  return roles;
 }
 
-async function resolveDerivedBuildRole(
+async function hasCurrentContractorBuildAccess(
   ctx: QueryCtx | MutationCtx,
   input: {
     build: Doc<"activeBuilds">;
-    proposal: Doc<"buildProposals">;
     viewer: AuthorizedViewer;
-    viewerRoles: RoleSlug[];
   }
-): Promise<BuildCollaborationRole | undefined> {
-  if (input.viewerRoles.includes("admin")) {
-    return "admin";
-  }
-  if (input.viewerRoles.includes("principle-broker")) {
-    return "principle-broker";
-  }
-  if (input.viewerRoles.includes("broker")) {
-    return "broker";
-  }
-  if (
-    input.viewerRoles.includes("builder") ||
-    input.viewerRoles.includes("builder-staff")
-  ) {
-    const links = await ctx.db
-      .query("builderAccountLinks")
-      .withIndex("by_builder_user", (query) =>
-        query
-          .eq("builderProfileId", input.build.builderProfileId)
-          .eq("workosUserId", input.viewer.subject)
+) {
+  const contractorProfiles = await ctx.db
+    .query("contractorProfiles")
+    .withIndex("by_account_user", (query) =>
+      query.eq("accountWorkosUserId", input.viewer.subject)
+    )
+    .take(20);
+  for (const contractor of contractorProfiles) {
+    if (contractor.status !== "active") {
+      continue;
+    }
+    const assignment = await ctx.db
+      .query("buildContractorAssignments")
+      .withIndex("by_build_contractor", (query) =>
+        query.eq("buildId", input.build._id).eq("contractorId", contractor._id)
       )
-      .take(20);
-    const activeLink = links.find((link) => link.status === "active");
-    if (activeLink?.role === "owner") {
-      return "builder";
-    }
-    if (activeLink?.role === "staff") {
-      return "builder-staff";
+      .first();
+    if (assignment && assignment.status !== "inactive") {
+      return true;
     }
   }
-  if (input.viewerRoles.includes("contractor")) {
-    return "contractor";
-  }
-  return;
+  return false;
 }
 
 export async function projectActiveBuildParticipants(

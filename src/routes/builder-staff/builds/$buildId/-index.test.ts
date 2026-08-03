@@ -4,8 +4,7 @@ vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (config: unknown) => config,
 }));
 
-vi.mock("#/routes/builder/builds/$buildId/index.tsx", () => ({
-  BuilderBuildWorkspaceRoute: () => null,
+vi.mock("#/features/cost-documents/costDocumentRouteState.ts", () => ({
   normalizeCostDocumentSearch: (search: Record<string, unknown>) => {
     const draft =
       typeof search.costDocumentDraft === "string" &&
@@ -30,6 +29,10 @@ vi.mock("#/routes/builder/builds/$buildId/index.tsx", () => ({
       ...(draft ? { costDocumentDraft: draft } : {}),
     };
   },
+}));
+
+vi.mock("#/routes/builder/builds/$buildId/index.tsx", () => ({
+  BuilderBuildWorkspaceRoute: () => null,
 }));
 
 import { Route } from "./index";

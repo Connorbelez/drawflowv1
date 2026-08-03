@@ -248,6 +248,12 @@ describe("contractor workspace authorization", () => {
     await expect(
       unlinked.query((api as any).contractorWorkspace.getContractorProfile, {}),
     ).rejects.toThrow(/not linked/);
+    await expect(
+      unlinked.query(
+        (api as any).contractorWorkspace.getContractorWorkspaceAccess,
+        {},
+      ),
+    ).resolves.toEqual({ profileLinked: false });
   });
 
   test("unlinking the contractor account immediately revokes workspace access", async () => {
@@ -258,6 +264,12 @@ describe("contractor workspace authorization", () => {
     await expect(
       me.query((api as any).contractorWorkspace.getContractorProfile, {}),
     ).resolves.toMatchObject({ profile: { _id: contractorId } });
+    await expect(
+      me.query(
+        (api as any).contractorWorkspace.getContractorWorkspaceAccess,
+        {},
+      ),
+    ).resolves.toEqual({ profileLinked: true });
 
     await admin.mutation((api as any).contractorMerge.unlinkContractorAccount, {
       contractorId,
@@ -268,6 +280,12 @@ describe("contractor workspace authorization", () => {
     await expect(
       me.query((api as any).contractorWorkspace.getContractorProfile, {}),
     ).rejects.toThrow(/not linked/);
+    await expect(
+      me.query(
+        (api as any).contractorWorkspace.getContractorWorkspaceAccess,
+        {},
+      ),
+    ).resolves.toEqual({ profileLinked: false });
   });
 
   test("denies workspace queries to an unauthenticated caller", async () => {

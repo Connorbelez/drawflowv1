@@ -34,16 +34,18 @@ export const BUILD_DETAIL_TABS: { value: BuildDetailSubTab; label: string }[] =
 
 export function BuildDetailTabBar({
   activeTab,
+  labels,
   onChangeTab,
   tabs = BUILD_DETAIL_TABS.map((tab) => tab.value),
 }: {
   activeTab: BuildDetailSubTab;
+  labels?: Partial<Record<BuildDetailSubTab, string>>;
   onChangeTab: (tab: BuildDetailSubTab) => void;
   tabs?: BuildDetailSubTab[];
 }) {
   const visibleTabs = BUILD_DETAIL_TABS.filter((tab) =>
     tabs.includes(tab.value)
-  );
+  ).map((tab) => ({ ...tab, label: labels?.[tab.value] ?? tab.label }));
   const compact = useMediaQuery("max-md");
 
   if (compact) {

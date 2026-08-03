@@ -134,6 +134,7 @@ type ProductionSettingsSiteVisitGuidanceInput = Parameters<
 >[0];
 
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
+import { hasProjectedWorkosPermission as hasPermission } from "./workos_permission_access";
 
 interface BuilderStaffProvisionResult {
   provisioning: {
@@ -27500,41 +27501,6 @@ function requireBackofficeProposalWrite(
     return;
   }
   throw new Error("Forbidden: proposal write");
-}
-
-async function hasPermission(
-  ctx: QueryCtx | MutationCtx,
-  workosOrganizationId: string,
-  roles: readonly RoleSlug[],
-  permission: string,
-) {
-  for (const role of roles) {
-    const organizationRole = await ctx.db
-      .query("workosOrganizationRoles")
-      .withIndex("by_organization_slug", (q) =>
-        q.eq("workosOrganizationId", workosOrganizationId).eq("slug", role),
-      )
-      .unique();
-    if (
-      organizationRole?.status === "active" &&
-      organizationRole.permissionSlugs.includes(permission)
-    ) {
-      return true;
-    }
-
-    const globalRole = await ctx.db
-      .query("workosRoles")
-      .withIndex("by_slug", (q) => q.eq("slug", role))
-      .unique();
-    if (
-      globalRole?.status === "active" &&
-      globalRole.permissionSlugs.includes(permission)
-    ) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 function requireAnyRole(

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const acknowledge = vi.fn();
@@ -15,6 +16,7 @@ let routeRoles = ["contractor"];
 let routeSearch: Record<string, unknown> = {
   assignmentId: "assignment_01",
 };
+const canonicalCostDocumentId = "ks7n0k9bhpe2qzzd3h2r9fg6ah87xg4r";
 let submittedCostDocuments: {
   loadMore: ReturnType<typeof vi.fn>;
   results: Array<{ _id: string; title: string }>;
@@ -80,17 +82,20 @@ vi.mock(
   "#/features/cost-documents/CostDocumentBatchWorkspace.tsx",
   () => ({
     CostDocumentBatchWorkspace: ({
+      actorCapacity,
       batchId,
       draftId,
       onBatchIdChange,
       submilestones,
     }: {
+      actorCapacity?: string;
       batchId?: string;
       draftId?: string;
       onBatchIdChange: (batchId?: string) => void;
       submilestones: Array<{ id: string; label: string }>;
     }) => (
       <div
+        data-actor-capacity={actorCapacity}
         data-batch-id={batchId}
         data-draft-id={draftId}
         data-submilestones={submilestones.map((scope) => scope.id).join(",")}
@@ -105,26 +110,35 @@ vi.mock(
 );
 
 vi.mock(
-  "#/features/cost-documents/SingleCostDocumentCapture.tsx",
+  "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx",
   () => ({
-    SingleCostDocumentCapture: ({
-      readOnly,
-      submittedCostDocumentId,
+    CostDocumentDetailSheet: ({
+      document,
+      interactionMode,
+      onClose,
     }: {
-      readOnly?: boolean;
-      submittedCostDocumentId?: string;
+      document?: { _id?: string } | null;
+      interactionMode?: string;
+      onClose: () => void;
     }) => (
       <div
-        data-read-only={readOnly ? "true" : "false"}
+        data-interaction-mode={interactionMode}
         data-testid="contractor-submitted-cost-document"
       >
-        {submittedCostDocumentId}
+        <span>{document?._id ?? "unavailable"}</span>
+        <button onClick={onClose} type="button">
+          Close submitted Cost Document
+        </button>
       </div>
     ),
   })
 );
 
-import { ContractorBuildDetail, Route } from "./$buildId";
+import { Route } from "./$buildId";
+
+const ContractorBuildDetail = (
+  Route as unknown as { component: ComponentType }
+).component;
 
 const detail = {
   assignedScope: [
@@ -164,6 +178,7 @@ const linkedParticipationScope = {
 };
 let participationScope = linkedParticipationScope;
 let contractorDetail = detail;
+let selectedCostDocument: { _id: string } | null | undefined;
 
 describe("ContractorBuildDetail", () => {
   beforeEach(() => {
@@ -176,6 +191,7 @@ describe("ContractorBuildDetail", () => {
     };
     contractorDetail = detail;
     participationScope = linkedParticipationScope;
+    selectedCostDocument = undefined;
     mutationIndex = 0;
     navigate.mockReset();
     acknowledge.mockResolvedValue("ack_01");
@@ -184,6 +200,9 @@ describe("ContractorBuildDetail", () => {
     startAssignedSubmilestone.mockResolvedValue("start_01");
     useQuery.mockImplementation(
       (_query: unknown, input: Record<string, unknown> | "skip") => {
+        if (input !== "skip" && "costDocumentId" in input) {
+          return selectedCostDocument;
+        }
         return input !== "skip" && "organizationId" in input
           ? participationScope
           : contractorDetail;
@@ -229,6 +248,11 @@ describe("ContractorBuildDetail", () => {
         "data-submilestones"
       )
     ).toBe("submilestone_forms");
+    expect(
+      screen.getByTestId("contractor-cost-document-workspace").getAttribute(
+        "data-actor-capacity"
+      )
+    ).toBe("contractor");
   });
 
   test("reuses the Cost Document batch workspace with only active assigned scope at desktop and compact widths", () => {
@@ -251,16 +275,23 @@ describe("ContractorBuildDetail", () => {
     }
   });
 
-  test("normalizes private Cost Document deep links and keeps an exact Draft ahead of a Batch", () => {
+  test("normalizes private Cost Document deep links and keeps Drafts ahead of submitted records and Batches", () => {
     const validateSearch = (Route as unknown as {
       validateSearch: (search: Record<string, unknown>) => unknown;
     }).validateSearch;
     expect(
       validateSearch({
         costBatch: " batch-private ",
+        costDocument: canonicalCostDocumentId,
         costDocumentDraft: " draft-private ",
       })
     ).toEqual({ costDocumentDraft: "draft-private" });
+    expect(
+      validateSearch({
+        costBatch: " batch-private ",
+        costDocument: canonicalCostDocumentId,
+      })
+    ).toEqual({ costDocument: canonicalCostDocumentId });
     expect(validateSearch({ costBatch: " batch-private " })).toEqual({
       costBatch: "batch-private",
     });
@@ -285,6 +316,7 @@ describe("ContractorBuildDetail", () => {
         search: {
           assignmentId: "assignment_01",
           costBatch: "cost-batch-02",
+          costDocument: undefined,
           costDocumentDraft: undefined,
           focus: "build-note:note-01",
         },
@@ -337,6 +369,7 @@ describe("ContractorBuildDetail", () => {
   });
 
   test("keeps the Contractor's own submitted records readable in normal-completion recovery", () => {
+    routeSearch = { costDocument: canonicalCostDocumentId };
     contractorDetail = {
       ...detail,
       assignedScope: detail.assignedScope.map((scope) => ({
@@ -348,12 +381,13 @@ describe("ContractorBuildDetail", () => {
       loadMore: vi.fn(),
       results: [
         {
-          _id: "submitted-cost-document-01",
+          _id: canonicalCostDocumentId,
           title: "Completed footings receipt",
         },
       ],
       status: "Exhausted",
     };
+    selectedCostDocument = { _id: canonicalCostDocumentId };
 
     render(<ContractorBuildDetail />);
 
@@ -362,15 +396,16 @@ describe("ContractorBuildDetail", () => {
     ).toBeTruthy();
     expect(
       screen.getByTestId("contractor-submitted-cost-document").textContent
-    ).toBe("submitted-cost-document-01");
+    ).toContain(canonicalCostDocumentId);
     expect(
       screen
         .getByTestId("contractor-submitted-cost-document")
-        .getAttribute("data-read-only")
-    ).toBe("true");
+        .getAttribute("data-interaction-mode")
+    ).toBe("read-only");
   });
 
   test("keeps scoped capture and normally completed submitted history together for mixed Contractor scope", () => {
+    routeSearch = { costDocument: canonicalCostDocumentId };
     contractorDetail = {
       ...detail,
       assignedScope: [
@@ -389,12 +424,13 @@ describe("ContractorBuildDetail", () => {
       loadMore: vi.fn(),
       results: [
         {
-          _id: "submitted-cost-document-completed-01",
+          _id: canonicalCostDocumentId,
           title: "Completed waterproofing receipt",
         },
       ],
       status: "Exhausted",
     };
+    selectedCostDocument = { _id: canonicalCostDocumentId };
 
     render(<ContractorBuildDetail />);
 
@@ -408,19 +444,69 @@ describe("ContractorBuildDetail", () => {
     ).toBeTruthy();
     expect(
       screen.getByTestId("contractor-submitted-cost-document").textContent
-    ).toBe("submitted-cost-document-completed-01");
+    ).toContain(canonicalCostDocumentId);
     expect(
       screen
         .getByTestId("contractor-submitted-cost-document")
-        .getAttribute("data-read-only")
-    ).toBe("true");
+        .getAttribute("data-interaction-mode")
+    ).toBe("read-only");
     expect(
       screen.queryByTestId("contractor-cost-documents-recovery")
     ).toBeNull();
     expect(usePaginatedQuery).toHaveBeenCalledWith(
       expect.anything(),
-      { buildId: "active_build_01", organizationId: "org_01" },
+      {
+        actorCapacity: "contractor",
+        buildId: "active_build_01",
+        organizationId: "org_01",
+      },
       { initialNumItems: 20 }
+    );
+  });
+
+  test("opens and closes submitted history through Build-local route state", () => {
+    submittedCostDocuments = {
+      loadMore: vi.fn(),
+      results: [
+        { _id: canonicalCostDocumentId, title: "Footings receipt" },
+      ],
+      status: "Exhausted",
+    };
+    const view = render(<ContractorBuildDetail />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Footings receipt" }));
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        search: {
+          assignmentId: "assignment_01",
+          costBatch: undefined,
+          costDocument: canonicalCostDocumentId,
+          costDocumentDraft: undefined,
+          focus: undefined,
+        },
+        to: "/contractor/builds/$buildId",
+      })
+    );
+
+    routeSearch = {
+      assignmentId: "assignment_01",
+      costDocument: canonicalCostDocumentId,
+    };
+    view.rerender(<ContractorBuildDetail />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close submitted Cost Document" })
+    );
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        search: {
+          assignmentId: "assignment_01",
+          costBatch: undefined,
+          costDocument: undefined,
+          costDocumentDraft: undefined,
+          focus: undefined,
+        },
+        to: "/contractor/builds/$buildId",
+      })
     );
   });
 

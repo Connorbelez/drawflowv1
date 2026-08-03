@@ -9,6 +9,7 @@ import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { isCleanCollaborationAsset } from "./build_collaboration_asset_access";
 import { abandonUnpublishedCostDocumentDraftAsset } from "./build_collaboration_assets";
+import { buildCollaborationRoleValidator } from "./build_collaboration_validators";
 import {
   assertCurrentCostDocumentAllocationScope,
   assertExpectedCostDocumentBatchRevision,
@@ -18,6 +19,7 @@ import {
   canManageCostDocumentDraftCollaboration,
   canReadSubmittedCostDocument,
   costDocumentDraftCapabilities,
+  currentCostDocumentBatchCreatorCapacity,
   currentCostDocumentBatchRevision,
   currentCostDocumentDraftRevision,
   hasCurrentDraftCollaborationGrant,
@@ -175,13 +177,15 @@ const costDocumentRoadmapReconciliationSummaryValidator = v.object({
   documentDate: v.string(),
   duplicateWarning: v.boolean(),
   grossTotalCents: v.number(),
-  integrity: v.object({
-    healthy: v.boolean(),
-    openExceptionKinds: v.array(costDocumentIntegrityKindValidator),
-  }),
+  integrity: v.optional(
+    v.object({
+      healthy: v.boolean(),
+      openExceptionKinds: v.array(costDocumentIntegrityKindValidator),
+    })
+  ),
   kind: costDocumentKindValidator,
   lifecycle: v.object({ state: costDocumentLifecycleStateValidator }),
-  reviewAttention: costDocumentReviewAttentionValidator,
+  reviewAttention: v.optional(costDocumentReviewAttentionValidator),
   state: v.literal("submitted"),
   submittedAt: v.number(),
   title: v.string(),
@@ -216,10 +220,14 @@ const costDocumentProjectionValidator = v.object({
       reason: v.string(),
     })
   ),
-  integrity: v.object({
-    healthy: v.boolean(),
-    openExceptions: v.array(costDocumentIntegrityExceptionProjectionValidator),
-  }),
+  integrity: v.optional(
+    v.object({
+      healthy: v.boolean(),
+      openExceptions: v.array(
+        costDocumentIntegrityExceptionProjectionValidator
+      ),
+    })
+  ),
   lifecycle: v.object({
     state: v.union(
       v.literal("current"),
@@ -231,10 +239,12 @@ const costDocumentProjectionValidator = v.object({
     voidReason: v.optional(v.string()),
   }),
   pages: v.array(costDocumentPageProjectionValidator),
-  reviews: v.object({
-    brokerage: v.optional(costDocumentReviewProjectionValidator),
-    builder: v.optional(costDocumentReviewProjectionValidator),
-  }),
+  reviews: v.optional(
+    v.object({
+      brokerage: v.optional(costDocumentReviewProjectionValidator),
+      builder: v.optional(costDocumentReviewProjectionValidator),
+    })
+  ),
   revision: v.object({
     number: v.number(),
     supersededByCostDocumentId: v.optional(v.id("costDocuments")),
@@ -365,8 +375,13 @@ const costDocumentBatchProjectionValidator = v.object({
 });
 
 const activeBuildScopeFields = {
+  actorCapacity: v.optional(buildCollaborationRoleValidator),
   buildId: v.id("activeBuilds"),
   organizationId: v.string(),
+};
+
+const costDocumentActorCapacityFields = {
+  actorCapacity: v.optional(buildCollaborationRoleValidator),
 };
 
 export const submitCostDocument = authenticatedMutation
@@ -397,6 +412,77 @@ export const submitCostDocument = authenticatedMutation
     throw new Error(
       "Direct Cost Document submission is unavailable. Create or resume a Cost Document batch."
     );
+  })
+  .public();
+
+/**
+ * Narrow allocation-option projection for role-specific Cost capture routes.
+ * Homeowner and Contractor workspaces must not load the much broader Builder /
+ * Backoffice Build-detail projection merely to resolve authorized roadmap
+ * targets.
+ */
+export const listCostDocumentSubmilestoneOptions = authenticatedQuery
+  .input(activeBuildScopeFields)
+  .returns(
+    v.array(
+      v.object({
+        id: v.id("buildSubmilestones"),
+        label: v.string(),
+        milestoneKey: v.string(),
+      })
+    )
+  )
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeCostDocumentIntent(ctx, {
+      ...args,
+      intent: "create",
+    });
+    const rows = await ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_build", (query) =>
+        query.eq("buildId", authorization.build._id)
+      )
+      .take(501);
+    if (rows.length > 500) {
+      throw new Error("Cost Document allocation options are unavailable.");
+    }
+    if (
+      rows.some(
+        (row) =>
+          row.organizationId !== authorization.organizationId ||
+          row.brokerageId !== authorization.brokerage._id ||
+          row.buildId !== authorization.build._id
+      )
+    ) {
+      throw new Error("Cost Document allocation options are unavailable.");
+    }
+    let allowedIds: Set<string> | undefined;
+    if (authorization.effectiveRole.role === "contractor") {
+      const contractorScope = await requireCurrentContractorCostDocumentScope(
+        ctx,
+        {
+          authorization,
+          purpose: "draft.write",
+          workosUserId: authorization.viewer.subject,
+        }
+      );
+      allowedIds = new Set(
+        contractorScope.qualifyingSubmilestoneIds.map(String)
+      );
+    }
+    return rows
+      .filter((row) => !allowedIds || allowedIds.has(String(row._id)))
+      .sort(
+        (left, right) =>
+          left.milestoneKey.localeCompare(right.milestoneKey) ||
+          left.order - right.order ||
+          left.name.localeCompare(right.name)
+      )
+      .map((row) => ({
+        id: row._id,
+        label: `${row.milestoneKey} · ${row.name}`,
+        milestoneKey: row.milestoneKey,
+      }));
   })
   .public();
 
@@ -435,10 +521,14 @@ export const getCostDocument = authenticatedQuery
   .public();
 
 export const getCostDocumentDuplicateAssessment = authenticatedQuery
-  .input({ draftId: v.id("costDocumentDrafts") })
+  .input({
+    ...costDocumentActorCapacityFields,
+    draftId: v.id("costDocumentDrafts"),
+  })
   .returns(costDocumentDuplicateAssessmentValidator)
   .handler(async (ctx, args) => {
     const { authorization, draft } = await requireCostDocumentDraftAccess(ctx, {
+      actorCapacity: args.actorCapacity,
       draftId: args.draftId,
       intent: "draft.read",
     });
@@ -779,6 +869,7 @@ async function projectCostDocumentRoadmapReconciliationSummary(
   authorization: ActiveBuildAuthorization,
   document: Doc<"costDocuments">
 ) {
+  const isHomeownerView = authorization.effectiveRole.role === "homeowner";
   const [allocations, builderReview, brokerageReview, pages] =
     await Promise.all([
       ctx.db
@@ -831,20 +922,25 @@ async function projectCostDocumentRoadmapReconciliationSummary(
     category: document.category,
     currency: document.currency,
     documentDate: document.documentDate,
-    duplicateWarning: document.duplicateOverrideReason !== undefined,
+    duplicateWarning:
+      !isHomeownerView && document.duplicateOverrideReason !== undefined,
     grossTotalCents: document.grossTotalCents,
-    integrity: {
-      healthy: openIntegrityExceptions.length === 0,
-      openExceptionKinds: [
-        ...new Set(openIntegrityExceptions.map((item) => item.kind)),
-      ],
-    },
+    ...(isHomeownerView
+      ? {}
+      : {
+          integrity: {
+            healthy: openIntegrityExceptions.length === 0,
+            openExceptionKinds: [
+              ...new Set(openIntegrityExceptions.map((item) => item.kind)),
+            ],
+          },
+          reviewAttention: costDocumentReviewAttention(
+            builderReview,
+            brokerageReview
+          ),
+        }),
     kind: document.kind,
     lifecycle: { state: costDocumentLifecycleState(document) },
-    reviewAttention: costDocumentReviewAttention(
-      builderReview,
-      brokerageReview
-    ),
     state: document.state,
     submittedAt: document.submittedAt,
     title: document.title,
@@ -1133,21 +1229,34 @@ export const getActiveCostDocumentBatch = authenticatedQuery
       ctx,
       authorization
     );
-    const batch = await ctx.db
+    const exactBatch = await ctx.db
       .query("costDocumentBatches")
-      .withIndex("by_buildId_and_ownerWorkosUserId_and_state", (query) =>
-        query
-          .eq("buildId", authorization.build._id)
-          .eq("ownerWorkosUserId", authorization.viewer.subject)
-          .eq("state", "active")
+      .withIndex(
+        "by_buildId_and_ownerWorkosUserId_and_creatorCapacity_and_state",
+        (query) =>
+          query
+            .eq("buildId", authorization.build._id)
+            .eq("ownerWorkosUserId", authorization.viewer.subject)
+            .eq("creatorCapacity", authorization.effectiveRole.role)
+            .eq("state", "active")
       )
       .order("desc")
       .first();
+    const batch =
+      exactBatch ??
+      (await findLegacyActiveCostDocumentBatch(ctx, {
+        authorization,
+        contractorProfileId,
+      }));
     if (!batch) {
       return null;
     }
     assertBatchOwnership(batch, authorization);
-    if (batch.contractorProfileId !== contractorProfileId) {
+    if (
+      batch.contractorProfileId !== contractorProfileId ||
+      currentCostDocumentBatchCreatorCapacity(batch, authorization) !==
+        authorization.effectiveRole.role
+    ) {
       return null;
     }
     return await projectCostDocumentBatch(ctx, batch, authorization);
@@ -1182,7 +1291,9 @@ export const getCostDocumentBatch = authenticatedQuery
       !(
         batch &&
         isBatchOwnedBy(batch, authorization) &&
-        batch.contractorProfileId === contractorProfileId
+        batch.contractorProfileId === contractorProfileId &&
+        currentCostDocumentBatchCreatorCapacity(batch, authorization) ===
+          authorization.effectiveRole.role
       )
     ) {
       return null;
@@ -1212,11 +1323,13 @@ export const getCostDocumentDraft = authenticatedQuery
     }
     try {
       const requestedAuthorization = await authorizeCostDocumentIntent(ctx, {
+        actorCapacity: args.actorCapacity,
         buildId: args.buildId,
         intent: "draft.read",
         organizationId: args.organizationId,
       });
       const access = await requireCostDocumentDraftAccess(ctx, {
+        actorCapacity: args.actorCapacity,
         draftId,
         intent: "draft.read",
       });
@@ -1262,6 +1375,7 @@ export const getCostDocumentDraft = authenticatedQuery
 
 export const grantCostDocumentDraftCollaborator = authenticatedMutation
   .input({
+    ...costDocumentActorCapacityFields,
     collaboratorWorkosUserId: v.string(),
     draftId: v.id("costDocumentDrafts"),
     expectedRevision: v.number(),
@@ -1275,6 +1389,7 @@ export const grantCostDocumentDraftCollaborator = authenticatedMutation
   )
   .handler(async (ctx, args) => {
     const access = await requireCostDocumentDraftAccess(ctx, {
+      actorCapacity: args.actorCapacity,
       draftId: args.draftId,
       intent: "draft.edit",
     });
@@ -1349,6 +1464,7 @@ export const grantCostDocumentDraftCollaborator = authenticatedMutation
 
 export const revokeCostDocumentDraftCollaborator = authenticatedMutation
   .input({
+    ...costDocumentActorCapacityFields,
     collaboratorWorkosUserId: v.string(),
     draftId: v.id("costDocumentDrafts"),
     expectedRevision: v.number(),
@@ -1362,6 +1478,7 @@ export const revokeCostDocumentDraftCollaborator = authenticatedMutation
   )
   .handler(async (ctx, args) => {
     const access = await requireCostDocumentDraftAccess(ctx, {
+      actorCapacity: args.actorCapacity,
       draftId: args.draftId,
       intent: "draft.edit",
     });
@@ -1459,25 +1576,46 @@ export const createCostDocumentBatch = authenticatedMutation
         .unique();
       if (existingByKey) {
         assertBatchOwnership(existingByKey, authorization);
-        if (existingByKey.contractorProfileId !== contractorProfileId) {
+        if (
+          existingByKey.contractorProfileId !== contractorProfileId ||
+          currentCostDocumentBatchCreatorCapacity(
+            existingByKey,
+            authorization
+          ) !== authorization.effectiveRole.role
+        ) {
           throw new Error("The Cost Document batch is unavailable.");
         }
         return existingByKey._id;
       }
     }
-    const existingActive = await ctx.db
+    const exactActive = await ctx.db
       .query("costDocumentBatches")
-      .withIndex("by_buildId_and_ownerWorkosUserId_and_state", (query) =>
-        query
-          .eq("buildId", authorization.build._id)
-          .eq("ownerWorkosUserId", authorization.viewer.subject)
-          .eq("state", "active")
+      .withIndex(
+        "by_buildId_and_ownerWorkosUserId_and_creatorCapacity_and_state",
+        (query) =>
+          query
+            .eq("buildId", authorization.build._id)
+            .eq("ownerWorkosUserId", authorization.viewer.subject)
+            .eq("creatorCapacity", authorization.effectiveRole.role)
+            .eq("state", "active")
       )
       .order("desc")
       .first();
+    const existingActive =
+      exactActive ??
+      (await findLegacyActiveCostDocumentBatch(ctx, {
+        authorization,
+        contractorProfileId,
+      }));
     if (existingActive) {
       assertBatchOwnership(existingActive, authorization);
-      if (existingActive.contractorProfileId !== contractorProfileId) {
+      if (
+        existingActive.contractorProfileId !== contractorProfileId ||
+        currentCostDocumentBatchCreatorCapacity(
+          existingActive,
+          authorization
+        ) !== authorization.effectiveRole.role
+      ) {
         throw new Error("The Cost Document batch is unavailable.");
       }
       return existingActive._id;
@@ -1488,6 +1626,7 @@ export const createCostDocumentBatch = authenticatedMutation
       buildId: authorization.build._id,
       createIdempotencyKey: idempotencyKey,
       createdAt: now,
+      creatorCapacity: authorization.effectiveRole.role,
       contractorProfileId,
       organizationId: authorization.organizationId,
       ownerWorkosUserId: authorization.viewer.subject,
@@ -1508,6 +1647,7 @@ export const createCostDocumentBatch = authenticatedMutation
 
 export const addCostDocumentDraft = authenticatedMutation
   .input({
+    ...costDocumentActorCapacityFields,
     batchId: v.id("costDocumentBatches"),
     category: costDocumentCategoryValidator,
     kind: costDocumentKindValidator,
@@ -1517,7 +1657,8 @@ export const addCostDocumentDraft = authenticatedMutation
     const { authorization, batch } = await requireCostDocumentBatchOwner(
       ctx,
       args.batchId,
-      "create"
+      "create",
+      args.actorCapacity
     );
     if (batch.state !== "active") {
       throw new Error("The Cost Document batch is no longer editable.");
@@ -1580,6 +1721,7 @@ export const addCostDocumentDraft = authenticatedMutation
  */
 export const abandonCostDocumentBatch = authenticatedMutation
   .input({
+    ...costDocumentActorCapacityFields,
     batchId: v.id("costDocumentBatches"),
     expectedRevision: v.number(),
     reason: v.optional(v.string()),
@@ -1589,7 +1731,8 @@ export const abandonCostDocumentBatch = authenticatedMutation
     const { authorization, batch } = await requireCostDocumentBatchOwner(
       ctx,
       args.batchId,
-      "batch.submit"
+      "batch.submit",
+      args.actorCapacity
     );
     if (batch.state !== "active") {
       throw new Error("The Cost Document batch is no longer editable.");
@@ -1624,6 +1767,7 @@ export const abandonCostDocumentBatch = authenticatedMutation
 
 export const saveCostDocumentDraft = authenticatedMutation
   .input({
+    ...costDocumentActorCapacityFields,
     category: v.optional(costDocumentCategoryValidator),
     description: v.optional(v.string()),
     documentDate: v.optional(v.string()),
@@ -1651,6 +1795,7 @@ export const saveCostDocumentDraft = authenticatedMutation
   .handler(async (ctx, args) => {
     const { authorization, batch, draft } =
       await requireCostDocumentDraftAccess(ctx, {
+        actorCapacity: args.actorCapacity,
         draftId: args.draftId,
         intent: "draft.edit",
       });
@@ -1779,6 +1924,7 @@ export const saveCostDocumentDraft = authenticatedMutation
  */
 export const bindCostDocumentDraftPageAsset = authenticatedMutation
   .input({
+    ...costDocumentActorCapacityFields,
     assetId: v.id("buildCollaborationAssets"),
     draftId: v.id("costDocumentDrafts"),
     expectedRevision: v.number(),
@@ -1788,6 +1934,7 @@ export const bindCostDocumentDraftPageAsset = authenticatedMutation
   .handler(async (ctx, args) => {
     const { authorization, batch, draft } =
       await requireCostDocumentDraftAccess(ctx, {
+        actorCapacity: args.actorCapacity,
         draftId: args.draftId,
         intent: "draft.edit",
       });
@@ -2007,6 +2154,7 @@ async function requireOneAvailableDraftSourcePage(
 
 export const setCostDocumentDraftStep = authenticatedMutation
   .input({
+    ...costDocumentActorCapacityFields,
     complete: v.optional(v.boolean()),
     draftId: v.id("costDocumentDrafts"),
     expectedRevision: v.number(),
@@ -2016,6 +2164,7 @@ export const setCostDocumentDraftStep = authenticatedMutation
   .handler(async (ctx, args) => {
     const { authorization, batch, draft } =
       await requireCostDocumentDraftAccess(ctx, {
+        actorCapacity: args.actorCapacity,
         draftId: args.draftId,
         intent: "draft.edit",
       });
@@ -2072,6 +2221,7 @@ export const setCostDocumentDraftStep = authenticatedMutation
 
 export const submitCostDocumentBatch = authenticatedMutation
   .input({
+    ...costDocumentActorCapacityFields,
     batchId: v.id("costDocumentBatches"),
     duplicateOverrideReason: v.optional(v.string()),
     expectedRevision: v.number(),
@@ -2089,7 +2239,8 @@ export const submitCostDocumentBatch = authenticatedMutation
     const { authorization, batch } = await requireCostDocumentBatchOwner(
       ctx,
       args.batchId,
-      "batch.submit"
+      "batch.submit",
+      args.actorCapacity
     );
     const idempotencyKey = requiredIdempotencyKey(args.idempotencyKey);
     if (batch.state === "submitted") {
@@ -2326,6 +2477,7 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
       throw new Error("The Cost Document page is unavailable.");
     }
     await ctx.db.insert("auditEvents", {
+      actorRole: authorization.effectiveRole.role,
       actorRoles: authorization.viewer.roles,
       actorWorkosUserId: authorization.viewer.subject,
       brokerageId: authorization.brokerage._id,
@@ -2401,7 +2553,11 @@ type AuthorizedCostDocumentCtx = (QueryCtx | MutationCtx) & {
 
 async function authorizeCostDocumentBuilder(
   ctx: AuthorizedCostDocumentCtx,
-  input: { buildId: Id<"activeBuilds">; organizationId: string }
+  input: {
+    actorCapacity?: ActiveBuildAuthorization["effectiveRole"]["role"];
+    buildId: Id<"activeBuilds">;
+    organizationId: string;
+  }
 ) {
   return await authorizeCostDocumentIntent(ctx, { ...input, intent: "create" });
 }
@@ -2425,9 +2581,14 @@ async function currentCostDocumentCreatorProfileId(
 async function requireCostDocumentBatchOwner(
   ctx: AuthorizedCostDocumentCtx,
   batchId: Id<"costDocumentBatches">,
-  intent: "create" | "draft.read" | "batch.submit" = "draft.read"
+  intent: "create" | "draft.read" | "batch.submit" = "draft.read",
+  actorCapacity?: ActiveBuildAuthorization["effectiveRole"]["role"]
 ) {
-  return await requireCostDocumentBatchCreator(ctx, { batchId, intent });
+  return await requireCostDocumentBatchCreator(ctx, {
+    actorCapacity,
+    batchId,
+    intent,
+  });
 }
 
 async function validateCostDocumentDraftStepTransition(
@@ -2962,6 +3123,43 @@ function assertBatchOwnership(
   if (!isBatchOwnedBy(batch, authorization)) {
     throw new Error("The Cost Document batch is unavailable.");
   }
+}
+
+async function findLegacyActiveCostDocumentBatch(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    contractorProfileId?: Id<"contractorProfiles">;
+  }
+) {
+  const candidates = await ctx.db
+    .query("costDocumentBatches")
+    .withIndex(
+      "by_buildId_and_ownerWorkosUserId_and_creatorCapacity_and_state",
+      (query) =>
+        query
+          .eq("buildId", input.authorization.build._id)
+          .eq("ownerWorkosUserId", input.authorization.viewer.subject)
+          .eq("creatorCapacity", undefined)
+          .eq("state", "active")
+    )
+    .order("desc")
+    .take(6);
+  if (candidates.length > 5) {
+    throw new Error("The Cost Document batch is unavailable.");
+  }
+  const matches = candidates.filter(
+    (candidate) =>
+      candidate.contractorProfileId === input.contractorProfileId &&
+      currentCostDocumentBatchCreatorCapacity(
+        candidate,
+        input.authorization
+      ) === input.authorization.effectiveRole.role
+  );
+  if (matches.length > 1) {
+    throw new Error("The Cost Document batch is unavailable.");
+  }
+  return matches[0] ?? null;
 }
 
 function isBatchOwnedBy(
@@ -3999,6 +4197,7 @@ async function insertSubmittedCostDocument(
     });
   }
   await ctx.db.insert("auditEvents", {
+    actorRole: authorization.effectiveRole.role,
     actorRoles: authorization.viewer.roles,
     actorWorkosUserId: authorization.viewer.subject,
     brokerageId: authorization.brokerage._id,
@@ -4073,6 +4272,7 @@ async function recordCostDocumentBatchAudit(
   }
 ) {
   await ctx.db.insert("auditEvents", {
+    actorRole: authorization.effectiveRole.role,
     actorRoles: authorization.viewer.roles,
     actorWorkosUserId: authorization.viewer.subject,
     brokerageId: authorization.brokerage._id,
@@ -4101,6 +4301,7 @@ async function recordCostDocumentAudit(
   }
 ) {
   await ctx.db.insert("auditEvents", {
+    actorRole: authorization.effectiveRole.role,
     actorRoles: authorization.viewer.roles,
     actorWorkosUserId: authorization.viewer.subject,
     brokerageId: authorization.brokerage._id,
@@ -4129,6 +4330,7 @@ async function recordCostDocumentDraftAudit(
   }
 ) {
   await ctx.db.insert("auditEvents", {
+    actorRole: authorization.effectiveRole.role,
     actorRoles: authorization.viewer.roles,
     actorWorkosUserId: authorization.viewer.subject,
     brokerageId: authorization.brokerage._id,
@@ -4162,6 +4364,7 @@ async function projectCostDocument(
   authorization: ActiveBuildAuthorization,
   document: Doc<"costDocuments">
 ) {
+  const isHomeownerView = authorization.effectiveRole.role === "homeowner";
   const [
     pages,
     allocations,
@@ -4191,15 +4394,29 @@ async function projectCostDocument(
       )
       .order("asc")
       .take(MAX_FINANCIAL_COMPONENTS + 1),
-    ctx.db
-      .query("auditEvents")
-      .withIndex("by_entity", (query) =>
-        query
-          .eq("entityType", "costDocument")
-          .eq("entityId", String(document._id))
-      )
-      .order("desc")
-      .take(50),
+    isHomeownerView
+      ? ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (query) =>
+            query
+              .eq("entityType", "costDocument")
+              .eq("entityId", String(document._id))
+          )
+          .filter((query) =>
+            query.eq(query.field("eventType"), "cost_document.submitted")
+          )
+          .order("asc")
+          .first()
+          .then((event) => (event ? [event] : []))
+      : ctx.db
+          .query("auditEvents")
+          .withIndex("by_entity", (query) =>
+            query
+              .eq("entityType", "costDocument")
+              .eq("entityId", String(document._id))
+          )
+          .order("desc")
+          .take(50),
     ctx.db
       .query("costDocumentReviewAnnotations")
       .withIndex("by_costDocumentId_and_reviewType_and_revision", (query) =>
@@ -4249,10 +4466,15 @@ async function projectCostDocument(
       : undefined;
   return {
     _id: document._id,
-    activity: activity.map((event) => ({
-      createdAt: event.createdAt,
-      eventType: event.eventType,
-    })),
+    activity: activity
+      .filter(
+        (event) =>
+          !isHomeownerView || event.eventType === "cost_document.submitted"
+      )
+      .map((event) => ({
+        createdAt: event.createdAt,
+        eventType: event.eventType,
+      })),
     allocations: allocations.map((allocation) => ({
       amountCents: allocation.amountCents,
       buildSubmilestoneId: allocation.buildSubmilestoneId,
@@ -4273,27 +4495,36 @@ async function projectCostDocument(
     })),
     grossTotalCents: document.grossTotalCents,
     kind: document.kind,
-    duplicateWarning: document.duplicateOverrideReason
-      ? {
-          overridden: true as const,
-          reason: document.duplicateOverrideReason,
-        }
-      : undefined,
-    integrity: {
-      healthy: openIntegrityExceptions.length === 0,
-      openExceptions: openIntegrityExceptions.map((exception) => ({
-        actionRequired: exception.actionRequired,
-        assetId: exception.assetId,
-        createdAt: exception.createdAt,
-        kind: exception.kind,
-        pageId: exception.pageId,
-      })),
-    },
+    duplicateWarning:
+      !isHomeownerView && document.duplicateOverrideReason
+        ? {
+            overridden: true as const,
+            reason: document.duplicateOverrideReason,
+          }
+        : undefined,
+    ...(isHomeownerView
+      ? {}
+      : {
+          integrity: {
+            healthy: openIntegrityExceptions.length === 0,
+            openExceptions: openIntegrityExceptions.map((exception) => ({
+              actionRequired: exception.actionRequired,
+              assetId: exception.assetId,
+              createdAt: exception.createdAt,
+              kind: exception.kind,
+              pageId: exception.pageId,
+            })),
+          },
+          reviews: {
+            brokerage: projectReview(brokerageReview),
+            builder: projectReview(builderReview),
+          },
+        }),
     lifecycle: {
       state: costDocumentLifecycleState(document),
       supersededAt: document.supersededAt,
       voidedAt: document.voidedAt,
-      voidReason: document.voidReason,
+      voidReason: isHomeownerView ? undefined : document.voidReason,
     },
     pages: pages.map((page) => ({
       assetId: page.assetId,
@@ -4302,10 +4533,6 @@ async function projectCostDocument(
       mimeType: page.mimeTypeSnapshot,
       order: page.order,
     })),
-    reviews: {
-      brokerage: projectReview(brokerageReview),
-      builder: projectReview(builderReview),
-    },
     revision: {
       number: document.revisionNumber ?? 1,
       supersededByCostDocumentId: document.supersededByCostDocumentId,
@@ -4495,12 +4722,14 @@ function throwCostDocumentProjectionGraphUnavailable(): never {
 async function requireReadableCostDocument(
   ctx: AuthorizedCostDocumentCtx,
   input: {
+    actorCapacity?: ActiveBuildAuthorization["effectiveRole"]["role"];
     buildId: Id<"activeBuilds">;
     costDocumentId: Id<"costDocuments">;
     organizationId: string;
   }
 ) {
   const authorization = await authorizeCostDocumentIntent(ctx, {
+    actorCapacity: input.actorCapacity,
     buildId: input.buildId,
     intent: "submitted.read",
     organizationId: input.organizationId,
@@ -4541,7 +4770,7 @@ function canRecordCostDocumentReview(
 ) {
   const role = authorization.effectiveRole.role;
   return reviewType === "builder"
-    ? ["builder", "builder-staff", "homeowner"].includes(role)
+    ? ["builder", "builder-staff"].includes(role)
     : ["admin", "principle-broker", "broker", "broker-staff"].includes(role);
 }
 
@@ -4550,15 +4779,10 @@ function canManageCostDocumentLifecycle(
   document: Doc<"costDocuments">
 ) {
   const role = authorization.effectiveRole.role;
-  const roleCanManage = [
-    "admin",
-    "principle-broker",
-    "broker",
-    "builder",
-  ].includes(role);
+  const roleCanManage = role === "builder";
   const uploaderCanManage =
     document.uploaderWorkosUserId === authorization.viewer.subject &&
-    ["builder", "homeowner", "contractor"].includes(role);
+    ["builder", "contractor"].includes(role);
   return roleCanManage || uploaderCanManage;
 }
 
