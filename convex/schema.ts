@@ -597,6 +597,48 @@ const builderStaffPermissionResourceValidator = v.union(
   v.literal("reminder")
 );
 
+const quoteResponseTemplateAudienceValidator = v.union(
+  v.literal("contractor"),
+  v.literal("supplier"),
+  v.literal("either")
+);
+
+const quoteResponseTemplateFieldKindValidator = v.union(
+  v.literal("priced_line"),
+  v.literal("short_text"),
+  v.literal("long_text"),
+  v.literal("date"),
+  v.literal("choice"),
+  v.literal("attachment")
+);
+
+const quoteResponseTemplateFieldScopeValidator = v.union(
+  v.literal("whole_quote"),
+  v.literal("labour"),
+  v.literal("materials")
+);
+
+const quoteResponseTemplateFieldRendererValidator = v.union(
+  v.literal("input"),
+  v.literal("tiptap")
+);
+
+const quoteResponseTemplateFieldValidationValidator = v.object({
+  allowedMimeTypes: v.optional(v.array(v.string())),
+  maxFiles: v.optional(v.number()),
+  maxLength: v.optional(v.number()),
+  maxValueCents: v.optional(v.number()),
+  minFiles: v.optional(v.number()),
+  minLength: v.optional(v.number()),
+  minValueCents: v.optional(v.number()),
+  pattern: v.optional(v.string()),
+});
+
+const quoteResponseTemplateTaxValidator = v.object({
+  label: v.string(),
+  rateBps: v.number(),
+});
+
 const productionOutboxStatusValidator = v.union(
   v.literal("pending"),
   v.literal("processed"),
@@ -2166,6 +2208,68 @@ export default defineSchema({
   })
     .index("by_brokerage", ["brokerageId"])
     .index("by_brokerage_template", ["brokerageId", "templateKey"]),
+  quoteResponseTemplates: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    templateKey: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    audience: quoteResponseTemplateAudienceValidator,
+    status: v.union(v.literal("active"), v.literal("archived")),
+    currentVersionId: v.optional(v.id("quoteResponseTemplateVersions")),
+    selectedVersionId: v.optional(v.id("quoteResponseTemplateVersions")),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_brokerage", ["brokerageId"])
+    .index("by_organization", ["organizationId"])
+    .index("by_organization_templateKey", ["organizationId", "templateKey"]),
+  quoteResponseTemplateVersions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    templateId: v.id("quoteResponseTemplates"),
+    version: v.number(),
+    status: v.union(v.literal("draft"), v.literal("published")),
+    releaseNote: v.optional(v.string()),
+    validationState: v.union(v.literal("invalid"), v.literal("valid")),
+    createdByWorkosUserId: v.string(),
+    publishedByWorkosUserId: v.optional(v.string()),
+    publishedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_template", ["templateId"])
+    .index("by_template_version", ["templateId", "version"])
+    .index("by_organization_status", ["organizationId", "status"]),
+  quoteResponseTemplateFields: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    templateId: v.id("quoteResponseTemplates"),
+    versionId: v.id("quoteResponseTemplateVersions"),
+    fieldKey: v.string(),
+    label: v.string(),
+    kind: quoteResponseTemplateFieldKindValidator,
+    scope: quoteResponseTemplateFieldScopeValidator,
+    order: v.number(),
+    required: v.boolean(),
+    isPermanent: v.boolean(),
+    repeatable: v.boolean(),
+    renderer: quoteResponseTemplateFieldRendererValidator,
+    choiceOptions: v.optional(v.array(v.string())),
+    validation: v.optional(quoteResponseTemplateFieldValidationValidator),
+    tax: v.optional(quoteResponseTemplateTaxValidator),
+    supportsTax: v.boolean(),
+    allowAlternates: v.boolean(),
+    allowExclusions: v.boolean(),
+    richTextDefaultHtml: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_version", ["versionId"])
+    .index("by_version_order", ["versionId", "order"])
+    .index("by_version_fieldKey", ["versionId", "fieldKey"])
+    .index("by_organization", ["organizationId"]),
   proposalTemplateMilestones: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

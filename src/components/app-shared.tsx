@@ -165,6 +165,12 @@ export const builderNavGroups: SidebarNavGroup[] = [
         icon: icon(Building06Icon),
         matchPrefix: true,
       },
+      {
+        title: "Quote templates",
+        to: builderRoute("/builder/quote-templates"),
+        icon: icon(Agreement03Icon),
+        matchPrefix: true,
+      },
     ],
   },
   {
@@ -199,6 +205,12 @@ export const builderStaffNavGroups: SidebarNavGroup[] = [
         title: "Live Builds",
         to: builderRoute("/builder-staff/builds"),
         icon: icon(Building06Icon),
+        matchPrefix: true,
+      },
+      {
+        title: "Quote templates",
+        to: builderRoute("/builder-staff/quote-templates"),
+        icon: icon(Agreement03Icon),
         matchPrefix: true,
       },
     ],

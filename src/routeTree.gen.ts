@@ -36,6 +36,8 @@ import { Route as ContractorScheduleRouteImport } from './routes/contractor/sche
 import { Route as ContractorProfileRouteImport } from './routes/contractor/profile'
 import { Route as ContractorOnboardingRouteImport } from './routes/contractor/onboarding'
 import { Route as ContractorEvidenceRouteImport } from './routes/contractor/evidence'
+import { Route as BuilderQuoteTemplatesRouteImport } from './routes/builder/quote-templates'
+import { Route as BuilderStaffQuoteTemplatesRouteImport } from './routes/builder-staff/quote-templates'
 import { Route as BackofficeUserManagementRouteImport } from './routes/backoffice/user-management'
 import { Route as BackofficeOnboardContractorRouteImport } from './routes/backoffice/onboard-contractor'
 import { Route as BackofficeOnboardBuilderRouteImport } from './routes/backoffice/onboard-builder'
@@ -238,6 +240,17 @@ const ContractorEvidenceRoute = ContractorEvidenceRouteImport.update({
   path: '/evidence',
   getParentRoute: () => ContractorRouteRoute,
 } as any)
+const BuilderQuoteTemplatesRoute = BuilderQuoteTemplatesRouteImport.update({
+  id: '/quote-templates',
+  path: '/quote-templates',
+  getParentRoute: () => BuilderRouteRoute,
+} as any)
+const BuilderStaffQuoteTemplatesRoute =
+  BuilderStaffQuoteTemplatesRouteImport.update({
+    id: '/quote-templates',
+    path: '/quote-templates',
+    getParentRoute: () => BuilderStaffRouteRoute,
+  } as any)
 const BackofficeUserManagementRoute =
   BackofficeUserManagementRouteImport.update({
     id: '/user-management',
@@ -628,6 +641,8 @@ export interface FileRoutesByFullPath {
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
+  '/builder-staff/quote-templates': typeof BuilderStaffQuoteTemplatesRoute
+  '/builder/quote-templates': typeof BuilderQuoteTemplatesRoute
   '/contractor/evidence': typeof ContractorEvidenceRoute
   '/contractor/onboarding': typeof ContractorOnboardingRoute
   '/contractor/profile': typeof ContractorProfileRoute
@@ -709,6 +724,8 @@ export interface FileRoutesByTo {
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
+  '/builder-staff/quote-templates': typeof BuilderStaffQuoteTemplatesRoute
+  '/builder/quote-templates': typeof BuilderQuoteTemplatesRoute
   '/contractor/evidence': typeof ContractorEvidenceRoute
   '/contractor/onboarding': typeof ContractorOnboardingRoute
   '/contractor/profile': typeof ContractorProfileRoute
@@ -798,6 +815,8 @@ export interface FileRoutesById {
   '/backoffice/onboard-builder': typeof BackofficeOnboardBuilderRoute
   '/backoffice/onboard-contractor': typeof BackofficeOnboardContractorRoute
   '/backoffice/user-management': typeof BackofficeUserManagementRoute
+  '/builder-staff/quote-templates': typeof BuilderStaffQuoteTemplatesRoute
+  '/builder/quote-templates': typeof BuilderQuoteTemplatesRoute
   '/contractor/evidence': typeof ContractorEvidenceRoute
   '/contractor/onboarding': typeof ContractorOnboardingRoute
   '/contractor/profile': typeof ContractorProfileRoute
@@ -894,6 +913,8 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
+    | '/builder-staff/quote-templates'
+    | '/builder/quote-templates'
     | '/contractor/evidence'
     | '/contractor/onboarding'
     | '/contractor/profile'
@@ -975,6 +996,8 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
+    | '/builder-staff/quote-templates'
+    | '/builder/quote-templates'
     | '/contractor/evidence'
     | '/contractor/onboarding'
     | '/contractor/profile'
@@ -1063,6 +1086,8 @@ export interface FileRouteTypes {
     | '/backoffice/onboard-builder'
     | '/backoffice/onboard-contractor'
     | '/backoffice/user-management'
+    | '/builder-staff/quote-templates'
+    | '/builder/quote-templates'
     | '/contractor/evidence'
     | '/contractor/onboarding'
     | '/contractor/profile'
@@ -1342,6 +1367,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/contractor/evidence'
       preLoaderRoute: typeof ContractorEvidenceRouteImport
       parentRoute: typeof ContractorRouteRoute
+    }
+    '/builder/quote-templates': {
+      id: '/builder/quote-templates'
+      path: '/quote-templates'
+      fullPath: '/builder/quote-templates'
+      preLoaderRoute: typeof BuilderQuoteTemplatesRouteImport
+      parentRoute: typeof BuilderRouteRoute
+    }
+    '/builder-staff/quote-templates': {
+      id: '/builder-staff/quote-templates'
+      path: '/quote-templates'
+      fullPath: '/builder-staff/quote-templates'
+      preLoaderRoute: typeof BuilderStaffQuoteTemplatesRouteImport
+      parentRoute: typeof BuilderStaffRouteRoute
     }
     '/backoffice/user-management': {
       id: '/backoffice/user-management'
@@ -2035,6 +2074,7 @@ const BuilderProposalsRouteRouteWithChildren =
 interface BuilderRouteRouteChildren {
   BuilderDemoRouteRoute: typeof BuilderDemoRouteRouteWithChildren
   BuilderProposalsRouteRoute: typeof BuilderProposalsRouteRouteWithChildren
+  BuilderQuoteTemplatesRoute: typeof BuilderQuoteTemplatesRoute
   BuilderIndexRoute: typeof BuilderIndexRoute
   BuilderContractorsContractorIdRoute: typeof BuilderContractorsContractorIdRoute
   BuilderBuildsBuildIdIndexRoute: typeof BuilderBuildsBuildIdIndexRoute
@@ -2043,6 +2083,7 @@ interface BuilderRouteRouteChildren {
 const BuilderRouteRouteChildren: BuilderRouteRouteChildren = {
   BuilderDemoRouteRoute: BuilderDemoRouteRouteWithChildren,
   BuilderProposalsRouteRoute: BuilderProposalsRouteRouteWithChildren,
+  BuilderQuoteTemplatesRoute: BuilderQuoteTemplatesRoute,
   BuilderIndexRoute: BuilderIndexRoute,
   BuilderContractorsContractorIdRoute: BuilderContractorsContractorIdRoute,
   BuilderBuildsBuildIdIndexRoute: BuilderBuildsBuildIdIndexRoute,
@@ -2103,12 +2144,14 @@ const BuilderStaffProposalsRouteRouteWithChildren =
 interface BuilderStaffRouteRouteChildren {
   BuilderStaffBuildsRouteRoute: typeof BuilderStaffBuildsRouteRouteWithChildren
   BuilderStaffProposalsRouteRoute: typeof BuilderStaffProposalsRouteRouteWithChildren
+  BuilderStaffQuoteTemplatesRoute: typeof BuilderStaffQuoteTemplatesRoute
   BuilderStaffIndexRoute: typeof BuilderStaffIndexRoute
 }
 
 const BuilderStaffRouteRouteChildren: BuilderStaffRouteRouteChildren = {
   BuilderStaffBuildsRouteRoute: BuilderStaffBuildsRouteRouteWithChildren,
   BuilderStaffProposalsRouteRoute: BuilderStaffProposalsRouteRouteWithChildren,
+  BuilderStaffQuoteTemplatesRoute: BuilderStaffQuoteTemplatesRoute,
   BuilderStaffIndexRoute: BuilderStaffIndexRoute,
 }
 
