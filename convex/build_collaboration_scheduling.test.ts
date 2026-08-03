@@ -43,6 +43,125 @@ describe("Build collaboration scheduled publication", () => {
     ).toBe("2026-03-08");
   });
 
+  test("queues exact durable activation timestamps for normal and DST dates", async () => {
+    vi.useFakeTimers();
+    const cases = [
+      {
+        expected: Date.parse("2026-02-01T05:00:00.000Z"),
+        now: Date.parse("2026-01-01T12:00:00.000Z"),
+        startDate: "2026-01-31",
+      },
+      {
+        expected: Date.parse("2026-03-08T05:00:00.000Z"),
+        now: Date.parse("2026-03-01T12:00:00.000Z"),
+        startDate: "2026-03-07",
+      },
+      {
+        expected: Date.parse("2026-11-01T04:00:00.000Z"),
+        now: Date.parse("2026-10-01T12:00:00.000Z"),
+        startDate: "2026-10-31",
+      },
+    ];
+
+    for (const testCase of cases) {
+      vi.setSystemTime(testCase.now);
+      const fixture = await seedSchedulingBuild();
+      await seedCanonicalSchedulingMilestone(fixture, {
+        startDate: testCase.startDate,
+      });
+      await fixture.base.mutation(
+        (internal as any).build_collaboration_scheduling
+          .scheduleCurrentMilestoneSystemPostActivationsInternal,
+        { buildId: fixture.buildId },
+      );
+
+      const scheduledFunctions = await fixture.base.run(async (ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      );
+      const activation = scheduledFunctions.find((scheduled) =>
+        scheduled.name.endsWith(
+          "build_collaboration_scheduling:executeScheduledMilestoneSystemPostActivation",
+        ),
+      );
+      expect(activation?.scheduledTime).toBe(testCase.expected);
+    }
+  });
+
+  test("revalidates a stale scheduled activation after the Build due date moves", async () => {
+    vi.useFakeTimers();
+    const initialNow = Date.parse("2026-01-01T12:00:00.000Z");
+    const initialDue = Date.parse("2026-02-01T05:00:00.000Z");
+    const repairedDue = Date.parse("2026-02-03T05:00:00.000Z");
+    vi.setSystemTime(initialNow);
+    const fixture = await seedSchedulingBuild();
+    const canonical = await seedCanonicalSchedulingMilestone(fixture, {
+      startDate: "2026-01-31",
+    });
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .scheduleCurrentMilestoneSystemPostActivationsInternal,
+      { buildId: fixture.buildId },
+    );
+
+    const initialScheduled = await fixture.base.run(async (ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(
+      initialScheduled.some(
+        (scheduled) =>
+          scheduled.name.endsWith(
+            "build_collaboration_scheduling:executeScheduledMilestoneSystemPostActivation",
+          ) && scheduled.scheduledTime === initialDue,
+      ),
+    ).toBe(true);
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.buildId, {
+        startDate: "2026-02-02",
+        updatedAt: initialNow,
+      });
+    });
+    vi.setSystemTime(initialDue);
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledMilestoneSystemPostActivation,
+      {
+        buildId: fixture.buildId,
+        milestoneId: canonical.buildMilestoneId,
+        scheduledFor: initialDue,
+      },
+    );
+
+    const rescheduled = await fixture.base.run(async (ctx) => ({
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+      scheduled: await ctx.db.system.query("_scheduled_functions").collect(),
+    }));
+    expect(rescheduled.posts).toEqual([]);
+    expect(
+      rescheduled.scheduled.some(
+        (scheduled) =>
+          scheduled.name.endsWith(
+            "build_collaboration_scheduling:executeScheduledMilestoneSystemPostActivation",
+          ) && scheduled.scheduledTime === repairedDue,
+      ),
+    ).toBe(true);
+
+    vi.setSystemTime(repairedDue);
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledMilestoneSystemPostActivation,
+      {
+        buildId: fixture.buildId,
+        milestoneId: canonical.buildMilestoneId,
+        scheduledFor: repairedDue,
+      },
+    );
+    const activated = await fixture.base.run(async (ctx) => ({
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(activated.posts).toHaveLength(1);
+  });
+
   test("materializes scheduled milestone cards without starts and records one missed-start marker", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
@@ -1424,11 +1543,14 @@ async function stageCleanSchedulingAsset(
   return assetId;
 }
 
-async function seedCanonicalSchedulingMilestone(fixture: {
-  base: ReturnType<typeof convexTest>;
-  brokerageId: Id<"brokerages">;
-  buildId: Id<"activeBuilds">;
-}) {
+async function seedCanonicalSchedulingMilestone(
+  fixture: {
+    base: ReturnType<typeof convexTest>;
+    brokerageId: Id<"brokerages">;
+    buildId: Id<"activeBuilds">;
+  },
+  options: { startDate?: string; timezone?: string } = {},
+) {
   return await fixture.base.run(async (ctx) => {
     const build = await ctx.db.get(fixture.buildId);
     if (!build) {
@@ -1436,8 +1558,8 @@ async function seedCanonicalSchedulingMilestone(fixture: {
     }
     const now = BASE_TIME;
     await ctx.db.patch(build._id, {
-      startDate: "2026-03-07",
-      timezone: "America/Toronto",
+      startDate: options.startDate ?? "2026-03-07",
+      timezone: options.timezone ?? "America/Toronto",
       updatedAt: now,
     });
     const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {

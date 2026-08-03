@@ -42,6 +42,7 @@ import {
   publishDrawCollaborationEvent,
   publishMilestoneCollaborationEvent,
 } from "./build_collaboration_workflow_events";
+import { scheduleCurrentMilestoneSystemPostActivations } from "./build_collaboration_scheduling";
 import { validateBuildTimezone } from "./build_collaboration_system_posts";
 import {
   evidenceLocationMateriallyChanged,
@@ -5584,6 +5585,7 @@ export const recordOfflineClosing = authenticatedMutation
     });
     const build = await ctx.db.get(buildId);
     if (build) {
+      await scheduleCurrentMilestoneSystemPostActivations(ctx, { build, now });
       await writeActiveBuildEvent(ctx, {
         auth: {
           brokerage: auth.brokerage,
@@ -15337,6 +15339,12 @@ export const updateActiveBuildNonFinancialDetails = authenticatedMutation
     };
 
     await ctx.db.patch(args.buildId, patch);
+    const updatedBuild = await ctx.db.get(args.buildId);
+    if (updatedBuild) {
+      await scheduleCurrentMilestoneSystemPostActivations(ctx, {
+        build: updatedBuild,
+      });
+    }
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -33715,6 +33723,10 @@ async function repairLegacyClosedProposalActiveBuildAggregate(
     input.buildStartDate,
     "Legacy Active Build start date",
   );
+  const timezone =
+    input.ianaTimezone === undefined
+      ? undefined
+      : validateBuildTimezone(input.ianaTimezone);
   const { brokerage, proposal } = input.auth;
   if (proposal.status !== "closed") {
     throw new Error("Legacy Active Build repair requires a closed proposal.");
@@ -33749,6 +33761,18 @@ async function repairLegacyClosedProposalActiveBuildAggregate(
       throw new Error("Legacy proposal references a missing Active Build.");
     }
     validateExistingBuild(linkedBuild);
+    if (timezone !== undefined) {
+      await ctx.db.patch(linkedBuild._id, {
+        timezone,
+        updatedAt: Date.now(),
+      });
+      const repairedBuild = await ctx.db.get(linkedBuild._id);
+      if (repairedBuild) {
+        await scheduleCurrentMilestoneSystemPostActivations(ctx, {
+          build: repairedBuild,
+        });
+      }
+    }
     return {
       buildId: linkedBuild._id,
       operation: "already_repaired" as const,
@@ -33767,6 +33791,17 @@ async function repairLegacyClosedProposalActiveBuildAggregate(
   if (existingBuild) {
     validateExistingBuild(existingBuild);
     const now = Date.now();
+    let repairedBuild = existingBuild;
+    if (timezone !== undefined) {
+      await ctx.db.patch(existingBuild._id, {
+        timezone,
+        updatedAt: now,
+      });
+      repairedBuild = (await ctx.db.get(existingBuild._id)) ?? existingBuild;
+      await scheduleCurrentMilestoneSystemPostActivations(ctx, {
+        build: repairedBuild,
+      });
+    }
     const warnings = await warningsForBuild(existingBuild._id);
     await ctx.db.patch(proposal._id, {
       activeBuildId: existingBuild._id,
@@ -33785,7 +33820,7 @@ async function repairLegacyClosedProposalActiveBuildAggregate(
     });
     await writeActiveBuildEvent(ctx, {
       auth: { ...input.auth, proposal },
-      build: existingBuild,
+      build: repairedBuild,
       command: "repairLegacyClosedProposalActiveBuild",
       eventType: "active_build.relinked_to_legacy_proposal",
       newState: JSON.stringify({ proposalId: proposal._id }),
@@ -33811,7 +33846,7 @@ async function repairLegacyClosedProposalActiveBuildAggregate(
     activeBuildEventType: "active_build.created_from_legacy_proposal",
     auth: input.auth,
     buildStartDate,
-    ianaTimezone: input.ianaTimezone,
+    ianaTimezone: timezone,
     command: "repairLegacyClosedProposalActiveBuild",
     now: Date.now(),
     organizationId: proposal.organizationId,
@@ -34211,6 +34246,10 @@ async function seedCloseProposal(
   });
   const build = await ctx.db.get(buildId);
   if (build) {
+    await scheduleCurrentMilestoneSystemPostActivations(ctx, {
+      build,
+      now: input.now,
+    });
     await writeActiveBuildEvent(ctx, {
       auth: {
         brokerage: input.auth.brokerage,

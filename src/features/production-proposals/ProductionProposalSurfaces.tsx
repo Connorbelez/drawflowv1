@@ -304,7 +304,7 @@ interface ProductionDocument {
 }
 
 export interface ProductionProposalDetail {
-  activeBuild?: { _id?: string; startDate?: string } | null;
+  activeBuild?: { _id?: string; startDate?: string; timezone?: string } | null;
   appPermissions?: BuilderStaffAppPermissions | null;
   assignment?: ProductionProposalAssignment | null;
   costItems?: MaterialPlanningItem[];
@@ -1969,7 +1969,7 @@ export function ProductionProposalReviewSurface({
   const [permitWaiverReason, setPermitWaiverReason] = useState("");
   const [startDate, setStartDate] = useState("");
   const [ianaTimezone, setIanaTimezone] = useState(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone
+    () => detail.activeBuild?.timezone ?? ""
   );
   const [drawAmounts, setDrawAmounts] = useState<Record<string, string>>({});
   const [drawLabels, setDrawLabels] = useState<Record<string, string>>({});

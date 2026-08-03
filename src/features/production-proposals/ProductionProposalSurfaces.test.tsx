@@ -1914,13 +1914,29 @@ describe("ProductionProposalReviewSurface", () => {
     const startDateInput = screen.getByLabelText(
       "Build start date"
     ) as HTMLInputElement;
+    const timezoneInput = screen.getByLabelText(
+      "Build timezone (IANA)"
+    ) as HTMLInputElement;
     expect(startDateInput.getAttribute("type")).toBe("date");
     expect(startDateInput.value).toBe("2026-05-20");
+    expect(timezoneInput.value).toBe("");
+    expect(
+      (screen.getByRole("button", {
+        name: "Record closing",
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
 
     fireEvent.change(startDateInput, { target: { value: "2026-06-01" } });
+    fireEvent.change(timezoneInput, {
+      target: { value: "America/Toronto" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Record closing" }));
 
-    expect(onClose).toHaveBeenCalledWith("2026-06-01", "Loan closed offline.");
+    expect(onClose).toHaveBeenCalledWith(
+      "2026-06-01",
+      "Loan closed offline.",
+      "America/Toronto",
+    );
   });
 
   test("reports missing decision reasons with toast before calling review mutations", () => {

@@ -24,6 +24,7 @@ import {
 import {
   addBuildLocalDays,
   buildLocalDateAt,
+  buildLocalMidnightUtc,
   ensureMilestoneSystemPost,
 } from "./build_collaboration_system_posts";
 import {
@@ -38,6 +39,10 @@ const MAX_SCHEDULE_HORIZON_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 const MIN_SCHEDULE_DELAY_MS = 60_000;
 const SCHEDULE_BATCH_SIZE = 25;
 const MILESTONE_RECONCILIATION_BATCH_SIZE = 25;
+// Convex rejects runAt timestamps more than five years in either direction.
+// Historical or far-future plans outside that durable horizon remain eligible
+// for the bounded recovery reconciliation instead of blocking a Build write.
+const MAX_MILESTONE_SCHEDULE_HORIZON_MS = 5 * 365 * 24 * 60 * 60 * 1000;
 
 export const getBuildCollaborationSchedulingCapabilities = authenticatedQuery
   .input({
@@ -318,6 +323,150 @@ export const processDueBuildCollaborationScheduledPublications =
       return null;
     })
     .internal();
+
+/**
+ * Queue one durable activation per canonical Milestone using the Build-local
+ * midnight instant. This is the normal activation path; the bounded cron
+ * below remains a retry/recovery reconciliation for missed scheduler work.
+ */
+export async function scheduleCurrentMilestoneSystemPostActivations(
+  ctx: MutationCtx,
+  input: { build: Doc<"activeBuilds">; now?: number },
+) {
+  const { build } = input;
+  if (!(build.status === "active" || build.status === "future_start")) {
+    return;
+  }
+  if (!build.timezone) {
+    // Historical Builds without an explicit canonical timezone stay unknown
+    // until a supported repair supplies one.
+    return;
+  }
+  const now = input.now ?? Date.now();
+  const milestones = await ctx.db
+    .query("buildMilestones")
+    .withIndex("by_build", (query) => query.eq("buildId", build._id))
+    .take(500);
+
+  for (const milestone of milestones) {
+    if (
+      milestone.organizationId !== build.organizationId ||
+      milestone.brokerageId !== build.brokerageId
+    ) {
+      continue;
+    }
+    let scheduledFor: number;
+    try {
+      const plannedDate = addBuildLocalDays(build.startDate, milestone.dayStart);
+      scheduledFor = buildLocalMidnightUtc(plannedDate, build.timezone);
+    } catch {
+      // Invalid historical dates/timezones remain visible to reconciliation as
+      // unknown rather than blocking a Build mutation transaction.
+      continue;
+    }
+
+    // Keep the exact Build-local midnight instant. Plans outside Convex's
+    // five-year runAt window remain for bounded recovery reconciliation.
+    if (
+      scheduledFor < now - MAX_MILESTONE_SCHEDULE_HORIZON_MS ||
+      scheduledFor > now + MAX_MILESTONE_SCHEDULE_HORIZON_MS
+    ) {
+      continue;
+    }
+    await ctx.scheduler.runAt(
+      scheduledFor,
+      internal.build_collaboration_scheduling
+        .executeScheduledMilestoneSystemPostActivation,
+      {
+        buildId: build._id,
+        milestoneId: milestone._id,
+        scheduledFor,
+      },
+    );
+  }
+}
+
+/** Schedule current Milestones for a supported Build after a repair/update. */
+export const scheduleCurrentMilestoneSystemPostActivationsInternal =
+  internalMutation
+    .input({ buildId: v.id("activeBuilds") })
+    .returns(v.null())
+    .handler(async (ctx, args) => {
+      const build = await ctx.db.get(args.buildId);
+      if (build) {
+        await scheduleCurrentMilestoneSystemPostActivations(ctx, { build });
+      }
+      return null;
+    })
+    .internal();
+
+/**
+ * Execute one exact scheduled activation. The Build and Milestone are
+ * reloaded at execution time so date/timezone repairs cannot activate stale
+ * projections early; a moved-later due instant gets a fresh durable job.
+ */
+export const executeScheduledMilestoneSystemPostActivation = internalMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    milestoneId: v.id("buildMilestones"),
+    scheduledFor: v.number(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const [build, milestone] = await Promise.all([
+      ctx.db.get(args.buildId),
+      ctx.db.get(args.milestoneId),
+    ]);
+    if (!build || !milestone) {
+      return null;
+    }
+    if (
+      !(build.status === "active" || build.status === "future_start") ||
+      milestone.buildId !== build._id ||
+      milestone.organizationId !== build.organizationId ||
+      milestone.brokerageId !== build.brokerageId ||
+      !build.timezone
+    ) {
+      return null;
+    }
+
+    const now = Date.now();
+    let currentDueAt: number;
+    try {
+      const plannedDate = addBuildLocalDays(build.startDate, milestone.dayStart);
+      currentDueAt = buildLocalMidnightUtc(plannedDate, build.timezone);
+    } catch {
+      return null;
+    }
+    if (currentDueAt > now) {
+      if (currentDueAt <= now + MAX_MILESTONE_SCHEDULE_HORIZON_MS) {
+        await ctx.scheduler.runAt(
+          currentDueAt,
+          internal.build_collaboration_scheduling
+            .executeScheduledMilestoneSystemPostActivation,
+          {
+            buildId: build._id,
+            milestoneId: milestone._id,
+            scheduledFor: currentDueAt,
+          },
+        );
+      }
+      return null;
+    }
+
+    await ensureMilestoneSystemPost(ctx, {
+      actor: {
+        roles: ["system"],
+        workosUserId: "system:build-collaboration-scheduler",
+      },
+      build,
+      milestone,
+      activationReason: "scheduled",
+      now,
+    });
+    return null;
+  })
+  .internal();
 
 /**
  * Reconcile the canonical Milestone System Post projection at least once per

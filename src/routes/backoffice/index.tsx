@@ -2378,15 +2378,13 @@ export function ClosingConfirmationDialog({
   proposal: ProposalKanbanCard | null;
 }) {
   const [buildStartDate, setBuildStartDate] = useState(todayInputDate());
-  const [ianaTimezone, setIanaTimezone] = useState(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone
-  );
+  const [ianaTimezone, setIanaTimezone] = useState("");
   const [reason, setReason] = useState("");
 
   useEffect(() => {
     if (open) {
       setBuildStartDate(todayInputDate());
-      setIanaTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+      setIanaTimezone("");
       setReason("");
     }
   }, [open]);
