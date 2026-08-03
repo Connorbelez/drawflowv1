@@ -138,8 +138,8 @@ describe("Cost Document public contract", () => {
         (event: { eventType: string }) => event.eventType
       )
     ).toEqual([
-      "cost_document.submitted",
       "cost_document.page_download_authorized",
+      "cost_document.submitted",
     ]);
     expect(await downstreamSnapshot(fixture)).toEqual(before);
 
@@ -239,9 +239,10 @@ describe("Cost Document public contract", () => {
       {
         buildId: fixture.buildId,
         organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 10 },
       }
     );
-    expect(visibleDocuments).toEqual([]);
+    expect(visibleDocuments.page).toEqual([]);
 
   });
 });

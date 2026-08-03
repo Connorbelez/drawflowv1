@@ -1,3 +1,7 @@
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+} from "convex/server";
 import { v } from "convex/values";
 
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
@@ -57,6 +61,18 @@ const costDocumentReceiptProjectionValidator = v.object({
     v.literal("complained"),
     v.literal("cancelled")
   ),
+});
+
+const costDocumentSummaryValidator = v.object({
+  _id: v.id("costDocuments"),
+  category: costDocumentCategoryValidator,
+  currency: v.literal("CAD"),
+  grossTotalCents: v.number(),
+  kind: costDocumentKindValidator,
+  state: v.literal("submitted"),
+  submittedAt: v.number(),
+  title: v.string(),
+  vendorName: v.string(),
 });
 
 const costDocumentProjectionValidator = v.object({
@@ -248,23 +264,40 @@ export const getCostDocument = authenticatedQuery
   .public();
 
 export const listCostDocuments = authenticatedQuery
-  .input(activeBuildScopeFields)
-  .returns(v.array(costDocumentProjectionValidator))
+  .input({
+    ...activeBuildScopeFields,
+    paginationOpts: paginationOptsValidator,
+  })
+  .returns(paginationResultValidator(costDocumentSummaryValidator))
   .handler(async (ctx, args) => {
     const authorization = await authorizeCostDocumentBuilder(ctx, args);
-    const documents = await ctx.db
+    const page = await ctx.db
       .query("costDocuments")
       .withIndex("by_buildId_and_submittedAt", (query) =>
         query.eq("buildId", authorization.build._id)
       )
       .order("desc")
-      .take(100);
-    const inScope = documents.filter((document) =>
+      .paginate({
+        cursor: args.paginationOpts.cursor,
+        numItems: Math.min(50, Math.max(1, args.paginationOpts.numItems)),
+      });
+    const inScope = page.page.filter((document) =>
       isDocumentInScope(document, authorization)
     );
-    return await Promise.all(
-      inScope.map((document) => projectCostDocument(ctx, document))
-    );
+    return {
+      ...page,
+      page: inScope.map((document) => ({
+        _id: document._id,
+        category: document.category,
+        currency: document.currency,
+        grossTotalCents: document.grossTotalCents,
+        kind: document.kind,
+        state: document.state,
+        submittedAt: document.submittedAt,
+        title: document.title,
+        vendorName: document.vendorName,
+      })),
+    };
   })
   .public();
 
@@ -471,8 +504,8 @@ async function projectCostDocument(
           .eq("entityType", "costDocument")
           .eq("entityId", String(document._id))
       )
-      .order("asc")
-      .collect(),
+      .order("desc")
+      .take(50),
     ctx.db
       .query("emailMessages")
       .withIndex("by_entity_and_createdAt", (query) =>
