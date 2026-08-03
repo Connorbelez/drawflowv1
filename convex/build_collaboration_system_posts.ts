@@ -14,7 +14,7 @@ import {
   publishCanonicalBuildCollaborationSystemEvent,
   resolveSystemEventScope,
 } from "./build_collaboration_system_events";
-import type { Doc, Id, MutationCtx } from "./types";
+import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const SYSTEM_AUTHOR = "system";
 const SYSTEM_LABEL = "DrawFlow System";
@@ -23,6 +23,212 @@ export type MilestoneSystemActivationReason =
   | "explicit_start"
   | "recovery"
   | "scheduled";
+
+export type SystemActionItemPresentationColumn =
+  | "backlog"
+  | "behind_schedule"
+  | "in_progress"
+  | "in_review"
+  | "approved";
+
+export type SystemActionItemPresentation = {
+  attention?: "overdue_completion";
+  column: SystemActionItemPresentationColumn;
+  plannedCompletionDate?: string;
+  plannedStartDate?: string;
+  state: "known" | "unknown";
+  timezone?: string;
+  unknownReason?: string;
+};
+
+/** Validate and normalize the one canonical timezone accepted by Build writes. */
+export function validateBuildTimezone(value: string) {
+  const timezone = value.trim();
+  if (!timezone || timezone.length > 120) {
+    throw new Error("Build timezone must be a valid IANA timezone string.");
+  }
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(
+      new Date(0)
+    );
+  } catch {
+    throw new Error(
+      `Build timezone ${timezone} is not a valid IANA timezone string.`
+    );
+  }
+  return timezone;
+}
+
+export function buildLocalDateAt(epochMs: number, timezone: string) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: validateBuildTimezone(timezone),
+    year: "numeric",
+  });
+  const parts = Object.fromEntries(
+    formatter
+      .formatToParts(new Date(epochMs))
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function addBuildLocalDays(date: string, days: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  if (
+    !(
+      Number.isInteger(year) &&
+      Number.isInteger(month) &&
+      Number.isInteger(day)
+    ) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    throw new Error(`Invalid Build-local calendar date ${date}.`);
+  }
+  const next = new Date(Date.UTC(year, month - 1, day));
+  next.setUTCDate(next.getUTCDate() + Math.round(days));
+  return next.toISOString().slice(0, 10);
+}
+
+function timeZoneOffsetMs(epochMs: number, timezone: string) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23",
+      minute: "2-digit",
+      month: "2-digit",
+      second: "2-digit",
+      timeZone: timezone,
+      year: "numeric",
+    })
+      .formatToParts(new Date(epochMs))
+      .map((part) => [part.type, part.value])
+  );
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second)
+  );
+  return asUtc - Math.floor(epochMs / 1000) * 1000;
+}
+
+/** Return the UTC instant corresponding to Build-local midnight, DST-safe. */
+export function buildLocalMidnightUtc(date: string, timezone: string) {
+  const normalizedTimezone = validateBuildTimezone(timezone);
+  const [year, month, day] = date.split("-").map(Number);
+  const wallClockUtc = Date.UTC(year, month - 1, day);
+  let candidate = wallClockUtc;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    candidate = wallClockUtc - timeZoneOffsetMs(candidate, normalizedTimezone);
+  }
+  return candidate;
+}
+
+function unknownSystemActionItemPresentation(reason: string) {
+  return {
+    column: "backlog" as const,
+    state: "unknown" as const,
+    unknownReason: reason,
+  } satisfies SystemActionItemPresentation;
+}
+
+export async function deriveMilestoneSystemActionItemPresentation(
+  ctx: QueryCtx,
+  input: {
+    actionItem: Doc<"buildActionItems">;
+    asOf: number;
+    build: Doc<"activeBuilds">;
+  }
+): Promise<SystemActionItemPresentation | undefined> {
+  if (input.actionItem.systemMode !== "generated_milestone_submilestone") {
+    return;
+  }
+  if (
+    !input.actionItem.canonicalBuildMilestoneId ||
+    !input.actionItem.canonicalBuildSubmilestoneId
+  ) {
+    return unknownSystemActionItemPresentation(
+      "Generated System Action Item is missing its canonical Milestone binding."
+    );
+  }
+  if (!input.build.timezone) {
+    return unknownSystemActionItemPresentation(
+      "Build timezone is unavailable; schedule state requires an explicit IANA timezone."
+    );
+  }
+  let localDate: string;
+  try {
+    localDate = buildLocalDateAt(input.asOf, input.build.timezone);
+  } catch {
+    return unknownSystemActionItemPresentation(
+      "Build timezone is invalid; schedule state requires an explicit IANA timezone."
+    );
+  }
+  const [milestone, submilestone] = await Promise.all([
+    ctx.db.get(input.actionItem.canonicalBuildMilestoneId),
+    ctx.db.get(input.actionItem.canonicalBuildSubmilestoneId),
+  ]);
+  if (
+    !(milestone && submilestone) ||
+    milestone.buildId !== input.build._id ||
+    milestone.organizationId !== input.build.organizationId ||
+    milestone.brokerageId !== input.build.brokerageId ||
+    submilestone.buildId !== input.build._id ||
+    submilestone.organizationId !== input.build.organizationId ||
+    submilestone.brokerageId !== input.build.brokerageId ||
+    submilestone.buildMilestoneId !== milestone._id
+  ) {
+    return unknownSystemActionItemPresentation(
+      "Canonical Milestone or Sub-milestone binding is unavailable."
+    );
+  }
+  const plannedStartDate = addBuildLocalDays(
+    input.build.startDate,
+    submilestone.startDay ?? milestone.dayStart
+  );
+  const plannedCompletionDate = addBuildLocalDays(
+    plannedStartDate,
+    Math.max(0, (submilestone.durationDays ?? 1) - 1)
+  );
+  const base = {
+    plannedCompletionDate,
+    plannedStartDate,
+    state: "known" as const,
+    timezone: input.build.timezone,
+  };
+  if (
+    submilestone.status === "complete" ||
+    milestone.completionClaim !== undefined
+  ) {
+    return {
+      ...base,
+      column:
+        milestone.completionReview?.status === "approved"
+          ? "approved"
+          : "in_review",
+    };
+  }
+  if (submilestone.actualStartedAt !== undefined) {
+    return {
+      ...base,
+      attention:
+        localDate > plannedCompletionDate ? "overdue_completion" : undefined,
+      column: "in_progress",
+    };
+  }
+  return {
+    ...base,
+    column: localDate > plannedStartDate ? "behind_schedule" : "backlog",
+  };
+}
 
 export async function ensureMilestoneSystemPost(
   ctx: MutationCtx,
@@ -34,19 +240,27 @@ export async function ensureMilestoneSystemPost(
     build: Doc<"activeBuilds">;
     milestone: Doc<"buildMilestones">;
     activationReason: MilestoneSystemActivationReason;
+    now?: number;
   }
 ) {
   const occurrenceKey = `milestone-system:${input.build._id}:${input.milestone._id}`;
+  const now = input.now ?? Date.now();
+  const plainText =
+    input.activationReason === "scheduled"
+      ? `${input.milestone.name} is scheduled to begin today. Canonical Sub-milestone cards are synchronized from the roadmap; this does not record that work has started.`
+      : `${input.milestone.name} started. Canonical Sub-milestone cards are synchronized from the roadmap.`;
   const postId = await publishCanonicalBuildCollaborationSystemEvent(ctx, {
     buildId: input.build._id,
     idempotencyKey: occurrenceKey,
     organizationId: input.build.organizationId,
-    plainText: `${input.milestone.name} started. Canonical Sub-milestone cards are synchronized from the roadmap.`,
+    plainText,
     postType: "update",
     primaryReferenceId: String(input.milestone._id),
     primaryReferenceKind: "milestone",
     systemPostKind: "milestone",
     systemLabel: SYSTEM_LABEL,
+    suppressNotifications: input.activationReason !== "explicit_start",
+    now,
   });
   if (!postId) {
     return null;
@@ -75,7 +289,6 @@ export async function ensureMilestoneSystemPost(
   if (!post || post.buildId !== input.build._id) {
     throw new Error("Milestone System Post became unavailable.");
   }
-  const now = Date.now();
   const triggeredByRole = resolveEffectiveCollaborationRole(
     input.actor.roles
   )?.role;
@@ -92,7 +305,7 @@ export async function ensureMilestoneSystemPost(
       submilestone.organizationId === input.build.organizationId
   );
 
-  await ctx.db.patch(postId, {
+  const postPatch = {
     activationReason: post.activationReason ?? input.activationReason,
     authorDisplayNameSnapshot: SYSTEM_LABEL,
     authorRolesSnapshot: ["system"],
@@ -100,33 +313,51 @@ export async function ensureMilestoneSystemPost(
     canonicalBuildMilestoneId: input.milestone._id,
     systemEventKey: occurrenceKey,
     systemOccurrenceKey: occurrenceKey,
-    systemPostKind: "milestone",
+    systemPostKind: "milestone" as const,
     triggeredAt: post.triggeredAt ?? now,
     triggeredByRole: post.triggeredByRole ?? triggeredByRole,
     triggeredByWorkosUserId:
       post.triggeredByWorkosUserId ?? input.actor.workosUserId,
-    updatedAt: now,
-  });
+  };
+  const postChanged =
+    post.activationReason !== postPatch.activationReason ||
+    post.authorDisplayNameSnapshot !== postPatch.authorDisplayNameSnapshot ||
+    post.authorWorkosUserId !== postPatch.authorWorkosUserId ||
+    post.canonicalBuildMilestoneId !== postPatch.canonicalBuildMilestoneId ||
+    post.systemEventKey !== postPatch.systemEventKey ||
+    post.systemOccurrenceKey !== postPatch.systemOccurrenceKey ||
+    post.systemPostKind !== postPatch.systemPostKind ||
+    post.triggeredAt !== postPatch.triggeredAt ||
+    post.triggeredByRole !== postPatch.triggeredByRole ||
+    post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId;
+  if (postChanged) {
+    await ctx.db.patch(postId, { ...postPatch, updatedAt: now });
+  }
 
   const generatedActionItemIds: Id<"buildActionItems">[] = [];
+  let actionItemsChanged = false;
   for (const submilestone of submilestones) {
-    generatedActionItemIds.push(
-      await ensureGeneratedSubmilestoneActionItem(ctx, {
-        authorization: scope.authorization,
-        milestone: input.milestone,
-        now,
-        postId,
-        submilestone,
-      })
-    );
+    const ensured = await ensureGeneratedSubmilestoneActionItem(ctx, {
+      authorization: scope.authorization,
+      milestone: input.milestone,
+      now,
+      postId,
+      submilestone,
+    });
+    generatedActionItemIds.push(ensured.actionItemId);
+    actionItemsChanged ||= ensured.changed;
   }
-  await syncPostCounts(ctx, generatedActionItemIds, now);
+  if (actionItemsChanged) {
+    await syncPostCounts(ctx, generatedActionItemIds, now);
+  }
 
-  await queueBuildCollaborationSearchOwnerRebuild(ctx, {
-    authorization: scope.authorization,
-    owner: { id: postId, kind: "post" },
-    postId,
-  });
+  if (postChanged || actionItemsChanged) {
+    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
+      authorization: scope.authorization,
+      owner: { id: postId, kind: "post" },
+      postId,
+    });
+  }
   return {
     actionItemIds: generatedActionItemIds,
     postId,
@@ -143,7 +374,7 @@ async function ensureGeneratedSubmilestoneActionItem(
     postId: Id<"buildCollaborationPosts">;
     submilestone: Doc<"buildSubmilestones">;
   }
-) {
+): Promise<{ actionItemId: Id<"buildActionItems">; changed: boolean }> {
   const existing = (
     await ctx.db
       .query("buildActionItems")
@@ -169,8 +400,9 @@ async function ensureGeneratedSubmilestoneActionItem(
         title: input.submilestone.name,
         updatedAt: input.now,
       });
+      return { actionItemId: existing._id, changed: true };
     }
-    return existing._id;
+    return { actionItemId: existing._id, changed: false };
   }
 
   const title = input.submilestone.name.trim() || "Unnamed Sub-milestone";
@@ -324,7 +556,7 @@ async function ensureGeneratedSubmilestoneActionItem(
       status: "pending",
     }),
   ]);
-  return actionItemId;
+  return { actionItemId, changed: true };
 }
 
 async function syncPostCounts(

@@ -22,6 +22,11 @@ import {
   scheduledPublicationOperationalFailure,
 } from "./build_collaboration_scheduling_errors";
 import {
+  addBuildLocalDays,
+  buildLocalDateAt,
+  ensureMilestoneSystemPost,
+} from "./build_collaboration_system_posts";
+import {
   buildCollaborationValidationError,
   isBuildCollaborationValidationError,
 } from "./build_collaboration_validation";
@@ -32,6 +37,7 @@ const MAX_CONFLICT_REASON_LENGTH = 500;
 const MAX_SCHEDULE_HORIZON_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 const MIN_SCHEDULE_DELAY_MS = 60_000;
 const SCHEDULE_BATCH_SIZE = 25;
+const MILESTONE_RECONCILIATION_BATCH_SIZE = 25;
 
 export const getBuildCollaborationSchedulingCapabilities = authenticatedQuery
   .input({
@@ -312,6 +318,206 @@ export const processDueBuildCollaborationScheduledPublications =
       return null;
     })
     .internal();
+
+/**
+ * Reconcile the canonical Milestone System Post projection at least once per
+ * Build-local calendar day. This is deliberately a bounded, retry-safe pass:
+ * it only materializes projections and audit/outbox markers and never writes
+ * canonical Milestone or Sub-milestone start state.
+ */
+export const reconcileDueMilestoneSystemPosts = internalMutation
+  .input({
+    asOf: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const asOf = args.asOf ?? Date.now();
+    const page = await ctx.db
+      .query("activeBuilds")
+      .order("asc")
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: MILESTONE_RECONCILIATION_BATCH_SIZE,
+      });
+
+    for (const build of page.page) {
+      if (!(build.status === "active" || build.status === "future_start")) {
+        continue;
+      }
+      // A legacy Build without an explicitly persisted timezone is not safe to
+      // schedule from historical facts. It remains visible as unknown until a
+      // supported Build update repairs the timezone.
+      if (!build.timezone) {
+        continue;
+      }
+      let localDate: string;
+      try {
+        localDate = buildLocalDateAt(asOf, build.timezone);
+      } catch {
+        continue;
+      }
+
+      const milestones = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (query) => query.eq("buildId", build._id))
+        .take(500);
+      for (const milestone of milestones) {
+        if (
+          milestone.organizationId !== build.organizationId ||
+          milestone.brokerageId !== build.brokerageId
+        ) {
+          continue;
+        }
+        const plannedMilestoneStartDate = addBuildLocalDays(
+          build.startDate,
+          milestone.dayStart
+        );
+        if (localDate < plannedMilestoneStartDate) {
+          continue;
+        }
+        const ensured = await ensureMilestoneSystemPost(ctx, {
+          actor: {
+            roles: ["system"],
+            workosUserId: "system:build-collaboration-scheduler",
+          },
+          build,
+          milestone,
+          activationReason: "scheduled",
+          now: asOf,
+        });
+        if (!ensured) {
+          continue;
+        }
+        const generatedActionItems = await ctx.db
+          .query("buildActionItems")
+          .withIndex("by_originatingPostId_and_createdAt", (query) =>
+            query.eq("originatingPostId", ensured.postId)
+          )
+          .take(500);
+        const actionItemBySubmilestone = new Map(
+          generatedActionItems
+            .filter(
+              (actionItem) =>
+                actionItem.systemMode ===
+                  "generated_milestone_submilestone" &&
+                actionItem.buildId === build._id &&
+                actionItem.organizationId === build.organizationId &&
+                actionItem.canonicalBuildMilestoneId === milestone._id &&
+                actionItem.canonicalBuildSubmilestoneId !== undefined
+            )
+            .map((actionItem) => [
+              actionItem.canonicalBuildSubmilestoneId,
+              actionItem._id,
+            ])
+        );
+
+        const submilestones = (
+          await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (query) =>
+              query.eq("buildMilestoneId", milestone._id)
+            )
+            .take(500)
+        ).filter(
+            (submilestone) =>
+              submilestone.buildId === build._id &&
+              submilestone.organizationId === build.organizationId &&
+              submilestone.brokerageId === build.brokerageId
+        );
+        for (const submilestone of submilestones) {
+          if (submilestone.actualStartedAt !== undefined) {
+            continue;
+          }
+          const plannedStartDate = addBuildLocalDays(
+            build.startDate,
+            submilestone.startDay ?? milestone.dayStart
+          );
+          if (localDate <= plannedStartDate) {
+            continue;
+          }
+          const actionItemId = actionItemBySubmilestone.get(submilestone._id);
+          if (!actionItemId) {
+            continue;
+          }
+          const reconciliationKey = [
+            "milestone-system",
+            build._id,
+            milestone._id,
+            submilestone._id,
+            "missed-start",
+            plannedStartDate,
+          ].join(":");
+          const existing = await ctx.db
+            .query("auditEvents")
+            .withIndex("by_organizationId_and_reconciliationKey", (query) =>
+              query
+                .eq("organizationId", build.organizationId)
+                .eq("reconciliationKey", reconciliationKey)
+            )
+            .first();
+          if (existing) {
+            continue;
+          }
+          await Promise.all([
+            ctx.db.insert("auditEvents", {
+              actorRoles: ["system"],
+              actorWorkosUserId: "system:build-collaboration-scheduler",
+              brokerageId: build.brokerageId,
+              command: "reconcileDueMilestoneSystemPosts",
+              createdAt: asOf,
+              entityId: actionItemId,
+              entityType: "buildActionItem",
+              eventType: "build.collaboration.system_action_item.missed_start",
+              newState: JSON.stringify({
+                actionItemId,
+                canonicalBuildMilestoneId: milestone._id,
+                canonicalBuildSubmilestoneId: submilestone._id,
+                column: "behind_schedule",
+                plannedStartDate,
+              }),
+              organizationId: build.organizationId,
+              priorState: JSON.stringify({ column: "backlog" }),
+              reconciliationKey,
+              reason:
+                "The canonical Sub-milestone has no actual start after its Build-local planned start date.",
+              warnings: [
+                "canonical_state_is_authoritative",
+                "passive_projection",
+              ],
+            }),
+            ctx.db.insert("eventOutbox", {
+              brokerageId: build.brokerageId,
+              createdAt: asOf,
+              eventType: "build.collaboration.system_action_item.missed_start",
+              organizationId: build.organizationId,
+              payloadPreview: JSON.stringify({
+                actionItemId,
+                canonicalBuildMilestoneId: milestone._id,
+                canonicalBuildSubmilestoneId: submilestone._id,
+                plannedStartDate,
+                reconciliationKey,
+              }),
+              relatedEntityId: actionItemId,
+              relatedEntityType: "buildActionItem",
+              status: "pending",
+            }),
+          ]);
+        }
+      }
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.build_collaboration_scheduling
+          .reconcileDueMilestoneSystemPosts,
+        { asOf, cursor: page.continueCursor }
+      );
+    }
+    return null;
+  })
+  .internal();
 
 export const publishScheduledBuildCollaborationDraft = internalMutation
   .input({

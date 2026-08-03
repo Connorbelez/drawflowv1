@@ -399,6 +399,7 @@ describe("SubmittedProposalsCard", () => {
     await waitFor(() =>
       expect(confirmClosing).toHaveBeenCalledWith({
         buildStartDate: "2026-06-01",
+        ianaTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         reason: "Offline closing signed by lender admin.",
       }),
     );

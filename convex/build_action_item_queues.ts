@@ -35,6 +35,7 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { systemActionItemPresentationValidator } from "./build_collaboration_contracts";
 import { claimBuildCollaborationWriteByBuildId } from "./build_collaboration_lifecycle_state";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import {
@@ -58,6 +59,7 @@ import {
   BUILD_COLLABORATION_UNAVAILABLE_ERROR,
 } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
+import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
 import {
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
@@ -90,6 +92,10 @@ const queueRowValidator = v.object({
     dueAt: v.optional(v.number()),
     priority: buildActionItemPriorityValidator,
     status: buildActionItemStatusValidator,
+    systemMode: v.optional(v.literal("generated_milestone_submilestone")),
+    canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
+    canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
+    systemPresentation: v.optional(systemActionItemPresentationValidator),
     title: v.string(),
     updatedAt: v.number(),
   }),
@@ -129,10 +135,13 @@ export const listBuildActionItemQueue = authenticatedQuery
       authorization,
       filtered
     );
+    const asOf = Date.now();
     return {
       ...page,
-      page: readable.map((item) =>
-        queueRow(item, authorization.build, args.scope, Date.now())
+      page: await Promise.all(
+        readable.map((item) =>
+          queueRow(ctx, item, authorization.build, args.scope, asOf)
+        )
       ),
     };
   })
@@ -169,7 +178,7 @@ export const listMyBuildActionItemQueue = authenticatedQuery
       rows.push(item);
       byBuild.set(item.buildId, rows);
     }
-    const result: ReturnType<typeof queueRow>[] = [];
+    const result: Awaited<ReturnType<typeof queueRow>>[] = [];
     for (const [buildId, items] of byBuild) {
       const authorization = await authorizePersonalQueueBuild(ctx, {
         buildId,
@@ -183,10 +192,13 @@ export const listMyBuildActionItemQueue = authenticatedQuery
         authorization,
         items
       );
+      const asOf = Date.now();
       result.push(
-        ...readable.map((item) =>
-          queueRow(item, authorization.build, "personal", Date.now())
-        )
+        ...(await Promise.all(
+          readable.map((item) =>
+            queueRow(ctx, item, authorization.build, "personal", asOf)
+          )
+        ))
       );
     }
     return { ...candidatePage, page: result };
@@ -712,12 +724,21 @@ async function resolveBuildQueuePage(
   };
 }
 
-function queueRow(
+async function queueRow(
+  ctx: QueryCtx,
   item: Doc<"buildActionItems">,
   build: Doc<"activeBuilds">,
   scope: "build" | "post" | "entity" | "personal",
   now: number
 ) {
+  const systemPresentation = await deriveMilestoneSystemActionItemPresentation(
+    ctx,
+    {
+      actionItem: item,
+      asOf: now,
+      build,
+    }
+  );
   const deadline = actionItemOverdueState(item, now);
   return {
     buildId: build._id,
@@ -729,10 +750,17 @@ function queueRow(
       dueAt: item.dueAt,
       priority: item.priority,
       status: item.status,
+      systemMode: item.systemMode,
+      canonicalBuildMilestoneId: item.canonicalBuildMilestoneId,
+      canonicalBuildSubmilestoneId: item.canonicalBuildSubmilestoneId,
+      systemPresentation,
       title: item.title,
       updatedAt: item.updatedAt,
     },
     ...deadline,
+    overdue:
+      deadline.overdue ||
+      systemPresentation?.attention === "overdue_completion",
     queueScope: scope,
   };
 }

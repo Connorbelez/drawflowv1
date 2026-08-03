@@ -1879,7 +1879,11 @@ export function ProductionProposalReviewSurface({
     reason: string,
     permitWaiverReason?: string
   ) => Promise<unknown> | unknown;
-  onClose?: (startDate: string, reason: string) => Promise<unknown> | unknown;
+  onClose?: (
+    startDate: string,
+    reason: string,
+    ianaTimezone: string
+  ) => Promise<unknown> | unknown;
   onCommitCalendarEdit?: (
     request: CalendarEditRequest
   ) => Promise<unknown> | unknown;
@@ -1964,6 +1968,9 @@ export function ProductionProposalReviewSurface({
   const [reason, setReason] = useState("");
   const [permitWaiverReason, setPermitWaiverReason] = useState("");
   const [startDate, setStartDate] = useState("");
+  const [ianaTimezone, setIanaTimezone] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone
+  );
   const [drawAmounts, setDrawAmounts] = useState<Record<string, string>>({});
   const [drawLabels, setDrawLabels] = useState<Record<string, string>>({});
   const [drawTimingDays, setDrawTimingDays] = useState<Record<string, string>>(
@@ -2701,14 +2708,28 @@ export function ProductionProposalReviewSurface({
                     type="date"
                     value={startDate}
                   />
+                  <Label htmlFor="production-build-timezone">
+                    Build timezone (IANA)
+                  </Label>
+                  <Input
+                    id="production-build-timezone"
+                    onChange={(event) => setIanaTimezone(event.target.value)}
+                    required
+                    value={ianaTimezone}
+                  />
                   <Button
                     disabled={
                       !canRecordClosing ||
                       proposal.status !== "approved" ||
-                      !startDate
+                      !startDate ||
+                      !ianaTimezone.trim()
                     }
                     onClick={() =>
-                      onClose?.(startDate, reason || "Loan closed offline.")
+                      onClose?.(
+                        startDate,
+                        reason || "Loan closed offline.",
+                        ianaTimezone.trim()
+                      )
                     }
                     size="sm"
                   >

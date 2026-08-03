@@ -411,6 +411,7 @@ export interface ProductionBuildDetailActions {
   }) => Promise<unknown> | unknown;
   updateNonFinancialDetails?: (input: {
     buildName: string;
+    ianaTimezone?: string;
     location: string;
     locationLatitude?: number | null;
     locationLongitude?: number | null;
@@ -453,6 +454,7 @@ export interface ProductionBuildDetail {
     locationLatitude?: number;
     locationLongitude?: number;
     locationPlaceId?: string;
+    timezone?: string;
     brokerageId?: string;
     createdAt?: number;
     updatedAt?: number;
@@ -4229,6 +4231,7 @@ function BuildNonFinancialDetailsSheet({
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [startDate, setStartDate] = useState(detail.build.startDate);
+  const [ianaTimezone, setIanaTimezone] = useState(detail.build.timezone ?? "");
   const [error, setError] = useState<string | null>(null);
   const [locationResolving, setLocationResolving] = useState(false);
   const [locationResolutionError, setLocationResolutionError] = useState<
@@ -4247,6 +4250,7 @@ function BuildNonFinancialDetailsSheet({
     setReason("");
     setSaving(false);
     setStartDate(detail.build.startDate);
+    setIanaTimezone(detail.build.timezone ?? "");
     setError(null);
     setLocationResolving(false);
     setLocationResolutionError(null);
@@ -4285,6 +4289,7 @@ function BuildNonFinancialDetailsSheet({
     try {
       await onSubmit({
         buildName: buildName.trim(),
+        ...(ianaTimezone.trim() ? { ianaTimezone: ianaTimezone.trim() } : {}),
         location: location.trim(),
         locationLatitude,
         locationLongitude,
@@ -4368,6 +4373,19 @@ function BuildNonFinancialDetailsSheet({
                 type="date"
                 value={startDate}
               />
+            </Field>
+            <Field name="ianaTimezone">
+              <FieldLabel>Build timezone (IANA)</FieldLabel>
+              <Input
+                data-testid="build-details-timezone-input"
+                onChange={(event) => setIanaTimezone(event.currentTarget.value)}
+                placeholder="America/Toronto"
+                value={ianaTimezone}
+              />
+              <FieldDescription>
+                Leave blank to preserve a legacy Build with unknown timezone;
+                enter an explicit IANA timezone to repair it.
+              </FieldDescription>
             </Field>
             <Frame>
               <FramePanel className="p-4">

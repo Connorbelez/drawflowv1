@@ -248,6 +248,7 @@ async function createClosedSingleMilestoneBuild(
       name: string;
       order: number;
     }>;
+    ianaTimezone?: string;
     workosOrganizationId?: string;
   } = {},
 ) {
@@ -302,6 +303,7 @@ async function createClosedSingleMilestoneBuild(
     (api as any).production_proposals.recordOfflineClosing,
     {
       buildStartDate: "2026-05-01",
+      ianaTimezone: options.ianaTimezone ?? "America/Toronto",
       loanFacility: {
         interestAnnualBps: 925,
         principalCents: 55_000_000,
@@ -403,6 +405,60 @@ function findLegacyDrawOperationCollision(input: {
 }
 
 describe("production proposal foundation", () => {
+  test("persists an explicit Build IANA timezone and rejects invalid closing input", async () => {
+    const { base, seed, t } = await seeded(["admin"], "user_admin");
+    const valid = await createClosedSingleMilestoneBuild(t, seed, {
+      buildName: "Timezone-persisted Build",
+      ianaTimezone: "America/Toronto",
+    });
+    const stored = await base.run((ctx: any) => ctx.db.get(valid.buildId));
+    expect(stored).toMatchObject({ timezone: "America/Toronto" });
+    await t.mutation(
+      (api as any).production_proposals.updateActiveBuildNonFinancialDetails,
+      {
+        buildId: valid.buildId,
+        buildName: "Timezone-persisted Build",
+        ianaTimezone: "America/New_York",
+        location: "44 Actual Cost Lane",
+        reason: "Repair the canonical Build timezone.",
+        startDate: "2026-05-01",
+        workosOrganizationId: ORG,
+      }
+    );
+    await expect(
+      t.mutation(
+        (api as any).production_proposals.updateActiveBuildNonFinancialDetails,
+        {
+          buildId: valid.buildId,
+          buildName: "Timezone-persisted Build",
+          ianaTimezone: "Not/AZone",
+          location: "44 Actual Cost Lane",
+          reason: "Reject invalid timezone.",
+          startDate: "2026-05-01",
+          workosOrganizationId: ORG,
+        }
+      )
+    ).rejects.toThrow("not a valid IANA timezone");
+    const updated = await base.run((ctx: any) => ctx.db.get(valid.buildId));
+    expect(updated).toMatchObject({ timezone: "America/New_York" });
+
+    await expect(
+      createClosedSingleMilestoneBuild(t, seed, {
+        buildName: "Invalid timezone Build",
+        ianaTimezone: "Not/AZone",
+      })
+    ).rejects.toThrow("not a valid IANA timezone");
+    const invalidBuilds = await base.run((ctx: any) =>
+      ctx.db
+        .query("activeBuilds")
+        .filter((query: any) =>
+          query.eq(query.field("buildName"), "Invalid timezone Build")
+        )
+        .collect()
+    );
+    expect(invalidBuilds).toHaveLength(0);
+  });
+
   test("submits a custom timeline plan without an optimizer preset", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const builder = withIdentity(base, ["builder"], "user_builder");
@@ -630,6 +686,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 55_000_000,
@@ -764,6 +821,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-02",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 55_000_000,
@@ -977,6 +1035,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-15",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 80_000_000,
@@ -3128,6 +3187,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2025-05-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 90_000_000,
@@ -3332,6 +3392,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-15",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 40_000_000,
@@ -5635,6 +5696,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 55_000_000,
@@ -6631,6 +6693,7 @@ describe("production proposal foundation", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-05-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 55_000_000,
@@ -11776,6 +11839,7 @@ describe("draft builder assignment and deletion", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 50_000_000,
@@ -12447,6 +12511,7 @@ describe("integration operations", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 80_000_000,

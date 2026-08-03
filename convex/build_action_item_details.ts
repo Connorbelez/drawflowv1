@@ -11,6 +11,7 @@ import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaborat
 import { canUseCollaborationAssetForPost } from "./build_collaboration_asset_access";
 import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
+import { systemActionItemPresentationValidator } from "./build_collaboration_contracts";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
 import { canonicalizeTiptapReferences } from "./build_collaboration_publication_bundle";
@@ -20,6 +21,7 @@ import {
   resolveCurrentBuildCollaborationReference,
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
+import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
 import {
   buildActionAssignmentStateValidator,
   buildActionItemPriorityValidator,
@@ -134,6 +136,7 @@ const detailValidator = v.union(
       priority: buildActionItemPriorityValidator,
       requiresAcceptance: v.boolean(),
       status: buildActionItemStatusValidator,
+      systemPresentation: v.optional(systemActionItemPresentationValidator),
       systemMode: v.optional(buildActionItemSystemModeValidator),
       canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
       canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
@@ -237,6 +240,12 @@ export const getBuildActionItemDetail = authenticatedQuery
       references: projectedItemReferences.canonical,
       tiptapJson: item.descriptionTiptapJson,
     });
+    const systemPresentation =
+      await deriveMilestoneSystemActionItemPresentation(ctx, {
+        actionItem: item,
+        asOf: Date.now(),
+        build: authorization.build,
+      });
     const attachmentRows = await Promise.all(
       attachments.map(async (attachment) => {
         if (attachment.attachmentKind !== "collaborationAsset") {
@@ -417,6 +426,7 @@ export const getBuildActionItemDetail = authenticatedQuery
         priority: item.priority,
         requiresAcceptance: actionItemRequiresAcceptance(item),
         status: item.status,
+        systemPresentation,
         systemMode: item.systemMode,
         canonicalBuildMilestoneId: item.canonicalBuildMilestoneId,
         canonicalBuildSubmilestoneId: item.canonicalBuildSubmilestoneId,

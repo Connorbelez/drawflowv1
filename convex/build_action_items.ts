@@ -21,7 +21,6 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
-import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
@@ -37,6 +36,8 @@ import {
 } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
+import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
+import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
 import {
   buildActionItemPriorityValidator,
   buildActionItemWorkKindValidator,
@@ -451,24 +452,33 @@ export async function projectBuildActionItemList(
     rows.push(relation);
     relationsBySource.set(relation.sourceActionItemId, rows);
   }
+  const asOf = Date.now();
   return await Promise.all(
-    readable.map(async (item) => ({
-      checklist: (
-        await ctx.db
+    readable.map(async (item) => {
+      const [checklist, systemPresentation] = await Promise.all([
+        ctx.db
           .query("buildActionItemChecklistItems")
           .withIndex("by_actionItemId_and_order", (query) =>
             query.eq("actionItemId", item._id)
           )
-          .take(MAX_CHECKLIST_ITEMS)
-      ).filter(
-        (row) =>
-          row.buildId === authorization.build._id &&
-          row.organizationId === authorization.organizationId &&
-          row.brokerageId === authorization.brokerage._id
-      ),
-      item,
-      relations: relationsBySource.get(item._id) ?? [],
-    }))
+          .take(MAX_CHECKLIST_ITEMS),
+        deriveMilestoneSystemActionItemPresentation(ctx, {
+          actionItem: item,
+          asOf,
+          build: authorization.build,
+        }),
+      ]);
+      return {
+        checklist: checklist.filter(
+          (row) =>
+            row.buildId === authorization.build._id &&
+            row.organizationId === authorization.organizationId &&
+            row.brokerageId === authorization.brokerage._id
+        ),
+        item: { ...item, systemPresentation },
+        relations: relationsBySource.get(item._id) ?? [],
+      };
+    })
   );
 }
 

@@ -2620,12 +2620,17 @@ export default defineSchema({
     priorState: v.optional(v.string()),
     newState: v.optional(v.string()),
     reason: v.optional(v.string()),
+    reconciliationKey: v.optional(v.string()),
     warnings: v.array(v.string()),
     createdAt: v.number(),
   })
     .index("by_entity", ["entityType", "entityId"])
     .index("by_brokerage", ["brokerageId"])
-    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
+    .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"])
+    .index("by_organizationId_and_reconciliationKey", [
+      "organizationId",
+      "reconciliationKey",
+    ]),
   eventOutbox: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -3275,6 +3280,10 @@ export default defineSchema({
     locationLatitude: v.optional(v.number()),
     locationLongitude: v.optional(v.number()),
     locationPlaceId: v.optional(v.string()),
+    // Build-local date scheduling is only authoritative when this canonical
+    // IANA timezone is present. Historical rows may omit it and therefore
+    // remain in an explicit unknown/recovery state.
+    timezone: v.optional(v.string()),
     status: productionBuildStatusValidator,
     startDate: v.string(),
     timelineCurrentDay: v.optional(v.number()),
@@ -3301,7 +3310,8 @@ export default defineSchema({
   })
     .index("by_proposal", ["proposalId"])
     .index("by_brokerage", ["brokerageId"])
-    .index("by_organizationId", ["organizationId"]),
+    .index("by_organizationId", ["organizationId"])
+    .index("by_status_and_timezone", ["status", "timezone"]),
   buildParticipants: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),

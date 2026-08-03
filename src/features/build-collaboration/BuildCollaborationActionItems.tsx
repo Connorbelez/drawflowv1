@@ -41,6 +41,48 @@ type MoveActionItem = (
   expectedRevision?: number
 ) => Promise<void>;
 
+type SystemPresentation = NonNullable<
+  CollaborationActionItem["systemPresentation"]
+>;
+
+const systemPresentationLabels: Record<SystemPresentation["column"], string> = {
+  approved: "Approved",
+  backlog: "Backlog",
+  behind_schedule: "Behind Schedule",
+  in_progress: "In Progress",
+  in_review: "In Review",
+};
+
+function SystemPresentationBadges({
+  presentation,
+}: {
+  presentation?: SystemPresentation;
+}) {
+  if (!presentation) {
+    return null;
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <Badge
+        variant={
+          presentation.column === "behind_schedule" ? "warning" : "outline"
+        }
+      >
+        {systemPresentationLabels[presentation.column]}
+      </Badge>
+      {presentation.attention === "overdue_completion" ? (
+        <Badge variant="destructive">Overdue completion</Badge>
+      ) : null}
+      {presentation.state === "unknown" ? (
+        <span className="text-muted-foreground text-xs">
+          Schedule state unavailable
+          {presentation.unknownReason ? `: ${presentation.unknownReason}` : ""}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function actionItemQueueVisibleCount({
   compactOnNarrow,
   mobileExpanded,
@@ -146,6 +188,11 @@ export function BuildCollaborationActionItemQueue({
                       <p className="truncate text-muted-foreground text-xs">
                         {row.buildName}
                       </p>
+                      {row.item.systemPresentation ? (
+                        <SystemPresentationBadges
+                          presentation={row.item.systemPresentation}
+                        />
+                      ) : null}
                     </div>
                     {row.overdue ? (
                       <Badge variant="destructive">Overdue</Badge>
@@ -441,7 +488,12 @@ function ActionItemCard({
               {item.title}
             </p>
             {item.systemMode === "generated_milestone_submilestone" ? (
-              <Badge variant="secondary">System · Milestone</Badge>
+              <div className="flex flex-wrap items-center gap-1">
+                <Badge variant="secondary">System · Milestone</Badge>
+                <SystemPresentationBadges
+                  presentation={item.systemPresentation}
+                />
+              </div>
             ) : null}
           </div>
         </div>

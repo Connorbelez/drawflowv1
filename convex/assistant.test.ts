@@ -124,6 +124,7 @@ async function createActiveBuild(t: any, seed: any) {
   });
   return await t.mutation((api as any).production_proposals.recordOfflineClosing, {
     buildStartDate: "2026-05-01",
+    ianaTimezone: "America/Toronto",
     loanFacility: {
       interestAnnualBps: 925,
       principalCents: 55_000_000,

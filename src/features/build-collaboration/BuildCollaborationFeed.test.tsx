@@ -263,6 +263,13 @@ function canonicalMilestoneSystemPostEntryFixture() {
         priority: "none",
         requiresAcceptance: false,
         status: "todo",
+        systemPresentation: {
+          column: "behind_schedule",
+          plannedCompletionDate: "2026-08-04",
+          plannedStartDate: "2026-08-03",
+          state: "known",
+          timezone: "America/Toronto",
+        },
         systemMode: "generated_milestone_submilestone",
         title: "Excavate",
         unblocksCount: 0,
@@ -1101,6 +1108,7 @@ describe("BuildCollaborationFeed", () => {
       screen.getByRole("button", { name: "Show Action Items as a list" })
     );
     expect(screen.getAllByText("System · Milestone").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Behind Schedule").length).toBeGreaterThan(0);
     const status = screen.getByRole("combobox", {
       name: "Status for Excavate",
     });

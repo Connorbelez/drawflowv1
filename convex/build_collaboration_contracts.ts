@@ -33,6 +33,22 @@ const collaborationSystemPostValidator = v.object({
   triggeredByWorkosUserId: v.optional(v.string()),
 });
 
+export const systemActionItemPresentationValidator = v.object({
+  attention: v.optional(v.literal("overdue_completion")),
+  column: v.union(
+    v.literal("backlog"),
+    v.literal("behind_schedule"),
+    v.literal("in_progress"),
+    v.literal("in_review"),
+    v.literal("approved")
+  ),
+  plannedCompletionDate: v.optional(v.string()),
+  plannedStartDate: v.optional(v.string()),
+  state: v.union(v.literal("known"), v.literal("unknown")),
+  timezone: v.optional(v.string()),
+  unknownReason: v.optional(v.string()),
+});
+
 export const collaborationPostSummaryValidator = v.object({
   _creationTime: v.number(),
   _id: v.id("buildCollaborationPosts"),
@@ -94,6 +110,7 @@ export const collaborationActionItemSummaryValidator = v.object({
   labels: v.array(v.string()),
   priority: buildActionItemPriorityValidator,
   status: buildActionItemStatusValidator,
+  systemPresentation: v.optional(systemActionItemPresentationValidator),
   systemMode: v.optional(buildActionItemSystemModeValidator),
   canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
   canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),
@@ -339,6 +356,7 @@ export const buildActionItemValidator = v.object({
   priority: buildActionItemPriorityValidator,
   requiresAcceptance: v.boolean(),
   status: buildActionItemStatusValidator,
+  systemPresentation: v.optional(systemActionItemPresentationValidator),
   systemMode: v.optional(buildActionItemSystemModeValidator),
   canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
   canonicalBuildSubmilestoneId: v.optional(v.id("buildSubmilestones")),

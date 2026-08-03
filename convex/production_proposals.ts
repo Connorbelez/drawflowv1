@@ -42,6 +42,7 @@ import {
   publishDrawCollaborationEvent,
   publishMilestoneCollaborationEvent,
 } from "./build_collaboration_workflow_events";
+import { validateBuildTimezone } from "./build_collaboration_system_posts";
 import {
   evidenceLocationMateriallyChanged,
   normalizeOperationalIdempotencyKey,
@@ -5193,6 +5194,7 @@ export const reviewProductionDrawRequest = authenticatedMutation
 export const recordOfflineClosing = authenticatedMutation
   .input({
     buildStartDate: v.string(),
+    ianaTimezone: v.string(),
     loanFacility: v.object({
       interestAnnualBps: v.number(),
       principalCents: v.number(),
@@ -5211,6 +5213,7 @@ export const recordOfflineClosing = authenticatedMutation
     requireAnyRole(auth.roles, APPROVER_ROLES);
     requireState(auth.proposal, "approved");
     requireReason(args.reason);
+    const timezone = validateBuildTimezone(args.ianaTimezone);
     if (!args.buildStartDate.trim()) {
       throw new Error("Closing requires a build start date.");
     }
@@ -5247,6 +5250,7 @@ export const recordOfflineClosing = authenticatedMutation
         new Date(`${args.buildStartDate}T00:00:00Z`).getTime() > now
           ? "future_start"
           : "active",
+      timezone,
       timelineMinimumCashReserveCents:
         auth.proposal.timelineMinimumCashReserveCents,
       timelineRangeMax: auth.proposal.timelineRangeMax,
@@ -5626,6 +5630,7 @@ const legacyActiveBuildRepairResultValidator = v.object({
 export const repairLegacyClosedProposalActiveBuild = authenticatedMutation
   .input({
     buildStartDate: v.string(),
+    ianaTimezone: v.optional(v.string()),
     proposalId: v.id("buildProposals"),
     reason: v.string(),
     workosOrganizationId: v.string(),
@@ -5641,6 +5646,7 @@ export const repairLegacyClosedProposalActiveBuild = authenticatedMutation
     return await repairLegacyClosedProposalActiveBuildAggregate(ctx, {
       auth,
       buildStartDate: args.buildStartDate,
+      ianaTimezone: args.ianaTimezone,
       reason: args.reason,
     });
   })
@@ -5650,6 +5656,7 @@ export const repairLegacyClosedProposalActiveBuildInternal = internalMutation
   .input({
     actorWorkosUserId: v.string(),
     buildStartDate: v.string(),
+    ianaTimezone: v.optional(v.string()),
     proposalId: v.id("buildProposals"),
     reason: v.string(),
     warnings: v.optional(v.array(v.string())),
@@ -5672,6 +5679,7 @@ export const repairLegacyClosedProposalActiveBuildInternal = internalMutation
         subject: args.actorWorkosUserId,
       },
       buildStartDate: args.buildStartDate,
+      ianaTimezone: args.ianaTimezone,
       reason: args.reason,
       warnings: args.warnings,
     });
@@ -15237,6 +15245,7 @@ export const updateActiveBuildNonFinancialDetails = authenticatedMutation
   .input({
     buildId: v.id("activeBuilds"),
     buildName: v.string(),
+    ianaTimezone: v.optional(v.string()),
     location: v.string(),
     locationLatitude: v.optional(v.union(v.number(), v.null())),
     locationLongitude: v.optional(v.union(v.number(), v.null())),
@@ -15258,6 +15267,10 @@ export const updateActiveBuildNonFinancialDetails = authenticatedMutation
     const buildName = args.buildName.trim();
     const location = args.location.trim();
     const startDate = args.startDate.trim();
+    const timezone =
+      args.ianaTimezone === undefined
+        ? undefined
+        : validateBuildTimezone(args.ianaTimezone);
     if (!buildName) {
       throw new Error("Build title is required.");
     }
@@ -15282,6 +15295,7 @@ export const updateActiveBuildNonFinancialDetails = authenticatedMutation
       locationLongitude: auth.build.locationLongitude,
       locationPlaceId: auth.build.locationPlaceId,
       startDate: auth.build.startDate,
+      timezone: auth.build.timezone,
     };
     const patch: any = {
       buildName,
@@ -15289,6 +15303,9 @@ export const updateActiveBuildNonFinancialDetails = authenticatedMutation
       startDate,
       updatedAt: Date.now(),
     };
+    if (timezone !== undefined) {
+      patch.timezone = timezone;
+    }
     if (args.locationPlaceId !== undefined) {
       patch.locationPlaceId = args.locationPlaceId?.trim() || undefined;
     }
@@ -15315,6 +15332,8 @@ export const updateActiveBuildNonFinancialDetails = authenticatedMutation
           ? auth.build.locationPlaceId
           : args.locationPlaceId,
       startDate,
+      timezone:
+        timezone === undefined ? auth.build.timezone : timezone,
     };
 
     await ctx.db.patch(args.buildId, patch);
@@ -33401,6 +33420,7 @@ async function ensureSeedScenarioProposal(
   await seedCloseProposal(ctx, {
     auth: input.auth,
     buildStartDate: "2099-09-01",
+    ianaTimezone: "America/Toronto",
     loanFacility: {
       interestAnnualBps: 925,
       principalCents: 55_000_000,
@@ -33685,6 +33705,7 @@ async function repairLegacyClosedProposalActiveBuildAggregate(
       subject: string;
     };
     buildStartDate: string;
+    ianaTimezone?: string;
     reason: string;
     warnings?: string[];
   },
@@ -33790,6 +33811,7 @@ async function repairLegacyClosedProposalActiveBuildAggregate(
     activeBuildEventType: "active_build.created_from_legacy_proposal",
     auth: input.auth,
     buildStartDate,
+    ianaTimezone: input.ianaTimezone,
     command: "repairLegacyClosedProposalActiveBuild",
     now: Date.now(),
     organizationId: proposal.organizationId,
@@ -33933,6 +33955,7 @@ async function seedCloseProposal(
     activeBuildNewState?: string;
     auth: { brokerage: Doc<"brokerages">; roles: RoleSlug[]; subject: string };
     buildStartDate: string;
+    ianaTimezone?: string;
     command?: string;
     loanFacility?: { interestAnnualBps: number; principalCents: number };
     now: number;
@@ -33951,6 +33974,10 @@ async function seedCloseProposal(
   const permit = await getPermitDocument(ctx, input.proposalId);
   const permitWaiver = await getPermitWaiver(ctx, input.proposalId);
   const assignedBuilderProfileId = assignedBuilderProfileIdOrThrow(proposal);
+  const timezone =
+    input.ianaTimezone === undefined
+      ? undefined
+      : validateBuildTimezone(input.ianaTimezone);
   const buildId = await ctx.db.insert("activeBuilds", {
     brokerageId: input.auth.brokerage._id,
     borrowerStartingCashCents: resolveBorrowerStartingCashCents(proposal),
@@ -33970,6 +33997,7 @@ async function seedCloseProposal(
       new Date(`${input.buildStartDate}T00:00:00Z`).getTime() > input.now
         ? "future_start"
         : "active",
+    ...(timezone ? { timezone } : {}),
     timelineMinimumCashReserveCents: proposal.timelineMinimumCashReserveCents,
     timelineRangeMax: proposal.timelineRangeMax,
     timelineRangeMin: PROPOSAL_TIMELINE_MIN_DAY,

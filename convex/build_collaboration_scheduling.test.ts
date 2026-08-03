@@ -6,6 +6,10 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import * as schedulingModule from "./build_collaboration_scheduling";
+import {
+  buildLocalDateAt,
+  buildLocalMidnightUtc,
+} from "./build_collaboration_system_posts";
 import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import schema from "./schema";
 
@@ -18,6 +22,166 @@ afterEach(() => {
 });
 
 describe("Build collaboration scheduled publication", () => {
+  test("resolves Build-local midnights across DST transitions", () => {
+    expect(
+      buildLocalMidnightUtc("2026-03-08", "America/Toronto")
+    ).toBe(Date.parse("2026-03-08T05:00:00.000Z"));
+    expect(
+      buildLocalMidnightUtc("2026-11-01", "America/Toronto")
+    ).toBe(Date.parse("2026-11-01T04:00:00.000Z"));
+    expect(
+      buildLocalDateAt(
+        Date.parse("2026-03-08T04:59:59.000Z"),
+        "America/Toronto"
+      )
+    ).toBe("2026-03-07");
+    expect(
+      buildLocalDateAt(
+        Date.parse("2026-03-08T05:00:00.000Z"),
+        "America/Toronto"
+      )
+    ).toBe("2026-03-08");
+  });
+
+  test("materializes scheduled milestone cards without starts and records one missed-start marker", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const canonical = await seedCanonicalSchedulingMilestone(fixture);
+    const springStart = buildLocalMidnightUtc(
+      "2026-03-08",
+      "America/Toronto"
+    );
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .reconcileDueMilestoneSystemPosts,
+      { asOf: springStart }
+    );
+
+    const first = await fixture.base.run(async (ctx) => {
+      const post = await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_systemEventKey", (query) =>
+          query.eq(
+            "buildId",
+            fixture.buildId
+          )
+        )
+        .first();
+      const revision = post?.currentRevisionId
+        ? await ctx.db.get(post.currentRevisionId)
+        : null;
+      return {
+        actionItems: await ctx.db.query("buildActionItems").collect(),
+        deliveries: await ctx.db.query("recipientDeliveries").collect(),
+        milestone: await ctx.db.get(canonical.buildMilestoneId),
+        outbox: await ctx.db.query("eventOutbox").collect(),
+        post,
+        revision,
+        submilestone: await ctx.db.get(canonical.buildSubmilestoneId),
+      };
+    });
+    expect(first.post).toMatchObject({
+      activationReason: "scheduled",
+      systemPostKind: "milestone",
+    });
+    expect(first.revision?.plainText).toContain("does not record that work has started");
+    expect(first.actionItems).toHaveLength(1);
+    expect(first.deliveries).toHaveLength(0);
+    expect(first.milestone?.actualStartedAt).toBeUndefined();
+    expect(first.submilestone?.actualStartedAt).toBeUndefined();
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .reconcileDueMilestoneSystemPosts,
+      { asOf: springStart }
+    );
+    const repeated = await fixture.base.run(async (ctx) => ({
+      actionItems: await ctx.db.query("buildActionItems").collect(),
+      audits: await ctx.db.query("auditEvents").collect(),
+      outbox: await ctx.db.query("eventOutbox").collect(),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(repeated.posts).toHaveLength(1);
+    expect(repeated.actionItems).toHaveLength(1);
+
+    const missedStart = buildLocalMidnightUtc(
+      "2026-03-09",
+      "America/Toronto"
+    );
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .reconcileDueMilestoneSystemPosts,
+      { asOf: missedStart }
+    );
+    const behind = await fixture.builderStaff.query(
+      (api as any).build_action_items.listBuildActionItems,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(behind[0]?.item.systemPresentation).toMatchObject({
+      column: "behind_schedule",
+      plannedStartDate: "2026-03-08",
+      state: "known",
+      timezone: "America/Toronto",
+    });
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(canonical.buildSubmilestoneId, {
+        actualStartedAt: missedStart,
+        status: "in_progress",
+        updatedAt: missedStart,
+      });
+    });
+    const overdueStart = buildLocalMidnightUtc(
+      "2026-03-10",
+      "America/Toronto"
+    );
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .reconcileDueMilestoneSystemPosts,
+      { asOf: overdueStart }
+    );
+    const started = await fixture.builderStaff.query(
+      (api as any).build_action_items.listBuildActionItems,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(started[0]?.item.systemPresentation).toMatchObject({
+      attention: "overdue_completion",
+      column: "in_progress",
+    });
+    const final = await fixture.base.run(async (ctx) => ({
+      audits: await ctx.db.query("auditEvents").collect(),
+      outbox: await ctx.db.query("eventOutbox").collect(),
+      posts: await ctx.db.query("buildCollaborationPosts").collect(),
+    }));
+    expect(
+      final.audits.filter(
+        (event) =>
+          event.eventType ===
+          "build.collaboration.system_action_item.missed_start"
+      )
+    ).toHaveLength(1);
+    expect(
+      final.outbox.filter(
+        (event) =>
+          event.eventType ===
+          "build.collaboration.system_action_item.missed_start"
+      )
+    ).toHaveLength(1);
+    expect(final.posts).toHaveLength(1);
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.buildId, { timezone: undefined });
+    });
+    const legacy = await fixture.builderStaff.query(
+      (api as any).build_action_items.listBuildActionItems,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
+    );
+    expect(legacy[0]?.item.systemPresentation).toMatchObject({
+      column: "backlog",
+      state: "unknown",
+    });
+  });
+
   test("only promotes typed domain validation failures to material conflicts", async () => {
     await expect(
       schedulingModule.revalidateMaterialBoundary(async () => {
@@ -1258,6 +1422,94 @@ async function stageCleanSchedulingAsset(
     }
   );
   return assetId;
+}
+
+async function seedCanonicalSchedulingMilestone(fixture: {
+  base: ReturnType<typeof convexTest>;
+  brokerageId: Id<"brokerages">;
+  buildId: Id<"activeBuilds">;
+}) {
+  return await fixture.base.run(async (ctx) => {
+    const build = await ctx.db.get(fixture.buildId);
+    if (!build) {
+      throw new Error("Scheduling Build fixture is unavailable.");
+    }
+    const now = BASE_TIME;
+    await ctx.db.patch(build._id, {
+      startDate: "2026-03-07",
+      timezone: "America/Toronto",
+      updatedAt: now,
+    });
+    const proposalMilestoneId = await ctx.db.insert("proposalMilestones", {
+      brokerageId: fixture.brokerageId,
+      budgetCents: 10_000,
+      dayEnd: 2,
+      dayStart: 1,
+      dependencyKeys: [],
+      drawAvailabilityCents: 10_000,
+      durationDays: 2,
+      key: "foundation",
+      name: "Foundation",
+      order: 1,
+      organizationId: ORGANIZATION_ID,
+      proposalId: build.proposalId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const proposalSubmilestoneId = await ctx.db.insert(
+      "proposalSubmilestones",
+      {
+        brokerageId: fixture.brokerageId,
+        createdAt: now,
+        durationDays: 1,
+        key: "excavate",
+        milestoneKey: "foundation",
+        name: "Excavate",
+        order: 1,
+        organizationId: ORGANIZATION_ID,
+        proposalId: build.proposalId,
+        proposalMilestoneId,
+        startDay: 1,
+        updatedAt: now,
+      }
+    );
+    const buildMilestoneId = await ctx.db.insert("buildMilestones", {
+      brokerageId: fixture.brokerageId,
+      budgetCents: 10_000,
+      buildId: build._id,
+      collaborationEventRevision: 1,
+      dayEnd: 2,
+      dayStart: 1,
+      dependencyKeys: [],
+      drawAvailabilityCents: 10_000,
+      durationDays: 2,
+      key: "foundation",
+      name: "Foundation",
+      order: 1,
+      organizationId: ORGANIZATION_ID,
+      proposalMilestoneId,
+      status: "planned",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const buildSubmilestoneId = await ctx.db.insert("buildSubmilestones", {
+      brokerageId: fixture.brokerageId,
+      buildId: build._id,
+      buildMilestoneId,
+      createdAt: now,
+      durationDays: 1,
+      key: "excavate",
+      milestoneKey: "foundation",
+      name: "Excavate",
+      order: 1,
+      organizationId: ORGANIZATION_ID,
+      proposalSubmilestoneId,
+      startDay: 1,
+      status: "planned",
+      updatedAt: now,
+    });
+    return { buildMilestoneId, buildSubmilestoneId };
+  });
 }
 
 async function seedSchedulingBuild() {

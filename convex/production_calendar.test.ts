@@ -338,6 +338,7 @@ describe("production calendar workspace", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 65_000_000,
@@ -414,6 +415,7 @@ describe("production calendar workspace", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-08-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 65_000_000,

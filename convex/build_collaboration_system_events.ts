@@ -68,6 +68,7 @@ export interface BuildCollaborationSystemEventInput {
   idempotencyKey: string;
   notificationKind?: BuildCollaborationNotificationKind;
   notificationTitle?: string;
+  now?: number;
   organizationId: string;
   plainText: string;
   postType: "update" | "question" | "decision" | "issue" | "announcement";
@@ -95,6 +96,7 @@ export interface BuildCollaborationSystemEventInput {
     title: string;
     workKind: "evidence" | "site_visit_remediation" | "draw_blocker";
   };
+  suppressNotifications?: boolean;
   systemLabel: string;
   systemPostKind?: "milestone" | "draw";
 }
@@ -103,6 +105,7 @@ export const publishBuildCollaborationSystemEvent = internalMutation
   .input({
     buildId: v.id("activeBuilds"),
     idempotencyKey: v.string(),
+    now: v.optional(v.number()),
     notificationKind: v.optional(buildCollaborationNotificationKindValidator),
     notificationTitle: v.optional(v.string()),
     organizationId: v.string(),
@@ -112,6 +115,7 @@ export const publishBuildCollaborationSystemEvent = internalMutation
     primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
     references: v.optional(v.array(systemReferenceValidator)),
     remediation: v.optional(remediationValidator),
+    suppressNotifications: v.optional(v.boolean()),
     systemPostKind: v.optional(
       v.union(v.literal("milestone"), v.literal("draw"))
     ),
@@ -183,7 +187,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     "System label",
     120
   );
-  const now = Date.now();
+  const now = input.now ?? Date.now();
   const tiptapJson = plainTextDocument(plainText);
   const audience = systemEventAudience(participants, readerParticipants);
   const postId = await ctx.db.insert("buildCollaborationPosts", {
@@ -274,32 +278,34 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   );
   const primaryReference = references[primaryReferenceIndex];
   const primaryReferenceRowId = referenceRows[primaryReferenceIndex];
-  for (const recipient of readerParticipants) {
-    await emitCanonicalBuildCollaborationNotification(ctx, {
-      actionItemId: actionItemId ?? undefined,
-      actionLabel: primaryReference ? "Open related work" : "Open discussion",
-      authorization,
-      body: plainText,
-      dedupeKey: `build-system-event:${idempotencyKey}:${notificationKind}:${recipient.workosUserId}`,
-      entityId: primaryReference?.entityId ?? postId,
-      entityLabel: primaryReference?.label,
-      entityType: primaryReference?.entityKind ?? "buildCollaborationPost",
-      href: buildCollaborationDeepLink({
-        buildId: build._id,
-        focus: primaryReference
-          ? `${primaryReference.entityKind}:${primaryReference.entityId}`
-          : `post:${postId}`,
-        recipientRole: recipient.role,
-      }),
-      kind: notificationKind,
-      now,
-      postId,
-      readerIds,
-      recipientWorkosUserId: recipient.workosUserId,
-      referenceId: primaryReferenceRowId,
-      sourceLabel: systemLabel,
-      title: input.notificationTitle?.trim() || plainText.slice(0, 120),
-    });
+  if (!input.suppressNotifications) {
+    for (const recipient of readerParticipants) {
+      await emitCanonicalBuildCollaborationNotification(ctx, {
+        actionItemId: actionItemId ?? undefined,
+        actionLabel: primaryReference ? "Open related work" : "Open discussion",
+        authorization,
+        body: plainText,
+        dedupeKey: `build-system-event:${idempotencyKey}:${notificationKind}:${recipient.workosUserId}`,
+        entityId: primaryReference?.entityId ?? postId,
+        entityLabel: primaryReference?.label,
+        entityType: primaryReference?.entityKind ?? "buildCollaborationPost",
+        href: buildCollaborationDeepLink({
+          buildId: build._id,
+          focus: primaryReference
+            ? `${primaryReference.entityKind}:${primaryReference.entityId}`
+            : `post:${postId}`,
+          recipientRole: recipient.role,
+        }),
+        kind: notificationKind,
+        now,
+        postId,
+        readerIds,
+        recipientWorkosUserId: recipient.workosUserId,
+        referenceId: primaryReferenceRowId,
+        sourceLabel: systemLabel,
+        title: input.notificationTitle?.trim() || plainText.slice(0, 120),
+      });
+    }
   }
   await Promise.all([
     ctx.db.insert("auditEvents", {

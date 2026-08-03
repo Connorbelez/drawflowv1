@@ -141,6 +141,7 @@ async function createActiveBuild(t: any, seed: any) {
     (api as any).production_proposals.recordOfflineClosing,
     {
       buildStartDate: "2026-08-01",
+      ianaTimezone: "America/Toronto",
       loanFacility: {
         interestAnnualBps: 925,
         principalCents: 100_000_000,
@@ -465,6 +466,7 @@ describe("contractors v1", () => {
       (api as any).production_proposals.recordOfflineClosing,
       {
         buildStartDate: "2026-09-01",
+        ianaTimezone: "America/Toronto",
         loanFacility: {
           interestAnnualBps: 925,
           principalCents: 90_000_000,

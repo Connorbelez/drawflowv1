@@ -4570,6 +4570,7 @@ async function applyCatalogDomainMutation(
           input.buildStartDate ?? input.startDate,
           "buildStartDate"
         ),
+        ianaTimezone: requiredString(input.ianaTimezone, "ianaTimezone"),
         loanFacility: normalizeLoanFacility(input),
         proposalId: input.proposalId,
         reason: reasonOrNote(input),
@@ -4906,6 +4907,7 @@ async function applyCatalogDomainMutation(
         {
           buildId: input.buildId,
           buildName: input.buildName,
+          ianaTimezone: input.ianaTimezone,
           location: input.location,
           locationLatitude: input.locationLatitude,
           locationLongitude: input.locationLongitude,

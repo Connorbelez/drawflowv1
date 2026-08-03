@@ -1327,6 +1327,21 @@ function CanonicalMilestoneActionItemFacts({
       <FramePanel className="space-y-2 p-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Badge variant="secondary">Canonical Sub-milestone</Badge>
+          {detail.item.systemPresentation ? (
+            <Badge
+              variant={
+                detail.item.systemPresentation.column === "behind_schedule"
+                  ? "warning"
+                  : "outline"
+              }
+            >
+              {systemPresentationLabel(detail.item.systemPresentation.column)}
+            </Badge>
+          ) : null}
+          {detail.item.systemPresentation?.attention ===
+          "overdue_completion" ? (
+            <Badge variant="destructive">Overdue completion</Badge>
+          ) : null}
           <span className="text-muted-foreground">System-owned binding</span>
         </div>
         <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
@@ -1339,6 +1354,14 @@ function CanonicalMilestoneActionItemFacts({
             value={submilestoneReference?.label ?? detail.item.title}
           />
         </dl>
+        {detail.item.systemPresentation?.state === "unknown" ? (
+          <p className="text-muted-foreground text-xs">
+            Schedule state unavailable
+            {detail.item.systemPresentation.unknownReason
+              ? `: ${detail.item.systemPresentation.unknownReason}`
+              : ""}
+          </p>
+        ) : null}
         <p className="text-muted-foreground text-xs">
           Status, completion, and identity follow the canonical roadmap. This
           collaboration card is not an independent workflow command.
@@ -1346,6 +1369,25 @@ function CanonicalMilestoneActionItemFacts({
       </FramePanel>
     </Frame>
   );
+}
+
+function systemPresentationLabel(
+  column: NonNullable<
+    VisibleActionItemDetail["item"]["systemPresentation"]
+  >["column"]
+) {
+  switch (column) {
+    case "approved":
+      return "Approved";
+    case "backlog":
+      return "Backlog";
+    case "behind_schedule":
+      return "Behind Schedule";
+    case "in_progress":
+      return "In Progress";
+    case "in_review":
+      return "In Review";
+  }
 }
 
 const ACTION_ITEM_REACTIONS = ["acknowledged", "agree", "question"] as const;

@@ -21,6 +21,13 @@ crons.interval(
 );
 
 crons.interval(
+  "reconcile scheduled Milestone System Posts",
+  { minutes: 5 },
+  internal.build_collaboration_scheduling.reconcileDueMilestoneSystemPosts,
+  {}
+);
+
+crons.interval(
   "recover expired Build collaboration webhook leases",
   { minutes: 1 },
   internal.build_collaboration_webhooks

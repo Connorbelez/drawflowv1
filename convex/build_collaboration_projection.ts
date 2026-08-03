@@ -9,6 +9,7 @@ import { collaborationModerationCapabilities } from "./build_collaboration_moder
 import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { projectAcceptedBuildCollaborationAnswerForViewer } from "./build_collaboration_resolution";
 import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
+import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
 import type { Doc, QueryCtx } from "./types";
 
 const MAX_REFERENCES_PER_POST = 100;
@@ -196,6 +197,7 @@ export async function projectReadableBuildCollaborationPost(
       readableActionItems.push(item);
     }
   }
+  const asOf = Date.now();
   return {
     acknowledgement: acknowledgementTarget
       ? {
@@ -209,7 +211,7 @@ export async function projectReadableBuildCollaborationPost(
       : { acknowledged: false, required: false },
     actionItems: await Promise.all(
       readableActionItems.map((item) =>
-        projectActionItemSummary(ctx, authorization, item)
+        projectActionItemSummary(ctx, authorization, item, asOf)
       )
     ),
     attachments,
@@ -295,38 +297,45 @@ export async function projectReadableBuildCollaborationPost(
 async function projectActionItemSummary(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
-  item: Doc<"buildActionItems">
+  item: Doc<"buildActionItems">,
+  asOf: number
 ) {
-  const [labels, incoming, outgoing, unread] = await Promise.all([
-    ctx.db
-      .query("buildActionItemLabels")
-      .withIndex("by_actionItemId_and_normalizedLabel", (query) =>
-        query.eq("actionItemId", item._id)
-      )
-      .take(100),
-    ctx.db
-      .query("buildActionItemRelations")
-      .withIndex("by_targetActionItemId_and_status", (query) =>
-        query.eq("targetActionItemId", item._id).eq("status", "active")
-      )
-      .take(101),
-    ctx.db
-      .query("buildActionItemRelations")
-      .withIndex("by_sourceActionItemId_and_status", (query) =>
-        query.eq("sourceActionItemId", item._id).eq("status", "active")
-      )
-      .take(101),
-    ctx.db
-      .query("recipientDeliveries")
-      .withIndex("by_recipient_actionItem_status", (query) =>
-        query
-          .eq("organizationId", authorization.organizationId)
-          .eq("recipientWorkosUserId", authorization.viewer.subject)
-          .eq("collaborationActionItemId", item._id)
-          .eq("status", "unread")
-      )
-      .take(100),
-  ]);
+  const [labels, incoming, outgoing, unread, systemPresentation] =
+    await Promise.all([
+      ctx.db
+        .query("buildActionItemLabels")
+        .withIndex("by_actionItemId_and_normalizedLabel", (query) =>
+          query.eq("actionItemId", item._id)
+        )
+        .take(100),
+      ctx.db
+        .query("buildActionItemRelations")
+        .withIndex("by_targetActionItemId_and_status", (query) =>
+          query.eq("targetActionItemId", item._id).eq("status", "active")
+        )
+        .take(101),
+      ctx.db
+        .query("buildActionItemRelations")
+        .withIndex("by_sourceActionItemId_and_status", (query) =>
+          query.eq("sourceActionItemId", item._id).eq("status", "active")
+        )
+        .take(101),
+      ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_actionItem_status", (query) =>
+          query
+            .eq("organizationId", authorization.organizationId)
+            .eq("recipientWorkosUserId", authorization.viewer.subject)
+            .eq("collaborationActionItemId", item._id)
+            .eq("status", "unread")
+        )
+        .take(100),
+      deriveMilestoneSystemActionItemPresentation(ctx, {
+        actionItem: item,
+        asOf,
+        build: authorization.build,
+      }),
+    ]);
   const isScopedBlock = (relation: Doc<"buildActionItemRelations">) =>
     relation.kind === "blocks" &&
     relation.organizationId === authorization.organizationId &&
@@ -359,6 +368,7 @@ async function projectActionItemSummary(
     canonicalBuildMilestoneId: item.canonicalBuildMilestoneId,
     canonicalBuildSubmilestoneId: item.canonicalBuildSubmilestoneId,
     canonicalBindingRevision: item.canonicalBindingRevision,
+    systemPresentation,
   };
 }
 
