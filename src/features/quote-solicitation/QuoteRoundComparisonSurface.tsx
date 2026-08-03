@@ -13,7 +13,13 @@ import {
   RotateCcw,
   ShieldCheck,
 } from "lucide-react";
-import { useState } from "react";
+import {
+  Component,
+  type ErrorInfo,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
 import { FieldRichTextPreview } from "#/components/rich-text/field-rich-text.tsx";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -48,6 +54,7 @@ interface QuoteRoundComparisonSurfaceProps {
   onExit: () => void;
   organizationId: string;
   quoteRoundId: string;
+  readerKind?: "backoffice" | "builder" | "homeowner";
   readOnly?: boolean;
 }
 
@@ -69,6 +76,15 @@ function formatDate(value: number | undefined) {
     timeStyle: "short",
     timeZone: APP_TIME_ZONE,
   }).format(value);
+}
+
+function useCoarseNow() {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+  return now;
 }
 
 function ComparisonLineList({
@@ -441,10 +457,86 @@ export function QuoteRoundComparisonSurface({
   organizationId,
   quoteRoundId,
   readOnly = false,
+  readerKind,
 }: QuoteRoundComparisonSurfaceProps) {
+  return (
+    <QuoteRoundComparisonErrorBoundary
+      key={`${buildId}:${quoteRoundId}`}
+      onExit={onExit}
+    >
+      <QuoteRoundComparisonQuery
+        buildId={buildId}
+        onExit={onExit}
+        organizationId={organizationId}
+        quoteRoundId={quoteRoundId}
+        readerKind={readerKind}
+        readOnly={readOnly}
+      />
+    </QuoteRoundComparisonErrorBoundary>
+  );
+}
+
+interface QuoteRoundComparisonErrorBoundaryProps {
+  children: ReactNode;
+  onExit: () => void;
+}
+
+class QuoteRoundComparisonErrorBoundary extends Component<
+  QuoteRoundComparisonErrorBoundaryProps,
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(_error: Error, _info: ErrorInfo) {
+    // A revoked Build participant sees a fail-closed state while the parent
+    // workspace remains navigable; no cached comparison is retained.
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <main className="min-h-[calc(100vh-4rem)] bg-muted/30 p-3 sm:p-5">
+          <div className="mx-auto max-w-6xl">
+            <Frame>
+              <FrameHeader>
+                <FrameTitle>Quote comparison unavailable</FrameTitle>
+                <FrameDescription>
+                  This Quote Round is no longer available in your current Build
+                  access scope.
+                </FrameDescription>
+              </FrameHeader>
+              <FramePanel className="p-4">
+                <Button onClick={this.props.onExit} variant="outline">
+                  <ArrowLeft /> Build Quotes
+                </Button>
+              </FramePanel>
+            </Frame>
+          </div>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function QuoteRoundComparisonQuery({
+  buildId,
+  onExit,
+  organizationId,
+  quoteRoundId,
+  readOnly = false,
+  readerKind,
+}: QuoteRoundComparisonSurfaceProps) {
+  const now = useCoarseNow();
   const comparison = useQuery(api.quote_comparisons.getQuoteRoundComparison, {
     buildId,
+    now,
     quoteRoundId,
+    readerKind,
     workosOrganizationId: organizationId,
   });
   const setPreferred = useMutation(

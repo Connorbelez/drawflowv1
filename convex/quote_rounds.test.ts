@@ -3871,11 +3871,14 @@ describe("Quote Round immutable response comparison and Preferred Quote", () => 
     fixture: Awaited<ReturnType<typeof seedQuoteFixture>>,
     quoteRoundId: Id<"quoteRounds">,
     viewer = fixture.builder,
-    organizationId = ORGANIZATION_ID
+    organizationId = ORGANIZATION_ID,
+    readerKind?: "backoffice" | "builder" | "homeowner"
   ) =>
     await viewer.query((api as any).quote_comparisons.getQuoteRoundComparison, {
       buildId: fixture.buildId,
+      now: Date.now(),
       quoteRoundId,
+      ...(readerKind ? { readerKind } : {}),
       workosOrganizationId: organizationId,
     });
 
@@ -4139,6 +4142,7 @@ describe("Quote Round immutable response comparison and Preferred Quote", () => 
     await expect(
       fixture.builder.query((api as any).quote_comparisons.getQuoteRoundComparison, {
         buildId: wrongBuildId,
+        now: Date.now(),
         quoteRoundId: published.quoteRoundId,
         workosOrganizationId: ORGANIZATION_ID,
       })
@@ -4262,6 +4266,136 @@ describe("Quote Round immutable response comparison and Preferred Quote", () => 
         current.submissionRevisionId
       )
     ).rejects.toThrow(/current|superseded|eligible|active/i);
+  });
+
+  test("admits an assigned Homeowner and redacts recipient email, storage handles, and Preferred actor identity", async () => {
+    const fixture = await seedQuoteFixture();
+    const published = await publishComparisonRound(fixture);
+    const submitted = await submitComparisonCandidate(
+      fixture,
+      published.invitations[0]!,
+      {
+        attachment: true,
+        commentsHtml: "<p>Visible submitted response.</p>",
+        labourCents: 80_000_00,
+        materialCents: 45_000_00,
+        tokenSuffix: "homeowner-read",
+      }
+    );
+    await setPreferred(
+      fixture,
+      published.quoteRoundId,
+      submitted.submissionRevisionId
+    );
+    const storedResponseAttachmentId = await fixture.base.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("quoteInvitationResponseSubmissionAttachments")
+          .withIndex(
+            "by_quoteInvitationResponseSubmissionRevisionId_and_createdAt",
+            (query) =>
+              query.eq(
+                "quoteInvitationResponseSubmissionRevisionId",
+                submitted.submissionRevisionId
+              )
+          )
+          .first()
+      )?.storageId
+    );
+    const homeownerParticipant = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("buildParticipants", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        displayNameSnapshot: "Homeowner Viewer",
+        emailSnapshot: "homeowner@example.com",
+        joinedAt: now,
+        organizationId: ORGANIZATION_ID,
+        participationPeriod: 1,
+        role: "homeowner",
+        status: "active",
+        updatedAt: now,
+        validFrom: now,
+        workosUserId: "user_homeowner",
+      });
+    });
+    const homeowner = withIdentity(
+      fixture.base,
+      ["member"],
+      "user_homeowner",
+      ORGANIZATION_ID,
+      "homeowner@example.com"
+    );
+    const homeownerResult = await compare(
+      fixture,
+      published.quoteRoundId,
+      homeowner,
+      ORGANIZATION_ID,
+      "homeowner"
+    );
+    expect(homeownerResult).toMatchObject({
+      preferred: { selectedByWorkosUserId: "redacted" },
+      status: "available",
+    });
+    expect(
+      homeownerResult.candidates[0]?.invitation.recipientEmailSnapshot
+    ).toBe("Recipient email redacted");
+    expect(
+      homeownerResult.invitations[0]?.recipientEmailSnapshot
+    ).toBe("Recipient email redacted");
+    expect(JSON.stringify(homeownerResult)).not.toContain(
+      "quote-recipient@example.com"
+    );
+    expect(JSON.stringify(homeownerResult)).not.toContain(
+      String(storedResponseAttachmentId)
+    );
+
+    const builderResult = await compare(fixture, published.quoteRoundId);
+    expect(
+      builderResult.candidates[0]?.invitation.recipientEmailSnapshot
+    ).toBe("quote-recipient@example.com");
+    expect(JSON.stringify(builderResult)).toContain(
+      String(storedResponseAttachmentId)
+    );
+
+    const backoffice = withIdentity(
+      fixture.base,
+      ["admin", "builder"],
+      "user_builder",
+      ORGANIZATION_ID,
+      "builder@example.com"
+    );
+    const backofficeResult = await compare(
+      fixture,
+      published.quoteRoundId,
+      backoffice,
+      ORGANIZATION_ID,
+      "backoffice"
+    );
+    expect(backofficeResult).toMatchObject({
+      canClearPreferred: false,
+      canSetPreferred: false,
+      preferred: { selectedByWorkosUserId: "redacted" },
+      status: "available",
+    });
+    expect(JSON.stringify(backofficeResult)).not.toContain(
+      "quote-recipient@example.com"
+    );
+    expect(JSON.stringify(backofficeResult)).not.toContain(
+      String(storedResponseAttachmentId)
+    );
+
+    await fixture.base.run((ctx) =>
+      ctx.db.patch(homeownerParticipant, {
+        removedAt: Date.now(),
+        status: "removed",
+        updatedAt: Date.now(),
+      })
+    );
+    await expect(
+      compare(fixture, published.quoteRoundId, homeowner)
+    ).rejects.toThrow(/participation revoked|participation|access/i);
   });
 
   test("sets and reversibly clears exactly one Preferred pointer in Open and Closed rounds with optimistic concurrency and audit only", async () => {

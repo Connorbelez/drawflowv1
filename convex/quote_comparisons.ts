@@ -208,7 +208,7 @@ const comparisonAttachmentValidator = v.object({
   sourcePackageRevisionResponseFieldId: v.optional(
     v.id("quotePackageRevisionResponseFields")
   ),
-  storageId: v.id("_storage"),
+  storageId: v.optional(v.id("_storage")),
 });
 
 const comparisonHistoryValidator = v.object({
@@ -346,6 +346,13 @@ const preferredCommandResultValidator = v.union(
 type ComparisonCtx = (QueryCtx | MutationCtx) & {
   viewer: AuthorizedViewer;
 };
+type ComparisonReaderKind = "backoffice" | "builder" | "homeowner";
+
+const COMPARISON_READER_ROLES: Record<ComparisonReaderKind, string[]> = {
+  backoffice: ["admin", "principle-broker", "broker", "broker-staff"],
+  builder: ["builder", "builder-staff"],
+  homeowner: ["homeowner"],
+};
 
 function assertComparisonReadRole(roles: readonly string[]) {
   if (
@@ -357,6 +364,7 @@ function assertComparisonReadRole(roles: readonly string[]) {
         "broker-staff",
         "builder",
         "builder-staff",
+        "homeowner",
       ].includes(role)
     )
   ) {
@@ -364,6 +372,37 @@ function assertComparisonReadRole(roles: readonly string[]) {
       "Forbidden: this Build role cannot read Quote comparison."
     );
   }
+}
+
+function canViewRecipientSensitiveFacts(roles: readonly string[]) {
+  return roles.some((role) => role === "builder" || role === "builder-staff");
+}
+
+function redactedRecipientEmail(
+  email: string,
+  authorization: ActiveBuildAuthorization
+) {
+  return canViewRecipientSensitiveFacts(authorization.roles)
+    ? email
+    : "Recipient email redacted";
+}
+
+function visibleAttachmentStorageId(
+  storageId: Id<"_storage"> | undefined,
+  authorization: ActiveBuildAuthorization
+) {
+  return canViewRecipientSensitiveFacts(authorization.roles)
+    ? storageId
+    : undefined;
+}
+
+function visiblePreferredActor(
+  workosUserId: string,
+  authorization: ActiveBuildAuthorization
+) {
+  return canViewRecipientSensitiveFacts(authorization.roles)
+    ? workosUserId
+    : "redacted";
 }
 
 function assertComparisonWriteRole(roles: readonly string[]) {
@@ -376,7 +415,11 @@ function assertComparisonWriteRole(roles: readonly string[]) {
 
 async function authorizeComparisonPath(
   ctx: ComparisonCtx,
-  input: { buildId: Id<"activeBuilds">; workosOrganizationId: string },
+  input: {
+    buildId: Id<"activeBuilds">;
+    readerKind?: ComparisonReaderKind;
+    workosOrganizationId: string;
+  },
   write = false
 ) {
   const authorization = await authorizeActiveBuildAccess(ctx, {
@@ -386,10 +429,16 @@ async function authorizeComparisonPath(
   });
   if (write) {
     assertComparisonWriteRole(authorization.roles);
-  } else {
-    assertComparisonReadRole(authorization.roles);
+    return authorization;
   }
-  return authorization;
+  const allowedRoles = input.readerKind
+    ? COMPARISON_READER_ROLES[input.readerKind]
+    : undefined;
+  const roles = allowedRoles
+    ? authorization.roles.filter((role) => allowedRoles.includes(role))
+    : authorization.roles;
+  assertComparisonReadRole(roles);
+  return { ...authorization, roles };
 }
 
 function requireRound(
@@ -562,7 +611,10 @@ async function loadPackageComparison(
       sourceBuildDocumentId: attachment.sourceBuildDocumentId,
       sourceBuildSubmilestoneId: attachment.sourceBuildSubmilestoneId,
       sourceDocumentVersionSnapshot: attachment.sourceDocumentVersionSnapshot,
-      storageIdSnapshot: attachment.storageIdSnapshot,
+      storageIdSnapshot: visibleAttachmentStorageId(
+        attachment.storageIdSnapshot,
+        authorization
+      ),
     })),
     labourLines: labourLines.map((line) => ({
       _id: line._id,
@@ -955,7 +1007,10 @@ async function candidateForInvitation(
       sizeBytes: attachment.sizeBytes,
       sourcePackageRevisionResponseFieldId:
         attachment.sourcePackageRevisionResponseFieldId,
-      storageId: attachment.storageId,
+      storageId: visibleAttachmentStorageId(
+        attachment.storageId,
+        authorization
+      ),
     })),
     commentsHtml: submission.commentsHtml,
     expandedScopeLines: expandedScopeLines.map(projectionLine),
@@ -976,7 +1031,10 @@ async function candidateForInvitation(
     invitation: {
       _id: invitation._id,
       recipientCapabilitiesSnapshot: invitation.recipientCapabilitiesSnapshot,
-      recipientEmailSnapshot: invitation.recipientEmailSnapshot,
+      recipientEmailSnapshot: redactedRecipientEmail(
+        invitation.recipientEmailSnapshot,
+        authorization
+      ),
       recipientNameSnapshot: invitation.recipientNameSnapshot,
       recipientProfileId: invitation.recipientProfileId,
     },
@@ -1050,7 +1108,10 @@ async function currentPreferredSummary(
   }
   return {
     selectedAt: pointer.selectedAt,
-    selectedByWorkosUserId: pointer.selectedByWorkosUserId,
+    selectedByWorkosUserId: visiblePreferredActor(
+      pointer.selectedByWorkosUserId,
+      authorization
+    ),
     submissionRevision: pointer.submissionRevision,
     submissionRevisionId: pointer.quoteInvitationResponseSubmissionRevisionId,
     quotePackageRevisionId: pointer.quotePackageRevisionId,
@@ -1079,12 +1140,12 @@ async function loadComparisonInvitations(
       )
       .take(MAX_INVITATIONS + 1),
   ]);
-  if (active.length > MAX_INVITATIONS || revoked.length > MAX_INVITATIONS) {
+  const invitations = [...active, ...revoked];
+  if (invitations.length > MAX_INVITATIONS) {
     throw new ConvexError(
       "Quote Round has too many invitations for comparison."
     );
   }
-  const invitations = [...active, ...revoked];
   return await Promise.all(
     invitations.map(async (invitation) => {
       assertScoped(invitation, authorization, round._id);
@@ -1172,7 +1233,10 @@ async function loadComparisonInvitations(
         originalPackageRevisionId: invitation.quotePackageRevisionId,
         participationState: invitation.participationState,
         recipientCapabilitiesSnapshot: invitation.recipientCapabilitiesSnapshot,
-        recipientEmailSnapshot: invitation.recipientEmailSnapshot,
+        recipientEmailSnapshot: redactedRecipientEmail(
+          invitation.recipientEmailSnapshot,
+          authorization
+        ),
         recipientNameSnapshot: invitation.recipientNameSnapshot,
         recipientProfileId: invitation.recipientProfileId,
       } as const;
@@ -1183,7 +1247,8 @@ async function loadComparisonInvitations(
 async function loadComparison(
   ctx: QueryCtx | MutationCtx,
   authorization: ActiveBuildAuthorization,
-  round: Doc<"quoteRounds">
+  round: Doc<"quoteRounds">,
+  now: number
 ) {
   if (
     round.state === "draft" ||
@@ -1209,7 +1274,7 @@ async function loadComparison(
     authorization,
     round,
     packageRevision,
-    Date.now()
+    now
   );
   const activeInvitations = await ctx.db
     .query("quoteRoundInvitations")
@@ -1277,7 +1342,15 @@ async function loadComparison(
 export const getQuoteRoundComparison = authenticatedQuery
   .input({
     buildId: v.string(),
+    now: v.number(),
     quoteRoundId: v.string(),
+    readerKind: v.optional(
+      v.union(
+        v.literal("backoffice"),
+        v.literal("builder"),
+        v.literal("homeowner")
+      )
+    ),
     workosOrganizationId: v.string(),
   })
   .returns(comparisonResultValidator)
@@ -1289,6 +1362,7 @@ export const getQuoteRoundComparison = authenticatedQuery
     }
     const authorization = await authorizeComparisonPath(ctx, {
       buildId,
+      readerKind: args.readerKind,
       workosOrganizationId: args.workosOrganizationId,
     });
     const round = requireRound(
@@ -1296,7 +1370,7 @@ export const getQuoteRoundComparison = authenticatedQuery
       authorization,
       quoteRoundId
     );
-    return await loadComparison(ctx, authorization, round);
+    return await loadComparison(ctx, authorization, round, args.now);
   })
   .public();
 

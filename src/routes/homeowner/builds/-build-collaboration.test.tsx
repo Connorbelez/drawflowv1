@@ -34,12 +34,18 @@ vi.mock(
     }: {
       activeTab: string;
       labels?: Record<string, string>;
-      onChangeTab: (tab: "costs" | "details") => void;
+      onChangeTab: (tab: "costs" | "details" | "quotes") => void;
       tabs: string[];
     }) => (
       <nav data-active-tab={activeTab} data-testid="homeowner-build-tabs">
         {tabs.map((tab) => (
-          <button key={tab} onClick={() => onChangeTab(tab as "costs" | "details")} type="button">
+          <button
+            key={tab}
+            onClick={() =>
+              onChangeTab(tab as "costs" | "details" | "quotes")
+            }
+            type="button"
+          >
             {labels?.[tab] ?? tab}
           </button>
         ))}
@@ -106,6 +112,43 @@ vi.mock(
           Open submitted Cost Document
         </button>
       </div>
+    ),
+  })
+);
+
+vi.mock("#/features/quote-solicitation/QuoteRoundsSurface.tsx", () => ({
+  QuoteRoundsSurface: ({ onOpen, readOnly, readOnlyLabel }: {
+    onOpen?: (roundId: string) => void;
+    readOnly?: boolean;
+    readOnlyLabel?: string;
+  }) => (
+    <section data-read-only={readOnly} data-testid="homeowner-quote-rounds">
+      <span>{readOnlyLabel}</span>
+      <button onClick={() => onOpen?.("round-open")} type="button">
+        View quote round
+      </button>
+    </section>
+  ),
+}));
+
+vi.mock(
+  "#/features/quote-solicitation/QuoteRoundComparisonSurface.tsx",
+  () => ({
+    QuoteRoundComparisonSurface: ({ onExit, readOnly, readerKind }: {
+      onExit: () => void;
+      readOnly?: boolean;
+      readerKind?: string;
+    }) => (
+      <section
+        data-read-only={readOnly}
+        data-reader-kind={readerKind}
+        data-testid="homeowner-quote-comparison"
+      >
+        <span>Response comparison</span>
+        <button onClick={onExit} type="button">
+          Build Quotes
+        </button>
+      </section>
     ),
   })
 );
@@ -180,6 +223,64 @@ describe("HomeownerBuildCollaboration", () => {
       validateSearch({ costDocument: ` ${costDocumentId} ` })
     ).toEqual({ costDocument: costDocumentId, tab: "costs" });
     expect(validateSearch({ costDocument: "forged" })).toEqual({});
+  });
+
+  test("normalizes Quote Round detail deep links and keeps them in the shared Quotes context", () => {
+    const validateSearch = (Route as unknown as {
+      validateSearch: (search: Record<string, unknown>) => Record<string, unknown>;
+    }).validateSearch;
+
+    expect(
+      validateSearch({ roundId: " round-open ", focus: "actionItem:action_01" })
+    ).toEqual({
+      focus: "actionItem:action_01",
+      roundId: "round-open",
+      tab: "quotes",
+    });
+    expect(validateSearch({ tab: "quotes" })).toEqual({ tab: "quotes" });
+  });
+
+  test("opens the canonical read-only Quote Round comparison and never exposes authoring actions", () => {
+    routeSearch = { tab: "quotes" };
+    render(<HomeownerBuildCollaboration />);
+
+    expect(
+      screen.getByTestId("homeowner-quote-rounds").getAttribute("data-read-only")
+    ).toBe("true");
+    expect(screen.queryByRole("button", { name: /New quote request/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View quote round" }));
+    expect(navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replace: false,
+        search: expect.objectContaining({
+          roundId: "round-open",
+          tab: "quotes",
+        }),
+        to: "/homeowner/builds/$buildId",
+      })
+    );
+
+    cleanup();
+    routeSearch = { roundId: "round-open", tab: "quotes" };
+    render(<HomeownerBuildCollaboration />);
+    expect(
+      screen
+        .getByTestId("homeowner-quote-comparison")
+        .getAttribute("data-read-only")
+    ).toBe("true");
+    expect(
+      screen
+        .getByTestId("homeowner-quote-comparison")
+        .getAttribute("data-reader-kind")
+    ).toBe("homeowner");
+    expect(screen.queryByRole("button", { name: /Select Preferred|Clear Preferred/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Build Quotes" }));
+    expect(navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        replace: true,
+        search: expect.objectContaining({ roundId: undefined, tab: "quotes" }),
+      })
+    );
   });
 
   test("renders capacity-pinned canonical Cost capture at desktop and compact widths", () => {

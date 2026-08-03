@@ -26,6 +26,7 @@ import {
   getVisualParityActiveBuildTimelineWorkspace,
   isProductionVisualParityFixtureEnabled,
 } from "#/features/production-proposals/visualParityFixtures.ts";
+import { QuoteRoundComparisonSurface } from "#/features/quote-solicitation/QuoteRoundComparisonSurface.tsx";
 import { QuoteRoundsSurface } from "#/features/quote-solicitation/QuoteRoundsSurface.tsx";
 import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../../convex/_generated/api";
@@ -36,6 +37,7 @@ interface BuildDetailSearch {
   focus?: string;
   milestone?: string;
   rail?: "open" | "closed";
+  roundId?: string;
   tab?:
     | "calendar"
     | "contractors"
@@ -72,6 +74,10 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
         : undefined;
     const milestone =
       typeof search.milestone === "string" ? search.milestone : undefined;
+    const roundId =
+      typeof search.roundId === "string" && search.roundId.trim()
+        ? search.roundId.trim()
+        : undefined;
     const focus = normalizeBuildCollaborationFocus(search.focus);
     const rail =
       search.rail === "closed" || search.rail === "open"
@@ -92,8 +98,12 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
     if (milestone !== undefined) {
       out.milestone = milestone;
     }
-    if (tab !== undefined || costDocumentSearch.costDocument !== undefined) {
-      out.tab = tab ?? "costs";
+    if (
+      tab !== undefined ||
+      costDocumentSearch.costDocument !== undefined ||
+      roundId !== undefined
+    ) {
+      out.tab = roundId ? "quotes" : (tab ?? "costs");
     }
     if (costDocumentSearch.costDocument !== undefined) {
       out.costDocument = costDocumentSearch.costDocument;
@@ -103,6 +113,9 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
     }
     if (timeframe !== undefined) {
       out.timeframe = timeframe;
+    }
+    if (roundId !== undefined) {
+      out.roundId = roundId;
     }
     return out;
   },
@@ -288,6 +301,7 @@ function RouteComponent() {
         ...search,
         costDocument: tab === "costs" ? search.costDocument : undefined,
         focus,
+        roundId: tab === "quotes" ? search.roundId : undefined,
         tab,
       },
       replace: true,
@@ -883,12 +897,38 @@ function RouteComponent() {
         onChangeRail={onChangeRail}
         onChangeTab={onChangeTab}
         quotes={
-          <QuoteRoundsSurface
-            buildId={String(activeBuildId)}
-            organizationId={workosOrganizationId}
-            readOnly
-            readOnlyLabel="Backoffice audit"
-          />
+          search.roundId ? (
+            <QuoteRoundComparisonSurface
+              buildId={String(activeBuildId)}
+              onExit={() =>
+                navigate({
+                  params: { buildId },
+                  replace: true,
+                  search: { ...search, roundId: undefined, tab: "quotes" },
+                  to: "/backoffice/builds/$buildId",
+                } as never)
+              }
+              organizationId={workosOrganizationId}
+              quoteRoundId={search.roundId}
+              readOnly
+              readerKind="backoffice"
+            />
+          ) : (
+            <QuoteRoundsSurface
+              buildId={String(activeBuildId)}
+              onOpen={(roundId) =>
+                navigate({
+                  params: { buildId },
+                  replace: false,
+                  search: { ...search, roundId, tab: "quotes" },
+                  to: "/backoffice/builds/$buildId",
+                } as never)
+              }
+              organizationId={workosOrganizationId}
+              readOnly
+              readOnlyLabel="Backoffice audit"
+            />
+          )
         }
         rail={search.rail}
         staff={

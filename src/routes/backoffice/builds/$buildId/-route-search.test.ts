@@ -28,4 +28,11 @@ describe("Backoffice Build Cost route search", () => {
       validateSearch({ costDocument: "forged", tab: "documents" })
     ).toEqual({ tab: "documents" });
   });
+
+  test("normalizes a Quote Round detail deep link into the shared Quotes context", () => {
+    expect(
+      validateSearch({ roundId: " round-open ", tab: "details" })
+    ).toEqual({ roundId: "round-open", tab: "quotes" });
+    expect(validateSearch({ roundId: "   " })).toEqual({});
+  });
 });

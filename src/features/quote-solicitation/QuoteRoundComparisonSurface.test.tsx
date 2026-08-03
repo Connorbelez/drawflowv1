@@ -320,6 +320,11 @@ describe("QuoteRoundComparisonSurface", () => {
     expect(lakefrontButton.disabled).toBe(true);
     expect(
       (screen.getByRole("button", {
+        name: "Preferred Quote selected from Recipient Northline",
+      }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", {
         name: "Clear Preferred",
       }) as HTMLButtonElement).disabled
     ).toBe(true);

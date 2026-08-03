@@ -13,13 +13,19 @@ import {
   normalizeCostDocumentSearch,
 } from "#/features/cost-documents/costDocumentRouteState.ts";
 import type { CostDocumentSubmilestoneOption } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
+import { QuoteRoundComparisonSurface } from "#/features/quote-solicitation/QuoteRoundComparisonSurface.tsx";
 import { QuoteRoundsSurface } from "#/features/quote-solicitation/QuoteRoundsSurface.tsx";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 interface HomeownerBuildSearch extends CostDocumentRouteSearch {
   focus?: string;
+  roundId?: string;
   tab?: "costs" | "quotes";
+}
+
+function normalizeRoundId(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 export const Route = createFileRoute("/homeowner/builds/$buildId")({
@@ -33,17 +39,20 @@ export const Route = createFileRoute("/homeowner/builds/$buildId")({
   validateSearch: (search: Record<string, unknown>): HomeownerBuildSearch => {
     const focus = normalizeBuildCollaborationFocus(search.focus);
     const costDocumentSearch = normalizeCostDocumentSearch(search);
+    const roundId = normalizeRoundId(search.roundId);
     const tab =
-      search.tab === "costs" ||
-      search.tab === "quotes" ||
-      costDocumentSearch.costBatch ||
-      costDocumentSearch.costDocument ||
-      costDocumentSearch.costDocumentDraft
-        ? "costs"
-        : undefined;
+      roundId || search.tab === "quotes"
+        ? "quotes"
+        : search.tab === "costs" ||
+            costDocumentSearch.costBatch ||
+            costDocumentSearch.costDocument ||
+            costDocumentSearch.costDocumentDraft
+          ? "costs"
+          : undefined;
     return {
       ...costDocumentSearch,
       ...(focus ? { focus } : {}),
+      ...(roundId ? { roundId } : {}),
       ...(tab ? { tab } : {}),
     };
   },
@@ -54,7 +63,7 @@ function HomeownerBuildCollaboration() {
   const search = Route.useSearch();
   const navigate = useNavigate();
   const costsActive = search.tab === "costs";
-  const quotesActive = search.tab === "quotes";
+  const quotesActive = search.tab === "quotes" || Boolean(search.roundId);
   const scope = useQuery(api.build_participants.getMyBuildParticipationScope, {
     buildId: buildId as Id<"activeBuilds">,
     workspaceRole: "homeowner",
@@ -113,6 +122,7 @@ function HomeownerBuildCollaboration() {
         costDocument: tab === "costs" ? search.costDocument : undefined,
         costDocumentDraft:
           tab === "costs" ? search.costDocumentDraft : undefined,
+        roundId: tab === "quotes" ? search.roundId : undefined,
         tab: tab === "costs" || tab === "quotes" ? tab : undefined,
       },
       to: "/homeowner/builds/$buildId",
@@ -199,12 +209,38 @@ function HomeownerBuildCollaboration() {
             />
           )
         ) : quotesActive ? (
-          <QuoteRoundsSurface
-            buildId={buildId}
-            organizationId={scope.organizationId}
-            readOnly
-            readOnlyLabel="Homeowner"
-          />
+          search.roundId ? (
+            <QuoteRoundComparisonSurface
+              buildId={buildId}
+              onExit={() =>
+                navigate({
+                  params: { buildId },
+                  replace: true,
+                  search: { ...search, roundId: undefined, tab: "quotes" },
+                  to: "/homeowner/builds/$buildId",
+                } as never)
+              }
+              organizationId={scope.organizationId}
+              quoteRoundId={search.roundId}
+              readerKind="homeowner"
+              readOnly
+            />
+          ) : (
+            <QuoteRoundsSurface
+              buildId={buildId}
+              onOpen={(roundId) =>
+                navigate({
+                  params: { buildId },
+                  replace: false,
+                  search: { ...search, roundId, tab: "quotes" },
+                  to: "/homeowner/builds/$buildId",
+                } as never)
+              }
+              organizationId={scope.organizationId}
+              readOnly
+              readOnlyLabel="Homeowner"
+            />
+          )
         ) : (
           <BuildCollaborationWorkspace
             buildId={buildId}
