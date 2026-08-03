@@ -694,6 +694,8 @@ export const claimQuoteInvitationProfile = authenticatedMutation
       await writeQuoteRecipientAuditEvent(ctx, {
         authorization: {
           brokerage: scope.brokerage,
+          buildId: scope.invitation.buildId,
+          externalCapacity: "contractor",
           organizationId: scope.invitation.organizationId,
           viewer: ctx.viewer,
         },
@@ -1495,27 +1497,54 @@ function optionalDisplayName(value: string | undefined) {
 async function writeQuoteRecipientAuditEvent(
   ctx: MutationCtx,
   input: {
-    authorization: Pick<
-      ActiveBuildAuthorization,
-      "brokerage" | "organizationId" | "viewer"
-    >;
+    authorization:
+      | Pick<
+          ActiveBuildAuthorization,
+          "brokerage" | "build" | "effectiveRole" | "organizationId" | "viewer"
+        >
+      | {
+          brokerage: Doc<"brokerages">;
+          buildId: Id<"activeBuilds">;
+          externalCapacity: "contractor";
+          organizationId: string;
+          viewer: AuthorizedViewer;
+        };
     command: string;
     eventType: string;
     profileId: Id<"contractorProfiles">;
     state: Record<string, boolean | string | string[]>;
   }
 ) {
+  let actorCapacity: ActiveBuildAuthorization["effectiveRole"]["role"];
+  let buildId: Id<"activeBuilds">;
+  if ("externalCapacity" in input.authorization) {
+    actorCapacity = input.authorization.externalCapacity;
+    buildId = input.authorization.buildId;
+  } else {
+    actorCapacity = input.authorization.effectiveRole.role;
+    buildId = input.authorization.build._id;
+  }
   await ctx.db.insert("auditEvents", {
+    actorKind: input.authorization.viewer.actorKind,
+    actorRole: actorCapacity,
     actorRoles: [...input.authorization.viewer.roles],
     actorWorkosUserId: input.authorization.viewer.subject,
     brokerageId: input.authorization.brokerage._id,
+    buildId,
     command: input.command,
     createdAt: Date.now(),
     entityId: String(input.profileId),
     entityType: "quoteRecipientProfile",
+    effectiveCapacity: actorCapacity,
     eventType: input.eventType,
     newState: JSON.stringify(input.state),
     organizationId: input.authorization.organizationId,
+    targetRevisions: [
+      {
+        entityId: String(input.profileId),
+        entityType: "quoteRecipientProfile",
+      },
+    ],
     warnings: [],
   });
 }

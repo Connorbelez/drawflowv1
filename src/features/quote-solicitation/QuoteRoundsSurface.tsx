@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
   AlertTriangle,
@@ -20,7 +20,14 @@ import {
   XCircle,
 } from "lucide-react";
 import type { ErrorInfo, ReactNode } from "react";
-import { Component, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -76,10 +83,7 @@ type QuoteRoundsQueryProps = QuoteRoundsSurfaceProps & {
   onRetry: () => void;
 };
 
-type QuoteRoundsRegisterContext = Pick<
-  QuoteRoundsSurfaceProps,
-  "onCreate" | "onOpen" | "readOnly" | "readOnlyLabel"
->;
+type QuoteRoundsRegisterContext = QuoteRoundsSurfaceProps;
 
 function formatDeadline(value: number | undefined) {
   if (!value) {
@@ -282,11 +286,13 @@ function QuoteRoundsQuery({
 
   return (
     <QuoteRoundsRegister
+      buildId={buildId}
       cached={quoteRoundList === undefined}
       list={quoteRoundList ?? cachedList ?? { rounds: [] }}
       onCreate={onCreate}
       onOpen={onOpen}
       onRetry={onRetry}
+      organizationId={organizationId}
       readOnly={readOnly}
       readOnlyLabel={readOnlyLabel}
     />
@@ -374,21 +380,25 @@ function QuoteRoundsErrorState({ onRetry }: { onRetry: () => void }) {
 }
 
 function QuoteRoundsRegister({
+  buildId,
   cached = false,
   hardError = false,
   list,
   onCreate,
   onOpen,
   onRetry,
+  organizationId,
   readOnly = false,
   readOnlyLabel = "Read-only",
 }: {
+  buildId: string;
   cached?: boolean;
   hardError?: boolean;
   list: QuoteRoundListProjection;
   onCreate?: () => void;
   onOpen?: (roundId: string) => void;
   onRetry: () => void;
+  organizationId: string;
   readOnly?: boolean;
   readOnlyLabel?: string;
 }) {
@@ -522,18 +532,22 @@ function QuoteRoundsRegister({
             <>
               <AttentionStrip rows={rows} />
               <DesktopControlRegister
+                buildId={buildId}
                 expandedId={expandedId}
                 now={now}
                 onExpand={setExpandedId}
                 onOpen={onOpen}
+                organizationId={organizationId}
                 readOnly={readOnly}
                 rows={rows}
               />
               <MobileControlRegister
+                buildId={buildId}
                 expandedId={expandedId}
                 now={now}
                 onExpand={setExpandedId}
                 onOpen={onOpen}
+                organizationId={organizationId}
                 readOnly={readOnly}
                 rows={rows}
               />
@@ -678,17 +692,21 @@ function AttentionStrip({ rows }: { rows: QuoteRoundRegisterRow[] }) {
 }
 
 function DesktopControlRegister({
+  buildId,
   expandedId,
   now,
   onExpand,
   onOpen,
+  organizationId,
   readOnly,
   rows,
 }: {
+  buildId: string;
   expandedId: string | null;
   now: number;
   onExpand: (id: string | null) => void;
   onOpen?: (roundId: string) => void;
+  organizationId: string;
   readOnly: boolean;
   rows: QuoteRoundRegisterRow[];
 }) {
@@ -781,8 +799,11 @@ function DesktopControlRegister({
               </div>
               {expanded ? (
                 <RecipientDisclosure
+                  buildId={buildId}
                   id={`quote-round-desktop-details-${row._id}`}
                   onOpen={onOpen}
+                  organizationId={organizationId}
+                  readOnly={readOnly}
                   row={row}
                 />
               ) : null}
@@ -909,12 +930,18 @@ function PreferredQuote({ row }: { row: QuoteRoundRegisterRow }) {
 }
 
 function RecipientDisclosure({
+  buildId,
   id,
   onOpen,
+  organizationId,
+  readOnly,
   row,
 }: {
+  buildId: string;
   id: string;
   onOpen?: (roundId: string) => void;
+  organizationId: string;
+  readOnly: boolean;
   row: QuoteRoundRegisterRow;
 }) {
   const recipientDelivery = row.recipientDelivery ?? [];
@@ -972,17 +999,69 @@ function RecipientDisclosure({
       >
         Open detail <ChevronRight />
       </Button>
-      <RecipientCommunicationHistory row={row} />
+      <RecipientCommunicationHistory
+        buildId={buildId}
+        organizationId={organizationId}
+        readOnly={readOnly}
+        row={row}
+      />
     </section>
   );
 }
 
 function RecipientCommunicationHistory({
+  buildId,
+  organizationId,
+  readOnly,
   row,
 }: {
+  buildId: string;
+  organizationId: string;
+  readOnly: boolean;
   row: QuoteRoundRegisterRow;
 }) {
   const recipientDelivery = row.recipientDelivery ?? [];
+  const retryDelivery = useMutation(
+    api.quote_notifications.retryCommunicationDelivery
+  );
+  const [retryError, setRetryError] = useState<string>();
+  const [retryingIntentId, setRetryingIntentId] = useState<string>();
+  const [retryReasons, setRetryReasons] = useState<Record<string, string>>({});
+  const retryIdempotencyKeys = useRef(new Map<string, string>());
+
+  const retry = async (communicationIntentId: Id<"communicationIntents">) => {
+    const key = String(communicationIntentId);
+    const reason = retryReasons[key]?.trim();
+    if (!(reason && !retryingIntentId)) {
+      return;
+    }
+    let idempotencyKey = retryIdempotencyKeys.current.get(key);
+    if (!idempotencyKey) {
+      idempotencyKey = crypto.randomUUID();
+      retryIdempotencyKeys.current.set(key, idempotencyKey);
+    }
+    setRetryError(undefined);
+    setRetryingIntentId(key);
+    try {
+      await retryDelivery({
+        buildId: buildId as Id<"activeBuilds">,
+        communicationIntentId,
+        idempotencyKey,
+        reason,
+        workosOrganizationId: organizationId,
+      });
+      retryIdempotencyKeys.current.delete(key);
+      setRetryReasons((current) => ({ ...current, [key]: "" }));
+    } catch (cause) {
+      setRetryError(
+        cause instanceof Error
+          ? cause.message
+          : "Communication delivery retry failed."
+      );
+    } finally {
+      setRetryingIntentId(undefined);
+    }
+  };
   return (
     <details
       className="col-span-full border-t pt-3"
@@ -998,67 +1077,136 @@ function RecipientCommunicationHistory({
           </p>
         ) : (
           recipientDelivery.map((recipient, index) => (
-            <Card
-              className="gap-0 rounded-lg p-3 shadow-none"
+            <RecipientCommunicationCard
+              index={index}
               key={recipient.invitationId}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-medium">Recipient {index + 1}</p>
-                  <p className="mt-1 text-muted-foreground">
-                    Latest: {recipient.latestStatus ?? "not sent"}
-                    {recipient.latestOutcomeAt
-                      ? ` · ${formatLastActivity(recipient.latestOutcomeAt)}`
-                      : ""}
-                  </p>
-                </div>
-                <span className="text-muted-foreground text-xs">
-                  {recipient.attemptCount} attempt
-                  {recipient.attemptCount === 1 ? "" : "s"}
-                </span>
-              </div>
-              <p className="mt-2 text-muted-foreground">
-                Recovery: {recipient.recoveryState}
-                {recipient.actionRequired ? " · action required" : ""}
-                {recipient.reminderEligible ? " · reminder eligible" : ""}
-                {recipient.cooldownUntil
-                  ? ` · cooldown until ${formatLastActivity(recipient.cooldownUntil)}`
-                  : ""}
-              </p>
-              <ol className="mt-2 grid gap-1 border-t pt-2 text-muted-foreground">
-                {recipient.history.map((entry) => (
-                  <li
-                    className="grid gap-0.5 text-[0.6875rem]"
-                    key={`${entry.createdAt}:${entry.lastOutcomeAt ?? "none"}:${entry.kind}:${entry.status}:${entry.detail ?? "none"}`}
-                  >
-                    <span>
-                      {formatLastActivity(entry.createdAt)} · {entry.kind} ·{" "}
-                      {entry.status}
-                    </span>
-                    {entry.detail ? <span>{entry.detail}</span> : null}
-                  </li>
-                ))}
-              </ol>
-            </Card>
+              onReasonChange={(intentId, value) =>
+                setRetryReasons((current) => ({
+                  ...current,
+                  [String(intentId)]: value,
+                }))
+              }
+              onRetry={retry}
+              readOnly={readOnly}
+              reason={
+                recipient.recoveryIntentId
+                  ? (retryReasons[String(recipient.recoveryIntentId)] ?? "")
+                  : ""
+              }
+              recipient={recipient}
+              retryingIntentId={retryingIntentId}
+            />
           ))
         )}
       </div>
+      {retryError ? (
+        <p className="mt-3 text-destructive text-xs" role="alert">
+          {retryError}
+        </p>
+      ) : null}
     </details>
   );
 }
 
+function RecipientCommunicationCard({
+  index,
+  onReasonChange,
+  onRetry,
+  readOnly,
+  reason,
+  recipient,
+  retryingIntentId,
+}: {
+  index: number;
+  onReasonChange: (intentId: Id<"communicationIntents">, value: string) => void;
+  onRetry: (intentId: Id<"communicationIntents">) => Promise<void>;
+  readOnly: boolean;
+  reason: string;
+  recipient: QuoteRoundRegisterRow["recipientDelivery"][number];
+  retryingIntentId?: string;
+}) {
+  const intentId = recipient.recoveryIntentId;
+  return (
+    <Card className="gap-0 rounded-lg p-3 shadow-none">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-medium">Recipient {index + 1}</p>
+          <p className="mt-1 text-muted-foreground">
+            Latest: {recipient.latestStatus ?? "not sent"}
+            {recipient.latestOutcomeAt
+              ? ` · ${formatLastActivity(recipient.latestOutcomeAt)}`
+              : ""}
+          </p>
+        </div>
+        <span className="text-muted-foreground text-xs">
+          {recipient.attemptCount} attempt
+          {recipient.attemptCount === 1 ? "" : "s"}
+        </span>
+      </div>
+      <p className="mt-2 text-muted-foreground">
+        Recovery: {recipient.recoveryState}
+        {recipient.actionRequired ? " · action required" : ""}
+        {recipient.reminderEligible ? " · reminder eligible" : ""}
+        {recipient.cooldownUntil
+          ? ` · cooldown until ${formatLastActivity(recipient.cooldownUntil)}`
+          : ""}
+      </p>
+      <ol className="mt-2 grid gap-1 border-t pt-2 text-muted-foreground">
+        {recipient.history.map((entry) => (
+          <li
+            className="grid gap-0.5 text-[0.6875rem]"
+            key={`${entry.createdAt}:${entry.lastOutcomeAt ?? "none"}:${entry.kind}:${entry.status}:${entry.detail ?? "none"}`}
+          >
+            <span>
+              {formatLastActivity(entry.createdAt)} · {entry.kind} ·{" "}
+              {entry.status}
+            </span>
+            {entry.detail ? <span>{entry.detail}</span> : null}
+          </li>
+        ))}
+      </ol>
+      {!readOnly && intentId ? (
+        <div className="mt-3 grid gap-2 border-t pt-3">
+          <Input
+            aria-label={`Retry reason for recipient ${index + 1}`}
+            onChange={(event) => onReasonChange(intentId, event.target.value)}
+            placeholder="Reason for retrying this failed delivery"
+            value={reason}
+          />
+          <Button
+            disabled={!reason.trim() || Boolean(retryingIntentId)}
+            onClick={() => onRetry(intentId)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <RefreshCw />
+            {retryingIntentId === String(intentId)
+              ? "Retrying delivery…"
+              : "Retry delivery"}
+          </Button>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
 function MobileControlRegister({
+  buildId,
   expandedId,
   now,
   onExpand,
   onOpen,
+  organizationId,
   readOnly,
   rows,
 }: {
+  buildId: string;
   expandedId: string | null;
   now: number;
   onExpand: (id: string | null) => void;
   onOpen?: (roundId: string) => void;
+  organizationId: string;
   readOnly: boolean;
   rows: QuoteRoundRegisterRow[];
 }) {
@@ -1142,7 +1290,12 @@ function MobileControlRegister({
               >
                 <VerticalLifecycle phase={row.state} row={row} />
                 <div className="mt-4">
-                  <RecipientCommunicationHistory row={row} />
+                  <RecipientCommunicationHistory
+                    buildId={buildId}
+                    organizationId={organizationId}
+                    readOnly={readOnly}
+                    row={row}
+                  />
                 </div>
                 <div className="mt-4 grid gap-3 border-t pt-3 text-xs">
                   <div>

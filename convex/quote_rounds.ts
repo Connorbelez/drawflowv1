@@ -1557,17 +1557,31 @@ async function appendQuoteRoundEvent(
     ? JSON.stringify(input.priorState)
     : undefined;
   await ctx.db.insert("auditEvents", {
+    actorKind: authorization.viewer.actorKind,
+    actorRole: authorization.effectiveRole.role,
     actorRoles: authorization.viewer.roles,
     actorWorkosUserId: authorization.viewer.subject,
     brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
     command: input.command,
     createdAt: now,
     entityId: String(input.quoteRoundId),
     entityType: "quoteRound",
+    effectiveCapacity: authorization.effectiveRole.role,
     eventType: input.eventType,
     newState,
     organizationId: authorization.organizationId,
     priorState,
+    targetRevisions: [
+      {
+        entityId: String(input.quoteRoundId),
+        entityType: "quoteRound",
+        revision:
+          typeof input.newState?.revision === "number"
+            ? input.newState.revision
+            : undefined,
+      },
+    ],
     warnings: input.warnings ?? [],
   });
   await ctx.db.insert("eventOutbox", {

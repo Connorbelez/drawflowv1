@@ -899,6 +899,7 @@ export function CostDocumentDetail({
     brokerage: "accepted" | "needs_correction";
     builder: "accepted" | "needs_correction";
   }>({ brokerage: "accepted", builder: "accepted" });
+  const [correctionReason, setCorrectionReason] = useState("");
   const [voidReason, setVoidReason] = useState("");
   const canRecordBuilderReview =
     interactionMode === "standard" &&
@@ -938,6 +939,10 @@ export function CostDocumentDetail({
   };
 
   const beginCorrection = async () => {
+    const reason = correctionReason.trim();
+    if (!reason) {
+      return;
+    }
     setActionError(null);
     try {
       let idempotencyKey = correctionKeys.current.get(String(document._id));
@@ -950,6 +955,7 @@ export function CostDocumentDetail({
         costDocumentId: document._id,
         idempotencyKey,
         organizationId,
+        reason,
         reuseSourcePages: true,
         ...actorCapacityInput,
       } as never);
@@ -957,6 +963,7 @@ export function CostDocumentDetail({
         batchId: String(correction.batchId),
         draftId: String(correction.draftId),
       });
+      setCorrectionReason("");
     } catch (cause) {
       setActionError(messageForCostDocumentAction(cause));
     }
@@ -1257,9 +1264,29 @@ export function CostDocumentDetail({
           />
           <div className="mt-4 space-y-3">
             {canStartCorrection && onStartCorrection ? (
-              <Button onClick={beginCorrection} type="button" variant="outline">
-                Start correction
-              </Button>
+              <div className="space-y-2">
+                <Field>
+                  <FieldLabel htmlFor="cost-document-correction-reason">
+                    Correction reason
+                  </FieldLabel>
+                  <Textarea
+                    id="cost-document-correction-reason"
+                    onChange={(event) =>
+                      setCorrectionReason(event.target.value)
+                    }
+                    placeholder="Why is a new immutable revision required?"
+                    value={correctionReason}
+                  />
+                </Field>
+                <Button
+                  disabled={!correctionReason.trim()}
+                  onClick={beginCorrection}
+                  type="button"
+                  variant="outline"
+                >
+                  Start correction
+                </Button>
+              </div>
             ) : null}
             {canVoid ? (
               <form className="space-y-2" onSubmit={voidRecord}>

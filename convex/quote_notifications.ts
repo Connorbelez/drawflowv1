@@ -2,6 +2,14 @@ import { ConvexError, v } from "convex/values";
 import { Resend as ResendApi } from "resend";
 
 import { internal } from "./_generated/api";
+import { authorizeActiveBuildAccess } from "./activeBuildAccess";
+import {
+  administrativeOverrideInputFields,
+  appendGovernedAuditEvent,
+  authorizeAdministrativeRecovery,
+  requiredAdministrativeReason,
+} from "./administrative_override_policy";
+import { authenticatedMutation } from "./authz";
 import {
   deriveCommunicationSecret,
   enqueueCommunicationIntent,
@@ -63,6 +71,7 @@ export const quoteInvitationCommunicationProjectionValidator = v.object({
     v.literal("retrying"),
     v.literal("action_required")
   ),
+  recoveryIntentId: v.optional(v.id("communicationIntents")),
   reminderEligible: v.boolean(),
 });
 
@@ -80,15 +89,28 @@ export async function quoteInvitationCommunicationProjection(
     responseDeadline?: number;
   }
 ) {
-  const intents = await ctx.db
-    .query("communicationIntents")
-    .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
-      query.eq("quoteRoundInvitationId", input.invitation._id)
-    )
-    .order("desc")
-    .take(MAX_COMMUNICATION_HISTORY);
-  const latest = intents[0];
-  const latestReminder = intents.find(
+  const [intents, activeIntents] = await Promise.all([
+    ctx.db
+      .query("communicationIntents")
+      .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+        query.eq("quoteRoundInvitationId", input.invitation._id)
+      )
+      .order("desc")
+      .take(MAX_COMMUNICATION_HISTORY),
+    ctx.db
+      .query("communicationIntents")
+      .withIndex("by_quoteRoundInvitationId_and_createdAt", (query) =>
+        query.eq("quoteRoundInvitationId", input.invitation._id)
+      )
+      .filter((query) => query.neq(query.field("status"), "superseded"))
+      .order("desc")
+      .take(MAX_COMMUNICATION_HISTORY),
+  ]);
+  const latest = activeIntents[0];
+  const recoveryIntent = activeIntents.find(
+    (intent) => intent.status === "action_required"
+  );
+  const latestReminder = activeIntents.find(
     (intent) =>
       (intent.kind === "quote_invitation_reminder_manual" ||
         intent.kind === "quote_invitation_reminder_auto") &&
@@ -104,11 +126,9 @@ export async function quoteInvitationCommunicationProjection(
       input.responseDeadline > input.now &&
       (!cooldownUntil || cooldownUntil <= input.now)
   );
-  const recoveryState = intents.some(
-    (intent) => intent.status === "action_required"
-  )
+  const recoveryState = recoveryIntent
     ? "action_required"
-    : intents.some(
+    : activeIntents.some(
           (intent) =>
             intent.status === "retry_scheduled" ||
             intent.status === "dispatching"
@@ -138,9 +158,187 @@ export async function quoteInvitationCommunicationProjection(
     latestOutcomeAt: latest?.lastOutcomeAt,
     latestStatus: latest?.status,
     recoveryState,
+    recoveryIntentId: recoveryIntent?._id,
     reminderEligible,
   } as const;
 }
+
+export const retryCommunicationDelivery = authenticatedMutation
+  .input({
+    ...administrativeOverrideInputFields,
+    buildId: v.id("activeBuilds"),
+    communicationIntentId: v.id("communicationIntents"),
+    idempotencyKey: v.string(),
+    reason: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      communicationIntentId: v.id("communicationIntents"),
+      replayed: v.boolean(),
+      status: v.string(),
+    })
+  )
+  .handler(async (ctx, args) => {
+    const reason = requiredAdministrativeReason(
+      args.reason,
+      "A delivery retry reason"
+    );
+    const idempotencyKey = args.idempotencyKey.trim();
+    if (!idempotencyKey || idempotencyKey.length > 200) {
+      throw new ConvexError(
+        "Delivery retry idempotency key must be 1 to 200 characters."
+      );
+    }
+    const baseAuthorization = await authorizeActiveBuildAccess(ctx, {
+      buildId: args.buildId,
+      organizationId: args.workosOrganizationId,
+    });
+    const { authorization, breakGlass } = await authorizeAdministrativeRecovery(
+      ctx,
+      baseAuthorization,
+      {
+        administrativeCapacity: args.administrativeCapacity,
+        breakGlassConfirmed: args.breakGlassConfirmed,
+        reason,
+      }
+    );
+    const source = await ctx.db.get(args.communicationIntentId);
+    if (
+      !source ||
+      source.organizationId !== authorization.organizationId ||
+      source.brokerageId !== authorization.brokerage._id ||
+      source.buildId !== authorization.build._id
+    ) {
+      throw new ConvexError("Communication delivery is unavailable.");
+    }
+    const retryKey = `manual-delivery-retry:${source._id}:${idempotencyKey}`;
+    const replay = await ctx.db
+      .query("communicationIntents")
+      .withIndex("by_organizationId_and_idempotencyKey", (query) =>
+        query
+          .eq("organizationId", authorization.organizationId)
+          .eq("idempotencyKey", retryKey)
+      )
+      .unique();
+    if (replay) {
+      return {
+        communicationIntentId: replay._id,
+        replayed: true,
+        status: replay.status,
+      };
+    }
+    if (source.status !== "action_required") {
+      throw new ConvexError(
+        "Only an action-required communication delivery may be retried manually."
+      );
+    }
+    if (source.quoteInvitationAccessCredentialId) {
+      const credential = await ctx.db.get(
+        source.quoteInvitationAccessCredentialId
+      );
+      if (
+        !credential ||
+        credential.organizationId !== authorization.organizationId ||
+        credential.buildId !== authorization.build._id ||
+        credential.state !== "active" ||
+        credential.accessExpiresAt <= Date.now()
+      ) {
+        throw new ConvexError(
+          "Quote Invitation access must be rotated before retrying this delivery."
+        );
+      }
+    }
+    const now = Date.now();
+    const latestAttempt = await ctx.db
+      .query("communicationAttempts")
+      .withIndex("by_communicationIntentId_and_attemptNumber", (query) =>
+        query.eq("communicationIntentId", source._id)
+      )
+      .order("desc")
+      .first();
+    const retryIntentId = await enqueueCommunicationIntent(ctx, {
+      brokerageId: source.brokerageId,
+      buildId: source.buildId,
+      idempotencyKey: retryKey,
+      kind: source.kind,
+      nextAttemptAt: now,
+      organizationId: source.organizationId,
+      payloadSnapshot: source.payloadSnapshot,
+      quoteInvitationAccessCredentialId:
+        source.quoteInvitationAccessCredentialId,
+      quotePackageRevisionId: source.quotePackageRevisionId,
+      quoteRoundId: source.quoteRoundId,
+      quoteRoundInvitationId: source.quoteRoundInvitationId,
+      recipientEmailSnapshot: source.recipientEmailSnapshot,
+      recipientNameSnapshot: source.recipientNameSnapshot,
+      relatedEntityId: source.relatedEntityId,
+      relatedEntityType: source.relatedEntityType,
+      templateKey: source.templateKey,
+    });
+    await ctx.db.patch(source._id, {
+      status: "superseded",
+      supersededByCommunicationIntentId: retryIntentId,
+      updatedAt: now,
+    });
+    const round = source.quoteRoundId
+      ? await ctx.db.get(source.quoteRoundId)
+      : null;
+    const packageRevision = source.quotePackageRevisionId
+      ? await ctx.db.get(source.quotePackageRevisionId)
+      : null;
+    await appendGovernedAuditEvent(ctx, authorization, {
+      breakGlass,
+      command: "retryCommunicationDelivery",
+      drawFlowCorrelationId: String(retryIntentId),
+      entityId: String(source._id),
+      entityType: "communicationIntent",
+      eventType: "communication.delivery_retry_requested",
+      newState: {
+        attemptCount: 0,
+        retryCommunicationIntentId: String(retryIntentId),
+        status: "pending",
+      },
+      now,
+      overrideKind: "delivery_retry",
+      priorState: {
+        attemptCount: source.attemptCount,
+        status: source.status,
+      },
+      providerCorrelationId: latestAttempt?.providerResendEmailId,
+      reason,
+      targetRevisions: [
+        {
+          entityId: String(source._id),
+          entityType: "communicationIntent",
+        },
+        ...(round
+          ? [
+              {
+                entityId: String(round._id),
+                entityType: "quoteRound",
+                revision: round.revision,
+              },
+            ]
+          : []),
+        ...(packageRevision
+          ? [
+              {
+                entityId: String(packageRevision._id),
+                entityType: "quotePackageRevision",
+                revision: packageRevision.revision,
+              },
+            ]
+          : []),
+      ],
+    });
+    return {
+      communicationIntentId: retryIntentId,
+      replayed: false,
+      status: "pending" as const,
+    };
+  })
+  .public();
 
 export const listDueCommunicationIntentIds = internalQuery
   .input({ now: v.number(), limit: v.number() })

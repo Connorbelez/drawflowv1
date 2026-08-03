@@ -10,6 +10,7 @@
 
 import type * as activeBuildAccess from "../activeBuildAccess.js";
 import type * as active_build_document_lineage from "../active_build_document_lineage.js";
+import type * as administrative_override_policy from "../administrative_override_policy.js";
 import type * as assistant from "../assistant.js";
 import type * as assistantProvider from "../assistantProvider.js";
 import type * as auth from "../auth.js";
@@ -180,6 +181,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   activeBuildAccess: typeof activeBuildAccess;
   active_build_document_lineage: typeof active_build_document_lineage;
+  administrative_override_policy: typeof administrative_override_policy;
   assistant: typeof assistant;
   assistantProvider: typeof assistantProvider;
   auth: typeof auth;

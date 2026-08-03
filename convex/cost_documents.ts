@@ -6,6 +6,11 @@ import {
 import { v } from "convex/values";
 
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
+import {
+  administrativeOverrideInputFields,
+  appendGovernedAuditEvent,
+  authorizeAdministrativeRecovery,
+} from "./administrative_override_policy";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { isCleanCollaborationAsset } from "./build_collaboration_asset_access";
 import { abandonUnpublishedCostDocumentDraftAsset } from "./build_collaboration_assets";
@@ -1038,35 +1043,56 @@ export const setCostDocumentReviewAnnotation = authenticatedMutation
 export const voidCostDocument = authenticatedMutation
   .input({
     ...activeBuildScopeFields,
+    ...administrativeOverrideInputFields,
     costDocumentId: v.id("costDocuments"),
     reason: v.string(),
   })
   .returns(v.object({ voidedAt: v.number() }))
   .handler(async (ctx, args) => {
-    const { authorization, document } = await requireReadableCostDocument(
+    const { authorization: baseAuthorization, document } =
+      await requireReadableCostDocument(ctx, args);
+    const reason = requiredText(args.reason, "Void reason", 1000);
+    const recovery = await authorizeAdministrativeRecovery(
       ctx,
-      args
+      baseAuthorization,
+      { ...args, reason }
     );
-    assertCostDocumentLifecycleManager(authorization, document);
+    const authorization = recovery.authorization;
     if (document.voidedAt !== undefined) {
       throw new Error("The Cost Document is already voided.");
     }
     if (document.supersededByCostDocumentId !== undefined) {
       throw new Error("A superseded Cost Document cannot be voided.");
     }
-    const reason = requiredText(args.reason, "Void reason", 1000);
     const now = Date.now();
+    const financialSummary = await costDocumentFinancialAuditSummary(
+      ctx,
+      authorization,
+      document
+    );
     await ctx.db.patch(document._id, {
       voidReason: reason,
       voidedAt: now,
       voidedByWorkosUserId: authorization.viewer.subject,
     });
-    await recordCostDocumentAudit(ctx, authorization, document._id, {
+    await appendGovernedAuditEvent(ctx, authorization, {
+      breakGlass: recovery.breakGlass,
       command: "voidCostDocument",
+      entityId: String(document._id),
+      entityType: "costDocument",
       eventType: "cost_document.voided",
-      newState: JSON.stringify({ reason, state: "voided", voidedAt: now }),
+      newState: { ...financialSummary, state: "voided", voidedAt: now },
       now,
-      priorState: JSON.stringify({ state: "current" }),
+      overrideKind: "cost_void",
+      priorState: { ...financialSummary, state: "current" },
+      reason,
+      targetRevisions: [
+        {
+          entityId: String(document._id),
+          entityType: "costDocument",
+          revision: document.revisionNumber ?? 1,
+        },
+      ],
     });
     await ctx.db.insert("eventOutbox", {
       brokerageId: authorization.brokerage._id,
@@ -1088,8 +1114,10 @@ export const voidCostDocument = authenticatedMutation
 export const startCostDocumentCorrection = authenticatedMutation
   .input({
     ...activeBuildScopeFields,
+    ...administrativeOverrideInputFields,
     costDocumentId: v.id("costDocuments"),
     idempotencyKey: v.string(),
+    reason: v.string(),
     reuseSourcePages: v.boolean(),
   })
   .returns(
@@ -1100,14 +1128,31 @@ export const startCostDocumentCorrection = authenticatedMutation
     })
   )
   .handler(async (ctx, args) => {
-    const { authorization, document } = await requireReadableCostDocument(
+    const { authorization: baseAuthorization, document } =
+      await requireReadableCostDocument(ctx, args);
+    const recoveryReason = requiredText(args.reason, "Correction reason", 1000);
+    const recovery = await authorizeAdministrativeRecovery(
       ctx,
-      args
+      baseAuthorization,
+      {
+        ...args,
+        reason: recoveryReason,
+      }
     );
-    assertCostDocumentCorrectionManager(authorization, document);
+    const authorization = recovery.authorization;
+    if (
+      document.contractorProfileId &&
+      document.uploaderWorkosUserId !== authorization.viewer.subject
+    ) {
+      throw new Error(
+        "The Contractor Cost Document correction is unavailable."
+      );
+    }
     return await createCostDocumentCorrection(ctx, authorization, document, {
       idempotencyKey: requiredIdempotencyKey(args.idempotencyKey),
+      reason: recoveryReason,
       reuseSourcePages: args.reuseSourcePages,
+      breakGlass: recovery.breakGlass,
     });
   })
   .public();
@@ -2477,20 +2522,30 @@ export const authorizeCostDocumentPageDownload = authenticatedMutation
       throw new Error("The Cost Document page is unavailable.");
     }
     await ctx.db.insert("auditEvents", {
+      actorKind: authorization.viewer.actorKind,
       actorRole: authorization.effectiveRole.role,
       actorRoles: authorization.viewer.roles,
       actorWorkosUserId: authorization.viewer.subject,
       brokerageId: authorization.brokerage._id,
+      buildId: authorization.build._id,
       command: "authorizeCostDocumentPageDownload",
       createdAt: Date.now(),
       entityId: String(document._id),
       entityType: "costDocument",
       eventType: "cost_document.page_download_authorized",
+      effectiveCapacity: authorization.effectiveRole.role,
       newState: JSON.stringify({
         assetId: asset._id,
         pageOrder: page.order,
       }),
       organizationId: authorization.organizationId,
+      targetRevisions: [
+        {
+          entityId: String(document._id),
+          entityType: "costDocument",
+          revision: document.revisionNumber ?? 1,
+        },
+      ],
       warnings: [],
     });
     return {
@@ -4197,17 +4252,24 @@ async function insertSubmittedCostDocument(
     });
   }
   await ctx.db.insert("auditEvents", {
+    actorKind: authorization.viewer.actorKind,
     actorRole: authorization.effectiveRole.role,
     actorRoles: authorization.viewer.roles,
     actorWorkosUserId: authorization.viewer.subject,
     brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
     command: "submitCostDocumentBatch",
     createdAt: input.now,
     entityId: String(costDocumentId),
     entityType: "costDocument",
+    effectiveCapacity: authorization.effectiveRole.role,
     eventType: "cost_document.submitted",
     newState: JSON.stringify({
       allocationCount: input.allocations.length,
+      allocationTotalCents: input.allocations.reduce(
+        (total, allocation) => total + allocation.amountCents,
+        0
+      ),
       batchId: input.batchId,
       category: input.category,
       currency: "CAD",
@@ -4220,6 +4282,13 @@ async function insertSubmittedCostDocument(
       supersedesCostDocumentId: input.draft.supersedesCostDocumentId,
     }),
     organizationId: authorization.organizationId,
+    targetRevisions: [
+      {
+        entityId: String(costDocumentId),
+        entityType: "costDocument",
+        revision: input.duplicateAssessment.revisionNumber,
+      },
+    ],
     warnings:
       input.duplicateAssessment.likelyDuplicateCostDocumentIds.length > 0
         ? [
@@ -4276,20 +4345,62 @@ async function recordCostDocumentBatchAudit(
   }
 ) {
   await ctx.db.insert("auditEvents", {
+    actorKind: authorization.viewer.actorKind,
     actorRole: authorization.effectiveRole.role,
     actorRoles: authorization.viewer.roles,
     actorWorkosUserId: authorization.viewer.subject,
     brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
     command: input.command,
     createdAt: input.now,
     entityId: String(input.batchId),
     entityType: "costDocumentBatch",
+    effectiveCapacity: authorization.effectiveRole.role,
     eventType: input.eventType,
     newState: input.newState,
     organizationId: authorization.organizationId,
     priorState: input.priorState,
+    targetRevisions: [
+      { entityId: String(input.batchId), entityType: "costDocumentBatch" },
+    ],
     warnings: [],
   });
+}
+
+async function costDocumentFinancialAuditSummary(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  document: Doc<"costDocuments">
+) {
+  const allocations = await ctx.db
+    .query("costDocumentAllocations")
+    .withIndex("by_costDocumentId_and_order", (query) =>
+      query.eq("costDocumentId", document._id)
+    )
+    .take(MAX_ALLOCATIONS + 1);
+  if (
+    allocations.length < 1 ||
+    allocations.length > MAX_ALLOCATIONS ||
+    allocations.some(
+      (allocation) =>
+        allocation.organizationId !== authorization.organizationId ||
+        allocation.brokerageId !== authorization.brokerage._id ||
+        allocation.buildId !== authorization.build._id
+    )
+  ) {
+    throw new Error(
+      "The Cost Document financial audit summary is unavailable."
+    );
+  }
+  return {
+    allocationCount: allocations.length,
+    allocationTotalCents: allocations.reduce(
+      (total, allocation) => total + allocation.amountCents,
+      0
+    ),
+    grossTotalCents: document.grossTotalCents,
+    revision: document.revisionNumber ?? 1,
+  };
 }
 
 async function recordCostDocumentAudit(
@@ -4305,18 +4416,24 @@ async function recordCostDocumentAudit(
   }
 ) {
   await ctx.db.insert("auditEvents", {
+    actorKind: authorization.viewer.actorKind,
     actorRole: authorization.effectiveRole.role,
     actorRoles: authorization.viewer.roles,
     actorWorkosUserId: authorization.viewer.subject,
     brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
     command: input.command,
     createdAt: input.now,
     entityId: String(costDocumentId),
     entityType: "costDocument",
+    effectiveCapacity: authorization.effectiveRole.role,
     eventType: input.eventType,
     newState: input.newState,
     organizationId: authorization.organizationId,
     priorState: input.priorState,
+    targetRevisions: [
+      { entityId: String(costDocumentId), entityType: "costDocument" },
+    ],
     warnings: [],
   });
 }
@@ -4334,18 +4451,28 @@ async function recordCostDocumentDraftAudit(
   }
 ) {
   await ctx.db.insert("auditEvents", {
+    actorKind: authorization.viewer.actorKind,
     actorRole: authorization.effectiveRole.role,
     actorRoles: authorization.viewer.roles,
     actorWorkosUserId: authorization.viewer.subject,
     brokerageId: authorization.brokerage._id,
+    buildId: authorization.build._id,
     command: input.command,
     createdAt: input.now,
     entityId: String(draft._id),
     entityType: "costDocumentDraft",
+    effectiveCapacity: authorization.effectiveRole.role,
     eventType: input.eventType,
     newState: input.newState,
     organizationId: authorization.organizationId,
     priorState: input.priorState,
+    targetRevisions: [
+      {
+        entityId: String(draft._id),
+        entityType: "costDocumentDraft",
+        revision: currentCostDocumentDraftRevision(draft),
+      },
+    ],
     warnings: [],
   });
 }
@@ -4759,15 +4886,6 @@ function assertCostDocumentReviewerRole(
   }
 }
 
-function assertCostDocumentLifecycleManager(
-  authorization: ActiveBuildAuthorization,
-  document: Doc<"costDocuments">
-) {
-  if (!canManageCostDocumentLifecycle(authorization, document)) {
-    throw new Error("The Cost Document lifecycle action is unavailable.");
-  }
-}
-
 function canRecordCostDocumentReview(
   authorization: ActiveBuildAuthorization,
   reviewType: "builder" | "brokerage"
@@ -4780,26 +4898,12 @@ function canRecordCostDocumentReview(
 
 function canManageCostDocumentLifecycle(
   authorization: ActiveBuildAuthorization,
-  document: Doc<"costDocuments">
+  _document: Doc<"costDocuments">
 ) {
   const role = authorization.effectiveRole.role;
-  const roleCanManage = role === "builder";
-  const uploaderCanManage =
-    document.uploaderWorkosUserId === authorization.viewer.subject &&
-    ["builder", "contractor"].includes(role);
-  return roleCanManage || uploaderCanManage;
-}
-
-function assertCostDocumentCorrectionManager(
-  authorization: ActiveBuildAuthorization,
-  document: Doc<"costDocuments">
-) {
-  if (!canManageCostDocumentCorrection(authorization, document)) {
-    if (!canManageCostDocumentLifecycle(authorization, document)) {
-      throw new Error("The Cost Document lifecycle action is unavailable.");
-    }
-    throw new Error("The Contractor Cost Document correction is unavailable.");
-  }
+  // Lifecycle recovery is a Build administrative action. Contractors retain
+  // read access to their submitted record but cannot void or supersede it.
+  return role === "builder" || role === "builder-staff";
 }
 
 function canManageCostDocumentCorrection(
@@ -5218,7 +5322,12 @@ async function createCostDocumentCorrection(
   ctx: MutationCtx,
   authorization: ActiveBuildAuthorization,
   document: Doc<"costDocuments">,
-  input: { idempotencyKey: string; reuseSourcePages: boolean }
+  input: {
+    breakGlass?: boolean;
+    idempotencyKey: string;
+    reason: string;
+    reuseSourcePages: boolean;
+  }
 ) {
   const replay = await replayCostDocumentCorrection(
     ctx,
@@ -5314,15 +5423,43 @@ async function createCostDocumentCorrection(
       organizationId: authorization.organizationId,
     });
   }
-  await recordCostDocumentAudit(ctx, authorization, document._id, {
+  await appendGovernedAuditEvent(ctx, authorization, {
+    breakGlass: input.breakGlass,
     command: "startCostDocumentCorrection",
+    entityId: String(document._id),
+    entityType: "costDocument",
     eventType: "cost_document.correction_started",
-    newState: JSON.stringify({
+    newState: {
+      allocationCount: allocations.length,
+      allocationTotalCents: allocations.reduce(
+        (total, allocation) => total + allocation.amountCents,
+        0
+      ),
       batchId,
       draftId,
+      grossTotalCents: document.grossTotalCents,
       reuseSourcePages: input.reuseSourcePages,
-    }),
+    },
     now,
+    overrideKind: "cost_supersede",
+    priorState: {
+      allocationCount: allocations.length,
+      allocationTotalCents: allocations.reduce(
+        (total, allocation) => total + allocation.amountCents,
+        0
+      ),
+      grossTotalCents: document.grossTotalCents,
+      revision: document.revisionNumber ?? 1,
+      state: "current",
+    },
+    reason: input.reason,
+    targetRevisions: [
+      {
+        entityId: String(document._id),
+        entityType: "costDocument",
+        revision: document.revisionNumber ?? 1,
+      },
+    ],
   });
   return { batchId, draftId, replayed: false };
 }
@@ -5364,16 +5501,27 @@ async function linkSubmittedCostDocumentCorrection(
     supersededAt: input.now,
     supersededByCostDocumentId: input.costDocumentId,
   });
-  await recordCostDocumentAudit(ctx, authorization, source._id, {
+  await appendGovernedAuditEvent(ctx, authorization, {
     command: "submitCostDocumentBatch",
+    entityId: String(source._id),
+    entityType: "costDocument",
     eventType: "cost_document.superseded",
-    newState: JSON.stringify({
+    newState: {
       state: "superseded",
       supersededAt: input.now,
       supersededByCostDocumentId: input.costDocumentId,
-    }),
+    },
     now: input.now,
-    priorState: JSON.stringify({ state: "current" }),
+    overrideKind: "cost_supersede",
+    priorState: { state: "current" },
+    reason: "Submitted a corrected Cost Document revision.",
+    targetRevisions: [
+      {
+        entityId: String(source._id),
+        entityType: "costDocument",
+        revision: source.revisionNumber,
+      },
+    ],
   });
 }
 

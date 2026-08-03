@@ -2399,6 +2399,7 @@ async function appendSubmissionAuditEvent(
     actorWorkosUserId:
       actor.workosUserId ?? `quote-recipient:${scope.profile._id}`,
     brokerageId: scope.invitation.brokerageId,
+    buildId: scope.invitation.buildId,
     command: input.command,
     createdAt: input.now,
     entityId: String(input.submissionRevisionId),
@@ -2408,6 +2409,21 @@ async function appendSubmissionAuditEvent(
     organizationId: scope.invitation.organizationId,
     priorState: JSON.stringify(input.priorState),
     reason: input.reason,
+    targetRevisions: [
+      {
+        entityId: String(input.submissionRevisionId),
+        entityType: "quoteInvitationResponseSubmissionRevision",
+        revision:
+          typeof input.newState.revision === "number"
+            ? input.newState.revision
+            : undefined,
+      },
+      {
+        entityId: String(scope.packageRevision._id),
+        entityType: "quotePackageRevision",
+        revision: scope.packageRevision.revision,
+      },
+    ],
     warnings: [],
   });
 }

@@ -124,6 +124,7 @@ async function clearPreferredState(
     actorRoles: [...input.actor.actorRoles],
     actorWorkosUserId: input.actor.actorWorkosUserId,
     brokerageId: round.brokerageId,
+    buildId: round.buildId,
     command: input.command,
     createdAt: now,
     entityId: String(round._id),
@@ -133,6 +134,24 @@ async function clearPreferredState(
     organizationId: round.organizationId,
     priorState: JSON.stringify(statePointerSnapshot(state)),
     reason: input.reason,
+    targetRevisions: [
+      {
+        entityId: String(round._id),
+        entityType: "quoteRound",
+        revision: round.revision,
+      },
+      ...(state.quoteInvitationResponseSubmissionRevisionId
+        ? [
+            {
+              entityId: String(
+                state.quoteInvitationResponseSubmissionRevisionId
+              ),
+              entityType: "quoteInvitationResponseSubmissionRevision",
+              revision: state.submissionRevision,
+            },
+          ]
+        : []),
+    ],
     warnings: input.warnings ?? [],
   });
   return true;

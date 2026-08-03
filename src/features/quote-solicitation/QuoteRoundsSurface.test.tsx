@@ -5,15 +5,18 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import type { ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const convexMock = vi.hoisted(() => ({
+  mutation: vi.fn(),
   query: vi.fn(),
 }));
 
 vi.mock("convex/react", () => ({
+  useMutation: vi.fn(() => convexMock.mutation),
   useQuery: vi.fn((...args: unknown[]) => convexMock.query(...args)),
 }));
 
@@ -69,6 +72,7 @@ const lifecycleRows = [
         invitationId: "invitation-open",
         latestOutcomeAt: TEST_NOW - 30_000,
         latestStatus: "action_required",
+        recoveryIntentId: "communication-intent-open",
         recoveryState: "action_required",
         reminderEligible: true,
       },
@@ -200,8 +204,14 @@ function renderSurface(
 
 afterEach(() => cleanup());
 
-beforeEach(() => {
-  convexMock.query.mockReset();
+  beforeEach(() => {
+    convexMock.mutation.mockReset();
+    convexMock.mutation.mockResolvedValue({
+      communicationIntentId: "communication-intent-retry",
+      replayed: false,
+      status: "pending",
+    });
+    convexMock.query.mockReset();
   convexMock.query.mockReturnValue(listResult);
 });
 
@@ -373,6 +383,66 @@ describe("QuoteRoundsSurface", () => {
     expect(history.textContent).toContain("3 attempts");
     expect(history.textContent).toContain("quote_invitation_initial");
     expect(history.textContent).not.toContain("quote-recipient@example.com");
+  });
+
+  test("collects a mandatory reason and reuses the retry idempotency key after a failed request", async () => {
+    convexMock.mutation
+      .mockRejectedValueOnce(new Error("Transient retry request failure."))
+      .mockResolvedValueOnce({
+        communicationIntentId: "communication-intent-retry",
+        replayed: false,
+        status: "pending",
+      });
+    renderSurface({ onOpen: vi.fn() });
+    const desktopTitleButton = screen
+      .getAllByText("Framing bid")
+      .map((element) => element.closest("button"))
+      .find((button) =>
+        button?.getAttribute("aria-controls")?.startsWith("quote-round-desktop")
+      );
+    if (!desktopTitleButton) {
+      throw new Error("Expected the desktop lifecycle disclosure button.");
+    }
+    fireEvent.click(desktopTitleButton);
+    const activityRegionId = desktopTitleButton.getAttribute("aria-controls");
+    const activityRegion = activityRegionId
+      ? document.getElementById(activityRegionId)
+      : null;
+    if (!activityRegion) {
+      throw new Error("Expected the desktop recipient activity region.");
+    }
+    const reason = activityRegion.querySelector<HTMLInputElement>(
+      'input[aria-label="Retry reason for recipient 1"]'
+    );
+    const retry = [...activityRegion.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Retry delivery")
+    );
+    if (!(reason && retry)) {
+      throw new Error("Expected the governed delivery retry controls.");
+    }
+    expect(retry.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(reason, {
+      target: { value: "Retry after confirming the corrected provider route." },
+    });
+    fireEvent.click(retry);
+    await waitFor(() => expect(convexMock.mutation).toHaveBeenCalledOnce());
+    expect(convexMock.mutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildId: "build-1",
+        communicationIntentId: "communication-intent-open",
+        reason: "Retry after confirming the corrected provider route.",
+        workosOrganizationId: "org-1",
+      })
+    );
+    await waitFor(() => expect(retry.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(retry);
+    await waitFor(() => expect(convexMock.mutation).toHaveBeenCalledTimes(2));
+    const firstIdempotencyKey = convexMock.mutation.mock.calls[0]?.[0]
+      ?.idempotencyKey as string;
+    const secondIdempotencyKey = convexMock.mutation.mock.calls[1]?.[0]
+      ?.idempotencyKey as string;
+    expect(firstIdempotencyKey).toBeTruthy();
+    expect(secondIdempotencyKey).toBe(firstIdempotencyKey);
   });
 
   test("keeps recipient recovery read-only when the register is opened in read-only mode", () => {

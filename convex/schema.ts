@@ -815,6 +815,7 @@ const communicationIntentStatusValidator = v.union(
   v.literal("delivered"),
   v.literal("suppressed"),
   v.literal("action_required"),
+  v.literal("superseded"),
   v.literal("cancelled")
 );
 
@@ -3911,6 +3912,7 @@ export default defineSchema({
     lastError: v.optional(v.string()),
     suppressionReason: v.optional(v.string()),
     actionRequiredReason: v.optional(v.string()),
+    supersededByCommunicationIntentId: v.optional(v.id("communicationIntents")),
     providerEmailMessageId: v.optional(v.id("emailMessages")),
     createdAt: v.number(),
     updatedAt: v.number(),

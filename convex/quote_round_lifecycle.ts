@@ -4,6 +4,13 @@ import {
   type ActiveBuildAuthorization,
   authorizeActiveBuildAccess,
 } from "./activeBuildAccess";
+import {
+  type AuditOverrideKind,
+  administrativeOverrideInputFields,
+  appendGovernedAuditEvent,
+  authorizeAdministrativeRecovery,
+  maskRecipientEmailForAudit,
+} from "./administrative_override_policy";
 import { type AuthorizedViewer, authenticatedMutation } from "./authz";
 import { normalizeContractorEmail } from "./contractorWorkspace";
 import { enqueueCommunicationIntent } from "./email_transport";
@@ -87,28 +94,21 @@ function requiredConfirmation(confirmed: boolean, action: string) {
   }
 }
 
-function assertLifecycleRole(authorization: ActiveBuildAuthorization) {
-  if (
-    !authorization.roles.some((role) =>
-      ["builder", "builder-staff"].includes(role)
-    )
-  ) {
-    throw new ConvexError(
-      "Forbidden: only Builder or Builder Staff may govern Quote Round lifecycle."
-    );
-  }
-}
-
 async function authorizeLifecyclePath(
   ctx: LifecycleCtx,
-  input: { buildId: Id<"activeBuilds">; workosOrganizationId: string }
+  input: {
+    administrativeCapacity?: "builder" | "builder-staff" | "admin";
+    breakGlassConfirmed?: boolean;
+    buildId: Id<"activeBuilds">;
+    reason: string;
+    workosOrganizationId: string;
+  }
 ) {
-  const authorization = await authorizeActiveBuildAccess(ctx, {
+  const baseAuthorization = await authorizeActiveBuildAccess(ctx, {
     buildId: input.buildId,
     organizationId: input.workosOrganizationId,
   });
-  assertLifecycleRole(authorization);
-  return authorization;
+  return await authorizeAdministrativeRecovery(ctx, baseAuthorization, input);
 }
 
 async function quoteInvitationReminderCooldownUntil(
@@ -191,24 +191,34 @@ async function appendLifecycleAudit(
     newState?: Record<string, unknown>;
     payloadPreview?: Record<string, unknown>;
     reason?: string;
+    breakGlass?: boolean;
+    overrideKind?: AuditOverrideKind;
     warnings?: string[];
   },
   now: number
 ) {
-  await ctx.db.insert("auditEvents", {
-    actorRoles: authorization.viewer.roles,
-    actorWorkosUserId: authorization.viewer.subject,
-    brokerageId: authorization.brokerage._id,
+  await appendGovernedAuditEvent(ctx, authorization, {
+    breakGlass: input.breakGlass,
     command: input.command,
-    createdAt: now,
     entityId: input.entityId,
     entityType: input.entityType,
     eventType: input.eventType,
-    newState: input.newState ? JSON.stringify(input.newState) : undefined,
-    organizationId: authorization.organizationId,
-    priorState: input.priorState ? JSON.stringify(input.priorState) : undefined,
-    reason: input.reason,
-    warnings: input.warnings ?? [],
+    newState: input.newState ?? { status: "unspecified" },
+    now,
+    overrideKind: input.overrideKind,
+    priorState: input.priorState ?? { status: "unspecified" },
+    reason: input.reason ?? "Recorded material Quote lifecycle transition.",
+    targetRevisions: [
+      {
+        entityId: input.entityId,
+        entityType: input.entityType,
+        revision:
+          typeof input.newState?.revision === "number"
+            ? input.newState.revision
+            : undefined,
+      },
+    ],
+    warnings: input.warnings,
   });
   await ctx.db.insert("eventOutbox", {
     brokerageId: authorization.brokerage._id,
@@ -289,9 +299,14 @@ export const closeQuoteRound = authenticatedMutation
   })
   .returns(lifecycleResultValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeLifecyclePath(ctx, args);
     requiredConfirmation(args.confirmed, "close a Quote Round");
     const reason = requiredReason(args.reason, "A Quote Round closure reason");
+    const { authorization } = await authorizeLifecyclePath(ctx, {
+      ...args,
+      administrativeCapacity: undefined,
+      breakGlassConfirmed: undefined,
+      reason,
+    });
     const round = requireRound(
       await ctx.db.get(args.quoteRoundId),
       authorization,
@@ -346,12 +361,17 @@ export const cancelQuoteRound = authenticatedMutation
   })
   .returns(lifecycleResultValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeLifecyclePath(ctx, args);
     requiredConfirmation(args.confirmed, "cancel a Quote Round");
     const reason = requiredReason(
       args.reason,
       "A Quote Round cancellation reason"
     );
+    const { authorization } = await authorizeLifecyclePath(ctx, {
+      ...args,
+      administrativeCapacity: undefined,
+      breakGlassConfirmed: undefined,
+      reason,
+    });
     const round = requireRound(
       await ctx.db.get(args.quoteRoundId),
       authorization,
@@ -437,6 +457,7 @@ export const cancelQuoteRound = authenticatedMutation
 
 export const reopenQuoteRoundWithRevision = authenticatedMutation
   .input({
+    ...administrativeOverrideInputFields,
     buildId: v.id("activeBuilds"),
     changedFieldKeys: v.optional(v.array(v.string())),
     confirmed: v.boolean(),
@@ -448,12 +469,15 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
   })
   .returns(lifecycleResultValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeLifecyclePath(ctx, args);
     requiredConfirmation(args.confirmed, "reopen a Quote Round");
     const reason = requiredReason(
       args.reason,
       "A Quote Round reopening reason"
     );
+    const { authorization, breakGlass } = await authorizeLifecyclePath(ctx, {
+      ...args,
+      reason,
+    });
     const round = requireRound(
       await ctx.db.get(args.quoteRoundId),
       authorization,
@@ -642,6 +666,8 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
         },
         priorState: { revision: round.revision, state: round.state },
         reason,
+        breakGlass,
+        overrideKind: "revision_reopen",
       },
       now
     );
@@ -660,6 +686,7 @@ export const reopenQuoteRoundWithRevision = authenticatedMutation
 
 export const revokeQuoteRoundInvitation = authenticatedMutation
   .input({
+    ...administrativeOverrideInputFields,
     buildId: v.id("activeBuilds"),
     confirmed: v.boolean(),
     quoteRoundInvitationId: v.id("quoteRoundInvitations"),
@@ -668,12 +695,15 @@ export const revokeQuoteRoundInvitation = authenticatedMutation
   })
   .returns(invitationLifecycleResultValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeLifecyclePath(ctx, args);
     requiredConfirmation(args.confirmed, "revoke a Quote Invitation");
     const reason = requiredReason(
       args.reason,
       "A Quote Invitation revocation reason"
     );
+    const { authorization, breakGlass } = await authorizeLifecyclePath(ctx, {
+      ...args,
+      reason,
+    });
     const invitation = await ctx.db.get(args.quoteRoundInvitationId);
     if (
       !invitation ||
@@ -729,6 +759,8 @@ export const revokeQuoteRoundInvitation = authenticatedMutation
         priorState: { participationState: invitation.participationState },
         payloadPreview: { participationState: "revoked" },
         reason,
+        breakGlass,
+        overrideKind: "access_revocation",
       },
       now
     );
@@ -738,6 +770,7 @@ export const revokeQuoteRoundInvitation = authenticatedMutation
 
 export const remindQuoteInvitationAccess = authenticatedMutation
   .input({
+    ...administrativeOverrideInputFields,
     buildId: v.id("activeBuilds"),
     confirmed: v.boolean(),
     preview: v.optional(v.boolean()),
@@ -747,11 +780,14 @@ export const remindQuoteInvitationAccess = authenticatedMutation
   })
   .returns(invitationLifecycleResultValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeLifecyclePath(ctx, args);
     const reason = requiredReason(
       args.reason,
       "A Quote Invitation reminder reason"
     );
+    const { authorization, breakGlass } = await authorizeLifecyclePath(ctx, {
+      ...args,
+      reason,
+    });
     const scope = await resolveInvitationScope(
       ctx,
       await ctx.db.get(args.quoteRoundInvitationId)
@@ -841,6 +877,8 @@ export const remindQuoteInvitationAccess = authenticatedMutation
         priorState: { accessGeneration: generation },
         payloadPreview: { accessGeneration: generation, credentialVersion },
         reason,
+        breakGlass,
+        overrideKind: "delivery_retry",
       },
       now
     );
@@ -855,6 +893,7 @@ export const remindQuoteInvitationAccess = authenticatedMutation
 
 export const rotateQuoteInvitationAccess = authenticatedMutation
   .input({
+    ...administrativeOverrideInputFields,
     buildId: v.id("activeBuilds"),
     confirmed: v.boolean(),
     quoteRoundInvitationId: v.id("quoteRoundInvitations"),
@@ -863,12 +902,15 @@ export const rotateQuoteInvitationAccess = authenticatedMutation
   })
   .returns(invitationLifecycleResultValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeLifecyclePath(ctx, args);
     requiredConfirmation(args.confirmed, "rotate Quote Invitation access");
     const reason = requiredReason(
       args.reason,
       "A Quote Invitation access rotation reason"
     );
+    const { authorization, breakGlass } = await authorizeLifecyclePath(ctx, {
+      ...args,
+      reason,
+    });
     const scope = await resolveInvitationScope(
       ctx,
       await ctx.db.get(args.quoteRoundInvitationId)
@@ -946,6 +988,8 @@ export const rotateQuoteInvitationAccess = authenticatedMutation
         priorState: { accessGeneration: generation - 1 },
         payloadPreview: { accessGeneration: generation },
         reason,
+        breakGlass,
+        overrideKind: "access_rotation",
       },
       now
     );
@@ -960,6 +1004,7 @@ export const rotateQuoteInvitationAccess = authenticatedMutation
 
 export const replaceQuoteRoundInvitationEmail = authenticatedMutation
   .input({
+    ...administrativeOverrideInputFields,
     buildId: v.id("activeBuilds"),
     confirmed: v.boolean(),
     correctedEmail: v.string(),
@@ -969,7 +1014,6 @@ export const replaceQuoteRoundInvitationEmail = authenticatedMutation
   })
   .returns(invitationLifecycleResultValidator)
   .handler(async (ctx, args) => {
-    const authorization = await authorizeLifecyclePath(ctx, args);
     requiredConfirmation(
       args.confirmed,
       "replace a Quote Invitation recipient email"
@@ -978,6 +1022,10 @@ export const replaceQuoteRoundInvitationEmail = authenticatedMutation
       args.reason,
       "A Quote Invitation email correction reason"
     );
+    const { authorization, breakGlass } = await authorizeLifecyclePath(ctx, {
+      ...args,
+      reason,
+    });
     const email = normalizeContractorEmail(args.correctedEmail);
     if (!email) {
       throw new ConvexError(
@@ -1119,17 +1167,21 @@ export const replaceQuoteRoundInvitationEmail = authenticatedMutation
         eventType: "quote_invitation.recipient_replaced",
         newState: {
           invitationId: String(replacementId),
-          recipientEmailSnapshot: email,
+          recipientEmailMasked: maskRecipientEmailForAudit(email),
         },
         priorState: {
           participationState: "active",
-          recipientEmailSnapshot: invitation.recipientEmailSnapshot,
+          recipientEmailMasked: maskRecipientEmailForAudit(
+            invitation.recipientEmailSnapshot
+          ),
         },
         payloadPreview: {
           invitationId: String(invitation._id),
           replacementInvitationId: String(replacementId),
         },
         reason,
+        breakGlass,
+        overrideKind: "corrected_recipient_replacement",
       },
       now
     );

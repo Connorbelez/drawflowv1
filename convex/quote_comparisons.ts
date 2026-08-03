@@ -4,6 +4,12 @@ import {
   authorizeActiveBuildAccess,
 } from "./activeBuildAccess";
 import {
+  administrativeOverrideInputFields,
+  appendGovernedAuditEvent,
+  authorizeAdministrativeRecovery,
+  requiredAdministrativeReason,
+} from "./administrative_override_policy";
+import {
   type AuthorizedViewer,
   authenticatedMutation,
   authenticatedQuery,
@@ -31,7 +37,6 @@ const MAX_SUBMISSION_ATTACHMENTS = 25;
 const MAX_SUBMISSION_EVENTS = 4;
 const MAX_HISTORY = 20;
 const MAX_QUOTE_AMOUNT_CENTS = 100_000_000_000;
-const MAX_REASON_LENGTH = 4000;
 
 const packageLabourLineValidator = v.object({
   _id: v.id("quotePackageRevisionLabourLines"),
@@ -1374,16 +1379,6 @@ export const getQuoteRoundComparison = authenticatedQuery
   })
   .public();
 
-function normalizeReason(reason: string | undefined, fallback: string) {
-  const normalized = reason?.trim() || fallback;
-  if (normalized.length > MAX_REASON_LENGTH) {
-    throw new ConvexError(
-      `Preferred Quote reason must be ${MAX_REASON_LENGTH} characters or fewer.`
-    );
-  }
-  return normalized;
-}
-
 async function submissionForPreferredCommand(
   ctx: MutationCtx,
   authorization: ActiveBuildAuthorization,
@@ -1518,10 +1513,11 @@ async function preferredResult(
 
 export const setPreferredQuoteSubmissionRevision = authenticatedMutation
   .input({
+    ...administrativeOverrideInputFields,
     buildId: v.string(),
     expectedStateVersion: v.number(),
     quoteRoundId: v.string(),
-    reason: v.optional(v.string()),
+    reason: v.string(),
     submissionRevisionId: v.string(),
     workosOrganizationId: v.string(),
   })
@@ -1536,13 +1532,22 @@ export const setPreferredQuoteSubmissionRevision = authenticatedMutation
     if (!(buildId && quoteRoundId && submissionRevisionId)) {
       throw new ConvexError("Preferred Quote identifiers are invalid.");
     }
-    const authorization = await authorizeComparisonPath(
+    const reason = requiredAdministrativeReason(
+      args.reason,
+      "A Preferred Quote selection reason"
+    );
+    const baseAuthorization = await authorizeActiveBuildAccess(ctx, {
+      buildId,
+      organizationId: args.workosOrganizationId,
+    });
+    const { authorization, breakGlass } = await authorizeAdministrativeRecovery(
       ctx,
+      baseAuthorization,
       {
-        buildId,
-        workosOrganizationId: args.workosOrganizationId,
-      },
-      true
+        administrativeCapacity: args.administrativeCapacity,
+        breakGlassConfirmed: args.breakGlassConfirmed,
+        reason,
+      }
     );
     const round = requireRound(
       await ctx.db.get(quoteRoundId),
@@ -1590,13 +1595,7 @@ export const setPreferredQuoteSubmissionRevision = authenticatedMutation
     }
     const now = Date.now();
     const nextStateVersion = (currentState?.stateVersion ?? 0) + 1;
-    const reason = normalizeReason(
-      args.reason,
-      "Builder selected a Preferred Quote."
-    );
-    const priorState = existingPointer
-      ? JSON.stringify(existingPointer)
-      : JSON.stringify({ status: "none" });
+    const priorState = existingPointer ?? { status: "none" };
     const nextPointer = {
       quoteInvitationResponseSubmissionRevisionId: submission._id,
       quotePackageRevisionId: packageRevision._id,
@@ -1623,19 +1622,34 @@ export const setPreferredQuoteSubmissionRevision = authenticatedMutation
         ...nextPointer,
       });
     }
-    await ctx.db.insert("auditEvents", {
-      actorRoles: [...authorization.roles],
-      actorWorkosUserId: ctx.viewer.subject,
-      brokerageId: round.brokerageId,
+    await appendGovernedAuditEvent(ctx, authorization, {
+      breakGlass,
       command: "setPreferredQuoteSubmissionRevision",
-      createdAt: now,
       entityId: String(round._id),
       entityType: "quoteRound",
       eventType: "quote_round.preferred_quote_set",
-      newState: JSON.stringify(nextPointer),
-      organizationId: round.organizationId,
+      newState: nextPointer,
+      now,
+      overrideKind: "preferred_set",
       priorState,
       reason,
+      targetRevisions: [
+        {
+          entityId: String(round._id),
+          entityType: "quoteRound",
+          revision: round.revision,
+        },
+        {
+          entityId: String(packageRevision._id),
+          entityType: "quotePackageRevision",
+          revision: packageRevision.revision,
+        },
+        {
+          entityId: String(submission._id),
+          entityType: "quoteResponseSubmissionRevision",
+          revision: submission.revision,
+        },
+      ],
       warnings: [],
     });
     return await preferredResult(ctx, authorization, round, "selected", false);
@@ -1644,6 +1658,7 @@ export const setPreferredQuoteSubmissionRevision = authenticatedMutation
 
 export const clearPreferredQuoteSubmissionRevision = authenticatedMutation
   .input({
+    ...administrativeOverrideInputFields,
     buildId: v.string(),
     confirmed: v.boolean(),
     expectedStateVersion: v.number(),
@@ -1661,13 +1676,22 @@ export const clearPreferredQuoteSubmissionRevision = authenticatedMutation
     if (!(buildId && quoteRoundId)) {
       throw new ConvexError("Preferred Quote identifiers are invalid.");
     }
-    const authorization = await authorizeComparisonPath(
+    const reason = requiredAdministrativeReason(
+      args.reason,
+      "A Preferred Quote clear reason"
+    );
+    const baseAuthorization = await authorizeActiveBuildAccess(ctx, {
+      buildId,
+      organizationId: args.workosOrganizationId,
+    });
+    const { authorization, breakGlass } = await authorizeAdministrativeRecovery(
       ctx,
+      baseAuthorization,
       {
-        buildId,
-        workosOrganizationId: args.workosOrganizationId,
-      },
-      true
+        administrativeCapacity: args.administrativeCapacity,
+        breakGlassConfirmed: args.breakGlassConfirmed,
+        reason,
+      }
     );
     const round = requireRound(
       await ctx.db.get(quoteRoundId),
@@ -1702,10 +1726,6 @@ export const clearPreferredQuoteSubmissionRevision = authenticatedMutation
         status: "conflict" as const,
       };
     }
-    const reason = normalizeReason(
-      args.reason,
-      "Builder cleared the Preferred Quote."
-    );
     if (state) {
       const pointer = preferredPointerFromState(state);
       if (pointer) {
@@ -1720,19 +1740,31 @@ export const clearPreferredQuoteSubmissionRevision = authenticatedMutation
           submissionRevision: undefined,
           updatedAt: now,
         });
-        await ctx.db.insert("auditEvents", {
-          actorRoles: [...authorization.roles],
-          actorWorkosUserId: ctx.viewer.subject,
-          brokerageId: round.brokerageId,
+        await appendGovernedAuditEvent(ctx, authorization, {
+          breakGlass,
           command: "clearPreferredQuoteSubmissionRevision",
-          createdAt: now,
           entityId: String(round._id),
           entityType: "quoteRound",
           eventType: "quote_round.preferred_quote_cleared",
-          newState: JSON.stringify({ reason, status: "none" }),
-          organizationId: round.organizationId,
-          priorState: JSON.stringify(pointer),
+          newState: { status: "none" },
+          now,
+          overrideKind: "preferred_clear",
+          priorState: pointer,
           reason,
+          targetRevisions: [
+            {
+              entityId: String(round._id),
+              entityType: "quoteRound",
+              revision: round.revision,
+            },
+            {
+              entityId: String(
+                pointer.quoteInvitationResponseSubmissionRevisionId
+              ),
+              entityType: "quoteResponseSubmissionRevision",
+              revision: pointer.submissionRevision,
+            },
+          ],
           warnings: [],
         });
       }

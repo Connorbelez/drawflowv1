@@ -3012,7 +3012,7 @@ describe("Cost Document public contract", () => {
         organizationId: ORGANIZATION_ID,
         reason: "Homeowner submitted history stays immutable.",
       })
-    ).rejects.toThrow("lifecycle action is unavailable");
+    ).rejects.toThrow("cannot perform administrative recovery");
 
     const builderBatchId = await createBatch(fixture, "submitted-role-matrix");
     const builderDraftId = await addDraft(fixture, builderBatchId);
@@ -4345,13 +4345,18 @@ describe("Cost Document public contract", () => {
         organizationId: ORGANIZATION_ID,
         reason: "An ordinary Backoffice session cannot silently override.",
       })
-    ).rejects.toThrow("lifecycle action is unavailable");
-    await fixture.builder.mutation((api as any).cost_documents.voidCostDocument, {
-      buildId: fixture.buildId,
-      costDocumentId: submitted.costDocumentId,
-      organizationId: ORGANIZATION_ID,
-      reason: "Uploaded against the wrong purchase order.",
-    });
+    ).rejects.toThrow("break-glass confirmation");
+    await fixture.admin.mutation(
+      (api as any).cost_documents.voidCostDocument,
+      {
+        administrativeCapacity: "admin",
+        breakGlassConfirmed: true,
+        buildId: fixture.buildId,
+        costDocumentId: submitted.costDocumentId,
+        organizationId: ORGANIZATION_ID,
+        reason: "Uploaded against the wrong purchase order.",
+      }
+    );
     document = await fixture.builder.query(
       (api as any).cost_documents.getCostDocument,
       {
@@ -4595,6 +4600,7 @@ describe("Cost Document public contract", () => {
         costDocumentId: original.costDocumentId,
         idempotencyKey: "integrity-correction-v2",
         organizationId: ORGANIZATION_ID,
+        reason: "Correct the immutable source details and allocation.",
         reuseSourcePages: true,
       }
     );
@@ -4642,6 +4648,7 @@ describe("Cost Document public contract", () => {
           costDocumentId: original.costDocumentId,
           idempotencyKey: "integrity-correction-fork",
           organizationId: ORGANIZATION_ID,
+          reason: "This fork must remain forbidden.",
           reuseSourcePages: true,
         }
       )
