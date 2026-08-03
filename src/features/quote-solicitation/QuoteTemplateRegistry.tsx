@@ -21,7 +21,10 @@ import {
 import { useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 
-import { FieldRichTextEditor } from "#/components/rich-text/field-rich-text.tsx";
+import {
+  FieldRichTextEditor,
+  FieldRichTextPreview,
+} from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -273,6 +276,21 @@ export function QuoteTemplateRegistry({
   const selectedTemplateDetails = selectedTemplateDetailsQuery as QuoteTemplate | null | undefined;
   const selectedTemplate = selectedTemplateDetails ?? selectedTemplateSummary;
   const selectedTemplateHydrated = selectedTemplateDetails !== undefined && selectedTemplateDetails !== null;
+  const versionHistoryPage = usePaginatedQuery(
+    api.quote_response_templates.listQuoteResponseTemplateVersions,
+    selectedTemplateId
+      ? {
+          templateId: selectedTemplateId as never,
+          workosOrganizationId,
+        }
+      : "skip",
+    { initialNumItems: 50 }
+  );
+  const versionHistory = versionHistoryPage.status === "LoadingFirstPage"
+    ? (selectedTemplate?.versions ?? [])
+    : (versionHistoryPage.results as Array<Omit<QuoteTemplateVersion, "fields">>);
+  const canLoadMoreVersions = versionHistoryPage.status === "CanLoadMore";
+  const loadingMoreVersions = versionHistoryPage.status === "LoadingMore";
   const inspectedVersionQuery = useQuery(
     api.quote_response_templates.getQuoteResponseTemplateVersion,
     selectedTemplateId && inspectedVersionId
@@ -476,6 +494,7 @@ export function QuoteTemplateRegistry({
       onCreateNextVersion={ensureNewVersionDraft}
       onInspectVersion={inspectVersion}
       onLoadMore={() => registryPage.loadMore(50)}
+      onLoadMoreVersions={() => versionHistoryPage.loadMore(50)}
       onOpenTemplate={openTemplate}
       onSelectVersion={selectPublishedVersion}
       onStartGuided={startGuided}
@@ -483,6 +502,9 @@ export function QuoteTemplateRegistry({
       selectedTemplate={selectedTemplate}
       selectedTemplateId={selectedTemplateId}
       selectedTemplateHydrated={selectedTemplateHydrated}
+      versionHistory={versionHistory}
+      canLoadMoreVersions={canLoadMoreVersions}
+      loadingMoreVersions={loadingMoreVersions}
       inspectedVersion={inspectedVersion}
       inspectedVersionId={inspectedVersionId}
       isPending={isPending}
@@ -537,6 +559,7 @@ function TemplateRegistryPanel({
   onCreateNextVersion,
   onInspectVersion,
   onLoadMore,
+  onLoadMoreVersions,
   onOpenTemplate,
   onSelectVersion,
   onStartGuided,
@@ -544,6 +567,9 @@ function TemplateRegistryPanel({
   selectedTemplate,
   selectedTemplateId,
   selectedTemplateHydrated,
+  versionHistory,
+  canLoadMoreVersions,
+  loadingMoreVersions,
   inspectedVersion,
   inspectedVersionId,
   isPending,
@@ -564,6 +590,7 @@ function TemplateRegistryPanel({
   onCreateNextVersion: () => void;
   onInspectVersion: (versionId: string) => void;
   onLoadMore: () => void;
+  onLoadMoreVersions: () => void;
   onOpenTemplate: (template: QuoteTemplate) => void;
   onSelectVersion: (versionId: string) => void;
   onStartGuided: (template: QuoteTemplate, version?: QuoteTemplateVersion) => void;
@@ -571,6 +598,9 @@ function TemplateRegistryPanel({
   selectedTemplate?: QuoteTemplate;
   selectedTemplateId?: string;
   selectedTemplateHydrated: boolean;
+  versionHistory: Array<Omit<QuoteTemplateVersion, "fields">>;
+  canLoadMoreVersions: boolean;
+  loadingMoreVersions: boolean;
   inspectedVersion?: QuoteTemplateVersion | null;
   inspectedVersionId?: string;
   isPending: boolean;
@@ -683,7 +713,7 @@ function TemplateRegistryPanel({
               <>
                 <PermanentFormAnatomy compact />
                 <TemplateContractRow label="Custom fields" value={selectedTemplateHydrated ? `${Math.max(0, (selectedTemplate.currentVersion?.fields?.length ?? 3) - 3)} configured` : "Loading details…"} />
-                <TemplateContractRow label="Version history" value={selectedTemplateHydrated ? `${selectedTemplate.versions?.filter((version) => version.status === "published").length ?? 0} published · ${selectedTemplate.versions?.filter((version) => version.status === "draft").length ?? 0} draft` : "Loading details…"} />
+                <TemplateContractRow label="Version history" value={selectedTemplateHydrated ? `${versionHistory.filter((version) => version.status === "published").length} published · ${versionHistory.filter((version) => version.status === "draft").length} draft` : "Loading details…"} />
                 <div className="grid grid-cols-2 gap-2">
                   {selectedTemplate.currentVersion?.status === "draft" ? (
                     <Button className="col-span-2" disabled={isPending || !selectedTemplateHydrated} onClick={() => onStartGuided(selectedTemplate, selectedTemplate.currentVersion ?? undefined)} variant="outline"><Pencil />Edit draft</Button>
@@ -693,13 +723,24 @@ function TemplateRegistryPanel({
                 </div>
                 <div className="space-y-2 border-t pt-3">
                   <p className="font-semibold text-sm">Version history</p>
-                  {(selectedTemplate.versions ?? []).map((version) => (
+                  {versionHistory.map((version) => (
                     <div className="flex items-center gap-2" key={version._id}>
                       <span className="min-w-0 flex-1 text-xs">v{version.version} · {version.status}</span>
                       <Button disabled={isPending} onClick={() => onInspectVersion(version._id)} size="sm" variant={inspectedVersionId === version._id ? "secondary" : "ghost"}>{inspectedVersionId === version._id ? "Inspecting" : "Inspect"}</Button>
                       {version.status === "published" ? <Button disabled={isPending} onClick={() => onSelectVersion(version._id)} size="sm" variant={selectedTemplate.selectedVersion?._id === version._id ? "secondary" : "ghost"}>{selectedTemplate.selectedVersion?._id === version._id ? "Selected" : "Select"}</Button> : null}
                     </div>
                   ))}
+                  {canLoadMoreVersions ? (
+                    <Button
+                      className="w-full"
+                      disabled={loadingMoreVersions || isPending}
+                      onClick={onLoadMoreVersions}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {loadingMoreVersions ? "Loading more versions…" : "Load more versions"}
+                    </Button>
+                  ) : null}
                 </div>
                 {inspectedVersionId ? (
                   inspectedVersion ? <VersionInspectionPanel heading={`Inspecting v${inspectedVersion.version} · Read-only`} version={inspectedVersion} /> : <div className="border-t pt-3 text-muted-foreground text-sm">Loading historical version…</div>
@@ -724,19 +765,52 @@ function VersionInspectionPanel({
   heading: string;
   version: QuoteTemplateVersion;
 }) {
+  const fields = [...(version.fields ?? [])].sort((left, right) => left.order - right.order);
   return (
     <div className="space-y-2 border-t pt-3" aria-label={heading}>
       <div className="flex items-center gap-2"><History className="size-4" /><p className="font-semibold text-sm">{heading}</p></div>
       <p className="text-muted-foreground text-xs">{version.name} · {audienceLabel(version.audience)}{version.description ? ` · ${version.description}` : ""}</p>
-      {(version.fields ?? []).filter((field) => !PERMANENT_KEYS.has(field.fieldKey)).map((field) => (
-        <div className="flex items-center gap-2 text-xs" key={field.fieldKey}>
-          <span className="min-w-0 flex-1 truncate">{field.label}</span>
-          <Badge variant="outline">{KIND_LABELS[field.kind]}</Badge>
-          {field.required ? <Badge variant="secondary">Required</Badge> : null}
-        </div>
-      ))}
+      <div className="space-y-2" aria-label="Version field contract">
+        {fields.map((field) => (
+          <Card key={field.fieldKey}>
+            <CardPanel className="space-y-2 p-3 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="min-w-0 flex-1 font-semibold">{field.order + 1}. {field.label}</span>
+                <Badge variant="outline">{KIND_LABELS[field.kind]}</Badge>
+                <Badge variant={field.isPermanent ? "secondary" : "outline"}>{field.isPermanent ? "Permanent" : "Custom"}</Badge>
+              </div>
+              <dl className="grid gap-1 text-muted-foreground sm:grid-cols-2">
+                <div><dt className="inline font-medium">Scope: </dt><dd className="inline">{scopeLabel(field.scope)}</dd></div>
+                <div><dt className="inline font-medium">Order: </dt><dd className="inline">{field.order}</dd></div>
+                <div><dt className="inline font-medium">Required: </dt><dd className="inline">{field.required ? "Yes" : "No"}</dd></div>
+                <div><dt className="inline font-medium">Renderer: </dt><dd className="inline">{field.renderer === "tiptap" ? "TipTap" : "Input"}</dd></div>
+                <div><dt className="inline font-medium">Repeatable: </dt><dd className="inline">{field.repeatable ? "Yes" : "No"}</dd></div>
+                <div><dt className="inline font-medium">Alternates: </dt><dd className="inline">{field.allowAlternates ? "Allowed" : "Not allowed"}</dd></div>
+                <div><dt className="inline font-medium">Exclusions: </dt><dd className="inline">{field.allowExclusions ? "Allowed" : "Not allowed"}</dd></div>
+                <div><dt className="inline font-medium">Tax: </dt><dd className="inline">{field.supportsTax ? `${field.tax?.label ?? "Enabled"}${field.tax ? ` (${field.tax.rateBps} bps)` : ""}` : "Not supported"}</dd></div>
+              </dl>
+              {field.choiceOptions?.length ? <div><span className="font-medium">Choices: </span>{field.choiceOptions.join(" · ")}</div> : null}
+              {field.validation ? <div><span className="font-medium">Validation: </span>{formatFieldValidation(field.validation)}</div> : null}
+              {field.renderer === "tiptap" && field.richTextDefaultHtml ? <div className="space-y-1"><span className="font-medium">TipTap default HTML</span><code className="block max-h-20 overflow-auto rounded bg-muted p-2 text-[11px]">{field.richTextDefaultHtml}</code></div> : null}
+            </CardPanel>
+          </Card>
+        ))}
+      </div>
     </div>
   );
+}
+
+function formatFieldValidation(validation: NonNullable<QuoteTemplateField["validation"]>) {
+  return [
+    validation.minLength === undefined ? null : `min length ${validation.minLength}`,
+    validation.maxLength === undefined ? null : `max length ${validation.maxLength}`,
+    validation.minFiles === undefined ? null : `min files ${validation.minFiles}`,
+    validation.maxFiles === undefined ? null : `max files ${validation.maxFiles}`,
+    validation.minValueCents === undefined ? null : `min value ${validation.minValueCents}¢`,
+    validation.maxValueCents === undefined ? null : `max value ${validation.maxValueCents}¢`,
+    validation.allowedMimeTypes?.length ? `MIME ${validation.allowedMimeTypes.join(", ")}` : null,
+    validation.pattern ? `pattern ${validation.pattern}` : null,
+  ].filter((item): item is string => item !== null).join(" · ");
 }
 
 function GuidedTemplateRecipe({
@@ -932,7 +1006,36 @@ function AnatomyStep({ fields, onUpdate }: { fields: QuoteTemplateField[]; onUpd
 }
 
 function PreviewStep({ customFields, fields }: { customFields: QuoteTemplateField[]; fields: QuoteTemplateField[] }) {
-  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold text-sm">Recipient mobile preview</p><p className="text-muted-foreground text-xs">One continuous form · no Labour/Materials tabs</p></div><Badge variant="success">Ready</Badge></div><QuoteCategoryPreview icon={HardHat} items={fields.find((field) => field.fieldKey === "labour_line_items")?.label ?? "Labour"} label="Labour" /><QuoteCategoryPreview icon={PackageCheck} items={fields.find((field) => field.fieldKey === "materials_line_items")?.label ?? "Materials"} label="Materials" /><div><p className="mb-2 font-semibold text-sm">Additional questions</p><div className="grid gap-2 sm:grid-cols-2">{customFields.map((field) => <label className="grid gap-1.5 text-sm" htmlFor={`preview-${field.fieldKey}`} key={field.fieldKey}><span className="font-medium">{field.label}</span><Input id={`preview-${field.fieldKey}`} placeholder={KIND_LABELS[field.kind]} /></label>)}</div></div><Card className="border-primary/25 bg-primary/5"><CardHeader className="p-4 pb-2"><div className="flex items-center gap-2"><FileText className="size-4 text-primary" /><CardTitle>Additional comments</CardTitle><Badge className="ml-auto" variant="outline">Always included</Badge></div></CardHeader><CardPanel className="p-4 pt-0"><div className="min-h-20 rounded-lg border bg-background p-3 text-muted-foreground text-sm">Explain assumptions, alternates, exclusions, and anything else we should understand.</div></CardPanel></Card></div>;
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold text-sm">Recipient mobile preview</p><p className="text-muted-foreground text-xs">One continuous form · no Labour/Materials tabs</p></div><Badge variant="success">Ready</Badge></div><QuoteCategoryPreview icon={HardHat} items={fields.find((field) => field.fieldKey === "labour_line_items")?.label ?? "Labour"} label="Labour" /><QuoteCategoryPreview icon={PackageCheck} items={fields.find((field) => field.fieldKey === "materials_line_items")?.label ?? "Materials"} label="Materials" /><div><p className="mb-2 font-semibold text-sm">Additional questions</p><div className="grid gap-3 sm:grid-cols-2">{customFields.map((field) => <RecipientPreviewField field={field} key={field.fieldKey} />)}</div></div><Card className="border-primary/25 bg-primary/5"><CardHeader className="p-4 pb-2"><div className="flex items-center gap-2"><FileText className="size-4 text-primary" /><CardTitle>Additional comments</CardTitle><Badge className="ml-auto" variant="outline">Always included</Badge></div></CardHeader><CardPanel className="p-4 pt-0"><FieldRichTextPreview ariaLabel="Additional comments configured TipTap preview" value={fields.find((field) => field.fieldKey === "additional_comments")?.richTextDefaultHtml ?? "<p>Explain assumptions, alternates, exclusions, and anything else we should understand.</p>"} /></CardPanel></Card></div>;
+}
+
+function RecipientPreviewField({ field }: { field: QuoteTemplateField }) {
+  const inputId = `preview-${field.fieldKey}`;
+  const accessibleLabel = `${field.label}${field.required ? " (required)" : ""}`;
+  const requiredBadge = field.required ? <Badge variant="secondary">Required</Badge> : null;
+  const repeatableBadge = field.repeatable ? <Badge variant="outline">Repeatable</Badge> : null;
+  const metadata = <div className="flex flex-wrap items-center gap-1.5"><span className="font-medium">{field.label}</span>{requiredBadge}{repeatableBadge}</div>;
+
+  if (field.kind === "priced_line") {
+    return <div className="space-y-1.5"><div className="flex flex-wrap items-center justify-between gap-2">{metadata}<Badge variant="outline">Priced line</Badge></div><div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-2"><Input aria-label={`${accessibleLabel} line title`} id={inputId} placeholder="Line title" /><Input aria-label={`${accessibleLabel} amount in cents`} inputMode="numeric" placeholder="0" type="number" /></div></div>;
+  }
+  if (field.kind === "long_text" && field.renderer === "tiptap") {
+    return <div className="space-y-1.5">{metadata}<Badge variant="outline">TipTap rich text</Badge><FieldRichTextPreview ariaLabel={`${accessibleLabel} TipTap preview`} value={field.richTextDefaultHtml ?? "<p>Rich text response</p>"} /></div>;
+  }
+  if (field.kind === "long_text") {
+    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Textarea aria-label={accessibleLabel} id={inputId} placeholder="Long text response" /></label>;
+  }
+  if (field.kind === "date") {
+    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input aria-label={accessibleLabel} id={inputId} type="date" /></label>;
+  }
+  if (field.kind === "choice") {
+    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<NativeSelect aria-label={accessibleLabel} id={inputId}><NativeSelectOption value="">Choose an option</NativeSelectOption>{(field.choiceOptions ?? []).map((option) => <NativeSelectOption key={option} value={option}>{option}</NativeSelectOption>)}</NativeSelect></label>;
+  }
+  if (field.kind === "attachment") {
+    const maxFiles = field.validation?.maxFiles;
+    return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input accept={field.validation?.allowedMimeTypes?.join(",")} aria-label={accessibleLabel} id={inputId} multiple={maxFiles === undefined || maxFiles > 1} type="file" /></label>;
+  }
+  return <label className="grid gap-1.5 text-sm" htmlFor={inputId}>{metadata}<Input aria-label={accessibleLabel} id={inputId} placeholder="Short text response" /></label>;
 }
 
 function PublishStep({ fields, releaseNote, setReleaseNote }: { fields: QuoteTemplateField[]; releaseNote: string; setReleaseNote: (value: string) => void }) {
@@ -946,7 +1049,7 @@ function PermanentFormAnatomy({ compact = false }: { compact?: boolean }) {
 }
 
 function QuoteCategoryPreview({ icon: Icon, items, label }: { icon: typeof HardHat; items: string; label: string }) {
-  return <Card><CardHeader className="p-4 pb-2"><div className="flex items-center gap-2"><Icon className="size-4" /><CardTitle>{items || label}</CardTitle><Badge className="ml-auto" variant="outline">Always included</Badge></div></CardHeader><CardPanel className="space-y-2 p-4 pt-0"><div className="grid grid-cols-[1fr_7rem] gap-2"><Input placeholder={`${label} line title`} /><Input placeholder="$0.00" /></div><Button size="sm" variant="outline"><Plus />New {label.toLowerCase()} line</Button></CardPanel></Card>;
+  return <Card><CardHeader className="p-4 pb-2"><div className="flex items-center gap-2"><Icon className="size-4" /><CardTitle>{items || label}</CardTitle><Badge className="ml-auto" variant="outline">Always included</Badge></div></CardHeader><CardPanel className="space-y-2 p-4 pt-0"><div className="grid grid-cols-[1fr_7rem] gap-2"><Input aria-label={`${label} line title`} placeholder={`${label} line title`} /><Input aria-label={`${label} amount in cents`} inputMode="numeric" placeholder="0" type="number" /></div><Button size="sm" variant="outline"><Plus />New {label.toLowerCase()} line</Button></CardPanel></Card>;
 }
 
 function TemplateContractRow({ label, value }: { label: string; value: string }) {

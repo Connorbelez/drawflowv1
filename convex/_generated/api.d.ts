@@ -152,6 +152,7 @@ import type * as milestone_start from "../milestone_start.js";
 import type * as production_proposals from "../production_proposals.js";
 import type * as proposal_collaboration from "../proposal_collaboration.js";
 import type * as proposal_collaboration_model from "../proposal_collaboration_model.js";
+import type * as quote_response_template_migrations from "../quote_response_template_migrations.js";
 import type * as quote_response_templates from "../quote_response_templates.js";
 import type * as siteVisitGuidance from "../siteVisitGuidance.js";
 import type * as todos from "../todos.js";
@@ -310,6 +311,7 @@ declare const fullApi: ApiFromModules<{
   production_proposals: typeof production_proposals;
   proposal_collaboration: typeof proposal_collaboration;
   proposal_collaboration_model: typeof proposal_collaboration_model;
+  quote_response_template_migrations: typeof quote_response_template_migrations;
   quote_response_templates: typeof quote_response_templates;
   siteVisitGuidance: typeof siteVisitGuidance;
   todos: typeof todos;

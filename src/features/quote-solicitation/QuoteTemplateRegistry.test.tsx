@@ -20,6 +20,7 @@ vi.mock("convex/react", () => ({
 
 vi.mock("#/components/rich-text/field-rich-text.tsx", () => ({
   FieldRichTextEditor: ({ ariaLabel, onChange, value }: { ariaLabel: string; onChange: (value: string) => void; value: string }) => <textarea aria-label={ariaLabel} onChange={(event) => onChange(event.target.value)} value={value} />,
+  FieldRichTextPreview: ({ ariaLabel, value }: { ariaLabel: string; value: string }) => <div aria-label={ariaLabel}>{value}</div>,
 }));
 
 const registry = {
@@ -40,6 +41,10 @@ const registry = {
           { fieldKey: "additional_comments", isPermanent: true, kind: "long_text", label: "Additional comments", order: 2, renderer: "tiptap", required: false, richTextDefaultHtml: "<p>Explain assumptions.</p>", scope: "whole_quote" },
           { fieldKey: "crew_size", kind: "short_text", label: "Estimated crew size", order: 3, required: false, scope: "labour", validation: { maxLength: 24 } },
           { allowAlternates: true, allowExclusions: true, fieldKey: "equipment_line", kind: "priced_line", label: "Equipment allowance", order: 4, repeatable: true, required: false, scope: "materials", supportsTax: false },
+          { fieldKey: "available_date", kind: "date", label: "Available date", order: 5, required: false, scope: "whole_quote" },
+          { choiceOptions: ["Included", "Excluded"], fieldKey: "warranty", kind: "choice", label: "Warranty", order: 6, required: true, scope: "whole_quote" },
+          { fieldKey: "insurance_certificate", kind: "attachment", label: "Insurance certificate", order: 7, required: false, scope: "whole_quote", validation: { allowedMimeTypes: ["application/pdf"], maxFiles: 2 } },
+          { fieldKey: "scope_notes", kind: "long_text", label: "Scope notes", order: 8, renderer: "tiptap", required: false, richTextDefaultHtml: "<p>Describe scope.</p>", scope: "whole_quote" },
         ],
         publishedAt: 2,
         releaseNote: "Initial",
@@ -68,7 +73,7 @@ const registry = {
       status: "active",
       templateKey: "standard-trade-quote",
       updatedAt: 2,
-      versions: [{ _id: "version-1", createdAt: 1, publishedAt: 2, releaseNote: "Initial", status: "published", updatedAt: 2, validationState: "valid", version: 1 }],
+      versions: [{ _id: "version-1", audience: "either", createdAt: 1, description: "Reusable trade response.", name: "Standard trade quote", publishedAt: 2, releaseNote: "Initial", status: "published", updatedAt: 2, validationState: "valid", version: 1 }],
     },
   ],
 };
@@ -78,11 +83,23 @@ describe("QuoteTemplateRegistry", () => {
     vi.clearAllMocks();
     mutationByRef.clear();
     queryByRef.clear();
+    if (registry.templates[0]?.selectedVersion && registry.templates[0].currentVersion) {
+      registry.templates[0].selectedVersion.fields = registry.templates[0].currentVersion.fields;
+    }
     useQuery.mockImplementation((ref: Parameters<typeof getFunctionName>[0]) => queryByRef.get(getFunctionName(ref)));
-    usePaginatedQuery.mockReturnValue({
-      loadMore: vi.fn(),
-      results: registry.templates,
-      status: "CanLoadMore",
+    usePaginatedQuery.mockImplementation((ref: Parameters<typeof getFunctionName>[0]) => {
+      if (getFunctionName(ref) === getFunctionName(api.quote_response_templates.listQuoteResponseTemplateVersions)) {
+        return {
+          loadMore: vi.fn(),
+          results: registry.templates[0]?.versions ?? [],
+          status: "CanLoadMore",
+        };
+      }
+      return {
+        loadMore: vi.fn(),
+        results: registry.templates,
+        status: "CanLoadMore",
+      };
     });
     queryByRef.set(getFunctionName(api.quote_response_templates.getQuoteResponseTemplate), registry.templates[0]);
     queryByRef.set(getFunctionName(api.quote_response_templates.getQuoteResponseTemplateVersion), registry.templates[0]?.selectedVersion);
@@ -96,6 +113,7 @@ describe("QuoteTemplateRegistry", () => {
 
   test("exposes a responsive registry with permanent regions and immutable history", async () => {
     const select = mutationByRef.get(getFunctionName(api.quote_response_templates.selectQuoteResponseTemplateVersion)) as ReturnType<typeof vi.fn>;
+    expect(registry.templates[0]?.selectedVersion?.fields).toHaveLength(9);
     render(<QuoteTemplateRegistry workosOrganizationId="org_quote_templates" />);
     fireEvent.click(screen.getByRole("button", { name: /Standard trade quote/ }));
     expect(screen.getAllByText("Labour").length).toBeGreaterThan(0);
@@ -106,6 +124,10 @@ describe("QuoteTemplateRegistry", () => {
     expect(screen.getByRole("button", { name: "Create next version draft" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Inspect" }));
     expect(screen.getByText("Inspecting v1 · Read-only")).toBeTruthy();
+    expect(screen.getAllByText("Permanent").length).toBeGreaterThan(0);
+    expect(screen.getByText("Included · Excluded")).toBeTruthy();
+    expect(screen.getByText(/MIME application\/pdf/)).toBeTruthy();
+    expect(screen.getAllByText("TipTap default HTML").length).toBeGreaterThan(0);
     expect(select).not.toHaveBeenCalled();
   });
 
@@ -117,7 +139,7 @@ describe("QuoteTemplateRegistry", () => {
     await waitFor(() => expect(createNext).toHaveBeenCalledWith(expect.objectContaining({ sourceTemplateId: "template-1", workosOrganizationId: "org_quote_templates" })));
     fireEvent.click(screen.getByRole("button", { name: "2. Questions" }));
     expect(screen.getByText("Additional questions")).toBeTruthy();
-    expect(screen.getByText("Maximum length")).toBeTruthy();
+    expect(screen.getAllByText("Maximum length").length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText("Maximum length for Estimated crew size"), { target: { value: "80" } });
     expect((screen.getByLabelText("Maximum length for Estimated crew size") as HTMLInputElement).value).toBe("80");
     fireEvent.click(screen.getByRole("button", { name: "Tax" }));
@@ -128,6 +150,12 @@ describe("QuoteTemplateRegistry", () => {
     await waitFor(() => expect(update).toHaveBeenCalled());
     const lastPayload = update.mock.calls[update.mock.calls.length - 1]?.[0] as { fields: Array<Record<string, unknown>> };
     expect(lastPayload.fields.every((field) => !("_id" in field) && !("isPermanent" in field))).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "4. Preview" }));
+    expect(screen.getByLabelText("Labour line title")).toBeTruthy();
+    expect(screen.getByLabelText("Available date")).toBeTruthy();
+    expect(screen.getByLabelText("Warranty (required)")).toBeTruthy();
+    expect(screen.getByLabelText("Insurance certificate")).toBeTruthy();
+    expect(screen.getByLabelText("Scope notes TipTap preview")).toBeTruthy();
   });
 
   test("does not publish when saving the draft fails", async () => {
