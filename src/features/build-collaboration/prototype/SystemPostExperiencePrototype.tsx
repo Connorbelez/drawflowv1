@@ -2,25 +2,35 @@
 
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
   Banknote,
+  CalendarCheck,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   Circle,
   ClipboardCheck,
+  Eye,
   FileCheck2,
   FileText,
   GitCompareArrows,
+  Image as ImageIcon,
+  LayoutGrid,
+  List,
   ListChecks,
   MapPin,
   MessageCircle,
+  Package,
   Paperclip,
   PlayCircle,
   RotateCcw,
   ShieldCheck,
   UserPlus,
   Users,
+  Wrench,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
@@ -75,19 +85,34 @@ type DrawState =
   | "released";
 
 interface WorkItem {
+  actualCost: string;
+  actualEnd: string;
+  actualStart: string;
   assignee: string;
   assigneeInitials: string;
   budget: string;
+  builderEvidence: string[];
   code: string;
+  completedVisitReport: string;
   dependencies: string;
+  description: string;
+  drawUnlock: string;
   evidence: string;
+  fieldNotes: string;
   id: string;
   locationUnverified?: boolean;
+  materials: string[];
+  orderedSiteVisit: string;
   planned: string;
+  plannedEnd: string;
+  plannedStart: string;
   progress: number;
+  scope: string;
   siteVisit: string;
   state: WorkState;
+  suppliers: string[];
   title: string;
+  tradespeople: string[];
 }
 
 interface PrototypeEvent {
@@ -123,75 +148,173 @@ const STATE_COLUMNS: { key: WorkState; label: string }[] = [
 
 const INITIAL_WORK_ITEMS: WorkItem[] = [
   {
+    actualCost: "Not started",
+    actualEnd: "—",
+    actualStart: "—",
     assignee: "Assignment required",
     assigneeInitials: "?",
     budget: "$18,500",
+    builderEvidence: [],
     code: "04.1",
+    completedVisitReport: "None",
+    description:
+      "Set control points, confirm setbacks, and lay out footing lines from the approved site plan.",
     dependencies: "3 of 3 clear",
+    drawUnlock: "$18,500 on approval",
     evidence: "0 of 2 required",
+    fieldNotes:
+      "Survey package is ready; a responsible operator still needs to accept the Work Allocation.",
     id: "layout",
+    materials: ["Layout stakes", "Marking paint"],
+    orderedSiteVisit: "None",
     planned: "Aug 5–6",
+    plannedEnd: "Aug 6",
+    plannedStart: "Aug 5",
     progress: 0,
+    scope:
+      "Survey control, footing corners, elevations, and setback verification.",
     siteVisit: "Not required",
     state: "backlog",
+    suppliers: ["GeoPoint Survey Supply"],
     title: "Survey and footing layout",
+    tradespeople: ["Assignment required"],
   },
   {
+    actualCost: "Not started",
+    actualEnd: "—",
+    actualStart: "—",
     assignee: "Jordan Franks",
     assigneeInitials: "JF",
     budget: "$42,800",
+    builderEvidence: [],
     code: "04.2",
+    completedVisitReport: "None",
+    description:
+      "Install, brace, and verify footing forms before reinforcing steel placement.",
     dependencies: "2 of 2 clear",
+    drawUnlock: "$42,800 on approval",
     evidence: "0 of 3 required",
+    fieldNotes:
+      "Start was missed. Jordan has not acknowledged mobilization or posted a field note.",
     id: "forms",
+    materials: ["Form lumber", "Bracing", "Release agent"],
+    orderedSiteVisit: "None",
     planned: "Aug 1–4 · missed start",
+    plannedEnd: "Aug 4",
+    plannedStart: "Aug 1",
     progress: 0,
+    scope:
+      "Footing formwork, bracing, dimensions, elevations, and pre-pour readiness.",
     siteVisit: "Not required",
     state: "behind_schedule",
+    suppliers: ["Ellis Building Supply"],
     title: "Install footing forms",
+    tradespeople: ["Jordan Franks", "Northstar Forming"],
   },
   {
+    actualCost: "$51,800 committed",
+    actualEnd: "—",
+    actualStart: "Aug 4",
     assignee: "Alex Lee",
     assigneeInitials: "AL",
     budget: "$67,200",
+    builderEvidence: ["Wall forms · north elevation", "Rebar spacing · grid B"],
     code: "04.3",
+    completedVisitReport: "Pre-pour inspection · passed with note",
+    description:
+      "Place reinforcing steel, close wall forms, pour foundation walls, and cure to specification.",
     dependencies: "3 of 3 clear",
+    drawUnlock: "$67,200 on approval",
     evidence: "2 of 3 · 1 unverified",
+    fieldNotes:
+      "North wall pour moved one day for pump access. One photo location attempt was unverified and retained.",
     id: "walls",
     locationUnverified: true,
+    materials: ["32 MPa ready-mix", "15M rebar", "Anchor bolts"],
+    orderedSiteVisit: "Aug 9 · risk review",
     planned: "Aug 3–10 · started late",
+    plannedEnd: "Aug 10",
+    plannedStart: "Aug 3",
     progress: 65,
+    scope:
+      "Reinforcement, wall forming, concrete placement, curing, and anchor layout.",
     siteVisit: "Risk review pending",
     state: "in_progress",
+    suppliers: ["Dufferin Concrete", "Atlas Rebar"],
     title: "Pour foundation walls",
+    tradespeople: ["Alex Lee", "Northstar Concrete"],
   },
   {
+    actualCost: "$28,900 realized",
+    actualEnd: "Aug 11",
+    actualStart: "Aug 7",
     assignee: "Maya Kim",
     assigneeInitials: "MK",
     budget: "$29,600",
+    builderEvidence: [
+      "Primer coverage",
+      "Membrane termination",
+      "Protection board",
+    ],
     code: "04.4",
+    completedVisitReport: "Waterproofing review · report ready",
+    description:
+      "Prepare foundation walls and install the approved waterproofing and protection system.",
     dependencies: "4 of 4 clear",
+    drawUnlock: "$29,600 pending approval",
     evidence: "3 of 3 · frozen r3",
+    fieldNotes:
+      "Completion was submitted with Evidence Package revision 3. South elevation termination is highlighted for review.",
     id: "waterproofing",
+    materials: ["SBS membrane", "Primer", "Protection board"],
+    orderedSiteVisit: "Aug 12 · completed",
     planned: "Aug 7–11",
+    plannedEnd: "Aug 11",
+    plannedStart: "Aug 7",
     progress: 100,
+    scope:
+      "Wall preparation, primer, membrane, transitions, termination, and protection board.",
     siteVisit: "Scheduled · Aug 12",
     state: "in_review",
+    suppliers: ["Soprema Distribution"],
     title: "Waterproof foundation",
+    tradespeople: ["Maya Kim", "Apex Waterproofing"],
   },
   {
+    actualCost: "$21,350 realized",
+    actualEnd: "Jul 31",
+    actualStart: "Jul 28",
     assignee: "Northstar Civil",
     assigneeInitials: "NC",
     budget: "$21,900",
+    builderEvidence: [
+      "Drain tile outlet",
+      "Washed stone lift",
+      "Filter cloth overlap",
+    ],
     code: "04.5",
+    completedVisitReport: "Drainage inspection · approved",
+    description:
+      "Install perimeter drainage, washed stone, filter cloth, and verified outlet connections.",
     dependencies: "4 of 4 clear",
+    drawUnlock: "$21,900 unlocked",
     evidence: "Approved · frozen r2",
+    fieldNotes:
+      "Outlet invert and stone coverage were verified before backfill authorization.",
     id: "drainage",
+    materials: ["100 mm drain tile", "19 mm washed stone", "Filter cloth"],
+    orderedSiteVisit: "Jul 31 · completed",
     planned: "Jul 28–31",
+    plannedEnd: "Jul 31",
+    plannedStart: "Jul 28",
     progress: 100,
+    scope:
+      "Perimeter drainage, cleanouts, stone cover, filter fabric, and outlet confirmation.",
     siteVisit: "Complete",
     state: "approved",
+    suppliers: ["Core Civil Supply", "Lakeshore Aggregates"],
     title: "Install drainage and stone",
+    tradespeople: ["Northstar Civil"],
   },
 ];
 
@@ -453,6 +576,8 @@ export function SystemPostExperiencePrototype({
             actionItemCount={
               post === "milestone" ? items.length : coordinationItems.length
             }
+            drawState={drawState}
+            items={items}
             post={post}
             postTab={postTab}
             setPostTab={setPostTab}
@@ -667,20 +792,30 @@ function OrdinaryCollaborationPost({
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This prototype intentionally keeps the complete post-shell state matrix visible in one place for product review.
 function SystemCollaborationPost({
   actionItemCount,
   children,
+  drawState,
+  items,
   post,
   postTab,
   setPostTab,
 }: {
   actionItemCount: number;
   children: ReactNode;
+  drawState: DrawState;
+  items: WorkItem[];
   post: SystemPostPrototypeKind;
   postTab: "actions" | "discussion" | null;
   setPostTab: (tab: "actions" | "discussion" | null) => void;
 }) {
   const milestone = post === "milestone";
+  const [collapsed, setCollapsed] = useState(false);
+  const behindScheduleCount = items.filter(
+    (item) => item.state === "behind_schedule"
+  ).length;
+  const reviewCount = items.filter((item) => item.state === "in_review").length;
   return (
     <Card className="ring-1 ring-primary/15">
       <CardHeader className="gap-3 p-4">
@@ -703,14 +838,37 @@ function SystemCollaborationPost({
               <Badge variant="success">Open</Badge>
             </CardDescription>
           </div>
-          <Button
-            aria-label="More actions for this System Post"
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            ···
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              aria-label={
+                collapsed ? "Expand System Post" : "Collapse System Post"
+              }
+              onClick={() => {
+                setCollapsed((current) => !current);
+                setPostTab(null);
+              }}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              {collapsed ? (
+                <ChevronDown className="size-4" />
+              ) : (
+                <ChevronUp className="size-4" />
+              )}
+              <span className="hidden sm:inline">
+                {collapsed ? "Expand" : "Collapse"}
+              </span>
+            </Button>
+            <Button
+              aria-label="More actions for this System Post"
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            >
+              ···
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardPanel className="space-y-4 px-4 pt-0 pb-4">
@@ -726,65 +884,110 @@ function SystemCollaborationPost({
               : "A reimbursement Draw Request is active. Financial approval remains governed by the canonical Draw workflow."}
           </p>
         </div>
-        {children}
+        {milestone ? <MilestoneHeadline /> : null}
+        {collapsed ? (
+          <div className="flex flex-wrap gap-1.5 border-t pt-3">
+            {milestone ? (
+              <>
+                <Badge variant="info">
+                  <PlayCircle className="mr-1 size-3" /> 53% complete
+                </Badge>
+                <Badge variant="warning">
+                  <AlertTriangle className="mr-1 size-3" />{" "}
+                  {behindScheduleCount} behind
+                </Badge>
+                <Badge variant="outline">
+                  <Users className="mr-1 size-3" /> 7 participants
+                </Badge>
+                <Badge variant="outline">
+                  <ListChecks className="mr-1 size-3" /> {items.length - 1}{" "}
+                  outstanding
+                </Badge>
+                <Badge variant="outline">
+                  <CalendarCheck className="mr-1 size-3" /> 1 active visit
+                </Badge>
+                <Badge variant="secondary">
+                  <Activity className="mr-1 size-3" /> {reviewCount + 2} new
+                  updates
+                </Badge>
+              </>
+            ) : (
+              <>
+                <Badge variant="warning">{drawStateLabel(drawState)}</Badge>
+                <Badge variant="outline">
+                  <Banknote className="mr-1 size-3" /> $184,000 requested
+                </Badge>
+                <Badge variant="outline">0 generated items</Badge>
+              </>
+            )}
+          </div>
+        ) : (
+          children
+        )}
       </CardPanel>
-      <div className="grid grid-cols-2 border-y">
-        <button
-          aria-expanded={postTab === "discussion"}
-          className={cn(
-            "flex min-h-11 items-center justify-center gap-2 border-r text-sm",
-            postTab === "discussion" && "bg-primary/10"
-          )}
-          onClick={() =>
-            setPostTab(postTab === "discussion" ? null : "discussion")
-          }
-          type="button"
-        >
-          <MessageCircle className="size-4" /> Discussion 4
-        </button>
-        <button
-          aria-expanded={postTab === "actions"}
-          className={cn(
-            "flex min-h-11 items-center justify-center gap-2 text-sm",
-            postTab === "actions" && "bg-primary/10"
-          )}
-          onClick={() => setPostTab(postTab === "actions" ? null : "actions")}
-          type="button"
-        >
-          <ListChecks className="size-4" /> Action Items {actionItemCount}
-        </button>
-      </div>
-      {postTab ? (
-        <CardPanel className="border-b p-4">
-          {postTab === "discussion" ? (
-            <div className="space-y-3">
-              <p className="font-medium text-sm">
-                Discussion remains ordinary collaboration
-              </p>
-              <p className="text-muted-foreground text-sm">
-                Replies, mentions, rich text, attachments, revision history, and
-                unread state use the existing post thread.
-              </p>
-              <Button size="sm" type="button" variant="outline">
-                Reply to thread
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="font-medium text-sm">
-                {milestone
-                  ? "Governed work is summarized in the System Post above."
-                  : "Only manually added coordination work appears here."}
-              </p>
-              <p className="text-muted-foreground text-xs">
-                {milestone
-                  ? "Sub-milestone transitions still invoke canonical commands."
-                  : "Draw coordination never satisfies or advances a financial gate."}
-              </p>
-            </div>
-          )}
-        </CardPanel>
-      ) : null}
+      {collapsed ? null : (
+        <>
+          <div className="grid grid-cols-2 border-y">
+            <button
+              aria-expanded={postTab === "discussion"}
+              className={cn(
+                "flex min-h-11 items-center justify-center gap-2 border-r text-sm",
+                postTab === "discussion" && "bg-primary/10"
+              )}
+              onClick={() =>
+                setPostTab(postTab === "discussion" ? null : "discussion")
+              }
+              type="button"
+            >
+              <MessageCircle className="size-4" /> Discussion 4
+            </button>
+            <button
+              aria-expanded={postTab === "actions"}
+              className={cn(
+                "flex min-h-11 items-center justify-center gap-2 text-sm",
+                postTab === "actions" && "bg-primary/10"
+              )}
+              onClick={() =>
+                setPostTab(postTab === "actions" ? null : "actions")
+              }
+              type="button"
+            >
+              <ListChecks className="size-4" /> Action Items {actionItemCount}
+            </button>
+          </div>
+          {postTab ? (
+            <CardPanel className="border-b p-4">
+              {postTab === "discussion" ? (
+                <div className="space-y-3">
+                  <p className="font-medium text-sm">
+                    Discussion remains ordinary collaboration
+                  </p>
+                  <p className="text-muted-foreground text-sm">
+                    Replies, mentions, rich text, attachments, revision history,
+                    and unread state use the existing post thread.
+                  </p>
+                  <Button size="sm" type="button" variant="outline">
+                    Reply to thread
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="font-medium text-sm">
+                    {milestone
+                      ? "Governed work is summarized in the System Post above."
+                      : "Only manually added coordination work appears here."}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {milestone
+                      ? "Sub-milestone transitions still invoke canonical commands."
+                      : "Draw coordination never satisfies or advances a financial gate."}
+                  </p>
+                </div>
+              )}
+            </CardPanel>
+          ) : null}
+        </>
+      )}
       <CardFooter className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-muted-foreground text-xs">
         <div className="flex gap-3">
           <span>Acknowledge</span>
@@ -793,6 +996,52 @@ function SystemCollaborationPost({
         <span>Seen by 11</span>
       </CardFooter>
     </Card>
+  );
+}
+
+function MilestoneHeadline() {
+  return (
+    <Frame>
+      <FramePanel className="space-y-3 p-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-lg bg-muted/45 px-3 py-2">
+            <p className="text-muted-foreground text-xs">Status</p>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <Badge variant="info">In progress</Badge>
+              <Badge size="sm" variant="warning">
+                1 behind
+              </Badge>
+            </div>
+          </div>
+          <div className="rounded-lg bg-muted/45 px-3 py-2">
+            <p className="text-muted-foreground text-xs">Planned start</p>
+            <p className="mt-1 font-semibold text-sm">Aug 1, 2026</p>
+          </div>
+          <div className="rounded-lg bg-muted/45 px-3 py-2">
+            <p className="text-muted-foreground text-xs">Planned completion</p>
+            <p className="mt-1 font-semibold text-sm">Sep 6, 2026</p>
+          </div>
+          <div className="rounded-lg bg-muted/45 px-3 py-2">
+            <p className="text-muted-foreground text-xs">Current forecast</p>
+            <p className="mt-1 font-semibold text-sm text-warning">
+              Sep 9 · 3d late
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 border-t pt-3">
+          <span className="mr-1 flex items-center gap-1 font-medium text-xs">
+            <Wrench className="size-3.5" /> Trades
+          </span>
+          <Badge variant="outline">Northstar Concrete</Badge>
+          <Badge variant="outline">Apex Waterproofing</Badge>
+          <span className="ml-1 flex items-center gap-1 font-medium text-xs">
+            <Package className="size-3.5" /> Suppliers
+          </span>
+          <Badge variant="outline">Ellis Building Supply</Badge>
+          <Badge variant="outline">Dufferin Concrete</Badge>
+        </div>
+      </FramePanel>
+    </Frame>
   );
 }
 
@@ -830,63 +1079,450 @@ function SegmentedChoice({
 }
 
 function BoardFirstVariant(props: VariantProps) {
+  const [workView, setWorkView] = useState<"board" | "list">("list");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [oversightOpen, setOversightOpen] = useState(false);
   if (props.post === "draw") {
     return <BoardlessDraw mode="board" {...props} />;
   }
   return (
     <div className="space-y-4">
       <MilestoneSummary items={props.items} />
+      <MilestoneOversight
+        onToggle={() => setOversightOpen((current) => !current)}
+        open={oversightOpen}
+        role={props.role}
+      />
       <Frame className="min-w-0">
         <FramePanel className="min-w-0 overflow-hidden p-3 sm:p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="font-semibold text-sm">Sub-milestone workboard</h3>
+              <h3 className="font-semibold text-sm">Sub-milestones</h3>
               <p className="text-muted-foreground text-xs">
-                Inline projection · drag locked · commands only
+                {workView === "board"
+                  ? "Status projection · drag locked · commands only"
+                  : "Select a row to reveal its complete execution record"}
               </p>
             </div>
-            <Badge variant="outline">5 governed items</Badge>
-          </div>
-          <div className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
-            <div className="grid min-w-[62rem] grid-cols-5 gap-2 rounded-xl border bg-background/30 p-2.5">
-              {STATE_COLUMNS.map((column) => {
-                const columnItems = props.items.filter(
-                  (item) => item.state === column.key
-                );
-                return (
-                  <section className="min-w-0" key={column.key}>
-                    <div className="mb-2 flex items-center justify-between px-1">
-                      <span className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-                        {column.label}
-                      </span>
-                      <Badge size="sm" variant="secondary">
-                        {columnItems.length}
-                      </Badge>
-                    </div>
-                    <div className="space-y-2">
-                      {columnItems.map((item) => (
-                        <WorkItemCard
-                          item={item}
-                          key={item.id}
-                          onSelect={props.onSelect}
-                          selected={props.selected?.id === item.id}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                );
-              })}
+            <div className="flex items-center gap-1">
+              <Button
+                aria-label="Show Sub-milestones as a list"
+                aria-pressed={workView === "list"}
+                onClick={() => setWorkView("list")}
+                size="sm"
+                type="button"
+                variant={workView === "list" ? "secondary" : "ghost"}
+              >
+                <List className="size-4" /> List
+              </Button>
+              <Button
+                aria-label="Show Sub-milestones as a board"
+                aria-pressed={workView === "board"}
+                onClick={() => setWorkView("board")}
+                size="sm"
+                type="button"
+                variant={workView === "board" ? "secondary" : "ghost"}
+              >
+                <LayoutGrid className="size-4" /> Board
+              </Button>
             </div>
           </div>
+          {workView === "board" ? (
+            <div className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
+              <div className="grid min-w-[62rem] grid-cols-5 gap-2 rounded-xl border bg-background/30 p-2.5">
+                {STATE_COLUMNS.map((column) => {
+                  const columnItems = props.items.filter(
+                    (item) => item.state === column.key
+                  );
+                  return (
+                    <section className="min-w-0" key={column.key}>
+                      <div className="mb-2 flex items-center justify-between px-1">
+                        <span className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+                          {column.label}
+                        </span>
+                        <Badge size="sm" variant="secondary">
+                          {columnItems.length}
+                        </Badge>
+                      </div>
+                      <div className="space-y-2">
+                        {columnItems.map((item) => (
+                          <WorkItemCard
+                            item={item}
+                            key={item.id}
+                            onSelect={props.onSelect}
+                            selected={props.selected?.id === item.id}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <SubMilestoneList
+              expandedId={expandedId}
+              items={props.items}
+              onAdvance={props.advanceSelected}
+              onExpand={(id) => {
+                props.onSelect(id);
+                setExpandedId((current) => (current === id ? null : id));
+              }}
+              role={props.role}
+            />
+          )}
         </FramePanel>
       </Frame>
-      <div className="border-t pt-4">
-        <GateInspector
-          onAdvance={props.advanceSelected}
-          role={props.role}
-          selected={props.selected}
-          variant="console"
-        />
+      {workView === "board" ? (
+        <div className="border-t pt-4">
+          <GateInspector
+            onAdvance={props.advanceSelected}
+            role={props.role}
+            selected={props.selected}
+            variant="console"
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MilestoneOversight({
+  onToggle,
+  open,
+  role,
+}: {
+  onToggle: () => void;
+  open: boolean;
+  role: SystemPostPrototypeRole;
+}) {
+  const backoffice = role === "lender_staff" || role === "lender_admin";
+  const evidence = [
+    "North wall forms",
+    "Rebar grid B",
+    "Primer coverage",
+    "Membrane termination",
+    "Drain tile outlet",
+    "Washed stone lift",
+  ];
+  return (
+    <Frame>
+      <FramePanel className="p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="warning">
+              <CalendarCheck className="mr-1 size-3" /> 1 active visit
+            </Badge>
+            <Badge variant="outline">
+              <FileCheck2 className="mr-1 size-3" /> 2 completed reports
+            </Badge>
+            <Badge variant="outline">
+              <ImageIcon className="mr-1 size-3" /> 14 evidence photos
+            </Badge>
+            <Badge variant="info">3 new</Badge>
+          </div>
+          <div className="flex items-center gap-1">
+            {backoffice ? (
+              <Button size="sm" type="button">
+                Order site visit
+              </Button>
+            ) : null}
+            <Button
+              aria-expanded={open}
+              onClick={onToggle}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              {open ? "Hide" : "Visits & evidence"}
+              {open ? (
+                <ChevronUp className="size-4" />
+              ) : (
+                <ChevronDown className="size-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+        {open ? (
+          <div className="mt-3 space-y-4 border-t pt-3">
+            <div className="grid gap-2 sm:grid-cols-3">
+              <SiteVisitCard
+                meta="Aug 14 · Nora Patel · site visit ordered"
+                status="Active"
+                title="Foundation risk review"
+              />
+              <SiteVisitCard
+                meta="Completed Aug 12 · 6 evidence images"
+                status="Passed with note"
+                title="Waterproofing report"
+              />
+              <SiteVisitCard
+                meta="Completed Jul 31 · 4 evidence images"
+                status="Approved"
+                title="Drainage inspection"
+              />
+            </div>
+            <section>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="font-medium text-sm">Aggregated evidence</p>
+                  <p className="text-muted-foreground text-xs">
+                    Builder uploads and completed Site Visit evidence
+                  </p>
+                </div>
+                <Button size="sm" type="button" variant="outline">
+                  View all 14
+                </Button>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {evidence.map((label, index) => (
+                  <Card className="shadow-none" key={label}>
+                    <CardPanel className="p-2">
+                      <div className="grid aspect-[16/9] place-items-center rounded-lg bg-muted/60">
+                        <ImageIcon className="size-5 text-muted-foreground" />
+                      </div>
+                      <p className="mt-2 truncate font-medium text-xs">
+                        {label}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        {index < 2 ? "Builder evidence" : "Site Visit evidence"}
+                      </p>
+                    </CardPanel>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          </div>
+        ) : null}
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function SiteVisitCard({
+  meta,
+  status,
+  title,
+}: {
+  meta: string;
+  status: string;
+  title: string;
+}) {
+  return (
+    <Card className="shadow-none">
+      <CardPanel className="space-y-3 p-3">
+        <div className="flex items-start justify-between gap-2">
+          <CalendarCheck className="size-4 text-muted-foreground" />
+          <Badge
+            size="sm"
+            variant={status === "Active" ? "warning" : "success"}
+          >
+            {status}
+          </Badge>
+        </div>
+        <div>
+          <p className="font-medium text-sm">{title}</p>
+          <p className="mt-1 text-muted-foreground text-xs">{meta}</p>
+        </div>
+        <Button className="w-full" size="sm" type="button" variant="outline">
+          {status === "Active" ? "View visit" : "View report"}
+        </Button>
+      </CardPanel>
+    </Card>
+  );
+}
+
+function SubMilestoneList({
+  expandedId,
+  items,
+  onAdvance,
+  onExpand,
+  role,
+}: {
+  expandedId: string | null;
+  items: WorkItem[];
+  onAdvance: () => void;
+  onExpand: (id: string) => void;
+  role: SystemPostPrototypeRole;
+}) {
+  return (
+    <div className="space-y-2">
+      {items.map((item) => {
+        const expanded = expandedId === item.id;
+        return (
+          <Card
+            className={cn("shadow-none", expanded && "ring-1 ring-primary/25")}
+            key={item.id}
+          >
+            <button
+              aria-expanded={expanded}
+              className="grid w-full gap-3 p-3 text-left sm:grid-cols-[minmax(0,1fr)_8rem_9rem_8rem_auto] sm:items-center"
+              onClick={() => onExpand(item.id)}
+              type="button"
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-sm">
+                  {item.title}
+                </span>
+                <span className="mt-1 block text-muted-foreground text-xs">
+                  {item.code} · {item.assignee}
+                </span>
+              </span>
+              <Badge className="w-fit" variant={stateTone(item.state)}>
+                {stateLabel(item.state)}
+              </Badge>
+              <span className="text-muted-foreground text-xs">
+                {item.plannedStart} → {item.plannedEnd}
+              </span>
+              <span className="text-xs">
+                <span className="font-medium">{item.budget}</span>
+                <span className="block text-muted-foreground">budget</span>
+              </span>
+              {expanded ? (
+                <ChevronUp className="size-4" />
+              ) : (
+                <ChevronDown className="size-4" />
+              )}
+            </button>
+            {expanded ? (
+              <SubMilestoneExpandedDetails
+                item={item}
+                onAdvance={onAdvance}
+                role={role}
+              />
+            ) : null}
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function SubMilestoneExpandedDetails({
+  item,
+  onAdvance,
+  role,
+}: {
+  item: WorkItem;
+  onAdvance: () => void;
+  role: SystemPostPrototypeRole;
+}) {
+  const command = commandForWorkItem(item.state, role);
+  return (
+    <CardPanel className="space-y-5 border-t p-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <DetailBlock label="Description" value={item.description} />
+        <DetailBlock label="Field notes" value={item.fieldNotes} />
+        <DetailBlock label="Scope" value={item.scope} />
+        <div className="grid grid-cols-2 gap-2">
+          <CompactFact label="Actual start" value={item.actualStart} />
+          <CompactFact label="Actual end" value={item.actualEnd} />
+          <CompactFact label="Planned start" value={item.plannedStart} />
+          <CompactFact label="Planned end" value={item.plannedEnd} />
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <CompactFact label="Budget" value={item.budget} />
+        <CompactFact label="Actual / committed" value={item.actualCost} />
+        <CompactFact label="Draw unlock" value={item.drawUnlock} />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <section>
+          <div className="flex items-center justify-between gap-2">
+            <p className="flex items-center gap-1 font-medium text-sm">
+              <Wrench className="size-4" /> Trades & suppliers
+            </p>
+            <Button size="sm" type="button" variant="outline">
+              Manage assignments
+            </Button>
+          </div>
+          <ChipGroup label="Tradespeople" values={item.tradespeople} />
+          <ChipGroup label="Suppliers" values={item.suppliers} />
+          <ChipGroup label="Materials" values={item.materials} />
+        </section>
+        <section>
+          <p className="flex items-center gap-1 font-medium text-sm">
+            <CalendarCheck className="size-4" /> Site visits
+          </p>
+          <div className="mt-2 space-y-2">
+            <CompactFact label="Ordered" value={item.orderedSiteVisit} />
+            <CompactFact
+              label="Completed report"
+              value={item.completedVisitReport}
+            />
+            {item.completedVisitReport === "None" ? null : (
+              <Button size="sm" type="button" variant="outline">
+                View report and evidence
+              </Button>
+            )}
+          </div>
+        </section>
+      </div>
+      <section>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="flex items-center gap-1 font-medium text-sm">
+              <ImageIcon className="size-4" /> Builder evidence
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Every uploaded photo remains attached to its Evidence Package
+              revision.
+            </p>
+          </div>
+          <Badge variant="outline">{item.builderEvidence.length} photos</Badge>
+        </div>
+        {item.builderEvidence.length > 0 ? (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {item.builderEvidence.map((photo) => (
+              <Card className="shadow-none" key={photo}>
+                <CardPanel className="p-2">
+                  <div className="grid aspect-[16/9] place-items-center rounded-lg bg-muted/60">
+                    <ImageIcon className="size-5 text-muted-foreground" />
+                  </div>
+                  <p className="mt-2 truncate text-xs">{photo}</p>
+                </CardPanel>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 rounded-lg border border-dashed p-3 text-muted-foreground text-xs">
+            No Builder evidence uploaded yet.
+          </p>
+        )}
+      </section>
+      <NextGateBand command={command} onAdvance={onAdvance} role={role} />
+    </CardPanel>
+  );
+}
+
+function DetailBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="font-medium text-xs">{label}</p>
+      <p className="mt-1 text-muted-foreground text-sm leading-5">{value}</p>
+    </div>
+  );
+}
+
+function CompactFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-muted/45 px-3 py-2">
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <p className="mt-1 font-medium text-sm">{value}</p>
+    </div>
+  );
+}
+
+function ChipGroup({ label, values }: { label: string; values: string[] }) {
+  return (
+    <div className="mt-3">
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {values.map((value) => (
+          <Badge key={value} variant="outline">
+            {value}
+          </Badge>
+        ))}
       </div>
     </div>
   );
@@ -1029,39 +1665,52 @@ function ControlRoomVariant(props: VariantProps) {
   );
 }
 
-function MilestoneSummary({
-  compact = false,
-  items,
-}: {
-  compact?: boolean;
-  items: WorkItem[];
-}) {
+function MilestoneSummary({ items }: { compact?: boolean; items: WorkItem[] }) {
   return (
-    <Frame>
-      <FramePanel
-        className={cn(
-          "grid gap-3 p-3",
-          compact
-            ? "grid-cols-2 sm:grid-cols-5"
-            : "sm:grid-cols-3 xl:grid-cols-6"
-        )}
-      >
-        {STATE_COLUMNS.map((column) => (
-          <SummaryMetric
+    <fieldset
+      aria-label="Sub-milestone state totals"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-y py-2 text-xs"
+    >
+      {STATE_COLUMNS.map((column) => {
+        const count = items.filter((item) => item.state === column.key).length;
+        return (
+          <span
+            className="flex items-center gap-1 text-muted-foreground"
             key={column.key}
-            label={column.label}
-            tone={stateTone(column.key)}
-            value={String(
-              items.filter((item) => item.state === column.key).length
-            )}
-          />
-        ))}
-        {compact ? null : (
-          <SummaryMetric label="Plan changed" tone="warning" value="r6 → r7" />
-        )}
-      </FramePanel>
-    </Frame>
+            title={`${column.label}: ${count}`}
+          >
+            <StatePulseIcon state={column.key} />
+            <span className="sr-only">{column.label}</span>
+            <span className="font-semibold text-foreground">{count}</span>
+          </span>
+        );
+      })}
+      <span
+        className="flex items-center gap-1 text-warning"
+        title="Planning revision changed from 6 to 7"
+      >
+        <GitCompareArrows className="size-3.5" />
+        <span className="sr-only">Plan changed</span>
+        <span className="font-semibold">r7</span>
+      </span>
+    </fieldset>
   );
+}
+
+function StatePulseIcon({ state }: { state: WorkState }) {
+  if (state === "behind_schedule") {
+    return <AlertTriangle className="size-3.5 text-destructive" />;
+  }
+  if (state === "in_progress") {
+    return <PlayCircle className="size-3.5 text-info" />;
+  }
+  if (state === "in_review") {
+    return <Eye className="size-3.5 text-warning" />;
+  }
+  if (state === "approved") {
+    return <CheckCircle2 className="size-3.5 text-success" />;
+  }
+  return <Circle className="size-3.5 text-muted-foreground" />;
 }
 
 function SummaryMetric({
