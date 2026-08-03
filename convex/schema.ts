@@ -2224,11 +2224,15 @@ export default defineSchema({
   })
     .index("by_brokerage", ["brokerageId"])
     .index("by_organization", ["organizationId"])
+    .index("by_organization_status", ["organizationId", "status"])
     .index("by_organization_templateKey", ["organizationId", "templateKey"]),
   quoteResponseTemplateVersions: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
     templateId: v.id("quoteResponseTemplates"),
+    name: v.string(),
+    description: v.optional(v.string()),
+    audience: quoteResponseTemplateAudienceValidator,
     version: v.number(),
     status: v.union(v.literal("draft"), v.literal("published")),
     releaseNote: v.optional(v.string()),
@@ -2241,6 +2245,7 @@ export default defineSchema({
   })
     .index("by_template", ["templateId"])
     .index("by_template_version", ["templateId", "version"])
+    .index("by_template_status", ["templateId", "status"])
     .index("by_organization_status", ["organizationId", "status"]),
   quoteResponseTemplateFields: defineTable({
     brokerageId: v.id("brokerages"),

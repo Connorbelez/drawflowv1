@@ -19,7 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 
 import { FieldRichTextEditor } from "#/components/rich-text/field-rich-text.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -86,8 +86,11 @@ export type QuoteTemplateField = {
 
 type QuoteTemplateVersion = {
   _id: string;
+  audience: Audience;
   createdAt: number;
-  fields: QuoteTemplateField[];
+  description?: string;
+  fields?: QuoteTemplateField[];
+  name: string;
   publishedAt?: number;
   releaseNote?: string;
   status: "draft" | "published";
@@ -108,10 +111,12 @@ type QuoteTemplate = {
   status: "active" | "archived";
   templateKey: string;
   updatedAt: number;
-  versions: Array<Omit<QuoteTemplateVersion, "fields">>;
+  versions?: Array<Omit<QuoteTemplateVersion, "fields">>;
 };
 
 type Registry = { templates: QuoteTemplate[] };
+
+type PendingMutation = "create" | "save" | "publish" | "select" | null;
 
 const STEPS: Array<{ id: Step; label: string }> = [
   { id: "identity", label: "Identity" },
@@ -192,16 +197,52 @@ function cloneFields(fields: QuoteTemplateField[] | undefined) {
   );
 }
 
+function draftFieldInputs(fields: QuoteTemplateField[]) {
+  return fields.map((field) => ({
+    allowAlternates: field.allowAlternates,
+    allowExclusions: field.allowExclusions,
+    choiceOptions: field.choiceOptions,
+    fieldKey: field.fieldKey,
+    kind: field.kind,
+    label: field.label,
+    order: field.order,
+    renderer: field.renderer,
+    required: field.required,
+    repeatable: field.repeatable,
+    richTextDefaultHtml: field.richTextDefaultHtml,
+    scope: field.scope,
+    supportsTax: field.supportsTax,
+    tax: field.tax,
+    validation: field.validation,
+  }));
+}
+
+function safeErrorMessage(error: unknown, fallback: string) {
+  const raw = error instanceof Error ? error.message.trim() : "";
+  if (!raw) return fallback;
+  if (raw === "save failed") return raw;
+  const clean = raw.replace(/^ConvexError:\s*/i, "").split("\n", 1)[0]?.trim() ?? "";
+  if (!clean || clean.length > 180 || /\b(stack|mutation|query|database|internal)\b/i.test(clean)) {
+    return fallback;
+  }
+  return clean;
+}
+
 export function QuoteTemplateRegistry({
   workosOrganizationId,
 }: {
   workosOrganizationId: string;
 }) {
-  const registryQuery = useQuery(
+  const registryPage = usePaginatedQuery(
     api.quote_response_templates.listQuoteResponseTemplates,
-    { workosOrganizationId }
+    { workosOrganizationId },
+    { initialNumItems: 50 }
   );
-  const registry = registryQuery as Registry | undefined;
+  const registry = registryPage.status === "LoadingFirstPage"
+    ? undefined
+    : ({ templates: registryPage.results } as Registry);
+  const canLoadMore = registryPage.status === "CanLoadMore";
+  const loadingMore = registryPage.status === "LoadingMore";
   const [mode, setMode] = useState<"registry" | "guided">("registry");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>();
   const [newTemplateOpen, setNewTemplateOpen] = useState(false);
@@ -214,10 +255,36 @@ export function QuoteTemplateRegistry({
   const [draftFields, setDraftFields] = useState<QuoteTemplateField[]>([]);
   const [releaseNote, setReleaseNote] = useState("");
   const [message, setMessage] = useState<string>();
+  const [inspectedVersionId, setInspectedVersionId] = useState<string>();
+  const [pendingMutation, setPendingMutation] = useState<PendingMutation>(null);
 
-  const selectedTemplate = registry?.templates.find(
+  const selectedTemplateSummary = registry?.templates.find(
     (template) => template._id === selectedTemplateId
   );
+  const selectedTemplateDetailsQuery = useQuery(
+    api.quote_response_templates.getQuoteResponseTemplate,
+    selectedTemplateId
+      ? {
+          templateId: selectedTemplateId as never,
+          workosOrganizationId,
+        }
+      : "skip"
+  );
+  const selectedTemplateDetails = selectedTemplateDetailsQuery as QuoteTemplate | null | undefined;
+  const selectedTemplate = selectedTemplateDetails ?? selectedTemplateSummary;
+  const selectedTemplateHydrated = selectedTemplateDetails !== undefined && selectedTemplateDetails !== null;
+  const inspectedVersionQuery = useQuery(
+    api.quote_response_templates.getQuoteResponseTemplateVersion,
+    selectedTemplateId && inspectedVersionId
+      ? {
+          templateId: selectedTemplateId as never,
+          versionId: inspectedVersionId as never,
+          workosOrganizationId,
+        }
+      : "skip"
+  );
+  const inspectedVersion = inspectedVersionQuery as QuoteTemplateVersion | null | undefined;
+  const isPending = pendingMutation !== null;
   const draftVersion = selectedTemplate?.currentVersion?.status === "draft"
     ? selectedTemplate.currentVersion
     : undefined;
@@ -239,12 +306,14 @@ export function QuoteTemplateRegistry({
 
   const openTemplate = (template: QuoteTemplate) => {
     setSelectedTemplateId(template._id);
+    setInspectedVersionId(undefined);
     setMessage(undefined);
   };
 
   const beginNewTemplate = () => {
     setNewTemplateOpen(true);
     setSelectedTemplateId(undefined);
+    setInspectedVersionId(undefined);
     setMessage(undefined);
   };
 
@@ -252,9 +321,9 @@ export function QuoteTemplateRegistry({
     setSelectedTemplateId(template._id);
     setDraftTemplateId(template._id);
     setDraftVersionId(version?._id);
-    setDraftName(template.name);
-    setDraftDescription(template.description ?? "");
-    setDraftAudience(template.audience);
+    setDraftName(version?.name ?? template.name);
+    setDraftDescription(version?.description ?? template.description ?? "");
+    setDraftAudience(version?.audience ?? template.audience);
     setDraftFields(cloneFields(version?.fields ?? template.currentVersion?.fields));
     setStep("identity");
     setMode("guided");
@@ -262,6 +331,8 @@ export function QuoteTemplateRegistry({
   };
 
   const createTemplate = async () => {
+    if (isPending) return;
+    setPendingMutation("create");
     try {
       const created = await createDraft({
         audience: draftAudience,
@@ -278,20 +349,27 @@ export function QuoteTemplateRegistry({
       setStep("identity");
       setMessage("Draft created. Continue through the Guided Template Recipe.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not create draft.");
+      setMessage(safeErrorMessage(error, "Could not create draft."));
+    } finally {
+      setPendingMutation(null);
     }
   };
 
-  const saveCurrentDraft = async (): Promise<boolean> => {
+  const saveCurrentDraft = async (preservePublish = false): Promise<boolean> => {
+    if (!preservePublish && (pendingMutation === "save" || isPending)) {
+      return false;
+    }
     if (!(effectiveDraftId && effectiveVersionId)) {
       setMessage("Choose a draft version before saving.");
       return false;
     }
+    const publishing = preservePublish || pendingMutation === "publish";
+    setPendingMutation("save");
     try {
       await saveDraft({
         audience: draftAudience,
         description: draftDescription,
-        fields: normalizeOrder(draftFields),
+        fields: draftFieldInputs(normalizeOrder(draftFields)),
         name: draftName,
         templateId: effectiveDraftId as never,
         versionId: effectiveVersionId as never,
@@ -301,43 +379,52 @@ export function QuoteTemplateRegistry({
       setMessage("Draft saved and validated.");
       return true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save draft.");
+      setMessage(safeErrorMessage(error, "Could not save draft."));
       return false;
+    } finally {
+      setPendingMutation((current) => publishing ? "publish" : current === "save" ? null : current);
     }
   };
 
   const ensureNewVersionDraft = async () => {
-    if (!selectedTemplate) {
+    if (isPending) return;
+    if (!selectedTemplate || !selectedTemplateHydrated) {
+      setMessage("Loading the selected version details…");
       return;
     }
+    setPendingMutation("create");
     try {
       const created = await createDraft({
-        audience: selectedTemplate.audience,
-        description: selectedTemplate.description,
-        name: selectedTemplate.name,
+        audience: selectedTemplate.currentVersion?.audience ?? selectedTemplate.audience,
+        description: selectedTemplate.currentVersion?.description ?? selectedTemplate.description,
+        name: selectedTemplate.currentVersion?.name ?? selectedTemplate.name,
         sourceTemplateId: selectedTemplate._id as never,
         workosOrganizationId,
       });
       setDraftTemplateId(String(created.templateId));
       setDraftVersionId(String(created.versionId));
-      setDraftName(selectedTemplate.name);
-      setDraftDescription(selectedTemplate.description ?? "");
-      setDraftAudience(selectedTemplate.audience);
+      setDraftName(selectedTemplate.currentVersion?.name ?? selectedTemplate.name);
+      setDraftDescription(selectedTemplate.currentVersion?.description ?? selectedTemplate.description ?? "");
+      setDraftAudience(selectedTemplate.currentVersion?.audience ?? selectedTemplate.audience);
       setDraftFields(cloneFields(selectedTemplate.currentVersion?.fields));
       setMode("guided");
       setStep("identity");
       setMessage("A new immutable version draft is ready to edit.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not create version draft.");
+      setMessage(safeErrorMessage(error, "Could not create version draft."));
+    } finally {
+      setPendingMutation(null);
     }
   };
 
   const publishCurrentDraft = async () => {
+    if (isPending) return;
     if (!(effectiveDraftId && effectiveVersionId)) {
       return;
     }
+    setPendingMutation("publish");
     try {
-      const saved = await saveCurrentDraft();
+      const saved = await saveCurrentDraft(true);
       if (!saved) {
         return;
       }
@@ -350,14 +437,17 @@ export function QuoteTemplateRegistry({
       setMode("registry");
       setMessage("Published. Existing Quote Rounds remain pinned to their version snapshot.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not publish version.");
+      setMessage(safeErrorMessage(error, "Could not publish version."));
+    } finally {
+      setPendingMutation(null);
     }
   };
 
   const selectPublishedVersion = async (versionId: string) => {
-    if (!selectedTemplate) {
+    if (isPending || !selectedTemplate) {
       return;
     }
+    setPendingMutation("select");
     try {
       await selectVersion({
         templateId: selectedTemplate._id as never,
@@ -366,8 +456,14 @@ export function QuoteTemplateRegistry({
       });
       setMessage("Selected version updated for new Quote Rounds.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not select version.");
+      setMessage(safeErrorMessage(error, "Could not select version."));
+    } finally {
+      setPendingMutation(null);
     }
+  };
+
+  const inspectVersion = (versionId: string) => {
+    setInspectedVersionId((current) => current === versionId ? undefined : versionId);
   };
 
   const registryContent = (
@@ -378,12 +474,20 @@ export function QuoteTemplateRegistry({
       onCancelNew={() => setNewTemplateOpen(false)}
       onCreate={createTemplate}
       onCreateNextVersion={ensureNewVersionDraft}
+      onInspectVersion={inspectVersion}
+      onLoadMore={() => registryPage.loadMore(50)}
       onOpenTemplate={openTemplate}
       onSelectVersion={selectPublishedVersion}
       onStartGuided={startGuided}
       registry={registry}
       selectedTemplate={selectedTemplate}
       selectedTemplateId={selectedTemplateId}
+      selectedTemplateHydrated={selectedTemplateHydrated}
+      inspectedVersion={inspectedVersion}
+      inspectedVersionId={inspectedVersionId}
+      isPending={isPending}
+      canLoadMore={canLoadMore}
+      loadingMore={loadingMore}
       setDraftAudience={setDraftAudience}
       setDraftDescription={setDraftDescription}
       setDraftName={setDraftName}
@@ -406,6 +510,7 @@ export function QuoteTemplateRegistry({
         onSave={saveCurrentDraft}
         releaseNote={releaseNote}
         selectedTemplate={selectedTemplate}
+        isPending={isPending}
         setDraftAudience={setDraftAudience}
         setDraftDescription={setDraftDescription}
         setDraftFields={setDraftFields}
@@ -430,12 +535,20 @@ function TemplateRegistryPanel({
   onCancelNew,
   onCreate,
   onCreateNextVersion,
+  onInspectVersion,
+  onLoadMore,
   onOpenTemplate,
   onSelectVersion,
   onStartGuided,
   registry,
   selectedTemplate,
   selectedTemplateId,
+  selectedTemplateHydrated,
+  inspectedVersion,
+  inspectedVersionId,
+  isPending,
+  canLoadMore,
+  loadingMore,
   setDraftAudience,
   setDraftDescription,
   setDraftName,
@@ -449,12 +562,20 @@ function TemplateRegistryPanel({
   onCancelNew: () => void;
   onCreate: () => void;
   onCreateNextVersion: () => void;
+  onInspectVersion: (versionId: string) => void;
+  onLoadMore: () => void;
   onOpenTemplate: (template: QuoteTemplate) => void;
   onSelectVersion: (versionId: string) => void;
   onStartGuided: (template: QuoteTemplate, version?: QuoteTemplateVersion) => void;
   registry?: Registry;
   selectedTemplate?: QuoteTemplate;
   selectedTemplateId?: string;
+  selectedTemplateHydrated: boolean;
+  inspectedVersion?: QuoteTemplateVersion | null;
+  inspectedVersionId?: string;
+  isPending: boolean;
+  canLoadMore: boolean;
+  loadingMore: boolean;
   setDraftAudience: (value: Audience) => void;
   setDraftDescription: (value: string) => void;
   setDraftName: (value: string) => void;
@@ -471,7 +592,7 @@ function TemplateRegistryPanel({
                   Govern reusable response contracts and immutable versions.
                 </FrameDescription>
               </div>
-              <Button onClick={onBeginNew}>
+              <Button disabled={isPending} onClick={onBeginNew}>
                 <Plus />
                 New template
               </Button>
@@ -510,7 +631,7 @@ function TemplateRegistryPanel({
                   </label>
                   <div className="flex justify-end gap-2">
                     <Button onClick={onCancelNew} variant="ghost">Cancel</Button>
-                    <Button disabled={!draftName.trim()} onClick={onCreate}><Plus />Create draft</Button>
+                    <Button disabled={!draftName.trim() || isPending} onClick={onCreate}><Plus />Create draft</Button>
                   </div>
                 </CardPanel>
               </Card>
@@ -539,11 +660,12 @@ function TemplateRegistryPanel({
                           <Badge variant={current?.status === "published" ? "success" : "warning"}>{current?.status === "published" ? "Published" : "Draft"}</Badge>
                           <Badge variant="outline">v{current?.version ?? 1}</Badge>
                         </span>
-                        <span className="text-muted-foreground text-xs">{template.versions.filter((version) => version.status === "published").length} published</span>
+                        <span className="text-muted-foreground text-xs">{current ? `${current.status === "published" ? "Published" : "Draft"} v${current.version}` : "No version"}</span>
                       </CardPanel>
                     </Card>
                   );
                 })}
+                {canLoadMore ? <Button className="w-full" disabled={loadingMore} onClick={onLoadMore} variant="outline">{loadingMore ? "Loading more…" : "Load more templates"}</Button> : null}
               </div>
             )}
           </FramePanel>
@@ -560,29 +682,29 @@ function TemplateRegistryPanel({
             {selectedTemplate ? (
               <>
                 <PermanentFormAnatomy compact />
-                <TemplateContractRow label="Custom fields" value={`${Math.max(0, (selectedTemplate.currentVersion?.fields.length ?? 3) - 3)} configured`} />
-                <TemplateContractRow label="Version history" value={`${selectedTemplate.versions.filter((version) => version.status === "published").length} published · ${selectedTemplate.versions.filter((version) => version.status === "draft").length} draft`} />
+                <TemplateContractRow label="Custom fields" value={selectedTemplateHydrated ? `${Math.max(0, (selectedTemplate.currentVersion?.fields?.length ?? 3) - 3)} configured` : "Loading details…"} />
+                <TemplateContractRow label="Version history" value={selectedTemplateHydrated ? `${selectedTemplate.versions?.filter((version) => version.status === "published").length ?? 0} published · ${selectedTemplate.versions?.filter((version) => version.status === "draft").length ?? 0} draft` : "Loading details…"} />
                 <div className="grid grid-cols-2 gap-2">
                   {selectedTemplate.currentVersion?.status === "draft" ? (
-                    <Button className="col-span-2" onClick={() => onStartGuided(selectedTemplate, selectedTemplate.currentVersion ?? undefined)} variant="outline"><Pencil />Edit draft</Button>
+                    <Button className="col-span-2" disabled={isPending || !selectedTemplateHydrated} onClick={() => onStartGuided(selectedTemplate, selectedTemplate.currentVersion ?? undefined)} variant="outline"><Pencil />Edit draft</Button>
                   ) : (
-                    <Button className="col-span-2" onClick={onCreateNextVersion}><Copy />Create next version draft</Button>
+                    <Button className="col-span-2" disabled={isPending || !selectedTemplateHydrated} onClick={onCreateNextVersion}><Copy />Create next version draft</Button>
                   )}
                 </div>
                 <div className="space-y-2 border-t pt-3">
                   <p className="font-semibold text-sm">Version history</p>
-                  {selectedTemplate.versions.map((version) => (
+                  {(selectedTemplate.versions ?? []).map((version) => (
                     <div className="flex items-center gap-2" key={version._id}>
                       <span className="min-w-0 flex-1 text-xs">v{version.version} · {version.status}</span>
-                      {version.status === "published" ? <Button onClick={() => onSelectVersion(version._id)} size="sm" variant={selectedTemplate.selectedVersion?._id === version._id ? "secondary" : "ghost"}>{selectedTemplate.selectedVersion?._id === version._id ? "Selected" : "Select"}</Button> : null}
+                      <Button disabled={isPending} onClick={() => onInspectVersion(version._id)} size="sm" variant={inspectedVersionId === version._id ? "secondary" : "ghost"}>{inspectedVersionId === version._id ? "Inspecting" : "Inspect"}</Button>
+                      {version.status === "published" ? <Button disabled={isPending} onClick={() => onSelectVersion(version._id)} size="sm" variant={selectedTemplate.selectedVersion?._id === version._id ? "secondary" : "ghost"}>{selectedTemplate.selectedVersion?._id === version._id ? "Selected" : "Select"}</Button> : null}
                     </div>
                   ))}
                 </div>
-                {selectedTemplate.selectedVersion ? (
-                  <div className="space-y-2 border-t pt-3">
-                    <div className="flex items-center gap-2"><History className="size-4" /><p className="font-semibold text-sm">Selected version inspection</p></div>
-                    {selectedTemplate.selectedVersion.fields.filter((field) => !PERMANENT_KEYS.has(field.fieldKey)).map((field) => <div className="flex items-center gap-2 text-xs" key={field.fieldKey}><span className="min-w-0 flex-1 truncate">{field.label}</span><Badge variant="outline">{KIND_LABELS[field.kind]}</Badge>{field.required ? <Badge variant="secondary">Required</Badge> : null}</div>)}
-                  </div>
+                {inspectedVersionId ? (
+                  inspectedVersion ? <VersionInspectionPanel heading={`Inspecting v${inspectedVersion.version} · Read-only`} version={inspectedVersion} /> : <div className="border-t pt-3 text-muted-foreground text-sm">Loading historical version…</div>
+                ) : selectedTemplate.selectedVersion && selectedTemplate.selectedVersion.fields ? (
+                  <VersionInspectionPanel heading="Selected version inspection" version={selectedTemplate.selectedVersion} />
                 ) : null}
               </>
             ) : (
@@ -595,11 +717,34 @@ function TemplateRegistryPanel({
   );
 }
 
+function VersionInspectionPanel({
+  heading,
+  version,
+}: {
+  heading: string;
+  version: QuoteTemplateVersion;
+}) {
+  return (
+    <div className="space-y-2 border-t pt-3" aria-label={heading}>
+      <div className="flex items-center gap-2"><History className="size-4" /><p className="font-semibold text-sm">{heading}</p></div>
+      <p className="text-muted-foreground text-xs">{version.name} · {audienceLabel(version.audience)}{version.description ? ` · ${version.description}` : ""}</p>
+      {(version.fields ?? []).filter((field) => !PERMANENT_KEYS.has(field.fieldKey)).map((field) => (
+        <div className="flex items-center gap-2 text-xs" key={field.fieldKey}>
+          <span className="min-w-0 flex-1 truncate">{field.label}</span>
+          <Badge variant="outline">{KIND_LABELS[field.kind]}</Badge>
+          {field.required ? <Badge variant="secondary">Required</Badge> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function GuidedTemplateRecipe({
   draftAudience,
   draftDescription,
   draftFields,
   draftName,
+  isPending,
   message,
   onBack,
   onPublish,
@@ -618,6 +763,7 @@ function GuidedTemplateRecipe({
   draftDescription: string;
   draftFields: QuoteTemplateField[];
   draftName: string;
+  isPending: boolean;
   message?: string;
   onBack: () => void;
   onPublish: () => void;
@@ -691,7 +837,7 @@ function GuidedTemplateRecipe({
           <Button aria-label="Back to template registry" onClick={onBack} size="icon" variant="ghost"><ArrowLeft /></Button>
           <div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><p className="truncate font-semibold text-sm">Guided Template Recipe</p><Badge variant="info">Response templates</Badge></div><p className="truncate text-muted-foreground text-xs">{draftName || selectedTemplate?.name || "New response contract"} · Draft version</p></div>
           <Badge className="hidden sm:inline-flex" variant="outline"><LockKeyhole />Organization scoped</Badge>
-          <Button onClick={onSave} variant="outline"><Save />Save draft</Button>
+          <Button disabled={isPending} onClick={onSave} variant="outline"><Save />Save draft</Button>
         </div>
       </header>
       <main className="mx-auto grid max-w-[1480px] gap-4 p-3 sm:p-5 lg:grid-cols-[230px_minmax(0,1fr)_290px]">
@@ -710,7 +856,7 @@ function GuidedTemplateRecipe({
             {step === "preview" ? <PreviewStep customFields={customFields} fields={permanentFields} /> : null}
             {step === "publish" ? <PublishStep fields={draftFields} releaseNote={releaseNote} setReleaseNote={setReleaseNote} /> : null}
           </FramePanel>
-          <div className="flex items-center justify-between gap-2 px-3 py-3 sm:px-5"><Button disabled={stepIndex === 0} onClick={() => setStep(STEPS[Math.max(0, stepIndex - 1)]?.id ?? "identity")} variant="outline"><ArrowLeft />Back</Button><Button onClick={() => step === "publish" ? onPublish() : setStep(STEPS[Math.min(STEPS.length - 1, stepIndex + 1)]?.id ?? "publish")}>{step === "publish" ? "Publish immutable version" : "Continue"}{step === "publish" ? <ShieldCheck /> : <ArrowRight />}</Button></div>
+          <div className="flex items-center justify-between gap-2 px-3 py-3 sm:px-5"><Button disabled={stepIndex === 0 || isPending} onClick={() => setStep(STEPS[Math.max(0, stepIndex - 1)]?.id ?? "identity")} variant="outline"><ArrowLeft />Back</Button><Button disabled={isPending} onClick={() => step === "publish" ? onPublish() : setStep(STEPS[Math.min(STEPS.length - 1, stepIndex + 1)]?.id ?? "publish")}>{step === "publish" ? "Publish immutable version" : "Continue"}{step === "publish" ? <ShieldCheck /> : <ArrowRight />}</Button></div>
         </Frame>
         <Frame className="hidden self-start lg:flex"><FrameHeader><FrameTitle>Template contract</FrameTitle><FrameDescription>Permanent response boundaries.</FrameDescription></FrameHeader><FramePanel className="space-y-3 p-3"><TemplateContractRow label="Permanent regions" value="Labour · Materials · Comments" /><TemplateContractRow label="Custom fields" value={`${customFields.length} configured`} /><TemplateContractRow label="Audience" value={audienceLabel(draftAudience)} /><TemplateContractRow label="Versioning" value="Published versions are immutable" /></FramePanel></Frame>
       </main>
@@ -730,6 +876,18 @@ function EditableFieldCard({ field, onMove, onRemove, onUpdate }: { field: Quote
   const validation = field.validation ?? {};
   const updateValidation = (update: NonNullable<QuoteTemplateField["validation"]>) =>
     onUpdate(field.fieldKey, { validation: { ...validation, ...update } });
+  const updateKind = (kind: FieldKind) => onUpdate(field.fieldKey, {
+    allowAlternates: kind === "priced_line" ? false : undefined,
+    allowExclusions: kind === "priced_line" ? false : undefined,
+    choiceOptions: kind === "choice" ? ["Included", "Excluded"] : undefined,
+    kind,
+    renderer: "input",
+    repeatable: kind === "priced_line" ? false : undefined,
+    richTextDefaultHtml: undefined,
+    supportsTax: kind === "priced_line" ? false : undefined,
+    tax: undefined,
+    validation: undefined,
+  });
   return (
     <Card>
       <CardPanel className="space-y-3 p-3">
@@ -746,15 +904,17 @@ function EditableFieldCard({ field, onMove, onRemove, onUpdate }: { field: Quote
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
-          <label className="grid gap-1.5 text-xs"><span className="font-medium">Type</span><NativeSelect onChange={(event) => onUpdate(field.fieldKey, { kind: event.target.value as FieldKind, choiceOptions: event.target.value === "choice" ? ["Included", "Excluded"] : undefined })} value={field.kind}><NativeSelectOption value="priced_line">Priced line</NativeSelectOption><NativeSelectOption value="short_text">Short text</NativeSelectOption><NativeSelectOption value="long_text">Long text</NativeSelectOption><NativeSelectOption value="date">Date</NativeSelectOption><NativeSelectOption value="choice">Choice</NativeSelectOption><NativeSelectOption value="attachment">Attachment</NativeSelectOption></NativeSelect></label>
+          <label className="grid gap-1.5 text-xs"><span className="font-medium">Type</span><NativeSelect onChange={(event) => updateKind(event.target.value as FieldKind)} value={field.kind}><NativeSelectOption value="priced_line">Priced line</NativeSelectOption><NativeSelectOption value="short_text">Short text</NativeSelectOption><NativeSelectOption value="long_text">Long text</NativeSelectOption><NativeSelectOption value="date">Date</NativeSelectOption><NativeSelectOption value="choice">Choice</NativeSelectOption><NativeSelectOption value="attachment">Attachment</NativeSelectOption></NativeSelect></label>
           <label className="grid gap-1.5 text-xs"><span className="font-medium">Scope</span><NativeSelect onChange={(event) => onUpdate(field.fieldKey, { scope: event.target.value as FieldScope })} value={field.scope}><NativeSelectOption value="whole_quote">Whole quote</NativeSelectOption><NativeSelectOption value="labour">Labour</NativeSelectOption><NativeSelectOption value="materials">Materials</NativeSelectOption></NativeSelect></label>
           <label className="grid gap-1.5 text-xs"><span className="font-medium">Requiredness</span><NativeSelect onChange={(event) => onUpdate(field.fieldKey, { required: event.target.value === "required" })} value={field.required ? "required" : "optional"}><NativeSelectOption value="required">Required</NativeSelectOption><NativeSelectOption value="optional">Optional</NativeSelectOption></NativeSelect></label>
         </div>
         <div className="flex flex-wrap gap-2">
-          {field.kind === "priced_line" ? <Button onClick={() => onUpdate(field.fieldKey, { repeatable: !field.repeatable })} size="sm" variant={field.repeatable ? "secondary" : "outline"}>{field.repeatable ? "Repeatable lines" : "Single line"}</Button> : null}
-          <Button onClick={() => onUpdate(field.fieldKey, { allowAlternates: !field.allowAlternates })} size="sm" variant={field.allowAlternates ? "secondary" : "outline"}>Alternates</Button>
-          <Button onClick={() => onUpdate(field.fieldKey, { allowExclusions: !field.allowExclusions })} size="sm" variant={field.allowExclusions ? "secondary" : "outline"}>Exclusions</Button>
-          {field.kind === "priced_line" ? <Button onClick={() => onUpdate(field.fieldKey, { supportsTax: !field.supportsTax, tax: !field.supportsTax ? { label: field.tax?.label ?? "GST", rateBps: field.tax?.rateBps ?? 500 } : undefined })} size="sm" variant={field.supportsTax ? "secondary" : "outline"}>Tax</Button> : null}
+          {field.kind === "priced_line" ? <>
+            <Button onClick={() => onUpdate(field.fieldKey, { repeatable: !field.repeatable })} size="sm" variant={field.repeatable ? "secondary" : "outline"}>{field.repeatable ? "Repeatable lines" : "Single line"}</Button>
+            <Button onClick={() => onUpdate(field.fieldKey, { allowAlternates: !field.allowAlternates })} size="sm" variant={field.allowAlternates ? "secondary" : "outline"}>Alternates</Button>
+            <Button onClick={() => onUpdate(field.fieldKey, { allowExclusions: !field.allowExclusions })} size="sm" variant={field.allowExclusions ? "secondary" : "outline"}>Exclusions</Button>
+            <Button onClick={() => onUpdate(field.fieldKey, { supportsTax: !field.supportsTax, tax: !field.supportsTax ? { label: field.tax?.label ?? "GST", rateBps: field.tax?.rateBps ?? 500 } : undefined })} size="sm" variant={field.supportsTax ? "secondary" : "outline"}>Tax</Button>
+          </> : null}
         </div>
         {field.kind === "choice" ? <Input aria-label={`Choice options for ${field.label}`} onChange={(event) => onUpdate(field.fieldKey, { choiceOptions: event.target.value.split(",").map((option) => option.trim()).filter(Boolean) })} placeholder="Included, Excluded, Allowance" value={(field.choiceOptions ?? []).join(", ")} /> : null}
         {(field.kind === "short_text" || field.kind === "long_text") ? <div className="grid gap-3 sm:grid-cols-2"><label className="grid gap-1.5 text-xs"><span className="font-medium">Maximum length</span><Input aria-label={`Maximum length for ${field.label}`} inputMode="numeric" min={0} onChange={(event) => updateValidation({ maxLength: event.target.value ? Number(event.target.value) : undefined })} type="number" value={validation.maxLength ?? ""} /></label><label className="grid gap-1.5 text-xs"><span className="font-medium">Pattern (optional)</span><Input aria-label={`Validation pattern for ${field.label}`} onChange={(event) => updateValidation({ pattern: event.target.value || undefined })} placeholder="e.g. ^[A-Z]" value={validation.pattern ?? ""} /></label></div> : null}

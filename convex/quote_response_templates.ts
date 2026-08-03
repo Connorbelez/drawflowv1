@@ -1,3 +1,4 @@
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 
 import {
@@ -69,7 +70,10 @@ const quoteTemplateFieldValidator = v.object({
 
 const quoteTemplateVersionSummaryValidator = v.object({
   _id: v.id("quoteResponseTemplateVersions"),
+  audience: quoteTemplateAudienceValidator,
   createdAt: v.number(),
+  description: v.optional(v.string()),
+  name: v.string(),
   publishedAt: v.optional(v.number()),
   releaseNote: v.optional(v.string()),
   status: v.union(v.literal("draft"), v.literal("published")),
@@ -100,8 +104,11 @@ const quoteTemplateFieldResultValidator = v.object({
 
 const quoteTemplateVersionResultValidator = v.object({
   _id: v.id("quoteResponseTemplateVersions"),
+  audience: quoteTemplateAudienceValidator,
   createdAt: v.number(),
+  description: v.optional(v.string()),
   fields: v.array(quoteTemplateFieldResultValidator),
+  name: v.string(),
   publishedAt: v.optional(v.number()),
   releaseNote: v.optional(v.string()),
   status: v.union(v.literal("draft"), v.literal("published")),
@@ -125,9 +132,21 @@ const quoteTemplateResultValidator = v.object({
   versions: v.array(quoteTemplateVersionSummaryValidator),
 });
 
-const registryResultValidator = v.object({
-  templates: v.array(quoteTemplateResultValidator),
+const quoteTemplateSummaryResultValidator = v.object({
+  _id: v.id("quoteResponseTemplates"),
+  audience: quoteTemplateAudienceValidator,
+  createdAt: v.number(),
+  createdByWorkosUserId: v.string(),
+  currentVersion: v.union(quoteTemplateVersionSummaryValidator, v.null()),
+  description: v.optional(v.string()),
+  name: v.string(),
+  selectedVersion: v.union(quoteTemplateVersionSummaryValidator, v.null()),
+  status: v.union(v.literal("active"), v.literal("archived")),
+  templateKey: v.string(),
+  updatedAt: v.number(),
 });
+
+const registryResultValidator = paginationResultValidator(quoteTemplateSummaryResultValidator);
 
 const validationResultValidator = v.object({
   issues: v.array(v.string()),
@@ -277,6 +296,54 @@ function normalizedKey(value: string) {
   return value.trim().toLowerCase();
 }
 
+function hasAnyValidationKey(
+  validation: NonNullable<QuoteTemplateFieldInput["validation"]> | undefined,
+  keys: readonly (keyof NonNullable<QuoteTemplateFieldInput["validation"]>)[]
+) {
+  return keys.some((key) => validation?.[key] !== undefined);
+}
+
+function validateKindSpecificConfig(field: QuoteTemplateFieldInput, fieldKey: string) {
+  if (field.allowAlternates === true || field.allowExclusions === true) {
+    if (field.kind !== "priced_line") {
+      throw new ConvexError(`${fieldKey} alternates and exclusions are only supported for priced lines.`);
+    }
+  }
+  if (field.repeatable === true && field.kind !== "priced_line") {
+    throw new ConvexError(`${fieldKey} repeatable rows are only supported for priced lines.`);
+  }
+  if (field.kind !== "priced_line" && (field.supportsTax === true || field.tax !== undefined)) {
+    throw new ConvexError(`${fieldKey} tax configuration is only supported for priced lines.`);
+  }
+
+  const validation = field.validation;
+  if (field.kind === "priced_line") {
+    if (hasAnyValidationKey(validation, ["allowedMimeTypes", "maxFiles", "minFiles", "maxLength", "minLength", "pattern"])) {
+      throw new ConvexError(`${fieldKey} priced lines only support minimum and maximum amount validation.`);
+    }
+  } else if (field.kind === "attachment") {
+    if (hasAnyValidationKey(validation, ["maxLength", "minLength", "maxValueCents", "minValueCents", "pattern"])) {
+      throw new ConvexError(`${fieldKey} attachments only support file-count and MIME validation.`);
+    }
+  } else if (field.kind === "short_text" || field.kind === "long_text") {
+    if (hasAnyValidationKey(validation, ["allowedMimeTypes", "maxFiles", "minFiles", "maxValueCents", "minValueCents"])) {
+      throw new ConvexError(`${fieldKey} text fields only support length and pattern validation.`);
+    }
+  } else if (validation !== undefined) {
+    throw new ConvexError(`${fieldKey} does not support validation configuration.`);
+  }
+
+  if (field.kind !== "choice" && field.choiceOptions !== undefined) {
+    throw new ConvexError(`${fieldKey} choice options are only supported for choice fields.`);
+  }
+  if (field.richTextDefaultHtml !== undefined && (field.kind !== "long_text" || field.fieldKey !== "additional_comments")) {
+    throw new ConvexError(`${fieldKey} rich text defaults are reserved for Additional Comments.`);
+  }
+  if (field.renderer === "tiptap" && field.fieldKey !== "additional_comments") {
+    throw new ConvexError(`${fieldKey} TipTap rendering is reserved for Additional Comments.`);
+  }
+}
+
 function normalizeFieldInput(
   field: QuoteTemplateFieldInput,
   index: number
@@ -291,12 +358,19 @@ function normalizeFieldInput(
   if (!Number.isInteger(field.order) || field.order !== index) {
     throw new ConvexError("Fields must have contiguous order values starting at zero.");
   }
+  validateKindSpecificConfig(field, fieldKey);
+  if (field.richTextDefaultHtml !== undefined && field.richTextDefaultHtml.length > 20_000) {
+    throw new ConvexError(`${fieldKey} rich text default must be 20000 characters or fewer.`);
+  }
   const choiceOptions = field.choiceOptions
     ?.map((option) => requiredText(option, "Choice option", 120))
     .filter(Boolean);
   if (field.kind === "choice") {
     if (!choiceOptions || choiceOptions.length < 2) {
       throw new ConvexError(`${fieldKey} needs at least two choice options.`);
+    }
+    if (choiceOptions.length > 100) {
+      throw new ConvexError(`${fieldKey} supports at most 100 choice options.`);
     }
     if (new Set(choiceOptions.map(normalizedKey)).size !== choiceOptions.length) {
       throw new ConvexError(`${fieldKey} choice options must be unique.`);
@@ -330,7 +404,7 @@ function normalizeFieldInput(
     renderer: field.renderer ?? "input",
     required: field.required,
     repeatable: field.repeatable ?? false,
-    richTextDefaultHtml: field.richTextDefaultHtml?.slice(0, 20_000),
+    richTextDefaultHtml: field.richTextDefaultHtml,
     scope: field.scope,
     supportsTax: field.supportsTax ?? Boolean(tax),
     tax,
@@ -380,10 +454,12 @@ function normalizeValidation(
   if (value.pattern !== undefined && value.pattern.length > 300) {
     throw new ConvexError(`${fieldKey} validation pattern is too long.`);
   }
+  if (value.allowedMimeTypes !== undefined && value.allowedMimeTypes.length > 25) {
+    throw new ConvexError(`${fieldKey} supports at most 25 allowed MIME types.`);
+  }
   return {
     allowedMimeTypes: value.allowedMimeTypes
-      ?.map((mimeType) => requiredText(mimeType, "Allowed MIME type", 120))
-      .slice(0, 25),
+      ?.map((mimeType) => requiredText(mimeType, "Allowed MIME type", 120)),
     maxFiles: value.maxFiles,
     maxLength: value.maxLength,
     maxValueCents: value.maxValueCents,
@@ -485,7 +561,9 @@ async function readVersion(
     .collect();
   return {
     _id: version._id,
+    audience: version.audience,
     createdAt: version.createdAt,
+    description: version.description,
     fields: fields.map((field) => ({
       _id: field._id,
       allowAlternates: field.allowAlternates,
@@ -505,6 +583,23 @@ async function readVersion(
       tax: field.tax,
       validation: field.validation,
     })),
+    publishedAt: version.publishedAt,
+    releaseNote: version.releaseNote,
+    name: version.name,
+    status: version.status,
+    updatedAt: version.updatedAt,
+    validationState: version.validationState,
+    version: version.version,
+  };
+}
+
+function readVersionSummary(version: Doc<"quoteResponseTemplateVersions">) {
+  return {
+    _id: version._id,
+    audience: version.audience,
+    createdAt: version.createdAt,
+    description: version.description,
+    name: version.name,
     publishedAt: version.publishedAt,
     releaseNote: version.releaseNote,
     status: version.status,
@@ -529,28 +624,46 @@ async function readTemplate(
   const selectedVersion = template.selectedVersionId
     ? await ctx.db.get(template.selectedVersionId)
     : currentVersion;
+  const identityVersion = currentVersion ?? selectedVersion;
   return {
     _id: template._id,
-    audience: template.audience,
+    audience: identityVersion?.audience ?? template.audience,
     createdAt: template.createdAt,
     createdByWorkosUserId: template.createdByWorkosUserId,
     currentVersion: currentVersion ? await readVersion(ctx, currentVersion) : null,
-    description: template.description,
-    name: template.name,
+    description: identityVersion?.description ?? template.description,
+    name: identityVersion?.name ?? template.name,
     selectedVersion: selectedVersion ? await readVersion(ctx, selectedVersion) : null,
     status: template.status,
     templateKey: template.templateKey,
     updatedAt: template.updatedAt,
-    versions: versions.map((version) => ({
-      _id: version._id,
-      createdAt: version.createdAt,
-      publishedAt: version.publishedAt,
-      releaseNote: version.releaseNote,
-      status: version.status,
-      updatedAt: version.updatedAt,
-      validationState: version.validationState,
-      version: version.version,
-    })),
+    versions: versions.map(readVersionSummary),
+  };
+}
+
+async function readTemplateSummary(
+  ctx: QueryCtx | MutationCtx,
+  template: Doc<"quoteResponseTemplates">
+) {
+  const currentVersion = template.currentVersionId
+    ? await ctx.db.get(template.currentVersionId)
+    : null;
+  const selectedVersion = template.selectedVersionId
+    ? await ctx.db.get(template.selectedVersionId)
+    : currentVersion;
+  const identityVersion = currentVersion ?? selectedVersion;
+  return {
+    _id: template._id,
+    audience: identityVersion?.audience ?? template.audience,
+    createdAt: template.createdAt,
+    createdByWorkosUserId: template.createdByWorkosUserId,
+    currentVersion: currentVersion ? readVersionSummary(currentVersion) : null,
+    description: identityVersion?.description ?? template.description,
+    name: identityVersion?.name ?? template.name,
+    selectedVersion: selectedVersion ? readVersionSummary(selectedVersion) : null,
+    status: template.status,
+    templateKey: template.templateKey,
+    updatedAt: template.updatedAt,
   };
 }
 
@@ -605,17 +718,27 @@ async function auditTemplate(
 }
 
 export const listQuoteResponseTemplates = builderQuery
-  .input({ workosOrganizationId: v.string() })
+  .input({
+    paginationOpts: paginationOptsValidator,
+    workosOrganizationId: v.string(),
+  })
   .returns(registryResultValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
     const templates = await ctx.db
       .query("quoteResponseTemplates")
-      .withIndex("by_organization", (query) => query.eq("organizationId", authorization.organizationId))
-      .filter((query) => query.eq(query.field("status"), "active"))
+      .withIndex("by_organization_status", (query) =>
+        query.eq("organizationId", authorization.organizationId).eq("status", "active")
+      )
       .order("desc")
-      .take(100);
-    return { templates: await Promise.all(templates.map((template) => readTemplate(ctx, template))) };
+      .paginate({
+        cursor: args.paginationOpts.cursor,
+        numItems: Math.min(100, Math.max(1, args.paginationOpts.numItems)),
+      });
+    return {
+      ...templates,
+      page: await Promise.all(templates.page.map((template) => readTemplateSummary(ctx, template))),
+    };
   })
   .public();
 
@@ -629,6 +752,32 @@ export const getQuoteResponseTemplate = builderQuery
       return null;
     }
     return await readTemplate(ctx, template);
+  })
+  .public();
+
+export const getQuoteResponseTemplateVersion = builderQuery
+  .input({
+    templateId: v.id("quoteResponseTemplates"),
+    versionId: v.id("quoteResponseTemplateVersions"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.union(quoteTemplateVersionResultValidator, v.null()))
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeTemplateScope(ctx, args.workosOrganizationId);
+    const template = await ctx.db.get(args.templateId);
+    const version = await ctx.db.get(args.versionId);
+    if (
+      !template ||
+      !version ||
+      template.organizationId !== authorization.organizationId ||
+      template.brokerageId !== authorization.brokerage._id ||
+      version.organizationId !== authorization.organizationId ||
+      version.brokerageId !== authorization.brokerage._id ||
+      version.templateId !== template._id
+    ) {
+      return null;
+    }
+    return await readVersion(ctx, version);
   })
   .public();
 
@@ -651,6 +800,16 @@ export const createQuoteResponseTemplateDraft = builderMutation
       sourceTemplate = await ctx.db.get(args.sourceTemplateId);
       if (!sourceTemplate || sourceTemplate.brokerageId !== authorization.brokerage._id || sourceTemplate.organizationId !== authorization.organizationId || sourceTemplate.status !== "active") {
         throw new ConvexError("Source template is unavailable.");
+      }
+      const sourceTemplateId = sourceTemplate._id;
+      const activeDraft = await ctx.db
+        .query("quoteResponseTemplateVersions")
+        .withIndex("by_template_status", (query) =>
+          query.eq("templateId", sourceTemplateId).eq("status", "draft")
+        )
+        .first();
+      if (activeDraft) {
+        return { templateId: sourceTemplateId, versionId: activeDraft._id };
       }
       const sourceVersionId = sourceTemplate.currentVersionId ?? sourceTemplate.selectedVersionId;
       if (sourceVersionId) {
@@ -689,12 +848,6 @@ export const createQuoteResponseTemplateDraft = builderMutation
         .order("desc")
         .first();
       versionNumber = (latestVersion?.version ?? 0) + 1;
-      await ctx.db.patch(templateId, {
-        audience: args.audience,
-        description,
-        name,
-        updatedAt: now,
-      });
     } else {
       const templateKey = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "quote-template"}-${now.toString(36)}`;
       templateId = await ctx.db.insert("quoteResponseTemplates", {
@@ -711,9 +864,12 @@ export const createQuoteResponseTemplateDraft = builderMutation
       });
     }
     const versionId = await ctx.db.insert("quoteResponseTemplateVersions", {
+      audience: args.audience,
       brokerageId: authorization.brokerage._id,
       createdAt: now,
       createdByWorkosUserId: authorization.subject,
+      description,
+      name,
       organizationId: authorization.organizationId,
       status: "draft",
       templateId,
@@ -766,8 +922,14 @@ export const updateQuoteResponseTemplateDraft = builderMutation
       await ctx.db.delete(oldField._id);
     }
     await insertVersionFields(ctx, authorization, template._id, version._id, normalizedFields, now);
-    await ctx.db.patch(template._id, { audience: args.audience, description, name, updatedAt: now });
-    await ctx.db.patch(version._id, { updatedAt: now, validationState: "valid" });
+    await ctx.db.patch(version._id, {
+      audience: args.audience,
+      description,
+      name,
+      updatedAt: now,
+      validationState: "valid",
+    });
+    await ctx.db.patch(template._id, { updatedAt: now });
     await auditTemplate(ctx, authorization, {
       command: "updateQuoteResponseTemplateDraft",
       entityId: String(template._id),
@@ -856,7 +1018,10 @@ export const publishQuoteResponseTemplate = builderMutation
       validationState: "valid",
     });
     await ctx.db.patch(template._id, {
+      audience: version.audience,
       currentVersionId: version._id,
+      description: version.description,
+      name: version.name,
       selectedVersionId: version._id,
       updatedAt: now,
     });
@@ -883,12 +1048,16 @@ export const selectQuoteResponseTemplateVersion = builderMutation
       throw new ConvexError("Only a published version in this organization may be selected.");
     }
     const now = Date.now();
+    const priorSelectedVersion = template.selectedVersionId
+      ? await ctx.db.get(template.selectedVersionId)
+      : null;
     await ctx.db.patch(template._id, { selectedVersionId: version._id, updatedAt: now });
     await auditTemplate(ctx, authorization, {
       command: "selectQuoteResponseTemplateVersion",
       entityId: String(template._id),
       eventType: "quote_response_template.version_selected",
       newState: `selected:v${version.version}`,
+      priorState: priorSelectedVersion ? `selected:v${priorSelectedVersion.version}` : "unselected",
     }, now);
     return { templateId: template._id, versionId: version._id };
   })

@@ -203,17 +203,76 @@ describe("Quote Response Template public contract", () => {
       renderer: "tiptap",
       isPermanent: true,
     });
+    const summaryPage = await builder.query(
+      (api as any).quote_response_templates.listQuoteResponseTemplates,
+      {
+        paginationOpts: { cursor: null, numItems: 10 },
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(summaryPage.page[0]?.currentVersion?.fields).toBeUndefined();
+    const hydratedVersion = await builder.query(
+      (api as any).quote_response_templates.getQuoteResponseTemplateVersion,
+      {
+        templateId: created.templateId,
+        versionId: created.versionId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(hydratedVersion?.fields).toHaveLength(9);
 
     const secondDraft = await builder.mutation(
       (api as any).quote_response_templates.createQuoteResponseTemplateDraft,
       {
-        audience: "either",
-        description: "Reusable mixed trade response contract.",
-        name: "Standard trade quote",
+        audience: "supplier",
+        description: "Supplier-specific response contract.",
+        name: "Standard supplier quote",
         sourceTemplateId: created.templateId,
         workosOrganizationId: ORGANIZATION_ID,
       }
     );
+    const duplicateSecondDraft = await builder.mutation(
+      (api as any).quote_response_templates.createQuoteResponseTemplateDraft,
+      {
+        audience: "supplier",
+        description: "Supplier-specific response contract.",
+        name: "Standard supplier quote",
+        sourceTemplateId: created.templateId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(duplicateSecondDraft).toEqual(secondDraft);
+    const beforePublish = await builder.query(
+      (api as any).quote_response_templates.getQuoteResponseTemplate,
+      {
+        templateId: created.templateId,
+        workosOrganizationId: ORGANIZATION_ID,
+      }
+    );
+    expect(beforePublish).toMatchObject({
+      audience: "supplier",
+      description: "Supplier-specific response contract.",
+      name: "Standard supplier quote",
+      currentVersion: {
+        audience: "supplier",
+        description: "Supplier-specific response contract.",
+        name: "Standard supplier quote",
+        status: "draft",
+      },
+      selectedVersion: {
+        audience: "either",
+        description: "Reusable mixed trade response contract.",
+        name: "Standard trade quote",
+      },
+    });
+    const templateProjectionBeforePublish = await base.run(async (ctx) =>
+      await ctx.db.get(created.templateId)
+    );
+    expect(templateProjectionBeforePublish).toMatchObject({
+      audience: "either",
+      description: "Reusable mixed trade response contract.",
+      name: "Standard trade quote",
+    });
     const secondFields = allFields().map((field) =>
       field.fieldKey === "crew_size"
         ? { ...field, label: "Estimated crew size and shift" }
@@ -222,10 +281,10 @@ describe("Quote Response Template public contract", () => {
     await builder.mutation(
       (api as any).quote_response_templates.updateQuoteResponseTemplateDraft,
       {
-        audience: "either",
-        description: "Reusable mixed trade response contract.",
+        audience: "supplier",
+        description: "Supplier-specific response contract.",
         fields: secondFields,
-        name: "Standard trade quote",
+        name: "Standard supplier quote",
         templateId: secondDraft.templateId,
         versionId: secondDraft.versionId,
         workosOrganizationId: ORGANIZATION_ID,
@@ -249,6 +308,21 @@ describe("Quote Response Template public contract", () => {
     );
     expect(history?.versions.map((version: any) => version.version)).toEqual([2, 1]);
     expect(history?.currentVersion?.version).toBe(2);
+    expect(history).toMatchObject({
+      audience: "supplier",
+      description: "Supplier-specific response contract.",
+      name: "Standard supplier quote",
+      currentVersion: {
+        audience: "supplier",
+        description: "Supplier-specific response contract.",
+        name: "Standard supplier quote",
+      },
+    });
+    expect(history?.versions.find((version: any) => version.version === 1)).toMatchObject({
+      audience: "either",
+      description: "Reusable mixed trade response contract.",
+      name: "Standard trade quote",
+    });
     expect(history?.versions.every((version: any) => version.status === "published")).toBe(true);
     const oldVersion = history?.versions.find((version: any) => version.version === 1);
     expect(oldVersion).toBeTruthy();
@@ -288,6 +362,10 @@ describe("Quote Response Template public contract", () => {
       "quote_response_template.published",
       "quote_response_template.version_selected",
     ].slice(0, events.length));
+    expect(events.find((event) => event.eventType === "quote_response_template.version_selected")).toMatchObject({
+      newState: "selected:v1",
+      priorState: "selected:v2",
+    });
   });
 
   test("rejects invalid permanent/configuration changes and cross-tenant access", async () => {
@@ -323,6 +401,141 @@ describe("Quote Response Template public contract", () => {
         }
       )
     ).rejects.toThrow(/permanent|at least two/);
+
+    const expectInvalidFields = async (field: Record<string, unknown>, pattern: RegExp) => {
+      await expect(
+        builder.mutation(
+          (api as any).quote_response_templates.updateQuoteResponseTemplateDraft,
+          {
+            audience: "contractor",
+            fields: [...allFields(), { ...field, order: 9 }],
+            name: "Mechanical quote",
+            templateId: created.templateId,
+            versionId: created.versionId,
+            workosOrganizationId: ORGANIZATION_ID,
+          }
+        )
+      ).rejects.toThrow(pattern);
+    };
+
+    await expectInvalidFields(
+      {
+        allowAlternates: true,
+        fieldKey: "bad_alternates",
+        kind: "short_text",
+        label: "Bad alternates",
+        required: false,
+        scope: "whole_quote",
+      },
+      /alternates|exclusions/
+    );
+    await expectInvalidFields(
+      {
+        fieldKey: "bad_repeatable",
+        kind: "date",
+        label: "Bad repeatable",
+        repeatable: true,
+        required: false,
+        scope: "whole_quote",
+      },
+      /repeatable/
+    );
+    await expectInvalidFields(
+      {
+        fieldKey: "bad_tax",
+        kind: "short_text",
+        label: "Bad tax",
+        required: false,
+        scope: "whole_quote",
+        supportsTax: true,
+      },
+      /tax/
+    );
+    await expectInvalidFields(
+      {
+        fieldKey: "bad_line_validation",
+        kind: "priced_line",
+        label: "Bad line validation",
+        required: false,
+        scope: "materials",
+        validation: { maxLength: 4 },
+      },
+      /priced lines/
+    );
+    await expectInvalidFields(
+      {
+        fieldKey: "bad_attachment_validation",
+        kind: "attachment",
+        label: "Bad attachment validation",
+        required: false,
+        scope: "whole_quote",
+        validation: { maxLength: 4 },
+      },
+      /attachments/
+    );
+    await expectInvalidFields(
+      {
+        fieldKey: "bad_choice_validation",
+        kind: "choice",
+        label: "Bad choice validation",
+        required: false,
+        scope: "whole_quote",
+        choiceOptions: ["Yes", "No"],
+        validation: { minValueCents: 1 },
+      },
+      /does not support validation/
+    );
+    await expectInvalidFields(
+      {
+        fieldKey: "bad_rich_text",
+        kind: "long_text",
+        label: "Bad rich text",
+        required: false,
+        richTextDefaultHtml: "<p>Not Additional Comments</p>",
+        scope: "whole_quote",
+      },
+      /rich text defaults/
+    );
+    await expectInvalidFields(
+      {
+        fieldKey: "bad_mime_count",
+        kind: "attachment",
+        label: "Bad MIME count",
+        required: false,
+        scope: "whole_quote",
+        validation: { allowedMimeTypes: Array.from({ length: 26 }, (_, index) => `application/x-${index}`) },
+      },
+      /at most 25/
+    );
+    await expectInvalidFields(
+      {
+        choiceOptions: Array.from({ length: 101 }, (_, index) => `Option ${index}`),
+        fieldKey: "bad_choice_count",
+        kind: "choice",
+        label: "Bad choice count",
+        required: false,
+        scope: "whole_quote",
+      },
+      /at most 100/
+    );
+    const oversizedRichText = allFields().map((field) =>
+      field.fieldKey === "additional_comments"
+        ? { ...field, richTextDefaultHtml: "<p>" + "x".repeat(20_001) + "</p>" }
+        : field
+    );
+    await expect(
+      builder.mutation(
+        (api as any).quote_response_templates.updateQuoteResponseTemplateDraft,
+        {
+          audience: "contractor",
+          fields: oversizedRichText,
+          name: "Mechanical quote",
+          templateId: created.templateId,
+          versionId: created.versionId,
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      )
+    ).rejects.toThrow(/20000/);
 
     const otherTenant = withIdentity(
       convexTest(schema, modules),
