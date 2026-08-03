@@ -886,40 +886,43 @@ function SystemCollaborationPost({
         </div>
         {milestone ? <MilestoneHeadline /> : null}
         {collapsed ? (
-          <div className="flex flex-wrap gap-1.5 border-t pt-3">
-            {milestone ? (
-              <>
-                <Badge variant="info">
-                  <PlayCircle className="mr-1 size-3" /> 53% complete
-                </Badge>
-                <Badge variant="warning">
-                  <AlertTriangle className="mr-1 size-3" />{" "}
-                  {behindScheduleCount} behind
-                </Badge>
-                <Badge variant="outline">
-                  <Users className="mr-1 size-3" /> 7 participants
-                </Badge>
-                <Badge variant="outline">
-                  <ListChecks className="mr-1 size-3" /> {items.length - 1}{" "}
-                  outstanding
-                </Badge>
-                <Badge variant="outline">
-                  <CalendarCheck className="mr-1 size-3" /> 1 active visit
-                </Badge>
-                <Badge variant="secondary">
-                  <Activity className="mr-1 size-3" /> {reviewCount + 2} new
-                  updates
-                </Badge>
-              </>
-            ) : (
-              <>
-                <Badge variant="warning">{drawStateLabel(drawState)}</Badge>
-                <Badge variant="outline">
-                  <Banknote className="mr-1 size-3" /> $184,000 requested
-                </Badge>
-                <Badge variant="outline">0 generated items</Badge>
-              </>
-            )}
+          <div className="space-y-2 border-t pt-3">
+            {milestone ? <MilestoneSummary items={items} /> : null}
+            <div className="flex flex-wrap gap-1.5">
+              {milestone ? (
+                <>
+                  <Badge variant="info">
+                    <PlayCircle className="mr-1 size-3" /> 53% complete
+                  </Badge>
+                  <Badge variant="warning">
+                    <AlertTriangle className="mr-1 size-3" />{" "}
+                    {behindScheduleCount} behind
+                  </Badge>
+                  <Badge variant="outline">
+                    <Users className="mr-1 size-3" /> 7 participants
+                  </Badge>
+                  <Badge variant="outline">
+                    <ListChecks className="mr-1 size-3" /> {items.length - 1}{" "}
+                    outstanding
+                  </Badge>
+                  <Badge variant="outline">
+                    <CalendarCheck className="mr-1 size-3" /> 1 active visit
+                  </Badge>
+                  <Badge variant="secondary">
+                    <Activity className="mr-1 size-3" /> {reviewCount + 2} new
+                    updates
+                  </Badge>
+                </>
+              ) : (
+                <>
+                  <Badge variant="warning">{drawStateLabel(drawState)}</Badge>
+                  <Badge variant="outline">
+                    <Banknote className="mr-1 size-3" /> $184,000 requested
+                  </Badge>
+                  <Badge variant="outline">0 generated items</Badge>
+                </>
+              )}
+            </div>
           </div>
         ) : (
           children
