@@ -30,8 +30,11 @@ import {
   type ActionStatus,
   type CollaborationActionItem,
   type CollaborationActionItemQueueRow,
+  isCanonicalMilestoneItem,
   initials,
   type ReferenceOption,
+  systemPresentationLabels,
+  systemPresentationSummary,
 } from "./model.ts";
 
 type MoveActionItem = (
@@ -45,13 +48,10 @@ type SystemPresentation = NonNullable<
   CollaborationActionItem["systemPresentation"]
 >;
 
-const systemPresentationLabels: Record<SystemPresentation["column"], string> = {
-  approved: "Approved",
-  backlog: "Backlog",
-  behind_schedule: "Behind Schedule",
-  in_progress: "In Progress",
-  in_review: "In Review",
-};
+export {
+  systemPresentationLabels,
+  systemPresentationSummary,
+} from "./model.ts";
 
 function SystemPresentationBadges({
   presentation,
@@ -61,8 +61,12 @@ function SystemPresentationBadges({
   if (!presentation) {
     return null;
   }
+  const summary = systemPresentationSummary(presentation);
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div
+      aria-label={summary}
+      className="flex flex-wrap items-center gap-1"
+    >
       <Badge
         variant={
           presentation.column === "behind_schedule" ? "warning" : "outline"
@@ -162,48 +166,68 @@ export function BuildCollaborationActionItemQueue({
           </div>
         ) : (
           <div className="space-y-2">
-            {visibleRows.map((row, index) => (
-              <Card
-                className={cn(
-                  "rounded-xl text-left",
-                  compactOnNarrow &&
-                    "max-xl:rounded-lg max-xl:border-0 max-xl:bg-transparent max-xl:shadow-none max-xl:before:hidden",
-                  compactOnNarrow &&
-                    index >= 3 &&
-                    !mobileExpanded &&
-                    "max-xl:hidden"
-                )}
-                key={row.item._id}
-                render={
-                  <button
-                    aria-label={`Open ${row.item.title}`}
-                    onClick={() => onOpen(row)}
-                    type="button"
-                  />
-                }
-              >
-                <CardPanel className="space-y-2 p-3 max-xl:flex max-xl:items-center max-xl:gap-2 max-xl:p-2">
-                  <div className="flex w-full items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-sm">
-                        {row.item.title}
-                      </p>
-                      <p className="truncate text-muted-foreground text-xs">
-                        {row.buildName}
-                      </p>
-                      {row.item.systemPresentation ? (
-                        <SystemPresentationBadges
-                          presentation={row.item.systemPresentation}
-                        />
+            {visibleRows.map((row, index) => {
+              const systemSummary = systemPresentationSummary(
+                row.item.systemPresentation,
+              );
+              const systemSummaryId = systemSummary
+                ? `queue-system-presentation-${String(title).replace(
+                    /[^a-zA-Z0-9_-]/g,
+                    "-",
+                  )}-${index}-${String(row.item._id).replace(
+                    /[^a-zA-Z0-9_-]/g,
+                    "-",
+                  )}`
+                : undefined;
+              return (
+                <Card
+                  className={cn(
+                    "rounded-xl text-left",
+                    compactOnNarrow &&
+                      "max-xl:rounded-lg max-xl:border-0 max-xl:bg-transparent max-xl:shadow-none max-xl:before:hidden",
+                    compactOnNarrow &&
+                      index >= 3 &&
+                      !mobileExpanded &&
+                      "max-xl:hidden",
+                  )}
+                  key={row.item._id}
+                  render={
+                    <button
+                      aria-describedby={systemSummaryId}
+                      aria-label={`Open ${row.item.title}`}
+                      onClick={() => onOpen(row)}
+                      type="button"
+                    />
+                  }
+                >
+                  <CardPanel className="space-y-2 p-3 max-xl:flex max-xl:items-center max-xl:gap-2 max-xl:p-2">
+                    <div className="flex w-full items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-sm">
+                          {row.item.title}
+                        </p>
+                        <p className="truncate text-muted-foreground text-xs">
+                          {row.buildName}
+                        </p>
+                        {row.item.systemPresentation ? (
+                          <SystemPresentationBadges
+                            presentation={row.item.systemPresentation}
+                          />
+                        ) : null}
+                      </div>
+                      {row.overdue ? (
+                        <Badge variant="destructive">Overdue</Badge>
                       ) : null}
                     </div>
-                    {row.overdue ? (
-                      <Badge variant="destructive">Overdue</Badge>
+                    {systemSummary ? (
+                      <span className="sr-only" id={systemSummaryId}>
+                        {systemSummary}
+                      </span>
                     ) : null}
-                  </div>
-                </CardPanel>
-              </Card>
-            ))}
+                  </CardPanel>
+                </Card>
+              );
+            })}
             {compactOnNarrow && (rows.length > 3 || hasMore) ? (
               <Button
                 className="w-full xl:hidden"
@@ -408,8 +432,14 @@ function ActionItemCard({
     0,
     (item.actionableUnreadCount ?? 0) - unreadCommentCount
   );
-  const isCanonicalMilestoneItem =
-    item.systemMode === "generated_milestone_submilestone";
+  const canonicalMilestoneItem = isCanonicalMilestoneItem(item);
+  const systemSummary = systemPresentationSummary(item.systemPresentation);
+  const systemSummaryId = systemSummary
+    ? `action-item-system-presentation-${String(item._id).replace(
+        /[^a-zA-Z0-9_-]/g,
+        "-",
+      )}`
+    : undefined;
 
   const selectStatus = (status: ActionStatus) => {
     if (status === "blocked") {
@@ -469,6 +499,7 @@ function ActionItemCard({
   const actionItemCard = (
     <Card
       aria-label={`Open Action Item: ${item.title}`}
+      aria-describedby={systemSummaryId}
       className={cn(
         "w-full rounded-lg text-left shadow-none transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         view === "board" && "min-h-24"
@@ -579,6 +610,11 @@ function ActionItemCard({
               </span>
             ) : null}
           </div>
+          {systemSummary ? (
+            <span className="sr-only" id={systemSummaryId}>
+              {systemSummary}
+            </span>
+          ) : null}
         </div>
       </CardPanel>
     </Card>
@@ -593,7 +629,7 @@ function ActionItemCard({
       <div className="flex min-w-0 items-stretch gap-2">
         {actionItemCard}
         <Select
-          disabled={!mutationsAllowed || isCanonicalMilestoneItem}
+          disabled={!mutationsAllowed || canonicalMilestoneItem}
           onValueChange={(value) => selectStatus(value as ActionStatus)}
           value={item.status}
         >
@@ -614,7 +650,7 @@ function ActionItemCard({
           </SelectContent>
         </Select>
       </div>
-      {isCanonicalMilestoneItem ? (
+      {canonicalMilestoneItem ? (
         <p className="text-muted-foreground text-xs">
           System · Milestone — status follows the canonical Sub-milestone.
         </p>

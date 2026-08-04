@@ -21,6 +21,9 @@ export type CollaborationActionItem =
 export type CollaborationActionItemQueueRow = FunctionReturnType<
   typeof api.build_action_item_queues.listBuildActionItemQueue
 >["page"][number];
+export type CollaborationSystemPresentation = NonNullable<
+  CollaborationActionItem["systemPresentation"]
+>;
 export type CollaborationFeedReference =
   CollaborationFeedPostEntry["references"][number];
 export type CollaborationCommentRow = FunctionReturnType<
@@ -39,6 +42,45 @@ export type CollaborationPlanningReconciliation = FunctionReturnType<
 export type AudienceMode = CollaborationFeedPostEntry["post"]["audienceMode"];
 export type PostType = CollaborationFeedPostEntry["post"]["postType"];
 export type ActionStatus = CollaborationActionItem["status"];
+
+export const systemPresentationLabels: Record<
+  CollaborationSystemPresentation["column"],
+  string
+> = {
+  approved: "Approved",
+  backlog: "Backlog",
+  behind_schedule: "Behind Schedule",
+  in_progress: "In Progress",
+  in_review: "In Review",
+  superseded: "Superseded",
+};
+
+export function systemPresentationSummary(
+  presentation?: CollaborationSystemPresentation,
+) {
+  if (!presentation) return undefined;
+  const summary = [systemPresentationLabels[presentation.column]];
+  if (presentation.attention === "overdue_completion") {
+    summary.push("Overdue completion");
+  }
+  if (presentation.executionOwnership?.state === "assignment_required") {
+    summary.push("Assignment required");
+  }
+  if (presentation.state === "unknown") {
+    summary.push(
+      `Schedule state unavailable${
+        presentation.unknownReason ? `: ${presentation.unknownReason}` : ""
+      }`,
+    );
+  }
+  return summary.join(" · ");
+}
+
+export function isCanonicalMilestoneItem(
+  item: Pick<CollaborationActionItem, "systemMode">,
+) {
+  return item.systemMode === "generated_milestone_submilestone";
+}
 export type FeedFilter =
   | "actionable"
   | "active_operations"

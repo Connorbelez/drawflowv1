@@ -90,8 +90,10 @@ import {
 import {
   emptyDocument,
   formatTimestamp,
+  isCanonicalMilestoneItem,
   parseDocument,
   plainTextFromDocument,
+  systemPresentationLabels,
   toBackendReferenceKind,
   toEditorReferenceKind,
 } from "./model.ts";
@@ -1041,6 +1043,12 @@ function VisibleActionItemDetail({
     }
   };
   const transition = async (nextStatus: ActionStatus) => {
+    if (isCanonicalMilestoneItem(detail.item)) {
+      toast.error(
+        "System Milestone Action Items follow the canonical Sub-milestone status.",
+      );
+      return;
+    }
     setWorkflowBusy(true);
     try {
       await transitionActionItem({
@@ -1909,7 +1917,11 @@ function CanonicalMilestoneActionItemFacts({
                   : "outline"
               }
             >
-              {systemPresentationLabel(detail.item.systemPresentation.column)}
+              {
+                systemPresentationLabels[
+                  detail.item.systemPresentation.column
+                ]
+              }
             </Badge>
           ) : null}
           {detail.item.systemPresentation?.attention ===
@@ -2515,25 +2527,6 @@ function CanonicalReviewLifecyclePanel({
   );
 }
 
-function systemPresentationLabel(
-  column: NonNullable<
-    VisibleActionItemDetail["item"]["systemPresentation"]
-  >["column"]
-) {
-  switch (column) {
-    case "approved":
-      return "Approved";
-    case "backlog":
-      return "Backlog";
-    case "behind_schedule":
-      return "Behind Schedule";
-    case "in_progress":
-      return "In Progress";
-    case "in_review":
-      return "In Review";
-  }
-}
-
 const ACTION_ITEM_REACTIONS = ["acknowledged", "agree", "question"] as const;
 
 function ActionItemCommentCard({
@@ -2682,6 +2675,7 @@ function ActionItemWorkflowPanel({
     return null;
   }
   const visibleWorkflow = workflow as VisibleWorkflowContext;
+  const canonicalMilestoneItem = isCanonicalMilestoneItem(detail.item);
   const assignmentStateLabel =
     detail.item.assignmentState === "requested"
       ? "Acceptance requested"
@@ -2708,6 +2702,9 @@ function ActionItemWorkflowPanel({
     );
   };
   const chooseStatus = (nextStatus: ActionStatus) => {
+    if (canonicalMilestoneItem) {
+      return;
+    }
     if (nextStatus === detail.item.status) {
       setPendingStatus(null);
       onReasonChange("");
@@ -2779,7 +2776,11 @@ function ActionItemWorkflowPanel({
           <NativeSelect
             aria-label="Change Action Item status"
             className="w-full [&_[data-slot=native-select]]:h-9 [&_[data-slot=native-select]]:rounded-lg [&_[data-slot=native-select]]:bg-background [&_[data-slot=native-select]]:text-sm"
-            disabled={busy || visibleWorkflow.availableTransitions.length === 0}
+            disabled={
+              busy ||
+              canonicalMilestoneItem ||
+              visibleWorkflow.availableTransitions.length === 0
+            }
             onChange={(event) => {
               chooseStatus(event.currentTarget.value as ActionStatus);
             }}

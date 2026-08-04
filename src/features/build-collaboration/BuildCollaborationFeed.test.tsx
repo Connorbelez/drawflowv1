@@ -1489,6 +1489,41 @@ describe("BuildCollaborationFeed", () => {
     ).toBeTruthy();
   });
 
+  test("keeps canonical Milestone status transitions disabled in the detail sheet", async () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    const actionCard = screen.getByRole("button", {
+      name: "Open Action Item: Excavate",
+    });
+    expect(actionCard.getAttribute("aria-describedby")).toBeTruthy();
+    expect(
+      document.getElementById(actionCard.getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toContain("Behind Schedule · Assignment required");
+    fireEvent.click(
+      actionCard,
+    );
+
+    const status = await screen.findByRole("combobox", {
+      name: "Change Action Item status",
+    });
+    expect((status as HTMLSelectElement).disabled).toBe(true);
+    expect(
+      screen.getByText(
+        "System · Milestone — status follows the canonical Sub-milestone.",
+      ),
+    ).toBeTruthy();
+  });
+
   test("uses the same feed for Active operations and renders archived historical facts as read-only", () => {
     const activeEntry = canonicalMilestoneSystemPostEntryFixture() as any;
     activeEntry.post._id = "active-system-post";
