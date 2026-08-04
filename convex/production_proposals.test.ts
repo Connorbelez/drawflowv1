@@ -315,6 +315,151 @@ async function createClosedSingleMilestoneBuild(
   );
 }
 
+async function seedUnassignedSiteVisitEvidence(
+  t: any,
+  seed: any,
+  options: { collaborationStatus: "active" | "disabled" },
+) {
+  const closing = await createClosedSingleMilestoneBuild(t, seed, {
+    buildName: "Unassigned site-visit evidence build",
+    submilestones: [
+      { key: "excavation", name: "Excavation", order: 1 },
+    ],
+  });
+  const visit = await t.mutation(
+    (api as any).production_proposals.assignActiveBuildSiteVisit,
+    {
+      buildId: closing.buildId,
+      milestoneKey: "foundation",
+      note: "Inspect the stale target evidence.",
+      requestedDay: 21,
+      submilestoneKeys: ["excavation"],
+      workosOrganizationId: ORG,
+    },
+  );
+  await t.run(async (ctx: any) => {
+    const milestone = await ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build_key", (q: any) =>
+        q.eq("buildId", closing.buildId).eq("key", "foundation"),
+      )
+      .unique();
+    await ctx.db.patch(milestone._id, { planningState: "superseded" });
+    const build = await ctx.db.get(closing.buildId);
+    if (!build) {
+      throw new Error("Stale site-visit Build fixture is unavailable.");
+    }
+    const now = Date.now();
+    await ctx.db.insert("buildCollaborationTenantSettings", {
+      activatedAt: now,
+      activatedByWorkosUserId: "user_admin",
+      brokerageId: build.brokerageId,
+      createdAt: now,
+      generousRateLimitMultiplier: 1,
+      migrationCompletedAt: now,
+      organizationId: ORG,
+      status: options.collaborationStatus,
+      updatedAt: now,
+    });
+  });
+
+  const supersededStorageId = await t.run(async (ctx: any) =>
+    ctx.storage.store(
+      new Blob(["superseded evidence"], { type: "image/webp" }),
+    ),
+  );
+  const supersededRegistration = await t.mutation(
+    (api as any).production_proposals.registerActiveBuildSiteVisitFile,
+    {
+      buildId: String(closing.buildId),
+      clientEvidenceId: "superseded-target-evidence",
+      fileName: "superseded-target.webp",
+      mimeType: "image/webp",
+      sizeBytes: 64,
+      storageId: supersededStorageId,
+      targetMilestoneKey: "foundation",
+      targetSubmilestoneKey: "excavation",
+      token: visit.visitId,
+    },
+  );
+  expect(supersededRegistration.status).toBe("registered");
+
+  await t.run(async (ctx: any) => {
+    const milestone = await ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build_key", (q: any) =>
+        q.eq("buildId", closing.buildId).eq("key", "foundation"),
+      )
+      .unique();
+    await ctx.db.delete(milestone._id);
+  });
+  const missingStorageId = await t.run(async (ctx: any) =>
+    ctx.storage.store(new Blob(["missing evidence"], { type: "image/webp" })),
+  );
+  const missingRegistration = await t.mutation(
+    (api as any).production_proposals.registerActiveBuildSiteVisitFile,
+    {
+      buildId: String(closing.buildId),
+      clientEvidenceId: "missing-target-evidence",
+      fileName: "missing-target.webp",
+      mimeType: "image/webp",
+      sizeBytes: 48,
+      storageId: missingStorageId,
+      targetMilestoneKey: "foundation",
+      targetSubmilestoneKey: "removed-submilestone",
+      token: visit.visitId,
+    },
+  );
+  expect(missingRegistration.status).toBe("registered");
+
+  const evidence = await t.run(async (ctx: any) => {
+    const visitRow = await ctx.db
+      .query("buildSiteVisits")
+      .withIndex("by_visit", (q: any) => q.eq("visitId", visit.visitId))
+      .unique();
+    const assets = await ctx.db
+      .query("buildEvidenceAssets")
+      .withIndex("by_site_visit", (q: any) => q.eq("siteVisitId", visitRow._id))
+      .collect();
+    const posts = (await ctx.db
+      .query("buildCollaborationPosts")
+      .withIndex("by_buildId_and_createdAt", (q: any) =>
+        q.eq("buildId", closing.buildId),
+      )
+      .collect()) as any[];
+    const targetReviewPost = posts.find((post) =>
+      post.systemEventKey?.endsWith(":target-unassigned"),
+    );
+    const revision = targetReviewPost?.currentRevisionId
+      ? await ctx.db.get(targetReviewPost.currentRevisionId)
+      : null;
+    const reviewDelivery = (await ctx.db
+      .query("recipientDeliveries")
+      .withIndex("by_recipient", (q: any) =>
+        q
+          .eq("organizationId", ORG)
+          .eq("recipientWorkosUserId", "user_admin"),
+      )
+      .collect()).find(
+      (delivery: any) =>
+        delivery.title === "Site Visit Evidence needs assignment" &&
+        delivery.entityId === String(closing.buildId),
+    );
+    const tenantSetting = await ctx.db
+      .query("buildCollaborationTenantSettings")
+      .withIndex("by_organizationId", (q: any) => q.eq("organizationId", ORG))
+      .unique();
+    return { assets, revision, reviewDelivery, targetReviewPost, tenantSetting };
+  });
+  return {
+    closing,
+    evidence,
+    missingStorageId,
+    supersededStorageId,
+    visit,
+  };
+}
+
 async function unlockActiveBuildMilestoneForDraw(
   t: any,
   buildId: any,
@@ -7062,127 +7207,23 @@ describe("production proposal foundation", () => {
 
   test("preserves site-visit uploads when their milestone target is superseded or missing and routes review", async () => {
     const { seed, t: admin } = await seeded(["admin"], "user_admin");
-    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
-      buildName: "Unassigned site-visit evidence build",
-      submilestones: [
-        { key: "excavation", name: "Excavation", order: 1 },
-      ],
+    const {
+      evidence,
+      missingStorageId,
+      supersededStorageId,
+    } = await seedUnassignedSiteVisitEvidence(admin, seed, {
+      collaborationStatus: "active",
     });
-    const visit = await admin.mutation(
-      (api as any).production_proposals.assignActiveBuildSiteVisit,
-      {
-        buildId: closing.buildId,
-        milestoneKey: "foundation",
-        note: "Inspect the stale target evidence.",
-        requestedDay: 21,
-        submilestoneKeys: ["excavation"],
-        workosOrganizationId: ORG,
-      },
-    );
-    await admin.run(async (ctx: any) => {
-      const milestone = await ctx.db
-        .query("buildMilestones")
-        .withIndex("by_build_key", (q: any) =>
-          q.eq("buildId", closing.buildId).eq("key", "foundation"),
-        )
-        .unique();
-      await ctx.db.patch(milestone._id, { planningState: "superseded" });
-    });
-
-    const supersededStorageId = await admin.run(async (ctx: any) =>
-      ctx.storage.store(
-        new Blob(["superseded evidence"], { type: "image/webp" }),
-      ),
-    );
-    const supersededRegistration = await admin.mutation(
-      (api as any).production_proposals.registerActiveBuildSiteVisitFile,
-      {
-        buildId: String(closing.buildId),
-        clientEvidenceId: "superseded-target-evidence",
-        fileName: "superseded-target.webp",
-        mimeType: "image/webp",
-        sizeBytes: 64,
-        storageId: supersededStorageId,
-        targetMilestoneKey: "foundation",
-        targetSubmilestoneKey: "excavation",
-        token: visit.visitId,
-      },
-    );
-    expect(supersededRegistration.status).toBe("registered");
     expect(
       await admin.run(async (ctx: any) =>
         Boolean(await ctx.storage.get(supersededStorageId)),
       ),
     ).toBe(true);
-
-    await admin.run(async (ctx: any) => {
-      const milestone = await ctx.db
-        .query("buildMilestones")
-        .withIndex("by_build_key", (q: any) =>
-          q.eq("buildId", closing.buildId).eq("key", "foundation"),
-        )
-        .unique();
-      await ctx.db.delete(milestone._id);
-    });
-    const missingStorageId = await admin.run(async (ctx: any) =>
-      ctx.storage.store(new Blob(["missing evidence"], { type: "image/webp" })),
-    );
-    const missingRegistration = await admin.mutation(
-      (api as any).production_proposals.registerActiveBuildSiteVisitFile,
-      {
-        buildId: String(closing.buildId),
-        clientEvidenceId: "missing-target-evidence",
-        fileName: "missing-target.webp",
-        mimeType: "image/webp",
-        sizeBytes: 48,
-        storageId: missingStorageId,
-        targetMilestoneKey: "foundation",
-        targetSubmilestoneKey: "removed-submilestone",
-        token: visit.visitId,
-      },
-    );
-    expect(missingRegistration.status).toBe("registered");
     expect(
       await admin.run(async (ctx: any) =>
         Boolean(await ctx.storage.get(missingStorageId)),
       ),
     ).toBe(true);
-
-    const evidence = await admin.run(async (ctx: any) => {
-      const visitRow = await ctx.db
-        .query("buildSiteVisits")
-        .withIndex("by_visit", (q: any) => q.eq("visitId", visit.visitId))
-        .unique();
-      const assets = await ctx.db
-        .query("buildEvidenceAssets")
-        .withIndex("by_site_visit", (q: any) => q.eq("siteVisitId", visitRow._id))
-        .collect();
-      const posts = (await ctx.db
-        .query("buildCollaborationPosts")
-        .withIndex("by_buildId_and_createdAt", (q: any) =>
-          q.eq("buildId", closing.buildId),
-        )
-        .collect()) as any[];
-      const targetReviewPost = posts.find((post) =>
-        post.systemEventKey?.endsWith(":target-unassigned"),
-      );
-      const revision = targetReviewPost?.currentRevisionId
-        ? await ctx.db.get(targetReviewPost.currentRevisionId)
-        : null;
-      const reviewDelivery = (await ctx.db
-        .query("recipientDeliveries")
-        .withIndex("by_recipient", (q: any) =>
-          q
-            .eq("organizationId", ORG)
-            .eq("recipientWorkosUserId", "user_admin"),
-        )
-        .collect()).find(
-        (delivery: any) =>
-          delivery.title === "Site Visit Evidence needs assignment" &&
-          delivery.entityId === String(closing.buildId),
-      );
-      return { assets, revision, reviewDelivery, targetReviewPost };
-    });
     expect(evidence.assets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -7206,22 +7247,29 @@ describe("production proposal foundation", () => {
         )
         .every((asset: any) => asset.submilestoneKey === undefined),
     ).toBe(true);
-    expect(evidence.targetReviewPost ?? evidence.reviewDelivery).toBeDefined();
-    if (evidence.targetReviewPost) {
-      expect(evidence.targetReviewPost).toMatchObject({
-        postType: "issue",
-        systemEventKey: expect.stringContaining(":target-unassigned"),
-      });
-      expect(evidence.revision?.plainText).toContain(
-        "Lender review is required.",
-      );
-    } else {
-      expect(evidence.reviewDelivery).toMatchObject({
-        actionRequired: true,
-        sourceLabel: "Site Visit Staff",
-        title: "Site Visit Evidence needs assignment",
-      });
-    }
+    expect(evidence.targetReviewPost).toBeDefined();
+    expect(evidence.targetReviewPost).toMatchObject({
+      postType: "issue",
+      systemEventKey: expect.stringContaining(":target-unassigned"),
+    });
+    expect(evidence.revision?.plainText).toContain(
+      "Lender review is required.",
+    );
+  });
+
+  test("falls back to backoffice delivery when the Build Collaboration reader scope is disabled", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const { evidence } = await seedUnassignedSiteVisitEvidence(admin, seed, {
+      collaborationStatus: "disabled",
+    });
+    expect(evidence.tenantSetting).toMatchObject({ status: "disabled" });
+    expect(evidence.targetReviewPost).toBeUndefined();
+    expect(evidence.revision).toBeNull();
+    expect(evidence.reviewDelivery).toMatchObject({
+      actionRequired: true,
+      sourceLabel: "Site Visit Staff",
+      title: "Site Visit Evidence needs assignment",
+    });
   });
 
   test("starts active-build milestone work explicitly with audit history", async () => {
