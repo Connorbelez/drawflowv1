@@ -3285,6 +3285,9 @@ export default defineSchema({
       "chunkKind",
       "chunkIndex",
     ])
+    .index("by_materialization_recovery_state", [
+      "materializationRecoveryState",
+    ])
     .index("by_build", ["buildId"]),
   assistantThreads: defineTable({
     brokerageId: v.optional(v.id("brokerages")),

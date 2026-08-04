@@ -325,6 +325,93 @@ async function collaborationSnapshot(
   });
 }
 
+async function readPlanningPages(
+  viewer: any,
+  reference: any,
+  args: { buildId: string; organizationId: string },
+) {
+  const rows: any[] = [];
+  let cursor: string | null = null;
+  let page: any;
+  do {
+    page = await viewer.query(reference, {
+      ...args,
+      paginationOpts: { cursor, numItems: 100 },
+    });
+    rows.push(...page.page);
+    cursor = page.continueCursor;
+  } while (!page.isDone);
+  return { page, rows };
+}
+
+function planningSnapshotFromRows(buildId: string, rows: any[]) {
+  const snapshot = {
+    allocations: [] as any[],
+    budgets: [] as any[],
+    buildId,
+    draws: [] as any[],
+    evidenceRequirements: [] as any[],
+    milestones: [] as any[],
+    submilestones: [] as any[],
+  };
+  for (const row of rows) {
+    const target =
+      row.entityType === "milestone"
+        ? snapshot.milestones
+        : row.entityType === "submilestone"
+          ? snapshot.submilestones
+          : row.entityType === "draw"
+            ? snapshot.draws
+            : row.entityType === "budget"
+              ? snapshot.budgets
+              : row.entityType === "allocation"
+                ? snapshot.allocations
+                : row.entityType === "evidenceRequirement"
+                  ? snapshot.evidenceRequirements
+                  : undefined;
+    target?.push(row);
+  }
+  return snapshot;
+}
+
+async function planningReconciliation(
+  viewer: any,
+  buildId: string,
+) {
+  const args = { buildId, organizationId: ORGANIZATION_ID };
+  const planning = await viewer.query(
+    (api as any).build_collaboration_planning_reconciliation
+      .getActiveBuildPlanningReconciliation,
+    args,
+  );
+  const module = (api as any).build_collaboration_planning_reconciliation;
+  const [activation, current, diffs] = await Promise.all([
+    readPlanningPages(viewer, module.getActiveBuildPlanningActivationSnapshot, args),
+    readPlanningPages(viewer, module.getActiveBuildPlanningReconciliationSnapshot, args),
+    readPlanningPages(viewer, module.listActiveBuildPlanningReconciliationDiffs, args),
+  ]);
+  return {
+    ...planning,
+    activation: planning.activation
+      ? {
+          ...planning.activation,
+          snapshot: planningSnapshotFromRows(buildId, activation.rows),
+        }
+      : null,
+    current: {
+      revision: planning.current.revision,
+      snapshot: planningSnapshotFromRows(buildId, current.rows),
+    },
+    diffs: diffs.rows,
+    diffsTruncated: diffs.page.diffsTruncated,
+    materializationPending:
+      planning.materializationPending ||
+      activation.page.materializationPending ||
+      current.page.materializationPending ||
+      diffs.page.materializationPending,
+  };
+}
+
 async function silentBackfillSideEffectSnapshot(
   base: ReturnType<typeof convexTest>,
   buildId: string,
@@ -3291,10 +3378,9 @@ describe("Build Collaboration operational events", () => {
     expect(supersededCard?.canonicalPlanningState).toBe("superseded");
     expect(afterPlan.deliveries).toHaveLength(beforeDeliveryCount);
 
-    const reconciliation = await fixture.admin.query(
-      (api as any).build_collaboration_planning_reconciliation
-        .getActiveBuildPlanningReconciliation,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    const reconciliation = await planningReconciliation(
+      fixture.admin,
+      String(fixture.buildId),
     );
     expect(reconciliation.activation.revision).toBeLessThan(
       reconciliation.current.revision,
@@ -3368,10 +3454,9 @@ describe("Build Collaboration operational events", () => {
       attention: { dependencyExceptions: 0 },
     });
 
-    const contractorReconciliation = await fixture.contractor.query(
-      (api as any).build_collaboration_planning_reconciliation
-        .getActiveBuildPlanningReconciliation,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    const contractorReconciliation = await planningReconciliation(
+      fixture.contractor,
+      String(fixture.buildId),
     );
     expect(contractorReconciliation.activation.snapshot.allocations).toEqual([]);
     expect(contractorReconciliation.activation.snapshot.draws).toEqual([]);
@@ -3803,8 +3888,12 @@ describe("Build Collaboration operational events", () => {
     await expect(
       fixture.admin.query(
         (api as any).build_collaboration_planning_reconciliation
-          .getActiveBuildPlanningReconciliation,
-        { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+          .getActiveBuildPlanningReconciliationSnapshot,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          paginationOpts: { cursor: null, numItems: 100 },
+        },
       ),
     ).rejects.toThrow(/planning snapshot exceeds the 1000 Milestones safety limit/i);
   });
@@ -3845,10 +3934,9 @@ describe("Build Collaboration operational events", () => {
       }
     });
 
-    const reconciliation = await fixture.admin.query(
-      (api as any).build_collaboration_planning_reconciliation
-        .getActiveBuildPlanningReconciliation,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    const reconciliation = await planningReconciliation(
+      fixture.admin,
+      String(fixture.buildId),
     );
     expect(reconciliation.activation.snapshot.milestones).toHaveLength(251);
     expect(reconciliation.diffsTruncated).toBe(false);
@@ -3878,10 +3966,9 @@ describe("Build Collaboration operational events", () => {
       }
     });
 
-    const reconciliation = await fixture.admin.query(
-      (api as any).build_collaboration_planning_reconciliation
-        .getActiveBuildPlanningReconciliation,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    const reconciliation = await planningReconciliation(
+      fixture.admin,
+      String(fixture.buildId),
     );
     expect(reconciliation.revisions).toHaveLength(100);
     expect(reconciliation.revisionsTruncated).toBe(true);
@@ -3931,10 +4018,9 @@ describe("Build Collaboration operational events", () => {
       }
     });
 
-    const reconciliation = await fixture.admin.query(
-      (api as any).build_collaboration_planning_reconciliation
-        .getActiveBuildPlanningReconciliation,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    const reconciliation = await planningReconciliation(
+      fixture.admin,
+      String(fixture.buildId),
     );
     expect(reconciliation.diffs).toHaveLength(10_000);
     expect(reconciliation.revisionsTruncated).toBe(false);
@@ -4065,10 +4151,9 @@ describe("Build Collaboration operational events", () => {
       },
     );
 
-    const pending = await fixture.admin.query(
-      (api as any).build_collaboration_planning_reconciliation
-        .getActiveBuildPlanningReconciliation,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    const pending = await planningReconciliation(
+      fixture.admin,
+      String(fixture.buildId),
     );
     expect(pending.materializationPending).toBe(true);
     expect(
@@ -4090,10 +4175,9 @@ describe("Build Collaboration operational events", () => {
     );
     await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
 
-    const completed = await fixture.admin.query(
-      (api as any).build_collaboration_planning_reconciliation
-        .getActiveBuildPlanningReconciliation,
-      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    const completed = await planningReconciliation(
+      fixture.admin,
+      String(fixture.buildId),
     );
     expect(completed.materializationPending).toBe(false);
     expect(

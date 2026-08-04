@@ -37,7 +37,42 @@ export type CollaborationDraftSummary = FunctionReturnType<
 >[number];
 export type CollaborationPlanningReconciliation = FunctionReturnType<
   typeof api.build_collaboration_planning_reconciliation.getActiveBuildPlanningReconciliation
->;
+> & {
+  activation:
+    | (NonNullable<
+        FunctionReturnType<
+          typeof api.build_collaboration_planning_reconciliation
+            .getActiveBuildPlanningReconciliation
+        >["activation"]
+      > & {
+        snapshot: CollaborationPlanningSnapshot;
+      })
+    | null;
+  current: {
+    revision: number;
+    snapshot: CollaborationPlanningSnapshot;
+  };
+  diffs: FunctionReturnType<
+    typeof api.build_collaboration_planning_reconciliation
+      .listActiveBuildPlanningReconciliationDiffs
+  >["page"];
+  diffsTruncated: boolean;
+};
+
+export type CollaborationPlanningSnapshot = {
+  allocations: CollaborationPlanningEntity[];
+  budgets: CollaborationPlanningEntity[];
+  buildId: string;
+  draws: CollaborationPlanningEntity[];
+  evidenceRequirements: CollaborationPlanningEntity[];
+  milestones: CollaborationPlanningEntity[];
+  submilestones: CollaborationPlanningEntity[];
+};
+
+export type CollaborationPlanningEntity = FunctionReturnType<
+  typeof api.build_collaboration_planning_reconciliation
+    .getActiveBuildPlanningReconciliationSnapshot
+>["page"][number];
 
 export type AudienceMode = CollaborationFeedPostEntry["post"]["audienceMode"];
 export type PostType = CollaborationFeedPostEntry["post"]["postType"];

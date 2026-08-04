@@ -680,6 +680,49 @@ vi.mock("convex/react", () => ({
     );
     if (
       functionName ===
+        "build_collaboration_planning_reconciliation:getActiveBuildPlanningReconciliationSnapshot" ||
+      functionName ===
+        "build_collaboration_planning_reconciliation:getActiveBuildPlanningActivationSnapshot"
+    ) {
+      const planning = mocks.planningReconciliation as
+        | Record<string, any>
+        | undefined;
+      const snapshot =
+        functionName.endsWith("ActivationSnapshot")
+          ? planning?.activation?.snapshot
+          : planning?.current?.snapshot;
+      const results = snapshot
+        ? [
+            ...(snapshot.allocations ?? []),
+            ...(snapshot.budgets ?? []),
+            ...(snapshot.draws ?? []),
+            ...(snapshot.evidenceRequirements ?? []),
+            ...(snapshot.milestones ?? []),
+            ...(snapshot.submilestones ?? []),
+          ]
+        : [];
+      return {
+        loadMore: mocks.loadMore,
+        results: args === "skip" ? [] : results,
+        status: args === "skip" ? "LoadingFirstPage" : "Exhausted",
+      };
+    }
+    if (
+      functionName ===
+      "build_collaboration_planning_reconciliation:listActiveBuildPlanningReconciliationDiffs"
+    ) {
+      return {
+        loadMore: mocks.loadMore,
+        results:
+          args === "skip"
+            ? []
+            : ((mocks.planningReconciliation as Record<string, any> | undefined)
+                ?.diffs ?? []),
+        status: args === "skip" ? "LoadingFirstPage" : "Exhausted",
+      };
+    }
+    if (
+      functionName ===
       "build_action_item_queues:listMyBuildActionItemQueue"
     ) {
       return {

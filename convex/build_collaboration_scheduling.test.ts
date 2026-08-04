@@ -1848,46 +1848,52 @@ async function seedAdditionalSchedulingBuild(
       throw new Error("Scheduling Build source records are unavailable.");
     }
     const now = BASE_TIME;
-    const {
-      _creationTime: _proposalCreationTime,
-      _id: _sourceProposalId,
-      activeBuildId: _sourceActiveBuildId,
-      workflowRuleSnapshotId: _sourceProposalWorkflowRuleSnapshotId,
-      ...proposalFields
-    } = sourceProposal;
     const proposalId = await ctx.db.insert("buildProposals", {
-      ...proposalFields,
+      assignedBrokerWorkosUserId: sourceProposal.assignedBrokerWorkosUserId,
+      brokerageId: sourceProposal.brokerageId,
+      borrowerCoPayBps: 0,
+      borrowerWorkingCapitalLimitCents: 50_000_000,
       buildName: "Scheduled Collaboration Build 2",
+      builderProfileId: sourceProposal.builderProfileId,
+      createdAt: now,
+      createdByWorkosUserId: "user_admin",
+      lenderDrawPolicyLimitCents: 100_000_000,
       location: "149 Cedar Ridge Road",
+      organizationId: sourceProposal.organizationId,
+      reviewOutcome: "approved",
+      status: "approved",
+      templateId: sourceProposal.templateId,
+      totalBudgetCents: 240_000_000,
       updatedAt: now,
+      updatedByWorkosUserId: "user_admin",
     });
-    const {
-      _creationTime: _workflowCreationTime,
-      _id: _sourceWorkflowId,
-      proposalId: _sourceWorkflowProposalId,
-      ...workflowFields
-    } = sourceWorkflow;
     const workflowRuleSnapshotId = await ctx.db.insert(
       "workflowRuleSnapshots",
       {
-        ...workflowFields,
+        allowPermitWaiverByRoles: [...sourceWorkflow.allowPermitWaiverByRoles],
+        brokerageId: sourceWorkflow.brokerageId,
         createdAt: now,
+        organizationId: sourceWorkflow.organizationId,
         proposalId,
+        proposalStates: [...sourceWorkflow.proposalStates],
+        requirePermitForApproval: sourceWorkflow.requirePermitForApproval,
+        ruleKey: sourceWorkflow.ruleKey,
+        settings: sourceWorkflow.settings,
+        version: sourceWorkflow.version,
+        workflowRuleId: sourceWorkflow.workflowRuleId,
       },
     );
-    const {
-      _creationTime: _buildCreationTime,
-      _id: _sourceBuildId,
-      proposalId: _sourceBuildProposalId,
-      workflowRuleSnapshotId: _sourceBuildWorkflowRuleSnapshotId,
-      ...buildFields
-    } = sourceBuild;
     const activeBuildId = await ctx.db.insert("activeBuilds", {
-      ...buildFields,
+      brokerageId: sourceBuild.brokerageId,
       buildName: "Scheduled Collaboration Build 2",
+      builderProfileId: sourceBuild.builderProfileId,
+      createdAt: now,
       location: "149 Cedar Ridge Road",
+      organizationId: sourceBuild.organizationId,
       proposalId,
       startDate: "2026-03-07",
+      status: "active",
+      totalBudgetCents: 240_000_000,
       timezone: "America/Toronto",
       updatedAt: now,
       workflowRuleSnapshotId,

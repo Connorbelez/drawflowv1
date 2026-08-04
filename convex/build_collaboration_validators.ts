@@ -202,6 +202,71 @@ export const buildPlanningActivationContractorValidator = v.object({
   snapshot: buildPlanningSnapshotValidator,
 });
 
+const buildPlanningActivationSummaryValidator = v.object({
+  approvedAt: v.number(),
+  revision: v.number(),
+});
+
+const buildPlanningActivationSummaryFullValidator = v.object({
+  actorRoles: v.array(v.string()),
+  actorWorkosUserId: v.string(),
+  approvedAt: v.number(),
+  revision: v.number(),
+});
+
+/**
+ * Small planning metadata response. Large snapshots and diff history are
+ * intentionally served by the paginated contracts below.
+ */
+export const buildPlanningReconciliationMetadataValidator = v.object({
+  activation: v.union(
+    v.null(),
+    buildPlanningActivationSummaryFullValidator,
+    buildPlanningActivationSummaryValidator,
+  ),
+  current: v.object({ revision: v.number() }),
+  diffsTruncated: v.boolean(),
+  materializationPending: v.boolean(),
+  revisionsTruncated: v.boolean(),
+  revisions: v.array(
+    v.union(
+      buildPlanningRevisionSummaryValidator,
+      buildPlanningRevisionContractorSummaryValidator,
+    ),
+  ),
+});
+
+export const buildPlanningReconciliationSnapshotPageValidator = v.object({
+  buildId: v.string(),
+  isDone: v.boolean(),
+  materializationPending: v.boolean(),
+  page: v.array(buildPlanningEntityValidator),
+  revision: v.number(),
+  continueCursor: v.string(),
+});
+
+export const buildPlanningActivationSnapshotPageValidator = v.object({
+  activation: v.union(
+    v.null(),
+    buildPlanningActivationSummaryFullValidator,
+    buildPlanningActivationSummaryValidator,
+  ),
+  buildId: v.string(),
+  isDone: v.boolean(),
+  materializationPending: v.boolean(),
+  page: v.array(buildPlanningEntityValidator),
+  continueCursor: v.string(),
+});
+
+export const buildPlanningReconciliationDiffPageValidator = v.object({
+  diffsTruncated: v.boolean(),
+  isDone: v.boolean(),
+  materializationPending: v.boolean(),
+  page: v.array(buildPlanningRevisionDiffValidator),
+  revisionsTruncated: v.boolean(),
+  continueCursor: v.string(),
+});
+
 export const buildPlanningReconciliationValidator = v.object({
   activation: v.union(
     v.null(),

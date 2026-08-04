@@ -3011,13 +3011,82 @@ function CollaborationPostCard({
   tagOptions: ReferenceOption[];
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const planningReconciliation = useQuery(
-    api.build_collaboration_planning_reconciliation
-      .getActiveBuildPlanningReconciliation,
+  const planningQueryArgs =
     entry.post.systemPost?.kind === "milestone"
       ? { buildId, organizationId }
-      : "skip"
+      : "skip";
+  const planningMetadata = useQuery(
+    api.build_collaboration_planning_reconciliation
+      .getActiveBuildPlanningReconciliation,
+    planningQueryArgs,
   );
+  const currentPlanningSnapshot = usePaginatedQuery(
+    api.build_collaboration_planning_reconciliation
+      .getActiveBuildPlanningReconciliationSnapshot,
+    planningQueryArgs,
+    { initialNumItems: 100 },
+  );
+  const activationPlanningSnapshot = usePaginatedQuery(
+    api.build_collaboration_planning_reconciliation
+      .getActiveBuildPlanningActivationSnapshot,
+    planningQueryArgs,
+    { initialNumItems: 100 },
+  );
+  const planningDiffs = usePaginatedQuery(
+    api.build_collaboration_planning_reconciliation
+      .listActiveBuildPlanningReconciliationDiffs,
+    planningQueryArgs,
+    { initialNumItems: 100 },
+  );
+  const planningReconciliation = useMemo(() => {
+    if (!planningMetadata) return undefined;
+    const pageStillLoading = [
+      currentPlanningSnapshot.status,
+      activationPlanningSnapshot.status,
+      planningDiffs.status,
+    ].some((status) => status === "LoadingFirstPage");
+    if (pageStillLoading) return undefined;
+    const buildIdString = String(buildId);
+    const currentSnapshot = planningSnapshotFromEntities(
+      buildIdString,
+      currentPlanningSnapshot.results,
+    );
+    const activationSnapshot = planningSnapshotFromEntities(
+      buildIdString,
+      activationPlanningSnapshot.results,
+    );
+    const diffsTruncated =
+      planningMetadata.diffsTruncated || planningDiffs.status === "CanLoadMore";
+    return {
+      activation: planningMetadata.activation
+        ? {
+            ...planningMetadata.activation,
+            snapshot: activationSnapshot,
+          }
+        : null,
+      current: {
+        revision: planningMetadata.current.revision,
+        snapshot: currentSnapshot,
+      },
+      diffs: planningDiffs.results,
+      diffsTruncated,
+      materializationPending:
+        planningMetadata.materializationPending ||
+        activationPlanningSnapshot.status === "CanLoadMore" ||
+        currentPlanningSnapshot.status === "CanLoadMore",
+      revisionsTruncated: planningMetadata.revisionsTruncated,
+      revisions: planningMetadata.revisions,
+    };
+  }, [
+    activationPlanningSnapshot.results,
+    activationPlanningSnapshot.status,
+    buildId,
+    currentPlanningSnapshot.results,
+    currentPlanningSnapshot.status,
+    planningDiffs.results,
+    planningDiffs.status,
+    planningMetadata,
+  ]);
   useFocusedCollaborationPostCard(cardRef, focusedPost);
   const focusPresentation = focusedPostCardPresentation(focusedPost);
   const [tab, setTab] = useState<"actions" | "discussion" | null>(() =>
@@ -3645,6 +3714,40 @@ function SystemPostPlanningSummary({
       )}
     </section>
   );
+}
+
+function planningSnapshotFromEntities(
+  buildId: string,
+  entities: Array<{
+    canonicalId?: string;
+    entityKey: string;
+    entityType: string;
+    planningState: "active" | "superseded";
+    snapshot: unknown;
+  }>,
+) {
+  const snapshot = {
+    allocations: [] as typeof entities,
+    budgets: [] as typeof entities,
+    buildId,
+    draws: [] as typeof entities,
+    evidenceRequirements: [] as typeof entities,
+    milestones: [] as typeof entities,
+    submilestones: [] as typeof entities,
+  };
+  for (const entity of entities) {
+    if (entity.entityType === "milestone") snapshot.milestones.push(entity);
+    else if (entity.entityType === "submilestone") {
+      snapshot.submilestones.push(entity);
+    } else if (entity.entityType === "draw") snapshot.draws.push(entity);
+    else if (entity.entityType === "budget") snapshot.budgets.push(entity);
+    else if (entity.entityType === "allocation") {
+      snapshot.allocations.push(entity);
+    } else if (entity.entityType === "evidenceRequirement") {
+      snapshot.evidenceRequirements.push(entity);
+    }
+  }
+  return snapshot;
 }
 
 function SystemPostPlanningComparison({
