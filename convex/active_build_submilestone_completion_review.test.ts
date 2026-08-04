@@ -956,18 +956,33 @@ describe("canonical Sub-milestone completion review", () => {
       reason: "Admin froze the replacement completion package.",
       warnings: [],
     });
-    for (const [index, audit] of result.audits.entries()) {
+    const priorStates = result.audits.map((audit: any) =>
+      JSON.parse(audit.priorState)
+    );
+    expect(priorStates[0]).toMatchObject({
+      evidencePackageRevisionId: result.first._id,
+      revision: result.first.revision,
+      status: "draft",
+    });
+    expect(priorStates[1]).toMatchObject({
+      evidencePackageRevisionId: result.second._id,
+      revision: result.draft.revision,
+      status: result.draft.status,
+    });
+    for (const audit of result.audits) {
       expect(audit.createdAt).toEqual(expect.any(Number));
       expect(audit.entityId).toBe(result.submilestoneId);
-      expect(JSON.parse(audit.priorState)).toMatchObject({
-        revision: index + 1,
-        status: "draft",
-      });
-      expect(JSON.parse(audit.newState)).toMatchObject({
-        revision: index + 1,
-        status: "frozen",
-      });
     }
+    expect(JSON.parse(result.audits[0].newState)).toMatchObject({
+      evidencePackageRevisionId: result.first._id,
+      revision: result.first.revision,
+      status: "frozen",
+    });
+    expect(JSON.parse(result.audits[1].newState)).toMatchObject({
+      evidencePackageRevisionId: result.second._id,
+      revision: result.second.revision,
+      status: "frozen",
+    });
   });
 
   test("keeps 100% as progress-only, then enters review only after a frozen package and declaration", async () => {

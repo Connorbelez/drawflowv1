@@ -390,6 +390,7 @@ export async function freezeActiveSubmilestoneEvidencePackage(
       build: input.build,
       milestone: input.milestone,
       packageRevision: created,
+      priorStatus: created.status,
       reason: input.reason,
       submilestone: input.submilestone,
       timestamp: now,
@@ -412,6 +413,7 @@ export async function freezeActiveSubmilestoneEvidencePackage(
     build: input.build,
     milestone: input.milestone,
     packageRevision: current,
+    priorStatus: current.status,
     reason: input.reason,
     submilestone: input.submilestone,
     timestamp: now,
@@ -425,6 +427,7 @@ async function recordActiveSubmilestoneEvidencePackageFreezeAudit(
     actorRoles: string[];
     actorWorkosUserId: string;
     packageRevision: Doc<"buildSubmilestoneEvidencePackageRevisions">;
+    priorStatus: Doc<"buildSubmilestoneEvidencePackageRevisions">["status"];
     reason?: string;
     timestamp: number;
   },
@@ -449,7 +452,7 @@ async function recordActiveSubmilestoneEvidencePackageFreezeAudit(
     priorState: JSON.stringify({
       evidencePackageRevisionId: input.packageRevision._id,
       revision: input.packageRevision.revision,
-      status: "draft",
+      status: input.priorStatus,
       submilestoneKey: input.submilestone.key,
     }),
     reason: input.reason,

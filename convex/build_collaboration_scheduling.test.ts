@@ -22,13 +22,19 @@ afterEach(() => {
 });
 
 describe("Build collaboration scheduled publication", () => {
-  test("resolves Build-local midnights across DST transitions", () => {
+  test("resolves normal, DST, and skipped-midnight Build-local dates", () => {
+    expect(
+      buildLocalMidnightUtc("2026-02-01", "America/Toronto")
+    ).toBe(Date.parse("2026-02-01T05:00:00.000Z"));
     expect(
       buildLocalMidnightUtc("2026-03-08", "America/Toronto")
     ).toBe(Date.parse("2026-03-08T05:00:00.000Z"));
     expect(
       buildLocalMidnightUtc("2026-11-01", "America/Toronto")
     ).toBe(Date.parse("2026-11-01T04:00:00.000Z"));
+    expect(
+      buildLocalMidnightUtc("2018-11-04", "America/Sao_Paulo")
+    ).toBe(Date.parse("2018-11-04T03:00:00.000Z"));
     expect(
       buildLocalDateAt(
         Date.parse("2026-03-08T04:59:59.000Z"),

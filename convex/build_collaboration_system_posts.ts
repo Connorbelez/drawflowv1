@@ -266,7 +266,25 @@ export function buildLocalMidnightUtc(date: string, timezone: string) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     candidate = wallClockUtc - timeZoneOffsetMs(candidate, normalizedTimezone);
   }
-  return candidate;
+  if (buildLocalDateAt(candidate, normalizedTimezone) === date) {
+    return candidate;
+  }
+
+  // Some timezones skip local midnight when daylight saving time begins. The
+  // fixed-point conversion above can then settle on the previous local date;
+  // advance through a bounded window until the requested Build-local date is
+  // valid and return its first representable instant.
+  const minuteMs = 60 * 1000;
+  const maxSearchMinutes = 48 * 60;
+  for (let minute = 1; minute <= maxSearchMinutes; minute += 1) {
+    const next = candidate + minute * minuteMs;
+    if (buildLocalDateAt(next, normalizedTimezone) === date) {
+      return next;
+    }
+  }
+  throw new Error(
+    `Unable to resolve Build-local midnight for ${date} in timezone ${normalizedTimezone}.`
+  );
 }
 
 function unknownSystemActionItemPresentation(reason: string) {
