@@ -3690,6 +3690,111 @@ describe("Build Collaboration operational events", () => {
     ).rejects.toThrow(/planning snapshot exceeds the 1000 Milestones safety limit/i);
   });
 
+  test("paginates an activation snapshot across planning entity pages", async () => {
+    const fixture = await seedOperationalBuild();
+    const now = Date.now();
+    await fixture.base.run(async (ctx) => {
+      const revisionId = await ctx.db.insert("activeBuildPlanningRevisions", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        approvedAt: now,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        diffCount: 0,
+        kind: "activation",
+        organizationId: ORGANIZATION_ID,
+        reason: "Synthetic paginated activation snapshot.",
+        revision: 1,
+        sourceCommand: "test",
+        summary: "251 milestone(s)",
+      });
+      for (let index = 0; index < 251; index += 1) {
+        await ctx.db.insert("activeBuildPlanningRevisionEntities", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          canonicalId: undefined,
+          createdAt: now + index,
+          entityKey: `synthetic-${index}`,
+          entityType: "milestone",
+          organizationId: ORGANIZATION_ID,
+          planningState: "active",
+          revision: 1,
+          revisionId,
+          snapshotJson: JSON.stringify({ name: `Synthetic ${index}` }),
+        });
+      }
+    });
+
+    const reconciliation = await fixture.admin.query(
+      (api as any).build_collaboration_planning_reconciliation
+        .getActiveBuildPlanningReconciliation,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(reconciliation.activation.snapshot.milestones).toHaveLength(251);
+    expect(reconciliation.diffsTruncated).toBe(false);
+  });
+
+  test("returns the first 10,000 planning diffs with an explicit truncation signal", async () => {
+    const fixture = await seedOperationalBuild();
+    const now = Date.now();
+    const diffRows = Array.from({ length: 10_001 }, (_, index) => ({
+      category: "scope" as const,
+      changeType: "changed" as const,
+      entityKey: `synthetic-${index}`,
+      entityType: "milestone",
+      field: "name",
+      nextValue: `Synthetic ${index} revised`,
+      priorValue: `Synthetic ${index}`,
+    }));
+    await fixture.base.run(async (ctx) => {
+      const revisionId = await ctx.db.insert("activeBuildPlanningRevisions", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        approvedAt: now,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        diffCount: diffRows.length,
+        kind: "approved",
+        organizationId: ORGANIZATION_ID,
+        reason: "Synthetic diff truncation test.",
+        revision: 1,
+        sourceCommand: "test",
+        summary: "10,001 synthetic diffs",
+      });
+      for (let offset = 0; offset < diffRows.length; offset += 250) {
+        await ctx.db.insert("activeBuildPlanningRevisionChunks", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          chunkIndex: offset / 250,
+          chunkKind: "diffs",
+          createdAt: now + offset,
+          organizationId: ORGANIZATION_ID,
+          payloadJson: JSON.stringify(diffRows.slice(offset, offset + 250)),
+          revision: 1,
+          revisionId,
+        });
+      }
+    });
+
+    const reconciliation = await fixture.admin.query(
+      (api as any).build_collaboration_planning_reconciliation
+        .getActiveBuildPlanningReconciliation,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(reconciliation.diffs).toHaveLength(10_000);
+    expect(reconciliation.diffsTruncated).toBe(true);
+    expect(reconciliation.diffs[0]).toMatchObject({
+      entityKey: "synthetic-0",
+      revision: 1,
+    });
+    expect(reconciliation.diffs.at(-1)).toMatchObject({
+      entityKey: "synthetic-9999",
+      revision: 1,
+    });
+  });
+
   test("reports synchronized versus repaired Milestone posts separately", async () => {
     const fixture = await seedOperationalBuild();
     const first = await fixture.admin.mutation(

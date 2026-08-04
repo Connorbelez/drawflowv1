@@ -72,6 +72,42 @@ const PLANNING_REVISION_ENTITY_LIMIT = Object.values(
 
 const PLANNING_REVISION_DIFF_LIMIT = 10_000;
 const PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE = 250;
+const PLANNING_READ_PAGE_SIZE = 100;
+const PLANNING_REVISION_READ_LIMIT = 100;
+const PLANNING_REVISION_CHUNK_LIMIT = 100;
+
+type PaginatedPlanningQuery<T> = {
+  paginate: (input: { cursor: string | null; numItems: number }) => Promise<{
+    continueCursor: string;
+    isDone: boolean;
+    page: T[];
+  }>;
+};
+type PaginatedPlanningQueryFactory<T> = () => PaginatedPlanningQuery<T>;
+
+type PlanningRowsPage<T> = {
+  isDone: boolean;
+  rows: T[];
+};
+
+async function readPlanningRows<T>(
+  queryFactory: PaginatedPlanningQueryFactory<T>,
+  maxRows: number
+): Promise<PlanningRowsPage<T>> {
+  const rows: T[] = [];
+  let cursor: string | null = null;
+  let isDone = false;
+  while (!isDone && rows.length < maxRows) {
+    const result = await queryFactory().paginate({
+      cursor,
+      numItems: Math.min(PLANNING_READ_PAGE_SIZE, maxRows - rows.length),
+    });
+    rows.push(...result.page);
+    cursor = result.continueCursor;
+    isDone = result.isDone;
+  }
+  return { isDone, rows };
+}
 
 function assertWithinPlanningSnapshotLimit(
   label: string,
@@ -205,39 +241,62 @@ async function collectPlanningSnapshot(
   build: Doc<"activeBuilds">
 ): Promise<PlanningSnapshot> {
   const [
-    milestones,
-    submilestones,
-    draws,
-    allocations,
-    capitalPlans,
-    requirementRows,
-  ] =
-    await Promise.all([
-      ctx.db
-        .query("buildMilestones")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(PLANNING_SNAPSHOT_LIMITS.milestones + 1),
-      ctx.db
-        .query("buildSubmilestones")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(PLANNING_SNAPSHOT_LIMITS.submilestones + 1),
-      ctx.db
-        .query("plannedDrawScheduleRows")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(PLANNING_SNAPSHOT_LIMITS.draws + 1),
-      ctx.db
-        .query("milestoneContractorAssignments")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(PLANNING_SNAPSHOT_LIMITS.allocations + 1),
-      ctx.db
-        .query("buildCapitalPlans")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(PLANNING_SNAPSHOT_LIMITS.capitalPlans + 1),
-      ctx.db
-        .query("buildSubmilestoneEvidenceRequirements")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(PLANNING_SNAPSHOT_LIMITS.requirements + 1),
-    ]);
+    milestonePage,
+    submilestonePage,
+    drawPage,
+    allocationPage,
+    capitalPlanPage,
+    requirementPage,
+  ] = await Promise.all([
+    readPlanningRows(
+      () =>
+        ctx.db
+          .query("buildMilestones")
+          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      PLANNING_SNAPSHOT_LIMITS.milestones + 1
+    ),
+    readPlanningRows(
+      () =>
+        ctx.db
+          .query("buildSubmilestones")
+          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      PLANNING_SNAPSHOT_LIMITS.submilestones + 1
+    ),
+    readPlanningRows(
+      () =>
+        ctx.db
+          .query("plannedDrawScheduleRows")
+          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      PLANNING_SNAPSHOT_LIMITS.draws + 1
+    ),
+    readPlanningRows(
+      () =>
+        ctx.db
+          .query("milestoneContractorAssignments")
+          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      PLANNING_SNAPSHOT_LIMITS.allocations + 1
+    ),
+    readPlanningRows(
+      () =>
+        ctx.db
+          .query("buildCapitalPlans")
+          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      PLANNING_SNAPSHOT_LIMITS.capitalPlans + 1
+    ),
+    readPlanningRows(
+      () =>
+        ctx.db
+          .query("buildSubmilestoneEvidenceRequirements")
+          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      PLANNING_SNAPSHOT_LIMITS.requirements + 1
+    ),
+  ]);
+  const milestones = milestonePage.rows;
+  const submilestones = submilestonePage.rows;
+  const draws = drawPage.rows;
+  const allocations = allocationPage.rows;
+  const capitalPlans = capitalPlanPage.rows;
+  const requirementRows = requirementPage.rows;
 
   assertWithinPlanningSnapshotLimit(
     "Milestones",
@@ -515,11 +574,20 @@ async function readRevisionSnapshot(
   buildId: Id<"activeBuilds">,
   options?: { allowPendingMaterialization?: boolean }
 ): Promise<PlanningSnapshot> {
-  const pendingChunks = await ctx.db
-    .query("activeBuildPlanningRevisionChunks")
-    .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
-    .order("asc")
-    .collect();
+  const pendingChunkPage = await readPlanningRows(
+    () =>
+      ctx.db
+        .query("activeBuildPlanningRevisionChunks")
+        .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
+        .order("asc"),
+    PLANNING_REVISION_CHUNK_LIMIT + 1,
+  );
+  const pendingChunks = pendingChunkPage.rows;
+  assertWithinPlanningSnapshotLimit(
+    "planning revision materialization chunks",
+    pendingChunks.length,
+    PLANNING_REVISION_CHUNK_LIMIT
+  );
   if (
     pendingChunks.length > 0 &&
     options?.allowPendingMaterialization !== true
@@ -528,17 +596,30 @@ async function readRevisionSnapshot(
       "Active Build planning revision materialization is still pending; retry after the bounded reconciliation completes."
     );
   }
-  const entities = await ctx.db
-    .query("activeBuildPlanningRevisionEntities")
-    .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
-    .take(PLANNING_REVISION_ENTITY_LIMIT + 1);
-  const stagedEntities = pendingChunks
-    .filter((chunk) => chunk.chunkKind === "entities")
-    .flatMap((chunk) => JSON.parse(chunk.payloadJson) as PlanningEntity[]);
-  if (entities.length + stagedEntities.length > PLANNING_REVISION_ENTITY_LIMIT) {
-    throw new Error(
-      "Active Build planning revision exceeds the supported entity safety limit."
+  const entityPage = await readPlanningRows(
+    () =>
+      ctx.db
+        .query("activeBuildPlanningRevisionEntities")
+        .withIndex("by_revision", (query) =>
+          query.eq("revisionId", revisionId)
+        ),
+    PLANNING_REVISION_ENTITY_LIMIT + 1
+  );
+  const entities = entityPage.rows;
+  const stagedEntities: PlanningEntity[] = [];
+  for (const chunk of pendingChunks) {
+    if (chunk.chunkKind !== "entities") continue;
+    stagedEntities.push(
+      ...(JSON.parse(chunk.payloadJson) as PlanningEntity[])
     );
+    if (
+      entities.length + stagedEntities.length >
+      PLANNING_REVISION_ENTITY_LIMIT
+    ) {
+      throw new Error(
+        "Active Build planning revision exceeds the supported entity safety limit."
+      );
+    }
   }
   const result = emptyPlanningSnapshot(String(buildId));
   const values: PlanningEntity[] = [
@@ -574,25 +655,61 @@ async function readRevisionDiffs(
   revision: Doc<"activeBuildPlanningRevisions">,
   limit: number
 ) {
-  const persisted = await ctx.db
-    .query("activeBuildPlanningRevisionDiffs")
-    .withIndex("by_revision", (query) => query.eq("revisionId", revision._id))
-    .take(limit + 1);
-  const pendingChunks = await ctx.db
-    .query("activeBuildPlanningRevisionChunks")
-    .withIndex("by_revision", (query) => query.eq("revisionId", revision._id))
-    .collect();
-  const staged = pendingChunks
-    .filter((chunk) => chunk.chunkKind === "diffs")
-    .flatMap((chunk) => JSON.parse(chunk.payloadJson) as PlanningDiff[])
-    .map((diff) => ({ ...diff, revision: revision.revision }));
-  const rows = [...persisted, ...staged];
-  if (rows.length > limit) {
-    throw new Error(
-      "Active Build planning revision diff history exceeds the supported read window."
-    );
+  if (limit <= 0) return { rows: [], truncated: revision.diffCount > 0 };
+  const persistedPage = await readPlanningRows(
+    () =>
+      ctx.db
+        .query("activeBuildPlanningRevisionDiffs")
+        .withIndex("by_revision", (query) =>
+          query.eq("revisionId", revision._id)
+        ),
+    limit + 1
+  );
+  const persisted = persistedPage.rows;
+  if (persisted.length > limit) {
+    return { rows: persisted.slice(0, limit), truncated: true };
   }
-  return rows;
+  const pendingChunkPage = await readPlanningRows(
+    () =>
+      ctx.db
+        .query("activeBuildPlanningRevisionChunks")
+        .withIndex("by_revision", (query) =>
+          query.eq("revisionId", revision._id)
+        )
+        .order("asc"),
+    PLANNING_REVISION_CHUNK_LIMIT + 1
+  );
+  const pendingChunks = pendingChunkPage.rows;
+  assertWithinPlanningSnapshotLimit(
+    "planning revision materialization chunks",
+    pendingChunks.length,
+    PLANNING_REVISION_CHUNK_LIMIT
+  );
+  const staged: PlanningDiff[] = [];
+  let stagedTruncated = false;
+  for (const chunk of pendingChunks) {
+    if (chunk.chunkKind !== "diffs") continue;
+    const chunkRows = JSON.parse(chunk.payloadJson) as PlanningDiff[];
+    const remaining = limit - persisted.length - staged.length;
+    if (chunkRows.length > remaining) {
+      staged.push(...chunkRows.slice(0, remaining + 1));
+      stagedTruncated = true;
+      break;
+    }
+    staged.push(...chunkRows);
+  }
+  const rows = [
+    ...persisted,
+    ...staged.map((diff) => ({ ...diff, revision: revision.revision })),
+  ];
+  return {
+    rows: rows.slice(0, limit),
+    truncated:
+      !persistedPage.isDone ||
+      !pendingChunkPage.isDone ||
+      stagedTruncated ||
+      rows.length > limit,
+  };
 }
 
 function snapshotEntitySummary(snapshot: PlanningSnapshot) {
@@ -1014,14 +1131,17 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
   .returns(buildPlanningReconciliationValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildAccess(ctx, args);
-    const [revisions, currentSnapshot, pendingChunks] = await Promise.all([
-      ctx.db
-        .query("activeBuildPlanningRevisions")
-        .withIndex("by_build_revision", (query) =>
-          query.eq("buildId", authorization.build._id)
-        )
-        .order("desc")
-        .take(100),
+    const [revisionPage, currentSnapshot, pendingChunks] = await Promise.all([
+      readPlanningRows(
+        () =>
+          ctx.db
+            .query("activeBuildPlanningRevisions")
+            .withIndex("by_build_revision", (query) =>
+              query.eq("buildId", authorization.build._id)
+            )
+            .order("desc"),
+        PLANNING_REVISION_READ_LIMIT,
+      ),
       collectPlanningSnapshot(ctx, authorization.build),
       ctx.db
         .query("activeBuildPlanningRevisionChunks")
@@ -1030,6 +1150,7 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         )
         .take(1),
     ]);
+    const revisions = revisionPage.rows;
     const activationRevision = revisions.find(
       (revision) => revision.kind === "activation"
     );
@@ -1042,19 +1163,24 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         )
       : emptyPlanningSnapshot(String(authorization.build._id));
     const diffs = [];
+    let diffsTruncated = false;
     for (const revision of revisions) {
       const remainingDiffLimit = PLANNING_REVISION_DIFF_LIMIT - diffs.length;
       if (remainingDiffLimit <= 0) {
-        throw new Error(
-          "Active Build planning revision diff history exceeds the supported read window."
-        );
+        diffsTruncated ||= revision.diffCount > 0;
+        if (diffsTruncated) break;
+        continue;
       }
-      const rows = await readRevisionDiffs(
+      const result = await readRevisionDiffs(
         ctx,
         revision,
         remainingDiffLimit
       );
-      diffs.push(...rows);
+      diffs.push(...result.rows);
+      if (result.truncated) {
+        diffsTruncated = true;
+        break;
+      }
     }
     const activationProjection = activationRevision
       ? await redactSnapshotForViewer(ctx, authorization, activationSnapshot)
@@ -1078,6 +1204,7 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         revision: revisions[0]?.revision ?? 0,
         snapshot: currentProjection.snapshot,
       },
+      diffsTruncated,
       diffs: diffs
         .filter((diff) => {
           if (authorization.effectiveRole.role !== "contractor") return true;

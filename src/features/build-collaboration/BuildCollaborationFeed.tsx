@@ -3742,6 +3742,16 @@ function SystemPostPlanningComparison({
           </dd>
         </div>
       </dl>
+      {planningReconciliation?.diffsTruncated ? (
+        <p
+          className="text-muted-foreground text-xs"
+          data-testid="planning-diffs-truncated"
+          role="status"
+        >
+          Structured planning history is truncated at 10,000 changes. The
+          canonical planning record remains authoritative.
+        </p>
+      ) : null}
       {planningReconciliation === undefined ? (
         <p className="text-muted-foreground text-xs" role="status">
           Loading structured planning changes…

@@ -200,6 +200,7 @@ export const buildPlanningReconciliationValidator = v.object({
     snapshot: buildPlanningSnapshotValidator,
   }),
   diffs: v.array(buildPlanningRevisionDiffValidator),
+  diffsTruncated: v.boolean(),
   materializationPending: v.boolean(),
   revisions: v.array(buildPlanningRevisionSummaryValidator),
 });

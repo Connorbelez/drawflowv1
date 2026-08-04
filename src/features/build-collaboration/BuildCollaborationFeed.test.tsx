@@ -522,7 +522,10 @@ function canonicalDrawSystemPostEntryFixture(options: {
   };
 }
 
-function planningReconciliationFixture({ restricted = false } = {}) {
+function planningReconciliationFixture({
+  restricted = false,
+  truncated = false,
+}: { restricted?: boolean; truncated?: boolean } = {}) {
   const milestoneDiff = {
     category: "dates",
     changeType: "changed",
@@ -581,6 +584,7 @@ function planningReconciliationFixture({ restricted = false } = {}) {
       },
     },
     diffs,
+    diffsTruncated: truncated,
     revisions: [
       {
         approvedAt: Date.parse("2026-08-03T12:00:00.000Z"),
@@ -1845,6 +1849,21 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Schedule")).toBeTruthy();
     expect(screen.getByText("Assignments")).toBeTruthy();
     expect(screen.getByText("Structured changes · 2")).toBeTruthy();
+  });
+
+  test("surfaces when the planning diff window is truncated", () => {
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+    mocks.planningReconciliation = planningReconciliationFixture({
+      truncated: true,
+    });
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(screen.getByTestId("planning-diffs-truncated").textContent).toContain(
+      "Structured planning history is truncated at 10,000 changes",
+    );
   });
 
   test("shows a loading comparison badge while structured reconciliation is unresolved", () => {
