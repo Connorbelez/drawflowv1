@@ -1252,6 +1252,89 @@ describe("Build collaboration export and lifecycle governance", () => {
     expect(replay).toEqual(completed);
   });
 
+  test("cursors past more than 5,000 permanent System Posts before filtering", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Expected retention overflow Build fixture.");
+      }
+      for (let index = 0; index < 5_001; index += 1) {
+        const createdAt = BASE_TIME - 10_000 + index;
+        await ctx.db.insert("buildCollaborationPosts", {
+          acknowledgementRequired: false,
+          agentDrafted: false,
+          audienceFloorTier: 3,
+          audienceMode: "build_wide",
+          authorDisplayNameSnapshot: "DrawFlow System",
+          authorRole: "admin",
+          authorRolesSnapshot: ["admin"],
+          brokerageId: build.brokerageId,
+          buildId: fixture.buildId,
+          commentCount: 0,
+          contentState: "active",
+          createdAt,
+          lastMeaningfulActivityAt: createdAt,
+          openActionItemCount: 0,
+          organizationId: ORGANIZATION_ID,
+          postType: "update",
+          readRevision: 1,
+          revision: 1,
+          source: "system",
+          systemEventKey: `retention-overflow:${index}`,
+          systemPostKind: "milestone",
+          threadRevision: 0,
+          threadState: "open",
+          updatedAt: createdAt,
+        });
+      }
+    });
+    await closeLifecycleFixtureForRetention(fixture);
+    vi.setSystemTime(BASE_TIME + 31 * 86_400_000);
+
+    const first = await fixture.admin.mutation(
+      (api as any).build_collaboration_retention
+        .purgeExpiredBuildCollaborationContent,
+      {
+        buildId: fixture.buildId,
+        expectedLifecycleRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Exercise cursor-based permanent System Post retention.",
+      },
+    );
+    expect(first).toMatchObject({
+      complete: false,
+      deletedPostCount: 0,
+      hasRemainingPosts: true,
+    });
+    const progress = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildCollaborationRetentionPurges")
+        .withIndex("by_buildId_and_state", (query) =>
+          query.eq("buildId", fixture.buildId).eq("state", "in_progress"),
+        )
+        .unique(),
+    );
+    expect(progress).toMatchObject({ postsScanned: false });
+    expect(progress?.postCursor).toEqual(expect.any(String));
+    const permanentPosts = await fixture.base.run((ctx) =>
+      ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_createdAt", (query) =>
+          query.eq("buildId", fixture.buildId),
+        )
+        .collect(),
+    );
+    expect(permanentPosts.filter((post) => post.systemPostKind)).toHaveLength(
+      5_001,
+    );
+    expect(
+      await fixture.base.run((ctx) => ctx.db.get(fixture.sharedPostId)),
+    ).not.toBeNull();
+  });
+
   test("exports immutable full-archive history instead of only current projections", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);

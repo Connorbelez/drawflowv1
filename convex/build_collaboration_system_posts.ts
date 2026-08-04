@@ -215,6 +215,9 @@ export function buildLocalDateAt(epochMs: number, timezone: string) {
 }
 
 export function addBuildLocalDays(date: string, days: number) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error(`Invalid Build-local calendar date ${date}.`);
+  }
   const [year, month, day] = date.split("-").map(Number);
   if (
     !(
@@ -230,6 +233,13 @@ export function addBuildLocalDays(date: string, days: number) {
     throw new Error(`Invalid Build-local calendar date ${date}.`);
   }
   const next = new Date(Date.UTC(year, month - 1, day));
+  if (
+    next.getUTCFullYear() !== year ||
+    next.getUTCMonth() !== month - 1 ||
+    next.getUTCDate() !== day
+  ) {
+    throw new Error(`Invalid Build-local calendar date ${date}.`);
+  }
   next.setUTCDate(next.getUTCDate() + Math.round(days));
   return next.toISOString().slice(0, 10);
 }
