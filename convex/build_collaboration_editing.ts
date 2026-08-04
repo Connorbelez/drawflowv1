@@ -7,7 +7,6 @@ import {
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { canUseCollaborationAssetForPost } from "./build_collaboration_asset_access";
-import { canReadDrawCoordination } from "./build_draw_coordination";
 import {
   canonicalizeEditedCollaborationContent,
   collaborationContentHash,
@@ -29,6 +28,7 @@ import {
   buildCollaborationReferenceKindValidator,
   buildCollaborationRoleValidator,
 } from "./build_collaboration_validators";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_EDIT_REFERENCES = 100;
@@ -48,6 +48,27 @@ const revisionHistoryValidator = v.object({
   revision: v.number(),
   tiptapJson: v.string(),
 });
+
+/**
+ * The feed must use the same edit capability as the command mutation. Authors
+ * can edit their own human posts; only Lender Admins can edit canonical
+ * Milestone System Posts. Draw System Posts and every other System Post remain
+ * immutable through this command.
+ */
+export function canEditBuildCollaborationPost(
+  post: Doc<"buildCollaborationPosts">,
+  input: {
+    role: ActiveBuildAuthorization["effectiveRole"]["role"];
+    viewerWorkosUserId: string;
+  },
+) {
+  if (post.source === "system") {
+    return (
+      post.systemPostKind === "milestone" && input.role === "admin"
+    );
+  }
+  return post.authorWorkosUserId === input.viewerWorkosUserId;
+}
 
 export const editBuildCollaborationPost = authenticatedMutation
   .input({
@@ -520,14 +541,13 @@ async function requireAuthoredReadablePost(
   postId: Id<"buildCollaborationPosts">
 ) {
   const post = await ctx.db.get(postId);
-  const systemEditor =
-    post?.source === "system" &&
-    post.systemPostKind === "milestone" &&
-    authorization.effectiveRole.role === "admin";
   if (
     !post ||
     post.buildId !== authorization.build._id ||
-    (!systemEditor && post.authorWorkosUserId !== authorization.viewer.subject) ||
+    !canEditBuildCollaborationPost(post, {
+      role: authorization.effectiveRole.role,
+      viewerWorkosUserId: authorization.viewer.subject,
+    }) ||
     !(await canReadCollaborationPost(ctx, authorization, post))
   ) {
     throw new Error("Forbidden: authored collaboration post");
@@ -541,8 +561,10 @@ function isSystemPostOverride(
 ) {
   return (
     post.source === "system" &&
-    post.systemPostKind === "milestone" &&
-    authorization.effectiveRole.role === "admin"
+    canEditBuildCollaborationPost(post, {
+      role: authorization.effectiveRole.role,
+      viewerWorkosUserId: authorization.viewer.subject,
+    })
   );
 }
 

@@ -2876,6 +2876,79 @@ describe("Build Collaboration operational events", () => {
     expect(afterReplay.deliveries).toHaveLength(afterFirst.deliveries.length);
     expect(afterReplay.actionItems).toHaveLength(afterFirst.actionItems.length);
 
+    const beforeSilentRemediation = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    await fixture.admin.mutation(
+      (internal as any).build_collaboration_system_events
+        .publishBuildCollaborationSystemEvent,
+      {
+        buildId: fixture.buildId,
+        idempotencyKey: "operational:test:silent-remediation",
+        organizationId: ORGANIZATION_ID,
+        plainText: "Historical remediation source record.",
+        postType: "issue",
+        primaryReferenceId: fixture.milestoneId,
+        primaryReferenceKind: "milestone",
+        remediation: {
+          description: "Historical remediation must remain source-only.",
+          policyKey: "historical-remediation",
+          title: "Historical remediation",
+          workKind: "evidence",
+        },
+        silentBackfill: {
+          materializedAt: Date.now(),
+          unknownFacts: ["start"],
+        },
+        systemLabel: "DrawFlow Operations",
+      },
+    );
+    const afterSilentRemediation = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    expect(afterSilentRemediation.posts).toHaveLength(
+      beforeSilentRemediation.posts.length + 1,
+    );
+    expect(afterSilentRemediation.actionItems).toHaveLength(
+      beforeSilentRemediation.actionItems.length,
+    );
+
+    await expect(
+      fixture.admin.mutation(
+        (internal as any).build_collaboration_system_events
+          .publishBuildCollaborationSystemEvent,
+        {
+          buildId: fixture.buildId,
+          idempotencyKey: "operational:test:missing-milestone-reference",
+          organizationId: ORGANIZATION_ID,
+          plainText: "This Milestone System Post must be rejected.",
+          postType: "update",
+          systemLabel: "DrawFlow Operations",
+          systemPostKind: "milestone",
+        },
+      ),
+    ).rejects.toThrow(/Milestone primary reference/i);
+
+    await expect(
+      fixture.admin.mutation(
+        (internal as any).build_collaboration_system_events
+          .publishBuildCollaborationSystemEvent,
+        {
+          buildId: fixture.buildId,
+          idempotencyKey: "operational:test:invalid-milestone-reference",
+          organizationId: ORGANIZATION_ID,
+          plainText: "This Milestone System Post must be rejected.",
+          postType: "update",
+          primaryReferenceId: "missing-milestone",
+          primaryReferenceKind: "milestone",
+          systemLabel: "DrawFlow Operations",
+          systemPostKind: "milestone",
+        },
+      ),
+    ).rejects.toThrow(/referenced Milestone is unavailable/i);
+
     await expect(
       fixture.admin.mutation(
         (internal as any).build_collaboration_system_events
@@ -2896,15 +2969,15 @@ describe("Build Collaboration operational events", () => {
       fixture.base,
       String(fixture.buildId),
     );
-    expect(afterRollback.posts).toHaveLength(afterReplay.posts.length);
+    expect(afterRollback.posts).toHaveLength(afterSilentRemediation.posts.length);
     expect(afterRollback.references).toHaveLength(
-      afterReplay.references.length,
+      afterSilentRemediation.references.length,
     );
     expect(afterRollback.deliveries).toHaveLength(
-      afterReplay.deliveries.length,
+      afterSilentRemediation.deliveries.length,
     );
     expect(afterRollback.actionItems).toHaveLength(
-      afterReplay.actionItems.length,
+      afterSilentRemediation.actionItems.length,
     );
 
     const inactive = await seedOperationalBuild({ collaborationActive: false });
@@ -3811,7 +3884,8 @@ describe("Build Collaboration operational events", () => {
       { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
     );
     expect(reconciliation.revisions).toHaveLength(100);
-    expect(reconciliation.diffsTruncated).toBe(true);
+    expect(reconciliation.revisionsTruncated).toBe(true);
+    expect(reconciliation.diffsTruncated).toBe(false);
   });
 
   test("returns the first 10,000 planning diffs with an explicit truncation signal", async () => {
@@ -3863,6 +3937,7 @@ describe("Build Collaboration operational events", () => {
       { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
     );
     expect(reconciliation.diffs).toHaveLength(10_000);
+    expect(reconciliation.revisionsTruncated).toBe(false);
     expect(reconciliation.diffsTruncated).toBe(true);
     expect(reconciliation.diffs[0]).toMatchObject({
       entityKey: "synthetic-0",

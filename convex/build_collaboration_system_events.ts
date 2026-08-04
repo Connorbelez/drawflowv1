@@ -206,6 +206,26 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   ) {
     throw new Error("Draw System Posts must use a Draw primary reference.");
   }
+  if (input.systemPostKind === "milestone") {
+    if (primaryReferenceKind !== "milestone" || !primaryReferenceId) {
+      throw new Error(
+        "Milestone System Posts must use a Milestone primary reference."
+      );
+    }
+    const milestoneId = ctx.db.normalizeId(
+      "buildMilestones",
+      primaryReferenceId
+    );
+    const milestone = milestoneId ? await ctx.db.get(milestoneId) : null;
+    if (
+      !milestone ||
+      milestone.buildId !== build._id ||
+      milestone.organizationId !== build.organizationId ||
+      milestone.brokerageId !== build.brokerageId
+    ) {
+      throw new Error("The referenced Milestone is unavailable.");
+    }
+  }
   const readerParticipants = await systemEventReaders(ctx, {
     buildId: build._id,
     participants,
@@ -318,7 +338,8 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     postId,
     references,
   });
-  const actionItemId = input.remediation && input.systemPostKind !== "draw"
+  const actionItemId =
+    !input.silentBackfill && input.remediation && input.systemPostKind !== "draw"
     ? await createDeterministicRemediationActionItem(ctx, {
         authorization,
         idempotencyKey,

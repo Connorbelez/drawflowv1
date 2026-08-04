@@ -1473,7 +1473,7 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         )
         .take(1),
     ]);
-    const revisionHistoryTruncated =
+    const revisionsTruncated =
       !revisionPage.isDone ||
       revisionPage.rows.length > PLANNING_REVISION_READ_LIMIT;
     const revisions = revisionPage.rows.slice(0, PLANNING_REVISION_READ_LIMIT);
@@ -1489,7 +1489,7 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         )
       : emptyPlanningSnapshot(String(authorization.build._id));
     const diffs = [];
-    let diffsTruncated = revisionHistoryTruncated;
+    let diffsTruncated = false;
     for (const revision of revisions) {
       const remainingDiffLimit = PLANNING_REVISION_DIFF_LIMIT - diffs.length;
       if (remainingDiffLimit <= 0) {
@@ -1580,6 +1580,7 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         ];
       }),
       materializationPending: pendingChunks.length > 0,
+      revisionsTruncated,
       revisions: revisions.map((revision) =>
         contractorProjection
           ? {

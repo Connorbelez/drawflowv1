@@ -374,6 +374,7 @@ export const collaborationPostSummaryValidator = v.object({
   threadState: v.union(v.literal("open"), v.literal("resolved")),
   updatedAt: v.number(),
   viewerCanAppeal: v.boolean(),
+  viewerCanEdit: v.boolean(),
   viewerCanModerate: v.boolean(),
   viewerCanResolveAppeal: v.boolean(),
   viewerCanManageThread: v.boolean(),

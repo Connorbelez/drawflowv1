@@ -6,6 +6,7 @@ import {
   collaborationModeratedContent,
   collaborationTombstoneContent,
 } from "./build_collaboration_content";
+import { canEditBuildCollaborationPost } from "./build_collaboration_editing";
 import { collaborationModerationCapabilities } from "./build_collaboration_moderation";
 import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { projectAcceptedBuildCollaborationAnswerForViewer } from "./build_collaboration_resolution";
@@ -1084,6 +1085,14 @@ function collaborationPostSummary(input: {
     threadState: coordinationRedacted ? "open" : post.threadState,
     updatedAt: post.updatedAt,
     viewerCanAppeal: moderationCapabilities.canAppeal,
+    viewerCanEdit:
+      !redacted &&
+      !coordinationRedacted &&
+      post.contentState === "active" &&
+      canEditBuildCollaborationPost(post, {
+        role: authorization.effectiveRole.role,
+        viewerWorkosUserId: authorization.viewer.subject,
+      }),
     viewerCanManageThread:
       !redacted &&
       !coordinationRedacted &&
