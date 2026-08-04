@@ -15,6 +15,7 @@ import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { isCleanCollaborationAsset } from "./build_collaboration_asset_access";
 import { abandonUnpublishedCostDocumentDraftAsset } from "./build_collaboration_assets";
 import { buildCollaborationRoleValidator } from "./build_collaboration_validators";
+import { normalizeContractorEmail } from "./contractorWorkspace";
 import {
   assertCurrentCostDocumentAllocationScope,
   assertExpectedCostDocumentBatchRevision,
@@ -657,96 +658,26 @@ async function listAuthorizedCostDocumentPage<T>(
     input.maxRequestedCount ?? 50,
     Math.max(1, input.paginationOpts.numItems)
   );
-  // Convex read budgets and split metadata describe one native pagination
-  // interval. Never reset either budget across the row-at-a-time filtering
-  // loop: authorize the complete bounded native interval once and forward its
-  // cursor/status unchanged.
-  if (
-    input.paginationOpts.maximumRowsRead !== undefined ||
-    input.paginationOpts.maximumBytesRead !== undefined
-  ) {
-    const rawPage = await loadRawCostDocumentPage(ctx, {
-      authorization: input.authorization,
-      paginationOpts: {
-        ...input.paginationOpts,
-        numItems: requestedCount,
-      },
-    });
-    const readable = await listReadableCostDocuments(ctx, {
-      authorization: input.authorization,
-      contractorSubmittedReadScope: input.contractorSubmittedReadScope,
-      documents: rawPage.page,
-      includeLifecycleHistory: input.includeLifecycleHistory,
-    });
-    return {
-      ...rawPage,
-      page: await Promise.all(readable.map(input.project)),
-    };
-  }
-  const rawScanLimit = Math.max(
-    1,
-    Math.min(
-      MAX_SUBMITTED_DOCUMENT_LIST_SCAN,
-      input.paginationOpts.maximumRowsRead ?? MAX_SUBMITTED_DOCUMENT_LIST_SCAN
-    )
-  );
-  let rawCursor = input.paginationOpts.cursor;
-  let continueCursor = rawCursor ?? "";
-  let isDone = false;
-  let scannedCount = 0;
-  let splitCursor: string | null | undefined;
-  let pageStatus: "SplitRecommended" | "SplitRequired" | null | undefined;
-  const inScope: Doc<"costDocuments">[] = [];
-
-  while (
-    !isDone &&
-    inScope.length < requestedCount &&
-    scannedCount < rawScanLimit
-  ) {
-    const rawPage = await loadRawCostDocumentPage(ctx, {
-      authorization: input.authorization,
-      paginationOpts: {
-        ...input.paginationOpts,
-        cursor: rawCursor,
-        maximumRowsRead: rawScanLimit - scannedCount,
-        numItems: 1,
-      },
-    });
-    isDone = rawPage.isDone;
-    continueCursor = rawPage.continueCursor;
-    splitCursor = rawPage.splitCursor;
-    pageStatus = rawPage.pageStatus;
-    if (rawPage.page.length === 0) {
-      break;
-    }
-    scannedCount += rawPage.page.length;
-    rawCursor = rawPage.continueCursor;
-    inScope.push(
-      ...(await listReadableCostDocuments(ctx, {
-        authorization: input.authorization,
-        contractorSubmittedReadScope: input.contractorSubmittedReadScope,
-        documents: rawPage.page,
-        includeLifecycleHistory: input.includeLifecycleHistory,
-      }))
-    );
-
-    // A split cursor describes this exact native interval. Return it now
-    // rather than consuming another interval and hiding the metadata from
-    // `usePaginatedQuery`.
-    if (splitCursor !== null && splitCursor !== undefined) {
-      break;
-    }
-    if (pageStatus) {
-      break;
-    }
-  }
-
+  // Convex permits exactly one `.paginate()` call in a query execution. Read
+  // one native interval, authorize every row in memory, and forward its native
+  // cursor and split metadata unchanged. Authorization can make a page sparse
+  // or empty; clients must continue draining until the native page is done.
+  const rawPage = await loadRawCostDocumentPage(ctx, {
+    authorization: input.authorization,
+    paginationOpts: {
+      ...input.paginationOpts,
+      numItems: requestedCount,
+    },
+  });
+  const readable = await listReadableCostDocuments(ctx, {
+    authorization: input.authorization,
+    contractorSubmittedReadScope: input.contractorSubmittedReadScope,
+    documents: rawPage.page,
+    includeLifecycleHistory: input.includeLifecycleHistory,
+  });
   return {
-    page: await Promise.all(inScope.map(input.project)),
-    continueCursor,
-    isDone,
-    ...(splitCursor === undefined ? {} : { splitCursor }),
-    ...(pageStatus === undefined ? {} : { pageStatus }),
+    ...rawPage,
+    page: await Promise.all(readable.map(input.project)),
   };
 }
 
@@ -2349,10 +2280,10 @@ export const submitCostDocumentBatch = authenticatedMutation
     if (drafts.length === 0) {
       throw new Error("A Cost Document batch requires at least one document.");
     }
-    const uploaderEmail = authorization.viewer.email?.trim().toLowerCase();
-    if (!uploaderEmail) {
-      throw new Error("A verified uploader email is required for the receipt.");
-    }
+    const uploaderEmail = await resolveCostDocumentUploaderEmail(
+      ctx,
+      authorization.viewer
+    );
     // All validation runs before the first insert or asset publication. A
     // malformed member therefore cannot leave a partially submitted batch.
     const prepared: PreparedCostDocument[] = [];
@@ -2626,6 +2557,45 @@ export const recordCostDocumentPageDeliveryFailure = authenticatedMutation
 type AuthorizedCostDocumentCtx = (QueryCtx | MutationCtx) & {
   viewer: ActiveBuildAuthorization["viewer"];
 };
+
+async function resolveCostDocumentUploaderEmail(
+  ctx: MutationCtx,
+  viewer: ActiveBuildAuthorization["viewer"]
+) {
+  const tokenEmail = normalizeContractorEmail(viewer.email);
+  const projectedUsers = await ctx.db
+    .query("users")
+    .withIndex("by_workos_user_id", (query) =>
+      query.eq("workosUserId", viewer.subject)
+    )
+    .take(2);
+
+  if (projectedUsers.length === 0) {
+    if (tokenEmail) {
+      return tokenEmail;
+    }
+    throw new Error("A verified uploader email is required for the receipt.");
+  }
+
+  const projectedUser = projectedUsers[0];
+  if (
+    projectedUsers.length !== 1 ||
+    !projectedUser?.emailVerified ||
+    projectedUser.status === "deleted"
+  ) {
+    throw new Error(
+      "A uniquely projected, verified uploader email is required for the receipt."
+    );
+  }
+  const projectedEmail = normalizeContractorEmail(projectedUser.email);
+  if (!projectedEmail) {
+    throw new Error("A verified uploader email is required for the receipt.");
+  }
+  if (tokenEmail && tokenEmail !== projectedEmail) {
+    throw new Error("WorkOS identity email verification is inconsistent.");
+  }
+  return projectedEmail;
+}
 
 async function authorizeCostDocumentBuilder(
   ctx: AuthorizedCostDocumentCtx,

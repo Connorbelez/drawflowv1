@@ -16,6 +16,10 @@ import {
 } from "./authz";
 import { assertOrganizationRetentionWritable } from "./data_retention";
 import {
+  assertQuoteAuthoringRole,
+  hasQuoteAuthoringRole,
+} from "./quote_authoring_access";
+import {
   quoteInvitationCommunicationProjection,
   quoteInvitationCommunicationProjectionValidator,
 } from "./quote_notifications";
@@ -381,7 +385,7 @@ function assertComparisonReadRole(roles: readonly string[]) {
 }
 
 function canViewRecipientSensitiveFacts(roles: readonly string[]) {
-  return roles.some((role) => role === "builder" || role === "builder-staff");
+  return hasQuoteAuthoringRole(roles);
 }
 
 function redactedRecipientEmail(
@@ -412,11 +416,7 @@ function visiblePreferredActor(
 }
 
 function assertComparisonWriteRole(roles: readonly string[]) {
-  if (!(roles.includes("builder") || roles.includes("builder-staff"))) {
-    throw new ConvexError(
-      "Forbidden: only Builder or Builder Staff may change Preferred Quote."
-    );
-  }
+  assertQuoteAuthoringRole(roles);
 }
 
 async function authorizeComparisonPath(
@@ -1317,9 +1317,7 @@ async function loadComparison(
     authorization
   );
   const state = await getPreferredState(ctx, round._id);
-  const canManagePreferred = authorization.roles.some(
-    (role) => role === "builder" || role === "builder-staff"
-  );
+  const canManagePreferred = hasQuoteAuthoringRole(authorization.roles);
   return {
     candidates,
     canClearPreferred:

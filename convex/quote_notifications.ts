@@ -6,7 +6,6 @@ import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import {
   administrativeOverrideInputFields,
   appendGovernedAuditEvent,
-  authorizeAdministrativeRecovery,
   requiredAdministrativeReason,
 } from "./administrative_override_policy";
 import { authenticatedMutation } from "./authz";
@@ -18,6 +17,7 @@ import {
   resendClient,
 } from "./email_transport";
 import { internalAction, internalMutation, internalQuery } from "./fluent";
+import { authorizeQuoteAdministrativeRecovery } from "./quote_authoring_access";
 import {
   createInitialQuoteInvitationCredentialAndDispatch,
   defaultQuoteInvitationAccessExpiry,
@@ -199,15 +199,12 @@ export const retryCommunicationDelivery = authenticatedMutation
       buildId: args.buildId,
       organizationId: args.workosOrganizationId,
     });
-    const { authorization, breakGlass } = await authorizeAdministrativeRecovery(
-      ctx,
-      baseAuthorization,
-      {
+    const { authorization, breakGlass } =
+      await authorizeQuoteAdministrativeRecovery(ctx, baseAuthorization, {
         administrativeCapacity: args.administrativeCapacity,
         breakGlassConfirmed: args.breakGlassConfirmed,
         reason,
-      }
-    );
+      });
     const source = await ctx.db.get(args.communicationIntentId);
     if (
       !source ||

@@ -17,6 +17,7 @@ import {
   enqueueCommunicationIntent,
 } from "./email_transport";
 import { publicMutation } from "./fluent";
+import { assertQuoteAuthoringRole } from "./quote_authoring_access";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const MAX_ACTIVE_SESSIONS_PER_CREDENTIAL = 12;
@@ -1421,16 +1422,7 @@ async function authorizeQuoteRecipientAuthoring(
   ctx: MutationCtx & { viewer: AuthorizedViewer },
   input: { buildId: Id<"activeBuilds">; workosOrganizationId: string }
 ) {
-  if (
-    !(
-      ctx.viewer.roles.includes("builder") ||
-      ctx.viewer.roles.includes("builder-staff")
-    )
-  ) {
-    throw new ConvexError(
-      "Forbidden: only Builder or Builder Staff may author Quote Rounds."
-    );
-  }
+  assertQuoteAuthoringRole(ctx.viewer.roles);
   return await authorizeActiveBuildAccess(ctx, {
     buildId: input.buildId,
     organizationId: input.workosOrganizationId,

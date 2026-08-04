@@ -19,8 +19,12 @@ import {
 } from "#/features/builder-staff/app-permissions.ts";
 import { BuilderStaffPermissionsPanel } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
+import { CostDocumentBatchWorkspace } from "#/features/cost-documents/CostDocumentBatchWorkspace.tsx";
 import { CostDocumentRoadmapReconciliation } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
-import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
+import {
+  type CostDocumentRouteSearch,
+  normalizeCostDocumentSearch,
+} from "#/features/cost-documents/costDocumentRouteState.ts";
 import {
   getVisualParityActiveBuildDetail,
   getVisualParityActiveBuildTimelineWorkspace,
@@ -32,8 +36,7 @@ import { canMakeActiveBuildFinalDecision } from "#/lib/auth/rbac.ts";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
-interface BuildDetailSearch {
-  costDocument?: string;
+interface BuildDetailSearch extends CostDocumentRouteSearch {
   focus?: string;
   milestone?: string;
   rail?: "open" | "closed";
@@ -91,6 +94,11 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
       search.timeframe === "agenda"
         ? (search.timeframe as CalendarTimeframe)
         : undefined;
+    const costWorkspaceActive = Boolean(
+      costDocumentSearch.costBatch ||
+        costDocumentSearch.costDocument ||
+        costDocumentSearch.costDocumentDraft
+    );
     const out: BuildDetailSearch = {};
     if (focus !== undefined) {
       out.focus = focus;
@@ -100,13 +108,21 @@ export const Route = createFileRoute("/backoffice/builds/$buildId")({
     }
     if (
       tab !== undefined ||
+      costDocumentSearch.costBatch !== undefined ||
       costDocumentSearch.costDocument !== undefined ||
+      costDocumentSearch.costDocumentDraft !== undefined ||
       roundId !== undefined
     ) {
-      out.tab = roundId ? "quotes" : (tab ?? "costs");
+      out.tab = roundId ? "quotes" : costWorkspaceActive ? "costs" : tab;
+    }
+    if (costDocumentSearch.costBatch !== undefined) {
+      out.costBatch = costDocumentSearch.costBatch;
     }
     if (costDocumentSearch.costDocument !== undefined) {
       out.costDocument = costDocumentSearch.costDocument;
+    }
+    if (costDocumentSearch.costDocumentDraft !== undefined) {
+      out.costDocumentDraft = costDocumentSearch.costDocumentDraft;
     }
     if (rail !== undefined) {
       out.rail = rail;
@@ -299,7 +315,10 @@ function RouteComponent() {
       params: { buildId },
       search: {
         ...search,
+        costBatch: tab === "costs" ? search.costBatch : undefined,
         costDocument: tab === "costs" ? search.costDocument : undefined,
+        costDocumentDraft:
+          tab === "costs" ? search.costDocumentDraft : undefined,
         focus,
         roundId: tab === "quotes" ? search.roundId : undefined,
         tab,
@@ -348,10 +367,13 @@ function RouteComponent() {
     const activeBuildId = detail.build._id as any;
     const workosOrganizationId = context.organizationId as string;
     const appPermissions = detail.appPermissions;
-    const canMakeFinalDecision = canMakeActiveBuildFinalDecision([
-      context.role,
-      ...(context.roles ?? []),
-    ]);
+    const viewerRoles = [context.role, ...(context.roles ?? [])];
+    const canMakeFinalDecision = canMakeActiveBuildFinalDecision(viewerRoles);
+    const costDocumentActorCapacity = viewerRoles.includes("admin")
+      ? "admin"
+      : viewerRoles.includes("principle-broker")
+        ? "principle-broker"
+        : undefined;
     const materialPlanningActions = filterMaterialPlanningActionsForPermissions(
       appPermissions,
       visualFixtureEnabled
@@ -860,33 +882,92 @@ function RouteComponent() {
           `/backoffice/contractors/${contractorId}`
         }
         costs={
-          <CostDocumentRoadmapReconciliation
-            buildId={activeBuildId as Id<"activeBuilds">}
-            interactionMode="brokerage-review"
-            onCloseCostDocument={() =>
-              navigate({
-                params: { buildId },
-                replace: true,
-                search: { ...search, costDocument: undefined, tab: "costs" },
-                to: "/backoffice/builds/$buildId",
-              } as never)
-            }
-            onOpenCostDocument={(costDocument) =>
-              navigate({
-                params: { buildId },
-                replace: false,
-                search: { ...search, costDocument, tab: "costs" },
-                to: "/backoffice/builds/$buildId",
-              } as never)
-            }
-            organizationId={workosOrganizationId}
-            selectedCostDocumentId={search.costDocument}
-            submilestones={detail.submilestones.map((submilestone) => ({
-              id: submilestone._id as Id<"buildSubmilestones">,
-              label: `${submilestone.milestoneKey} · ${submilestone.name}`,
-              milestoneKey: submilestone.milestoneKey,
-            }))}
-          />
+          costDocumentActorCapacity ? (
+            <CostDocumentBatchWorkspace
+              actorCapacity={costDocumentActorCapacity}
+              batchId={search.costBatch}
+              buildId={activeBuildId as Id<"activeBuilds">}
+              draftId={search.costDocumentDraft}
+              onBatchIdChange={(batchId) =>
+                navigate({
+                  params: { buildId },
+                  replace: Boolean(search.costBatch) || !batchId,
+                  search: {
+                    ...search,
+                    costBatch: batchId,
+                    costDocument: undefined,
+                    costDocumentDraft: undefined,
+                    tab: "costs",
+                  },
+                  to: "/backoffice/builds/$buildId",
+                } as never)
+              }
+              organizationId={workosOrganizationId}
+              reconciliation={{
+                onCostDocumentCorrectionStarted: ({ batchId, draftId }) =>
+                  navigate({
+                    params: { buildId },
+                    replace: false,
+                    search: {
+                      ...search,
+                      costBatch: batchId,
+                      costDocument: undefined,
+                      costDocumentDraft: draftId,
+                      tab: "costs",
+                    },
+                    to: "/backoffice/builds/$buildId",
+                  } as never),
+                onCostDocumentIdChange: (costDocumentId) =>
+                  navigate({
+                    params: { buildId },
+                    replace: !costDocumentId,
+                    search: {
+                      ...search,
+                      costBatch: undefined,
+                      costDocument: costDocumentId,
+                      costDocumentDraft: undefined,
+                      tab: "costs",
+                    },
+                    to: "/backoffice/builds/$buildId",
+                  } as never),
+                selectedCostDocumentId: search.costDocument,
+              }}
+              submilestones={detail.submilestones.map((submilestone) => ({
+                id: submilestone._id as Id<"buildSubmilestones">,
+                label: `${submilestone.milestoneKey} · ${submilestone.name}`,
+                milestoneKey: submilestone.milestoneKey,
+              }))}
+            />
+          ) : (
+            <CostDocumentRoadmapReconciliation
+              actorCapacity={costDocumentActorCapacity}
+              buildId={activeBuildId as Id<"activeBuilds">}
+              interactionMode="brokerage-review"
+              onCloseCostDocument={() =>
+                navigate({
+                  params: { buildId },
+                  replace: true,
+                  search: { ...search, costDocument: undefined, tab: "costs" },
+                  to: "/backoffice/builds/$buildId",
+                } as never)
+              }
+              onOpenCostDocument={(costDocument) =>
+                navigate({
+                  params: { buildId },
+                  replace: false,
+                  search: { ...search, costDocument, tab: "costs" },
+                  to: "/backoffice/builds/$buildId",
+                } as never)
+              }
+              organizationId={workosOrganizationId}
+              selectedCostDocumentId={search.costDocument}
+              submilestones={detail.submilestones.map((submilestone) => ({
+                id: submilestone._id as Id<"buildSubmilestones">,
+                label: `${submilestone.milestoneKey} · ${submilestone.name}`,
+                milestoneKey: submilestone.milestoneKey,
+              }))}
+            />
+          )
         }
         detail={detail}
         focusedReference={search.focus}
@@ -910,23 +991,27 @@ function RouteComponent() {
               }
               organizationId={workosOrganizationId}
               quoteRoundId={search.roundId}
-              readOnly
               readerKind="backoffice"
+              readOnly
             />
           ) : (
             <QuoteRoundsSurface
               buildId={String(activeBuildId)}
+              onCreate={() =>
+                navigate({
+                  params: { buildId },
+                  search: {},
+                  to: "/backoffice/builds/$buildId/quotes/new",
+                })
+              }
               onOpen={(roundId) =>
                 navigate({
                   params: { buildId },
-                  replace: false,
-                  search: { ...search, roundId, tab: "quotes" },
-                  to: "/backoffice/builds/$buildId",
-                } as never)
+                  search: { roundId },
+                  to: "/backoffice/builds/$buildId/quotes/new",
+                })
               }
               organizationId={workosOrganizationId}
-              readOnly
-              readOnlyLabel="Backoffice audit"
             />
           )
         }

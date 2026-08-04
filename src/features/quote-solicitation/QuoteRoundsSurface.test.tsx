@@ -266,6 +266,47 @@ describe("QuoteRoundsSurface", () => {
     );
   });
 
+  test("confirms and deletes only draft Quote Requests from writable workspaces", async () => {
+    const onOpen = vi.fn();
+    renderSurface({ onOpen });
+
+    const deleteButtons = screen.getAllByRole("button", {
+      name: "Delete draft Future procurement",
+    });
+    expect(deleteButtons.length).toBeGreaterThan(0);
+    fireEvent.click(deleteButtons[0]!);
+    expect(
+      await screen.findByRole("alertdialog", {
+        name: "Delete draft Quote Request",
+      })
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete draft" }));
+
+    await waitFor(() =>
+      expect(convexMock.mutation).toHaveBeenCalledWith({
+        buildId: "build-1",
+        expectedRevision: 0,
+        quoteRoundId: "round-draft",
+        workosOrganizationId: "org-1",
+      })
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("alertdialog", {
+          name: "Delete draft Quote Request",
+        })
+      ).toBeNull()
+    );
+
+    cleanup();
+    renderSurface({ onOpen, readOnly: true });
+    expect(
+      screen.queryByRole("button", {
+        name: "Delete draft Future procurement",
+      })
+    ).toBeNull();
+  });
+
   test("renders loading and empty states, then refreshes a cached register", () => {
     let value: unknown = undefined;
     convexMock.query.mockImplementation(() => value);

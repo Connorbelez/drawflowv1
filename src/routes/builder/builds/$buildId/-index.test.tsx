@@ -34,6 +34,7 @@ const activeBuildDetail = {
       name: "Footings",
     },
   ],
+  viewerBuildRoles: ["builder", "builder-staff"],
 };
 
 const navigate = vi.fn();
@@ -74,7 +75,15 @@ vi.mock(
       batchId?: string;
       draftId?: string;
       onBatchIdChange: (batchId?: string) => void;
-      actorCapacity?: "builder" | "builder-staff" | "homeowner" | "contractor";
+      actorCapacity?:
+        | "admin"
+        | "principle-broker"
+        | "broker"
+        | "broker-staff"
+        | "builder"
+        | "builder-staff"
+        | "homeowner"
+        | "contractor";
       reconciliation?: {
         onCostDocumentCorrectionStarted: (input: {
           batchId: string;
@@ -127,6 +136,18 @@ vi.mock(
           </>
         ) : null}
       </div>
+    ),
+  })
+);
+
+vi.mock(
+  "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx",
+  () => ({
+    CostDocumentRoadmapReconciliation: ({ interactionMode }: { interactionMode?: string }) => (
+      <div
+        data-interaction-mode={interactionMode}
+        data-testid="cost-document-roadmap-reconciliation"
+      />
     ),
   })
 );
@@ -391,6 +412,69 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
         .getByTestId("cost-document-batch-workspace")
         .getAttribute("data-actor-capacity")
     ).toBe("builder-staff");
+  });
+
+  test("renders a brokerage Cost ledger without private Builder batch queries when the viewer lacks Build-local Builder capacity", () => {
+    useQuery.mockReset();
+    useQuery
+      .mockReturnValueOnce({
+        ...activeBuildDetail,
+        viewerBuildRoles: ["admin", "principle-broker"],
+      })
+      .mockReturnValueOnce({})
+      .mockReturnValueOnce({});
+
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="active-build-01"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder"
+        search={{ tab: "costs" }}
+        workosOrganizationId="org_builder"
+      />
+    );
+
+    expect(
+      screen.queryByTestId("cost-document-batch-workspace")
+    ).toBeNull();
+    expect(
+      screen
+        .getByTestId("cost-document-roadmap-reconciliation")
+        .getAttribute("data-interaction-mode")
+    ).toBe("brokerage-review");
+  });
+
+  test("shows Cost Document capture to an all-role admin on the Builder route", () => {
+    useQuery.mockReset();
+    useQuery
+      .mockReturnValueOnce({
+        ...activeBuildDetail,
+        viewerBuildRoles: ["admin", "principle-broker"],
+      })
+      .mockReturnValueOnce({})
+      .mockReturnValueOnce({});
+
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="active-build-01"
+        enableContractorLinks
+        includeStaffTab={false}
+        routeBase="/builder"
+        search={{ tab: "costs" }}
+        viewerRoles={["admin", "principle-broker", "builder"]}
+        workosOrganizationId="org_builder"
+      />
+    );
+
+    expect(
+      screen
+        .getByTestId("cost-document-batch-workspace")
+        .getAttribute("data-actor-capacity")
+    ).toBe("admin");
+    expect(
+      screen.queryByTestId("cost-document-roadmap-reconciliation")
+    ).toBeNull();
   });
 
   test("validates Cost Document batch deep links without leaking other values", () => {

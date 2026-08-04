@@ -74,6 +74,7 @@ describe("QuoteRoundComposerRoute durable comparison deep link", () => {
   test.each([
     ["Builder", "/builder", "/builder/builds/$buildId"],
     ["Builder Staff", "/builder-staff", "/builder-staff/builds/$buildId"],
+    ["Backoffice", "/backoffice", "/backoffice/builds/$buildId"],
   ] as const)(
     "opens an immutable Round Detail for %s and exits to the same Build Quotes tab",
     (_role, routeBase, exitRoute) => {

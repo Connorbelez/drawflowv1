@@ -14719,6 +14719,16 @@ export const getActiveBuildDetailByString = authenticatedQuery
       return null;
     }
     const { build } = auth;
+    const viewerBuildAccess = await authorizeActiveBuildAccess(ctx, {
+      backofficePolicy: "proposal-read",
+      buildId: build._id,
+      organizationId: args.workosOrganizationId,
+    }).catch((cause: unknown) => {
+      if (cause instanceof Error && cause.message.startsWith("Forbidden:")) {
+        return null;
+      }
+      throw cause;
+    });
     const [
       loanFacilities,
       capitalPlans,
@@ -14976,6 +14986,15 @@ export const getActiveBuildDetailByString = authenticatedQuery
           : null;
       })(),
       displayId: productionBuildDisplayId(build),
+      viewerBuildRoles:
+        viewerBuildAccess?.roles ??
+        (isBackoffice(auth.roles)
+          ? auth.roles
+          : appPermissions.role === "owner"
+            ? ["builder"]
+            : appPermissions.role === "staff"
+              ? ["builder-staff"]
+              : []),
       documents: await withBuildDocumentStorageUrls(ctx, buildDocuments),
       drawFunding: {
         approvedMilestoneCents: drawFunding.approvedMilestoneCents,

@@ -430,7 +430,7 @@ interface QuoteRoundComposerRouteProps {
   buildId: string;
   organizationId?: string;
   roundId?: string;
-  routeBase: "/builder" | "/builder-staff";
+  routeBase: "/backoffice" | "/builder" | "/builder-staff";
 }
 
 export function normalizeQuoteRoundOrganizationId(value: unknown) {
@@ -533,6 +533,13 @@ function QuoteRoundComposerRouteQuery({
         to: "/builder/builds/$buildId",
       });
     }
+    if (routeBase === "/backoffice") {
+      return navigate({
+        params: { buildId },
+        search: { tab: "quotes" },
+        to: "/backoffice/builds/$buildId",
+      });
+    }
     return navigate({
       params: { buildId },
       search: { tab: "quotes" },
@@ -563,12 +570,19 @@ function QuoteRoundComposerRouteQuery({
           search: { roundId: String(result.quoteRoundId) },
           to: "/builder/builds/$buildId/quotes/new",
         });
-      } else {
+      } else if (routeBase === "/builder-staff") {
         navigate({
           params: { buildId },
           replace: true,
           search: { roundId: String(result.quoteRoundId) },
           to: "/builder-staff/builds/$buildId/quotes/new",
+        });
+      } else {
+        navigate({
+          params: { buildId },
+          replace: true,
+          search: { roundId: String(result.quoteRoundId) },
+          to: "/backoffice/builds/$buildId/quotes/new",
         });
       }
     } catch (error) {

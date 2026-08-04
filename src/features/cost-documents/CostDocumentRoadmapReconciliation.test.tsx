@@ -411,6 +411,43 @@ describe("CostDocumentRoadmapReconciliation", () => {
     ).toBeNull();
   });
 
+  test("continues draining when an authorized native page is empty", async () => {
+    let paginatedState = {
+      loadMore,
+      results: [] as typeof materialsDocument[],
+      status: "CanLoadMore",
+    };
+    usePaginatedQuery.mockImplementation(() => paginatedState);
+
+    const view = renderWorkspace();
+    await waitFor(() => expect(loadMore).toHaveBeenCalledTimes(1));
+
+    paginatedState = { ...paginatedState, status: "LoadingMore" };
+    view.rerender(
+      <CostDocumentRoadmapReconciliation
+        buildId={"build-1" as Id<"activeBuilds">}
+        onCloseCostDocument={onCloseCostDocument}
+        onOpenCostDocument={onOpenCostDocument}
+        onStartCorrection={onStartCorrection}
+        organizationId="org-1"
+        submilestones={[]}
+      />
+    );
+    paginatedState = { ...paginatedState, status: "CanLoadMore" };
+    view.rerender(
+      <CostDocumentRoadmapReconciliation
+        buildId={"build-1" as Id<"activeBuilds">}
+        onCloseCostDocument={onCloseCostDocument}
+        onOpenCostDocument={onOpenCostDocument}
+        onStartCorrection={onStartCorrection}
+        organizationId="org-1"
+        submilestones={[]}
+      />
+    );
+
+    await waitFor(() => expect(loadMore).toHaveBeenCalledTimes(2));
+  });
+
   test("keeps private file integrity exceptions explicit and avoids rendering unsafe controls", () => {
     selectedDocument = makeDetail({
       integrity: {

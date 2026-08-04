@@ -207,12 +207,14 @@ describe("CostDocumentBatchWorkspace", () => {
     batchId?: string;
     draftId?: string;
     selectedCostDocumentId?: string;
+    withReconciliation?: boolean;
   }) => {
     const onBatchIdChange = vi.fn();
     const workspace = (next?: {
       batchId?: string;
       draftId?: string;
       selectedCostDocumentId?: string;
+      withReconciliation?: boolean;
     }) => (
       <CostDocumentBatchWorkspace
         batchId={next?.batchId}
@@ -221,7 +223,7 @@ describe("CostDocumentBatchWorkspace", () => {
         onBatchIdChange={onBatchIdChange}
         organizationId="org-1"
         reconciliation={
-          next?.selectedCostDocumentId
+          next?.withReconciliation || next?.selectedCostDocumentId
             ? {
                 onCostDocumentCorrectionStarted: vi.fn(),
                 onCostDocumentIdChange: vi.fn(),
@@ -387,6 +389,20 @@ describe("CostDocumentBatchWorkspace", () => {
   });
 
   afterEach(() => cleanup());
+
+  test("keeps the Cost Document batch action ahead of the reconciliation ledger", () => {
+    renderWorkspace({ withReconciliation: true });
+
+    const batchEntry = screen.getByTestId("cost-document-batch-workspace");
+    const reconciliation = screen.getByTestId(
+      "cost-document-roadmap-reconciliation"
+    );
+
+    expect(
+      batchEntry.compareDocumentPosition(reconciliation) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
 
   test("creates a batch with an idempotent server result, resumes an active batch, and clears the route on close", async () => {
     const { onBatchIdChange } = renderWorkspace();

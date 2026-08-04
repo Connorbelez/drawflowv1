@@ -106,6 +106,7 @@ import { Route as BuilderDemoDashboardProposalsDraftIdRouteImport } from './rout
 import { Route as BuilderDemoDashboardBuildsBuildIdRouteImport } from './routes/builder/demo/dashboard/builds/$buildId'
 import { Route as BuilderBuildsBuildIdQuotesNewRouteImport } from './routes/builder/builds/$buildId/quotes/new'
 import { Route as BuilderStaffBuildsBuildIdQuotesNewRouteImport } from './routes/builder-staff/builds/$buildId/quotes/new'
+import { Route as BackofficeBuildsBuildIdQuotesNewRouteImport } from './routes/backoffice/builds/$buildId/quotes/new'
 
 const ProtectedAccessRoute = ProtectedAccessRouteImport.update({
   id: '/protected-access',
@@ -634,6 +635,12 @@ const BuilderStaffBuildsBuildIdQuotesNewRoute =
     path: '/$buildId/quotes/new',
     getParentRoute: () => BuilderStaffBuildsRouteRoute,
   } as any)
+const BackofficeBuildsBuildIdQuotesNewRoute =
+  BackofficeBuildsBuildIdQuotesNewRouteImport.update({
+    id: '/quotes/new',
+    path: '/quotes/new',
+    getParentRoute: () => BackofficeBuildsBuildIdRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -727,6 +734,7 @@ export interface FileRoutesByFullPath {
   '/builder/builds/$buildId/': typeof BuilderBuildsBuildIdIndexRoute
   '/builder/demo/dashboard/': typeof BuilderDemoDashboardIndexRoute
   '/builder/proposals/$proposalId/': typeof BuilderProposalsProposalIdIndexRoute
+  '/backoffice/builds/$buildId/quotes/new': typeof BackofficeBuildsBuildIdQuotesNewRoute
   '/builder-staff/builds/$buildId/quotes/new': typeof BuilderStaffBuildsBuildIdQuotesNewRoute
   '/builder/builds/$buildId/quotes/new': typeof BuilderBuildsBuildIdQuotesNewRoute
   '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
@@ -807,6 +815,7 @@ export interface FileRoutesByTo {
   '/builder/builds/$buildId': typeof BuilderBuildsBuildIdIndexRoute
   '/builder/demo/dashboard': typeof BuilderDemoDashboardIndexRoute
   '/builder/proposals/$proposalId': typeof BuilderProposalsProposalIdIndexRoute
+  '/backoffice/builds/$buildId/quotes/new': typeof BackofficeBuildsBuildIdQuotesNewRoute
   '/builder-staff/builds/$buildId/quotes/new': typeof BuilderStaffBuildsBuildIdQuotesNewRoute
   '/builder/builds/$buildId/quotes/new': typeof BuilderBuildsBuildIdQuotesNewRoute
   '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
@@ -907,6 +916,7 @@ export interface FileRoutesById {
   '/builder/builds/$buildId/': typeof BuilderBuildsBuildIdIndexRoute
   '/builder/demo/dashboard/': typeof BuilderDemoDashboardIndexRoute
   '/builder/proposals/$proposalId/': typeof BuilderProposalsProposalIdIndexRoute
+  '/backoffice/builds/$buildId/quotes/new': typeof BackofficeBuildsBuildIdQuotesNewRoute
   '/builder-staff/builds/$buildId/quotes/new': typeof BuilderStaffBuildsBuildIdQuotesNewRoute
   '/builder/builds/$buildId/quotes/new': typeof BuilderBuildsBuildIdQuotesNewRoute
   '/builder/demo/dashboard/builds/$buildId': typeof BuilderDemoDashboardBuildsBuildIdRoute
@@ -1008,6 +1018,7 @@ export interface FileRouteTypes {
     | '/builder/builds/$buildId/'
     | '/builder/demo/dashboard/'
     | '/builder/proposals/$proposalId/'
+    | '/backoffice/builds/$buildId/quotes/new'
     | '/builder-staff/builds/$buildId/quotes/new'
     | '/builder/builds/$buildId/quotes/new'
     | '/builder/demo/dashboard/builds/$buildId'
@@ -1088,6 +1099,7 @@ export interface FileRouteTypes {
     | '/builder/builds/$buildId'
     | '/builder/demo/dashboard'
     | '/builder/proposals/$proposalId'
+    | '/backoffice/builds/$buildId/quotes/new'
     | '/builder-staff/builds/$buildId/quotes/new'
     | '/builder/builds/$buildId/quotes/new'
     | '/builder/demo/dashboard/builds/$buildId'
@@ -1187,6 +1199,7 @@ export interface FileRouteTypes {
     | '/builder/builds/$buildId/'
     | '/builder/demo/dashboard/'
     | '/builder/proposals/$proposalId/'
+    | '/backoffice/builds/$buildId/quotes/new'
     | '/builder-staff/builds/$buildId/quotes/new'
     | '/builder/builds/$buildId/quotes/new'
     | '/builder/demo/dashboard/builds/$buildId'
@@ -1898,6 +1911,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BuilderStaffBuildsBuildIdQuotesNewRouteImport
       parentRoute: typeof BuilderStaffBuildsRouteRoute
     }
+    '/backoffice/builds/$buildId/quotes/new': {
+      id: '/backoffice/builds/$buildId/quotes/new'
+      path: '/quotes/new'
+      fullPath: '/backoffice/builds/$buildId/quotes/new'
+      preLoaderRoute: typeof BackofficeBuildsBuildIdQuotesNewRouteImport
+      parentRoute: typeof BackofficeBuildsBuildIdRouteRoute
+    }
   }
 }
 
@@ -1919,11 +1939,14 @@ const BackofficeBuildersRouteRouteWithChildren =
 
 interface BackofficeBuildsBuildIdRouteRouteChildren {
   BackofficeBuildsBuildIdIndexRoute: typeof BackofficeBuildsBuildIdIndexRoute
+  BackofficeBuildsBuildIdQuotesNewRoute: typeof BackofficeBuildsBuildIdQuotesNewRoute
 }
 
 const BackofficeBuildsBuildIdRouteRouteChildren: BackofficeBuildsBuildIdRouteRouteChildren =
   {
     BackofficeBuildsBuildIdIndexRoute: BackofficeBuildsBuildIdIndexRoute,
+    BackofficeBuildsBuildIdQuotesNewRoute:
+      BackofficeBuildsBuildIdQuotesNewRoute,
   }
 
 const BackofficeBuildsBuildIdRouteRouteWithChildren =

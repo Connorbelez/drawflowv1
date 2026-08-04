@@ -38,6 +38,7 @@ vi.mock(
 
 import { Route as BuilderQuoteRoute } from "./new.tsx";
 import { Route as BuilderStaffQuoteRoute } from "#/routes/builder-staff/builds/$buildId/quotes/new.tsx";
+import { Route as BackofficeQuoteRoute } from "#/routes/backoffice/builds/$buildId/quotes/new.tsx";
 
 interface QuoteRouteModule {
   component: () => ReactElement;
@@ -48,6 +49,7 @@ interface QuoteRouteModule {
 
 const builderRoute = BuilderQuoteRoute as QuoteRouteModule;
 const builderStaffRoute = BuilderStaffQuoteRoute as QuoteRouteModule;
+const backofficeRoute = BackofficeQuoteRoute as QuoteRouteModule;
 
 afterEach(cleanup);
 
@@ -86,6 +88,21 @@ describe("Quote Round composer routes", () => {
       organizationId: "org-quote-rounds",
       roundId: "quote-round-7",
       routeBase: "/builder-staff",
+    });
+  });
+
+  test("mounts the same resumable composer under the backoffice Build route", () => {
+    expect(backofficeRoute.validateSearch({ roundId: " quote-round-7 " })).toEqual(
+      { roundId: "quote-round-7" }
+    );
+
+    render(<backofficeRoute.component />);
+    expect(screen.getByTestId("quote-round-composer-route")).toBeTruthy();
+    expect(composerRouteProps).toHaveBeenLastCalledWith({
+      buildId: "build-quote-rounds",
+      organizationId: "org-quote-rounds",
+      roundId: "quote-round-7",
+      routeBase: "/backoffice",
     });
   });
 

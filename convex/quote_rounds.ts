@@ -15,6 +15,7 @@ import {
   operationalRequestFingerprint,
 } from "./build_operational_idempotency";
 import { assertOrganizationRetentionWritable } from "./data_retention";
+import { assertQuoteAuthoringRole } from "./quote_authoring_access";
 import {
   createInitialQuoteInvitationCredentialAndDispatch,
   defaultQuoteInvitationAccessExpiry,
@@ -593,15 +594,7 @@ function plainTextTiptapJson(value: string) {
 }
 
 function assertAuthoringRole(viewer: AuthorizedViewer) {
-  if (
-    !(
-      viewer.roles.includes("builder") || viewer.roles.includes("builder-staff")
-    )
-  ) {
-    throw new ConvexError(
-      "Forbidden: only Builder or Builder Staff may author Quote Rounds."
-    );
-  }
+  assertQuoteAuthoringRole(viewer.roles);
 }
 
 function assertReadRole(roles: readonly string[]) {
@@ -3493,6 +3486,71 @@ export const updateQuoteRoundDraft = authenticatedMutation
       now
     );
     return { quoteRoundId: round._id, revision, state: "draft" };
+  })
+  .public();
+
+export const deleteQuoteRoundDraft = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    expectedRevision: v.number(),
+    quoteRoundId: v.id("quoteRounds"),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const authorization = await authorizeQuoteRoundPath(ctx, args);
+    await assertOrganizationRetentionWritable(
+      ctx,
+      authorization.organizationId
+    );
+    const round = requireRoundScope(
+      await ctx.db.get(args.quoteRoundId),
+      authorization,
+      args.quoteRoundId
+    );
+    if (round.state !== "draft") {
+      throw new ConvexError("Only draft Quote Rounds may be deleted.");
+    }
+    if (round.currentPackageRevisionId) {
+      throw new ConvexError("Published Quote Round rows are immutable.");
+    }
+    assertExpectedRevision(round, args.expectedRevision);
+    const state = await readDraftState(ctx, round);
+    const now = Date.now();
+    await appendQuoteRoundEvent(
+      ctx,
+      authorization,
+      {
+        command: "deleteQuoteRoundDraft",
+        eventType: "quote_round.draft_deleted",
+        newState: { deleted: true, revision: round.revision },
+        priorState: {
+          mode: round.mode,
+          revision: round.revision,
+          state: round.state,
+          title: round.title,
+        },
+        quoteRoundId: round._id,
+      },
+      now
+    );
+    for (const assignments of state.materialAssignmentsByRowId.values()) {
+      for (const assignment of assignments) {
+        await ctx.db.delete(assignment._id);
+      }
+    }
+    for (const row of state.materialRows) {
+      await ctx.db.delete(row._id);
+    }
+    for (const scope of state.labourScope) {
+      await ctx.db.delete(scope._id);
+    }
+    for (const recipient of state.recipients) {
+      await ctx.db.delete(recipient._id);
+    }
+    await ctx.db.delete(state.draft._id);
+    await ctx.db.delete(round._id);
+    return null;
   })
   .public();
 

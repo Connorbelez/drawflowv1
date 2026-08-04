@@ -23,6 +23,20 @@ describe("Backoffice Build Cost route search", () => {
     ).toEqual({ costDocument: COST_DOCUMENT_ID, tab: "costs" });
   });
 
+  test("keeps batch capture and exact draft recovery route-addressable", () => {
+    expect(validateSearch({ costBatch: " batch-active " })).toEqual({
+      costBatch: "batch-active",
+      tab: "costs",
+    });
+    expect(
+      validateSearch({
+        costDocument: COST_DOCUMENT_ID,
+        costDocumentDraft: " draft-private ",
+        tab: "details",
+      })
+    ).toEqual({ costDocumentDraft: "draft-private", tab: "costs" });
+  });
+
   test("rejects malformed submitted-record state without disturbing another valid tab", () => {
     expect(
       validateSearch({ costDocument: "forged", tab: "documents" })

@@ -495,6 +495,7 @@ export interface ProductionBuildDetail {
   sitePhotos?: ProductionSitePhoto[];
   siteVisits?: ProductionSiteVisit[];
   submilestones: ProductionSubmilestone[];
+  viewerBuildRoles?: string[];
 }
 
 interface ProductionMilestone {

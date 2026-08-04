@@ -48,7 +48,10 @@ import {
   CostDocumentDraftCollaboration,
   type CostDocumentDraftCollaborator,
 } from "./CostDocumentDraftCollaboration.tsx";
-import { CostDocumentRoadmapReconciliation } from "./CostDocumentRoadmapReconciliation.tsx";
+import {
+  type CostDocumentActorCapacity,
+  CostDocumentRoadmapReconciliation,
+} from "./CostDocumentRoadmapReconciliation.tsx";
 import {
   type CostDocumentSubmilestoneOption,
   formatCad,
@@ -248,7 +251,7 @@ export interface CostDocumentBatchWorkspaceProps {
    * Locks a multi-role identity to the capacity chosen by its Build-local
    * workspace. The server still reauthorizes every request.
    */
-  actorCapacity?: "builder" | "builder-staff" | "homeowner" | "contractor";
+  actorCapacity?: CostDocumentActorCapacity;
   batchId?: string;
   buildId: Id<"activeBuilds">;
   draftId?: string;
@@ -1705,11 +1708,17 @@ export function CostDocumentBatchWorkspace({
     }
     return (
       <div className="space-y-4">
+        {launchPanel}
         <CostDocumentRoadmapReconciliation
           actorCapacity={actorCapacity}
           buildId={buildId}
           interactionMode={
-            actorCapacity === "homeowner" ? "read-only" : "standard"
+            actorCapacity === "homeowner"
+              ? "read-only"
+              : actorCapacity === "admin" ||
+                  actorCapacity === "principle-broker"
+                ? "brokerage-review"
+                : "standard"
           }
           onCloseCostDocument={() => reconciliation.onCostDocumentIdChange()}
           onOpenCostDocument={reconciliation.onCostDocumentIdChange}
@@ -1718,7 +1727,6 @@ export function CostDocumentBatchWorkspace({
           selectedCostDocumentId={reconciliation.selectedCostDocumentId}
           submilestones={submilestones}
         />
-        {launchPanel}
       </div>
     );
   }

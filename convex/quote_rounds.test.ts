@@ -2689,6 +2689,146 @@ async function submitComparisonCandidate(
 }
 
 describe("Quote Round draft-to-open aggregate", () => {
+  test.each([
+    ["Admin", ["admin"]],
+    ["Principle Broker", ["principle-broker"]],
+  ] as const)(
+    "%s can create a Quote Round and continue a Builder-created draft",
+    async (_label, roles) => {
+      const fixture = await seedQuoteFixture();
+      const backofficeAuthor = withIdentity(
+        fixture.base,
+        [...roles],
+        `user_${roles[0]}_quote_author`
+      );
+      const builderDraft = await fixture.builder.mutation(
+        api.quote_rounds.createQuoteRoundDraft,
+        {
+          buildId: fixture.buildId,
+          mode: "combined",
+          title: "Builder-started shared draft",
+          workosOrganizationId: ORGANIZATION_ID,
+        }
+      );
+
+      await expect(
+        backofficeAuthor.query(api.quote_rounds.getQuoteRoundComposer, {
+          buildId: fixture.buildId,
+          workosOrganizationId: ORGANIZATION_ID,
+        })
+      ).resolves.toMatchObject({ build: { _id: fixture.buildId } });
+      await expect(
+        backofficeAuthor.mutation(api.quote_rounds.updateQuoteRoundDraft, {
+          buildId: fixture.buildId,
+          expectedRevision: builderDraft.revision,
+          quoteRoundId: builderDraft.quoteRoundId,
+          title: `${roles[0]} continued draft`,
+          workosOrganizationId: ORGANIZATION_ID,
+        })
+      ).resolves.toMatchObject({ revision: 1, state: "draft" });
+      await expect(
+        backofficeAuthor.mutation(api.quote_rounds.createQuoteRoundDraft, {
+          buildId: fixture.buildId,
+          mode: "labour",
+          title: `${roles[0]} created draft`,
+          workosOrganizationId: ORGANIZATION_ID,
+        })
+      ).resolves.toMatchObject({ revision: 0, state: "draft" });
+    }
+  );
+
+  test("deletes only a mutable Quote Round draft and preserves its deletion audit", async () => {
+    const fixture = await seedQuoteFixture();
+    const created = await configureRound(fixture, "combined");
+
+    await expect(
+      fixture.admin.mutation((api as any).quote_rounds.deleteQuoteRoundDraft, {
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        quoteRoundId: created.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    ).resolves.toBeNull();
+
+    const persisted = await fixture.base.run(async (ctx) => ({
+      assignments: await ctx.db
+        .query("quoteRoundDraftMaterialAssignments")
+        .collect(),
+      audit: await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("entityType", "quoteRound")
+            .eq("entityId", String(created.quoteRoundId))
+        )
+        .collect(),
+      draft: await ctx.db.query("quoteRoundDrafts").collect(),
+      labour: await ctx.db.query("quoteRoundDraftLabourScope").collect(),
+      materialRows: await ctx.db.query("quoteRoundDraftMaterialRows").collect(),
+      recipients: await ctx.db.query("quoteRoundDraftRecipients").collect(),
+      round: await ctx.db.get(created.quoteRoundId),
+    }));
+    expect(persisted).toMatchObject({
+      assignments: [],
+      draft: [],
+      labour: [],
+      materialRows: [],
+      recipients: [],
+      round: null,
+    });
+    expect(persisted.audit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorRole: "admin",
+          command: "deleteQuoteRoundDraft",
+          eventType: "quote_round.draft_deleted",
+        }),
+      ])
+    );
+  });
+
+  test("rejects deleting a published Quote Round", async () => {
+    const fixture = await seedQuoteFixture();
+    const published = await publishCombinedRound(
+      fixture,
+      "draft-delete-published-001"
+    );
+
+    await expect(
+      fixture.admin.mutation((api as any).quote_rounds.deleteQuoteRoundDraft, {
+        buildId: fixture.buildId,
+        expectedRevision: 2,
+        quoteRoundId: published.invitation.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    ).rejects.toThrow(/Only draft Quote Rounds may be deleted/);
+  });
+
+  test("rejects deleting a draft row that retains an immutable Package Revision", async () => {
+    const fixture = await seedQuoteFixture();
+    const published = await publishCombinedRound(
+      fixture,
+      "draft-delete-package-revision-001"
+    );
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(published.invitation.quoteRoundId, { state: "draft" });
+    });
+
+    await expect(
+      fixture.admin.mutation((api as any).quote_rounds.deleteQuoteRoundDraft, {
+        buildId: fixture.buildId,
+        expectedRevision: 2,
+        quoteRoundId: published.invitation.quoteRoundId,
+        workosOrganizationId: ORGANIZATION_ID,
+      })
+    ).rejects.toThrow(/Published Quote Round rows are immutable/);
+    await expect(
+      fixture.base.run((ctx) =>
+        ctx.db.get(published.invitation.quoteRoundId)
+      )
+    ).resolves.toMatchObject({ state: "draft" });
+  });
+
   test("requires HTTPS for bearer invitation URLs outside explicit loopback development origins", () => {
     vi.stubEnv("QUOTE_INVITATION_PUBLIC_ORIGIN", "http://drawflow.test");
     expect(() => quoteInvitationUrl("raw-bearer-token")).toThrow(/HTTPS/);
@@ -3858,16 +3998,17 @@ describe("Quote Round draft-to-open aggregate", () => {
     ).resolves.toBeNull();
   });
 
-  test("blocks unclassified documents before any publish writes and excludes non-builder callers", async () => {
+  test("blocks unclassified documents before any publish writes and excludes non-authoring callers", async () => {
     const fixture = await seedQuoteFixture("unclassified");
+    const broker = withIdentity(fixture.base, ["broker"], "user_broker");
     await expect(
-      fixture.admin.mutation((api as any).quote_rounds.createQuoteRoundDraft, {
+      broker.mutation((api as any).quote_rounds.createQuoteRoundDraft, {
         buildId: fixture.buildId,
         mode: "labour",
-        title: "Admin must not author",
+        title: "Broker must not author",
         workosOrganizationId: ORGANIZATION_ID,
       })
-    ).rejects.toThrow(/Builder or Builder Staff/);
+    ).rejects.toThrow(/Builder, Builder Staff, Admin, or Principle Broker/);
     const inaccessibleBuilder = withIdentity(fixture.base, ["builder"], "unassigned_builder");
     await expect(
       inaccessibleBuilder.query((api as any).quote_rounds.getQuoteRoundComposer, {
@@ -4476,15 +4617,15 @@ describe("Quote Round immutable response comparison and Preferred Quote", () => 
       "backoffice"
     );
     expect(backofficeResult).toMatchObject({
-      canClearPreferred: false,
-      canSetPreferred: false,
-      preferred: { selectedByWorkosUserId: "redacted" },
+      canClearPreferred: true,
+      canSetPreferred: true,
+      preferred: { selectedByWorkosUserId: "user_builder" },
       status: "available",
     });
-    expect(JSON.stringify(backofficeResult)).not.toContain(
+    expect(JSON.stringify(backofficeResult)).toContain(
       "quote-recipient@example.com"
     );
-    expect(JSON.stringify(backofficeResult)).not.toContain(
+    expect(JSON.stringify(backofficeResult)).toContain(
       String(storedResponseAttachmentId)
     );
 
@@ -7071,6 +7212,6 @@ describe("Quote Round operations register projection", () => {
         title: "Homeowner cannot author",
         workosOrganizationId: ORGANIZATION_ID,
       })
-    ).rejects.toThrow(/Builder or Builder Staff/);
+    ).rejects.toThrow(/Builder, Builder Staff, Admin, or Principle Broker/);
   });
 });

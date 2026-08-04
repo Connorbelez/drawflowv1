@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import type { ErrorInfo, ReactNode } from "react";
@@ -30,6 +31,15 @@ import {
 } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "#/components/ui/alert-dialog.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Card } from "#/components/ui/card.tsx";
@@ -79,11 +89,20 @@ interface QuoteRoundsSurfaceProps {
 
 type QuoteRoundsQueryProps = QuoteRoundsSurfaceProps & {
   cachedList?: QuoteRoundListProjection;
+  deleteError?: string;
+  deletingId?: string;
   onData: (value: QuoteRoundListProjection) => void;
+  onDeleteDraft: (row: QuoteRoundRegisterRow) => Promise<void>;
+  onDeleteErrorReset: () => void;
   onRetry: () => void;
 };
 
-type QuoteRoundsRegisterContext = QuoteRoundsSurfaceProps;
+type QuoteRoundsRegisterContext = QuoteRoundsSurfaceProps & {
+  deleteError?: string;
+  deletingId?: string;
+  onDeleteDraft: (row: QuoteRoundRegisterRow) => Promise<void>;
+  onDeleteErrorReset: () => void;
+};
 
 function formatDeadline(value: number | undefined) {
   if (!value) {
@@ -228,6 +247,9 @@ export function QuoteRoundsSurface(props: QuoteRoundsSurfaceProps) {
     identity: string;
     value: QuoteRoundListProjection;
   }>();
+  const [deleteError, setDeleteError] = useState<string>();
+  const [deletingId, setDeletingId] = useState<string>();
+  const deleteDraft = useMutation(api.quote_rounds.deleteQuoteRoundDraft);
   const cacheIdentity = `${props.organizationId}\u0000${props.buildId}`;
   const cachedList =
     cachedSnapshot?.identity === cacheIdentity
@@ -240,16 +262,44 @@ export function QuoteRoundsSurface(props: QuoteRoundsSurfaceProps) {
     [cacheIdentity]
   );
   const onRetry = () => setRefreshGeneration((value) => value + 1);
+  const onDeleteDraft = async (row: QuoteRoundRegisterRow) => {
+    setDeleteError(undefined);
+    setDeletingId(row._id);
+    try {
+      await deleteDraft({
+        buildId: props.buildId as Id<"activeBuilds">,
+        expectedRevision: row.revision,
+        quoteRoundId: row._id,
+        workosOrganizationId: props.organizationId,
+      });
+    } catch (cause) {
+      setDeleteError(
+        cause instanceof Error
+          ? cause.message
+          : "The draft Quote Request could not be deleted."
+      );
+      throw cause;
+    } finally {
+      setDeletingId(undefined);
+    }
+  };
+  const registerContext = {
+    ...props,
+    deleteError,
+    deletingId,
+    onDeleteDraft,
+    onDeleteErrorReset: () => setDeleteError(undefined),
+  };
 
   return (
     <QuoteRoundsErrorBoundary
       cachedList={cachedList}
       key={`${cacheIdentity}:${refreshGeneration}`}
       onRetry={onRetry}
-      registerContext={props}
+      registerContext={registerContext}
     >
       <QuoteRoundsQuery
-        {...props}
+        {...registerContext}
         cachedList={cachedList}
         onData={onData}
         onRetry={onRetry}
@@ -261,8 +311,12 @@ export function QuoteRoundsSurface(props: QuoteRoundsSurfaceProps) {
 function QuoteRoundsQuery({
   buildId,
   cachedList,
+  deleteError,
+  deletingId,
   onCreate,
   onData,
+  onDeleteDraft,
+  onDeleteErrorReset,
   onOpen,
   onRetry,
   organizationId,
@@ -288,8 +342,12 @@ function QuoteRoundsQuery({
     <QuoteRoundsRegister
       buildId={buildId}
       cached={quoteRoundList === undefined}
+      deleteError={deleteError}
+      deletingId={deletingId}
       list={quoteRoundList ?? cachedList ?? { rounds: [] }}
       onCreate={onCreate}
+      onDeleteDraft={onDeleteDraft}
+      onDeleteErrorReset={onDeleteErrorReset}
       onOpen={onOpen}
       onRetry={onRetry}
       organizationId={organizationId}
@@ -382,9 +440,13 @@ function QuoteRoundsErrorState({ onRetry }: { onRetry: () => void }) {
 function QuoteRoundsRegister({
   buildId,
   cached = false,
+  deleteError,
+  deletingId,
   hardError = false,
   list,
   onCreate,
+  onDeleteDraft,
+  onDeleteErrorReset,
   onOpen,
   onRetry,
   organizationId,
@@ -393,9 +455,13 @@ function QuoteRoundsRegister({
 }: {
   buildId: string;
   cached?: boolean;
+  deleteError?: string;
+  deletingId?: string;
   hardError?: boolean;
   list: QuoteRoundListProjection;
   onCreate?: () => void;
+  onDeleteDraft: (row: QuoteRoundRegisterRow) => Promise<void>;
+  onDeleteErrorReset: () => void;
   onOpen?: (roundId: string) => void;
   onRetry: () => void;
   organizationId: string;
@@ -408,6 +474,8 @@ function QuoteRoundsRegister({
   const [attentionOnly, setAttentionOnly] = useState(false);
   const [sort, setSort] = useState<QuoteRoundRegisterSort>("attention");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [draftPendingDeletion, setDraftPendingDeletion] =
+    useState<QuoteRoundRegisterRow | null>(null);
   const canCreate = !readOnly && Boolean(onCreate);
   const rows = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -537,6 +605,7 @@ function QuoteRoundsRegister({
                 now={now}
                 onExpand={setExpandedId}
                 onOpen={onOpen}
+                onRequestDelete={setDraftPendingDeletion}
                 organizationId={organizationId}
                 readOnly={readOnly}
                 rows={rows}
@@ -547,6 +616,7 @@ function QuoteRoundsRegister({
                 now={now}
                 onExpand={setExpandedId}
                 onOpen={onOpen}
+                onRequestDelete={setDraftPendingDeletion}
                 organizationId={organizationId}
                 readOnly={readOnly}
                 rows={rows}
@@ -563,7 +633,73 @@ function QuoteRoundsRegister({
           invitation snapshots even when the Build changes later.
         </AlertDescription>
       </Alert>
+      <DeleteQuoteRoundDraftDialog
+        deleting={deletingId === draftPendingDeletion?._id}
+        error={deleteError}
+        onConfirm={async () => {
+          if (!draftPendingDeletion) {
+            return;
+          }
+          await onDeleteDraft(draftPendingDeletion);
+          setDraftPendingDeletion(null);
+        }}
+        onOpenChange={(open) => {
+          if (!(open || deletingId)) {
+            setDraftPendingDeletion(null);
+            onDeleteErrorReset();
+          }
+        }}
+        row={draftPendingDeletion}
+      />
     </div>
+  );
+}
+
+function DeleteQuoteRoundDraftDialog({
+  deleting,
+  error,
+  onConfirm,
+  onOpenChange,
+  row,
+}: {
+  deleting: boolean;
+  error?: string;
+  onConfirm: () => Promise<void>;
+  onOpenChange: (open: boolean) => void;
+  row: QuoteRoundRegisterRow | null;
+}) {
+  return (
+    <AlertDialog onOpenChange={onOpenChange} open={row !== null}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete draft Quote Request</AlertDialogTitle>
+          <AlertDialogDescription>
+            {row
+              ? `Delete “${row.title}”? Its unpublished scope and recipient setup will be removed. This action cannot be undone.`
+              : "Delete this unpublished Quote Request draft?"}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {error ? (
+          <p className="text-destructive text-sm" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <AlertDialogFooter>
+          <AlertDialogClose
+            render={<Button disabled={deleting} variant="outline" />}
+          >
+            Keep draft
+          </AlertDialogClose>
+          <Button
+            disabled={deleting}
+            onClick={() => onConfirm().catch(() => undefined)}
+            variant="destructive"
+          >
+            <Trash2 /> {deleting ? "Deleting…" : "Delete draft"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -697,6 +833,7 @@ function DesktopControlRegister({
   now,
   onExpand,
   onOpen,
+  onRequestDelete,
   organizationId,
   readOnly,
   rows,
@@ -706,6 +843,7 @@ function DesktopControlRegister({
   now: number;
   onExpand: (id: string | null) => void;
   onOpen?: (roundId: string) => void;
+  onRequestDelete: (row: QuoteRoundRegisterRow) => void;
   organizationId: string;
   readOnly: boolean;
   rows: QuoteRoundRegisterRow[];
@@ -784,7 +922,18 @@ function DesktopControlRegister({
                   </p>
                 </div>
                 <PreferredQuote row={row} />
-                <div className="text-right">
+                <div className="flex justify-end gap-1">
+                  {!readOnly && row.state === "draft" ? (
+                    <Button
+                      aria-label={`Delete draft ${row.title}`}
+                      onClick={() => onRequestDelete(row)}
+                      size="icon-sm"
+                      title="Delete draft"
+                      variant="ghost"
+                    >
+                      <Trash2 />
+                    </Button>
+                  ) : null}
                   <Button
                     aria-label={onOpen ? undefined : DETAIL_UNAVAILABLE_LABEL}
                     disabled={!onOpen}
@@ -1197,6 +1346,7 @@ function MobileControlRegister({
   now,
   onExpand,
   onOpen,
+  onRequestDelete,
   organizationId,
   readOnly,
   rows,
@@ -1206,6 +1356,7 @@ function MobileControlRegister({
   now: number;
   onExpand: (id: string | null) => void;
   onOpen?: (roundId: string) => void;
+  onRequestDelete: (row: QuoteRoundRegisterRow) => void;
   organizationId: string;
   readOnly: boolean;
   rows: QuoteRoundRegisterRow[];
@@ -1315,7 +1466,18 @@ function MobileControlRegister({
                 </div>
               </div>
             ) : null}
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex justify-end gap-1">
+              {!readOnly && row.state === "draft" ? (
+                <Button
+                  aria-label={`Delete draft ${row.title}`}
+                  onClick={() => onRequestDelete(row)}
+                  size="icon-sm"
+                  title="Delete draft"
+                  variant="ghost"
+                >
+                  <Trash2 />
+                </Button>
+              ) : null}
               <Button
                 aria-label={onOpen ? undefined : DETAIL_UNAVAILABLE_LABEL}
                 disabled={!onOpen}

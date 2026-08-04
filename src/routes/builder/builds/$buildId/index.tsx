@@ -28,6 +28,7 @@ import {
 } from "#/features/builder-staff/BuilderStaffPermissionsPanel.tsx";
 import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTypes.ts";
 import { CostDocumentBatchWorkspace } from "#/features/cost-documents/CostDocumentBatchWorkspace.tsx";
+import { CostDocumentRoadmapReconciliation } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
 import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
 import {
   getVisualParityActiveBuildDetail,
@@ -221,6 +222,7 @@ function BuilderBuildRoute() {
       includeStaffTab
       routeBase="/builder"
       search={search}
+      viewerRoles={[context.role, ...(context.roles ?? [])]}
       workosOrganizationId={context.organizationId as string}
     />
   );
@@ -347,6 +349,7 @@ export function BuilderBuildWorkspaceRoute({
   includeStaffTab,
   routeBase,
   search,
+  viewerRoles = [],
   workosOrganizationId,
 }: {
   buildId: string;
@@ -354,6 +357,7 @@ export function BuilderBuildWorkspaceRoute({
   includeStaffTab: boolean;
   routeBase: "/builder" | "/builder-staff";
   search: BuilderBuildSearch;
+  viewerRoles?: string[];
   workosOrganizationId: string;
 }) {
   const navigate = useNavigate();
@@ -816,6 +820,38 @@ export function BuilderBuildWorkspaceRoute({
       : undefined,
   } as ProductionBuildDetailActions;
   const surfaceActions: ProductionBuildDetailActions = actions;
+  const requestedCostDocumentCapacity =
+    routeBase === "/builder-staff" ? "builder-staff" : "builder";
+  const backofficeCostDocumentCapacity = viewerRoles.includes("admin")
+    ? "admin"
+    : viewerRoles.includes("principle-broker")
+      ? "principle-broker"
+      : undefined;
+  const costDocumentActorCapacity =
+    visualFixtureEnabled ||
+    detail.viewerBuildRoles?.includes(requestedCostDocumentCapacity)
+      ? requestedCostDocumentCapacity
+      : backofficeCostDocumentCapacity;
+  const costDocumentSubmilestones = (detail.submilestones ?? []).map(
+    (submilestone) => ({
+      id: submilestone._id as Id<"buildSubmilestones">,
+      label: `${submilestone.milestoneKey} · ${submilestone.name}`,
+      milestoneKey: submilestone.milestoneKey,
+    })
+  );
+  const onCostDocumentIdChange = (costDocumentId?: string) =>
+    navigate({
+      params: { buildId },
+      replace: !costDocumentId,
+      search: {
+        ...search,
+        costBatch: undefined,
+        costDocument: costDocumentId,
+        costDocumentDraft: undefined,
+        tab: "costs",
+      },
+      to: `${routeBase}/builds/$buildId` as never,
+    } as never);
 
   return (
     <>
@@ -836,63 +872,57 @@ export function BuilderBuildWorkspaceRoute({
             : undefined
         }
         costs={
-          <CostDocumentBatchWorkspace
-            actorCapacity={
-              routeBase === "/builder-staff" ? "builder-staff" : "builder"
-            }
-            batchId={search.costBatch}
-            buildId={activeBuildId as Id<"activeBuilds">}
-            draftId={search.costDocumentDraft}
-            onBatchIdChange={(batchId) =>
-              navigate({
-                params: { buildId },
-                replace: Boolean(search.costBatch) || !batchId,
-                search: {
-                  ...search,
-                  costBatch: batchId,
-                  costDocument: undefined,
-                  costDocumentDraft: undefined,
-                  tab: "costs",
-                },
-                to: `${routeBase}/builds/$buildId` as never,
-              } as never)
-            }
-            organizationId={workosOrganizationId}
-            reconciliation={{
-              onCostDocumentCorrectionStarted: ({ batchId, draftId }) =>
+          costDocumentActorCapacity ? (
+            <CostDocumentBatchWorkspace
+              actorCapacity={costDocumentActorCapacity}
+              batchId={search.costBatch}
+              buildId={activeBuildId as Id<"activeBuilds">}
+              draftId={search.costDocumentDraft}
+              onBatchIdChange={(batchId) =>
                 navigate({
                   params: { buildId },
-                  replace: false,
+                  replace: Boolean(search.costBatch) || !batchId,
                   search: {
                     ...search,
                     costBatch: batchId,
                     costDocument: undefined,
-                    costDocumentDraft: draftId,
-                    tab: "costs",
-                  },
-                  to: `${routeBase}/builds/$buildId` as never,
-                } as never),
-              onCostDocumentIdChange: (costDocumentId) =>
-                navigate({
-                  params: { buildId },
-                  replace: !costDocumentId,
-                  search: {
-                    ...search,
-                    costBatch: undefined,
-                    costDocument: costDocumentId,
                     costDocumentDraft: undefined,
                     tab: "costs",
                   },
                   to: `${routeBase}/builds/$buildId` as never,
-                } as never),
-              selectedCostDocumentId: search.costDocument,
-            }}
-            submilestones={(detail.submilestones ?? []).map((submilestone) => ({
-              id: submilestone._id as Id<"buildSubmilestones">,
-              label: `${submilestone.milestoneKey} · ${submilestone.name}`,
-              milestoneKey: submilestone.milestoneKey,
-            }))}
-          />
+                } as never)
+              }
+              organizationId={workosOrganizationId}
+              reconciliation={{
+                onCostDocumentCorrectionStarted: ({ batchId, draftId }) =>
+                  navigate({
+                    params: { buildId },
+                    replace: false,
+                    search: {
+                      ...search,
+                      costBatch: batchId,
+                      costDocument: undefined,
+                      costDocumentDraft: draftId,
+                      tab: "costs",
+                    },
+                    to: `${routeBase}/builds/$buildId` as never,
+                  } as never),
+                onCostDocumentIdChange,
+                selectedCostDocumentId: search.costDocument,
+              }}
+              submilestones={costDocumentSubmilestones}
+            />
+          ) : (
+            <CostDocumentRoadmapReconciliation
+              buildId={activeBuildId as Id<"activeBuilds">}
+              interactionMode="brokerage-review"
+              onCloseCostDocument={() => onCostDocumentIdChange(undefined)}
+              onOpenCostDocument={onCostDocumentIdChange}
+              organizationId={workosOrganizationId}
+              selectedCostDocumentId={search.costDocument}
+              submilestones={costDocumentSubmilestones}
+            />
+          )
         }
         detail={detail}
         focusedReference={search.focus}

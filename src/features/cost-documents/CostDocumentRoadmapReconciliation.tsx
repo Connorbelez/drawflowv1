@@ -178,12 +178,22 @@ export type CostDocumentInteractionMode =
   | "read-only"
   | "standard";
 
+export type CostDocumentActorCapacity =
+  | "admin"
+  | "principle-broker"
+  | "broker"
+  | "broker-staff"
+  | "builder"
+  | "builder-staff"
+  | "homeowner"
+  | "contractor";
+
 export interface CostDocumentRoadmapReconciliationProps {
   /**
    * Pins Cost API calls and private source retrieval to the capacity selected
    * by this Build-local surface. Authorization remains server-enforced.
    */
-  actorCapacity?: "homeowner" | "contractor";
+  actorCapacity?: CostDocumentActorCapacity;
   buildId: Id<"activeBuilds">;
   /**
    * The surface-level action boundary. It can only narrow server-granted
@@ -233,21 +243,16 @@ function CostDocumentRoadmapReconciliationContent({
   const actorCapacityInput = actorCapacity ? { actorCapacity } : {};
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   const [search, setSearch] = useState("");
-  const autoLoadBoundaryRef = useRef<number>();
   const { loadMore, results, status } = usePaginatedQuery(
     api.cost_documents.listCostDocumentRoadmapReconciliation,
     { buildId, organizationId, ...actorCapacityInput } as never,
     { initialNumItems: 5 }
   );
   useEffect(() => {
-    if (
-      status === "CanLoadMore" &&
-      autoLoadBoundaryRef.current !== results.length
-    ) {
-      autoLoadBoundaryRef.current = results.length;
+    if (status === "CanLoadMore") {
       loadMore(5);
     }
-  }, [loadMore, results.length, status]);
+  }, [loadMore, status]);
   const selectedDocument = useQuery(
     api.cost_documents.getCostDocument,
     selectedCostDocumentId
@@ -804,7 +809,7 @@ export function CostDocumentDetailSheet({
   onStartCorrection,
   organizationId,
 }: {
-  actorCapacity?: "homeowner" | "contractor";
+  actorCapacity?: CostDocumentActorCapacity;
   buildId: Id<"activeBuilds">;
   document: CostDocumentDetail | null | undefined;
   interactionMode?: CostDocumentInteractionMode;
@@ -871,7 +876,7 @@ export function CostDocumentDetail({
   onStartCorrection,
   organizationId,
 }: {
-  actorCapacity?: "homeowner" | "contractor";
+  actorCapacity?: CostDocumentActorCapacity;
   buildId: Id<"activeBuilds">;
   document: CostDocumentDetail;
   interactionMode?: CostDocumentInteractionMode;

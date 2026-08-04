@@ -273,6 +273,144 @@ describe("Cost Document public contract", () => {
     expect(intentsAfterReplay).toHaveLength(1);
   });
 
+  test("submits with the uniquely projected verified WorkOS email when the token omits email", async () => {
+    const fixture = await seedFixture();
+    const batchId = await createBatch(fixture, "projected-receipt-email");
+    const draftId = await addDraft(fixture, batchId, "receipt", "materials");
+    const assetId = await stageDraftAsset(
+      fixture,
+      draftId,
+      "projected-receipt-email.pdf"
+    );
+    await saveDraft(fixture, draftId, {
+      allocations: [
+        {
+          amountCents: 7_500,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      documentDate: "2026-08-03",
+      grossTotalCents: 7_500,
+      pageAssetIds: [assetId],
+      title: "Projected email receipt",
+      vendorName: "Cedar Supply Ltd.",
+    });
+    await completeDraft(fixture, draftId);
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId: "builder_owner",
+        email: "Builder_Owner@Example.com",
+        emailVerified: true,
+        name: "Builder owner",
+        status: "active",
+        workosUserId: "builder_owner",
+      });
+    });
+    const builderWithoutEmail = fixture.base.withIdentity({
+      name: "builder_owner",
+      organizationId: ORGANIZATION_ID,
+      role: "builder",
+      roles: ["builder"],
+      subject: "builder_owner",
+      tokenIdentifier: "https://api.workos.com/|builder_owner",
+      "https://fairlend.ca/actor_kind": "human",
+    } as never);
+
+    const submitted = await builderWithoutEmail.mutation(
+      (api as any).cost_documents.submitCostDocumentBatch,
+      {
+        batchId,
+        expectedRevision: await batchRevision(fixture, batchId),
+        idempotencyKey: "projected-receipt-email-submit",
+      }
+    );
+    const costDocumentId = submitted.costDocumentIds[0] as Id<"costDocuments">;
+    const intents = await fixture.base.run(async (ctx) =>
+      await ctx.db
+        .query("communicationIntents")
+        .withIndex(
+          "by_relatedEntityType_and_relatedEntityId_and_createdAt",
+          (query) =>
+            query
+              .eq("relatedEntityType", "costDocument")
+              .eq("relatedEntityId", String(costDocumentId))
+        )
+        .collect()
+    );
+    expect(intents).toEqual([
+      expect.objectContaining({
+        recipientEmailSnapshot: "builder_owner@example.com",
+      }),
+    ]);
+  });
+
+  test("rejects an explicitly unverified projected uploader even when the token includes email", async () => {
+    const fixture = await seedFixture();
+    const batchId = await createBatch(fixture, "unverified-receipt-email");
+    const draftId = await addDraft(fixture, batchId, "receipt", "materials");
+    const assetId = await stageDraftAsset(
+      fixture,
+      draftId,
+      "unverified-receipt-email.pdf"
+    );
+    await saveDraft(fixture, draftId, {
+      allocations: [
+        {
+          amountCents: 7_500,
+          buildSubmilestoneId: fixture.buildSubmilestoneId,
+        },
+      ],
+      documentDate: "2026-08-03",
+      grossTotalCents: 7_500,
+      pageAssetIds: [assetId],
+      title: "Unverified email receipt",
+      vendorName: "Cedar Supply Ltd.",
+    });
+    await completeDraft(fixture, draftId);
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId: "builder_owner",
+        email: "builder_owner@example.com",
+        emailVerified: false,
+        name: "Builder owner",
+        status: "active",
+        workosUserId: "builder_owner",
+      });
+    });
+
+    await expect(
+      fixture.builder.mutation(
+        (api as any).cost_documents.submitCostDocumentBatch,
+        {
+          batchId,
+          expectedRevision: await batchRevision(fixture, batchId),
+          idempotencyKey: "unverified-receipt-email-submit",
+        }
+      )
+    ).rejects.toThrow(
+      "A uniquely projected, verified uploader email is required for the receipt."
+    );
+    const state = await fixture.base.run(async (ctx) => ({
+      batch: await ctx.db.get(batchId),
+      documents: await ctx.db
+        .query("costDocuments")
+        .withIndex("by_buildId_and_submittedAt", (query) =>
+          query.eq("buildId", fixture.buildId)
+        )
+        .collect(),
+      intents: await ctx.db
+        .query("communicationIntents")
+        .withIndex(
+          "by_relatedEntityType_and_relatedEntityId_and_createdAt",
+          (query) => query.eq("relatedEntityType", "costDocument")
+        )
+        .collect(),
+    }));
+    expect(state.batch).toMatchObject({ state: "active" });
+    expect(state.documents).toEqual([]);
+    expect(state.intents).toEqual([]);
+  });
+
   test("keeps Receipt publication durable when provider configuration is unavailable", async () => {
     const fixture = await seedFixture();
     const batchId = await createBatch(fixture, "receipt-email-rollback");
@@ -2158,7 +2296,87 @@ describe("Cost Document public contract", () => {
     ]);
   });
 
-  test("pins a shared identity to its explicit Homeowner Cost capacity", async () => {
+  test.each(["admin", "principle-broker"] as const)(
+    "lets a %s create, upload, and reconcile a private Cost Document draft",
+    async (actorCapacity) => {
+      const fixture = await seedFixture();
+      const batchId = await fixture.admin.mutation(
+        (api as any).cost_documents.createCostDocumentBatch,
+        {
+          actorCapacity,
+          buildId: fixture.buildId,
+          idempotencyKey: `${actorCapacity}-cost-capture`,
+          organizationId: ORGANIZATION_ID,
+        }
+      );
+      const draftId = await fixture.admin.mutation(
+        (api as any).cost_documents.addCostDocumentDraft,
+        {
+          actorCapacity,
+          batchId,
+          category: "materials",
+          kind: "invoice",
+        }
+      );
+      const assetId = await stageDraftAsset(
+        fixture,
+        draftId,
+        `${actorCapacity}-invoice.pdf`,
+        fixture.admin
+      );
+
+      await fixture.admin.mutation(
+        (api as any).cost_documents.saveCostDocumentDraft,
+        {
+          actorCapacity,
+          allocations: [
+            {
+              amountCents: 12_345,
+              buildSubmilestoneId: fixture.buildSubmilestoneId,
+            },
+          ],
+          documentDate: "2026-08-04",
+          draftId,
+          expectedRevision: 1,
+          grossTotalCents: 12_345,
+          pageAssetIds: [assetId],
+          title: "Foundation materials",
+          vendorName: "Northline Supply",
+        }
+      );
+
+      await expect(
+        fixture.admin.query(
+          (api as any).cost_documents.getActiveCostDocumentBatch,
+          {
+            actorCapacity,
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+          }
+        )
+      ).resolves.toMatchObject({
+        _id: batchId,
+        drafts: [
+          {
+            _id: draftId,
+            allocations: [
+              {
+                amountCents: 12_345,
+                buildSubmilestoneId: fixture.buildSubmilestoneId,
+              },
+            ],
+            grossTotalCents: 12_345,
+            pages: [{ assetId }],
+          },
+        ],
+      });
+      await expect(
+        fixture.base.run(async (ctx) => await ctx.db.get(batchId))
+      ).resolves.toMatchObject({ creatorCapacity: actorCapacity });
+    }
+  );
+
+  test("keeps explicit Homeowner Cost work separate from an implicit Admin batch", async () => {
     const fixture = await seedFixture();
     await addActiveBuildParticipant(fixture, {
       role: "homeowner",
@@ -2191,16 +2409,14 @@ describe("Cost Document public contract", () => {
         }
       )
     ).rejects.toThrow("The Cost Document is unavailable.");
-    await expect(
-      fixture.admin.mutation(
-        (api as any).cost_documents.createCostDocumentBatch,
-        {
-          buildId: fixture.buildId,
-          idempotencyKey: "shared-identity-without-capacity",
-          organizationId: ORGANIZATION_ID,
-        }
-      )
-    ).rejects.toThrow("draft is unavailable");
+    const adminBatchId = await fixture.admin.mutation(
+      (api as any).cost_documents.createCostDocumentBatch,
+      {
+        buildId: fixture.buildId,
+        idempotencyKey: "shared-identity-without-capacity",
+        organizationId: ORGANIZATION_ID,
+      }
+    );
     const batchId = await fixture.admin.mutation(
       (api as any).cost_documents.createCostDocumentBatch,
       {
@@ -2220,6 +2436,17 @@ describe("Cost Document public contract", () => {
         }
       )
     ).resolves.toMatchObject({ _id: batchId, state: "active" });
+    await expect(
+      fixture.admin.query(
+        (api as any).cost_documents.getActiveCostDocumentBatch,
+        {
+          actorCapacity: "admin",
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        }
+      )
+    ).resolves.toMatchObject({ _id: adminBatchId, state: "active" });
+    expect(adminBatchId).not.toBe(batchId);
   });
 
   test("prefers an active Builder owner link over an active staff link", async () => {
@@ -3612,7 +3839,11 @@ describe("Cost Document public contract", () => {
     const firstPageIds = firstPage.page.map(
       (document: { _id: Id<"costDocuments"> }) => document._id
     );
-    expect(firstPageIds).toHaveLength(20);
+    // One native Convex page is authorized in memory. Removed-scope rows may
+    // therefore make an authorized page sparse, but the native cursor remains
+    // valid and the caller can continue draining it without a second
+    // `.paginate()` call inside one function execution.
+    expect(firstPageIds).toHaveLength(12);
     expect(firstPage.isDone).toBe(false);
     expect(firstPage.continueCursor).toEqual(expect.any(String));
     expect(firstPageIds.every((id: Id<"costDocuments">) => retainedIds.includes(id))).toBe(

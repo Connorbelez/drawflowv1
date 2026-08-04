@@ -1031,6 +1031,8 @@ function canCreateOrCollaborateOnDrafts(
   authorization: ActiveBuildAuthorization
 ) {
   return (
+    authorization.effectiveRole.role === "admin" ||
+    authorization.effectiveRole.role === "principle-broker" ||
     authorization.effectiveRole.role === "builder" ||
     authorization.effectiveRole.role === "builder-staff" ||
     authorization.effectiveRole.role === "homeowner" ||
@@ -1039,15 +1041,16 @@ function canCreateOrCollaborateOnDrafts(
 }
 
 /**
- * Draft sharing is intentionally never a Contractor-to-Contractor or
- * organization-wide capability. The eligible-recipient resolver remains
- * Builder-owner / Builder-staff only; this gate simply lets a qualifying
- * Contractor creator manage those exact grants.
+ * Draft sharing is intentionally never organization-wide. The eligible-
+ * recipient resolver remains Builder-owner / Builder-staff only; this gate
+ * lets an authorized creator manage only those exact grants.
  */
 export function canManageCostDocumentDraftCollaboration(
   authorization: ActiveBuildAuthorization
 ) {
   return (
+    authorization.effectiveRole.role === "admin" ||
+    authorization.effectiveRole.role === "principle-broker" ||
     isBuilderCollaboratorRole(authorization.effectiveRole.role) ||
     authorization.effectiveRole.role === "homeowner" ||
     authorization.effectiveRole.role === "contractor"

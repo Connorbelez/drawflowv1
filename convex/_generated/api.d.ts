@@ -156,6 +156,7 @@ import type * as milestone_start from "../milestone_start.js";
 import type * as production_proposals from "../production_proposals.js";
 import type * as proposal_collaboration from "../proposal_collaboration.js";
 import type * as proposal_collaboration_model from "../proposal_collaboration_model.js";
+import type * as quote_authoring_access from "../quote_authoring_access.js";
 import type * as quote_comparisons from "../quote_comparisons.js";
 import type * as quote_invitation_access from "../quote_invitation_access.js";
 import type * as quote_notifications from "../quote_notifications.js";
@@ -328,6 +329,7 @@ declare const fullApi: ApiFromModules<{
   production_proposals: typeof production_proposals;
   proposal_collaboration: typeof proposal_collaboration;
   proposal_collaboration_model: typeof proposal_collaboration_model;
+  quote_authoring_access: typeof quote_authoring_access;
   quote_comparisons: typeof quote_comparisons;
   quote_invitation_access: typeof quote_invitation_access;
   quote_notifications: typeof quote_notifications;

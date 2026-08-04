@@ -62,6 +62,7 @@ function BuilderStaffBuildRoute() {
       includeStaffTab={false}
       routeBase="/builder-staff"
       search={search}
+      viewerRoles={[context.role, ...(context.roles ?? [])]}
       workosOrganizationId={context.organizationId as string}
     />
   );

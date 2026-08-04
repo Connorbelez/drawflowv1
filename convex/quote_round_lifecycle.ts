@@ -8,7 +8,6 @@ import {
   type AuditOverrideKind,
   administrativeOverrideInputFields,
   appendGovernedAuditEvent,
-  authorizeAdministrativeRecovery,
   maskRecipientEmailForAudit,
 } from "./administrative_override_policy";
 import { type AuthorizedViewer, authenticatedMutation } from "./authz";
@@ -16,6 +15,7 @@ import { normalizeContractorEmail } from "./contractorWorkspace";
 import { assertOrganizationRetentionWritable } from "./data_retention";
 import { enqueueCommunicationIntent } from "./email_transport";
 import { publicMutation } from "./fluent";
+import { authorizeQuoteAdministrativeRecovery } from "./quote_authoring_access";
 import {
   createInitialQuoteInvitationCredentialAndDispatch,
   defaultQuoteInvitationAccessExpiry,
@@ -113,7 +113,11 @@ async function authorizeLifecyclePath(
     ctx,
     baseAuthorization.organizationId
   );
-  return await authorizeAdministrativeRecovery(ctx, baseAuthorization, input);
+  return await authorizeQuoteAdministrativeRecovery(
+    ctx,
+    baseAuthorization,
+    input
+  );
 }
 
 async function quoteInvitationReminderCooldownUntil(
