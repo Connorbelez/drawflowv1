@@ -2703,7 +2703,9 @@ function PostStatusBadges({ entry }: { entry: CollaborationFeedPostEntry }) {
       )}
       <Badge variant="outline">{postTypeLabel(entry.post.postType)}</Badge>
       {entry.post.systemPost ? (
-        <Badge variant="secondary">System · Milestone</Badge>
+        <Badge variant="secondary">
+          System · {entry.post.systemPost.kind === "draw" ? "Draw" : "Milestone"}
+        </Badge>
       ) : null}
       {systemLifecycle === "reopened" ? (
         <Badge variant="warning">Reopened</Badge>
@@ -2964,7 +2966,9 @@ function CollaborationPostCard({
   const planningReconciliation = useQuery(
     api.build_collaboration_planning_reconciliation
       .getActiveBuildPlanningReconciliation,
-    entry.post.systemPost ? { buildId, organizationId } : "skip"
+    entry.post.systemPost?.kind === "milestone"
+      ? { buildId, organizationId }
+      : "skip"
   );
   useFocusedCollaborationPostCard(cardRef, focusedPost);
   const focusPresentation = focusedPostCardPresentation(focusedPost);
@@ -3255,7 +3259,14 @@ function CollaborationPostCard({
       </CardPanel>
       {entry.post.contentState === "active" ? (
         <>
-          <div className="grid grid-cols-2 border-y">
+          <div
+            className={cn(
+              "grid border-y",
+              entry.post.systemPost?.kind === "draw"
+                ? "grid-cols-1"
+                : "grid-cols-2"
+            )}
+          >
             <button
               aria-expanded={tab === "discussion"}
               className={cn(
@@ -3272,7 +3283,7 @@ function CollaborationPostCard({
               <MessageCircle aria-hidden="true" className="size-4" />
               Discussion {entry.post.commentCount}
             </button>
-            <button
+            {entry.post.systemPost?.kind !== "draw" ? <button
               aria-expanded={tab === "actions"}
               className={cn(
                 "flex min-h-11 items-center justify-center gap-2 text-sm",
@@ -3285,7 +3296,7 @@ function CollaborationPostCard({
             >
               <Flag aria-hidden="true" className="size-4" />
               Action Items {entry.actionItems.length}
-            </button>
+            </button> : null}
           </div>
           {tab === "discussion" ? (
             <CollaborationDiscussion
@@ -3303,7 +3314,7 @@ function CollaborationPostCard({
               referenceByKey={referenceByKey}
               tagOptions={tagOptions}
             />
-          ) : tab === "actions" ? (
+          ) : tab === "actions" && entry.post.systemPost?.kind !== "draw" ? (
             <CardPanel className="space-y-3 p-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-muted-foreground text-xs">
@@ -3699,6 +3710,84 @@ function SystemPostPlanningComparison({
   );
 }
 
+type SystemDrawFacts = NonNullable<CollaborationSystemPost["drawFacts"]>;
+
+function drawFactMoney(amountCents: number) {
+  return `$${(amountCents / 100).toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })}`;
+}
+
+function drawFactStatusLabel(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+function SystemPostDrawFacts({ facts }: { facts: SystemDrawFacts }) {
+  const planned = facts.planned;
+  const request = facts.request;
+  return (
+    <section
+      aria-label="Draw lifecycle facts"
+      className="space-y-3 border-t pt-3"
+      data-testid="system-post-draw-facts"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-medium text-xs">Draw lifecycle</p>
+          <p className="text-muted-foreground text-xs">
+            Live canonical Draw Request and evidence state
+          </p>
+        </div>
+        <Badge variant="outline">
+          {drawFactStatusLabel(facts.review.state)}
+        </Badge>
+      </div>
+      <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
+        <div>
+          <dt className="text-muted-foreground">Planned Draw</dt>
+          <dd className="font-medium">
+            {planned?.label ?? request?.displayId ?? "Unplanned Draw"}
+            {planned ? ` · ${drawFactMoney(planned.amountCents)}` : ""}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Request</dt>
+          <dd className="font-medium">
+            {request
+              ? `${request.displayId} · ${drawFactStatusLabel(request.status)}`
+              : "Not requested"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Release</dt>
+          <dd className="font-medium">{drawFactStatusLabel(facts.release.state)}</dd>
+        </div>
+      </dl>
+      <div className="flex flex-wrap gap-1.5">
+        <Badge variant="secondary">
+          Evidence · {drawFactStatusLabel(facts.evidence.state)}
+        </Badge>
+        <Badge variant="secondary">
+          Site Visits · {facts.siteVisit.count}
+        </Badge>
+        <Badge variant="secondary">
+          Approval · {drawFactStatusLabel(facts.approval.state)}
+        </Badge>
+        {facts.disposition ? (
+          <Badge variant="warning">
+            Disposition · {drawFactStatusLabel(facts.disposition.kind)}
+          </Badge>
+        ) : null}
+      </div>
+      <p className="text-muted-foreground text-xs">
+        No generated Action Items or Draw board. Discussion remains available;
+        all workflow commands stay in the canonical Draw surfaces.
+      </p>
+    </section>
+  );
+}
+
 function SystemPostFacts({
   entry,
   planningReconciliation,
@@ -3713,6 +3802,8 @@ function SystemPostFacts({
   const milestoneReference = entry.references.find(
     (reference) => reference.entityKind === "milestone"
   );
+  const drawFacts =
+    systemPost.kind === "draw" ? systemPost.drawFacts : undefined;
   return (
     <Frame className="border-dashed bg-muted/20" size="sm">
       <FramePanel className="space-y-2 p-3">
@@ -3724,9 +3815,13 @@ function SystemPostFacts({
         </div>
         <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
           <div>
-            <dt className="text-muted-foreground">Milestone</dt>
+            <dt className="text-muted-foreground">
+              {systemPost.kind === "draw" ? "Draw occurrence" : "Milestone"}
+            </dt>
             <dd className="font-medium">
-              {milestoneReference?.labelSnapshot ?? "Canonical Milestone"}
+              {systemPost.kind === "draw"
+                ? drawFacts?.planned?.drawKey ?? "Canonical Draw"
+                : milestoneReference?.labelSnapshot ?? "Canonical Milestone"}
             </dd>
           </div>
           <div>
@@ -3744,11 +3839,16 @@ function SystemPostFacts({
             </dd>
           </div>
         </dl>
-        <SystemPostPlanningSummary summary={entry.post.planningSummary} />
-        <SystemPostPlanningComparison
-          planningReconciliation={planningReconciliation}
-          systemPost={systemPost}
-        />
+        {drawFacts ? <SystemPostDrawFacts facts={drawFacts} /> : null}
+        {!drawFacts ? (
+          <>
+            <SystemPostPlanningSummary summary={entry.post.planningSummary} />
+            <SystemPostPlanningComparison
+              planningReconciliation={planningReconciliation}
+              systemPost={systemPost}
+            />
+          </>
+        ) : null}
         {systemPost.recoveryState === "recovery_required" ? (
           <p className="text-amber-700 text-xs dark:text-amber-300">
             Recovery required: add a valid Sub-milestone through the canonical

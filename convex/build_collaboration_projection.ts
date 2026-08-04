@@ -9,7 +9,10 @@ import { collaborationModerationCapabilities } from "./build_collaboration_moder
 import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { projectAcceptedBuildCollaborationAnswerForViewer } from "./build_collaboration_resolution";
 import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
-import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
+import {
+  addBuildLocalDays,
+  deriveMilestoneSystemActionItemPresentation,
+} from "./build_collaboration_system_posts";
 import type { Doc, QueryCtx } from "./types";
 
 const MAX_REFERENCES_PER_POST = 100;
@@ -33,6 +36,90 @@ type SystemMilestonePlanningSummary = {
   };
   lifecycle: "open" | "resolved" | "reopened";
   readyForApproval: boolean;
+};
+
+type SystemDrawFacts = {
+  approval: {
+    approvedAt?: string;
+    note?: string;
+    state:
+      | "not_started"
+      | "pending"
+      | "approved"
+      | "final_decline"
+      | "withdrawn"
+      | "cancelled"
+      | "released";
+  };
+  disposition?: {
+    at?: string;
+    kind: "withdrawal" | "cancellation" | "final_decline" | "released";
+    note?: string;
+  };
+  evidence: {
+    assetCount: number;
+    locationUnverifiedCount: number;
+    state:
+      | "not_started"
+      | "submitted"
+      | "location_unverified"
+      | "approved"
+      | "changes_requested";
+  };
+  generatedActionItems: number;
+  occurrenceKey: string;
+  planned?: {
+    _id: Doc<"plannedDrawScheduleRows">["_id"];
+    amountCents: number;
+    drawKey: string;
+    label: string;
+    milestoneKey?: string;
+    scheduledDate?: string;
+    status: Doc<"plannedDrawScheduleRows">["status"];
+    timingDay: number;
+  };
+  release: {
+    releasedAt?: string;
+    releaseDate?: string;
+    note?: string;
+    state:
+      | "not_started"
+      | "approved_for_release"
+      | "released"
+      | "withdrawn"
+      | "cancelled"
+      | "final_decline";
+  };
+  request?: {
+    _id: Doc<"activeBuildDrawRequests">["_id"];
+    amountCents: number;
+    displayId: string;
+    note?: string;
+    requestedAt: string;
+    requestKey: string;
+    status: Doc<"activeBuildDrawRequests">["status"];
+  };
+  review: {
+    operationsReviewStartedAt?: string;
+    recommendationNote?: string;
+    reviewedAt?: string;
+    state:
+      | "not_started"
+      | "in_review"
+      | "ready_for_admin"
+      | "approved"
+      | "final_decline"
+      | "withdrawn"
+      | "cancelled"
+      | "released";
+    note?: string;
+  };
+  siteVisit: {
+    cancelled: number;
+    complete: number;
+    count: number;
+    requested: number;
+  };
 };
 
 function deriveSystemMilestonePlanningSummary(input: {
@@ -111,6 +198,244 @@ function deriveSystemMilestonePlanningSummary(input: {
     counts,
     lifecycle: input.lifecycle,
     readyForApproval: activeCount > 0 && readyCount === activeCount,
+  };
+}
+
+async function projectSystemDrawFacts(
+  ctx: QueryCtx,
+  input: {
+    authorization: ActiveBuildAuthorization;
+    post: Doc<"buildCollaborationPosts">;
+  },
+): Promise<SystemDrawFacts | undefined> {
+  const { authorization, post } = input;
+  if (post.systemPostKind !== "draw" || !post.systemOccurrenceKey) {
+    return undefined;
+  }
+  const plannedRows = await ctx.db
+    .query("plannedDrawScheduleRows")
+    .withIndex("by_build_order", (query) =>
+      query.eq("buildId", authorization.build._id),
+    )
+    .take(500);
+  const primaryPlannedId = post.primaryReferenceKind === "draw"
+    ? ctx.db.normalizeId("plannedDrawScheduleRows", post.primaryReferenceId ?? "")
+    : null;
+  const planned =
+    (primaryPlannedId
+      ? plannedRows.find((row) => row._id === primaryPlannedId)
+      : undefined) ??
+    plannedRows.find((row) =>
+      post.canonicalBuildDrawOccurrenceKey?.includes(
+        `proposal-row:${String(row.proposalDrawScheduleRowId)}`,
+      ),
+    );
+  const requests = await ctx.db
+    .query("activeBuildDrawRequests")
+    .withIndex("by_build", (query) => query.eq("buildId", authorization.build._id))
+    .take(500);
+  const primaryRequestId = post.primaryReferenceKind === "draw"
+    ? ctx.db.normalizeId("activeBuildDrawRequests", post.primaryReferenceId ?? "")
+    : null;
+  const request =
+    (primaryRequestId
+      ? requests.find((candidate) => candidate._id === primaryRequestId)
+      : undefined) ??
+    requests
+      .filter(
+        (candidate) =>
+          planned !== undefined && candidate.plannedDrawKey === planned.drawKey,
+      )
+      .sort((left, right) => right.createdAt - left.createdAt)[0];
+
+  const allocations = request
+    ? await ctx.db
+        .query("activeBuildDrawRequestAllocations")
+        .withIndex("by_request", (query) => query.eq("drawRequestId", request._id))
+        .take(500)
+    : [];
+  const milestoneKeys = [
+    ...new Set([
+      ...allocations.map((allocation) => allocation.milestoneKey),
+      ...(planned?.milestoneKey ? [planned.milestoneKey] : []),
+    ]),
+  ];
+  const [evidenceAssets, siteVisits, milestones] = await Promise.all([
+    Promise.all(
+      milestoneKeys.map((milestoneKey) =>
+        ctx.db
+          .query("buildEvidenceAssets")
+          .withIndex("by_build_milestone", (query) =>
+            query.eq("buildId", authorization.build._id).eq("milestoneKey", milestoneKey),
+          )
+          .take(500),
+      ),
+    ).then((groups) => groups.flat()),
+    Promise.all(
+      milestoneKeys.map((milestoneKey) =>
+        ctx.db
+          .query("buildSiteVisits")
+          .withIndex("by_build_milestone", (query) =>
+            query.eq("buildId", authorization.build._id).eq("milestoneKey", milestoneKey),
+          )
+          .take(100),
+      ),
+    ).then((groups) => groups.flat()),
+    Promise.all(
+      milestoneKeys.map((milestoneKey) =>
+        ctx.db
+          .query("buildMilestones")
+          .withIndex("by_build_key", (query) =>
+            query.eq("buildId", authorization.build._id).eq("key", milestoneKey),
+          )
+          .first(),
+      ),
+    ).then((rows) => rows.filter((row): row is Doc<"buildMilestones"> => row !== null)),
+  ]);
+  const locationUnverifiedCount = evidenceAssets.filter(
+    (asset) => !asset.locationVerified,
+  ).length;
+  const evidenceApproved =
+    evidenceAssets.length > 0 &&
+    milestones.length > 0 &&
+    milestones.every((milestone) => milestone.completionReview?.status === "approved");
+  const evidenceState =
+    evidenceApproved
+      ? ("approved" as const)
+      : locationUnverifiedCount > 0
+        ? ("location_unverified" as const)
+        : evidenceAssets.length > 0
+          ? ("submitted" as const)
+          : ("not_started" as const);
+  const reviewState = !request
+    ? ("not_started" as const)
+    : request.status === "in_review"
+      ? ("in_review" as const)
+      : request.status === "ready_for_admin"
+        ? ("ready_for_admin" as const)
+        : request.status === "approved_for_release" || request.status === "approved"
+          ? ("approved" as const)
+          : request.status === "rejected"
+            ? ("final_decline" as const)
+            : request.status === "withdrawn"
+              ? ("withdrawn" as const)
+              : request.status === "cancelled"
+                ? ("cancelled" as const)
+                : request.status === "released"
+                  ? ("released" as const)
+                  : ("not_started" as const);
+  const approvalState = !request
+    ? ("not_started" as const)
+    : request.status === "approved_for_release" || request.status === "approved"
+      ? ("approved" as const)
+      : request.status === "released"
+        ? ("released" as const)
+        : request.status === "rejected"
+          ? ("final_decline" as const)
+          : request.status === "withdrawn"
+            ? ("withdrawn" as const)
+            : request.status === "cancelled"
+              ? ("cancelled" as const)
+              : ("pending" as const);
+  const releaseState = !request
+    ? ("not_started" as const)
+    : request.status === "released"
+      ? ("released" as const)
+      : request.status === "approved_for_release" || request.status === "approved"
+        ? ("approved_for_release" as const)
+        : request.status === "rejected"
+          ? ("final_decline" as const)
+          : request.status === "withdrawn"
+            ? ("withdrawn" as const)
+            : request.status === "cancelled"
+              ? ("cancelled" as const)
+              : ("not_started" as const);
+  const disposition = request
+    ? request.status === "released"
+      ? { at: request.releasedAt, kind: "released" as const, note: request.releaseNote }
+      : request.status === "withdrawn"
+        ? { at: request.withdrawnAt, kind: "withdrawal" as const, note: request.withdrawalNote }
+        : request.status === "cancelled"
+          ? { at: request.cancelledAt, kind: "cancellation" as const, note: request.cancellationNote }
+          : request.status === "rejected"
+            ? { at: request.reviewedAt, kind: "final_decline" as const, note: request.reviewNote }
+            : undefined
+    : undefined;
+  let scheduledDate: string | undefined;
+  if (planned && authorization.build.timezone) {
+    try {
+      scheduledDate = addBuildLocalDays(
+        authorization.build.startDate,
+        planned.timingDay,
+      );
+    } catch {
+      scheduledDate = undefined;
+    }
+  }
+  return {
+    approval: {
+      ...(request?.reviewedAt ? { approvedAt: request.reviewedAt } : {}),
+      ...(request?.reviewNote ? { note: request.reviewNote } : {}),
+      state: approvalState,
+    },
+    ...(disposition ? { disposition } : {}),
+    evidence: {
+      assetCount: evidenceAssets.length,
+      locationUnverifiedCount,
+      state: evidenceState,
+    },
+    generatedActionItems: 0,
+    occurrenceKey: post.systemOccurrenceKey,
+    ...(planned
+      ? {
+          planned: {
+            _id: planned._id,
+            amountCents: planned.amountCents,
+            drawKey: planned.drawKey,
+            label: planned.label,
+            ...(planned.milestoneKey ? { milestoneKey: planned.milestoneKey } : {}),
+            ...(scheduledDate ? { scheduledDate } : {}),
+            status: planned.status,
+            timingDay: planned.timingDay,
+          },
+        }
+      : {}),
+    release: {
+      ...(request?.releasedAt ? { releasedAt: request.releasedAt } : {}),
+      ...(request?.releaseDate ? { releaseDate: request.releaseDate } : {}),
+      ...(request?.releaseNote ? { note: request.releaseNote } : {}),
+      state: releaseState,
+    },
+    ...(request
+      ? {
+          request: {
+            _id: request._id,
+            amountCents: request.amountCents,
+            displayId: request.displayId,
+            ...(request.note ? { note: request.note } : {}),
+            requestedAt: request.requestedAt,
+            requestKey: request.requestKey,
+            status: request.status,
+          },
+        }
+      : {}),
+    review: {
+      ...(request?.operationsReviewStartedAt
+        ? { operationsReviewStartedAt: request.operationsReviewStartedAt }
+        : {}),
+      ...(request?.operationsRecommendationNote
+        ? { recommendationNote: request.operationsRecommendationNote }
+        : {}),
+      ...(request?.reviewedAt ? { reviewedAt: request.reviewedAt } : {}),
+      state: reviewState,
+      ...(request?.reviewNote ? { note: request.reviewNote } : {}),
+    },
+    siteVisit: {
+      cancelled: siteVisits.filter((visit) => visit.status === "cancelled").length,
+      complete: siteVisits.filter((visit) => visit.status === "complete").length,
+      count: siteVisits.length,
+      requested: siteVisits.filter((visit) => visit.status === "requested").length,
+    },
   };
 }
 
@@ -306,14 +631,18 @@ export async function projectReadableBuildCollaborationPost(
       projectActionItemSummary(ctx, authorization, item, asOf)
     )
   );
-  const planningSummary =
-    post.systemPostKind === "milestone"
+    const planningSummary =
+      post.systemPostKind === "milestone"
       ? deriveSystemMilestonePlanningSummary({
           actionItems: projectedActionItems,
           lifecycle:
             post.systemLifecycle ??
             (post.threadState === "resolved" ? "resolved" : "open"),
         })
+      : undefined;
+  const drawFacts =
+    post.systemPostKind === "draw"
+      ? await projectSystemDrawFacts(ctx, { authorization, post })
       : undefined;
   return {
     acknowledgement: acknowledgementTarget
@@ -343,6 +672,7 @@ export async function projectReadableBuildCollaborationPost(
       systemRecoveryRequired,
       planningSummary,
       activationPlanningRevision: activationPlanningRevision?.revision,
+      drawFacts,
     }),
     reactions: reactions
       .filter(
@@ -505,6 +835,7 @@ function collaborationPostSummary(input: {
   systemRecoveryRequired?: boolean;
   planningSummary?: SystemMilestonePlanningSummary;
   activationPlanningRevision?: number;
+  drawFacts?: SystemDrawFacts;
 }) {
   const {
     authorization,
@@ -515,6 +846,7 @@ function collaborationPostSummary(input: {
     systemRecoveryRequired,
     planningSummary,
     activationPlanningRevision,
+    drawFacts,
   } = input;
   const viewerIsAuthor =
     post.authorWorkosUserId === authorization.viewer.subject;
@@ -561,7 +893,10 @@ function collaborationPostSummary(input: {
             activationPlanningRevision,
             authoredBy: "DrawFlow System" as const,
             canonicalBuildMilestoneId: post.canonicalBuildMilestoneId,
+            canonicalBuildDrawOccurrenceKey:
+              post.canonicalBuildDrawOccurrenceKey,
             currentPlanningRevision: post.currentPlanningRevision,
+            drawFacts: !redacted ? drawFacts : undefined,
             kind: post.systemPostKind,
             lifecycle:
               post.systemLifecycle ??

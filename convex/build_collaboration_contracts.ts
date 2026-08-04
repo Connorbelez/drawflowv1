@@ -21,12 +21,126 @@ import {
   buildCollaborationSystemPostKindValidator,
 } from "./build_collaboration_validators";
 
+const drawFactStatusValidator = v.union(
+  v.literal("planned"),
+  v.literal("requested"),
+  v.literal("approved"),
+  v.literal("in_review"),
+  v.literal("ready_for_admin"),
+  v.literal("approved_for_release"),
+  v.literal("rejected"),
+  v.literal("withdrawn"),
+  v.literal("cancelled"),
+  v.literal("released"),
+);
+
+const drawFactDispositionValidator = v.object({
+  at: v.optional(v.string()),
+  kind: v.union(
+    v.literal("withdrawal"),
+    v.literal("cancellation"),
+    v.literal("final_decline"),
+    v.literal("released"),
+  ),
+  note: v.optional(v.string()),
+});
+
+export const systemDrawFactsValidator = v.object({
+  approval: v.object({
+    approvedAt: v.optional(v.string()),
+    note: v.optional(v.string()),
+    state: v.union(
+      v.literal("not_started"),
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("final_decline"),
+      v.literal("withdrawn"),
+      v.literal("cancelled"),
+      v.literal("released"),
+    ),
+  }),
+  disposition: v.optional(drawFactDispositionValidator),
+  evidence: v.object({
+    assetCount: v.number(),
+    locationUnverifiedCount: v.number(),
+    state: v.union(
+      v.literal("not_started"),
+      v.literal("submitted"),
+      v.literal("location_unverified"),
+      v.literal("approved"),
+      v.literal("changes_requested"),
+    ),
+  }),
+  generatedActionItems: v.number(),
+  occurrenceKey: v.string(),
+  planned: v.optional(
+    v.object({
+      _id: v.id("plannedDrawScheduleRows"),
+      amountCents: v.number(),
+      drawKey: v.string(),
+      label: v.string(),
+      milestoneKey: v.optional(v.string()),
+      scheduledDate: v.optional(v.string()),
+      status: drawFactStatusValidator,
+      timingDay: v.number(),
+    }),
+  ),
+  release: v.object({
+    releasedAt: v.optional(v.string()),
+    releaseDate: v.optional(v.string()),
+    note: v.optional(v.string()),
+    state: v.union(
+      v.literal("not_started"),
+      v.literal("approved_for_release"),
+      v.literal("released"),
+      v.literal("withdrawn"),
+      v.literal("cancelled"),
+      v.literal("final_decline"),
+    ),
+  }),
+  request: v.optional(
+    v.object({
+      _id: v.id("activeBuildDrawRequests"),
+      amountCents: v.number(),
+      displayId: v.string(),
+      note: v.optional(v.string()),
+      requestedAt: v.string(),
+      requestKey: v.string(),
+      status: drawFactStatusValidator,
+    }),
+  ),
+  review: v.object({
+    operationsReviewStartedAt: v.optional(v.string()),
+    recommendationNote: v.optional(v.string()),
+    reviewedAt: v.optional(v.string()),
+    state: v.union(
+      v.literal("not_started"),
+      v.literal("in_review"),
+      v.literal("ready_for_admin"),
+      v.literal("approved"),
+      v.literal("final_decline"),
+      v.literal("withdrawn"),
+      v.literal("cancelled"),
+      v.literal("released"),
+    ),
+    note: v.optional(v.string()),
+  }),
+  siteVisit: v.object({
+    cancelled: v.number(),
+    complete: v.number(),
+    count: v.number(),
+    requested: v.number(),
+  }),
+});
+
 const collaborationSystemPostValidator = v.object({
   activationReason: v.string(),
   activationPlanningRevision: v.optional(v.number()),
   authoredBy: v.literal("DrawFlow System"),
   canonicalBuildMilestoneId: v.optional(v.id("buildMilestones")),
+  canonicalBuildDrawOccurrenceKey: v.optional(v.string()),
   currentPlanningRevision: v.optional(v.number()),
+  drawFacts: v.optional(systemDrawFactsValidator),
   kind: buildCollaborationSystemPostKindValidator,
   lifecycle: v.optional(
     v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened"))

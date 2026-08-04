@@ -25,6 +25,7 @@ import {
   addBuildLocalDays,
   buildLocalDateAt,
   buildLocalMidnightUtc,
+  ensureDrawSystemPost,
   ensureMilestoneSystemPost,
 } from "./build_collaboration_system_posts";
 import {
@@ -384,7 +385,74 @@ export async function scheduleCurrentMilestoneSystemPostActivations(
       },
     );
   }
+
+  await scheduleCurrentDrawSystemPostActivations(ctx, input);
 }
+
+/** Queue one durable activation per canonical planned Draw occurrence. */
+export async function scheduleCurrentDrawSystemPostActivations(
+  ctx: MutationCtx,
+  input: { build: Doc<"activeBuilds">; now?: number },
+) {
+  const { build } = input;
+  if (!(build.status === "active" || build.status === "future_start")) {
+    return;
+  }
+  if (!build.timezone) {
+    return;
+  }
+  const now = input.now ?? Date.now();
+  const plannedDraws = await ctx.db
+    .query("plannedDrawScheduleRows")
+    .withIndex("by_build_order", (query) => query.eq("buildId", build._id))
+    .take(500);
+  for (const plannedDraw of plannedDraws) {
+    if (
+      plannedDraw.organizationId !== build.organizationId ||
+      plannedDraw.brokerageId !== build.brokerageId
+    ) {
+      continue;
+    }
+    let scheduledFor: number;
+    try {
+      const plannedDate = addBuildLocalDays(
+        build.startDate,
+        plannedDraw.timingDay,
+      );
+      scheduledFor = buildLocalMidnightUtc(plannedDate, build.timezone);
+    } catch {
+      continue;
+    }
+    if (
+      scheduledFor < now - MAX_MILESTONE_SCHEDULE_HORIZON_MS ||
+      scheduledFor > now + MAX_MILESTONE_SCHEDULE_HORIZON_MS
+    ) {
+      continue;
+    }
+    await ctx.scheduler.runAt(
+      scheduledFor,
+      internal.build_collaboration_scheduling
+        .executeScheduledDrawSystemPostActivation,
+      {
+        buildId: build._id,
+        plannedDrawId: plannedDraw._id,
+        scheduledFor,
+      },
+    );
+  }
+}
+
+export const scheduleCurrentDrawSystemPostActivationsInternal = internalMutation
+  .input({ buildId: v.id("activeBuilds") })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const build = await ctx.db.get(args.buildId);
+    if (build) {
+      await scheduleCurrentDrawSystemPostActivations(ctx, { build });
+    }
+    return null;
+  })
+  .internal();
 
 /** Schedule current Milestones for a supported Build after a repair/update. */
 export const scheduleCurrentMilestoneSystemPostActivationsInternal =
@@ -463,6 +531,71 @@ export const executeScheduledMilestoneSystemPostActivation = internalMutation
       milestone,
       activationReason: "scheduled",
       now,
+    });
+    return null;
+  })
+  .internal();
+
+/** Execute one exact scheduled Draw activation without touching Draw state. */
+export const executeScheduledDrawSystemPostActivation = internalMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    plannedDrawId: v.id("plannedDrawScheduleRows"),
+    scheduledFor: v.number(),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const [build, plannedDraw] = await Promise.all([
+      ctx.db.get(args.buildId),
+      ctx.db.get(args.plannedDrawId),
+    ]);
+    if (!build || !plannedDraw) {
+      return null;
+    }
+    if (
+      !(build.status === "active" || build.status === "future_start") ||
+      plannedDraw.buildId !== build._id ||
+      plannedDraw.organizationId !== build.organizationId ||
+      plannedDraw.brokerageId !== build.brokerageId ||
+      !build.timezone
+    ) {
+      return null;
+    }
+    const now = Date.now();
+    let currentDueAt: number;
+    try {
+      const plannedDate = addBuildLocalDays(
+        build.startDate,
+        plannedDraw.timingDay,
+      );
+      currentDueAt = buildLocalMidnightUtc(plannedDate, build.timezone);
+    } catch {
+      return null;
+    }
+    if (currentDueAt > now) {
+      if (currentDueAt <= now + MAX_MILESTONE_SCHEDULE_HORIZON_MS) {
+        await ctx.scheduler.runAt(
+          currentDueAt,
+          internal.build_collaboration_scheduling
+            .executeScheduledDrawSystemPostActivation,
+          {
+            buildId: build._id,
+            plannedDrawId: plannedDraw._id,
+            scheduledFor: currentDueAt,
+          },
+        );
+      }
+      return null;
+    }
+    await ensureDrawSystemPost(ctx, {
+      actor: {
+        roles: ["system"],
+        workosUserId: "system:build-collaboration-scheduler",
+      },
+      activationReason: "scheduled",
+      build,
+      now,
+      plannedDraw,
     });
     return null;
   })
@@ -662,6 +795,75 @@ export const reconcileDueMilestoneSystemPosts = internalMutation
         internal.build_collaboration_scheduling
           .reconcileDueMilestoneSystemPosts,
         { asOf, cursor: page.continueCursor }
+      );
+    }
+    return null;
+  })
+  .internal();
+
+/** Bounded recovery pass for missed Build-local planned Draw activations. */
+export const reconcileDueDrawSystemPosts = internalMutation
+  .input({
+    asOf: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const asOf = args.asOf ?? Date.now();
+    const page = await ctx.db
+      .query("activeBuilds")
+      .order("asc")
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: MILESTONE_RECONCILIATION_BATCH_SIZE,
+      });
+    for (const build of page.page) {
+      if (!(build.status === "active" || build.status === "future_start") || !build.timezone) {
+        continue;
+      }
+      let localDate: string;
+      try {
+        localDate = buildLocalDateAt(asOf, build.timezone);
+      } catch {
+        continue;
+      }
+      const plannedDraws = await ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build_order", (query) => query.eq("buildId", build._id))
+        .take(500);
+      for (const plannedDraw of plannedDraws) {
+        if (
+          plannedDraw.organizationId !== build.organizationId ||
+          plannedDraw.brokerageId !== build.brokerageId
+        ) {
+          continue;
+        }
+        let plannedDate: string;
+        try {
+          plannedDate = addBuildLocalDays(build.startDate, plannedDraw.timingDay);
+        } catch {
+          continue;
+        }
+        if (localDate < plannedDate) {
+          continue;
+        }
+        await ensureDrawSystemPost(ctx, {
+          actor: {
+            roles: ["system"],
+            workosUserId: "system:build-collaboration-scheduler",
+          },
+          activationReason: "scheduled",
+          build,
+          now: asOf,
+          plannedDraw,
+        });
+      }
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.build_collaboration_scheduling.reconcileDueDrawSystemPosts,
+        { asOf, cursor: page.continueCursor },
       );
     }
     return null;

@@ -28,6 +28,13 @@ crons.interval(
 );
 
 crons.interval(
+  "reconcile scheduled Draw System Posts",
+  { minutes: 5 },
+  internal.build_collaboration_scheduling.reconcileDueDrawSystemPosts,
+  {}
+);
+
+crons.interval(
   "recover expired Build collaboration webhook leases",
   { minutes: 1 },
   internal.build_collaboration_webhooks

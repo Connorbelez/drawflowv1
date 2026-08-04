@@ -333,6 +333,27 @@ async function feedKinds(
   return feed.page.map((entry: { kind: string }) => entry.kind);
 }
 
+async function finishSearchMaintenance(t: ReturnType<typeof convexTest>) {
+  for (let iteration = 0; iteration < 5000; iteration += 1) {
+    const pendingJobIds = await t.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationSearchJobs").collect())
+        .filter((job) => job.status !== "complete")
+        .map((job) => job._id),
+    );
+    if (pendingJobIds.length === 0) {
+      return;
+    }
+    for (const jobId of pendingJobIds) {
+      await t.mutation(
+        (internal as any).build_collaboration_search_maintenance
+          .processBuildCollaborationSearchJob,
+        { jobId },
+      );
+    }
+  }
+  throw new Error("Draw search maintenance did not drain within the test bound.");
+}
+
 describe("Build Collaboration operational events", () => {
   test("derives the collaboration viewer binding from authorized server state", async () => {
     const fixture = await seedOperationalBuild();
@@ -1703,18 +1724,97 @@ describe("Build Collaboration operational events", () => {
         },
       ),
     ).rejects.toThrow(/approved for release/i);
+    const terminalFeed = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 50 },
+      },
+    );
+    const terminalDrawEntries = terminalFeed.page.filter(
+      (entry: any) => entry.post.systemPost?.kind === "draw",
+    );
+    expect(terminalDrawEntries).toHaveLength(2);
+    expect(terminalDrawEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          post: expect.objectContaining({
+            systemPost: expect.objectContaining({
+              lifecycle: "resolved",
+              drawFacts: expect.objectContaining({
+                disposition: expect.objectContaining({ kind: "final_decline" }),
+                request: expect.objectContaining({
+                  displayId: returnedDraw.displayId,
+                  status: "rejected",
+                }),
+                release: expect.objectContaining({ state: "final_decline" }),
+              }),
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          post: expect.objectContaining({
+            systemPost: expect.objectContaining({
+              lifecycle: "resolved",
+              drawFacts: expect.objectContaining({
+                disposition: expect.objectContaining({ kind: "released" }),
+                request: expect.objectContaining({
+                  displayId: releasedDraw.displayId,
+                  status: "released",
+                }),
+                release: expect.objectContaining({ state: "released" }),
+              }),
+            }),
+          }),
+        }),
+      ]),
+    );
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_search_maintenance
+        .ensureBuildCollaborationSearchMaintenance,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    await finishSearchMaintenance(fixture.base);
+    const adminDrawSearch = await fixture.admin.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        query: "Foundation reimbursement",
+      },
+    );
+    expect(adminDrawSearch.page).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          resultType: "post",
+          postId: expect.anything(),
+        }),
+      ]),
+    );
+    const contractorDrawSearch = await fixture.contractor.action(
+      (api as any).build_collaboration_search.searchBuildCollaboration,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        query: "Foundation reimbursement",
+      },
+    );
+    expect(
+      contractorDrawSearch.page.filter(
+        (result: any) => result.resultType === "post",
+      ),
+    ).toHaveLength(0);
     const snapshot = await collaborationSnapshot(
       fixture.base,
       String(fixture.buildId),
     );
-    expect(snapshot.posts).toHaveLength(5);
-    expect(snapshot.actionItems).toHaveLength(1);
-    expect(snapshot.actionItems[0]).toMatchObject({
-      dueDatePolicyKey: "draw-returned",
-      primaryReferenceKind: "draw",
-      workKind: "draw_blocker",
-    });
-    expect(snapshot.references.length).toBeGreaterThanOrEqual(10);
+    expect(snapshot.posts).toHaveLength(2);
+    expect(snapshot.posts.every((post: any) => post.systemPostKind === "draw")).toBe(
+      true,
+    );
+    expect(snapshot.actionItems).toHaveLength(0);
+    expect(snapshot.references).toHaveLength(2);
     expect(snapshot.deliveries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1726,28 +1826,16 @@ describe("Build Collaboration operational events", () => {
     expect(await feedKinds(fixture.builderStaff, fixture.buildId)).toEqual([
       "restricted",
       "restricted",
-      "restricted",
-      "restricted",
-      "restricted",
     ]);
     expect(await feedKinds(permittedBuilderStaff, fixture.buildId)).toEqual([
-      "post",
-      "post",
-      "post",
       "post",
       "post",
     ]);
     expect(await feedKinds(fixture.contractor, fixture.buildId)).toEqual([
       "restricted",
       "restricted",
-      "restricted",
-      "restricted",
-      "restricted",
     ]);
     expect(await feedKinds(fixture.homeowner, fixture.buildId)).toEqual([
-      "restricted",
-      "restricted",
-      "restricted",
       "restricted",
       "restricted",
     ]);
@@ -1790,9 +1878,6 @@ describe("Build Collaboration operational events", () => {
       });
     });
     expect(await feedKinds(permittedBuilderStaff, fixture.buildId)).toEqual([
-      "restricted",
-      "restricted",
-      "restricted",
       "restricted",
       "restricted",
     ]);
@@ -1845,6 +1930,363 @@ describe("Build Collaboration operational events", () => {
         }),
       );
     }
+  });
+
+  test("converges scheduled and requested Draw activation without canonical side effects", async () => {
+    const fixture = await seedOperationalBuild();
+    const plannedDrawId = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.patch(fixture.buildId, { timezone: "America/Toronto" });
+      await ctx.db.patch(fixture.milestoneId, {
+        completionReview: { status: "approved" },
+        evidenceState: "Approved",
+        status: "complete",
+      });
+      const proposalDrawId = await ctx.db.insert("proposalDrawScheduleRows", {
+        amountCents: 5_000_000,
+        brokerageId: fixture.brokerageId,
+        createdAt: now,
+        drawKey: "scheduled-foundation",
+        label: "Foundation reimbursement",
+        milestoneKey: "foundation",
+        order: 1,
+        organizationId: ORGANIZATION_ID,
+        proposalId: fixture.proposalId,
+        requestStatus: "draft",
+        source: "milestone",
+        timingDay: 0,
+        updatedAt: now,
+      });
+      return await ctx.db.insert("plannedDrawScheduleRows", {
+        amountCents: 5_000_000,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        buildMilestoneId: fixture.milestoneId,
+        createdAt: now,
+        drawKey: "scheduled-foundation",
+        label: "Foundation reimbursement",
+        milestoneKey: "foundation",
+        order: 1,
+        organizationId: ORGANIZATION_ID,
+        proposalDrawScheduleRowId: proposalDrawId,
+        status: "planned",
+        timingDay: 0,
+        updatedAt: now,
+      });
+    });
+    const canonicalBefore = await fixture.base.run(async (ctx) => ({
+      capitalEvents: await ctx.db.query("capitalEvents").collect(),
+      drawRequests: await ctx.db
+        .query("activeBuildDrawRequests")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .collect(),
+      evidenceAssets: await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .collect(),
+      milestones: await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .collect(),
+      plannedDraws: await ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build_order", (query) => query.eq("buildId", fixture.buildId))
+        .collect(),
+      siteVisits: await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .collect(),
+    }));
+    const scheduledArgs = {
+      buildId: fixture.buildId,
+      plannedDrawId,
+      scheduledFor: Date.now(),
+    };
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledDrawSystemPostActivation,
+      scheduledArgs,
+    );
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledDrawSystemPostActivation,
+      scheduledArgs,
+    );
+    const scheduledSnapshot = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    expect(
+      scheduledSnapshot.posts.filter((post) => post.systemPostKind === "draw"),
+    ).toHaveLength(1);
+    expect(scheduledSnapshot.actionItems).toHaveLength(0);
+    const canonicalAfterSchedule = await fixture.base.run(async (ctx) => ({
+      capitalEvents: await ctx.db.query("capitalEvents").collect(),
+      drawRequests: await ctx.db
+        .query("activeBuildDrawRequests")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .collect(),
+      evidenceAssets: await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .collect(),
+      milestones: await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .collect(),
+      plannedDraws: await ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build_order", (query) => query.eq("buildId", fixture.buildId))
+        .collect(),
+      siteVisits: await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_build", (query) => query.eq("buildId", fixture.buildId))
+        .collect(),
+    }));
+    expect(canonicalAfterSchedule).toEqual(canonicalBefore);
+
+    const firstRequest = await fixture.admin.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      {
+        amountCents: 5_000_000,
+        buildId: fixture.buildId,
+        clientOperationId: "scheduled-draw-request-001",
+        drawKey: "scheduled-foundation",
+        note: "Foundation reimbursement requested.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const replayedRequest = await fixture.admin.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      {
+        amountCents: 5_000_000,
+        buildId: fixture.buildId,
+        clientOperationId: "scheduled-draw-request-001",
+        drawKey: "scheduled-foundation",
+        note: "Foundation reimbursement requested.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(replayedRequest).toEqual(firstRequest);
+    const feed = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 50 },
+      },
+    );
+    const drawEntry = feed.page.find(
+      (entry: any) => entry.post.systemPost?.kind === "draw",
+    );
+    expect(drawEntry?.actionItems).toEqual([]);
+    expect(drawEntry?.post.systemPost?.drawFacts).toMatchObject({
+      generatedActionItems: 0,
+      planned: {
+        drawKey: "scheduled-foundation",
+        label: "Foundation reimbursement",
+      },
+      request: {
+        displayId: firstRequest.displayId,
+        status: "requested",
+      },
+      review: { state: "not_started" },
+      release: { state: "not_started" },
+    });
+    const occurrencePostId = drawEntry?.post._id;
+    expect(occurrencePostId).toBeDefined();
+    await fixture.admin.mutation(
+      (api as any).production_proposals.startActiveBuildDrawReview,
+      {
+        buildId: fixture.buildId,
+        drawKey: firstRequest.requestKey,
+        note: "Operations review started for the scheduled occurrence.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.submitActiveBuildDrawForAdmin,
+      {
+        buildId: fixture.buildId,
+        drawKey: firstRequest.requestKey,
+        note: "Scheduled occurrence is ready for the final lender decision.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).production_proposals.approveActiveBuildDraw,
+      {
+        buildId: fixture.buildId,
+        drawKey: firstRequest.requestKey,
+        note: "Scheduled occurrence approved within lender authority.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const approvedFeed = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 50 },
+      },
+    );
+    const approvedEntry = approvedFeed.page.find(
+      (entry: any) => entry.post.systemPost?.kind === "draw",
+    );
+    expect(approvedEntry?.post._id).toBe(occurrencePostId);
+    expect(approvedEntry?.post.systemPost).toMatchObject({
+      kind: "draw",
+      lifecycle: "open",
+      drawFacts: {
+        approval: { state: "approved" },
+        request: { status: "approved_for_release" },
+        release: { state: "approved_for_release" },
+      },
+    });
+    await fixture.admin.mutation(
+      (api as any).production_proposals.releaseActiveBuildDraw,
+      {
+        buildId: fixture.buildId,
+        drawKey: firstRequest.requestKey,
+        note: "Scheduled occurrence released by lender operations.",
+        releaseDate: "2026-08-03",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .executeScheduledDrawSystemPostActivation,
+      scheduledArgs,
+    );
+    const releasedFeed = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 50 },
+      },
+    );
+    const releasedEntry = releasedFeed.page.find(
+      (entry: any) => entry.post.systemPost?.kind === "draw",
+    );
+    expect(releasedEntry?.post._id).toBe(occurrencePostId);
+    expect(releasedEntry?.post.systemPost).toMatchObject({
+      kind: "draw",
+      lifecycle: "resolved",
+      drawFacts: {
+        disposition: { kind: "released" },
+        request: { status: "released" },
+        release: { state: "released" },
+      },
+    });
+    expect(await feedKinds(fixture.contractor, fixture.buildId)).toEqual([
+      "restricted",
+    ]);
+    expect(await feedKinds(fixture.homeowner, fixture.buildId)).toEqual([
+      "restricted",
+    ]);
+  });
+
+  test("projects withdrawal and administrative cancellation as distinct terminal Draw dispositions", async () => {
+    const prepareFixture = async () => {
+      const fixture = await seedOperationalBuild();
+      await fixture.base.run(async (ctx) => {
+        await ctx.db.patch(fixture.milestoneId, {
+          completionReview: { status: "approved" },
+          evidenceState: "Approved",
+          status: "complete",
+        });
+      });
+      return fixture;
+    };
+    const withdrawnFixture = await prepareFixture();
+    const withdrawn = await withdrawnFixture.admin.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      {
+        amountCents: 5_000_000,
+        buildId: withdrawnFixture.buildId,
+        clientOperationId: "withdrawal-terminal-001",
+        drawKey: "withdrawal-draw",
+        note: "Temporary reimbursement request.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    await withdrawnFixture.admin.mutation(
+      (api as any).production_proposals.withdrawActiveBuildDraw,
+      {
+        buildId: withdrawnFixture.buildId,
+        drawKey: withdrawn.requestKey,
+        note: "Builder withdrew the reimbursement request.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const withdrawnFeed = await withdrawnFixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: withdrawnFixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 50 },
+      },
+    );
+    expect(withdrawnFeed.page[0]?.post.systemPost).toMatchObject({
+      kind: "draw",
+      lifecycle: "resolved",
+      drawFacts: {
+        disposition: { kind: "withdrawal" },
+        request: { status: "withdrawn" },
+        release: { state: "withdrawn" },
+      },
+    });
+
+    const cancelledFixture = await prepareFixture();
+    const cancelled = await cancelledFixture.admin.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      {
+        amountCents: 5_000_000,
+        buildId: cancelledFixture.buildId,
+        clientOperationId: "cancellation-terminal-001",
+        drawKey: "cancellation-draw",
+        note: "Reimbursement request awaiting final scope.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    await cancelledFixture.admin.mutation(
+      (api as any).production_proposals.cancelActiveBuildDraw,
+      {
+        buildId: cancelledFixture.buildId,
+        drawKey: cancelled.requestKey,
+        note: "Lender cancelled the request after scope reconciliation.",
+        workosOrganizationId: ORGANIZATION_ID,
+      },
+    );
+    const cancelledFeed = await cancelledFixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: cancelledFixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 50 },
+      },
+    );
+    expect(cancelledFeed.page[0]?.post.systemPost).toMatchObject({
+      kind: "draw",
+      lifecycle: "resolved",
+      drawFacts: {
+        disposition: { kind: "cancellation" },
+        request: { status: "cancelled" },
+        release: { state: "cancelled" },
+      },
+    });
+    await expect(
+      cancelledFixture.admin.mutation(
+        (api as any).production_proposals.cancelActiveBuildDraw,
+        {
+          buildId: cancelledFixture.buildId,
+          drawKey: cancelled.requestKey,
+          note: "Duplicate cancellation.",
+          workosOrganizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow(/open Draw request/i);
   });
 
   test("rolls the authoritative operation back when collaboration publication violates tenant scope", async () => {

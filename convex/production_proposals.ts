@@ -57,7 +57,7 @@ import {
 } from "./build_submilestone_evidence";
 import { scheduleCurrentMilestoneSystemPostActivations } from "./build_collaboration_scheduling";
 import {
-  ensureMilestoneSystemPost,
+  synchronizeDrawSystemPostForCanonicalDraw,
   synchronizeMilestoneSystemPostPlanning,
   validateBuildTimezone,
 } from "./build_collaboration_system_posts";
@@ -8370,7 +8370,7 @@ function calendarDrawStatus(status?: string) {
   if (status === "approved" || status === "approved_for_release") {
     return "approved";
   }
-  if (status === "rejected" || status === "withdrawn") {
+  if (status === "rejected" || status === "withdrawn" || status === "cancelled") {
     return "rejected";
   }
   if (
@@ -11947,6 +11947,7 @@ const productionBuildDrawStatusValidator = v.union(
   v.literal("approved_for_release"),
   v.literal("rejected"),
   v.literal("withdrawn"),
+  v.literal("cancelled"),
   v.literal("released"),
 );
 
@@ -20833,6 +20834,12 @@ export const requestActiveBuildDraw = authenticatedMutation
       if (existing.status !== "requested") {
         throw terminalActiveBuildDrawOperationConflictError(existing);
       }
+      await synchronizeDrawSystemPostForCanonicalDraw(ctx, {
+        actor: { roles: auth.roles, workosUserId: auth.subject },
+        activationReason: "draw_request",
+        build: auth.build,
+        drawRequest: existing,
+      });
       const funding = await activeBuildDrawFundingSnapshot(ctx, args.buildId);
       const sourceAllocations = await activeBuildDrawAllocationViews(
         ctx,
@@ -20934,6 +20941,7 @@ export const requestActiveBuildDraw = authenticatedMutation
       throw new Error("The submitted Draw request could not be reloaded.");
     }
     await publishDrawCollaborationEvent(ctx, {
+      actor: { roles: auth.roles, workosUserId: auth.subject },
       draw: persistedDrawRequest,
       note,
       revision: 1,
@@ -21008,6 +21016,13 @@ export const withdrawActiveBuildDraw = authenticatedMutation
       priorState: JSON.stringify(request),
       reason: note,
     });
+    await synchronizeDrawSystemPostForCanonicalDraw(ctx, {
+      actor: { roles: auth.roles, workosUserId: auth.subject },
+      activationReason: "draw_request",
+      build: auth.build,
+      drawRequest: { ...request, ...patch },
+      reason: note,
+    });
     return {
       availableAfterCents: await calculateActiveBuildAvailableNowCents(
         ctx,
@@ -21016,6 +21031,84 @@ export const withdrawActiveBuildDraw = authenticatedMutation
       requestKey: request.requestKey,
       status: "withdrawn" as const,
       withdrawnAt,
+    };
+  })
+  .public();
+
+/**
+ * Canonical administrative cancellation. This is deliberately distinct from
+ * builder withdrawal and final lender decline so collaboration can project the
+ * exact terminal disposition without inventing one.
+ */
+export const cancelActiveBuildDraw = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    drawKey: v.string(),
+    note: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(
+    v.object({
+      cancelledAt: v.string(),
+      requestKey: v.string(),
+      status: v.literal("cancelled"),
+    }),
+  )
+  .handler(async (ctx, args) => {
+    const auth = await authorizeActiveBuildOrThrow(
+      ctx,
+      args.buildId,
+      args.workosOrganizationId,
+    );
+    requireApproverActiveBuildWrite(auth);
+    const note = args.note.trim();
+    if (note.length < 3 || note.length > 500) {
+      throw new Error(
+        "Draw cancellation reason must be between 3 and 500 characters.",
+      );
+    }
+    const request = await getActiveBuildDrawRequestOrThrow(
+      ctx,
+      args.buildId,
+      args.drawKey,
+    );
+    if (
+      request.status === "released" ||
+      request.status === "withdrawn" ||
+      request.status === "rejected" ||
+      request.status === "cancelled"
+    ) {
+      throw new Error("Only an open Draw request can be cancelled.");
+    }
+    const cancelledAt = new Date().toISOString();
+    const patch = {
+      cancellationNote: note,
+      cancelledAt,
+      cancelledByWorkosUserId: auth.subject,
+      status: "cancelled" as const,
+      updatedAt: Date.now(),
+    };
+    await ctx.db.patch(request._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "cancelActiveBuildDraw",
+      eventType: "active_build.draw.cancelled",
+      newState: JSON.stringify(patch),
+      priorState: JSON.stringify(request),
+      reason: note,
+    });
+    await synchronizeDrawSystemPostForCanonicalDraw(ctx, {
+      actor: { roles: auth.roles, workosUserId: auth.subject },
+      activationReason: "draw_request",
+      build: auth.build,
+      drawRequest: { ...request, ...patch },
+      reason: note,
+    });
+    return {
+      cancelledAt,
+      requestKey: request.requestKey,
+      status: "cancelled" as const,
     };
   })
   .public();
@@ -21062,6 +21155,13 @@ export const startActiveBuildDrawReview = authenticatedMutation
       eventType: "active_build.draw.review_started",
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(draw),
+      reason: note,
+    });
+    await synchronizeDrawSystemPostForCanonicalDraw(ctx, {
+      actor: { roles: auth.roles, workosUserId: auth.subject },
+      activationReason: "draw_request",
+      build: auth.build,
+      drawRequest: { ...draw, ...patch },
       reason: note,
     });
     return null;
@@ -21114,6 +21214,13 @@ export const submitActiveBuildDrawForAdmin = authenticatedMutation
       eventType: "active_build.draw.ready_for_admin",
       newState: JSON.stringify(patch),
       priorState: JSON.stringify(draw),
+      reason: note,
+    });
+    await synchronizeDrawSystemPostForCanonicalDraw(ctx, {
+      actor: { roles: auth.roles, workosUserId: auth.subject },
+      activationReason: "draw_request",
+      build: auth.build,
+      drawRequest: { ...draw, ...patch },
       reason: note,
     });
     return null;
@@ -21170,6 +21277,7 @@ export const approveActiveBuildDraw = authenticatedMutation
       reason: note,
     });
     await publishDrawCollaborationEvent(ctx, {
+      actor: { roles: auth.roles, workosUserId: auth.subject },
       draw: { ...draw, ...patch },
       note,
       revision: patch.collaborationEventRevision,
@@ -21233,6 +21341,7 @@ export const rejectActiveBuildDraw = authenticatedMutation
       reason: note,
     });
     await publishDrawCollaborationEvent(ctx, {
+      actor: { roles: auth.roles, workosUserId: auth.subject },
       draw: { ...draw, ...patch },
       note,
       revision: patch.collaborationEventRevision,
@@ -21307,6 +21416,7 @@ export const releaseActiveBuildDraw = authenticatedMutation
       reason: note,
     });
     await publishDrawCollaborationEvent(ctx, {
+      actor: { roles: auth.roles, workosUserId: auth.subject },
       draw: { ...draw, ...patch },
       note,
       revision: patch.collaborationEventRevision,
@@ -26111,7 +26221,7 @@ function activeBuildTimelineDrawStatus(
   if (status === "approved_for_release" || status === "released") {
     return "approved" as const;
   }
-  if (status === "rejected" || status === "withdrawn") {
+  if (status === "rejected" || status === "withdrawn" || status === "cancelled") {
     return "rejected" as const;
   }
   return "draft" as const;

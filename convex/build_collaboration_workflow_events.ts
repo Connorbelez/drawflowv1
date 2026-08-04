@@ -1,4 +1,5 @@
 import { publishCanonicalBuildCollaborationSystemEvent } from "./build_collaboration_system_events";
+import { synchronizeDrawSystemPostForCanonicalDraw } from "./build_collaboration_system_posts";
 import type { Doc, MutationCtx } from "./types";
 
 const SYSTEM_LABEL = "DrawFlow Operations";
@@ -61,69 +62,29 @@ export async function publishMilestoneCollaborationEvent(
 export async function publishDrawCollaborationEvent(
   ctx: MutationCtx,
   input: {
+    actor?: { roles: string[]; workosUserId: string };
     draw: Doc<"activeBuildDrawRequests">;
     note?: string;
     revision: number;
     transition: DrawTransition;
   }
 ) {
-  const allocations = await ctx.db
-    .query("activeBuildDrawRequestAllocations")
-    .withIndex("by_request", (query) =>
-      query.eq("drawRequestId", input.draw._id)
-    )
-    .take(256);
-  const milestoneIds = [
-    ...new Set(allocations.map((allocation) => allocation.buildMilestoneId)),
-  ];
-  const references = [
-    {
-      entityId: input.draw._id,
-      entityKind: "draw" as const,
-      primary: true,
-    },
-    ...milestoneIds.map((milestoneId) => ({
-      entityId: milestoneId,
-      entityKind: "milestone" as const,
-    })),
-  ];
-  const note = input.note?.trim();
-  const transitionLabel =
-    input.transition === "submitted"
-      ? "was submitted for lender review"
-      : input.transition === "approved"
-        ? "was approved for release"
-        : input.transition === "released"
-          ? `was released${input.draw.releaseDate ? ` on ${input.draw.releaseDate}` : ""}`
-          : "was returned for changes";
-  const returned = input.transition === "returned";
-  await publishCanonicalBuildCollaborationSystemEvent(ctx, {
-    buildId: input.draw.buildId,
-    idempotencyKey: `operational:draw:${input.draw._id}:r${input.revision}:${input.transition}`,
-    notificationKind: returned ? "blocker" : "ordinary_activity",
-    notificationTitle: `Draw ${input.transition}`,
-    organizationId: input.draw.organizationId,
-    plainText: `${input.draw.label} (${input.draw.displayId}) ${transitionLabel}.${note ? ` ${note}` : ""}`,
-    postType:
-      input.transition === "approved"
-        ? "decision"
-        : returned
-          ? "issue"
-          : "update",
-    references,
-    remediation: returned
-      ? {
-          description:
-            note ||
-            `Resolve the lender changes for ${input.draw.displayId} before submitting a replacement Draw request.`,
-          obligationKey: `draw:${input.draw._id}`,
-          policyKey: "draw-returned",
-          title: `Resolve ${input.draw.displayId} return conditions`,
-          workKind: "draw_blocker",
-        }
-      : undefined,
-    systemLabel: SYSTEM_LABEL,
-  });
+  const build = await ctx.db.get(input.draw.buildId);
+  if (build) {
+    await synchronizeDrawSystemPostForCanonicalDraw(ctx, {
+      actor: input.actor ?? {
+        roles: ["admin"],
+        workosUserId: "system:draw-collaboration-projector",
+      },
+      activationReason: "draw_request",
+      build,
+      drawRequest: input.draw,
+      reason: input.note,
+    });
+  }
+  // Draw transitions converge on the one deterministic System Post. The
+  // canonical Draw Request remains the source of truth; no transition event
+  // creates a second collaboration post or an automatic Action Item.
 }
 
 export async function publishDocumentCollaborationEvent(

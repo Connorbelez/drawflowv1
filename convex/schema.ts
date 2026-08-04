@@ -383,6 +383,7 @@ const productionBuildDrawStatusValidator = v.union(
   v.literal("approved_for_release"),
   v.literal("rejected"),
   v.literal("withdrawn"),
+  v.literal("cancelled"),
   v.literal("released")
 );
 
@@ -394,6 +395,7 @@ const activeBuildDrawRequestStatusValidator = v.union(
   v.literal("approved_for_release"),
   v.literal("rejected"),
   v.literal("withdrawn"),
+  v.literal("cancelled"),
   v.literal("released")
 );
 
@@ -3993,6 +3995,11 @@ export default defineSchema({
       "systemPostKind",
       "canonicalBuildMilestoneId",
     ])
+    .index("by_buildId_and_systemPostKind_and_drawOccurrenceKey", [
+      "buildId",
+      "systemPostKind",
+      "canonicalBuildDrawOccurrenceKey",
+    ])
     .index("by_buildId_and_systemOccurrenceKey", [
       "buildId",
       "systemOccurrenceKey",
@@ -5787,12 +5794,15 @@ export default defineSchema({
     reviewNote: v.optional(v.string()),
     releaseNote: v.optional(v.string()),
     withdrawalNote: v.optional(v.string()),
+    cancellationNote: v.optional(v.string()),
     requestedByWorkosUserId: v.string(),
     reviewedByWorkosUserId: v.optional(v.string()),
     withdrawnByWorkosUserId: v.optional(v.string()),
     requestedAt: v.string(),
     reviewedAt: v.optional(v.string()),
     withdrawnAt: v.optional(v.string()),
+    cancelledAt: v.optional(v.string()),
+    cancelledByWorkosUserId: v.optional(v.string()),
     releaseDate: v.optional(v.string()),
     releasedAt: v.optional(v.string()),
     collaborationEventRevision: v.optional(v.number()),

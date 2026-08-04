@@ -30,6 +30,27 @@ export type MilestoneSystemActivationReason =
   | "recovery"
   | "scheduled";
 
+export type DrawSystemActivationReason =
+  | "draw_request"
+  | "recovery"
+  | "scheduled";
+
+/**
+ * Stable identity for one planned Draw occurrence. The proposal schedule-row
+ * ID is preferred because a reasonable plan edit can change its display key;
+ * the Build/proposal-scoped draw-key fallback keeps legacy rows addressable
+ * without allowing two Builds or proposals to collide.
+ */
+export function drawSystemOccurrenceKey(
+  build: Pick<Doc<"activeBuilds">, "_id" | "proposalId">,
+  draw: Pick<Doc<"plannedDrawScheduleRows">, "drawKey" | "proposalDrawScheduleRowId">,
+) {
+  const stablePart = draw.proposalDrawScheduleRowId
+    ? `proposal-row:${String(draw.proposalDrawScheduleRowId)}`
+    : `legacy-key:${draw.drawKey}`;
+  return `draw-system:${String(build._id)}:${String(build.proposalId)}:${stablePart}`;
+}
+
 export type SystemActionItemPresentationColumn =
   | "backlog"
   | "behind_schedule"
@@ -902,6 +923,354 @@ export async function ensureMilestoneSystemPost(
     postId,
     recoveryRequired: submilestones.length === 0,
   };
+}
+
+/**
+ * Ensure the single collaboration System Post for a canonical Draw
+ * occurrence. This helper only writes collaboration attribution/projection
+ * records; it never creates or mutates a Draw Request, eligibility, evidence,
+ * approval, release, funds, fees, or interest state.
+ */
+export async function ensureDrawSystemPost(
+  ctx: MutationCtx,
+  input: {
+    actor: { roles: string[]; workosUserId: string };
+    build: Doc<"activeBuilds">;
+    drawRequest?: Doc<"activeBuildDrawRequests">;
+    plannedDraw?: Doc<"plannedDrawScheduleRows">;
+    activationReason: DrawSystemActivationReason;
+    now?: number;
+  },
+) {
+  const plannedDraw =
+    input.plannedDraw ??
+    (input.drawRequest?.plannedDrawKey
+      ? await ctx.db
+          .query("plannedDrawScheduleRows")
+          .withIndex("by_build_order", (query) =>
+            query.eq("buildId", input.build._id),
+          )
+          .collect()
+          .then((rows) =>
+            rows.find((row) => row.drawKey === input.drawRequest?.plannedDrawKey),
+          )
+      : undefined);
+  const occurrenceKey = plannedDraw
+    ? drawSystemOccurrenceKey(input.build, plannedDraw)
+    : `draw-system:${String(input.build._id)}:${String(input.build.proposalId)}:request:${String(input.drawRequest?._id ?? "unknown")}`;
+  const now = input.now ?? Date.now();
+  const activationRevision = await ensureActiveBuildPlanningActivationRevision(
+    ctx,
+    {
+      actor: {
+        actorRoles: input.actor.roles,
+        actorWorkosUserId: input.actor.workosUserId,
+      },
+      build: input.build,
+      now,
+    },
+  );
+  const label = plannedDraw?.label ?? input.drawRequest?.label ?? "Draw";
+  const drawDisplay = input.drawRequest?.displayId
+    ? ` (${input.drawRequest.displayId})`
+    : "";
+  const plainText =
+    input.activationReason === "scheduled"
+      ? `${label} is scheduled for Draw coordination today. Canonical Draw Request, evidence, review, approval, and release state remain authoritative; no request was created.`
+      : `${label}${drawDisplay} is tracked in DrawFlow System. Canonical Draw Request, evidence, review, approval, and release state remain authoritative.`;
+  const primaryReferenceId = String(plannedDraw?._id ?? input.drawRequest?._id ?? "");
+  if (!primaryReferenceId) {
+    return null;
+  }
+  const postId = await publishCanonicalBuildCollaborationSystemEvent(ctx, {
+    buildId: input.build._id,
+    idempotencyKey: occurrenceKey,
+    organizationId: input.build.organizationId,
+    plainText,
+    postType: "update",
+    primaryReferenceId,
+    primaryReferenceKind: "draw",
+    systemLabel: SYSTEM_LABEL,
+    systemPostKind: "draw",
+    suppressNotifications: input.activationReason === "scheduled",
+    now,
+  });
+  if (!postId) {
+    return null;
+  }
+
+  const scope = await resolveSystemEventScope(
+    ctx,
+    {
+      buildId: input.build._id,
+      idempotencyKey: `${occurrenceKey}:scope`,
+      organizationId: input.build.organizationId,
+      plainText: "Draw System Post authorization scope.",
+      postType: "update",
+      primaryReferenceId,
+      primaryReferenceKind: "draw",
+      systemLabel: SYSTEM_LABEL,
+      systemPostKind: "draw",
+    },
+    `${occurrenceKey}:scope`,
+  );
+  if (scope.status !== "ready") {
+    return null;
+  }
+  const post = await ctx.db.get(postId);
+  if (!post || post.buildId !== input.build._id) {
+    throw new Error("Draw System Post became unavailable.");
+  }
+  const triggeredByRole = resolveEffectiveCollaborationRole(input.actor.roles)?.role;
+  const postPatch = {
+    activationPlanningRevisionId:
+      post.activationPlanningRevisionId ?? activationRevision?._id,
+    activationReason: post.activationReason ?? input.activationReason,
+    authorDisplayNameSnapshot: SYSTEM_LABEL,
+    authorRolesSnapshot: ["system"],
+    authorWorkosUserId: SYSTEM_AUTHOR,
+    canonicalBuildDrawOccurrenceKey:
+      post.canonicalBuildDrawOccurrenceKey ?? occurrenceKey,
+    systemEventKey: occurrenceKey,
+    systemOccurrenceKey: occurrenceKey,
+    systemPostKind: "draw" as const,
+    currentPlanningRevision:
+      post.currentPlanningRevision ?? activationRevision?.revision,
+    systemLifecycle: post.systemLifecycle ?? "open",
+    triggeredAt: post.triggeredAt ?? now,
+    triggeredByRole: post.triggeredByRole ?? triggeredByRole,
+    triggeredByWorkosUserId:
+      post.triggeredByWorkosUserId ?? input.actor.workosUserId,
+  };
+  const postChanged =
+    post.activationPlanningRevisionId !== postPatch.activationPlanningRevisionId ||
+    post.activationReason !== postPatch.activationReason ||
+    post.authorDisplayNameSnapshot !== postPatch.authorDisplayNameSnapshot ||
+    post.authorWorkosUserId !== postPatch.authorWorkosUserId ||
+    post.canonicalBuildDrawOccurrenceKey !==
+      postPatch.canonicalBuildDrawOccurrenceKey ||
+    post.systemEventKey !== postPatch.systemEventKey ||
+    post.systemOccurrenceKey !== postPatch.systemOccurrenceKey ||
+    post.systemPostKind !== postPatch.systemPostKind ||
+    post.currentPlanningRevision !== postPatch.currentPlanningRevision ||
+    post.systemLifecycle !== postPatch.systemLifecycle ||
+    post.triggeredAt !== postPatch.triggeredAt ||
+    post.triggeredByRole !== postPatch.triggeredByRole ||
+    post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId;
+  if (postChanged) {
+    await ctx.db.patch(postId, { ...postPatch, updatedAt: now });
+    await queueBuildCollaborationSearchOwnerRebuild(ctx, {
+      authorization: scope.authorization,
+      owner: { id: postId, kind: "post" },
+      postId,
+    });
+  }
+  return {
+    occurrenceKey,
+    plannedDrawId: plannedDraw?._id,
+    postId,
+  };
+}
+
+function drawSystemLifecycleForStatus(
+  status:
+    | Doc<"plannedDrawScheduleRows">["status"]
+    | Doc<"activeBuildDrawRequests">["status"],
+): "open" | "resolved" {
+  return status === "released" ||
+    status === "withdrawn" ||
+    status === "cancelled" ||
+    status === "rejected"
+    ? "resolved"
+    : "open";
+}
+
+function drawSystemDispositionForStatus(
+  status: Doc<"activeBuildDrawRequests">["status"],
+) {
+  if (status === "released") return "released" as const;
+  if (status === "withdrawn") return "withdrawal" as const;
+  if (status === "cancelled") return "cancellation" as const;
+  if (status === "rejected") return "final_decline" as const;
+  return undefined;
+}
+
+/** Synchronize only the existing Draw System Post with canonical lifecycle. */
+export async function synchronizeDrawSystemPostLifecycle(
+  ctx: MutationCtx,
+  input: {
+    actorRole: BuildCollaborationRole;
+    actorWorkosUserId: string;
+    buildId: Id<"activeBuilds">;
+    drawRequest?: Doc<"activeBuildDrawRequests">;
+    lifecycle: "open" | "resolved";
+    occurrenceKey?: string;
+    organizationId: string;
+    postId?: Id<"buildCollaborationPosts">;
+    reason?: string;
+  },
+) {
+  const post =
+    (input.postId ? await ctx.db.get(input.postId) : null) ??
+    (input.occurrenceKey
+      ? await ctx.db
+          .query("buildCollaborationPosts")
+          .withIndex(
+            "by_buildId_and_systemPostKind_and_drawOccurrenceKey",
+            (query) =>
+              query
+                .eq("buildId", input.buildId)
+                .eq("systemPostKind", "draw")
+                .eq("canonicalBuildDrawOccurrenceKey", input.occurrenceKey!),
+          )
+          .first()
+      : null);
+  if (
+    !post ||
+    post.buildId !== input.buildId ||
+    post.organizationId !== input.organizationId ||
+    post.systemPostKind !== "draw" ||
+    post.contentState !== "active"
+  ) {
+    return null;
+  }
+  // A released Draw is immutable from the collaboration surface. A late
+  // retry/replay must not reopen it, even if an upstream command is stale.
+  if (
+    input.lifecycle === "open" &&
+    (input.drawRequest?.status === "released" ||
+      post.systemLifecycle === "resolved" &&
+        (!input.drawRequest ||
+          post.resolutionSummary?.toLowerCase().includes("released") === true))
+  ) {
+    return post._id;
+  }
+  const nextState = input.lifecycle === "resolved" ? "resolved" : "open";
+  const nextSystemLifecycle =
+    input.lifecycle === "resolved"
+      ? "resolved"
+      : post.systemLifecycle === "resolved"
+        ? "reopened"
+        : "open";
+  if (
+    post.threadState === nextState &&
+    post.systemLifecycle === nextSystemLifecycle
+  ) {
+    return post._id;
+  }
+  const now = Date.now();
+  const priorState = JSON.stringify({
+    resolutionSummary: post.resolutionSummary,
+    resolvedAt: post.resolvedAt,
+    systemLifecycle: post.systemLifecycle,
+    threadRevision: post.threadRevision ?? 0,
+    threadState: post.threadState,
+  });
+  const disposition = input.drawRequest
+    ? drawSystemDispositionForStatus(input.drawRequest.status)
+    : undefined;
+  const resolutionSummary =
+    input.lifecycle === "resolved"
+      ? input.reason?.trim() ||
+        (disposition === "released"
+          ? "Draw released."
+          : disposition === "withdrawal"
+            ? "Draw request withdrawn."
+            : disposition === "cancellation"
+              ? "Draw request cancelled."
+              : disposition === "final_decline"
+                ? "Draw request finally declined."
+                : "Draw disposition recorded.")
+      : undefined;
+  await ctx.db.patch(post._id, {
+    acceptedCommentId: undefined,
+    decisionOutcome: undefined,
+    decisionOwnerWorkosUserId: undefined,
+    lastMeaningfulActivityAt: now,
+    latestActivityActorWorkosUserId: input.actorWorkosUserId,
+    resolutionSummary,
+    resolvedAt: input.lifecycle === "resolved" ? now : undefined,
+    resolvedByWorkosUserId:
+      input.lifecycle === "resolved" ? input.actorWorkosUserId : undefined,
+    systemLifecycle: nextSystemLifecycle,
+    threadRevision: (post.threadRevision ?? 0) + 1,
+    threadState: nextState,
+    updatedAt: now,
+  });
+  await ctx.db.insert("buildCollaborationThreadEvents", {
+    actorRole: input.actorRole,
+    actorWorkosUserId: input.actorWorkosUserId,
+    brokerageId: post.brokerageId,
+    buildId: post.buildId,
+    createdAt: now,
+    eventType: input.lifecycle === "resolved" ? "resolved" : "reopened",
+    newState: JSON.stringify({
+      resolutionSummary,
+      systemLifecycle: nextSystemLifecycle,
+      threadState: nextState,
+    }),
+    organizationId: post.organizationId,
+    postId: post._id,
+    priorState,
+    reason: input.reason,
+  });
+  await ctx.db.insert("auditEvents", {
+    actorRoles: [input.actorRole],
+    actorWorkosUserId: input.actorWorkosUserId,
+    brokerageId: post.brokerageId,
+    command: "synchronizeDrawSystemPostLifecycle",
+    createdAt: now,
+    entityId: String(post._id),
+    entityType: "buildCollaborationPost",
+    eventType:
+      input.lifecycle === "resolved"
+        ? "build.collaboration.thread.resolved"
+        : "build.collaboration.thread.reopened",
+    newState: JSON.stringify({
+      disposition,
+      systemLifecycle: nextSystemLifecycle,
+      threadState: nextState,
+    }),
+    organizationId: post.organizationId,
+    priorState,
+    reason: input.reason,
+    warnings: ["canonical_draw_state_is_authoritative"],
+  });
+  return post._id;
+}
+
+/** Ensure and then project the canonical Draw lifecycle into one post. */
+export async function synchronizeDrawSystemPostForCanonicalDraw(
+  ctx: MutationCtx,
+  input: {
+    actor: { roles: string[]; workosUserId: string };
+    build: Doc<"activeBuilds">;
+    drawRequest?: Doc<"activeBuildDrawRequests">;
+    plannedDraw?: Doc<"plannedDrawScheduleRows">;
+    activationReason: DrawSystemActivationReason;
+    reason?: string;
+    now?: number;
+  },
+) {
+  const ensured = await ensureDrawSystemPost(ctx, input);
+  if (!ensured) {
+    return null;
+  }
+  const status = input.drawRequest?.status ?? input.plannedDraw?.status ?? "planned";
+  const lifecycle = drawSystemLifecycleForStatus(status);
+  const actorRole = resolveEffectiveCollaborationRole(input.actor.roles)?.role;
+  await synchronizeDrawSystemPostLifecycle(ctx, {
+    actorRole: actorRole ?? "admin",
+    actorWorkosUserId: input.actor.workosUserId,
+    buildId: input.build._id,
+    drawRequest: input.drawRequest,
+    lifecycle,
+    occurrenceKey: ensured.occurrenceKey,
+    organizationId: input.build.organizationId,
+    postId: ensured.postId,
+    reason: input.reason,
+  });
+  return ensured;
 }
 
 /**

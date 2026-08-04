@@ -404,6 +404,102 @@ function canonicalMilestoneSystemPostEntryFixture() {
   };
 }
 
+function canonicalDrawSystemPostEntryFixture() {
+  const now = Date.parse("2026-08-03T12:00:00.000Z");
+  const plainText =
+    "Foundation reimbursement is tracked in DrawFlow System. Canonical Draw Request, evidence, review, approval, and release state remain authoritative.";
+  return {
+    acknowledgement: { acknowledged: false, required: false },
+    actionItems: [],
+    attachments: [],
+    following: false,
+    kind: "post" as const,
+    pins: [],
+    post: {
+      _creationTime: now,
+      _id: "draw-system-post-1",
+      agentDrafted: false,
+      announcementProminent: false,
+      audienceMode: "custom",
+      authorDisplayNameSnapshot: "DrawFlow System",
+      commentCount: 0,
+      contentState: "active",
+      createdAt: now,
+      postType: "update",
+      readRevision: 1,
+      revision: 1,
+      source: "system",
+      systemPost: {
+        activationReason: "scheduled",
+        authoredBy: "DrawFlow System",
+        canonicalBuildDrawOccurrenceKey:
+          "draw-system:build-1:proposal-1:proposal-row:proposal-draw-1",
+        drawFacts: {
+          approval: { state: "pending" },
+          evidence: {
+            assetCount: 1,
+            locationUnverifiedCount: 1,
+            state: "location_unverified",
+          },
+          generatedActionItems: 0,
+          occurrenceKey:
+            "draw-system:build-1:proposal-1:proposal-row:proposal-draw-1",
+          planned: {
+            _id: "planned-draw-1",
+            amountCents: 5_000_000,
+            drawKey: "foundation-draw",
+            label: "Foundation reimbursement",
+            scheduledDate: "2026-07-28",
+            status: "planned",
+            timingDay: 0,
+          },
+          release: { state: "not_started" },
+          request: {
+            _id: "draw-request-1",
+            amountCents: 5_000_000,
+            displayId: "DR-0001",
+            note: "Foundation reimbursement requested.",
+            requestedAt: "2026-08-03T12:00:00.000Z",
+            requestKey: "dr-0001-1",
+            status: "requested",
+          },
+          review: { state: "in_review" },
+          siteVisit: { cancelled: 0, complete: 1, count: 1, requested: 0 },
+        },
+        kind: "draw",
+        lifecycle: "open",
+        occurrenceKey:
+          "draw-system:build-1:proposal-1:proposal-row:proposal-draw-1",
+      },
+      threadState: "open",
+      updatedAt: now,
+      viewerCanAppeal: false,
+      viewerCanManageThread: true,
+      viewerCanModerate: false,
+      viewerCanResolveAppeal: false,
+      viewerIsAuthor: false,
+    },
+    reactions: [],
+    receipts: [],
+    references: [
+      {
+        _id: "draw-reference-1",
+        entityId: "planned-draw-1",
+        entityKind: "draw",
+        labelSnapshot: "Foundation reimbursement",
+        summarySnapshot: "$50,000.00 · Planned",
+      },
+    ],
+    revision: {
+      plainText,
+      tiptapJson: JSON.stringify({
+        content: [{ content: [{ text: plainText, type: "text" }], type: "paragraph" }],
+        type: "doc",
+      }),
+    },
+  };
+}
+
 function planningReconciliationFixture({ restricted = false } = {}) {
   const milestoneDiff = {
     category: "dates",
@@ -1363,6 +1459,28 @@ describe("BuildCollaborationFeed", () => {
         "System · Milestone — status follows the canonical Sub-milestone."
       )
     ).toBeTruthy();
+  });
+
+  test("renders live Draw facts and an explicit absence of generated work or a Draw board", () => {
+    mocks.feedRows = [canonicalDrawSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />
+    );
+
+    expect(screen.getAllByText("System · Draw").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("system-post-draw-facts")).toBeTruthy();
+    expect(screen.getByText("Foundation reimbursement")).toBeTruthy();
+    expect(screen.getByText("DR-0001 · requested")).toBeTruthy();
+    expect(screen.getByText("Evidence · location unverified")).toBeTruthy();
+    expect(screen.getByText("Site Visits · 1")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "No generated Action Items or Draw board. Discussion remains available; all workflow commands stay in the canonical Draw surfaces."
+      )
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Action Items/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Show Action Items as a board/ })).toBeNull();
   });
 
   test("renders mixed canonical planning counts and typed activation/current changes", () => {
