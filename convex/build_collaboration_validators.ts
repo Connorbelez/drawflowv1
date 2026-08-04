@@ -184,6 +184,24 @@ export const buildPlanningRevisionSummaryValidator = v.object({
   summary: v.string(),
 });
 
+/**
+ * Contractor planning history is intentionally a reduced projection.  The
+ * revision number and approval timestamp remain useful for comparing the
+ * visible plan, while actor identity, internal command metadata, and lender
+ * review commentary stay restricted to coordinating roles.
+ */
+export const buildPlanningRevisionContractorSummaryValidator = v.object({
+  approvedAt: v.number(),
+  kind: buildPlanningRevisionKindValidator,
+  revision: v.number(),
+});
+
+export const buildPlanningActivationContractorValidator = v.object({
+  approvedAt: v.number(),
+  revision: v.number(),
+  snapshot: buildPlanningSnapshotValidator,
+});
+
 export const buildPlanningReconciliationValidator = v.object({
   activation: v.union(
     v.null(),
@@ -193,7 +211,8 @@ export const buildPlanningReconciliationValidator = v.object({
       approvedAt: v.number(),
       revision: v.number(),
       snapshot: buildPlanningSnapshotValidator,
-    })
+    }),
+    buildPlanningActivationContractorValidator,
   ),
   current: v.object({
     revision: v.number(),
@@ -202,7 +221,12 @@ export const buildPlanningReconciliationValidator = v.object({
   diffs: v.array(buildPlanningRevisionDiffValidator),
   diffsTruncated: v.boolean(),
   materializationPending: v.boolean(),
-  revisions: v.array(buildPlanningRevisionSummaryValidator),
+  revisions: v.array(
+    v.union(
+      buildPlanningRevisionSummaryValidator,
+      buildPlanningRevisionContractorSummaryValidator,
+    ),
+  ),
 });
 
 export const buildActionItemPriorityValidator = v.union(

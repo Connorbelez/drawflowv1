@@ -75,6 +75,9 @@ const PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE = 250;
 const PLANNING_READ_PAGE_SIZE = 100;
 const PLANNING_REVISION_READ_LIMIT = 100;
 const PLANNING_REVISION_CHUNK_LIMIT = 100;
+const PLANNING_MATERIALIZATION_RECOVERY_BATCH_SIZE = 25;
+const PLANNING_MATERIALIZATION_RECOVERY_MAX_ATTEMPTS = 5;
+const PLANNING_MATERIALIZATION_RECOVERY_DELAY_MS = 5 * 60 * 1000;
 
 type PaginatedPlanningQuery<T> = {
   paginate: (input: { cursor: string | null; numItems: number }) => Promise<{
@@ -107,6 +110,48 @@ async function readPlanningRows<T>(
     isDone = result.isDone;
   }
   return { isDone, rows };
+}
+
+async function nextActiveBuildPlanningRevisionChunk(
+  ctx: MutationCtx,
+  revisionId: Id<"activeBuildPlanningRevisions">,
+) {
+  const entityChunk = await ctx.db
+    .query("activeBuildPlanningRevisionChunks")
+    .withIndex("by_revision_and_kind_and_index", (query) =>
+      query.eq("revisionId", revisionId).eq("chunkKind", "entities"),
+    )
+    .order("asc")
+    .take(1)
+    .then((rows) => rows[0]);
+  if (entityChunk) return entityChunk;
+  return await ctx.db
+    .query("activeBuildPlanningRevisionChunks")
+    .withIndex("by_revision_and_kind_and_index", (query) =>
+      query.eq("revisionId", revisionId).eq("chunkKind", "diffs"),
+    )
+    .order("asc")
+    .take(1)
+    .then((rows) => rows[0]);
+}
+
+async function scheduleActiveBuildPlanningRevisionMaterialization(
+  ctx: MutationCtx,
+  revisionId: Id<"activeBuildPlanningRevisions">,
+  scheduledAt = Date.now(),
+) {
+  await ctx.scheduler.runAfter(
+    0,
+    internal.build_collaboration_planning_reconciliation
+      .materializeActiveBuildPlanningRevisionChunk,
+    { revisionId },
+  );
+  const nextChunk = await nextActiveBuildPlanningRevisionChunk(ctx, revisionId);
+  if (nextChunk) {
+    await ctx.db.patch(nextChunk._id, {
+      materializationLastScheduledAt: scheduledAt,
+    });
+  }
 }
 
 function assertWithinPlanningSnapshotLimit(
@@ -616,6 +661,16 @@ async function readRevisionSnapshot(
     PLANNING_REVISION_ENTITY_LIMIT + 1
   );
   const entities = entityPage.rows;
+  if (!entityPage.isDone) {
+    throw new Error(
+      "Active Build planning revision entity materialization is incomplete; refusing to reconstruct or diff the stored snapshot."
+    );
+  }
+  assertWithinPlanningSnapshotLimit(
+    "planning revision entities",
+    entities.length,
+    PLANNING_REVISION_ENTITY_LIMIT
+  );
   const stagedEntities: PlanningEntity[] = [];
   for (const chunk of pendingChunks) {
     if (chunk.chunkKind !== "entities") continue;
@@ -830,6 +885,7 @@ export async function recordApprovedActiveBuildPlanningRevision(
       payloadJson: JSON.stringify(entities),
       revision,
       revisionId,
+      materializationRecoveryState: "pending",
     });
   }
   for (const [chunkIndex, diffChunk] of diffChunks.entries()) {
@@ -843,6 +899,7 @@ export async function recordApprovedActiveBuildPlanningRevision(
       payloadJson: JSON.stringify(diffChunk),
       revision,
       revisionId,
+      materializationRecoveryState: "pending",
     });
   }
   await ctx.db.insert("auditEvents", {
@@ -871,12 +928,7 @@ export async function recordApprovedActiveBuildPlanningRevision(
     warnings: [],
   });
   if (entityChunks.length > 0 || diffChunks.length > 0) {
-    await ctx.scheduler.runAfter(
-      0,
-      internal.build_collaboration_planning_reconciliation
-        .materializeActiveBuildPlanningRevisionChunk,
-      { revisionId }
-    );
+    await scheduleActiveBuildPlanningRevisionMaterialization(ctx, revisionId, now);
   }
   return await ctx.db.get(revisionId);
 }
@@ -893,25 +945,9 @@ export const materializeActiveBuildPlanningRevisionChunk = internalMutation
     const revision = await ctx.db.get(args.revisionId);
     if (!revision) return null;
 
-    let chunk = await ctx.db
-      .query("activeBuildPlanningRevisionChunks")
-      .withIndex("by_revision_and_kind_and_index", (query) =>
-        query.eq("revisionId", args.revisionId).eq("chunkKind", "entities")
-      )
-      .order("asc")
-      .take(1)
-      .then((rows) => rows[0]);
-    if (!chunk) {
-      chunk = await ctx.db
-        .query("activeBuildPlanningRevisionChunks")
-        .withIndex("by_revision_and_kind_and_index", (query) =>
-          query.eq("revisionId", args.revisionId).eq("chunkKind", "diffs")
-        )
-        .order("asc")
-        .take(1)
-        .then((rows) => rows[0]);
-    }
+    const chunk = await nextActiveBuildPlanningRevisionChunk(ctx, args.revisionId);
     if (!chunk) return null;
+    if (chunk.materializationRecoveryState === "exhausted") return null;
     if (
       chunk.buildId !== revision.buildId ||
       chunk.brokerageId !== revision.brokerageId ||
@@ -981,11 +1017,189 @@ export const materializeActiveBuildPlanningRevisionChunk = internalMutation
       .withIndex("by_revision", (query) => query.eq("revisionId", revision._id))
       .take(1);
     if (remaining.length > 0) {
+      await scheduleActiveBuildPlanningRevisionMaterialization(
+        ctx,
+        revision._id,
+        Date.now(),
+      );
+    }
+    return null;
+  })
+  .internal();
+
+async function emitPlanningMaterializationRecoveryExhausted(
+  ctx: MutationCtx,
+  revision: Doc<"activeBuildPlanningRevisions">,
+  residualChunkCount: number,
+  now: number,
+) {
+  const reconciliationKey = [
+    "active-build-planning-materialization",
+    revision._id,
+    "exhausted",
+  ].join(":");
+  const existing = await ctx.db
+    .query("auditEvents")
+    .withIndex("by_organizationId_and_reconciliationKey", (query) =>
+      query
+        .eq("organizationId", revision.organizationId)
+        .eq("reconciliationKey", reconciliationKey),
+    )
+    .first();
+  if (existing) return;
+
+  const newState = JSON.stringify({
+    buildId: revision.buildId,
+    maxRecoveryAttempts: PLANNING_MATERIALIZATION_RECOVERY_MAX_ATTEMPTS,
+    residualChunkCount,
+    revision: revision.revision,
+    revisionId: revision._id,
+    state: "recovery_exhausted",
+  });
+  const reason =
+    "Active Build planning revision materialization retained residual chunks after the bounded scheduler recovery budget was exhausted.";
+  const warnings = [
+    "planning_materialization_recovery_exhausted",
+    "canonical_planning_revision_requires_operator_repair",
+  ];
+  await Promise.all([
+    ctx.db.insert("auditEvents", {
+      actorRoles: ["system"],
+      actorWorkosUserId: "system:build-collaboration-planning-recovery",
+      brokerageId: revision.brokerageId,
+      command: "recoverActiveBuildPlanningRevisionMaterialization",
+      createdAt: now,
+      entityId: String(revision._id),
+      entityType: "activeBuildPlanningRevision",
+      eventType: "active_build.planning.materialization_recovery_exhausted",
+      newState,
+      organizationId: revision.organizationId,
+      reason,
+      reconciliationKey,
+      warnings,
+    }),
+    ctx.db.insert("eventOutbox", {
+      brokerageId: revision.brokerageId,
+      createdAt: now,
+      eventType: "active_build.planning.materialization_recovery_exhausted",
+      organizationId: revision.organizationId,
+      payloadPreview: JSON.stringify({
+        buildId: revision.buildId,
+        reconciliationKey,
+        residualChunkCount,
+        revision: revision.revision,
+        revisionId: revision._id,
+      }),
+      relatedEntityId: String(revision._id),
+      relatedEntityType: "activeBuildPlanningRevision",
+      status: "pending",
+    }),
+  ]);
+}
+
+async function exhaustPlanningMaterializationRecovery(
+  ctx: MutationCtx,
+  revision: Doc<"activeBuildPlanningRevisions">,
+  now: number,
+) {
+  const residualChunks = await ctx.db
+    .query("activeBuildPlanningRevisionChunks")
+    .withIndex("by_revision", (query) => query.eq("revisionId", revision._id))
+    .take(PLANNING_REVISION_CHUNK_LIMIT + 1);
+  assertWithinPlanningSnapshotLimit(
+    "planning revision materialization chunks",
+    residualChunks.length,
+    PLANNING_REVISION_CHUNK_LIMIT,
+  );
+  for (const chunk of residualChunks) {
+    await ctx.db.patch(chunk._id, {
+      materializationRecoveryExhaustedAt:
+        chunk.materializationRecoveryExhaustedAt ?? now,
+      materializationRecoveryState: "exhausted",
+    });
+  }
+  await emitPlanningMaterializationRecoveryExhausted(
+    ctx,
+    revision,
+    residualChunks.length,
+    now,
+  );
+}
+
+/**
+ * Recover residual planning materialization chunks when a scheduled
+ * materializer failed after the creating mutation committed.  This is a
+ * bounded reconciliation pass over the existing transient chunk rows, not a
+ * second job system: every retry re-enters the canonical materializer and the
+ * canonical materializer owns continuation scheduling.
+ */
+export const recoverActiveBuildPlanningRevisionMaterialization = internalMutation
+  .input({
+    asOf: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const asOf = args.asOf ?? Date.now();
+    const page = await ctx.db
+      .query("activeBuildPlanningRevisionChunks")
+      .order("asc")
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: PLANNING_MATERIALIZATION_RECOVERY_BATCH_SIZE,
+      });
+    const revisionIds = new Set(
+      page.page.map((chunk) => String(chunk.revisionId)),
+    );
+    for (const revisionIdString of revisionIds) {
+      const revisionId = ctx.db.normalizeId(
+        "activeBuildPlanningRevisions",
+        revisionIdString,
+      );
+      if (!revisionId) continue;
+      const nextChunk = await nextActiveBuildPlanningRevisionChunk(
+        ctx,
+        revisionId,
+      );
+      // Only the first chunk in the canonical entity-then-diff order may be
+      // retried.  The materializer schedules its own continuation after each
+      // successful deletion, so this keeps a single in-flight retry per
+      // revision even when a global recovery page splits its chunks.
+      if (!nextChunk || !page.page.some((chunk) => chunk._id === nextChunk._id)) {
+        continue;
+      }
+      if (nextChunk.materializationRecoveryState === "exhausted") continue;
+      const lastScheduledAt = nextChunk.materializationLastScheduledAt;
+      if (
+        lastScheduledAt !== undefined &&
+        asOf - lastScheduledAt < PLANNING_MATERIALIZATION_RECOVERY_DELAY_MS
+      ) {
+        continue;
+      }
+      const attempts = nextChunk.materializationRecoveryAttemptCount ?? 0;
+      const revision = await ctx.db.get(revisionId);
+      if (!revision) continue;
+      if (attempts >= PLANNING_MATERIALIZATION_RECOVERY_MAX_ATTEMPTS) {
+        await exhaustPlanningMaterializationRecovery(ctx, revision, asOf);
+        continue;
+      }
+      await ctx.db.patch(nextChunk._id, {
+        materializationRecoveryAttemptCount: attempts + 1,
+        materializationRecoveryState: "pending",
+      });
+      await scheduleActiveBuildPlanningRevisionMaterialization(
+        ctx,
+        revisionId,
+        asOf,
+      );
+    }
+
+    if (!page.isDone) {
       await ctx.scheduler.runAfter(
         0,
         internal.build_collaboration_planning_reconciliation
-          .materializeActiveBuildPlanningRevisionChunk,
-        { revisionId: revision._id }
+          .recoverActiveBuildPlanningRevisionMaterialization,
+        { asOf, cursor: page.continueCursor },
       );
     }
     return null;
@@ -1249,7 +1463,7 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
               query.eq("buildId", authorization.build._id)
             )
             .order("desc"),
-        PLANNING_REVISION_READ_LIMIT,
+        PLANNING_REVISION_READ_LIMIT + 1,
       ),
       collectPlanningSnapshot(ctx, authorization.build),
       ctx.db
@@ -1259,7 +1473,10 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         )
         .take(1),
     ]);
-    const revisions = revisionPage.rows;
+    const revisionHistoryTruncated =
+      !revisionPage.isDone ||
+      revisionPage.rows.length > PLANNING_REVISION_READ_LIMIT;
+    const revisions = revisionPage.rows.slice(0, PLANNING_REVISION_READ_LIMIT);
     const activationRevision = revisions.find(
       (revision) => revision.kind === "activation"
     );
@@ -1272,7 +1489,7 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         )
       : emptyPlanningSnapshot(String(authorization.build._id));
     const diffs = [];
-    let diffsTruncated = false;
+    let diffsTruncated = revisionHistoryTruncated;
     for (const revision of revisions) {
       const remainingDiffLimit = PLANNING_REVISION_DIFF_LIMIT - diffs.length;
       if (remainingDiffLimit <= 0) {
@@ -1299,15 +1516,22 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
       authorization,
       currentSnapshot,
     );
+    const contractorProjection = authorization.effectiveRole.role === "contractor";
     return {
       activation: activationRevision
-        ? {
-            approvedAt: activationRevision.approvedAt,
-            actorRoles: activationRevision.actorRoles,
-            actorWorkosUserId: activationRevision.actorWorkosUserId,
-            revision: activationRevision.revision,
-            snapshot: activationProjection!.snapshot,
-          }
+        ? contractorProjection
+          ? {
+              approvedAt: activationRevision.approvedAt,
+              revision: activationRevision.revision,
+              snapshot: activationProjection!.snapshot,
+            }
+          : {
+              approvedAt: activationRevision.approvedAt,
+              actorRoles: activationRevision.actorRoles,
+              actorWorkosUserId: activationRevision.actorWorkosUserId,
+              revision: activationRevision.revision,
+              snapshot: activationProjection!.snapshot,
+            }
         : null,
       current: {
         revision: revisions[0]?.revision ?? 0,
@@ -1356,17 +1580,25 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         ];
       }),
       materializationPending: pendingChunks.length > 0,
-      revisions: revisions.map((revision) => ({
-        approvedAt: revision.approvedAt,
-        actorRoles: revision.actorRoles,
-        actorWorkosUserId: revision.actorWorkosUserId,
-        diffCount: revision.diffCount,
-        kind: revision.kind,
-        reason: revision.reason,
-        revision: revision.revision,
-        sourceCommand: revision.sourceCommand,
-        summary: revision.summary,
-      })),
+      revisions: revisions.map((revision) =>
+        contractorProjection
+          ? {
+              approvedAt: revision.approvedAt,
+              kind: revision.kind,
+              revision: revision.revision,
+            }
+          : {
+              approvedAt: revision.approvedAt,
+              actorRoles: revision.actorRoles,
+              actorWorkosUserId: revision.actorWorkosUserId,
+              diffCount: revision.diffCount,
+              kind: revision.kind,
+              reason: revision.reason,
+              revision: revision.revision,
+              sourceCommand: revision.sourceCommand,
+              summary: revision.summary,
+            },
+      ),
     };
   })
   .public();

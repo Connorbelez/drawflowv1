@@ -35,6 +35,14 @@ crons.interval(
 );
 
 crons.interval(
+  "recover Active Build planning materialization",
+  { minutes: 5 },
+  internal.build_collaboration_planning_reconciliation
+    .recoverActiveBuildPlanningRevisionMaterialization,
+  {}
+);
+
+crons.interval(
   "recover expired Build collaboration webhook leases",
   { minutes: 1 },
   internal.build_collaboration_webhooks

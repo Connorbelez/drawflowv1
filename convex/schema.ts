@@ -3268,6 +3268,16 @@ export default defineSchema({
     payloadJson: v.string(),
     revision: v.number(),
     revisionId: v.id("activeBuildPlanningRevisions"),
+    /**
+     * Transient scheduler recovery metadata.  These fields are mutable by the
+     * bounded sweeper; the revision and captured payload remain immutable.
+     */
+    materializationRecoveryAttemptCount: v.optional(v.number()),
+    materializationRecoveryExhaustedAt: v.optional(v.number()),
+    materializationRecoveryState: v.optional(
+      v.union(v.literal("pending"), v.literal("exhausted")),
+    ),
+    materializationLastScheduledAt: v.optional(v.number()),
   })
     .index("by_revision", ["revisionId"])
     .index("by_revision_and_kind_and_index", [

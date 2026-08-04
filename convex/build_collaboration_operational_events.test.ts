@@ -3306,6 +3306,16 @@ describe("Build Collaboration operational events", () => {
     expect(contractorReconciliation.diffs.every((diff: { entityType: string }) =>
       diff.entityType === "milestone" || diff.entityType === "submilestone",
     )).toBe(true);
+    expect(
+      contractorReconciliation.revisions.every(
+        (revision: Record<string, unknown>) =>
+          Object.keys(revision).sort().join(",") ===
+          "approvedAt,kind,revision",
+      ),
+    ).toBe(true);
+    expect(contractorReconciliation.activation).not.toHaveProperty(
+      "actorWorkosUserId",
+    );
 
     await expect(
       fixture.builder.mutation(
@@ -3771,6 +3781,39 @@ describe("Build Collaboration operational events", () => {
     expect(reconciliation.diffsTruncated).toBe(false);
   });
 
+  test("signals when the bounded planning revision history has an overflow row", async () => {
+    const fixture = await seedOperationalBuild();
+    const now = Date.now();
+    await fixture.base.run(async (ctx) => {
+      for (let revision = 1; revision <= 101; revision += 1) {
+        await ctx.db.insert("activeBuildPlanningRevisions", {
+          actorRoles: ["admin"],
+          actorWorkosUserId: "user_admin",
+          approvedAt: now + revision,
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: now + revision,
+          diffCount: 0,
+          kind: revision === 1 ? "activation" : "approved",
+          organizationId: ORGANIZATION_ID,
+          previousRevision: revision === 1 ? undefined : revision - 1,
+          reason: "Synthetic revision history overflow test.",
+          revision,
+          sourceCommand: "test",
+          summary: "No changes",
+        });
+      }
+    });
+
+    const reconciliation = await fixture.admin.query(
+      (api as any).build_collaboration_planning_reconciliation
+        .getActiveBuildPlanningReconciliation,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(reconciliation.revisions).toHaveLength(100);
+    expect(reconciliation.diffsTruncated).toBe(true);
+  });
+
   test("returns the first 10,000 planning diffs with an explicit truncation signal", async () => {
     const fixture = await seedOperationalBuild();
     const now = Date.now();
@@ -4016,5 +4059,183 @@ describe("Build Collaboration operational events", () => {
     }));
     expect(persistedCounts).toEqual({ chunks: 0, diffs: 251, entities: 251 });
     vi.useRealTimers();
+  });
+
+  test("retries residual planning materialization through the canonical scheduler idempotently", async () => {
+    vi.useFakeTimers();
+    const fixture = await seedOperationalBuild();
+    const now = Date.now();
+    const revisionId = await fixture.base.run(async (ctx) => {
+      const revisionId = await ctx.db.insert("activeBuildPlanningRevisions", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        approvedAt: now,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        diffCount: 0,
+        kind: "activation",
+        organizationId: ORGANIZATION_ID,
+        reason: "Synthetic recovery retry test.",
+        revision: 1,
+        sourceCommand: "test",
+        summary: "One milestone",
+      });
+      await ctx.db.insert("activeBuildPlanningRevisionChunks", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        chunkIndex: 0,
+        chunkKind: "entities",
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        payloadJson: JSON.stringify([
+          {
+            entityKey: "synthetic-0",
+            entityType: "milestone",
+            planningState: "active",
+            snapshot: { name: "Synthetic 0" },
+          },
+        ]),
+        revision: 1,
+        revisionId,
+      });
+      return revisionId;
+    });
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_planning_reconciliation
+        .recoverActiveBuildPlanningRevisionMaterialization,
+      { asOf: now },
+    );
+    const scheduled = await fixture.base.run(async (ctx) =>
+      (await ctx.db.get(revisionId))
+        ? await ctx.db
+            .query("activeBuildPlanningRevisionChunks")
+            .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
+            .take(1)
+        : [],
+    );
+    expect(scheduled[0]).toMatchObject({
+      materializationLastScheduledAt: now,
+      materializationRecoveryAttemptCount: 1,
+      materializationRecoveryState: "pending",
+    });
+
+    // A second sweep before the retry delay must not enqueue a duplicate
+    // canonical materializer invocation.
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_planning_reconciliation
+        .recoverActiveBuildPlanningRevisionMaterialization,
+      { asOf: now + 1 },
+    );
+    const stillOneAttempt = await fixture.base.run(async (ctx) =>
+      (await ctx.db
+        .query("activeBuildPlanningRevisionChunks")
+        .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
+        .take(1))[0]?.materializationRecoveryAttemptCount,
+    );
+    expect(stillOneAttempt).toBe(1);
+
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const materialized = await fixture.base.run(async (ctx) => ({
+      chunks: await ctx.db
+        .query("activeBuildPlanningRevisionChunks")
+        .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
+        .take(10),
+      entities: await ctx.db
+        .query("activeBuildPlanningRevisionEntities")
+        .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
+        .take(10),
+    }));
+    expect(materialized.chunks).toHaveLength(0);
+    expect(materialized.entities).toHaveLength(1);
+  });
+
+  test("exhausts planning materialization recovery once and emits the operational signal", async () => {
+    const fixture = await seedOperationalBuild();
+    const now = Date.now();
+    const revisionId = await fixture.base.run(async (ctx) => {
+      const revisionId = await ctx.db.insert("activeBuildPlanningRevisions", {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        approvedAt: now,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        diffCount: 0,
+        kind: "activation",
+        organizationId: ORGANIZATION_ID,
+        reason: "Synthetic recovery exhaustion test.",
+        revision: 1,
+        sourceCommand: "test",
+        summary: "Malformed chunk",
+      });
+      await ctx.db.insert("activeBuildPlanningRevisionChunks", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        chunkIndex: 0,
+        chunkKind: "entities",
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        payloadJson: "{}",
+        revision: 1,
+        revisionId,
+        materializationLastScheduledAt: now - 5 * 60 * 1000 - 1,
+        materializationRecoveryAttemptCount: Number.MAX_SAFE_INTEGER,
+        materializationRecoveryState: "pending",
+      });
+      return revisionId;
+    });
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_planning_reconciliation
+        .recoverActiveBuildPlanningRevisionMaterialization,
+      { asOf: now },
+    );
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_planning_reconciliation
+        .recoverActiveBuildPlanningRevisionMaterialization,
+      { asOf: now + 5 * 60 * 1000 + 1 },
+    );
+
+    const recoverySignal = await fixture.base.run(async (ctx) => ({
+      audit: await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (query) =>
+          query.eq("entityType", "activeBuildPlanningRevision"),
+        )
+        .collect(),
+      chunk: (
+        await ctx.db
+          .query("activeBuildPlanningRevisionChunks")
+          .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
+          .take(1)
+      )[0],
+      outbox: await ctx.db
+        .query("eventOutbox")
+        .withIndex("by_entity", (query) =>
+          query
+            .eq("relatedEntityType", "activeBuildPlanningRevision")
+            .eq("relatedEntityId", String(revisionId)),
+        )
+        .collect(),
+    }));
+    expect(recoverySignal.chunk).toMatchObject({
+      materializationRecoveryState: "exhausted",
+    });
+    expect(
+      recoverySignal.audit.filter(
+        (event) =>
+          event.eventType ===
+          "active_build.planning.materialization_recovery_exhausted",
+      ),
+    ).toHaveLength(1);
+    expect(
+      recoverySignal.outbox.filter(
+        (event) =>
+          event.eventType ===
+          "active_build.planning.materialization_recovery_exhausted",
+      ),
+    ).toHaveLength(1);
   });
 });
