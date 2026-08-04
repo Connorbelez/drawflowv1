@@ -914,21 +914,18 @@ vi.mock("convex/react", () => ({
                   canReview: [
                     "admin",
                     "principle-broker",
-                    "principal-broker",
                     "broker",
                     "broker-staff",
                   ].includes(mocks.viewerBinding.role as string),
                   canRecommendReview: [
                     "admin",
                     "principle-broker",
-                    "principal-broker",
                     "broker",
                     "broker-staff",
                   ].includes(mocks.viewerBinding.role as string),
                   canRequestChanges: [
                     "admin",
                     "principle-broker",
-                    "principal-broker",
                     "broker",
                     "broker-staff",
                   ].includes(mocks.viewerBinding.role as string),
@@ -2266,12 +2263,12 @@ describe("BuildCollaborationFeed", () => {
     );
   });
 
-  test("projects principal-broker System Action Item oversight without admin approval authority", async () => {
+  test("projects canonical principle-broker System Action Item oversight without admin approval authority", async () => {
     mocks.canonicalSystemActionItem = true;
     mocks.viewerBinding = {
       buildId: "build-1",
       organizationId: "org-1",
-      role: "principal-broker",
+      role: "principle-broker",
       workosUserId: "user_principal_broker",
     };
     mocks.authUserId = "user_principal_broker";
