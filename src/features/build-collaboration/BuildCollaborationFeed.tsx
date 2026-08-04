@@ -3616,13 +3616,15 @@ function SystemPostPlanningSummary({
       {counts.length > 0 ? (
         <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
           {counts.map(([key, label]) => (
-            <div
-              className="rounded-md border bg-muted/20 px-2 py-1.5"
+            <Frame
+              className="rounded-md border bg-muted/20 p-0"
               key={key}
             >
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className="font-semibold text-sm">{summary.counts[key]}</dd>
-            </div>
+              <FramePanel className="rounded-md border-0 bg-transparent px-2 py-1.5 shadow-none">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="font-semibold text-sm">{summary.counts[key]}</dd>
+              </FramePanel>
+            </Frame>
           ))}
         </dl>
       ) : (
@@ -3778,7 +3780,7 @@ function SystemPostPlanningComparison({
           Loading structured planning changes…
         </p>
       ) : diffs.length === 0 ? (
-        planningReconciliation.diffsTruncated ? (
+        planningReconciliation.diffsTruncated || !systemPost.milestoneKey ? (
           <p
             className="text-muted-foreground text-xs"
             data-testid="planning-diffs-indeterminate"
@@ -3803,26 +3805,27 @@ function SystemPostPlanningComparison({
             className="grid gap-1.5 text-xs sm:grid-cols-2"
           >
             {[...categoryCounts].map(([category, value]) => (
-              <li
-                className="flex items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5"
-                key={category}
-              >
-                <span>{planningCategoryLabel(category)}</span>
-                <span className="text-muted-foreground">
-                  {value.count} change{value.count === 1 ? "" : "s"} ·{" "}
-                  {[...value.changeTypes]
-                    .map(
-                      ([changeType, count]) =>
-                        String(count) +
-                        " " +
-                        planningChangeTypeLabel(changeType)
-                    )
-                    .join(", ")}
-                  {" · "}
-                  {[...value.entityTypes]
-                    .map(planningEntityTypeLabel)
-                    .join(", ")}
-                </span>
+              <li key={category}>
+                <Frame className="rounded-md border bg-muted/20 p-0">
+                  <FramePanel className="flex items-center justify-between gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 shadow-none">
+                    <span>{planningCategoryLabel(category)}</span>
+                    <span className="text-muted-foreground">
+                      {value.count} change{value.count === 1 ? "" : "s"} ·{" "}
+                      {[...value.changeTypes]
+                        .map(
+                          ([changeType, count]) =>
+                            String(count) +
+                            " " +
+                            planningChangeTypeLabel(changeType)
+                        )
+                        .join(", ")}
+                      {" · "}
+                      {[...value.entityTypes]
+                        .map(planningEntityTypeLabel)
+                        .join(", ")}
+                    </span>
+                  </FramePanel>
+                </Frame>
               </li>
             ))}
           </ul>
@@ -3863,10 +3866,9 @@ function historicalFactLabel(
 }
 
 function drawFactMoney(amountCents: number) {
-  return new Intl.NumberFormat("en-US", {
-    currency: "USD",
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
+  return new Intl.NumberFormat("en-CA", {
+    currency: "CAD",
+    maximumFractionDigits: 0,
     style: "currency",
   }).format(amountCents / 100);
 }
@@ -3978,51 +3980,53 @@ function SystemPostDrawFacts({
         ) : null}
       </div>
       {canCoordinate ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/60 p-2">
-          <div className="flex items-center gap-2 text-xs">
-            <Users aria-hidden="true" className="size-4" />
-            <span>
-              Working audience · {coordination.workingAudienceCount}
-            </span>
-            {coordination.oversight ? (
-              <Badge variant="outline">Oversight only</Badge>
-            ) : null}
-          </div>
-          {!coordination.oversight ? (
-            <div className="flex flex-wrap gap-1.5">
-              {coordination.canJoin ? (
-                <Button
-                  disabled={!mutationsAllowed || pending}
-                  onClick={() => updateCoordination("join")}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Join coordination
-                </Button>
+        <Frame className="rounded-md border bg-background/60 p-0">
+          <FramePanel className="flex flex-wrap items-center justify-between gap-2 rounded-md border-0 bg-transparent p-2 shadow-none">
+            <div className="flex items-center gap-2 text-xs">
+              <Users aria-hidden="true" className="size-4" />
+              <span>
+                Working audience · {coordination.workingAudienceCount}
+              </span>
+              {coordination.oversight ? (
+                <Badge variant="outline">Oversight only</Badge>
               ) : null}
-              {coordination.canLeave ? (
-                <Button
-                  disabled={!mutationsAllowed || pending}
-                  onClick={() => updateCoordination("leave")}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Leave coordination
-                </Button>
-              ) : null}
-              <Button
-                disabled={!mutationsAllowed || pending}
-                onClick={() => onCreateActionItem(postId)}
-                size="sm"
-                type="button"
-              >
-                Add coordination Action Item
-              </Button>
             </div>
-          ) : null}
-        </div>
+            {!coordination.oversight ? (
+              <div className="flex flex-wrap gap-1.5">
+                {coordination.canJoin ? (
+                  <Button
+                    disabled={!mutationsAllowed || pending}
+                    onClick={() => updateCoordination("join")}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    Join coordination
+                  </Button>
+                ) : null}
+                {coordination.canLeave ? (
+                  <Button
+                    disabled={!mutationsAllowed || pending}
+                    onClick={() => updateCoordination("leave")}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    Leave coordination
+                  </Button>
+                ) : null}
+                <Button
+                  disabled={!mutationsAllowed || pending}
+                  onClick={() => onCreateActionItem(postId)}
+                  size="sm"
+                  type="button"
+                >
+                  Add coordination Action Item
+                </Button>
+              </div>
+            ) : null}
+          </FramePanel>
+        </Frame>
       ) : (
         <p className="text-muted-foreground text-xs">
           Internal coordination is unavailable for this role.

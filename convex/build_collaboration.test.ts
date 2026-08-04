@@ -2476,12 +2476,23 @@ describe("Build collaboration governed assets", () => {
     );
     const paginatedAsset = await base.run(async (ctx) => {
       const build = await ctx.db.get(buildId);
-      const readablePost = await ctx.db.get(readablePostId);
-      if (!build || !readablePost) {
+      const normalizedReadablePostId = ctx.db.normalizeId(
+        "buildCollaborationPosts",
+        String(readablePostId),
+      );
+      const normalizedRestrictedPostId = ctx.db.normalizeId(
+        "buildCollaborationPosts",
+        String(restrictedPostId),
+      );
+      if (!build || !normalizedReadablePostId || !normalizedRestrictedPostId) {
         throw new Error("Asset pagination fixtures are unavailable.");
       }
-      const restrictedPost = await ctx.db.get(restrictedPostId);
-      if (!restrictedPost || !restrictedPost.currentRevisionId) {
+      const readablePost = await ctx.db.get(normalizedReadablePostId);
+      const restrictedPost = await ctx.db.get(normalizedRestrictedPostId);
+      if (!readablePost || !restrictedPost) {
+        throw new Error("Asset pagination posts are unavailable.");
+      }
+      if (!restrictedPost.currentRevisionId) {
         throw new Error("Restricted post revision is unavailable.");
       }
       if (!readablePost.currentRevisionId) {

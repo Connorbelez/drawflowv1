@@ -512,7 +512,7 @@ function canonicalDrawSystemPostEntryFixture(options: {
         entityId: "planned-draw-1",
         entityKind: "draw",
         labelSnapshot: "Foundation reimbursement",
-        summarySnapshot: "$50,000.00 · Planned",
+        summarySnapshot: "$50,000 · Planned",
       },
     ],
     revision: {
@@ -911,13 +911,27 @@ vi.mock("convex/react", () => ({
                 systemMode: "generated_milestone_submilestone",
                 systemPresentation: {
                   canAddEvidence: mocks.viewerBinding.role === "builder",
-                  canReview: mocks.viewerBinding.role === "broker",
-                  canRecommendReview:
-                    mocks.viewerBinding.role === "broker" ||
-                    mocks.viewerBinding.role === "admin",
-                  canRequestChanges:
-                    mocks.viewerBinding.role === "broker" ||
-                    mocks.viewerBinding.role === "admin",
+                  canReview: [
+                    "admin",
+                    "principle-broker",
+                    "principal-broker",
+                    "broker",
+                    "broker-staff",
+                  ].includes(mocks.viewerBinding.role as string),
+                  canRecommendReview: [
+                    "admin",
+                    "principle-broker",
+                    "principal-broker",
+                    "broker",
+                    "broker-staff",
+                  ].includes(mocks.viewerBinding.role as string),
+                  canRequestChanges: [
+                    "admin",
+                    "principle-broker",
+                    "principal-broker",
+                    "broker",
+                    "broker-staff",
+                  ].includes(mocks.viewerBinding.role as string),
                   canApproveSubmilestone:
                     mocks.viewerBinding.role === "admin" &&
                     mocks.canonicalReviewState === "in_review",
@@ -1641,7 +1655,9 @@ describe("BuildCollaborationFeed", () => {
 
     expect(screen.getAllByText("System · Draw").length).toBeGreaterThan(0);
     expect(screen.getByTestId("system-post-draw-facts")).toBeTruthy();
-    expect(screen.getByText("Foundation reimbursement")).toBeTruthy();
+    expect(
+      screen.getByText("Foundation reimbursement · $50,000"),
+    ).toBeTruthy();
     expect(screen.getByText("DR-0001 · Requested")).toBeTruthy();
     expect(screen.getByText("Evidence · Location unverified")).toBeTruthy();
     expect(screen.getByText("Site Visits · 1")).toBeTruthy();
@@ -2059,7 +2075,7 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Loading structured planning changes…")).toBeTruthy();
   });
 
-  test("does not show structured counts when the System Post has no milestone binding", () => {
+  test("treats a missing milestone binding as indeterminate planning data", () => {
     const entry = canonicalMilestoneSystemPostEntryFixture();
     delete (entry.post.systemPost as { milestoneKey?: string }).milestoneKey;
     mocks.feedRows = [entry];
@@ -2069,9 +2085,15 @@ describe("BuildCollaborationFeed", () => {
       <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
     );
 
+    expect(screen.getByTestId("planning-diffs-indeterminate")).toBeTruthy();
     expect(
-      screen.getByText("No structured planning changes are recorded after activation."),
+      screen.getByText(
+        "Structured planning changes cannot be determined because the available diff window is truncated. The canonical planning record remains authoritative.",
+      ),
     ).toBeTruthy();
+    expect(
+      screen.queryByText("No structured planning changes are recorded after activation."),
+    ).toBeNull();
     expect(screen.queryByText(/Structured changes ·/)).toBeNull();
   });
 
@@ -2231,6 +2253,48 @@ describe("BuildCollaborationFeed", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
     await waitFor(() => expect(mocks.mutate).toHaveBeenCalled());
+  });
+
+  test("projects principal-broker System Action Item oversight without admin approval authority", async () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "principal-broker",
+      workosUserId: "user_principal_broker",
+    };
+    mocks.authUserId = "user_principal_broker";
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Excavate",
+      }),
+    );
+
+    expect(screen.getByText("Governed review lifecycle")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Record recommendation" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Request changes" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Approve Sub-milestone" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Waive Site Visit" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Approve Milestone" }),
+    ).toBeNull();
   });
 
   test("shows Admin Site Visit waiver and independent child/parent approval commands", async () => {
