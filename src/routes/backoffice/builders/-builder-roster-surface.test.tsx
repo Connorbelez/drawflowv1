@@ -14,6 +14,7 @@ import { BuilderRosterSurface } from "./-builder-roster-surface";
 import type {
   AssignableBrokerage,
   BuilderRow,
+  UnprovisionedBuilder,
 } from "./-builder-roster-types";
 
 beforeAll(() => {
@@ -265,6 +266,53 @@ describe("BuilderRosterSurface broker assignment", () => {
 });
 
 describe("BuilderRosterSurface builder provisioning", () => {
+  test("canonicalizes duplicate unprovisioned membership rows before rendering actions", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const candidate = {
+        brokerageDisplayName: "FairLendBrokerage",
+        email: "casey@builder.example.com",
+        name: "Casey Builder",
+        profilePictureUrl: null,
+        roleSlugs: ["builder"],
+        workosMembershipId: "seed_membership_user_builder",
+        workosOrganizationId: ORGANIZATION_ID,
+        workosUserId: "user_casey_builder",
+      } satisfies UnprovisionedBuilder;
+
+      render(
+        <BuilderRosterSurface
+          assignableBrokerages={assignableBrokerages}
+          brokerages={[]}
+          brokerOptionsPending={false}
+          builders={[]}
+          onAssignBroker={vi.fn()}
+          onInviteBuilder={vi.fn()}
+          onLinkAccount={vi.fn().mockResolvedValue(undefined)}
+          onProvisionBuilder={vi.fn().mockResolvedValue(undefined)}
+          onSetProfileStatus={vi.fn().mockResolvedValue(undefined)}
+          onUnlinkAccount={vi.fn().mockResolvedValue(undefined)}
+          pending={false}
+          unprovisionedBuilders={[candidate, candidate]}
+        />
+      );
+
+      expect(screen.getAllByText("Casey Builder")).toHaveLength(1);
+      expect(
+        screen.getAllByRole("button", { name: "Create profile" })
+      ).toHaveLength(1);
+      expect(
+        consoleError.mock.calls.some((args) =>
+          args.some((value) => String(value).includes("same key"))
+        )
+      ).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   test("requires and submits an eligible broker instead of a stale principal", async () => {
     const onProvisionBuilder = vi.fn().mockResolvedValue(undefined);
     const stalePrincipalBrokerages = [

@@ -521,8 +521,9 @@ function UnprovisionedBuildersPanel({
   onProvision: BuilderRosterHandlers["onProvisionBuilder"];
   pending: boolean;
 }): ReactElement | null {
+  const canonicalCandidates = canonicalizeUnprovisionedBuilders(candidates);
   // Hide entirely once loaded and empty: nothing to provision.
-  if (!pending && (!candidates || candidates.length === 0)) {
+  if (!pending && canonicalCandidates.length === 0) {
     return null;
   }
   return (
@@ -531,9 +532,9 @@ function UnprovisionedBuildersPanel({
         <div className="flex items-center gap-2">
           <HardHat aria-hidden className="size-4 text-warning-foreground" />
           <h2 className="font-medium text-sm">Builders awaiting a profile</h2>
-          {candidates && candidates.length > 0 ? (
+          {canonicalCandidates.length > 0 ? (
             <Badge size="sm" variant="outline">
-              {candidates.length}
+              {canonicalCandidates.length}
             </Badge>
           ) : null}
         </div>
@@ -548,7 +549,7 @@ function UnprovisionedBuildersPanel({
           </div>
         ) : (
           <ul className="flex flex-col divide-y rounded-lg border">
-            {candidates?.map((candidate) => (
+            {canonicalCandidates.map((candidate) => (
               <li
                 className="flex items-center justify-between gap-3 p-3"
                 key={candidate.workosMembershipId}
@@ -589,6 +590,27 @@ function UnprovisionedBuildersPanel({
       </FramePanel>
     </Frame>
   );
+}
+
+function canonicalizeUnprovisionedBuilders(
+  candidates: UnprovisionedBuilder[] | undefined
+) {
+  const canonical = new Map<string, UnprovisionedBuilder>();
+  for (const candidate of candidates ?? []) {
+    const existing = canonical.get(candidate.workosMembershipId);
+    canonical.set(
+      candidate.workosMembershipId,
+      existing
+        ? {
+            ...existing,
+            roleSlugs: [
+              ...new Set([...existing.roleSlugs, ...candidate.roleSlugs]),
+            ],
+          }
+        : candidate
+    );
+  }
+  return [...canonical.values()];
 }
 
 function ProvisionBuilderDialog({
