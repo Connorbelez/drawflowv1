@@ -20,6 +20,10 @@ import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
+import {
+  canReadDrawCoordination,
+  resolveCurrentDrawCoordinationReaderIds,
+} from "./build_draw_coordination";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import { buildActionItemListRowValidator } from "./build_collaboration_contracts";
@@ -105,9 +109,13 @@ export const createBuildActionItem = authenticatedMutation
       authorization,
       post
     );
+    const coordinationReaderIds =
+      post.systemPostKind === "draw"
+        ? await resolveCurrentDrawCoordinationReaderIds(ctx, authorization, post)
+        : readerIds;
     const references = await resolveCanonicalBuildCollaborationReferences(ctx, {
       authorization,
-      readerIds,
+      readerIds: coordinationReaderIds,
       references: args.references ?? [],
     });
     const description = canonicalizeTiptapReferences(
@@ -233,7 +241,7 @@ export const createBuildActionItem = authenticatedMutation
         authorization,
         now,
         postId: post._id,
-        readerIds,
+        readerIds: coordinationReaderIds,
         title,
       }),
       ctx.db.insert("auditEvents", {
@@ -536,8 +544,13 @@ async function canReadActionItemProjection(
       post.brokerageId === authorization.brokerage._id &&
       (await canReadCollaborationPost(ctx, authorization, post))
   );
-  postAccess.set(item.originatingPostId, canRead);
-  if (!canRead) {
+  const canReadCoordination =
+    canRead &&
+    post !== null &&
+    (post.systemPostKind !== "draw" ||
+      (await canReadDrawCoordination(ctx, { authorization, post })));
+  postAccess.set(item.originatingPostId, canReadCoordination);
+  if (!canReadCoordination) {
     return false;
   }
   return canReadMilestoneSystemActionItem(ctx, {
@@ -895,6 +908,12 @@ export async function requireReadableActionItem(
     throw new Error("Action Item is unavailable.");
   }
   if (
+    post.systemPostKind === "draw" &&
+    !(await canReadDrawCoordination(ctx, { authorization, post }))
+  ) {
+    throw new Error("Action Item is unavailable.");
+  }
+  if (
     !(await canReadMilestoneSystemActionItem(ctx, {
       actionItem: item,
       buildId: authorization.build._id,
@@ -1040,7 +1059,11 @@ async function requirePostReader(
     authorization,
     post
   );
-  if (!readerIds.includes(workosUserId)) {
+  const scopedReaderIds =
+    post.systemPostKind === "draw"
+      ? await resolveCurrentDrawCoordinationReaderIds(ctx, authorization, post)
+      : readerIds;
+  if (!scopedReaderIds.includes(workosUserId)) {
     throw new Error(
       "The assignee cannot read the originating post and cannot receive this Action Item."
     );
@@ -1058,6 +1081,12 @@ async function requireActionItemCreationPost(
     post.buildId !== authorization.build._id ||
     post.organizationId !== authorization.organizationId ||
     !(await canReadCollaborationPost(ctx, authorization, post))
+  ) {
+    throw new Error("Action Item parent post is unavailable.");
+  }
+  if (
+    post.systemPostKind === "draw" &&
+    !(await canReadDrawCoordination(ctx, { authorization, post }))
   ) {
     throw new Error("Action Item parent post is unavailable.");
   }
@@ -1284,6 +1313,14 @@ async function persistBuildActionItemAttachments(
     input.authorization,
     input.post
   );
+  const scopedReaderWorkosUserIds =
+    input.post.systemPostKind === "draw"
+      ? await resolveCurrentDrawCoordinationReaderIds(
+          ctx,
+          input.authorization,
+          input.post,
+        )
+      : readerWorkosUserIds;
   await persistGovernedCollaborationAssetAttachments(ctx, {
     assetIds: input.assetIds,
     authorization: input.authorization,
@@ -1293,7 +1330,7 @@ async function persistBuildActionItemAttachments(
     ownerKind: "actionItem",
     ownerRecordId: input.actionItemId,
     post: input.post,
-    readerWorkosUserIds,
+    readerWorkosUserIds: scopedReaderWorkosUserIds,
     unavailableMessage: "An Action Item attachment is unavailable.",
   });
 }

@@ -133,6 +133,15 @@ export const systemDrawFactsValidator = v.object({
   }),
 });
 
+export const drawCoordinationStateValidator = v.object({
+  canJoin: v.boolean(),
+  canLeave: v.boolean(),
+  eligible: v.boolean(),
+  joined: v.boolean(),
+  oversight: v.boolean(),
+  workingAudienceCount: v.number(),
+});
+
 const collaborationSystemPostValidator = v.object({
   activationReason: v.string(),
   activationPlanningRevision: v.optional(v.number()),
@@ -141,6 +150,7 @@ const collaborationSystemPostValidator = v.object({
   canonicalBuildDrawOccurrenceKey: v.optional(v.string()),
   currentPlanningRevision: v.optional(v.number()),
   drawFacts: v.optional(systemDrawFactsValidator),
+  drawCoordination: v.optional(drawCoordinationStateValidator),
   kind: buildCollaborationSystemPostKindValidator,
   lifecycle: v.optional(
     v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened"))

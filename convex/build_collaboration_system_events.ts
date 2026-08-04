@@ -258,7 +258,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     postId,
     references,
   });
-  const actionItemId = input.remediation
+  const actionItemId = input.remediation && input.systemPostKind !== "draw"
     ? await createDeterministicRemediationActionItem(ctx, {
         authorization,
         idempotencyKey,
@@ -279,7 +279,18 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   const primaryReference = references[primaryReferenceIndex];
   const primaryReferenceRowId = referenceRows[primaryReferenceIndex];
   if (!input.suppressNotifications) {
-    for (const recipient of readerParticipants) {
+    // Draw System Posts retain their canonical read audience, but admin and
+    // principal-broker are silent oversight roles until they explicitly join
+    // coordination. Do not turn publication into implicit coordination.
+    const notificationRecipients =
+      input.systemPostKind === "draw"
+        ? readerParticipants.filter(
+            (recipient) =>
+              recipient.role !== "admin" &&
+              recipient.role !== "principle-broker",
+          )
+        : readerParticipants;
+    for (const recipient of notificationRecipients) {
       await emitCanonicalBuildCollaborationNotification(ctx, {
         actionItemId: actionItemId ?? undefined,
         actionLabel: primaryReference ? "Open related work" : "Open discussion",

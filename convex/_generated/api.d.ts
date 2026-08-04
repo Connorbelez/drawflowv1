@@ -112,6 +112,7 @@ import type * as build_collaboration_webhook_signing from "../build_collaboratio
 import type * as build_collaboration_webhook_transport from "../build_collaboration_webhook_transport.js";
 import type * as build_collaboration_webhooks from "../build_collaboration_webhooks.js";
 import type * as build_collaboration_workflow_events from "../build_collaboration_workflow_events.js";
+import type * as build_draw_coordination from "../build_draw_coordination.js";
 import type * as build_operational_idempotency from "../build_operational_idempotency.js";
 import type * as build_participant_activation from "../build_participant_activation.js";
 import type * as build_participant_revocation from "../build_participant_revocation.js";
@@ -264,6 +265,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_webhook_transport: typeof build_collaboration_webhook_transport;
   build_collaboration_webhooks: typeof build_collaboration_webhooks;
   build_collaboration_workflow_events: typeof build_collaboration_workflow_events;
+  build_draw_coordination: typeof build_draw_coordination;
   build_operational_idempotency: typeof build_operational_idempotency;
   build_participant_activation: typeof build_participant_activation;
   build_participant_revocation: typeof build_participant_revocation;

@@ -1815,14 +1815,13 @@ describe("Build Collaboration operational events", () => {
     );
     expect(snapshot.actionItems).toHaveLength(0);
     expect(snapshot.references).toHaveLength(2);
-    expect(snapshot.deliveries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          href: expect.stringMatching(/focus=draw%3A/),
-          recipientWorkosUserId: "user_global_principal",
-        }),
-      ]),
-    );
+    expect(
+      snapshot.deliveries.some(
+        (delivery) =>
+          delivery.href.match(/focus=draw%3A/) &&
+          delivery.recipientWorkosUserId === "user_global_principal",
+      ),
+    ).toBe(false);
     expect(await feedKinds(fixture.builderStaff, fixture.buildId)).toEqual([
       "restricted",
       "restricted",
@@ -2796,5 +2795,289 @@ describe("Build Collaboration operational events", () => {
         },
       ),
     ).rejects.toThrow(/removed by an approved planning revision/i);
+  });
+
+  test("keeps Draw coordination internal, ordinary, and independent from Draw authority", async () => {
+    const fixture = await seedOperationalBuild();
+    const drawPostId = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("workosOrganizationMemberships", {
+        createdAt: now,
+        directoryManaged: false,
+        roleSlug: "broker",
+        roleSlugs: ["broker"],
+        sourceEventId: "draw-coordination-broker-membership",
+        sourceEventType: "fixture.draw-coordination",
+        status: "active",
+        updatedAt: now,
+        workosMembershipId: "membership_draw_coordinator",
+        workosOrganizationId: ORGANIZATION_ID,
+        workosUserId: "user_broker",
+      });
+      await ctx.db.insert("buildParticipants", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        displayNameSnapshot: "External Draw viewer",
+        joinedAt: now,
+        organizationId: ORGANIZATION_ID,
+        participationPeriod: 1,
+        role: "broker",
+        status: "active",
+        updatedAt: now,
+        validFrom: now,
+        workosUserId: "user_external_draw_viewer",
+      });
+      const postId = await ctx.db.insert("buildCollaborationPosts", {
+        acknowledgementRequired: false,
+        agentDrafted: false,
+        announcementProminent: false,
+        audienceFloorTier: 1,
+        audienceMode: "build_wide",
+        authorDisplayNameSnapshot: "DrawFlow System",
+        authorRolesSnapshot: ["system"],
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        commentCount: 0,
+        contentState: "active",
+        createdAt: now,
+        lastMeaningfulActivityAt: now,
+        openActionItemCount: 0,
+        organizationId: ORGANIZATION_ID,
+        postType: "update",
+        primaryReferenceId: "draw-coordination-reference",
+        primaryReferenceKind: "draw",
+        readRevision: 1,
+        revision: 1,
+        source: "system",
+        systemOccurrenceKey: "draw-coordination-occurrence",
+        systemPostKind: "draw",
+        threadState: "open",
+        threadRevision: 0,
+        updatedAt: now,
+      });
+      const revisionId = await ctx.db.insert(
+        "buildCollaborationPostRevisions",
+        {
+          authorRole: "admin",
+          authorWorkosUserId: "system",
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          contentHash: "draw-coordination-hash",
+          createdAt: now,
+          organizationId: ORGANIZATION_ID,
+          plainText: "Canonical Draw facts",
+          postId,
+          revision: 1,
+          tiptapJson: JSON.stringify({ content: [], type: "doc" }),
+        },
+      );
+      await ctx.db.patch(postId, { currentRevisionId: revisionId });
+      await ctx.db.insert("buildCollaborationFollows", {
+        active: true,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        postId,
+        reason: "manual",
+        updatedAt: now,
+        workosUserId: "user_broker",
+      });
+      return postId;
+    });
+    const drawSnapshot = async () =>
+      await fixture.base.run(async (ctx) => {
+        const post = await ctx.db.get(drawPostId);
+        if (!post) return null;
+        return {
+          activationReason: post.activationReason,
+          canonicalBuildDrawOccurrenceKey:
+            post.canonicalBuildDrawOccurrenceKey,
+          canonicalBuildMilestoneId: post.canonicalBuildMilestoneId,
+          currentPlanningRevision: post.currentPlanningRevision,
+          primaryReferenceId: post.primaryReferenceId,
+          primaryReferenceKind: post.primaryReferenceKind,
+          systemEventKey: post.systemEventKey,
+          systemLifecycle: post.systemLifecycle,
+          systemOccurrenceKey: post.systemOccurrenceKey,
+          systemPostKind: post.systemPostKind,
+          triggeredAt: post.triggeredAt,
+          triggeredByRole: post.triggeredByRole,
+          triggeredByWorkosUserId: post.triggeredByWorkosUserId,
+        };
+      });
+    const before = await drawSnapshot();
+    const itemId = await fixture.broker.mutation(
+      (api as any).build_action_items.createBuildActionItem,
+      {
+        buildId: fixture.buildId,
+        descriptionPlainText: "Coordinate Draw evidence follow-up",
+        descriptionTiptapJson: JSON.stringify({ content: [], type: "doc" }),
+        organizationId: ORGANIZATION_ID,
+        postId: drawPostId,
+        references: [],
+        title: "Coordinate Draw evidence follow-up",
+        workKind: "ordinary",
+      },
+    );
+    const ordinary = await fixture.base.run(async (ctx) =>
+      ctx.db.get(itemId),
+    );
+    expect((ordinary as any)?.systemMode).toBeUndefined();
+    const assigned = await fixture.broker.mutation(
+      (api as any).build_action_item_workflow.assignBuildActionItem,
+      {
+        actionItemId: itemId,
+        assigneeWorkosUserId: "user_broker",
+        buildId: fixture.buildId,
+        expectedRevision: 1,
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(assigned).toBe(itemId);
+    await fixture.broker.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: itemId,
+        buildId: fixture.buildId,
+        expectedRevision: 2,
+        nextStatus: "in_progress",
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    await fixture.broker.mutation(
+      (api as any).build_action_item_workflow.transitionBuildActionItem,
+      {
+        actionItemId: itemId,
+        buildId: fixture.buildId,
+        expectedRevision: 3,
+        nextStatus: "done",
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    const afterLifecycle = await drawSnapshot();
+    expect(afterLifecycle).toEqual(before);
+    await fixture.broker.mutation(
+      (api as any).build_draw_coordination.joinDrawCoordination,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: drawPostId,
+      },
+    );
+    const joined = await fixture.base.run(async (ctx) =>
+      ctx.db
+        .query("buildCollaborationFollows")
+        .withIndex("by_postId_and_workosUserId", (query) =>
+          query.eq("postId", drawPostId).eq("workosUserId", "user_broker"),
+        )
+        .unique(),
+    );
+    expect(joined?.active).toBe(true);
+    expect(joined?.coordinationActive).toBe(true);
+    await fixture.broker.mutation(
+      (api as any).build_draw_coordination.leaveDrawCoordination,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: drawPostId,
+      },
+    );
+    const left = await fixture.base.run(async (ctx) =>
+      ctx.db.get(joined!._id),
+    );
+    expect(left?.active).toBe(true);
+    expect(left?.coordinationActive).toBe(false);
+    const external = withIdentity(
+      fixture.base,
+      "broker",
+      "user_external_draw_viewer",
+    );
+    const externalFeed = await external.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 20 },
+      },
+    );
+    expect(externalFeed.page[0]?.kind).toBe("post");
+    expect(externalFeed.page[0]?.actionItems).toEqual([]);
+    expect(externalFeed.page[0]?.attachments).toEqual([]);
+    expect(externalFeed.page[0]?.acknowledgement).toEqual({
+      acknowledged: false,
+      required: false,
+    });
+    expect(externalFeed.page[0]?.pins).toEqual([]);
+    expect(externalFeed.page[0]?.references).toEqual([]);
+    expect(externalFeed.page[0]?.reactions).toEqual([]);
+    expect(externalFeed.page[0]?.receipts).toEqual([]);
+    expect(externalFeed.page[0]?.post.commentCount).toBe(0);
+    expect(externalFeed.page[0]?.post.systemPost.drawCoordination).toBeUndefined();
+    await expect(
+      external.mutation(
+        (api as any).build_draw_coordination.joinDrawCoordination,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: drawPostId,
+        },
+      ),
+    ).rejects.toThrow(/Draw coordination|Forbidden/i);
+    const adminState = await fixture.globalAdmin.query(
+      (api as any).build_draw_coordination.getDrawCoordinationState,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: drawPostId,
+      },
+    );
+    expect(adminState.joined).toBe(false);
+    expect(adminState.oversight).toBe(true);
+    const principalState = await fixture.globalPrincipal.query(
+      (api as any).build_draw_coordination.getDrawCoordinationState,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: drawPostId,
+      },
+    );
+    expect(principalState.joined).toBe(false);
+    expect(principalState.oversight).toBe(true);
+    await fixture.base.run(async (ctx) => {
+      const existingState = await ctx.db
+        .query("buildCollaborationBuildStates")
+        .withIndex("by_buildId", (query) => query.eq("buildId", fixture.buildId))
+        .order("desc")
+        .first();
+      if (existingState) {
+        await ctx.db.patch(existingState._id, {
+          state: "closed",
+          updatedAt: Date.now(),
+        });
+      } else {
+        await ctx.db.insert("buildCollaborationBuildStates", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          contentRevision: 0,
+          createdAt: Date.now(),
+          organizationId: ORGANIZATION_ID,
+          revision: 0,
+          state: "closed",
+          updatedAt: Date.now(),
+        });
+      }
+    });
+    await expect(
+      fixture.broker.mutation(
+        (api as any).build_draw_coordination.joinDrawCoordination,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: drawPostId,
+        },
+      ),
+    ).rejects.toThrow(/read-only|closed/i);
   });
 });

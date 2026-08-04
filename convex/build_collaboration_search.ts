@@ -10,6 +10,7 @@ import {
   requireAuthenticated,
 } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
 import {
   projectCollaborationAssetAttachmentPage,
@@ -1075,6 +1076,17 @@ async function validateIndexedSearchCandidate(
   ) {
     return null;
   }
+  const drawCoordinationReadable =
+    post.systemPostKind !== "draw" ||
+    (await canReadDrawCoordination(ctx, { authorization, post }));
+  if (post.systemPostKind === "draw" && !drawCoordinationReadable) {
+    // Canonical Draw facts remain searchable as the parent post, but no
+    // coordination child (reply, Action Item, reference, or asset) may leak
+    // through the indexed projection or deep-link hydration.
+    if (candidate.resultType !== "post") {
+      return null;
+    }
+  }
   const currentCandidate = await refreshIndexedSearchCandidate(ctx, {
     authorization,
     candidate,
@@ -1109,6 +1121,15 @@ async function currentCandidateHasReadableAttachments(
   }
 ) {
   if (input.candidate.resultType === "asset") {
+    if (
+      input.post.systemPostKind === "draw" &&
+      !(await canReadDrawCoordination(ctx, {
+        authorization: input.authorization,
+        post: input.post,
+      }))
+    ) {
+      return false;
+    }
     return true;
   }
   const owner = await currentSearchAttachmentOwner(ctx, input);

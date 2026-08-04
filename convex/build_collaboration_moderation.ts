@@ -9,6 +9,7 @@ import {
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { requireHumanCollaborationActor } from "./build_collaboration_human";
 import {
   type BuildCollaborationRole,
@@ -531,7 +532,11 @@ async function requireReadableModerationEntity(
       input.entityId
     );
     const post = postId ? await ctx.db.get(postId) : null;
-    if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+    if (
+      !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+      (post?.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
+    ) {
       throw new Error("Forbidden: collaboration moderation target");
     }
     return { entityKind: "post", post };
@@ -546,7 +551,9 @@ async function requireReadableModerationEntity(
     !(
       comment &&
       post &&
-      (await canReadCollaborationPost(ctx, authorization, post))
+      (await canReadCollaborationPost(ctx, authorization, post)) &&
+      (post.systemPostKind !== "draw" ||
+        (await canReadDrawCoordination(ctx, { authorization, post })))
     )
   ) {
     throw new Error("Forbidden: collaboration moderation target");

@@ -34,6 +34,7 @@ import {
   resolveCurrentCollaborationNotificationReaderIds,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { systemActionItemPresentationValidator } from "./build_collaboration_contracts";
 import { claimBuildCollaborationWriteByBuildId } from "./build_collaboration_lifecycle_state";
@@ -667,6 +668,12 @@ async function resolveBuildQueuePage(
     ) {
       throw new Error("Action Item post queue is unavailable.");
     }
+    if (
+      post.systemPostKind === "draw" &&
+      !(await canReadDrawCoordination(ctx, { authorization, post }))
+    ) {
+      return { continueCursor: "", isDone: true, page: [] };
+    }
     return await ctx.db
       .query("buildActionItems")
       .withIndex("by_originatingPostId_and_queueSortAt", (query) =>
@@ -705,6 +712,18 @@ async function resolveBuildQueuePage(
       );
     }
     const item = await ctx.db.get(actionItemId);
+    const originatingPost = item
+      ? await ctx.db.get(item.originatingPostId)
+      : null;
+    if (
+      originatingPost?.systemPostKind === "draw" &&
+      !(await canReadDrawCoordination(ctx, {
+        authorization,
+        post: originatingPost,
+      }))
+    ) {
+      continue;
+    }
     if (
       !item ||
       reference.organizationId !== authorization.organizationId ||

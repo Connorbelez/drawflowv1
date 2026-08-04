@@ -8,6 +8,7 @@ import type { AuthorizedViewer } from "./authz";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import { requireReadableActionItem } from "./build_action_items";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { buildCollaborationDeepLink } from "./build_collaboration_links";
 import type { BuildCollaborationNotificationKind } from "./build_collaboration_notifications";
 import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
@@ -234,7 +235,9 @@ export async function projectAuthorizedCollaborationDelivery(
   if (
     !post ||
     post.contentState !== "active" ||
-    !(await canReadCollaborationPost(ctx, authorization, post))
+    !(await canReadCollaborationPost(ctx, authorization, post)) ||
+    (post.systemPostKind === "draw" &&
+      !(await canReadDrawCoordination(ctx, { authorization, post })))
   ) {
     return null;
   }
@@ -376,6 +379,15 @@ async function canReadDirectNotificationContext(
     if (
       asset.maximumAudienceMode !== "build_wide" &&
       !asset.readerWorkosUserIds?.includes(authorization.viewer.subject)
+    ) {
+      return false;
+    }
+  }
+  if (record.collaborationPostId) {
+    const post = await ctx.db.get(record.collaborationPostId);
+    if (
+      post?.systemPostKind === "draw" &&
+      !(await canReadDrawCoordination(ctx, { authorization, post }))
     ) {
       return false;
     }

@@ -5,6 +5,7 @@ import {
   resolveCurrentCollaborationNotificationReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { emitCanonicalBuildCollaborationNotification } from "./build_collaboration_notifications";
 import type { Id } from "./types";
 
@@ -24,7 +25,9 @@ export const acknowledgeBuildCollaborationPost = authenticatedMutation
     if (
       !post ||
       post.buildId !== authorization.build._id ||
-      !(await canReadCollaborationPost(ctx, authorization, post))
+      !(await canReadCollaborationPost(ctx, authorization, post)) ||
+      (post.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       throw new Error("Post not found.");
     }

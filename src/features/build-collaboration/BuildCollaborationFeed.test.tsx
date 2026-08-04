@@ -404,10 +404,29 @@ function canonicalMilestoneSystemPostEntryFixture() {
   };
 }
 
-function canonicalDrawSystemPostEntryFixture() {
+type DrawCoordinationFixtureState = {
+  canJoin: boolean;
+  canLeave: boolean;
+  eligible: boolean;
+  joined: boolean;
+  oversight: boolean;
+  workingAudienceCount: number;
+};
+
+function canonicalDrawSystemPostEntryFixture(options: {
+  coordination?: DrawCoordinationFixtureState;
+} = {}) {
   const now = Date.parse("2026-08-03T12:00:00.000Z");
   const plainText =
     "Foundation reimbursement is tracked in DrawFlow System. Canonical Draw Request, evidence, review, approval, and release state remain authoritative.";
+  const coordination = options.coordination ?? {
+    canJoin: false,
+    canLeave: false,
+    eligible: true,
+    joined: false,
+    oversight: true,
+    workingAudienceCount: 0,
+  };
   return {
     acknowledgement: { acknowledged: false, required: false },
     actionItems: [],
@@ -470,6 +489,7 @@ function canonicalDrawSystemPostEntryFixture() {
         lifecycle: "open",
         occurrenceKey:
           "draw-system:build-1:proposal-1:proposal-row:proposal-draw-1",
+        drawCoordination: coordination,
       },
       threadState: "open",
       updatedAt: now,
@@ -1481,6 +1501,196 @@ describe("BuildCollaborationFeed", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Action Items/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Show Action Items as a board/ })).toBeNull();
+  });
+
+  test("lets eligible internal readers join and create ordinary Draw coordination work", async () => {
+    mocks.feedRows = [
+      canonicalDrawSystemPostEntryFixture({
+        coordination: {
+          canJoin: true,
+          canLeave: false,
+          eligible: true,
+          joined: false,
+          oversight: false,
+          workingAudienceCount: 2,
+        },
+      }),
+    ];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(screen.getByText("Working audience · 2")).toBeTruthy();
+    mocks.mutate.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Join coordination" }),
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        organizationId: "org-1",
+        postId: "draw-system-post-1",
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add coordination Action Item" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Create accountable work" }),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Action Item title"), {
+      target: { value: "Coordinate Draw evidence" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mock Action Item description" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create Action Item" }),
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buildId: "build-1",
+          organizationId: "org-1",
+          postId: "draw-system-post-1",
+          title: "Coordinate Draw evidence",
+        }),
+      ),
+    );
+  });
+
+  test("lets an explicit coordination member leave while keeping ordinary follow independent", async () => {
+    mocks.feedRows = [
+      canonicalDrawSystemPostEntryFixture({
+        coordination: {
+          canJoin: false,
+          canLeave: true,
+          eligible: true,
+          joined: true,
+          oversight: false,
+          workingAudienceCount: 1,
+        },
+      }),
+    ];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Leave coordination" }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Post actions" }),
+    );
+    expect(screen.getByRole("menuitem", { name: "Follow thread" })).toBeTruthy();
+    mocks.mutate.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Leave coordination" }),
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        organizationId: "org-1",
+        postId: "draw-system-post-1",
+      }),
+    );
+  });
+
+  test("shows silent oversight for an admin or principal-broker without joining coordination", () => {
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "principle-broker",
+      workosUserId: "user_principal",
+    };
+    mocks.feedRows = [canonicalDrawSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(screen.getByText("Oversight only")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Join coordination" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Leave coordination" }),
+    ).toBeNull();
+  });
+
+  test("keeps external Draw readers on canonical facts without a discussion tab or deep-link actions", () => {
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "broker",
+      workosUserId: "user_external",
+    };
+    mocks.feedRows = [
+      canonicalDrawSystemPostEntryFixture({
+        coordination: {
+          canJoin: false,
+          canLeave: false,
+          eligible: false,
+          joined: false,
+          oversight: false,
+          workingAudienceCount: 0,
+        },
+      }),
+    ];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(
+      screen.getByText(
+        "Canonical Draw facts remain visible. Internal coordination, discussion, and related work are restricted to eligible Build participants.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Discussion/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Add coordination Action Item" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
+    expect(screen.queryByRole("menuitem", { name: "Follow thread" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Save privately" })).toBeNull();
+  });
+
+  test("disables Draw coordination controls in an archived Build", () => {
+    mocks.lifecycleState = "closed";
+    mocks.feedRows = [
+      canonicalDrawSystemPostEntryFixture({
+        coordination: {
+          canJoin: true,
+          canLeave: false,
+          eligible: true,
+          joined: false,
+          oversight: false,
+          workingAudienceCount: 1,
+        },
+      }),
+    ];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(screen.getByTestId("build-collaboration-read-only-banner")).toBeTruthy();
+    const join = screen.getByRole("button", { name: "Join coordination" });
+    const create = screen.getByRole("button", {
+      name: "Add coordination Action Item",
+    });
+    expect(join.getAttribute("data-disabled") ?? join.getAttribute("disabled")).not.toBeNull();
+    expect(create.getAttribute("data-disabled") ?? create.getAttribute("disabled")).not.toBeNull();
+    mocks.mutate.mockClear();
+    fireEvent.click(join);
+    fireEvent.click(create);
+    expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
   test("renders mixed canonical planning counts and typed activation/current changes", () => {

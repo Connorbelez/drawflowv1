@@ -6,6 +6,7 @@ import type {
 } from "./activeBuildAccess";
 import { authenticatedQuery } from "./authz";
 import { collaborationTagOptionValidator } from "./build_collaboration_contracts";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import type { ReferenceInput } from "./build_collaboration_publication_bundle";
@@ -503,6 +504,15 @@ async function resolveActionItemReference(
       )
     : [];
   if (!post || readerAccess.includes(false)) {
+    throw incompatibleReference();
+  }
+  if (
+    post.systemPostKind === "draw" &&
+    !(await canReadDrawCoordination(ctx, {
+      authorization: input.authorization,
+      post,
+    }))
+  ) {
     throw incompatibleReference();
   }
   return {

@@ -120,12 +120,47 @@ export async function resolveCurrentCollaborationNotificationReaderIds(
   authorization: ActiveBuildAuthorization,
   post: Doc<"buildCollaborationPosts">,
 ) {
-  const readerIds = await resolveCurrentCollaborationPostReaderIds(
+  let readerIds = await resolveCurrentCollaborationPostReaderIds(
     ctx,
     authorization,
     post,
   );
+  if (isDrawSystemPost(post)) {
+    const currentParticipants = new Map(
+      authorization.participants.map((participant) => [
+        participant.workosUserId,
+        participant,
+      ]),
+    );
+    const membershipDecisions = await Promise.all(
+      readerIds.map(async (workosUserId) => {
+        const participant = currentParticipants.get(workosUserId);
+        if (
+          !participant ||
+          participant.role === "contractor" ||
+          participant.role === "homeowner" ||
+          participant.role === "admin" ||
+          participant.role === "principle-broker"
+        ) {
+          return null;
+        }
+        const membership = await ctx.db
+          .query("workosOrganizationMemberships")
+          .withIndex("by_user_and_organization", (query) =>
+            query
+              .eq("workosUserId", workosUserId)
+              .eq("workosOrganizationId", authorization.organizationId),
+          )
+          .first();
+        return membership?.status === "active" ? workosUserId : null;
+      }),
+    );
+    readerIds = membershipDecisions.filter(
+      (workosUserId): workosUserId is string => workosUserId !== null,
+    );
+  }
   if (
+    !isDrawSystemPost(post) &&
     post.authorWorkosUserId &&
     (post.authorRole === "admin" || post.authorRole === "principle-broker") &&
     (await hasCurrentGlobalCollaborationRole(

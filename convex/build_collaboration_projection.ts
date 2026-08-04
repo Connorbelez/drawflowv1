@@ -1,5 +1,9 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { canSeeCollaborationReceipt } from "./build_collaboration_access";
+import {
+  canReadDrawCoordination,
+  projectDrawCoordinationState,
+} from "./build_draw_coordination";
 import { projectCollaborationAssetAttachments } from "./build_collaboration_asset_projection";
 import {
   collaborationModeratedContent,
@@ -579,6 +583,9 @@ export async function projectReadableBuildCollaborationPost(
       )
       .take(20),
   ]);
+  const drawCoordinationReadable =
+    post.systemPostKind === "draw" &&
+    (await canReadDrawCoordination(ctx, { authorization, post }));
   const acknowledgementTarget = acknowledgementTargets.find(
     (target) => !target.waivedAt
   );
@@ -614,6 +621,9 @@ export async function projectReadableBuildCollaborationPost(
       : false;
   const readableActionItems = [] as Doc<"buildActionItems">[];
   for (const item of actionItems) {
+    if (post.systemPostKind === "draw" && !drawCoordinationReadable) {
+      continue;
+    }
     if (
       await canReadMilestoneSystemActionItem(ctx, {
         actionItem: item,
@@ -644,8 +654,24 @@ export async function projectReadableBuildCollaborationPost(
     post.systemPostKind === "draw"
       ? await projectSystemDrawFacts(ctx, { authorization, post })
       : undefined;
+  const drawCoordination =
+    post.systemPostKind === "draw" && drawCoordinationReadable
+      ? await projectDrawCoordinationState(ctx, { authorization, post })
+      : undefined;
+  const drawCoordinationRedacted =
+    post.systemPostKind === "draw" && !drawCoordinationReadable;
+  const projectedAttachments =
+    post.systemPostKind === "draw" && !drawCoordinationReadable
+      ? []
+      : attachments;
+  const projectedReferences =
+    post.systemPostKind === "draw" && !drawCoordinationReadable
+      ? []
+      : references;
   return {
-    acknowledgement: acknowledgementTarget
+    acknowledgement: drawCoordinationRedacted
+      ? { acknowledged: false, required: false }
+      : acknowledgementTarget
       ? {
           acknowledged: acknowledgements.some(
             (acknowledgement) =>
@@ -656,25 +682,38 @@ export async function projectReadableBuildCollaborationPost(
         }
       : { acknowledged: false, required: false },
     actionItems: projectedActionItems,
-    attachments,
-    following: follows.some((follow) => follow.active),
+    attachments: projectedAttachments,
+    following:
+      post.systemPostKind === "draw" && !drawCoordinationReadable
+        ? false
+        : follows.some((follow) => follow.active),
     kind: "post" as const,
-    pins: pins.map((pin) => ({
-      _creationTime: pin._creationTime,
-      _id: pin._id,
-    })),
+    pins: drawCoordinationRedacted
+      ? []
+      : pins.map((pin) => ({
+          _creationTime: pin._creationTime,
+          _id: pin._id,
+        })),
     post: collaborationPostSummary({
       authorization,
       moderationCapabilities,
       post,
       redacted: false,
+      coordinationRedacted: drawCoordinationRedacted,
+      commentCountOverride:
+        post.systemPostKind === "draw" && !drawCoordinationReadable
+          ? 0
+          : undefined,
       resolutionSummary: projectedResolutionSummary,
       systemRecoveryRequired,
       planningSummary,
       activationPlanningRevision: activationPlanningRevision?.revision,
       drawFacts,
+      drawCoordination,
     }),
-    reactions: reactions
+    reactions: (post.systemPostKind === "draw" && !drawCoordinationReadable
+      ? []
+      : reactions)
       .filter(
         (reaction) =>
           reaction.commentId === undefined &&
@@ -689,7 +728,9 @@ export async function projectReadableBuildCollaborationPost(
         reaction: reaction.reaction,
         workosUserId: reaction.workosUserId,
       })),
-    receipts: receipts
+    receipts: (post.systemPostKind === "draw" && !drawCoordinationReadable
+      ? []
+      : receipts)
       .filter((receipt) => canSeeCollaborationReceipt(authorization, receipt))
       .map((receipt) => ({
         _creationTime: receipt._creationTime,
@@ -700,7 +741,7 @@ export async function projectReadableBuildCollaborationPost(
         workosUserId: receipt.workosUserId,
       })),
     references: await Promise.all(
-      references.map(async (reference) => {
+      projectedReferences.map(async (reference) => {
         try {
           const current = await resolveCurrentBuildCollaborationReference(ctx, {
             authorization,
@@ -836,6 +877,16 @@ function collaborationPostSummary(input: {
   planningSummary?: SystemMilestonePlanningSummary;
   activationPlanningRevision?: number;
   drawFacts?: SystemDrawFacts;
+  coordinationRedacted?: boolean;
+  drawCoordination?: {
+    canJoin: boolean;
+    canLeave: boolean;
+    eligible: boolean;
+    joined: boolean;
+    oversight: boolean;
+    workingAudienceCount: number;
+  };
+  commentCountOverride?: number;
 }) {
   const {
     authorization,
@@ -847,11 +898,14 @@ function collaborationPostSummary(input: {
     planningSummary,
     activationPlanningRevision,
     drawFacts,
+    coordinationRedacted = false,
+    drawCoordination,
+    commentCountOverride,
   } = input;
   const viewerIsAuthor =
     post.authorWorkosUserId === authorization.viewer.subject;
   const decisionOwnerDisplayName =
-    !redacted && post.decisionOwnerWorkosUserId
+    !redacted && !coordinationRedacted && post.decisionOwnerWorkosUserId
       ? (authorization.participants.find(
           (participant) =>
             participant.workosUserId === post.decisionOwnerWorkosUserId
@@ -860,7 +914,8 @@ function collaborationPostSummary(input: {
   return {
     _creationTime: post._creationTime,
     _id: post._id,
-    acceptedCommentId: redacted ? undefined : post.acceptedCommentId,
+    acceptedCommentId:
+      redacted || coordinationRedacted ? undefined : post.acceptedCommentId,
     agentDrafted: post.agentDrafted,
     announcementExpiresAt: redacted ? undefined : post.announcementExpiresAt,
     announcementProminent:
@@ -871,18 +926,21 @@ function collaborationPostSummary(input: {
     authorDisplayNameSnapshot: post.authorDisplayNameSnapshot,
     authorRole: post.authorRole,
     authorWorkosUserId: post.authorWorkosUserId,
-    commentCount: redacted ? 0 : post.commentCount,
+    commentCount:
+      redacted ? 0 : (commentCountOverride ?? post.commentCount),
     contentState: post.contentState,
     createdAt: post.createdAt,
-    decisionOutcome: redacted ? undefined : post.decisionOutcome,
+    decisionOutcome:
+      redacted || coordinationRedacted ? undefined : post.decisionOutcome,
     decisionOwnerDisplayName,
-    decisionOwnerWorkosUserId: redacted
+    decisionOwnerWorkosUserId: redacted || coordinationRedacted
       ? undefined
       : post.decisionOwnerWorkosUserId,
     postType: post.postType,
     readRevision: post.readRevision ?? post.revision,
-    resolutionSummary: redacted ? undefined : resolutionSummary,
-    resolvedAt: post.resolvedAt,
+    resolutionSummary:
+      redacted || coordinationRedacted ? undefined : resolutionSummary,
+    resolvedAt: redacted || coordinationRedacted ? undefined : post.resolvedAt,
     revision: post.revision,
     source: post.source,
     planningSummary,
@@ -896,13 +954,15 @@ function collaborationPostSummary(input: {
             canonicalBuildDrawOccurrenceKey:
               post.canonicalBuildDrawOccurrenceKey,
             currentPlanningRevision: post.currentPlanningRevision,
+            drawCoordination: !redacted ? drawCoordination : undefined,
             drawFacts: !redacted ? drawFacts : undefined,
             kind: post.systemPostKind,
-            lifecycle:
-              post.systemLifecycle ??
-              (post.threadState === "resolved" ? "resolved" : "open"),
+            lifecycle: coordinationRedacted
+              ? "open"
+              : post.systemLifecycle ??
+                (post.threadState === "resolved" ? "resolved" : "open"),
             occurrenceKey: post.systemOccurrenceKey,
-            recoveryState: systemRecoveryRequired
+            recoveryState: !coordinationRedacted && systemRecoveryRequired
               ? ("recovery_required" as const)
               : undefined,
             triggeredAt: post.triggeredAt,
@@ -910,11 +970,13 @@ function collaborationPostSummary(input: {
             triggeredByWorkosUserId: post.triggeredByWorkosUserId,
           }
         : undefined,
-    threadState: post.threadState,
+    threadState: coordinationRedacted ? "open" : post.threadState,
     updatedAt: post.updatedAt,
     viewerCanAppeal: moderationCapabilities.canAppeal,
     viewerCanManageThread:
-      !redacted && (viewerIsAuthor || authorization.effectiveRole.tier >= 3),
+      !redacted &&
+      !coordinationRedacted &&
+      (viewerIsAuthor || authorization.effectiveRole.tier >= 3),
     viewerCanModerate: moderationCapabilities.canModerate,
     viewerCanResolveAppeal: moderationCapabilities.canResolveAppeal,
     viewerIsAuthor,

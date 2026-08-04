@@ -7,6 +7,7 @@ import {
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
 import { canUseCollaborationAssetForPost } from "./build_collaboration_asset_access";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import {
   canonicalizeEditedCollaborationContent,
   collaborationContentHash,
@@ -467,7 +468,11 @@ export const listBuildCollaborationCommentRevisionHistory = authenticatedQuery
       throw new Error("Forbidden: collaboration reply history");
     }
     const post = await ctx.db.get(comment.postId);
-    if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+    if (
+      !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+      (post?.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
+    ) {
       throw new Error("Forbidden: collaboration reply history");
     }
     if (
@@ -557,7 +562,11 @@ async function requireAuthoredActiveComment(
     throw new Error("Forbidden: authored collaboration reply");
   }
   const post = await ctx.db.get(comment.postId);
-  if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+  if (
+    !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+    (post?.systemPostKind === "draw" &&
+      !(await canReadDrawCoordination(ctx, { authorization, post })))
+  ) {
     throw new Error("Forbidden: collaboration post");
   }
   return { comment, post };

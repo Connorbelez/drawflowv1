@@ -1,5 +1,6 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { canSeeCollaborationReceipt } from "./build_collaboration_access";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import type { Doc, Id, QueryCtx } from "./types";
 
@@ -155,10 +156,31 @@ export async function buildCollaborationPostArchivePage(
 ) {
   const { authorization, cursor, post, postSnapshot, section, snapshotAt } =
     input;
+  const postRow = await ctx.db.get(post._id);
+  const drawCoordinationReadable =
+    postRow?.systemPostKind !== "draw" ||
+    (postRow
+      ? await canReadDrawCoordination(ctx, {
+          authorization,
+          post: postRow,
+        })
+      : false);
+  if (
+    postRow?.systemPostKind === "draw" &&
+    !drawCoordinationReadable &&
+    section !== "core" &&
+    section !== "revisions"
+  ) {
+    return { continueCursor: "", data: [], isDone: true };
+  }
   if (section === "core") {
     return {
       continueCursor: "",
-      data: [postSnapshot],
+      data: [
+        drawCoordinationReadable
+          ? postSnapshot
+          : { ...postSnapshot, threadRevision: 0 },
+      ],
       isDone: true,
     };
   }
@@ -1001,6 +1023,9 @@ export async function buildCollaborationPostArchive(
   }
 ) {
   const { authorization, post } = input;
+  const drawCoordinationReadable =
+    post.systemPostKind !== "draw" ||
+    (await canReadDrawCoordination(ctx, { authorization, post }));
   const revisions = await limited(
     ctx.db
       .query("buildCollaborationPostRevisions")
@@ -1013,17 +1038,23 @@ export async function buildCollaborationPostArchive(
   const revisionHistory: Record<string, unknown>[] = [];
   for (const revision of revisions) {
     revisionHistory.push({
-      attachments: await ownerAttachments(ctx, "postRevision", revision._id),
-      audienceSnapshots: await limited(
-        ctx.db
-          .query("buildCollaborationAudienceSnapshots")
-          .withIndex("by_postRevisionId_and_workosUserId", (query) =>
-            query.eq("postRevisionId", revision._id)
+      attachments: drawCoordinationReadable
+        ? await ownerAttachments(ctx, "postRevision", revision._id)
+        : [],
+      audienceSnapshots: drawCoordinationReadable
+        ? await limited(
+            ctx.db
+              .query("buildCollaborationAudienceSnapshots")
+              .withIndex("by_postRevisionId_and_workosUserId", (query) =>
+                query.eq("postRevisionId", revision._id)
+              )
+              .take(ARCHIVE_ROW_LIMIT + 1),
+            "post audience snapshots"
           )
-          .take(ARCHIVE_ROW_LIMIT + 1),
-        "post audience snapshots"
-      ),
-      references: await ownerReferences(ctx, "postRevision", revision._id),
+        : [],
+      references: drawCoordinationReadable
+        ? await ownerReferences(ctx, "postRevision", revision._id)
+        : [],
       revision,
     });
   }
@@ -1037,7 +1068,7 @@ export async function buildCollaborationPostArchive(
     "comments"
   );
   const commentHistory: Record<string, unknown>[] = [];
-  for (const comment of comments) {
+  for (const comment of drawCoordinationReadable ? comments : []) {
     const commentRevisions = await limited(
       ctx.db
         .query("buildCollaborationCommentRevisions")
@@ -1102,7 +1133,7 @@ export async function buildCollaborationPostArchive(
     "Action Items"
   );
   const actionItemHistory: Record<string, unknown>[] = [];
-  for (const item of actionItems) {
+  for (const item of drawCoordinationReadable ? actionItems : []) {
     actionItemHistory.push(await archiveActionItem(ctx, item));
   }
   const acknowledgementTargets = await limited(
@@ -1115,7 +1146,7 @@ export async function buildCollaborationPostArchive(
     "acknowledgement targets"
   );
   const acknowledgements: Record<string, unknown>[] = [];
-  for (const target of acknowledgementTargets) {
+  for (const target of drawCoordinationReadable ? acknowledgementTargets : []) {
     acknowledgements.push({
       acknowledgements: await limited(
         ctx.db
@@ -1128,9 +1159,9 @@ export async function buildCollaborationPostArchive(
     });
   }
   return {
-    acknowledgements,
-    actionItems: actionItemHistory,
-    audienceMembers: await limited(
+    acknowledgements: drawCoordinationReadable ? acknowledgements : [],
+    actionItems: drawCoordinationReadable ? actionItemHistory : [],
+    audienceMembers: drawCoordinationReadable ? await limited(
       ctx.db
         .query("buildCollaborationAudienceMembers")
         .withIndex("by_postId_and_workosUserId", (query) =>
@@ -1138,9 +1169,9 @@ export async function buildCollaborationPostArchive(
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
       "audience members"
-    ),
-    comments: commentHistory,
-    creationRequests: await limited(
+    ) : [],
+    comments: drawCoordinationReadable ? commentHistory : [],
+    creationRequests: drawCoordinationReadable ? await limited(
       ctx.db
         .query("buildActionItemCreationRequests")
         .withIndex("by_postId_and_creatorWorkosUserId_and_requestId", (query) =>
@@ -1148,8 +1179,8 @@ export async function buildCollaborationPostArchive(
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
       "Action Item creation requests"
-    ),
-    decisionOutcomeRevisions: await limited(
+    ) : [],
+    decisionOutcomeRevisions: drawCoordinationReadable ? await limited(
       ctx.db
         .query("buildCollaborationDecisionOutcomeRevisions")
         .withIndex("by_postId_and_revision", (query) =>
@@ -1157,8 +1188,8 @@ export async function buildCollaborationPostArchive(
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
       "decision outcome revisions"
-    ),
-    follows: (
+    ) : [],
+    follows: drawCoordinationReadable ? (
       await limited(
         ctx.db
           .query("buildCollaborationFollows")
@@ -1168,9 +1199,9 @@ export async function buildCollaborationPostArchive(
           .take(ARCHIVE_ROW_LIMIT + 1),
         "post follows"
       )
-    ).filter((follow) => follow.workosUserId === authorization.viewer.subject),
+    ).filter((follow) => follow.workosUserId === authorization.viewer.subject) : [],
     moderation: await moderationHistory(ctx, authorization, "post", post._id),
-    pins: (
+    pins: drawCoordinationReadable ? (
       await limited(
         ctx.db
           .query("buildCollaborationPins")
@@ -1180,9 +1211,25 @@ export async function buildCollaborationPostArchive(
           .take(ARCHIVE_ROW_LIMIT + 1),
         "post pins"
       )
-    ).filter((pin) => isVisibleArchivePin(authorization, pin)),
-    post,
-    reactions: await limited(
+    ).filter((pin) => isVisibleArchivePin(authorization, pin)) : [],
+    post: drawCoordinationReadable
+      ? post
+      : {
+          ...post,
+          acceptedCommentId: undefined,
+          commentCount: 0,
+          decisionOutcome: undefined,
+          decisionOwnerWorkosUserId: undefined,
+          latestActivityActorWorkosUserId: undefined,
+          openActionItemCount: 0,
+          resolvedAt: undefined,
+          resolvedByWorkosUserId: undefined,
+          resolutionSummary: undefined,
+          systemLifecycle: "open",
+          threadRevision: 0,
+          threadState: "open",
+        },
+    reactions: drawCoordinationReadable ? await limited(
       ctx.db
         .query("buildCollaborationReactions")
         .withIndex("by_postId_and_workosUserId", (query) =>
@@ -1190,8 +1237,8 @@ export async function buildCollaborationPostArchive(
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
       "post reactions"
-    ),
-    receipts: (
+    ) : [],
+    receipts: drawCoordinationReadable ? (
       await limited(
         ctx.db
           .query("buildCollaborationReceipts")
@@ -1201,16 +1248,16 @@ export async function buildCollaborationPostArchive(
           .take(ARCHIVE_ROW_LIMIT + 1),
         "post receipts"
       )
-    ).filter((receipt) => canSeeCollaborationReceipt(authorization, receipt)),
-    references: await limited(
+    ).filter((receipt) => canSeeCollaborationReceipt(authorization, receipt)) : [],
+    references: drawCoordinationReadable ? await limited(
       ctx.db
         .query("buildCollaborationReferences")
         .withIndex("by_postId", (query) => query.eq("postId", post._id))
         .take(ARCHIVE_ROW_LIMIT + 1),
       "post references"
-    ),
+    ) : [],
     revisions: revisionHistory,
-    threadEvents: await limited(
+    threadEvents: drawCoordinationReadable ? await limited(
       ctx.db
         .query("buildCollaborationThreadEvents")
         .withIndex("by_postId_and_createdAt", (query) =>
@@ -1218,7 +1265,7 @@ export async function buildCollaborationPostArchive(
         )
         .take(ARCHIVE_ROW_LIMIT + 1),
       "thread events"
-    ),
+    ) : [],
   };
 }
 

@@ -3,6 +3,7 @@ import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import type { Doc, QueryCtx } from "./types";
 
@@ -22,6 +23,15 @@ export async function canUseCollaborationAssetForPost(
     input.post.organizationId !== input.authorization.organizationId ||
     input.post.brokerageId !== input.authorization.brokerage._id ||
     input.post.buildId !== input.authorization.build._id
+  ) {
+    return false;
+  }
+  if (
+    input.post.systemPostKind === "draw" &&
+    !(await canReadDrawCoordination(ctx, {
+      authorization: input.authorization,
+      post: input.post,
+    }))
   ) {
     return false;
   }
@@ -135,7 +145,12 @@ export async function resolveCollaborationAssetReadDecision(
     }
     if (
       post &&
-      (await canReadCollaborationPost(ctx, input.authorization, post))
+      (await canReadCollaborationPost(ctx, input.authorization, post)) &&
+      (post.systemPostKind !== "draw" ||
+        (await canReadDrawCoordination(ctx, {
+          authorization: input.authorization,
+          post,
+        })))
     ) {
       return {
         attachmentId: attachment._id,
@@ -149,6 +164,35 @@ export async function resolveCollaborationAssetReadDecision(
   const session = input.asset.stagingSessionId
     ? await ctx.db.get(input.asset.stagingSessionId)
     : null;
+  if (
+    session &&
+    (session.contextKind === "post" || session.contextKind === "actionItem") &&
+    session.contextRecordId
+  ) {
+    const postId =
+      session.contextKind === "post"
+        ? ctx.db.normalizeId("buildCollaborationPosts", session.contextRecordId)
+        : null;
+    const actionItemId =
+      session.contextKind === "actionItem"
+        ? ctx.db.normalizeId("buildActionItems", session.contextRecordId)
+        : null;
+    const actionItem = actionItemId ? await ctx.db.get(actionItemId) : null;
+    const post = postId
+      ? await ctx.db.get(postId)
+      : actionItem
+        ? await ctx.db.get(actionItem.originatingPostId)
+        : null;
+    if (
+      post?.systemPostKind === "draw" &&
+      !(await canReadDrawCoordination(ctx, {
+        authorization: input.authorization,
+        post,
+      }))
+    ) {
+      return null;
+    }
+  }
   if (
     !session ||
     session.organizationId !== input.authorization.organizationId ||

@@ -5,6 +5,7 @@ import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import type { AuthorizedViewer } from "./authz";
 import { authenticatedMutation } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import {
   canReadCollaborationAsset,
   isCleanCollaborationAsset,
@@ -609,7 +610,7 @@ async function buildExportSnapshot(
           threadState: post.threadState,
           updatedAt: post.updatedAt,
         }))
-      : await buildExportedPosts(ctx, selectedPosts);
+      : await buildExportedPosts(ctx, input.authorization, selectedPosts);
   const actionItems =
     input.scope === "full_archive"
       ? []
@@ -659,6 +660,7 @@ async function buildExportSnapshot(
 
 async function buildExportedPosts(
   ctx: MutationCtx,
+  authorization: ActiveBuildAuthorization,
   selectedPosts: Doc<"buildCollaborationPosts">[]
 ) {
   const posts: Record<string, unknown>[] = [];
@@ -678,8 +680,11 @@ async function buildExportedPosts(
     if (comments.length > 2000) {
       throw new Error("A thread exceeds the 2,000-comment export limit.");
     }
+    const drawCoordinationReadable =
+      post.systemPostKind !== "draw" ||
+      (await canReadDrawCoordination(ctx, { authorization, post }));
     const exportedComments: Record<string, unknown>[] = [];
-    for (const comment of comments) {
+    for (const comment of drawCoordinationReadable ? comments : []) {
       const commentRevision = comment.currentRevisionId
         ? await ctx.db.get(comment.currentRevisionId)
         : null;
@@ -724,6 +729,12 @@ async function buildExportedActionItems(
 ) {
   const actionItems: Record<string, unknown>[] = [];
   for (const post of selectedPosts) {
+    if (
+      post.systemPostKind === "draw" &&
+      !(await canReadDrawCoordination(ctx, { authorization, post }))
+    ) {
+      continue;
+    }
     const rows = await ctx.db
       .query("buildActionItems")
       .withIndex("by_originatingPostId_and_queueSortAt", (query) =>

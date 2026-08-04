@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { authenticatedQuery } from "./authz";
 import { canReadCollaborationPost } from "./build_collaboration_access";
 import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import {
   collaborationFocusedPostContextValidator,
   collaborationTagOptionValidator,
@@ -49,6 +50,8 @@ export const getFocusedBuildActionItemContext = authenticatedQuery
     const post = await ctx.db.get(item.originatingPostId);
     if (
       !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+      (post?.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post }))) ||
       !(await canReadMilestoneSystemActionItem(ctx, {
         actionItem: item,
         buildId: authorization.build._id,
@@ -83,6 +86,28 @@ export const getFocusedBuildCollaborationReference = authenticatedQuery
       ctx,
       args
     );
+    const referenceRows = await ctx.db
+      .query("buildCollaborationReferences")
+      .withIndex("by_buildId_and_entityKind_and_entityId", (query) =>
+        query
+          .eq("buildId", authorization.build._id)
+          .eq("entityKind", args.entityKind)
+          .eq("entityId", args.entityId),
+      )
+      .take(100);
+    for (const referenceRow of referenceRows) {
+      const referencedPost = await ctx.db.get(referenceRow.postId);
+      if (
+        referencedPost?.systemPostKind === "draw" &&
+        referenceRow.ownerKind !== "postRevision" &&
+        !(await canReadDrawCoordination(ctx, {
+          authorization,
+          post: referencedPost,
+        }))
+      ) {
+        return { state: "revoked" as const };
+      }
+    }
     try {
       const reference = await resolveCurrentBuildCollaborationReference(ctx, {
         authorization,
@@ -149,7 +174,11 @@ export const getFocusedBuildCollaborationAssetContext = authenticatedQuery
     });
     const postId = asset.originatingPostId ?? owner?.postId;
     const post = postId ? await ctx.db.get(postId) : null;
-    if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+    if (
+      !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+      (post?.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
+    ) {
       return { state: "revoked" as const };
     }
     return {
@@ -180,7 +209,9 @@ export const getFocusedBuildCollaborationPostContext = authenticatedQuery
       !post ||
       post.buildId !== authorization.build._id ||
       post.organizationId !== authorization.organizationId ||
-      !(await canReadCollaborationPost(ctx, authorization, post))
+      !(await canReadCollaborationPost(ctx, authorization, post)) ||
+      (post.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       return { state: "revoked" as const };
     }

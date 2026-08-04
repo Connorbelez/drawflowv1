@@ -4403,6 +4403,15 @@ export default defineSchema({
       v.literal("manual")
     ),
     active: v.boolean(),
+    // Draw coordination membership is intentionally orthogonal to the
+    // ordinary follow state above. Joining coordination must not subscribe a
+    // user to the thread, and leaving must not silently destroy an explicit
+    // follow created by another collaboration action.
+    coordinationActive: v.optional(v.boolean()),
+    coordinationJoinedAt: v.optional(v.number()),
+    coordinationJoinedByWorkosUserId: v.optional(v.string()),
+    coordinationLeftAt: v.optional(v.number()),
+    coordinationLeftByWorkosUserId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -4412,6 +4421,10 @@ export default defineSchema({
       "buildId",
       "workosUserId",
       "active",
+    ])
+    .index("by_postId_and_coordinationActive", [
+      "postId",
+      "coordinationActive",
     ]),
   buildCollaborationReactions: defineTable({
     organizationId: v.string(),

@@ -7,6 +7,7 @@ import {
   canReadCollaborationPost,
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { projectCollaborationRevisionForViewer } from "./build_collaboration_content";
 import {
   claimBuildCollaborationWriteByBuildId,
@@ -96,6 +97,12 @@ export const getBuildCollaborationThreadContext = authenticatedQuery
       args
     );
     const post = await requireReadablePost(ctx, authorization, args.postId);
+    if (
+      post.systemPostKind === "draw" &&
+      !(await canReadDrawCoordination(ctx, { authorization, post }))
+    ) {
+      throw new Error("Forbidden: Draw coordination");
+    }
     const currentReaderIds = new Set(
       await resolveCurrentCollaborationPostReaderIds(ctx, authorization, post)
     );
@@ -790,6 +797,12 @@ async function requireManageablePost(
 ) {
   await requireBuildCollaborationWritable(ctx, authorization);
   const post = await requireReadablePost(ctx, authorization, postId);
+  if (
+    post.systemPostKind === "draw" &&
+    !(await canReadDrawCoordination(ctx, { authorization, post }))
+  ) {
+    throw new Error("Forbidden: Draw coordination");
+  }
   if (post.contentState !== "active" || !canManageThread(authorization, post)) {
     throw new Error("Forbidden: collaboration thread management");
   }

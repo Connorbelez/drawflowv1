@@ -2589,6 +2589,7 @@ function ComposerAttachmentInput({
 
 function CollaborationPostHeader({
   buildId,
+  coordinationVisible,
   entry,
   mutationsAllowed,
   onEdit,
@@ -2597,6 +2598,7 @@ function CollaborationPostHeader({
   organizationId,
 }: {
   buildId: Id<"activeBuilds">;
+  coordinationVisible: boolean;
   entry: CollaborationFeedPostEntry;
   mutationsAllowed: boolean;
   onEdit: () => void;
@@ -2642,6 +2644,7 @@ function CollaborationPostHeader({
     );
   const canEdit =
     mutationsAllowed &&
+    coordinationVisible &&
     (entry.post.viewerIsAuthor ||
       (entry.post.systemPost && entry.post.viewerCanManageThread)) &&
     entry.post.contentState === "active";
@@ -2671,6 +2674,7 @@ function CollaborationPostHeader({
         <CollaborationPostActions
           canEdit={canEdit}
           canViewHistory={canViewHistory}
+          coordinationVisible={coordinationVisible}
           entry={entry}
           followPost={followPost}
           mutationsAllowed={mutationsAllowed}
@@ -2744,6 +2748,7 @@ function useAnnouncementProminence(
 function CollaborationPostActions({
   canEdit,
   canViewHistory,
+  coordinationVisible,
   entry,
   followPost,
   mutationsAllowed,
@@ -2754,6 +2759,7 @@ function CollaborationPostActions({
 }: {
   canEdit: boolean;
   canViewHistory: boolean;
+  coordinationVisible: boolean;
   entry: CollaborationFeedPostEntry;
   followPost: () => void;
   mutationsAllowed: boolean;
@@ -2795,24 +2801,28 @@ function CollaborationPostActions({
                 {moderationActionLabel(entry.post)}
               </DropdownMenuItem>
             ) : null}
-            {entry.post.contentState === "active" ? (
+            {coordinationVisible && entry.post.contentState === "active" ? (
               <DropdownMenuItem onClick={onManageThread}>
                 {mutationsAllowed && entry.post.viewerCanManageThread
                   ? "Manage thread outcome"
                   : "View thread outcome"}
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem onClick={() => savePost("personal")}>
-              Save privately
-            </DropdownMenuItem>
-            {mutationsAllowed ? (
-              <DropdownMenuItem onClick={() => savePost("build")}>
-                Pin for Build
-              </DropdownMenuItem>
+            {coordinationVisible ? (
+              <>
+                <DropdownMenuItem onClick={() => savePost("personal")}>
+                  Save privately
+                </DropdownMenuItem>
+                {mutationsAllowed ? (
+                  <DropdownMenuItem onClick={() => savePost("build")}>
+                    Pin for Build
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem onClick={followPost}>
+                  {entry.following ? "Unfollow thread" : "Follow thread"}
+                </DropdownMenuItem>
+              </>
             ) : null}
-            <DropdownMenuItem onClick={followPost}>
-              {entry.following ? "Unfollow thread" : "Follow thread"}
-            </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -2984,6 +2994,9 @@ function CollaborationPostCard({
   const [moderationTarget, setModerationTarget] =
     useState<BuildCollaborationModerationEntity | null>(null);
   const [threadSheetOpen, setThreadSheetOpen] = useState(false);
+  const drawCoordinationVisible =
+    entry.post.systemPost?.kind !== "draw" ||
+    entry.post.systemPost.drawCoordination?.eligible === true;
   const participants = tagOptions.filter(
     (option) => option.kind === "participant"
   );
@@ -3193,6 +3206,7 @@ function CollaborationPostCard({
     >
       <CollaborationPostHeader
         buildId={buildId}
+        coordinationVisible={drawCoordinationVisible}
         entry={entry}
         mutationsAllowed={mutationsAllowed}
         onEdit={postEditTarget}
@@ -3216,7 +3230,11 @@ function CollaborationPostCard({
         />
         {entry.post.systemPost ? (
           <SystemPostFacts
+            buildId={buildId}
             entry={entry}
+            mutationsAllowed={mutationsAllowed}
+            onCreateActionItem={onCreateActionItem}
+            organizationId={organizationId}
             planningReconciliation={planningReconciliation}
           />
         ) : null}
@@ -3259,7 +3277,7 @@ function CollaborationPostCard({
       </CardPanel>
       {entry.post.contentState === "active" ? (
         <>
-          <div
+          {drawCoordinationVisible ? <div
             className={cn(
               "grid border-y",
               entry.post.systemPost?.kind === "draw"
@@ -3297,8 +3315,8 @@ function CollaborationPostCard({
               <Flag aria-hidden="true" className="size-4" />
               Action Items {entry.actionItems.length}
             </button> : null}
-          </div>
-          {tab === "discussion" ? (
+          </div> : null}
+          {drawCoordinationVisible && tab === "discussion" ? (
             <CollaborationDiscussion
               acceptedCommentId={entry.post.acceptedCommentId}
               buildId={buildId}
@@ -3711,6 +3729,9 @@ function SystemPostPlanningComparison({
 }
 
 type SystemDrawFacts = NonNullable<CollaborationSystemPost["drawFacts"]>;
+type DrawCoordinationState = NonNullable<
+  CollaborationSystemPost["drawCoordination"]
+>;
 
 function drawFactMoney(amountCents: number) {
   return `$${(amountCents / 100).toLocaleString("en-US", {
@@ -3723,7 +3744,49 @@ function drawFactStatusLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
-function SystemPostDrawFacts({ facts }: { facts: SystemDrawFacts }) {
+function SystemPostDrawFacts({
+  buildId,
+  coordination,
+  facts,
+  mutationsAllowed,
+  onCreateActionItem,
+  organizationId,
+  postId,
+}: {
+  buildId: Id<"activeBuilds">;
+  coordination?: DrawCoordinationState;
+  facts: SystemDrawFacts;
+  mutationsAllowed: boolean;
+  onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
+  organizationId: string;
+  postId: Id<"buildCollaborationPosts">;
+}) {
+  const join = useBuildCollaborationMutation(
+    api.build_draw_coordination.joinDrawCoordination
+  );
+  const leave = useBuildCollaborationMutation(
+    api.build_draw_coordination.leaveDrawCoordination
+  );
+  const [pending, setPending] = useState(false);
+  const updateCoordination = async (action: "join" | "leave") => {
+    setPending(true);
+    try {
+      await (action === "join" ? join : leave)({
+        buildId,
+        organizationId,
+        postId,
+      });
+      toast.success(action === "join" ? "Joined Draw coordination." : "Left Draw coordination.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to update Draw coordination."
+      );
+    } finally {
+      setPending(false);
+    }
+  };
   const planned = facts.planned;
   const request = facts.request;
   return (
@@ -3780,19 +3843,77 @@ function SystemPostDrawFacts({ facts }: { facts: SystemDrawFacts }) {
           </Badge>
         ) : null}
       </div>
+      {coordination?.eligible ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/60 p-2">
+          <div className="flex items-center gap-2 text-xs">
+            <Users aria-hidden="true" className="size-4" />
+            <span>
+              Working audience · {coordination.workingAudienceCount}
+            </span>
+            {coordination.oversight ? (
+              <Badge variant="outline">Oversight only</Badge>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {coordination.canJoin ? (
+              <Button
+                disabled={!mutationsAllowed || pending}
+                onClick={() => updateCoordination("join")}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Join coordination
+              </Button>
+            ) : null}
+            {coordination.canLeave ? (
+              <Button
+                disabled={!mutationsAllowed || pending}
+                onClick={() => updateCoordination("leave")}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Leave coordination
+              </Button>
+            ) : null}
+            <Button
+              disabled={!mutationsAllowed || pending}
+              onClick={() => onCreateActionItem(postId)}
+              size="sm"
+              type="button"
+            >
+              Add coordination Action Item
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          Internal coordination is unavailable for this role.
+        </p>
+      )}
       <p className="text-muted-foreground text-xs">
-        No generated Action Items or Draw board. Discussion remains available;
-        all workflow commands stay in the canonical Draw surfaces.
+        {coordination?.eligible
+          ? "No generated Action Items or Draw board. Discussion remains available; all workflow commands stay in the canonical Draw surfaces."
+          : "Canonical Draw facts remain visible. Internal coordination, discussion, and related work are restricted to eligible Build participants."}
       </p>
     </section>
   );
 }
 
 function SystemPostFacts({
+  buildId,
   entry,
+  mutationsAllowed,
+  onCreateActionItem,
+  organizationId,
   planningReconciliation,
 }: {
+  buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
+  mutationsAllowed: boolean;
+  onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
+  organizationId: string;
   planningReconciliation?: CollaborationPlanningReconciliation;
 }) {
   const systemPost = entry.post.systemPost;
@@ -3839,7 +3960,17 @@ function SystemPostFacts({
             </dd>
           </div>
         </dl>
-        {drawFacts ? <SystemPostDrawFacts facts={drawFacts} /> : null}
+        {drawFacts ? (
+          <SystemPostDrawFacts
+            buildId={buildId}
+            coordination={systemPost.drawCoordination}
+            facts={drawFacts}
+            mutationsAllowed={mutationsAllowed}
+            onCreateActionItem={onCreateActionItem}
+            organizationId={organizationId}
+            postId={entry.post._id}
+          />
+        ) : null}
         {!drawFacts ? (
           <>
             <SystemPostPlanningSummary summary={entry.post.planningSummary} />

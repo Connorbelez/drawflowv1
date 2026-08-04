@@ -8,6 +8,7 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildHumanCollaborationAccess } from "./build_collaboration_actor";
+import { canReadDrawCoordination } from "./build_draw_coordination";
 import { projectCollaborationAssetAttachments } from "./build_collaboration_asset_projection";
 import { persistGovernedCollaborationAssetAttachments } from "./build_collaboration_asset_publication";
 import {
@@ -74,7 +75,9 @@ export const addBuildCollaborationComment = authenticatedMutation
     if (
       !post ||
       post.buildId !== authorization.build._id ||
-      !(await canReadCollaborationPost(ctx, authorization, post))
+      !(await canReadCollaborationPost(ctx, authorization, post)) ||
+      (post.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       throw new Error("Forbidden: collaboration post");
     }
@@ -284,7 +287,11 @@ export const listBuildCollaborationComments = authenticatedQuery
       args
     );
     const post = await ctx.db.get(args.postId);
-    if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+    if (
+      !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+      (post?.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
+    ) {
       throw new Error("Forbidden: collaboration post");
     }
     if (post.contentState !== "active") {
@@ -325,7 +332,9 @@ export const getFocusedBuildCollaborationCommentContext = authenticatedQuery
     if (
       !post ||
       post.contentState !== "active" ||
-      !(await canReadCollaborationPost(ctx, authorization, post))
+      !(await canReadCollaborationPost(ctx, authorization, post)) ||
+      (post.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       return { state: "revoked" as const };
     }
@@ -710,7 +719,11 @@ export const reactToBuildCollaborationPost = authenticatedMutation
       args
     );
     const post = await ctx.db.get(args.postId);
-    if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+    if (
+      !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+      (post?.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
+    ) {
       throw new Error("Forbidden: collaboration post");
     }
     const existing = await ctx.db
@@ -774,7 +787,9 @@ export const reactToBuildCollaborationComment = authenticatedMutation
     if (
       !post ||
       post.contentState !== "active" ||
-      !(await canReadCollaborationPost(ctx, authorization, post))
+      !(await canReadCollaborationPost(ctx, authorization, post)) ||
+      (post.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       throw new Error("Forbidden: collaboration post");
     }
@@ -827,7 +842,11 @@ export const toggleBuildCollaborationPin = authenticatedMutation
       args
     );
     const post = await ctx.db.get(args.postId);
-    if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+    if (
+      !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+      (post?.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
+    ) {
       throw new Error("Forbidden: collaboration post");
     }
     if (args.kind === "build" && !canPinForBuild(authorization)) {
@@ -933,7 +952,11 @@ export const toggleBuildCollaborationFollow = authenticatedMutation
       args
     );
     const post = await ctx.db.get(args.postId);
-    if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+    if (
+      !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+      (post?.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
+    ) {
       throw new Error("Forbidden: collaboration post");
     }
     const existing = await ctx.db
@@ -978,7 +1001,11 @@ export const markBuildCollaborationPostViewed = authenticatedMutation
       args
     );
     const post = await ctx.db.get(args.postId);
-    if (!(post && (await canReadCollaborationPost(ctx, authorization, post)))) {
+    if (
+      !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
+      (post?.systemPostKind === "draw" &&
+        !(await canReadDrawCoordination(ctx, { authorization, post })))
+    ) {
       throw new Error("Forbidden: collaboration post");
     }
     const existing = await ctx.db
