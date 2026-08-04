@@ -10147,12 +10147,34 @@ describe("production proposal foundation", () => {
       ),
     ).rejects.toThrow("plan changed or was not confirmed");
 
+    const scheduledRow = await admin.run(async (ctx: any) =>
+      ctx.db.get(legacy.rowId),
+    );
+    expect(scheduledRow?.scheduledActivationJobId).toEqual(expect.any(String));
+
     const applyArgs = {
       ...args,
       dryRun: false,
       expectedPlanToken: preview.planToken,
       reason: "Execute approved legacy lifecycle-row work order migration.",
     };
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(legacy.rowId, {
+        requestNote: "Substantive lifecycle change after preview.",
+      });
+    });
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.migrateActiveBuildDrawRequests,
+        applyArgs,
+      ),
+    ).rejects.toThrow("plan changed or was not confirmed");
+    await admin.run(async (ctx: any) => {
+      await ctx.db.patch(legacy.rowId, {
+        requestNote: "Legacy foundation reimbursement.",
+        updatedAt: 100,
+      });
+    });
     const applied = await admin.mutation(
       (api as any).production_proposals.migrateActiveBuildDrawRequests,
       applyArgs,

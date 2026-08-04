@@ -21761,6 +21761,24 @@ function activeBuildDrawMigrationSequence(value?: string) {
   return match ? Number.parseInt(match[1], 10) : 0;
 }
 
+/**
+ * Scheduler reconciliation updates the generic row timestamp while it only
+ * refreshes its durable activation pointer. Migration ordering must remain
+ * based on lifecycle chronology, not that scheduler-owned bookkeeping.
+ */
+function activeBuildDrawMigrationLifecycleTimestamp(
+  row: Doc<"plannedDrawScheduleRows">,
+) {
+  const requestedAt = row.requestedAt?.trim();
+  if (requestedAt) {
+    const parsed = Date.parse(requestedAt);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return row.createdAt;
+}
+
 async function activeBuildDrawMigrationPlanToken(value: unknown) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -22013,7 +22031,8 @@ async function planActiveBuildDrawRequestMigration(
     )
     .sort(
       (a, b) =>
-        a.updatedAt - b.updatedAt ||
+        activeBuildDrawMigrationLifecycleTimestamp(a) -
+          activeBuildDrawMigrationLifecycleTimestamp(b) ||
         a.order - b.order ||
         String(a._id).localeCompare(String(b._id)),
     );
@@ -22169,25 +22188,42 @@ async function planActiveBuildDrawRequestMigration(
     fundingSources: funding.sources.map((source) => ({
       availableCents: source.availableCents,
       buildMilestoneId: source.buildMilestoneId,
+      drawGroupKey: source.drawGroupKey,
       milestoneKey: source.milestoneKey,
+      sourceOrder: source.sourceOrder,
       unlockedCents: source.unlockedCents,
     })),
     lifecycleRows: lifecycleRows.map((row) => ({
       amountCents: row.amountCents,
+      buildMilestoneId: row.buildMilestoneId,
+      createdAt: row.createdAt,
+      drawKey: row.drawKey,
       id: row._id,
+      label: row.label,
+      milestoneKey: row.milestoneKey,
+      order: row.order,
       originalProposalAmountCents: proposalRowsById.get(
         String(row.proposalDrawScheduleRowId),
       )?.amountCents,
+      proposalDrawScheduleRowId: row.proposalDrawScheduleRowId,
+      releaseDate: row.releaseDate,
+      releaseNote: row.releaseNote,
+      releasedAt: row.releasedAt,
+      requestNote: row.requestNote,
+      requestReviewNote: row.requestReviewNote,
+      requestedAt: row.requestedAt,
+      reviewedAt: row.reviewedAt,
       status: row.status,
-      updatedAt: row.updatedAt,
     })),
     organizationId: input.organizationId,
     requests: sortedRequests.map((request) => ({
       amountCents: request.amountCents,
       clientOperationId: request.clientOperationId,
+      createdAt: request.createdAt,
+      displayId: request.displayId,
       id: request._id,
+      requestKey: request.requestKey,
       status: request.status,
-      updatedAt: request.updatedAt,
       workOrderKey: request.workOrderKey,
     })),
     version: ACTIVE_BUILD_DRAW_MIGRATION_VERSION,
