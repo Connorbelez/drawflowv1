@@ -7814,6 +7814,7 @@ export const getProductionTimelineWorkspace = authenticatedQuery
           );
     const activeMilestone = firstActiveMilestoneForWorkspace(milestones);
     const appPermissions = await proposalAppPermissionProjection(ctx, auth);
+    const canViewLenderDrawNotes = isBackoffice(auth.roles);
 
     return {
       activeBuild: auth.proposal.activeBuildId
@@ -7884,8 +7885,12 @@ export const getProductionTimelineWorkspace = authenticatedQuery
             drawKey: draw.drawKey,
             itemMilestoneKey: draw.milestoneKey,
             label: draw.label,
-            requestNote: draw.requestNote,
-            requestReviewNote: draw.requestReviewNote,
+            ...(canViewLenderDrawNotes
+              ? {
+                  requestNote: draw.requestNote,
+                  requestReviewNote: draw.requestReviewNote,
+                }
+              : {}),
             requestStatus: draw.requestStatus,
             reviewedAt: draw.reviewedAt,
             requestedAt: draw.requestedAt,
@@ -14767,6 +14772,7 @@ export const getActiveBuildDetailByString = authenticatedQuery
         };
       });
     const appPermissions = await activeBuildAppPermissionProjection(ctx, auth);
+    const canViewLenderDrawNotes = isBackoffice(auth.roles);
     const quickActionEvents = isBackoffice(auth.roles)
       ? [
           ...(drawRequests as Doc<"activeBuildDrawRequests">[])
@@ -14858,16 +14864,24 @@ export const getActiveBuildDetailByString = authenticatedQuery
               note: request.note,
               order: index + 1,
               plannedDrawKey: request.plannedDrawKey,
-              operationsRecommendationNote:
-                request.operationsRecommendationNote,
-              operationsReviewStartedAt: request.operationsReviewStartedAt,
-              readyForAdminAt: request.readyForAdminAt,
+              ...(canViewLenderDrawNotes
+                ? {
+                    operationsRecommendationNote:
+                      request.operationsRecommendationNote,
+                    operationsReviewStartedAt: request.operationsReviewStartedAt,
+                    readyForAdminAt: request.readyForAdminAt,
+                  }
+                : {}),
               releaseDate: request.releaseDate,
               releasedAt: request.releasedAt,
               releaseNote: request.releaseNote,
               requestedAt: request.requestedAt,
-              requestNote: request.note,
-              requestReviewNote: request.reviewNote,
+              ...(canViewLenderDrawNotes
+                ? {
+                    requestNote: request.note,
+                    requestReviewNote: request.reviewNote,
+                  }
+                : {}),
               reviewedByWorkosUserId: request.reviewedByWorkosUserId,
               nextAction:
                 request.status === "rejected"
@@ -15558,6 +15572,7 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
       milestoneAssignments as Doc<"milestoneContractorAssignments">[]
     ).filter((assignment) => assignment.status !== "removed");
     const appPermissions = await activeBuildAppPermissionProjection(ctx, auth);
+    const canViewLenderDrawNotes = isBackoffice(auth.roles);
 
     return {
       activeBuild: build,
@@ -15647,12 +15662,16 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
                 drawKey: request.requestKey,
                 itemMilestoneKey: planned?.milestoneKey,
                 label: `${request.displayId} · ${request.label}`,
-                requestNote: request.note,
-                requestReviewNote:
-                  request.reviewNote ??
-                  request.operationsRecommendationNote ??
-                  request.releaseNote ??
-                  request.withdrawalNote,
+                ...(canViewLenderDrawNotes
+                  ? {
+                      requestNote: request.note,
+                      requestReviewNote:
+                        request.reviewNote ??
+                        request.operationsRecommendationNote ??
+                        request.releaseNote ??
+                        request.withdrawalNote,
+                    }
+                  : {}),
                 requestStatus: activeBuildTimelineRequestStatus(request.status),
                 reviewedAt:
                   request.reviewedAt ??
@@ -18263,6 +18282,21 @@ export const updateActiveBuildSubmilestoneProgress = authenticatedMutation
       workflowRevision: (submilestone.workflowRevision ?? 0) + 1,
     };
     await ctx.db.patch(submilestone._id, patch);
+    const submilestones = (await ctx.db
+      .query("buildSubmilestones")
+      .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
+      .collect()) as Doc<"buildSubmilestones">[];
+    const completedCount = submilestones.filter(
+      (row) => row.status === "complete",
+    ).length;
+    const progressPercent =
+      submilestones.length === 0
+        ? (milestone.progressPercent ?? 0)
+        : Math.round((completedCount / submilestones.length) * 100);
+    await ctx.db.patch(milestone._id, {
+      progressPercent,
+      updatedAt: now,
+    });
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -22296,7 +22330,7 @@ export const migrateActiveBuildDrawRequests = authenticatedMutation
       args.buildId,
       args.workosOrganizationId,
     );
-    requireBackofficeActiveBuildWrite(auth);
+    requireApproverActiveBuildWrite(auth);
     const reason = args.reason.trim();
     if (reason.length < 3 || reason.length > 500) {
       throw new Error(
@@ -31747,6 +31781,7 @@ async function applyActiveBuildCostItemBudgetDelta(
         `Budget sub-milestone not found: ${input.submilestoneKey}.`,
       );
     }
+    assertActiveBuildPlanningTargetActive(input.milestone, submilestone);
     await ctx.db.patch(submilestone._id, {
       budgetCents: Math.max(
         0,
@@ -31792,6 +31827,9 @@ async function validateBuildMaintainedCostCoverage(
     throw new Error(
       `Budget sub-milestone not found: ${input.submilestoneKey}.`,
     );
+  }
+  if (submilestone.planningState === "superseded") {
+    return;
   }
   const maintainedCents = costItems.reduce(
     (total, item) =>

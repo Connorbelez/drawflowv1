@@ -1345,6 +1345,109 @@ describe("production proposal foundation", () => {
     expect(detail.costItems).toHaveLength(2);
   });
 
+  test("rejects budget writes to superseded submilestones and skips stale coverage validation", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Superseded cost target build",
+      location: "24 Superseded Target Lane",
+      submilestones: [{ key: "forms", name: "Forms", order: 1 }],
+    });
+    const maintainedItemId = await admin.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        costCents: 1_000_000,
+        itemType: "material",
+        milestoneKey: "foundation",
+        quantity: 1,
+        relevantSubmilestoneKeys: ["forms"],
+        title: "Maintained forms package",
+        workosOrganizationId: ORG,
+      },
+    );
+    const additiveItemId = await admin.mutation(
+      (api as any).production_proposals.createActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        costCents: 2_000_000,
+        itemType: "equipment",
+        milestoneKey: "foundation",
+        quantity: 1,
+        relevantSubmilestoneKeys: ["forms"],
+        title: "Additive forms package",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (query: any) =>
+          query.eq("buildMilestoneId", milestone._id),
+        )
+        .filter((query: any) => query.eq(query.field("key"), "forms"))
+        .unique();
+      await ctx.db.patch(maintainedItemId, {
+        budgetSubmilestoneKey: "forms",
+        budgetTreatment: "maintain",
+      });
+      await ctx.db.patch(additiveItemId, {
+        budgetSubmilestoneKey: "forms",
+      });
+      await ctx.db.patch(submilestone._id, {
+        budgetCents: 0,
+        planningState: "superseded",
+        supersededAt: Date.now(),
+      });
+    });
+
+    await admin.mutation(
+      (api as any).production_proposals.updateActiveBuildCostItem,
+      {
+        buildId: closing.buildId,
+        itemId: maintainedItemId,
+        reason: "Rename the retained cost evidence.",
+        title: "Maintained forms package (retained)",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      admin.mutation(
+        (api as any).production_proposals.updateActiveBuildCostItem,
+        {
+          buildId: closing.buildId,
+          costCents: 3_000_000,
+          itemId: additiveItemId,
+          reason: "Attempt to add budget to a removed target.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/removed by an approved planning revision/i);
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.costItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          _id: maintainedItemId,
+          title: "Maintained forms package (retained)",
+        }),
+        expect.objectContaining({
+          _id: additiveItemId,
+          costCents: 2_000_000,
+        }),
+      ]),
+    );
+  });
+
   test("enforces proposal-scoped builder staff material permissions", async () => {
     const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
     await grantOrgMembership(admin, {
@@ -2294,11 +2397,110 @@ describe("production proposal foundation", () => {
       { buildId: String(buildId), workosOrganizationId: ORG },
     );
     expect(detail.draws[0]).toMatchObject({
-      requestNote: "Ready for reimbursement.",
       status: "requested",
     });
+    expect(detail.draws[0]).not.toHaveProperty("requestNote");
+    expect(detail.draws[0]).not.toHaveProperty("requestReviewNote");
     expect(detail.costItems).toHaveLength(0);
     expect(detail.appPermissions.role).toBe("staff");
+  });
+
+  test("redacts lender draw notes from builder projections while retaining lender visibility", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Draw note projection boundary build",
+      location: "31 Draw Note Boundary Lane",
+    });
+    await unlockActiveBuildMilestoneForDraw(admin, closing.buildId);
+    await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      await ctx.db.patch(build.proposalId, {
+        assignedBrokerWorkosUserId: "user_broker",
+      });
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const broker = withIdentity(base, ["broker"], "user_broker");
+    const receipt = await builder.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      {
+        amountCents: 1_000_000,
+        buildId: closing.buildId,
+        clientOperationId: "draw-note-boundary-001",
+        drawKey: "draw-01",
+        note: "Builder reimbursement note.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const builderDetail = await builder.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    const builderTimeline = await builder.query(
+      (api as any).production_proposals.getActiveBuildTimelineWorkspace,
+      { buildId: closing.buildId, workosOrganizationId: ORG },
+    );
+    const builderDetailDraw = builderDetail.draws.find(
+      (draw: any) => draw.drawKey === receipt.requestKey,
+    );
+    const builderTimelineDraw = builderTimeline.draws.find(
+      (draw: any) => draw.drawKey === receipt.requestKey,
+    );
+    expect(builderDetailDraw).not.toHaveProperty("requestNote");
+    expect(builderDetailDraw).not.toHaveProperty("requestReviewNote");
+    expect(builderTimelineDraw).not.toHaveProperty("requestNote");
+    expect(builderTimelineDraw).not.toHaveProperty("requestReviewNote");
+
+    await broker.mutation(
+      (api as any).production_proposals.startActiveBuildDrawReview,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Operations review started.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await broker.mutation(
+      (api as any).production_proposals.submitActiveBuildDrawForAdmin,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Operations recommendation recorded.",
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.mutation(
+      (api as any).production_proposals.rejectActiveBuildDraw,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: "Lender review requires another supporting invoice.",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const lenderDetail = await broker.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    const lenderTimeline = await broker.query(
+      (api as any).production_proposals.getActiveBuildTimelineWorkspace,
+      { buildId: closing.buildId, workosOrganizationId: ORG },
+    );
+    expect(
+      lenderDetail.draws.find((draw: any) => draw.drawKey === receipt.requestKey),
+    ).toMatchObject({
+      requestNote: "Builder reimbursement note.",
+      requestReviewNote: "Lender review requires another supporting invoice.",
+    });
+    expect(
+      lenderTimeline.draws.find(
+        (draw: any) => draw.drawKey === receipt.requestKey,
+      ),
+    ).toMatchObject({
+      requestNote: "Builder reimbursement note.",
+      requestReviewNote: "Lender review requires another supporting invoice.",
+    });
   });
 
   test("provisions unknown active-build builder staff emails before assigning app permissions", async () => {
@@ -6319,6 +6521,84 @@ describe("production proposal foundation", () => {
     });
   });
 
+  test("reconciles parent milestone progress after a field-only submilestone update", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Field progress reconciliation build",
+      location: "19 Progress Reconciliation Lane",
+      submilestones: [
+        { key: "forms", name: "Forms", order: 1 },
+        { key: "waterproofing", name: "Waterproofing", order: 2 },
+      ],
+    });
+    const builder = withIdentity(base, ["builder"], "user_builder");
+
+    await builder.mutation(
+      (api as any).production_proposals.updateActiveBuildSubmilestoneExecution,
+      {
+        actualStartedAt: Date.parse("2026-05-02T12:00:00.000Z"),
+        buildId: closing.buildId,
+        idempotencyKey: "progress-reconciliation-forms-001",
+        milestoneKey: "foundation",
+        status: "complete",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await builder.mutation(
+      (api as any).production_proposals.startActiveBuildMilestone,
+      {
+        actualStartedAt: Date.parse("2026-05-03T12:00:00.000Z"),
+        buildId: closing.buildId,
+        idempotencyKey: "progress-reconciliation-waterproofing-start-001",
+        milestoneKey: "foundation",
+        source: "submilestone_detail",
+        submilestoneKey: "waterproofing",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const expectedRevision = await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query: any) =>
+          query.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      await ctx.db.patch(milestone._id, { progressPercent: 0 });
+      const submilestone = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (query: any) =>
+          query.eq("buildMilestoneId", milestone._id),
+        )
+        .filter((query: any) => query.eq(query.field("key"), "waterproofing"))
+        .unique();
+      return submilestone.workflowRevision ?? 0;
+    });
+
+    await builder.mutation(
+      (api as any).production_proposals.updateActiveBuildSubmilestoneProgress,
+      {
+        buildId: closing.buildId,
+        expectedRevision,
+        idempotencyKey: "progress-reconciliation-waterproofing-001",
+        milestoneKey: "foundation",
+        progressPercent: 25,
+        submilestoneKey: "waterproofing",
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      detail.milestones.find((milestone: any) => milestone.key === "foundation")
+        .progressPercent,
+    ).toBe(50);
+  });
+
   test("milestone completion is gated by persisted submilestone execution state", async () => {
     const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
     const closing = await createClosedSingleMilestoneBuild(admin, seed, {
@@ -10071,6 +10351,33 @@ describe("production proposal foundation", () => {
     expect(afterReplay.migrationAudits[0].newState).toContain(
       migrationPlan.planToken,
     );
+  });
+
+  test("reserves active-build draw migration for approver roles", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Approver-only draw migration build",
+      location: "42 Draw Migration Lane",
+    });
+    await admin.run(async (ctx: any) => {
+      const build = await ctx.db.get(closing.buildId);
+      await ctx.db.patch(build.proposalId, {
+        assignedBrokerWorkosUserId: "user_broker",
+      });
+    });
+    const broker = withIdentity(base, ["broker"], "user_broker");
+
+    await expect(
+      broker.mutation(
+        (api as any).production_proposals.migrateActiveBuildDrawRequests,
+        {
+          buildId: closing.buildId,
+          dryRun: true,
+          reason: "Broker migration attempt must be denied.",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/Forbidden: role/i);
   });
 
   test("dry-runs, applies, and idempotently replays legacy lifecycle-row migration", async () => {
