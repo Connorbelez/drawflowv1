@@ -556,6 +556,8 @@ async function requireReadableHistoryPost(
     !post ||
     post.buildId !== authorization.build._id ||
     !(await canReadCollaborationPost(ctx, authorization, post)) ||
+    (post.systemPostKind === "draw" &&
+      !(await canReadDrawCoordination(ctx, { authorization, post }))) ||
     (post.contentState !== "active" &&
       post.authorWorkosUserId !== authorization.viewer.subject)
   ) {

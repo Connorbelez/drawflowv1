@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 export type ActiveSubmilestoneEvidenceRequirement = {
@@ -165,6 +166,12 @@ export async function appendActiveSubmilestoneEvidenceAssetToDraft(
     requirementKey?: string;
   }
 ) {
+  if (!input.asset.storageId) {
+    throw new ConvexError({
+      code: "EVIDENCE_STORAGE_REQUIRED",
+      message: "Evidence must reference a stored file before package membership.",
+    });
+  }
   const packageRevision = await ensureActiveSubmilestoneEvidencePackageDraft(
     ctx,
     input
@@ -181,19 +188,30 @@ export async function appendActiveSubmilestoneEvidenceAssetToDraft(
     ctx,
     input
   );
-  const explicitlyRequestedRequirement = input.requirementKey
+  const requestedRequirementKey = input.requirementKey?.trim();
+  const requiredRequirements = requirements.filter(
+    (candidate) => candidate.required
+  );
+  if (!requestedRequirementKey && requiredRequirements.length > 1) {
+    throw new ConvexError({
+      code: "EVIDENCE_REQUIREMENT_KEY_REQUIRED",
+      message:
+        "A requirementKey is required when a sub-milestone has multiple required evidence requirements.",
+    });
+  }
+  const explicitlyRequestedRequirement = requestedRequirementKey
     ? requirements.find(
-        (candidate) => candidate.requirementKey === input.requirementKey,
+        (candidate) => candidate.requirementKey === requestedRequirementKey,
       )
     : undefined;
-  if (input.requirementKey && !explicitlyRequestedRequirement) {
+  if (requestedRequirementKey && !explicitlyRequestedRequirement) {
     throw new Error(
-      `Evidence requirement ${input.requirementKey} is not active for this sub-milestone.`,
+      `Evidence requirement ${requestedRequirementKey} is not active for this sub-milestone.`,
     );
   }
   const requirement =
     explicitlyRequestedRequirement ??
-    requirements.find((candidate) => candidate.required) ??
+    requiredRequirements[0] ??
     requirements[0];
   const requirementKey = requirement?.requirementKey ?? "completion-evidence";
   const existing = await ctx.db
@@ -416,7 +434,10 @@ export async function resolveActiveSubmilestoneEvidencePackageReadiness(
     );
     const matchingAssets = matchingItems
       .map((item) => assetById.get(String(item.evidenceAssetId)))
-      .filter((asset): asset is Doc<"buildEvidenceAssets"> => Boolean(asset));
+      .filter(
+        (asset): asset is Doc<"buildEvidenceAssets"> =>
+          Boolean(asset?.storageId),
+      );
     if (matchingAssets.length === 0) {
       readyExceptFor.push(requirement.label);
       continue;

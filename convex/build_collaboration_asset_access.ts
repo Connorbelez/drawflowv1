@@ -170,32 +170,9 @@ export async function resolveCollaborationAssetReadDecision(
     : null;
   if (
     session &&
-    (session.contextKind === "post" || session.contextKind === "actionItem") &&
-    session.contextRecordId
+    !(await canReadAssetStagingContext(ctx, input.authorization, session))
   ) {
-    const postId =
-      session.contextKind === "post"
-        ? ctx.db.normalizeId("buildCollaborationPosts", session.contextRecordId)
-        : null;
-    const actionItemId =
-      session.contextKind === "actionItem"
-        ? ctx.db.normalizeId("buildActionItems", session.contextRecordId)
-        : null;
-    const actionItem = actionItemId ? await ctx.db.get(actionItemId) : null;
-    const post = postId
-      ? await ctx.db.get(postId)
-      : actionItem
-        ? await ctx.db.get(actionItem.originatingPostId)
-        : null;
-    if (
-      post?.systemPostKind === "draw" &&
-      !(await canReadDrawCoordination(ctx, {
-        authorization: input.authorization,
-        post,
-      }))
-    ) {
-      return null;
-    }
+    return null;
   }
   if (
     !session ||
@@ -247,8 +224,27 @@ export async function canReadAssetStagingContext(
     : actionItem
       ? await ctx.db.get(actionItem.originatingPostId)
       : null;
-  if (!post || post.systemPostKind !== "draw") {
-    return Boolean(post);
+  if (
+    !post ||
+    post.organizationId !== authorization.organizationId ||
+    post.brokerageId !== authorization.brokerage._id ||
+    post.buildId !== authorization.build._id
+  ) {
+    return false;
+  }
+  if (
+    actionItem &&
+    !(await canReadMilestoneSystemActionItem(ctx, {
+      actionItem,
+      buildId: authorization.build._id,
+      role: authorization.effectiveRole.role,
+      workosUserId: authorization.viewer.subject,
+    }))
+  ) {
+    return false;
+  }
+  if (post.systemPostKind !== "draw") {
+    return true;
   }
   return await canReadDrawCoordination(ctx, { authorization, post });
 }

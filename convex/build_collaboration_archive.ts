@@ -157,16 +157,17 @@ export async function buildCollaborationPostArchivePage(
   const { authorization, cursor, post, postSnapshot, section, snapshotAt } =
     input;
   const postRow = await ctx.db.get(post._id);
+  if (!postRow) {
+    return { continueCursor: "", data: [], isDone: true };
+  }
   const drawCoordinationReadable =
-    postRow?.systemPostKind !== "draw" ||
-    (postRow
-      ? await canReadDrawCoordination(ctx, {
-          authorization,
-          post: postRow,
-        })
-      : false);
+    postRow.systemPostKind !== "draw" ||
+    (await canReadDrawCoordination(ctx, {
+      authorization,
+      post: postRow,
+    }));
   if (
-    postRow?.systemPostKind === "draw" &&
+    postRow.systemPostKind === "draw" &&
     !drawCoordinationReadable &&
     section !== "core" &&
     section !== "revisions"
@@ -773,11 +774,21 @@ function omitMutableFields<T extends object>(row: T, keys: string[]) {
 }
 
 function redactArchiveSnapshot(snapshot: CollaborationPostArchiveSnapshot) {
+  const retainedFields = new Set([
+    "createdAt",
+    "postId",
+    "redacted",
+    "redactedFields",
+    "revision",
+    "updatedAt",
+  ]);
   return {
     createdAt: snapshot.createdAt,
     postId: snapshot.postId,
     redacted: true,
-    redactedFields: ["currentRevisionId", "threadRevision"],
+    redactedFields: Object.keys(snapshot)
+      .filter((key) => !retainedFields.has(key))
+      .sort(),
     revision: snapshot.revision,
     updatedAt: snapshot.updatedAt,
   };
@@ -1260,7 +1271,9 @@ export async function buildCollaborationPostArchive(
         "post follows"
       )
     ).filter((follow) => follow.workosUserId === authorization.viewer.subject) : [],
-    moderation: await moderationHistory(ctx, authorization, "post", post._id),
+    moderation: drawCoordinationReadable
+      ? await moderationHistory(ctx, authorization, "post", post._id)
+      : [],
     pins: drawCoordinationReadable ? (
       await limited(
         ctx.db

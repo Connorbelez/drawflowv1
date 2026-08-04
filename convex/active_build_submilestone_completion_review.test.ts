@@ -159,6 +159,15 @@ async function startForms(fixture: Awaited<ReturnType<typeof seedFixture>>) {
   );
 }
 
+async function storeEvidence(
+  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  content: string,
+) {
+  return await fixture.base.run((ctx: any) =>
+    ctx.storage.store(new Blob([content], { type: "image/jpeg" })),
+  );
+}
+
 async function submilestoneState(
   fixture: Awaited<ReturnType<typeof seedFixture>>,
 ) {
@@ -194,6 +203,7 @@ async function submitReviewPackage(
   key: string,
 ) {
   const before = await submilestoneState(fixture);
+  const storageId = await storeEvidence(fixture, key);
   const evidence = await fixture.builder.mutation(
     (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
     {
@@ -202,6 +212,7 @@ async function submitReviewPackage(
         fileName: `${key}.jpg`,
         mimeType: "image/jpeg",
         sizeBytes: 100,
+        storageId,
       },
       expectedRevision: before.submilestone.workflowRevision ?? 0,
       idempotencyKey: `${key}-evidence`,
@@ -327,6 +338,7 @@ describe("canonical Sub-milestone completion review", () => {
           mimeType: "image/jpeg",
           requirementKey: "forms-photo",
           sizeBytes: 1024,
+          storageId: await storeEvidence(fixture, "forms-photo"),
         },
         expectedRevision: progress.revision,
         idempotencyKey: "completion-review-forms-evidence",
@@ -684,6 +696,7 @@ describe("canonical Sub-milestone completion review", () => {
           },
           mimeType: "image/jpeg",
           sizeBytes: 256,
+          storageId: await storeEvidence(fixture, "forms-location-denied"),
         },
         expectedRevision: state.submilestone.workflowRevision ?? 0,
         idempotencyKey: "completion-review-location-denied",

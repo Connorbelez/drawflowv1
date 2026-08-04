@@ -1729,6 +1729,8 @@ function normalizeProductionMilestoneSchedule<
       return {
         ...submilestone,
         durationDays,
+        key: submilestone.key.trim(),
+        name: submilestone.name.trim(),
         order: Math.max(1, Math.round(submilestone.order ?? index + 1)),
         startDay,
       };
@@ -16305,17 +16307,16 @@ export const reviewActiveBuildBudgetRevision = authenticatedMutation
         sourceCommand: "reviewActiveBuildBudgetRevision",
         now,
       });
-      const milestones = await ctx.db
-        .query("buildMilestones")
-        .withIndex("by_build", (query) => query.eq("buildId", auth.build._id))
-        .take(1000);
-      for (const milestone of milestones) {
-        await synchronizeMilestoneSystemPostPlanning(ctx, {
-          actor: { roles: auth.roles, workosUserId: auth.subject },
-          build: auth.build,
-          milestone,
-        });
-      }
+      await ctx.scheduler.runAfter(
+        0,
+        internal.production_proposals
+          .scheduleActiveBuildMilestonePlanningReconciliation,
+        {
+          actorRoles: auth.roles,
+          actorWorkosUserId: auth.subject,
+          buildId: auth.build._id,
+        },
+      );
     }
     await writeActiveBuildEvent(ctx, {
       auth,
@@ -16337,6 +16338,94 @@ export const reviewActiveBuildBudgetRevision = authenticatedMutation
     return null;
   })
   .public();
+
+export const synchronizeActiveBuildMilestonePlanningInternal = internalMutation
+  .input({
+    actorRoles: v.array(v.string()),
+    actorWorkosUserId: v.string(),
+    buildId: v.id("activeBuilds"),
+    milestoneId: v.id("buildMilestones"),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const [build, milestone] = await Promise.all([
+      ctx.db.get(args.buildId),
+      ctx.db.get(args.milestoneId),
+    ]);
+    if (
+      !build ||
+      !milestone ||
+      milestone.buildId !== build._id ||
+      milestone.organizationId !== build.organizationId ||
+      milestone.brokerageId !== build.brokerageId ||
+      milestone.planningState === "superseded"
+    ) {
+      return null;
+    }
+    await synchronizeMilestoneSystemPostPlanning(ctx, {
+      actor: {
+        roles: args.actorRoles,
+        workosUserId: args.actorWorkosUserId,
+      },
+      build,
+      milestone,
+    });
+    return null;
+  })
+  .internal();
+
+export const scheduleActiveBuildMilestonePlanningReconciliation =
+  internalMutation
+    .input({
+      actorRoles: v.array(v.string()),
+      actorWorkosUserId: v.string(),
+      buildId: v.id("activeBuilds"),
+      cursor: v.optional(v.union(v.string(), v.null())),
+    })
+    .returns(v.null())
+    .handler(async (ctx, args) => {
+      const build = await ctx.db.get(args.buildId);
+      if (!build) return null;
+      const page = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (query) => query.eq("buildId", build._id))
+        .paginate({ cursor: args.cursor ?? null, numItems: 25 });
+      for (const milestone of page.page) {
+        if (
+          milestone.planningState === "superseded" ||
+          milestone.organizationId !== build.organizationId ||
+          milestone.brokerageId !== build.brokerageId
+        ) {
+          continue;
+        }
+        await ctx.scheduler.runAfter(
+          0,
+          internal.production_proposals
+            .synchronizeActiveBuildMilestonePlanningInternal,
+          {
+            actorRoles: args.actorRoles,
+            actorWorkosUserId: args.actorWorkosUserId,
+            buildId: build._id,
+            milestoneId: milestone._id,
+          },
+        );
+      }
+      if (!page.isDone) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.production_proposals
+            .scheduleActiveBuildMilestonePlanningReconciliation,
+          {
+            actorRoles: args.actorRoles,
+            actorWorkosUserId: args.actorWorkosUserId,
+            buildId: build._id,
+            cursor: page.continueCursor,
+          },
+        );
+      }
+      return null;
+    })
+    .internal();
 
 export const createActiveBuildTimelineMilestone = authenticatedMutation
   .input({
@@ -16386,6 +16475,9 @@ export const createActiveBuildTimelineMilestone = authenticatedMutation
         actor: { roles: auth.roles, workosUserId: auth.subject },
         build: auth.build,
         milestone: createdMilestone,
+      });
+      await scheduleCurrentMilestoneSystemPostActivations(ctx, {
+        build: auth.build,
       });
     }
     await writeActiveBuildEvent(ctx, {
@@ -17290,6 +17382,7 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
       submilestoneKey: args.submilestoneKey,
     });
   }
+  assertActiveBuildPlanningTargetActive(milestone, submilestone);
   if (submilestone.status !== "in_progress") {
     throw new ConvexError({
       code: "SUBMILESTONE_NOT_ACTIVE",
@@ -18370,13 +18463,30 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
         message: "Evidence can be added only while work is active.",
       });
     }
+    if (!args.evidence.storageId) {
+      throw new ConvexError({
+        code: "EVIDENCE_STORAGE_REQUIRED",
+        message: "Evidence must reference a stored file before upload.",
+      });
+    }
     assertExpectedSubmilestoneRevision(submilestone, args.expectedRevision);
     const requirements = await resolveActiveSubmilestoneEvidenceRequirements(
       ctx,
       { build: auth.build, milestone, submilestone },
     );
+    const requestedRequirementKey = args.evidence.requirementKey?.trim();
+    const requiredRequirements = requirements.filter((row) => row.required);
+    if (!requestedRequirementKey && requiredRequirements.length > 1) {
+      throw new ConvexError({
+        code: "EVIDENCE_REQUIREMENT_KEY_REQUIRED",
+        message:
+          "A requirementKey is required when a sub-milestone has multiple required evidence requirements.",
+      });
+    }
     const requirementKey =
-      args.evidence.requirementKey?.trim() || requirements[0]?.requirementKey;
+      requestedRequirementKey ||
+      requiredRequirements[0]?.requirementKey ||
+      requirements[0]?.requirementKey;
     if (!requirementKey || !requirements.some((row) => row.requirementKey === requirementKey)) {
       throw new ConvexError({
         code: "EVIDENCE_REQUIREMENT_NOT_FOUND",
@@ -18836,6 +18946,7 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       });
     }
     const evidencePackages: Array<{
+      alreadyInReview: boolean;
       packageRevision: Doc<"buildSubmilestoneEvidencePackageRevisions">;
       submilestone: Doc<"buildSubmilestones">;
     }> = [];
@@ -18865,15 +18976,18 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
           !expectedPackageRevisionBySubmilestone.has(submilestone.key),
       )
       .map((submilestone) => submilestone.key);
-    if (
+    const revisionMapContainsInvalidEntries =
+      expectedPackageRevisionEntries.length > 0 &&
+      (duplicateExpectedKeys.length > 0 || unknownExpectedKeys.length > 0);
+    const revisionMapRequiredForMilestone =
       submilestones.length > 1 &&
       (args.expectedEvidencePackageRevision !== undefined ||
         expectedPackageRevisionEntries.length > 0) &&
       (expectedPackageRevisionBySubmilestone.size === 0 ||
         missingExpectedKeys.length > 0 ||
         duplicateExpectedKeys.length > 0 ||
-        unknownExpectedKeys.length > 0)
-    ) {
+        unknownExpectedKeys.length > 0);
+    if (revisionMapContainsInvalidEntries || revisionMapRequiredForMilestone) {
       throw new ConvexError({
         code: "EVIDENCE_PACKAGE_REVISION_MAP_REQUIRED",
         message:
@@ -18885,11 +18999,49 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       });
     }
     for (const submilestone of submilestones) {
-      const packageRevision = await ensureDraftSubmilestoneEvidencePackage(ctx, {
-        auth,
-        milestone,
-        submilestone,
-      });
+      const alreadyInReview =
+        submilestone.evidenceReviewState === "in_review" &&
+        Boolean(submilestone.completionSubmissionId);
+      let packageRevision: Doc<
+        "buildSubmilestoneEvidencePackageRevisions"
+      >;
+      if (alreadyInReview) {
+        if (!submilestone.evidencePackageRevisionId) {
+          throw new ConvexError({
+            code: "EVIDENCE_REVIEW_STATE_INVALID",
+            message:
+              "An in-review Sub-milestone must reference its frozen Evidence Package revision.",
+            submilestoneKey: submilestone.key,
+          });
+        }
+        const referencedPackage = await ctx.db.get(
+          submilestone.evidencePackageRevisionId,
+        );
+        if (
+          !referencedPackage ||
+          referencedPackage.buildId !== auth.build._id ||
+          referencedPackage.organizationId !== auth.build.organizationId ||
+          referencedPackage.brokerageId !== auth.brokerage._id ||
+          referencedPackage.buildMilestoneId !== milestone._id ||
+          referencedPackage.buildSubmilestoneId !== submilestone._id ||
+          referencedPackage.proposalId !== auth.proposal._id ||
+          referencedPackage.status !== "frozen"
+        ) {
+          throw new ConvexError({
+            code: "EVIDENCE_REVIEW_STATE_INVALID",
+            message:
+              "An in-review Sub-milestone must reference its current frozen Evidence Package revision.",
+            submilestoneKey: submilestone.key,
+          });
+        }
+        packageRevision = referencedPackage;
+      } else {
+        packageRevision = await ensureDraftSubmilestoneEvidencePackage(ctx, {
+          auth,
+          milestone,
+          submilestone,
+        });
+      }
       const expectedPackageRevision =
         expectedPackageRevisionBySubmilestone.get(submilestone.key) ??
         (submilestones.length === 1
@@ -18926,14 +19078,16 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
           submilestoneKey: submilestone.key,
         });
       }
-      const now = Date.now();
-      await ctx.db.patch(packageRevision._id, {
-        frozenAt: now,
-        frozenByWorkosUserId: auth.subject,
-        status: "frozen",
-        updatedAt: now,
-      });
-      evidencePackages.push({ packageRevision, submilestone });
+      if (!alreadyInReview) {
+        const now = Date.now();
+        await ctx.db.patch(packageRevision._id, {
+          frozenAt: now,
+          frozenByWorkosUserId: auth.subject,
+          status: "frozen",
+          updatedAt: now,
+        });
+      }
+      evidencePackages.push({ alreadyInReview, packageRevision, submilestone });
     }
     if (milestone.actualStartedAt === undefined) {
       if (args.actualStartedAt === undefined) {
@@ -19001,7 +19155,8 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       status: "in_progress",
       updatedAt: Date.now(),
     });
-    for (const { packageRevision, submilestone } of evidencePackages) {
+    for (const { alreadyInReview, packageRevision, submilestone } of evidencePackages) {
+      if (alreadyInReview) continue;
       const now = Date.now();
       const revision = (submilestone.evidenceReviewRound ?? 0) + 1;
       const completionSubmissionId = await ctx.db.insert(
@@ -19479,10 +19634,7 @@ export const registerActiveBuildSiteVisitFile = publicMutation
           submilestoneKey: targetSubmilestoneKey,
         });
       }
-      const visitMilestone = await ctx.db.get(visit.buildMilestoneId);
-      if (!visitMilestone) {
-        throw new Error("Site Visit milestone was not found.");
-      }
+      assertActiveBuildPlanningTargetActive(visitMilestone, submilestone);
       await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
         actorWorkosUserId: "tokenized_site_visitor",
         asset: persistedAsset,
@@ -25363,25 +25515,33 @@ function normalizeEvidenceRequirementInputs(
   }>,
 ) {
   const seen = new Set<string>();
-  return requirements.flatMap((requirement) => {
+  return requirements.map((requirement) => {
     const requirementKey = requirement.requirementKey.trim();
     const label = requirement.label.trim();
-    if (!requirementKey || !label || seen.has(requirementKey)) {
-      return [];
+    if (!requirementKey || !label) {
+      throw new ConvexError({
+        code: "EVIDENCE_REQUIREMENT_INVALID",
+        message: "Evidence requirements need a non-empty key and label.",
+      });
+    }
+    if (seen.has(requirementKey)) {
+      throw new ConvexError({
+        code: "EVIDENCE_REQUIREMENT_DUPLICATE",
+        message: `Evidence requirement key ${requirementKey} is duplicated.`,
+        requirementKey,
+      });
     }
     seen.add(requirementKey);
-    return [
-      {
-        ...(requirement.description?.trim()
-          ? { description: requirement.description.trim() }
-          : {}),
-        kind: requirement.kind,
-        label,
-        locationRequired: requirement.locationRequired === true,
-        required: requirement.required,
-        requirementKey,
-      },
-    ];
+    return {
+      ...(requirement.description?.trim()
+        ? { description: requirement.description.trim() }
+        : {}),
+      kind: requirement.kind,
+      label,
+      locationRequired: requirement.locationRequired === true,
+      required: requirement.required,
+      requirementKey,
+    };
   });
 }
 
@@ -31188,7 +31348,11 @@ async function replaceActiveBuildSubmilestones(
     .take(1000)) as Doc<"buildSubmilestones">[];
   const now = Date.now();
   const supersededIds: Id<"buildSubmilestones">[] = [];
-  const existingByKey = new Map(existing.map((row) => [row.key, row]));
+  const existingByKey = new Map(
+    existing
+      .filter((row) => row.planningState !== "superseded")
+      .map((row) => [row.key, row]),
+  );
   for (const row of existing) {
     if (nextSubmilestoneByKey.has(row.key)) continue;
     if (row.planningState === "superseded") continue;
@@ -31620,7 +31784,10 @@ async function recalculateActiveBuildBudget(
     buildId,
   );
   const totalBudgetCents = milestones.reduce(
-    (total: number, milestone: any) => total + milestone.budgetCents,
+    (total: number, milestone: any) =>
+      milestone.planningState === "superseded"
+        ? total
+        : total + milestone.budgetCents,
     0,
   );
   await ctx.db.patch(buildId, {
@@ -36298,6 +36465,14 @@ async function seedCloseProposal(
   });
   const build = await ctx.db.get(buildId);
   if (build) {
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: {
+        actorRoles: input.auth.roles,
+        actorWorkosUserId: input.auth.subject,
+      },
+      build,
+      now: input.now,
+    });
     await scheduleCurrentMilestoneSystemPostActivations(ctx, {
       build,
       now: input.now,

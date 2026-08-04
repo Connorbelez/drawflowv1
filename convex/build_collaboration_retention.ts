@@ -743,6 +743,18 @@ async function deletePostTree(
       "search records"
     )
   );
+  if (preserveSystemPost) {
+    const commentSearchRecords = (
+      await bounded(
+        ctx.db
+          .query("buildCollaborationSearchRecords")
+          .withIndex("by_postId", (query) => query.eq("postId", post._id))
+          .take(MAX_CHILD_ROWS_PER_POST + 1),
+        "system post comment search records"
+      )
+    ).filter((record) => record.ownerKind === "comment");
+    await deleteRows(ctx, commentSearchRecords);
+  }
   if (!preserveSystemPost) await deleteRows(
     ctx,
     await bounded(
@@ -1267,26 +1279,19 @@ async function assertBuildCollaborationResidueRemoved(
       "posts",
       await ctx.db
         .query("buildCollaborationPosts")
-        .withIndex("by_buildId_and_createdAt", (query) =>
-          query.eq("buildId", buildId)
+        .withIndex("by_buildId_and_systemPostKind", (query) =>
+          query.eq("buildId", buildId).eq("systemPostKind", undefined)
         )
-        .take(5001)
-        .then((rows) => rows.find((post) => !post.systemPostKind) ?? null),
+        .first(),
     ],
     [
       "Action Items",
       await ctx.db
       .query("buildActionItems")
-      .withIndex("by_buildId_and_queueSortAt", (query) =>
-        query.eq("buildId", buildId)
+      .withIndex("by_buildId_and_systemMode", (query) =>
+        query.eq("buildId", buildId).eq("systemMode", undefined)
       )
-        .take(5001)
-        .then(
-          (rows) =>
-            rows.find(
-              (item) => item.systemMode !== "generated_milestone_submilestone",
-            ) ?? null,
-        ),
+        .first(),
     ],
     [
       "assets",

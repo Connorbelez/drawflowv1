@@ -176,6 +176,7 @@ describe("Build collaboration scheduled publication", () => {
         .reconcileDueMilestoneSystemPosts,
       { asOf: springStart }
     );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
 
     const first = await fixture.base.run(async (ctx) => {
       const post = await ctx.db
@@ -215,6 +216,7 @@ describe("Build collaboration scheduled publication", () => {
         .reconcileDueMilestoneSystemPosts,
       { asOf: springStart }
     );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
     const repeated = await fixture.base.run(async (ctx) => ({
       actionItems: await ctx.db.query("buildActionItems").collect(),
       audits: await ctx.db.query("auditEvents").collect(),
@@ -233,6 +235,7 @@ describe("Build collaboration scheduled publication", () => {
         .reconcileDueMilestoneSystemPosts,
       { asOf: missedStart }
     );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
     const behind = await fixture.builderStaff.query(
       (api as any).build_action_items.listBuildActionItems,
       { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }
@@ -260,6 +263,7 @@ describe("Build collaboration scheduled publication", () => {
         .reconcileDueMilestoneSystemPosts,
       { asOf: overdueStart }
     );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
     const started = await fixture.builderStaff.query(
       (api as any).build_action_items.listBuildActionItems,
       { buildId: fixture.buildId, organizationId: ORGANIZATION_ID }

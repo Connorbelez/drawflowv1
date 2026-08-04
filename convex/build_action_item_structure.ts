@@ -532,12 +532,7 @@ export const unlinkBuildActionItemRelation = authenticatedMutation
         "The governing Action Item must be one endpoint of the relationship."
       );
     }
-    const governing = await requireReadableActionItem(
-      ctx,
-      authorization,
-      args.governingActionItemId
-    );
-    await Promise.all([
+    const [source, target] = await Promise.all([
       requireReadableActionItem(
         ctx,
         authorization,
@@ -549,6 +544,10 @@ export const unlinkBuildActionItemRelation = authenticatedMutation
         relation.targetActionItemId
       ),
     ]);
+    assertCanonicalMilestoneActionItemMutable(source);
+    assertCanonicalMilestoneActionItemMutable(target);
+    const governing =
+      source._id === args.governingActionItemId ? source : target;
     assertExpectedRevision(governing, args.expectedGoverningRevision);
     const decision = assertOperation(authorization, governing, "link_relation");
     if (decision.authority === "coordinator" && !args.reason?.trim()) {
@@ -611,7 +610,7 @@ export const repairBuildActionItemRelation = authenticatedMutation
         relation.targetActionItemId
       ),
     ]);
-    const decision = assertOperation(authorization, source, "repair_relation");
+    const decision = assertRepairOperation(authorization, source);
     if (relation.status === "active") {
       return relation._id;
     }
@@ -1283,6 +1282,19 @@ function assertOperation(
   return decision;
 }
 
+function assertRepairOperation(
+  authorization: ActiveBuildAuthorization,
+  item: Doc<"buildActionItems">
+) {
+  const decision = operationDecision(authorization, item, "repair_relation");
+  if (!decision.allowed) {
+    throw new Error(
+      "Forbidden: Action Item repair relation authority"
+    );
+  }
+  return decision;
+}
+
 function assertExpectedRevision(
   item: Doc<"buildActionItems">,
   expectedRevision: number | undefined
@@ -1377,26 +1389,26 @@ async function recordRelationLifecycle(
     sourceActionItemId: input.sourceActionItemId,
     targetActionItemId: input.targetActionItemId,
   });
-  await recordStructuralEvent(ctx, {
-    actionItemId: input.sourceActionItemId,
-    authorization: input.authorization,
-    decision: input.decision,
-    eventType: input.eventType,
-    newState: state,
-    now: input.now,
-    reason: input.reason,
-    warnings: input.warnings,
-  });
-  await recordStructuralEvent(ctx, {
-    actionItemId: input.targetActionItemId,
-    authorization: input.authorization,
-    decision: input.decision,
-    eventType: input.eventType,
-    newState: state,
-    now: input.now,
-    reason: input.reason,
-    warnings: input.warnings,
-  });
+  const [source, target] = await Promise.all([
+    ctx.db.get(input.sourceActionItemId),
+    ctx.db.get(input.targetActionItemId),
+  ]);
+  if (!source || !target) {
+    throw new Error("Action Item relationship endpoint became unavailable.");
+  }
+  for (const item of [source, target]) {
+    if (item.systemMode === "generated_milestone_submilestone") continue;
+    await recordStructuralEvent(ctx, {
+      actionItemId: item._id,
+      authorization: input.authorization,
+      decision: input.decision,
+      eventType: input.eventType,
+      newState: state,
+      now: input.now,
+      reason: input.reason,
+      warnings: input.warnings,
+    });
+  }
   await Promise.all([
     ctx.db.insert("auditEvents", {
       actorRoles: input.authorization.roles,

@@ -397,7 +397,11 @@ export const processDueBuildCollaborationScheduledPublications =
  */
 export async function scheduleCurrentMilestoneSystemPostActivations(
   ctx: MutationCtx,
-  input: { build: Doc<"activeBuilds">; now?: number },
+  input: {
+    build: Doc<"activeBuilds">;
+    cursor?: string | null;
+    now?: number;
+  },
 ) {
   const { build } = input;
   if (!(build.status === "active" || build.status === "future_start")) {
@@ -409,12 +413,12 @@ export async function scheduleCurrentMilestoneSystemPostActivations(
     return;
   }
   const now = input.now ?? Date.now();
-  const milestones = await ctx.db
+  const page = await ctx.db
     .query("buildMilestones")
     .withIndex("by_build", (query) => query.eq("buildId", build._id))
-    .take(500);
+    .paginate({ cursor: input.cursor ?? null, numItems: 500 });
 
-  for (const milestone of milestones) {
+  for (const milestone of page.page) {
     if (
       milestone.organizationId !== build.organizationId ||
       milestone.brokerageId !== build.brokerageId
@@ -459,13 +463,31 @@ export async function scheduleCurrentMilestoneSystemPostActivations(
     });
   }
 
-  await scheduleCurrentDrawSystemPostActivations(ctx, input);
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.build_collaboration_scheduling
+        .scheduleCurrentMilestoneSystemPostActivationsInternal,
+      {
+        buildId: build._id,
+        cursor: page.continueCursor,
+        now,
+      },
+    );
+  }
+  if (input.cursor === undefined || input.cursor === null) {
+    await scheduleCurrentDrawSystemPostActivations(ctx, input);
+  }
 }
 
 /** Queue one durable activation per canonical planned Draw occurrence. */
 export async function scheduleCurrentDrawSystemPostActivations(
   ctx: MutationCtx,
-  input: { build: Doc<"activeBuilds">; now?: number },
+  input: {
+    build: Doc<"activeBuilds">;
+    cursor?: string | null;
+    now?: number;
+  },
 ) {
   const { build } = input;
   if (!(build.status === "active" || build.status === "future_start")) {
@@ -475,11 +497,11 @@ export async function scheduleCurrentDrawSystemPostActivations(
     return;
   }
   const now = input.now ?? Date.now();
-  const plannedDraws = await ctx.db
+  const page = await ctx.db
     .query("plannedDrawScheduleRows")
     .withIndex("by_build_order", (query) => query.eq("buildId", build._id))
-    .take(500);
-  for (const plannedDraw of plannedDraws) {
+    .paginate({ cursor: input.cursor ?? null, numItems: 500 });
+  for (const plannedDraw of page.page) {
     if (
       plannedDraw.organizationId !== build.organizationId ||
       plannedDraw.brokerageId !== build.brokerageId
@@ -521,15 +543,35 @@ export async function scheduleCurrentDrawSystemPostActivations(
       updatedAt: now,
     });
   }
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.build_collaboration_scheduling
+        .scheduleCurrentDrawSystemPostActivationsInternal,
+      {
+        buildId: build._id,
+        cursor: page.continueCursor,
+        now,
+      },
+    );
+  }
 }
 
 export const scheduleCurrentDrawSystemPostActivationsInternal = internalMutation
-  .input({ buildId: v.id("activeBuilds") })
+  .input({
+    buildId: v.id("activeBuilds"),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    now: v.optional(v.number()),
+  })
   .returns(v.null())
   .handler(async (ctx, args) => {
     const build = await ctx.db.get(args.buildId);
     if (build) {
-      await scheduleCurrentDrawSystemPostActivations(ctx, { build });
+      await scheduleCurrentDrawSystemPostActivations(ctx, {
+        build,
+        cursor: args.cursor,
+        now: args.now,
+      });
     }
     return null;
   })
@@ -538,12 +580,20 @@ export const scheduleCurrentDrawSystemPostActivationsInternal = internalMutation
 /** Schedule current Milestones for a supported Build after a repair/update. */
 export const scheduleCurrentMilestoneSystemPostActivationsInternal =
   internalMutation
-    .input({ buildId: v.id("activeBuilds") })
+    .input({
+      buildId: v.id("activeBuilds"),
+      cursor: v.optional(v.union(v.string(), v.null())),
+      now: v.optional(v.number()),
+    })
     .returns(v.null())
     .handler(async (ctx, args) => {
       const build = await ctx.db.get(args.buildId);
       if (build) {
-        await scheduleCurrentMilestoneSystemPostActivations(ctx, { build });
+        await scheduleCurrentMilestoneSystemPostActivations(ctx, {
+          build,
+          cursor: args.cursor,
+          now: args.now,
+        });
       }
       return null;
     })
@@ -723,179 +773,12 @@ export const reconcileDueMilestoneSystemPosts = internalMutation
       if (!(build.status === "active" || build.status === "future_start")) {
         continue;
       }
-      // A legacy Build without an explicitly persisted timezone is not safe to
-      // schedule from historical facts. It remains visible as unknown until a
-      // supported Build update repairs the timezone.
-      if (!build.timezone) {
-        continue;
-      }
-      let localDate: string;
-      try {
-        localDate = buildLocalDateAt(asOf, build.timezone);
-      } catch {
-        continue;
-      }
-
-      const milestones = await ctx.db
-        .query("buildMilestones")
-        .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(500);
-      for (const milestone of milestones) {
-        if (
-          milestone.organizationId !== build.organizationId ||
-          milestone.brokerageId !== build.brokerageId
-        ) {
-          continue;
-        }
-        if (milestone.planningState === "superseded") {
-          continue;
-        }
-        let plannedMilestoneStartDate: string;
-        try {
-          plannedMilestoneStartDate = addBuildLocalDays(
-            build.startDate,
-            milestone.dayStart,
-          );
-        } catch {
-          continue;
-        }
-        if (localDate < plannedMilestoneStartDate) {
-          continue;
-        }
-        const ensured = await ensureMilestoneSystemPost(ctx, {
-          actor: {
-            roles: ["system"],
-            workosUserId: "system:build-collaboration-scheduler",
-          },
-          build,
-          milestone,
-          activationReason: "scheduled",
-          now: asOf,
-        });
-        if (!ensured) {
-          continue;
-        }
-        const generatedActionItems = await ctx.db
-          .query("buildActionItems")
-          .withIndex("by_originatingPostId_and_createdAt", (query) =>
-            query.eq("originatingPostId", ensured.postId)
-          )
-          .take(500);
-        const actionItemBySubmilestone = new Map(
-          generatedActionItems
-            .filter(
-              (actionItem) =>
-                actionItem.systemMode ===
-                  "generated_milestone_submilestone" &&
-                actionItem.buildId === build._id &&
-                actionItem.organizationId === build.organizationId &&
-                actionItem.canonicalBuildMilestoneId === milestone._id &&
-                actionItem.canonicalBuildSubmilestoneId !== undefined
-            )
-            .map((actionItem) => [
-              actionItem.canonicalBuildSubmilestoneId,
-              actionItem._id,
-            ])
-        );
-
-        const submilestones = (
-          await ctx.db
-            .query("buildSubmilestones")
-            .withIndex("by_milestone", (query) =>
-              query.eq("buildMilestoneId", milestone._id)
-            )
-            .take(500)
-        ).filter(
-            (submilestone) =>
-              submilestone.buildId === build._id &&
-              submilestone.organizationId === build.organizationId &&
-              submilestone.brokerageId === build.brokerageId
-        );
-        for (const submilestone of submilestones) {
-          if (submilestone.actualStartedAt !== undefined) {
-            continue;
-          }
-          let plannedStartDate: string;
-          try {
-            plannedStartDate = addBuildLocalDays(
-              build.startDate,
-              submilestone.startDay ?? milestone.dayStart,
-            );
-          } catch {
-            continue;
-          }
-          if (localDate <= plannedStartDate) {
-            continue;
-          }
-          const actionItemId = actionItemBySubmilestone.get(submilestone._id);
-          if (!actionItemId) {
-            continue;
-          }
-          const reconciliationKey = [
-            "milestone-system",
-            build._id,
-            milestone._id,
-            submilestone._id,
-            "missed-start",
-            plannedStartDate,
-          ].join(":");
-          const existing = await ctx.db
-            .query("auditEvents")
-            .withIndex("by_organizationId_and_reconciliationKey", (query) =>
-              query
-                .eq("organizationId", build.organizationId)
-                .eq("reconciliationKey", reconciliationKey)
-            )
-            .first();
-          if (existing) {
-            continue;
-          }
-          await Promise.all([
-            ctx.db.insert("auditEvents", {
-              actorRoles: ["system"],
-              actorWorkosUserId: "system:build-collaboration-scheduler",
-              brokerageId: build.brokerageId,
-              command: "reconcileDueMilestoneSystemPosts",
-              createdAt: asOf,
-              entityId: actionItemId,
-              entityType: "buildActionItem",
-              eventType: "build.collaboration.system_action_item.missed_start",
-              newState: JSON.stringify({
-                actionItemId,
-                canonicalBuildMilestoneId: milestone._id,
-                canonicalBuildSubmilestoneId: submilestone._id,
-                column: "behind_schedule",
-                plannedStartDate,
-              }),
-              organizationId: build.organizationId,
-              priorState: JSON.stringify({ column: "backlog" }),
-              reconciliationKey,
-              reason:
-                "The canonical Sub-milestone has no actual start after its Build-local planned start date.",
-              warnings: [
-                "canonical_state_is_authoritative",
-                "passive_projection",
-              ],
-            }),
-            ctx.db.insert("eventOutbox", {
-              brokerageId: build.brokerageId,
-              createdAt: asOf,
-              eventType: "build.collaboration.system_action_item.missed_start",
-              organizationId: build.organizationId,
-              payloadPreview: JSON.stringify({
-                actionItemId,
-                canonicalBuildMilestoneId: milestone._id,
-                canonicalBuildSubmilestoneId: submilestone._id,
-                plannedStartDate,
-                reconciliationKey,
-              }),
-              relatedEntityId: actionItemId,
-              relatedEntityType: "buildActionItem",
-              status: "pending",
-            }),
-          ]);
-        }
-      }
+      await ctx.scheduler.runAfter(
+        0,
+        internal.build_collaboration_scheduling
+          .reconcileDueMilestoneSystemPostsForBuild,
+        { asOf, buildId: build._id },
+      );
     }
 
     const continuation = page.isDone
@@ -909,6 +792,184 @@ export const reconcileDueMilestoneSystemPosts = internalMutation
         internal.build_collaboration_scheduling
           .reconcileDueMilestoneSystemPosts,
         { asOf, cursor: continuation }
+      );
+    }
+    return null;
+  })
+  .internal();
+
+export const reconcileDueMilestoneSystemPostsForBuild = internalMutation
+  .input({
+    asOf: v.number(),
+    buildId: v.id("activeBuilds"),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const build = await ctx.db.get(args.buildId);
+    if (
+      !build ||
+      !(build.status === "active" || build.status === "future_start") ||
+      !build.timezone
+    ) {
+      return null;
+    }
+    let localDate: string;
+    try {
+      localDate = buildLocalDateAt(args.asOf, build.timezone);
+    } catch {
+      return null;
+    }
+    const page = await ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build", (query) => query.eq("buildId", build._id))
+      .paginate({ cursor: args.cursor ?? null, numItems: 1 });
+    for (const milestone of page.page) {
+      if (
+        milestone.organizationId !== build.organizationId ||
+        milestone.brokerageId !== build.brokerageId ||
+        milestone.planningState === "superseded"
+      ) {
+        continue;
+      }
+      let plannedMilestoneStartDate: string;
+      try {
+        plannedMilestoneStartDate = addBuildLocalDays(
+          build.startDate,
+          milestone.dayStart,
+        );
+      } catch {
+        continue;
+      }
+      if (localDate < plannedMilestoneStartDate) continue;
+      const ensured = await ensureMilestoneSystemPost(ctx, {
+        actor: {
+          roles: ["system"],
+          workosUserId: "system:build-collaboration-scheduler",
+        },
+        build,
+        milestone,
+        activationReason: "scheduled",
+        now: args.asOf,
+      });
+      if (!ensured) continue;
+      const generatedActionItems = await ctx.db
+        .query("buildActionItems")
+        .withIndex("by_originatingPostId_and_createdAt", (query) =>
+          query.eq("originatingPostId", ensured.postId)
+        )
+        .collect();
+      const actionItemBySubmilestone = new Map(
+        generatedActionItems
+          .filter(
+            (actionItem) =>
+              actionItem.systemMode === "generated_milestone_submilestone" &&
+              actionItem.buildId === build._id &&
+              actionItem.organizationId === build.organizationId &&
+              actionItem.canonicalBuildMilestoneId === milestone._id &&
+              actionItem.canonicalBuildSubmilestoneId !== undefined,
+          )
+          .map((actionItem) => [
+            actionItem.canonicalBuildSubmilestoneId,
+            actionItem._id,
+          ]),
+      );
+      const submilestones = (
+        await ctx.db
+          .query("buildSubmilestones")
+          .withIndex("by_milestone", (query) =>
+            query.eq("buildMilestoneId", milestone._id),
+          )
+          .collect()
+      ).filter(
+        (submilestone) =>
+          submilestone.buildId === build._id &&
+          submilestone.organizationId === build.organizationId &&
+          submilestone.brokerageId === build.brokerageId,
+      );
+      for (const submilestone of submilestones) {
+        if (submilestone.actualStartedAt !== undefined) continue;
+        let plannedStartDate: string;
+        try {
+          plannedStartDate = addBuildLocalDays(
+            build.startDate,
+            submilestone.startDay ?? milestone.dayStart,
+          );
+        } catch {
+          continue;
+        }
+        if (localDate <= plannedStartDate) continue;
+        const actionItemId = actionItemBySubmilestone.get(submilestone._id);
+        if (!actionItemId) continue;
+        const reconciliationKey = [
+          "milestone-system",
+          build._id,
+          milestone._id,
+          submilestone._id,
+          "missed-start",
+        ].join(":");
+        const existing = await ctx.db
+          .query("auditEvents")
+          .withIndex("by_organizationId_and_reconciliationKey", (query) =>
+            query
+              .eq("organizationId", build.organizationId)
+              .eq("reconciliationKey", reconciliationKey),
+          )
+          .first();
+        if (existing) continue;
+        await Promise.all([
+          ctx.db.insert("auditEvents", {
+            actorRoles: ["system"],
+            actorWorkosUserId: "system:build-collaboration-scheduler",
+            brokerageId: build.brokerageId,
+            command: "reconcileDueMilestoneSystemPosts",
+            createdAt: args.asOf,
+            entityId: actionItemId,
+            entityType: "buildActionItem",
+            eventType: "build.collaboration.system_action_item.missed_start",
+            newState: JSON.stringify({
+              actionItemId,
+              canonicalBuildMilestoneId: milestone._id,
+              canonicalBuildSubmilestoneId: submilestone._id,
+              column: "behind_schedule",
+              plannedStartDate,
+            }),
+            organizationId: build.organizationId,
+            priorState: JSON.stringify({ column: "backlog" }),
+            reconciliationKey,
+            reason:
+              "The canonical Sub-milestone has no actual start after its Build-local planned start date.",
+            warnings: ["canonical_state_is_authoritative", "passive_projection"],
+          }),
+          ctx.db.insert("eventOutbox", {
+            brokerageId: build.brokerageId,
+            createdAt: args.asOf,
+            eventType: "build.collaboration.system_action_item.missed_start",
+            organizationId: build.organizationId,
+            payloadPreview: JSON.stringify({
+              actionItemId,
+              canonicalBuildMilestoneId: milestone._id,
+              canonicalBuildSubmilestoneId: submilestone._id,
+              plannedStartDate,
+              reconciliationKey,
+            }),
+            relatedEntityId: actionItemId,
+            relatedEntityType: "buildActionItem",
+            status: "pending",
+          }),
+        ]);
+      }
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.build_collaboration_scheduling
+          .reconcileDueMilestoneSystemPostsForBuild,
+        {
+          asOf: args.asOf,
+          buildId: build._id,
+          cursor: page.continueCursor,
+        },
       );
     }
     return null;
@@ -947,11 +1008,12 @@ export const reconcileDueDrawSystemPosts = internalMutation
       const plannedDraws = await ctx.db
         .query("plannedDrawScheduleRows")
         .withIndex("by_build_order", (query) => query.eq("buildId", build._id))
-        .take(500);
+        .collect();
       for (const plannedDraw of plannedDraws) {
         if (
           plannedDraw.organizationId !== build.organizationId ||
-          plannedDraw.brokerageId !== build.brokerageId
+          plannedDraw.brokerageId !== build.brokerageId ||
+          TERMINAL_DRAW_STATUSES.has(plannedDraw.status)
         ) {
           continue;
         }

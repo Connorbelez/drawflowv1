@@ -4067,6 +4067,7 @@ export default defineSchema({
       "systemPostKind",
       "canonicalBuildMilestoneId",
     ])
+    .index("by_buildId_and_systemPostKind", ["buildId", "systemPostKind"])
     .index("by_buildId_and_systemPostKind_and_drawOccurrenceKey", [
       "buildId",
       "systemPostKind",
@@ -4680,6 +4681,7 @@ export default defineSchema({
       "updatedAt",
     ])
     .index("by_buildId_and_queueSortAt", ["buildId", "queueSortAt"])
+    .index("by_buildId_and_systemMode", ["buildId", "systemMode"])
     .index("by_buildId_and_assigneeWorkosUserId_and_status", [
       "buildId",
       "assigneeWorkosUserId",
