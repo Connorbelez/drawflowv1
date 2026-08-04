@@ -524,9 +524,109 @@ describe("canonical Sub-milestone completion review", () => {
     });
   });
 
+  test("requires an explicit requirement key when required and optional evidence coexist", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    await fixture.builder.mutation(
+      (api as any).production_proposals.configureActiveBuildSubmilestoneEvidenceRequirements,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        requirements: [
+          {
+            kind: "photo",
+            label: "Forms photo",
+            required: true,
+            requirementKey: "forms-photo",
+          },
+          {
+            kind: "document",
+            label: "Forms permit",
+            required: false,
+            requirementKey: "forms-permit",
+          },
+        ],
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const before = await submilestoneState(fixture);
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
+        {
+          buildId: fixture.closing.buildId,
+          evidence: {
+            fileName: "forms-ambiguous.jpg",
+            mimeType: "image/jpeg",
+            sizeBytes: 100,
+            storageId: await storeEvidence(fixture, "forms-ambiguous"),
+          },
+          expectedRevision: before.submilestone.workflowRevision ?? 0,
+          idempotencyKey: "completion-review-ambiguous-evidence",
+          milestoneKey: "foundation",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/multiple evidence requirements/i);
+
+    const added = await fixture.builder.mutation(
+      (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
+      {
+        buildId: fixture.closing.buildId,
+        evidence: {
+          fileName: "forms-permit.pdf",
+          mimeType: "application/pdf",
+          requirementKey: "forms-permit",
+          sizeBytes: 100,
+          storageId: await storeEvidence(fixture, "forms-permit"),
+        },
+        expectedRevision: before.submilestone.workflowRevision ?? 0,
+        idempotencyKey: "completion-review-optional-evidence",
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const persisted = await fixture.base.run(async (ctx: any) =>
+      ctx.db
+        .query("buildSubmilestoneEvidencePackageItems")
+        .withIndex("by_package_revision", (query: any) =>
+          query.eq("packageRevisionId", added.evidencePackageRevisionId),
+        )
+        .collect(),
+    );
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].requirementKey).toBe("forms-permit");
+  });
+
   test("promotes only a published discussion attachment and preserves provenance", async () => {
     const fixture = await seedFixture();
     await startForms(fixture);
+    await fixture.builder.mutation(
+      (api as any).production_proposals.configureActiveBuildSubmilestoneEvidenceRequirements,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        requirements: [
+          {
+            kind: "photo",
+            label: "Forms photo",
+            required: true,
+            requirementKey: "forms-photo",
+          },
+          {
+            kind: "document",
+            label: "Forms permit",
+            required: false,
+            requirementKey: "forms-permit",
+          },
+        ],
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
     const source = await fixture.base.run(async (ctx: any) => {
       const build = await ctx.db.get(fixture.closing.buildId);
       if (!build) {
@@ -636,6 +736,19 @@ describe("canonical Sub-milestone completion review", () => {
         ownerRecordId: source.postRevisionId,
       });
     });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
+        {
+          assetId: source.assetId,
+          buildId: fixture.closing.buildId,
+          evidenceKey: "forms-discussion-ambiguous",
+          milestoneKey: "foundation",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/multiple evidence requirements/i);
     const promotion = await fixture.builder.mutation(
       (api as any).production_proposals.promoteActiveBuildDiscussionAttachmentToEvidence,
       {
@@ -643,6 +756,7 @@ describe("canonical Sub-milestone completion review", () => {
         buildId: fixture.closing.buildId,
         evidenceKey: "forms-discussion-promoted",
         milestoneKey: "foundation",
+        requirementKey: "forms-photo",
         submilestoneKey: "forms",
         workosOrganizationId: ORG,
       },

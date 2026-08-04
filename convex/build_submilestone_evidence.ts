@@ -189,14 +189,11 @@ export async function appendActiveSubmilestoneEvidenceAssetToDraft(
     input
   );
   const requestedRequirementKey = input.requirementKey?.trim();
-  const requiredRequirements = requirements.filter(
-    (candidate) => candidate.required
-  );
-  if (!requestedRequirementKey && requiredRequirements.length > 1) {
+  if (!requestedRequirementKey && requirements.length > 1) {
     throw new ConvexError({
       code: "EVIDENCE_REQUIREMENT_KEY_REQUIRED",
       message:
-        "A requirementKey is required when a sub-milestone has multiple required evidence requirements.",
+        "A requirementKey is required when a sub-milestone has multiple evidence requirements.",
     });
   }
   const explicitlyRequestedRequirement = requestedRequirementKey
@@ -210,9 +207,7 @@ export async function appendActiveSubmilestoneEvidenceAssetToDraft(
     );
   }
   const requirement =
-    explicitlyRequestedRequirement ??
-    requiredRequirements[0] ??
-    requirements[0];
+    explicitlyRequestedRequirement ?? requirements[0];
   const requirementKey = requirement?.requirementKey ?? "completion-evidence";
   const existing = await ctx.db
     .query("buildSubmilestoneEvidencePackageItems")

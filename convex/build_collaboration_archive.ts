@@ -169,8 +169,7 @@ export async function buildCollaborationPostArchivePage(
   if (
     postRow.systemPostKind === "draw" &&
     !drawCoordinationReadable &&
-    section !== "core" &&
-    section !== "revisions"
+    section !== "core"
   ) {
     return { continueCursor: "", data: [], isDone: true };
   }
@@ -1097,15 +1096,17 @@ export async function buildCollaborationPostArchive(
   const drawCoordinationReadable =
     post.systemPostKind !== "draw" ||
     (await canReadDrawCoordination(ctx, { authorization, post }));
-  const revisions = await limited(
-    ctx.db
-      .query("buildCollaborationPostRevisions")
-      .withIndex("by_postId_and_revision", (query) =>
-        query.eq("postId", post._id)
+  const revisions = drawCoordinationReadable
+    ? await limited(
+        ctx.db
+          .query("buildCollaborationPostRevisions")
+          .withIndex("by_postId_and_revision", (query) =>
+            query.eq("postId", post._id)
+          )
+          .take(ARCHIVE_ROW_LIMIT + 1),
+        "post revisions"
       )
-      .take(ARCHIVE_ROW_LIMIT + 1),
-    "post revisions"
-  );
+    : [];
   const revisionHistory: Record<string, unknown>[] = [];
   for (const revision of revisions) {
     revisionHistory.push({

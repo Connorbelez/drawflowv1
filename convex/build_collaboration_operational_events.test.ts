@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -9,6 +9,10 @@ import type { Id } from "./types";
 
 const modules = import.meta.glob("./**/*.ts");
 const ORGANIZATION_ID = "org_build_collaboration_operational_events";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 type CollaborationRole =
   | "admin"

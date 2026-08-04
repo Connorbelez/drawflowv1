@@ -18509,17 +18509,15 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
       { build: auth.build, milestone, submilestone },
     );
     const requestedRequirementKey = args.evidence.requirementKey?.trim();
-    const requiredRequirements = requirements.filter((row) => row.required);
-    if (!requestedRequirementKey && requiredRequirements.length > 1) {
+    if (!requestedRequirementKey && requirements.length > 1) {
       throw new ConvexError({
         code: "EVIDENCE_REQUIREMENT_KEY_REQUIRED",
         message:
-          "A requirementKey is required when a sub-milestone has multiple required evidence requirements.",
+          "A requirementKey is required when a sub-milestone has multiple evidence requirements.",
       });
     }
     const requirementKey =
       requestedRequirementKey ||
-      requiredRequirements[0]?.requirementKey ||
       requirements[0]?.requirementKey;
     if (!requirementKey || !requirements.some((row) => row.requirementKey === requirementKey)) {
       throw new ConvexError({

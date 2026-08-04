@@ -433,6 +433,70 @@ describe("Build collaboration export and lifecycle governance", () => {
     });
   });
 
+  test("omits draw revision history from an unauthorized archive while retaining eligible access", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(fixture.sharedPostId, {
+        primaryReferenceKind: "draw",
+        primaryReferenceId: "draw-fixture",
+        source: "system",
+        systemPostKind: "draw",
+      });
+    });
+
+    // The principal-broker is Draw-authorized by role, but this fixture does
+    // not enroll that identity in the internal coordination membership. The
+    // archive must therefore retain the redacted core shell without exposing
+    // revision bodies or revision history.
+    const created = await fixture.principal.mutation(
+      (api as any).build_collaboration_exports.requestBuildCollaborationExport,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        scope: "build",
+      },
+    );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const records = (await readArchiveText(fixture.base, created.exportId))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const revisions = records
+      .filter(
+        (record: any) =>
+          record.kind === "post" &&
+          record.section === "revisions" &&
+          Array.isArray(record.data),
+      )
+      .flatMap((record: any) => record.data)
+      .filter((entry: any) => entry.postId === fixture.sharedPostId);
+    const core = records.find(
+      (record: any) =>
+        record.kind === "post" &&
+        record.section === "core" &&
+        record.data?.[0]?.postId === fixture.sharedPostId,
+    );
+    expect(revisions).toEqual([]);
+    expect(core.data[0]).toMatchObject({
+      postId: fixture.sharedPostId,
+      redacted: true,
+    });
+    expect(JSON.stringify(records)).not.toContain("Foundation archive update");
+    await expect(
+      fixture.principal.query(
+        (api as any).build_collaboration_editing
+          .listBuildCollaborationPostRevisionHistory,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: fixture.sharedPostId,
+        },
+      ),
+    ).rejects.toThrow("Forbidden");
+  });
+
   test("revalidates export scope and every exported asset download", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE_TIME);
