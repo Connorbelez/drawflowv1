@@ -2320,6 +2320,271 @@ describe("Build collaboration governed assets", () => {
     ).rejects.toThrow();
   });
 
+  test("reauthorizes staged post contexts and exhausts asset attachment ACL pages", async () => {
+    const { admin, base, buildId } = await seedActiveBuild();
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Asset Builder Reader",
+      role: "builder",
+      subject: "user_asset_builder_reader",
+    });
+    await addBuildParticipant(base, {
+      buildId,
+      displayName: "Asset Homeowner Reader",
+      role: "homeowner",
+      subject: "user_asset_homeowner_reader",
+    });
+    const builderReader = withIdentity(base, {
+      roles: ["builder"],
+      subject: "user_asset_builder_reader",
+    });
+    const homeownerReader = withIdentity(base, {
+      roles: ["homeowner"],
+      subject: "user_asset_homeowner_reader",
+    });
+
+    const restrictedPostId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      {
+        ...collaborationPublicationFixture({
+          buildId,
+          plainText: "Restricted asset context.",
+        }),
+        audienceMode: "custom",
+        requestedReaderIds: [],
+      },
+    );
+    const milestonePostId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      collaborationPublicationFixture({
+        buildId,
+        plainText: "Revoked milestone asset context.",
+      }),
+    );
+
+    const stagedAssets = await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) {
+        throw new Error("Active Build fixture is unavailable.");
+      }
+      const now = Date.now();
+      await ctx.db.patch(milestonePostId, {
+        authorDisplayNameSnapshot: "DrawFlow System",
+        authorRolesSnapshot: ["system"],
+        authorWorkosUserId: "system",
+        source: "system",
+        systemOccurrenceKey: `milestone-system:${String(buildId)}:revoked`,
+        systemPostKind: "milestone",
+      });
+
+      const createStagedAsset = async (input: {
+        label: string;
+        ownerWorkosUserId: string;
+        postId: Id<"buildCollaborationPosts">;
+      }) => {
+        const post = await ctx.db.get(input.postId);
+        if (!post) {
+          throw new Error("Post fixture is unavailable.");
+        }
+        const storageId = await ctx.storage.store(
+          new Blob([input.label], { type: "text/plain" }),
+        );
+        const sessionId = await ctx.db.insert(
+          "buildCollaborationAssetStagingSessions",
+          {
+            brokerageId: build.brokerageId,
+            buildId,
+            contextKind: "post",
+            contextRecordId: post._id,
+            createdAt: now,
+            expiresAt: now + 86_400_000,
+            organizationId: ORGANIZATION_ID,
+            ownerWorkosUserId: input.ownerWorkosUserId,
+            state: "finalized",
+            updatedAt: now,
+          },
+        );
+        const assetId = await ctx.db.insert("buildCollaborationAssets", {
+          brokerageId: build.brokerageId,
+          buildId,
+          contentHashSha256: `${input.label}-${"0".repeat(64)}`.slice(0, 64),
+          createdAt: now,
+          fileName: `${input.label}.txt`,
+          maximumAudienceMode: "build_wide",
+          mimeType: "text/plain",
+          organizationId: ORGANIZATION_ID,
+          scanCompletedAt: now,
+          scanState: "clean",
+          sizeBytes: input.label.length,
+          stagingSessionId: sessionId,
+          state: "available",
+          storageId,
+          updatedAt: now,
+          uploadedByWorkosUserId: input.ownerWorkosUserId,
+          version: 1,
+        });
+        await ctx.db.patch(sessionId, { assetId });
+        return assetId;
+      };
+
+      return {
+        restrictedAssetId: await createStagedAsset({
+          label: "restricted-post",
+          ownerWorkosUserId: "user_asset_builder_reader",
+          postId: restrictedPostId,
+        }),
+        milestoneAssetId: await createStagedAsset({
+          label: "revoked-milestone",
+          ownerWorkosUserId: "user_asset_homeowner_reader",
+          postId: milestonePostId,
+        }),
+      };
+    });
+
+    await expect(
+      builderReader.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId: stagedAssets.restrictedAssetId,
+          buildId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow("unavailable");
+    await expect(
+      homeownerReader.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId: stagedAssets.milestoneAssetId,
+          buildId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow("unavailable");
+
+    const readablePostId = await admin.mutation(
+      (api as any).build_collaboration
+        .approveAndPublishBuildCollaborationBundle,
+      collaborationPublicationFixture({
+        buildId,
+        plainText: "Late readable attachment context.",
+      }),
+    );
+    const paginatedAsset = await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      const readablePost = await ctx.db.get(readablePostId);
+      if (!build || !readablePost) {
+        throw new Error("Asset pagination fixtures are unavailable.");
+      }
+      const restrictedPost = await ctx.db.get(restrictedPostId);
+      if (!restrictedPost || !restrictedPost.currentRevisionId) {
+        throw new Error("Restricted post revision is unavailable.");
+      }
+      if (!readablePost.currentRevisionId) {
+        throw new Error("Readable post revision is unavailable.");
+      }
+      const now = Date.now();
+      const storageId = await ctx.storage.store(
+        new Blob(["paginated-asset"], { type: "text/plain" }),
+      );
+      const assetId = await ctx.db.insert("buildCollaborationAssets", {
+        brokerageId: build.brokerageId,
+        buildId,
+        contentHashSha256: "p".repeat(64),
+        createdAt: now,
+        fileName: "paginated-asset.txt",
+        maximumAudienceMode: "build_wide",
+        mimeType: "text/plain",
+        organizationId: ORGANIZATION_ID,
+        originatingPostId: restrictedPostId,
+        publishedAt: now,
+        publishedOwnerKind: "postRevision",
+        publishedOwnerRecordId: restrictedPost.currentRevisionId,
+        scanCompletedAt: now,
+        scanState: "clean",
+        sizeBytes: 15,
+        state: "available",
+        storageId,
+        updatedAt: now,
+        uploadedByWorkosUserId: "user_admin",
+        version: 1,
+      });
+      for (let index = 0; index < 100; index += 1) {
+        await ctx.db.insert("buildCollaborationAttachments", {
+          attachmentId: assetId,
+          attachmentKind: "collaborationAsset",
+          brokerageId: build.brokerageId,
+          buildId,
+          createdAt: now + index,
+          createdByWorkosUserId: "user_admin",
+          organizationId: ORGANIZATION_ID,
+          ownerKind: "postRevision",
+          ownerRecordId: restrictedPost.currentRevisionId,
+        });
+      }
+      await ctx.db.insert("buildCollaborationAttachments", {
+        attachmentId: assetId,
+        attachmentKind: "collaborationAsset",
+        brokerageId: build.brokerageId,
+        buildId,
+        createdAt: now + 101,
+        createdByWorkosUserId: "user_admin",
+        organizationId: ORGANIZATION_ID,
+        ownerKind: "postRevision",
+        ownerRecordId: readablePost.currentRevisionId,
+      });
+      return { assetId, restrictedRevisionId: restrictedPost.currentRevisionId };
+    });
+
+    await expect(
+      builderReader.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId: paginatedAsset.assetId,
+          buildId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).resolves.toContain("http");
+
+    await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) {
+        throw new Error("Active Build fixture is unavailable.");
+      }
+      const now = Date.now();
+      for (let index = 0; index < 1_000; index += 1) {
+        await ctx.db.insert("buildCollaborationAttachments", {
+          attachmentId: paginatedAsset.assetId,
+          attachmentKind: "collaborationAsset",
+          brokerageId: build.brokerageId,
+          buildId,
+          createdAt: now + index,
+          createdByWorkosUserId: "user_admin",
+          organizationId: ORGANIZATION_ID,
+          ownerKind: "postRevision",
+          ownerRecordId: paginatedAsset.restrictedRevisionId,
+        });
+      }
+    });
+    await expect(
+      builderReader.mutation(
+        (api as any).build_collaboration_assets
+          .authorizeBuildCollaborationAssetDownload,
+        {
+          assetId: paginatedAsset.assetId,
+          buildId,
+          organizationId: ORGANIZATION_ID,
+        },
+      ),
+    ).rejects.toThrow("unavailable");
+  });
+
   test("never deletes storage owned by a published asset or another staging session", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     const publishedAssetId = await createPublishedAssetFixture({

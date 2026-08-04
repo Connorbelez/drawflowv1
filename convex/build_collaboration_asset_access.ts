@@ -7,6 +7,9 @@ import { canReadDrawCoordination } from "./build_draw_coordination";
 import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
 import type { Doc, QueryCtx } from "./types";
 
+const ASSET_ATTACHMENT_PAGE_SIZE = 100;
+const MAX_ASSET_ATTACHMENT_ROWS = 1_000;
+
 export async function canUseCollaborationAssetForPost(
   ctx: QueryCtx,
   input: {
@@ -35,15 +38,14 @@ export async function canUseCollaborationAssetForPost(
   ) {
     return false;
   }
-  const ownerAttachments = await ctx.db
-    .query("buildCollaborationAttachments")
-    .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
-      query
-        .eq("buildId", input.authorization.build._id)
-        .eq("attachmentKind", "collaborationAsset")
-        .eq("attachmentId", input.asset._id)
-  )
-  .take(100);
+  const ownerAttachments = await listAssetAttachments(
+    ctx,
+    input.authorization.build._id,
+    input.asset._id
+  );
+  if (!ownerAttachments) {
+    return false;
+  }
   for (const attachment of ownerAttachments) {
     const attachmentPostRecord = await attachmentPost(ctx, attachment);
     if (!attachmentPostRecord || attachmentPostRecord._id !== input.post._id) {
@@ -124,15 +126,14 @@ export async function resolveCollaborationAssetReadDecision(
   ) {
     return null;
   }
-  const attachments = await ctx.db
-    .query("buildCollaborationAttachments")
-    .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
-      query
-        .eq("buildId", input.authorization.build._id)
-        .eq("attachmentKind", "collaborationAsset")
-        .eq("attachmentId", input.asset._id)
-    )
-    .take(100);
+  const attachments = await listAssetAttachments(
+    ctx,
+    input.authorization.build._id,
+    input.asset._id
+  );
+  if (!attachments) {
+    return null;
+  }
   for (const attachment of attachments) {
     const post = await attachmentPost(ctx, attachment);
     const actionItem = await attachmentActionItem(ctx, attachment);
@@ -243,10 +244,45 @@ export async function canReadAssetStagingContext(
   ) {
     return false;
   }
+  if (!(await canReadCollaborationPost(ctx, authorization, post))) {
+    return false;
+  }
   if (post.systemPostKind !== "draw") {
     return true;
   }
   return await canReadDrawCoordination(ctx, { authorization, post });
+}
+
+async function listAssetAttachments(
+  ctx: QueryCtx,
+  buildId: Doc<"activeBuilds">["_id"],
+  assetId: Doc<"buildCollaborationAssets">["_id"]
+) {
+  const queryFactory = () =>
+    ctx.db
+      .query("buildCollaborationAttachments")
+      .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (builder) =>
+        builder
+          .eq("buildId", buildId)
+          .eq("attachmentKind", "collaborationAsset")
+          .eq("attachmentId", assetId)
+      );
+  const attachments: Doc<"buildCollaborationAttachments">[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const page = await queryFactory().paginate({
+      cursor,
+      numItems: ASSET_ATTACHMENT_PAGE_SIZE,
+    });
+    attachments.push(...page.page);
+    if (attachments.length > MAX_ASSET_ATTACHMENT_ROWS) {
+      return null;
+    }
+    if (page.isDone) {
+      return attachments;
+    }
+    cursor = page.continueCursor;
+  }
 }
 
 async function isDraftApprovalOwner(
