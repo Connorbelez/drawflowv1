@@ -502,35 +502,36 @@ async function resolveActionItemReference(
     input.authorization
   );
   const post = await ctx.db.get(item.originatingPostId);
-  const readerAccess = post
-    ? await Promise.all(
-        input.readers.map(async (reader) => {
-          if (!(await canParticipantReadPost(ctx, post, reader))) {
-            return false;
-          }
-          const canReadActionItem = await canReadMilestoneSystemActionItem(ctx, {
-            actionItem: item,
-            buildId: input.authorization.build._id,
-            role: reader.role,
-            workosUserId: reader.workosUserId,
-          });
-          if (!canReadActionItem) return false;
-          if (
-            isDrawSystemPost(post) &&
-            !(await isInternalDrawCoordinationEligible(ctx, {
-              buildId: input.authorization.build._id,
-              organizationId: input.authorization.organizationId,
-              role: reader.role,
-              workosUserId: reader.workosUserId,
-            }))
-          ) {
-            return false;
-          }
-          return true;
-        })
-      )
-    : [];
-  if (!post || readerAccess.includes(false)) {
+  if (!post || !isScopedDoc(post, input.authorization)) {
+    throw unavailableReference();
+  }
+  const readerAccess = await Promise.all(
+    input.readers.map(async (reader) => {
+      if (!(await canParticipantReadPost(ctx, post, reader))) {
+        return false;
+      }
+      const canReadActionItem = await canReadMilestoneSystemActionItem(ctx, {
+        actionItem: item,
+        buildId: input.authorization.build._id,
+        role: reader.role,
+        workosUserId: reader.workosUserId,
+      });
+      if (!canReadActionItem) return false;
+      if (
+        isDrawSystemPost(post) &&
+        !(await isInternalDrawCoordinationEligible(ctx, {
+          buildId: input.authorization.build._id,
+          organizationId: input.authorization.organizationId,
+          role: reader.role,
+          workosUserId: reader.workosUserId,
+        }))
+      ) {
+        return false;
+      }
+      return true;
+    })
+  );
+  if (readerAccess.includes(false)) {
     throw incompatibleReference();
   }
   return {

@@ -1931,13 +1931,11 @@ function SummaryMetric({
       <p className="truncate text-muted-foreground text-xs">{label}</p>
       <div className="mt-1 flex items-center justify-between gap-2">
         <p className="font-semibold text-base">{value}</p>
-        <Badge size="sm" variant={tone}>
-          {label === "Plan changed" ? (
+        {label === "Plan changed" ? (
+          <Badge size="sm" variant={tone}>
             <GitCompareArrows className="size-3" />
-          ) : (
-            ""
-          )}
-        </Badge>
+          </Badge>
+        ) : null}
       </div>
     </div>
   );
@@ -2162,13 +2160,13 @@ function GateInspector({
   );
 }
 
-function NextGateBand({
+function NextGateBand<TState extends WorkState | DrawState>({
   command,
   onAdvance,
   readOnly = false,
   role,
 }: {
-  command: CommandPresentation;
+  command: CommandPresentation<TState>;
   onAdvance: () => void;
   readOnly?: boolean;
   role: SystemPostPrototypeRole;
@@ -2571,10 +2569,10 @@ function MetaRow({
   );
 }
 
-interface CommandPresentation {
+interface CommandPresentation<TState extends WorkState | DrawState> {
   enabled: boolean;
   label: string;
-  nextState?: WorkState | DrawState;
+  nextState?: TState;
   reason: string;
 }
 
@@ -2582,7 +2580,7 @@ interface CommandPresentation {
 function commandForWorkItem(
   state: WorkState | undefined,
   role: SystemPostPrototypeRole
-): CommandPresentation {
+): CommandPresentation<WorkState> {
   if (!state) {
     return {
       enabled: false,
@@ -2652,7 +2650,7 @@ function commandForWorkItem(
 function commandForDraw(
   state: DrawState,
   role: SystemPostPrototypeRole
-): CommandPresentation {
+): CommandPresentation<DrawState> {
   if (state === "released") {
     return {
       enabled: false,

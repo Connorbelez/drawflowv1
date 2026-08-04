@@ -3872,6 +3872,61 @@ describe("Build collaboration canonical reference authorization", () => {
     ).resolves.toEqual({ state: "revoked" });
   });
 
+  test("fails closed when an Action Item originating post is missing or cross-scoped", async () => {
+    const fixture = await seedActiveBuild();
+    const entities = await seedCollaborationReferenceEntities(fixture);
+    const crossScopePostId = await fixture.base.run(async (ctx) => {
+      const actionItem = await ctx.db.get(entities.actionItemId);
+      const sourcePost = actionItem
+        ? await ctx.db.get(actionItem.originatingPostId)
+        : null;
+      if (!(actionItem && sourcePost)) {
+        throw new Error("Action Item reference fixture is unavailable.");
+      }
+      const {
+        _creationTime: _sourcePostCreationTime,
+        _id: _sourcePostId,
+        currentRevisionId: _sourceRevisionId,
+        ...postTemplate
+      } = sourcePost;
+      const crossScopePostId = await ctx.db.insert("buildCollaborationPosts", {
+        ...postTemplate,
+        organizationId: "org_cross_scope",
+      });
+      await ctx.db.patch(actionItem._id, {
+        originatingPostId: crossScopePostId,
+      });
+      return crossScopePostId;
+    });
+
+    const listActionItemOptions = () =>
+      fixture.admin.query(
+        (api as any).build_collaboration_references
+          .listBuildCollaborationTagOptions,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+        },
+      );
+
+    const crossScopeOptions = await listActionItemOptions();
+    expect(
+      crossScopeOptions.some(
+        (option: any) => option.entityKind === "actionItem",
+      ),
+    ).toBe(false);
+
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.delete(crossScopePostId);
+    });
+    const missingOriginOptions = await listActionItemOptions();
+    expect(
+      missingOriginOptions.some(
+        (option: any) => option.entityKind === "actionItem",
+      ),
+    ).toBe(false);
+  });
+
   test("indexes every canonical kind while omitting restricted fields and entities for lower roles", async () => {
     const fixture = await seedActiveBuild();
     await addBuildParticipant(fixture.base, {
