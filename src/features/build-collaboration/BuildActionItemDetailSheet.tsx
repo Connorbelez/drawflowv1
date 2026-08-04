@@ -8,11 +8,15 @@ import {
   ArrowRight,
   ArrowUpRight,
   CalendarClock,
+  CheckCircle2,
   ChevronRight,
   Clock3,
+  FilePlus2,
   History,
   MessageCircle,
   Play,
+  Save,
+  Send,
   ShieldCheck,
   UserRound,
   X,
@@ -47,6 +51,7 @@ import {
   SheetPopup,
   SheetTitle,
 } from "#/components/ui/sheet.tsx";
+import { normalizeEvidenceFileForUpload } from "#/lib/evidence-image-normalization.ts";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
@@ -54,14 +59,18 @@ import {
   type BuildActionItemTag,
 } from "../../../convex/build_action_item_tags";
 import {
+  EvidenceUploader,
+  type EvidenceUploaderUploadInput,
+} from "../backoffice-build-detail/MilestoneDetailSheet.tsx";
+import {
+  type MilestoneStartConfirmation,
+  MilestoneStartDialog,
+  type MilestoneStartDialogRequest,
+} from "../backoffice-build-detail/MilestoneStartDialog.tsx";
+import {
   BuildCollaborationAssetList,
   type BuildCollaborationAssetSummary,
 } from "./BuildCollaborationAssetList.tsx";
-import {
-  MilestoneStartDialog,
-  type MilestoneStartDialogRequest,
-  type MilestoneStartConfirmation,
-} from "../backoffice-build-detail/MilestoneStartDialog.tsx";
 import {
   useBuildCollaborationAction,
   useBuildCollaborationMutation,
@@ -659,6 +668,21 @@ function VisibleActionItemDetail({
   const startCanonicalMilestone = useBuildCollaborationMutation(
     api.production_proposals.startActiveBuildMilestone
   );
+  const updateCanonicalProgress = useBuildCollaborationMutation(
+    api.production_proposals.updateActiveBuildSubmilestoneProgress
+  );
+  const generateCanonicalEvidenceUploadUrl = useBuildCollaborationMutation(
+    api.production_proposals.generateActiveBuildEvidenceUploadUrl
+  );
+  const addCanonicalEvidence = useBuildCollaborationMutation(
+    api.production_proposals.addActiveBuildSubmilestoneEvidence
+  );
+  const freezeCanonicalEvidencePackage = useBuildCollaborationMutation(
+    api.production_proposals.freezeActiveBuildSubmilestoneEvidencePackage
+  );
+  const submitCanonicalCompletionForReview = useBuildCollaborationMutation(
+    api.production_proposals.submitActiveBuildSubmilestoneCompletionForReview
+  );
   const workflow = useQuery(
     api.build_action_item_workflow.getBuildActionItemWorkflowContext,
     {
@@ -712,6 +736,21 @@ function VisibleActionItemDetail({
   const [transitionReason, setTransitionReason] = useState("");
   const [canonicalStartRequest, setCanonicalStartRequest] =
     useState<MilestoneStartDialogRequest | null>(null);
+  const [canonicalProgress, setCanonicalProgress] = useState(0);
+  const [canonicalForecast, setCanonicalForecast] = useState("");
+  const [canonicalActualCost, setCanonicalActualCost] = useState("");
+  const [canonicalFieldNote, setCanonicalFieldNote] = useState("");
+  const [canonicalEvidenceBusy, setCanonicalEvidenceBusy] = useState(false);
+
+  const canonicalPresentation = detail.item.systemPresentation;
+  const canonicalStartCommand = canonicalPresentation?.startCommand;
+  useEffect(() => {
+    if (!canonicalPresentation) {
+      return;
+    }
+    setCanonicalProgress(canonicalPresentation.progressPercent ?? 0);
+    setCanonicalForecast(canonicalPresentation.completionForecastDate ?? "");
+  }, [canonicalPresentation]);
 
   const replaceAsset = async (
     asset: BuildCollaborationAssetSummary,
@@ -1002,9 +1041,7 @@ function VisibleActionItemDetail({
     });
   };
 
-  const confirmCanonicalStart = async (
-    input: MilestoneStartConfirmation
-  ) => {
+  const confirmCanonicalStart = async (input: MilestoneStartConfirmation) => {
     if (input.action !== "start" || input.actualStartedAt === undefined) {
       throw new Error("An actual start is required.");
     }
@@ -1020,6 +1057,163 @@ function VisibleActionItemDetail({
       workosOrganizationId: organizationId,
     });
     toast.success("Canonical Sub-milestone start recorded.");
+  };
+
+  const updateCanonicalExecution = async () => {
+    if (!canonicalStartCommand || readOnly) {
+      return;
+    }
+    setCanonicalEvidenceBusy(true);
+    try {
+      await updateCanonicalProgress({
+        actualCostCents: canonicalActualCost.trim()
+          ? Number(canonicalActualCost)
+          : undefined,
+        buildId,
+        completionForecastDate: canonicalForecast.trim() || undefined,
+        fieldNote: canonicalFieldNote.trim() || undefined,
+        expectedRevision: canonicalPresentation?.workflowRevision ?? 0,
+        idempotencyKey: `system-action-progress:${detail.item.actionItemId}:${Date.now()}`,
+        milestoneKey: canonicalStartCommand.milestoneKey,
+        progressPercent: canonicalProgress,
+        submilestoneKey: canonicalStartCommand.submilestoneKey,
+        workosOrganizationId: organizationId,
+      });
+      toast.success("Canonical progress updated.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to update progress."
+      );
+    } finally {
+      setCanonicalEvidenceBusy(false);
+    }
+  };
+
+  const addCanonicalEvidenceFile = async ({
+    file,
+  }: EvidenceUploaderUploadInput) => {
+    if (!(canonicalStartCommand && file) || readOnly) {
+      return;
+    }
+    setCanonicalEvidenceBusy(true);
+    try {
+      const uploadFile = await normalizeEvidenceFileForUpload(file);
+      const uploadUrl = await generateCanonicalEvidenceUploadUrl({
+        buildId,
+        workosOrganizationId: organizationId,
+      });
+      const uploadResponse = await fetch(uploadUrl, {
+        body: uploadFile,
+        headers: {
+          "Content-Type": uploadFile.type || "application/octet-stream",
+        },
+        method: "POST",
+      });
+      if (!uploadResponse.ok) {
+        throw new Error("Evidence upload failed.");
+      }
+      const uploadResult = (await uploadResponse.json()) as {
+        storageId?: Id<"_storage">;
+      };
+      if (!uploadResult.storageId) {
+        throw new Error("Evidence upload did not return a storage id.");
+      }
+      await addCanonicalEvidence({
+        buildId,
+        evidence: {
+          fileName: uploadFile.name,
+          locationAttempt: {
+            attempted: false,
+            permissionOutcome: "not_requested",
+            verified: false,
+          },
+          mimeType: uploadFile.type || "application/octet-stream",
+          sizeBytes: uploadFile.size,
+          storageId: uploadResult.storageId,
+        },
+        expectedRevision: canonicalPresentation?.workflowRevision ?? 0,
+        idempotencyKey: `system-action-evidence:${detail.item.actionItemId}:${Date.now()}`,
+        milestoneKey: canonicalStartCommand.milestoneKey,
+        submilestoneKey: canonicalStartCommand.submilestoneKey,
+        workosOrganizationId: organizationId,
+      });
+      toast.success("Evidence added to the canonical package.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to add evidence."
+      );
+    } finally {
+      setCanonicalEvidenceBusy(false);
+    }
+  };
+
+  const freezeCanonicalPackage = async () => {
+    if (
+      !(
+        canonicalStartCommand &&
+        canonicalPresentation?.evidencePackageRevisionId
+      ) ||
+      readOnly
+    ) {
+      return;
+    }
+    setCanonicalEvidenceBusy(true);
+    try {
+      await freezeCanonicalEvidencePackage({
+        buildId,
+        expectedRevision: canonicalPresentation.workflowRevision ?? 0,
+        milestoneKey: canonicalStartCommand.milestoneKey,
+        packageRevisionId: canonicalPresentation.evidencePackageRevisionId,
+        submilestoneKey: canonicalStartCommand.submilestoneKey,
+        workosOrganizationId: organizationId,
+      });
+      toast.success("Evidence Package revision frozen.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to freeze Evidence Package."
+      );
+    } finally {
+      setCanonicalEvidenceBusy(false);
+    }
+  };
+
+  const submitCanonicalReview = async () => {
+    if (
+      !(
+        canonicalStartCommand &&
+        canonicalPresentation?.evidencePackageRevisionId
+      ) ||
+      canonicalPresentation.evidencePackageRevision === undefined ||
+      readOnly
+    ) {
+      return;
+    }
+    setCanonicalEvidenceBusy(true);
+    try {
+      await submitCanonicalCompletionForReview({
+        buildId,
+        completionNote: canonicalFieldNote.trim() || undefined,
+        declareComplete: true,
+        expectedPackageRevision: canonicalPresentation.evidencePackageRevision,
+        expectedRevision: canonicalPresentation.workflowRevision ?? 0,
+        idempotencyKey: `system-action-review:${detail.item.actionItemId}:${Date.now()}`,
+        milestoneKey: canonicalStartCommand.milestoneKey,
+        packageRevisionId: canonicalPresentation.evidencePackageRevisionId,
+        submilestoneKey: canonicalStartCommand.submilestoneKey,
+        workosOrganizationId: organizationId,
+      });
+      toast.success("Completion entered lender review.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to submit completion for review."
+      );
+    } finally {
+      setCanonicalEvidenceBusy(false);
+    }
   };
 
   return (
@@ -1071,8 +1265,21 @@ function VisibleActionItemDetail({
         <AudienceInheritanceNotice audienceMode={detail.item.audienceMode} />
         {detail.item.systemMode === "generated_milestone_submilestone" ? (
           <CanonicalMilestoneActionItemFacts
+            actualCost={canonicalActualCost}
             detail={detail}
+            evidenceBusy={canonicalEvidenceBusy}
+            fieldNote={canonicalFieldNote}
+            forecast={canonicalForecast}
+            onActualCostChange={setCanonicalActualCost}
+            onFieldNoteChange={setCanonicalFieldNote}
+            onForecastChange={setCanonicalForecast}
+            onFreezePackage={freezeCanonicalPackage}
+            onProgressChange={setCanonicalProgress}
             onStart={openCanonicalStart}
+            onSubmitReview={submitCanonicalReview}
+            onUpdateExecution={updateCanonicalExecution}
+            onUploadEvidence={addCanonicalEvidenceFile}
+            progress={canonicalProgress}
             readOnly={readOnly}
           />
         ) : null}
@@ -1374,12 +1581,40 @@ function VisibleActionItemDetail({
 }
 
 function CanonicalMilestoneActionItemFacts({
+  actualCost,
   detail,
+  evidenceBusy,
+  fieldNote,
+  forecast,
+  onActualCostChange,
+  onFieldNoteChange,
+  onForecastChange,
+  onFreezePackage,
   onStart,
+  onSubmitReview,
+  onUploadEvidence,
+  onUpdateExecution,
+  onProgressChange,
+  progress,
   readOnly,
 }: {
+  actualCost: string;
   detail: VisibleActionItemDetail;
+  evidenceBusy: boolean;
+  fieldNote: string;
+  forecast: string;
+  onActualCostChange: (value: string) => void;
+  onFieldNoteChange: (value: string) => void;
+  onForecastChange: (value: string) => void;
+  onFreezePackage: () => void;
   onStart?: () => void;
+  onSubmitReview: () => void;
+  onUploadEvidence: (
+    input: EvidenceUploaderUploadInput
+  ) => Promise<unknown> | unknown;
+  onUpdateExecution: () => void;
+  onProgressChange: (value: number) => void;
+  progress: number;
   readOnly: boolean;
 }) {
   const milestoneReference = detail.references.find(
@@ -1432,18 +1667,197 @@ function CanonicalMilestoneActionItemFacts({
               : ""}
           </p>
         ) : null}
-        {detail.item.systemPresentation?.startCommand?.allowed &&
-        !readOnly ? (
+        {detail.item.systemPresentation?.startCommand?.allowed && !readOnly ? (
           <Button onClick={onStart} size="sm" type="button">
             <Play aria-hidden="true" className="size-4" />
             Start work
           </Button>
+        ) : null}
+        {detail.item.systemPresentation?.canUpdateExecution && !readOnly ? (
+          <CanonicalFieldExecutionPanel
+            actualCost={actualCost}
+            evidenceBusy={evidenceBusy}
+            fieldNote={fieldNote}
+            forecast={forecast}
+            onActualCostChange={onActualCostChange}
+            onFieldNoteChange={onFieldNoteChange}
+            onForecastChange={onForecastChange}
+            onProgressChange={onProgressChange}
+            onUpdateExecution={onUpdateExecution}
+            progress={progress}
+          />
+        ) : null}
+        {detail.item.systemPresentation?.canAddEvidence && !readOnly ? (
+          <CanonicalEvidencePackagePanel
+            detail={detail}
+            evidenceBusy={evidenceBusy}
+            onFreezePackage={onFreezePackage}
+            onSubmitReview={onSubmitReview}
+            onUploadEvidence={onUploadEvidence}
+          />
         ) : null}
         <p className="text-muted-foreground text-xs">
           Status, completion, ownership, and identity follow the canonical
           roadmap. Start work is a canonical milestone command; this
           collaboration card is not an independent workflow.
         </p>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function CanonicalFieldExecutionPanel({
+  actualCost,
+  evidenceBusy,
+  fieldNote,
+  forecast,
+  onActualCostChange,
+  onFieldNoteChange,
+  onForecastChange,
+  onProgressChange,
+  onUpdateExecution,
+  progress,
+}: {
+  actualCost: string;
+  evidenceBusy: boolean;
+  fieldNote: string;
+  forecast: string;
+  onActualCostChange: (value: string) => void;
+  onFieldNoteChange: (value: string) => void;
+  onForecastChange: (value: string) => void;
+  onProgressChange: (value: number) => void;
+  onUpdateExecution: () => void;
+  progress: number;
+}) {
+  return (
+    <Frame className="bg-background" size="sm">
+      <FramePanel className="space-y-3 p-3">
+        <div className="flex items-center gap-2 font-medium text-sm">
+          <Save aria-hidden="true" className="size-4" />
+          Field execution
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Label className="space-y-1 text-xs">
+            <span>Progress percent</span>
+            <Input
+              aria-label="Progress percent"
+              max={100}
+              min={0}
+              onChange={(event) =>
+                onProgressChange(Number(event.target.value) || 0)
+              }
+              type="number"
+              value={progress}
+            />
+          </Label>
+          <Label className="space-y-1 text-xs">
+            <span>Completion forecast</span>
+            <Input
+              aria-label="Completion forecast"
+              onChange={(event) => onForecastChange(event.target.value)}
+              type="date"
+              value={forecast}
+            />
+          </Label>
+          <Label className="space-y-1 text-xs">
+            <span>Actual cost (cents)</span>
+            <Input
+              aria-label="Actual cost in cents"
+              min={0}
+              onChange={(event) => onActualCostChange(event.target.value)}
+              type="number"
+              value={actualCost}
+            />
+          </Label>
+        </div>
+        <Label className="space-y-1 text-xs">
+          <span>Field note</span>
+          <Input
+            aria-label="Field note"
+            onChange={(event) => onFieldNoteChange(event.target.value)}
+            value={fieldNote}
+          />
+        </Label>
+        <Button
+          disabled={evidenceBusy}
+          onClick={onUpdateExecution}
+          size="sm"
+          type="button"
+        >
+          Save progress
+        </Button>
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function CanonicalEvidencePackagePanel({
+  detail,
+  evidenceBusy,
+  onFreezePackage,
+  onSubmitReview,
+  onUploadEvidence,
+}: {
+  detail: VisibleActionItemDetail;
+  evidenceBusy: boolean;
+  onFreezePackage: () => void;
+  onSubmitReview: () => void;
+  onUploadEvidence: (
+    input: EvidenceUploaderUploadInput
+  ) => Promise<unknown> | unknown;
+}) {
+  const presentation = detail.item.systemPresentation;
+  const startCommand = presentation?.startCommand;
+  return (
+    <Frame className="bg-background" size="sm">
+      <FramePanel className="space-y-3 p-3">
+        <div className="flex items-center gap-2 font-medium text-sm">
+          <FilePlus2 aria-hidden="true" className="size-4" />
+          Evidence Package
+        </div>
+        <EvidenceUploader
+          compact
+          data={{ milestoneKey: startCommand?.milestoneKey ?? "" }}
+          item={{ evidence: [], key: startCommand?.submilestoneKey ?? "" }}
+          onUpload={onUploadEvidence}
+        />
+        {presentation?.readyExceptFor?.length ? (
+          <div aria-live="polite" className="space-y-1 text-xs">
+            <p className="font-medium">Ready except for:</p>
+            <ul className="list-disc space-y-1 pl-4">
+              {presentation.readyExceptFor.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-xs">
+            Current requirements are satisfied.
+          </p>
+        )}
+        {presentation?.evidencePackageRevisionId ? (
+          <Button
+            disabled={evidenceBusy}
+            onClick={onFreezePackage}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <CheckCircle2 aria-hidden="true" className="size-4" />
+            Freeze Evidence Package
+          </Button>
+        ) : null}
+        {presentation?.canSubmitForReview ? (
+          <Button
+            disabled={evidenceBusy}
+            onClick={onSubmitReview}
+            size="sm"
+            type="button"
+          >
+            <Send aria-hidden="true" className="size-4" />
+            Submit completion for review
+          </Button>
+        ) : null}
       </FramePanel>
     </Frame>
   );

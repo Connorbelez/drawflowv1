@@ -6,7 +6,10 @@ import { ConvexError, v } from "convex/values";
 
 import { api, internal } from "./_generated/api";
 import { copyProposalDocumentsToActiveBuild } from "./active_build_document_lineage";
-import { authorizeActiveBuildAccess } from "./activeBuildAccess";
+import {
+  authorizeActiveBuildAccess,
+  type ActiveBuildAuthorization,
+} from "./activeBuildAccess";
 import {
   type AuthorizedViewer,
   authenticatedAction,
@@ -30,6 +33,8 @@ import {
 } from "./builderStaffIdentity";
 import { createContractorProfileInviteClaim } from "./contractorOnboarding";
 import { normalizeContractorEmail } from "./contractorWorkspace";
+import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
+import { canReadCollaborationPost } from "./build_collaboration_access";
 import {
   publishEvidenceLocationUnverifiedCollaborationEvent,
   publishEvidenceReviewCollaborationEvent,
@@ -44,6 +49,12 @@ import {
   publishMilestoneCollaborationEvent,
 } from "./build_collaboration_workflow_events";
 import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
+import {
+  appendActiveSubmilestoneEvidenceAssetToDraft,
+  ensureActiveSubmilestoneEvidencePackageDraft,
+  resolveActiveSubmilestoneEvidencePackageReadiness,
+  resolveActiveSubmilestoneEvidenceRequirements,
+} from "./build_submilestone_evidence";
 import { scheduleCurrentMilestoneSystemPostActivations } from "./build_collaboration_scheduling";
 import { validateBuildTimezone } from "./build_collaboration_system_posts";
 import {
@@ -63,6 +74,7 @@ import {
 import {
   createSiteVisitRecoveryReference,
   resolveSiteVisitGeofenceAttempt,
+  type SiteVisitLocationAttempt,
   validateSiteVisitReplacementRequest,
   validateSiteVisitReportSubmission,
   validateSiteVisitSubmissionContext,
@@ -16958,6 +16970,31 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
     if (!persistedAsset) {
       throw new Error("Submitted Evidence became unavailable.");
     }
+    if (args.asset.submilestoneKey) {
+      const submilestone = (
+        (await ctx.db
+          .query("buildSubmilestones")
+          .withIndex("by_milestone", (query) =>
+            query.eq("buildMilestoneId", milestone._id),
+          )
+          .collect()) as Doc<"buildSubmilestones">[]
+      ).find((candidate) => candidate.key === args.asset.submilestoneKey);
+      if (!submilestone) {
+        throw new ConvexError({
+          code: "SUBMILESTONE_NOT_FOUND",
+          message: "Evidence Sub-milestone is unavailable for this Milestone.",
+          submilestoneKey: args.asset.submilestoneKey,
+        });
+      }
+      await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorWorkosUserId: auth.subject,
+        asset: persistedAsset,
+        build: auth.build,
+        milestone,
+        sourceKind: "canonical_upload",
+        submilestone,
+      });
+    }
     await publishEvidenceSubmittedCollaborationEvents(ctx, {
       asset: persistedAsset,
       revision: 1,
@@ -16965,6 +17002,425 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
     return null;
   })
   .public();
+
+type ActiveBuildEvidencePromotionArgs = {
+  assetId: Id<"buildCollaborationAssets">;
+  buildId: Id<"activeBuilds">;
+  evidenceKey: string;
+  expectedRevision?: number;
+  idempotencyKey?: string;
+  label?: string;
+  locationAttempt?: SiteVisitLocationAttempt;
+  locationVerified?: boolean;
+  milestoneKey: string;
+  requirementKey?: string;
+  submilestoneKey: string;
+  tag?: string;
+  workosOrganizationId: string;
+};
+
+type ActiveBuildEvidencePromotionResult = {
+  assetId: Id<"buildEvidenceAssets">;
+  evidencePackageRevisionId?: Id<"buildSubmilestoneEvidencePackageRevisions">;
+  locationVerified?: boolean;
+  replayed: boolean;
+};
+
+async function collaborationAttachmentPostId(
+  ctx: MutationCtx,
+  attachment: Doc<"buildCollaborationAttachments">,
+): Promise<Id<"buildCollaborationPosts"> | undefined> {
+  if (attachment.ownerKind === "postRevision") {
+    const revisionId = ctx.db.normalizeId(
+      "buildCollaborationPostRevisions",
+      attachment.ownerRecordId,
+    );
+    const revision = revisionId
+      ? await ctx.db.get("buildCollaborationPostRevisions", revisionId)
+      : null;
+    return revision?.postId;
+  }
+  if (attachment.ownerKind === "commentRevision") {
+    const revisionId = ctx.db.normalizeId(
+      "buildCollaborationCommentRevisions",
+      attachment.ownerRecordId,
+    );
+    const revision = revisionId
+      ? await ctx.db.get("buildCollaborationCommentRevisions", revisionId)
+      : null;
+    return revision?.postId;
+  }
+  if (attachment.ownerKind === "actionItem") {
+    const actionItemId = ctx.db.normalizeId(
+      "buildActionItems",
+      attachment.ownerRecordId,
+    );
+    const actionItem = actionItemId
+      ? await ctx.db.get("buildActionItems", actionItemId)
+      : null;
+    return actionItem?.originatingPostId;
+  }
+  const commentId = ctx.db.normalizeId(
+    "buildActionItemComments",
+    attachment.ownerRecordId,
+  );
+  const comment = commentId
+    ? await ctx.db.get("buildActionItemComments", commentId)
+    : null;
+  if (!comment) return undefined;
+  const actionItem = await ctx.db.get("buildActionItems", comment.actionItemId);
+  return actionItem?.originatingPostId;
+}
+
+async function promoteCanonicalDiscussionAttachmentToEvidence(
+  ctx: MutationCtx,
+  auth: ActiveBuildAuthorization,
+  args: ActiveBuildEvidencePromotionArgs,
+) {
+  const milestone = await getActiveBuildMilestoneOrThrow(
+    ctx,
+    args.buildId,
+    args.milestoneKey,
+  );
+  const submilestones = (await ctx.db
+    .query("buildSubmilestones")
+    .withIndex("by_milestone", (query) =>
+      query.eq("buildMilestoneId", milestone._id),
+    )
+    .collect()) as Doc<"buildSubmilestones">[];
+  const submilestone = submilestones.find(
+    (candidate) => candidate.key === args.submilestoneKey,
+  );
+  if (!submilestone) {
+    throw new ConvexError({
+      code: "SUBMILESTONE_NOT_FOUND",
+      message: "Evidence Sub-milestone is unavailable for this Milestone.",
+      submilestoneKey: args.submilestoneKey,
+    });
+  }
+  if (submilestone.status !== "in_progress") {
+    throw new ConvexError({
+      code: "SUBMILESTONE_NOT_ACTIVE",
+      message: "Evidence can be promoted only while work is active.",
+    });
+  }
+  const actorRoles = normalizeRoleSlugs(auth.viewer.roles);
+  if (actorRoles.includes("contractor")) {
+    const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
+      build: auth.build,
+      milestone,
+      submilestone,
+    });
+    if (
+      ownership.state !== "assigned" ||
+      ownership.contractor?.accountWorkosUserId !== auth.viewer.subject
+    ) {
+      throw new ConvexError({
+        code: "ASSIGNMENT_REQUIRED",
+        message: "Only the exact assigned Contractor may promote evidence.",
+      });
+    }
+  } else if (isBackoffice(actorRoles)) {
+    throw new ConvexError({
+      code: "LENDER_EXECUTION_FORBIDDEN",
+      message: "Lender staff may review evidence but cannot execute Builder work.",
+    });
+  } else {
+    await requireActiveBuildAppPermission(
+      ctx,
+      {
+        build: auth.build,
+        proposal: auth.proposal,
+        roles: actorRoles,
+        subject: auth.viewer.subject,
+      },
+      "evidence",
+      "create",
+    );
+  }
+  const existingReceipt = args.idempotencyKey
+    ? await findSubmilestoneIdempotentAudit(ctx, {
+        idempotencyKey: args.idempotencyKey,
+        submilestoneId: submilestone._id,
+      })
+    : null;
+  if (existingReceipt) {
+    const result = JSON.parse(
+      existingReceipt.resultJson,
+    ) as ActiveBuildEvidencePromotionResult;
+    return {
+      ...result,
+      replayed: true,
+    };
+  }
+  if (
+    args.expectedRevision !== undefined &&
+    args.expectedRevision !== (submilestone.workflowRevision ?? 0)
+  ) {
+    throw new ConvexError({
+      code: "STALE_SUBMILESTONE_REVISION",
+      message: "Sub-milestone changed; refresh before retrying the command.",
+      actualRevision: submilestone.workflowRevision ?? 0,
+      expectedRevision: args.expectedRevision,
+    });
+  }
+  const sourceAsset = await ctx.db.get(args.assetId);
+  if (!sourceAsset) {
+    throw new ConvexError({
+      code: "DISCUSSION_ASSET_UNAVAILABLE",
+      message:
+        "The discussion attachment is unavailable for explicit evidence promotion.",
+    });
+  }
+  const attachments = await ctx.db
+    .query("buildCollaborationAttachments")
+    .withIndex("by_buildId_and_attachmentKind_and_attachmentId", (query) =>
+      query
+        .eq("buildId", args.buildId)
+        .eq("attachmentKind", "collaborationAsset")
+        .eq("attachmentId", sourceAsset._id),
+    )
+    .take(100);
+  if (attachments.length === 0) {
+    throw new ConvexError({
+      code: "DISCUSSION_ATTACHMENT_REQUIRED",
+      message:
+        "Only a published discussion attachment can be explicitly promoted to Evidence.",
+    });
+  }
+  if (
+    !(await canReadCollaborationAsset(ctx, {
+      asset: sourceAsset,
+      authorization: auth,
+    }))
+  ) {
+    throw new ConvexError({
+      code: "DISCUSSION_ASSET_UNAVAILABLE",
+      message:
+        "The discussion attachment is unavailable for explicit evidence promotion.",
+    });
+  }
+  let sourcePostId: Id<"buildCollaborationPosts"> | undefined;
+  let sourceOwnerKind: string | undefined;
+  let sourceOwnerRecordId: string | undefined;
+  for (const attachment of attachments) {
+    const candidatePostId = await collaborationAttachmentPostId(ctx, attachment);
+    if (
+      candidatePostId &&
+      (await ctx.db.get(candidatePostId)) &&
+      (await canReadCollaborationPost(
+        ctx,
+        auth,
+        (await ctx.db.get(candidatePostId))!,
+      ))
+    ) {
+      sourcePostId = candidatePostId;
+      sourceOwnerKind = attachment.ownerKind;
+      sourceOwnerRecordId = attachment.ownerRecordId;
+      break;
+    }
+  }
+  if (!sourcePostId) {
+    throw new ConvexError({
+      code: "DISCUSSION_ATTACHMENT_UNAVAILABLE",
+      message:
+        "The source discussion attachment is not readable in this Build context.",
+    });
+  }
+  const evidenceKey =
+    args.evidenceKey.trim() ||
+    `discussion-promotion-${sourceAsset._id}-${submilestone._id}`;
+  if (!evidenceKey) {
+    throw new ConvexError({
+      code: "EVIDENCE_KEY_REQUIRED",
+      message: "Evidence key is required for explicit promotion.",
+    });
+  }
+  const existing = await ctx.db
+    .query("buildEvidenceAssets")
+    .withIndex("by_build_key", (query) =>
+      query.eq("buildId", args.buildId).eq("evidenceKey", evidenceKey),
+    )
+    .unique();
+  if (existing) {
+    if (existing.sourceDiscussionAssetId === sourceAsset._id) {
+      return { assetId: existing._id, replayed: true as const };
+    }
+    throw new ConvexError({
+      code: "EVIDENCE_IDEMPOTENCY_CONFLICT",
+      message: "This Evidence key was already used for another asset.",
+    });
+  }
+  const now = Date.now();
+  const locationAttempt = args.locationAttempt
+    ? resolveSiteVisitGeofenceAttempt({
+        locationAttempt: args.locationAttempt,
+        siteLatitude: auth.build.locationLatitude,
+        siteLongitude: auth.build.locationLongitude,
+      })
+    : undefined;
+  const evidenceAssetId = await ctx.db.insert("buildEvidenceAssets", {
+    brokerageId: auth.brokerage._id,
+    buildId: args.buildId,
+    createdAt: now,
+    evidenceKey,
+    fileName: sourceAsset.fileName,
+    label: args.label?.trim() || sourceAsset.fileName,
+    locationVerified: locationAttempt?.verified ?? false,
+    ...(locationAttempt?.accuracyMeters === undefined
+      ? {}
+      : { locationAccuracyMeters: locationAttempt.accuracyMeters }),
+    ...(locationAttempt?.attemptedAt === undefined
+      ? {}
+      : { locationAttemptedAt: locationAttempt.attemptedAt }),
+    ...(locationAttempt?.distanceMeters === undefined
+      ? {}
+      : { locationDistanceMeters: locationAttempt.distanceMeters }),
+    ...(locationAttempt?.failureReason
+      ? { locationFailureReason: locationAttempt.failureReason }
+      : {}),
+    ...(locationAttempt?.geofenceRadiusMeters === undefined
+      ? {}
+      : { locationGeofenceRadiusMeters: locationAttempt.geofenceRadiusMeters }),
+    milestoneKey: args.milestoneKey,
+    mimeType: sourceAsset.mimeType,
+    organizationId: auth.build.organizationId,
+    proposalId: auth.proposal._id,
+    sizeBytes: sourceAsset.sizeBytes,
+    source: "collaboration_asset_promotion",
+    sourceDiscussionAssetId: sourceAsset._id,
+    sourceDiscussionAssetVersion: sourceAsset.version,
+    sourceDiscussionCapturedAt: sourceAsset.sourceCapturedAt,
+    sourceDiscussionOwnerKind: sourceOwnerKind,
+    sourceDiscussionOwnerRecordId: sourceOwnerRecordId,
+    sourceDiscussionPostId: sourcePostId,
+    sourceDiscussionPublishedAt: sourceAsset.publishedAt,
+    sourceDiscussionUploadedByWorkosUserId: sourceAsset.uploadedByWorkosUserId,
+    storageId: sourceAsset.storageId,
+    submilestoneKey: args.submilestoneKey,
+    tag: args.tag?.trim() || milestone.name,
+    updatedAt: now,
+  });
+  const persistedAsset = await ctx.db.get(evidenceAssetId);
+  if (!persistedAsset) {
+    throw new Error("Promoted Evidence became unavailable.");
+  }
+  const packageMembership =
+    await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+      actorWorkosUserId: auth.viewer.subject,
+      asset: persistedAsset,
+      build: auth.build,
+      milestone,
+      requirementKey: args.requirementKey,
+      sourceDiscussionAsset: sourceAsset,
+      sourceDiscussionPostId: sourcePostId,
+      sourceKind: "discussion_promotion",
+      submilestone,
+    });
+  await ctx.db.patch(evidenceAssetId, {
+    evidencePackageRevisionId: packageMembership.packageRevision._id,
+    promotedAt: now,
+    promotedByWorkosUserId: auth.viewer.subject,
+    updatedAt: now,
+  });
+  await ctx.db.insert("buildSubmilestoneEvidencePromotions", {
+    brokerageId: auth.brokerage._id,
+    buildId: args.buildId,
+    buildMilestoneId: milestone._id,
+    buildSubmilestoneId: submilestone._id,
+    evidenceAssetId,
+    organizationId: auth.build.organizationId,
+    packageRevisionId: packageMembership.packageRevision._id,
+    promotedAt: now,
+    promotedByWorkosUserId: auth.viewer.subject,
+    sourceAssetVersion: sourceAsset.version,
+    sourceDiscussionAssetId: sourceAsset._id,
+    sourceCapturedAt: sourceAsset.sourceCapturedAt,
+    sourceDiscussionPostId: sourcePostId,
+    sourcePublishedAt: sourceAsset.publishedAt,
+    sourceUploaderWorkosUserId: sourceAsset.uploadedByWorkosUserId,
+  });
+  await writeActiveBuildEvent(ctx, {
+    auth: {
+      brokerage: auth.brokerage,
+      proposal: auth.proposal,
+      roles: normalizeRoleSlugs(auth.roles.filter((role) => role !== "homeowner")),
+      subject: auth.viewer.subject,
+    },
+    build: auth.build,
+    command: "promoteActiveBuildDiscussionAttachmentToEvidence",
+    eventType: "active_build.evidence.promoted",
+    newState: JSON.stringify({
+      evidenceAssetId,
+      evidenceKey,
+      packageRevision: packageMembership.packageRevision.revision,
+      sourceDiscussionAssetId: sourceAsset._id,
+      sourceDiscussionPostId: sourcePostId,
+      sourceDiscussionAssetVersion: sourceAsset.version,
+    }),
+    warnings:
+      locationAttempt && !locationAttempt.verified
+        ? ["evidence_location_unverified"]
+        : [],
+  });
+  const result: ActiveBuildEvidencePromotionResult = {
+    assetId: evidenceAssetId,
+    evidencePackageRevisionId: packageMembership.packageRevision._id,
+    locationVerified: persistedAsset.locationVerified,
+    replayed: false as const,
+  };
+  if (args.idempotencyKey) {
+    await insertSubmilestoneCommandReceipt(ctx, {
+      buildId: args.buildId,
+      command: "promoteActiveBuildDiscussionAttachmentToEvidence",
+      idempotencyKey: args.idempotencyKey,
+      organizationId: auth.build.organizationId,
+      result,
+      submilestoneId: submilestone._id,
+    });
+  }
+  await publishEvidenceSubmittedCollaborationEvents(ctx, {
+    asset: persistedAsset,
+    revision: 1,
+  });
+  return result;
+}
+
+export const promoteActiveBuildDiscussionAttachmentToEvidence =
+  authenticatedMutation
+    .input({
+      assetId: v.id("buildCollaborationAssets"),
+      buildId: v.id("activeBuilds"),
+      evidenceKey: v.string(),
+      expectedRevision: v.optional(v.number()),
+      idempotencyKey: v.optional(v.string()),
+      label: v.optional(v.string()),
+      locationAttempt: v.optional(siteVisitLocationAttemptValidator),
+      locationVerified: v.optional(v.boolean()),
+      milestoneKey: v.string(),
+      requirementKey: v.optional(v.string()),
+      submilestoneKey: v.string(),
+      tag: v.optional(v.string()),
+      workosOrganizationId: v.string(),
+    })
+    .returns(
+      v.object({
+        assetId: v.id("buildEvidenceAssets"),
+        evidencePackageRevisionId: v.optional(
+          v.id("buildSubmilestoneEvidencePackageRevisions"),
+        ),
+        locationVerified: v.optional(v.boolean()),
+        replayed: v.boolean(),
+      }),
+    )
+    .handler(async (ctx, args) => {
+      const auth = await authorizeActiveBuildAccess(
+        ctx,
+        { buildId: args.buildId, organizationId: args.workosOrganizationId },
+      );
+      return await promoteCanonicalDiscussionAttachmentToEvidence(ctx, auth, args);
+    })
+    .public();
 
 export const updateActiveBuildTimelineEvidenceAsset = authenticatedMutation
   .input({
@@ -17229,10 +17685,12 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
     actualCostCents: v.optional(v.union(v.number(), v.null())),
     actualStartedAt: v.optional(v.number()),
     buildId: v.id("activeBuilds"),
+    completionForecastDate: v.optional(v.union(v.string(), v.null())),
     dependencyOverrideReason: v.optional(v.string()),
     fieldNote: v.optional(v.union(v.string(), v.null())),
     idempotencyKey: v.optional(v.string()),
     milestoneKey: v.string(),
+    progressPercent: v.optional(v.number()),
     reason: v.optional(v.string()),
     status: v.optional(
       v.union(
@@ -17254,6 +17712,17 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
     await requireActiveBuildAppPermission(ctx, auth, "submilestone", "update");
     if (args.actualCostCents !== undefined || args.fieldNote !== undefined) {
       await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+    }
+    if (
+      args.progressPercent !== undefined &&
+      (!Number.isFinite(args.progressPercent) ||
+        args.progressPercent < 0 ||
+        args.progressPercent > 100)
+    ) {
+      throw new ConvexError({
+        code: "INVALID_PROGRESS_PERCENT",
+        message: "Progress must be between 0 and 100 percent.",
+      });
     }
     const milestone = await getActiveBuildMilestoneOrThrow(
       ctx,
@@ -17346,6 +17815,17 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
                 ? undefined
                 : args.fieldNote.trim() || undefined,
           }),
+      ...(args.completionForecastDate === undefined
+        ? {}
+        : {
+            completionForecastDate:
+              args.completionForecastDate === null
+                ? undefined
+                : args.completionForecastDate.trim() || undefined,
+          }),
+      ...(args.progressPercent === undefined
+        ? {}
+        : { progressPercent: Math.round(args.progressPercent) }),
       ...(args.status === undefined
         ? {}
         : {
@@ -17369,9 +17849,11 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         : row.status === "complete",
     ).length;
     const progressPercent =
-      submilestones.length === 0
-        ? (milestone.progressPercent ?? 0)
-        : Math.round((completedCount / submilestones.length) * 100);
+      args.progressPercent !== undefined
+        ? Math.round(args.progressPercent)
+        : submilestones.length === 0
+          ? (milestone.progressPercent ?? 0)
+          : Math.round((completedCount / submilestones.length) * 100);
     await ctx.db.patch(milestone._id, {
       ...(nextStatus !== "complete" && milestone.completionClaim
         ? {
@@ -17390,14 +17872,18 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
       eventType: "active_build.submilestone.execution_updated",
       newState: JSON.stringify({
         actualCostCents: patch.actualCostCents,
+        completionForecastDate: patch.completionForecastDate,
         fieldNote: patch.fieldNote,
         milestoneKey: milestone.key,
+        progressPercent: patch.progressPercent,
         status: nextStatus,
         submilestoneKey: submilestone.key,
       }),
       priorState: JSON.stringify({
         actualCostCents: submilestone.actualCostCents,
+        completionForecastDate: submilestone.completionForecastDate,
         fieldNote: submilestone.fieldNote,
+        progressPercent: submilestone.progressPercent,
         status: submilestone.status,
       }),
       reason: args.reason,
@@ -17406,6 +17892,667 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
   })
   .public();
 
+/**
+ * Update active field execution without changing completion authority. A
+ * progress value of 100 is deliberately only a progress observation; the
+ * explicit completion declaration command below is the only path into review.
+ */
+export const updateActiveBuildSubmilestoneProgress = authenticatedMutation
+  .input({
+    actualCostCents: v.optional(v.union(v.number(), v.null())),
+    buildId: v.id("activeBuilds"),
+    completionForecastDate: v.optional(v.union(v.string(), v.null())),
+    fieldNote: v.optional(v.union(v.string(), v.null())),
+    expectedRevision: v.optional(v.number()),
+    idempotencyKey: v.string(),
+    milestoneKey: v.string(),
+    progressPercent: v.number(),
+    submilestoneKey: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeCanonicalSubmilestoneOperator(ctx, args);
+    const { milestone, submilestone } = await activeBuildStartTarget(ctx, {
+      buildId: args.buildId,
+      milestoneKey: args.milestoneKey,
+      submilestoneKey: args.submilestoneKey,
+    });
+    const existing = await findSubmilestoneIdempotentAudit(ctx, {
+      submilestoneId: submilestone._id,
+      idempotencyKey: args.idempotencyKey,
+    });
+    if (existing) {
+      return {
+        ...(JSON.parse(existing.resultJson) as Record<string, unknown>),
+        replayed: true,
+      };
+    }
+    if (submilestone.status !== "in_progress") {
+      throw new ConvexError({
+        code: "SUBMILESTONE_NOT_ACTIVE",
+        message: "Progress updates require an active Sub-milestone.",
+      });
+    }
+    if (submilestone.actualStartedAt === undefined) {
+      throw new ConvexError({
+        code: "MISSING_ACTUAL_START",
+        message: "Start the Sub-milestone before recording field progress.",
+      });
+    }
+    assertExpectedSubmilestoneRevision(submilestone, args.expectedRevision);
+    assertProgressPercent(args.progressPercent);
+    const now = Date.now();
+    const patch = {
+      ...(args.actualCostCents === undefined
+        ? {}
+        : {
+            actualCostCents:
+              args.actualCostCents === null
+                ? undefined
+                : Math.max(0, Math.round(args.actualCostCents)),
+          }),
+      ...(args.completionForecastDate === undefined
+        ? {}
+        : {
+            completionForecastDate:
+              args.completionForecastDate === null
+                ? undefined
+                : args.completionForecastDate.trim() || undefined,
+          }),
+      ...(args.fieldNote === undefined
+        ? {}
+        : {
+            fieldNote:
+              args.fieldNote === null
+                ? undefined
+                : args.fieldNote.trim() || undefined,
+          }),
+      progressPercent: Math.round(args.progressPercent),
+      updatedAt: now,
+      workflowRevision: (submilestone.workflowRevision ?? 0) + 1,
+    };
+    await ctx.db.patch(submilestone._id, patch);
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "updateActiveBuildSubmilestoneProgress",
+      eventType: "active_build.submilestone.progress_updated",
+      newState: JSON.stringify({
+        actualCostCents: patch.actualCostCents,
+        completionForecastDate: patch.completionForecastDate,
+        fieldNote: patch.fieldNote,
+        idempotencyKey: args.idempotencyKey,
+        milestoneKey: milestone.key,
+        progressPercent: patch.progressPercent,
+        submilestoneKey: submilestone.key,
+      }),
+      priorState: JSON.stringify({
+        actualCostCents: submilestone.actualCostCents,
+        completionForecastDate: submilestone.completionForecastDate,
+        fieldNote: submilestone.fieldNote,
+        progressPercent: submilestone.progressPercent ?? 0,
+        workflowRevision: submilestone.workflowRevision ?? 0,
+      }),
+    });
+    const result = {
+      progressPercent: patch.progressPercent,
+      revision: patch.workflowRevision,
+      replayed: false,
+    };
+    await insertSubmilestoneCommandReceipt(ctx, {
+      buildId: args.buildId,
+      command: "updateActiveBuildSubmilestoneProgress",
+      idempotencyKey: args.idempotencyKey,
+      organizationId: auth.build.organizationId,
+      result,
+      submilestoneId: submilestone._id,
+    });
+    return result;
+  })
+  .public();
+
+/** Configure the planning-owned requirements used by the canonical package. */
+export const configureActiveBuildSubmilestoneEvidenceRequirements =
+  authenticatedMutation
+    .input({
+      buildId: v.id("activeBuilds"),
+      milestoneKey: v.string(),
+      requirements: v.array(
+        v.object({
+          description: v.optional(v.string()),
+          kind: v.union(
+            v.literal("photo"),
+            v.literal("document"),
+            v.literal("site_visit"),
+            v.literal("any"),
+          ),
+          label: v.string(),
+          locationRequired: v.optional(v.boolean()),
+          required: v.boolean(),
+          requirementKey: v.string(),
+        }),
+      ),
+      submilestoneKey: v.string(),
+      workosOrganizationId: v.string(),
+    })
+    .returns(v.array(v.id("buildSubmilestoneEvidenceRequirements")))
+    .handler(async (ctx, args) => {
+      const auth = await authorizeActiveBuildOrThrow(
+        ctx,
+        args.buildId,
+        args.workosOrganizationId,
+      );
+      await requireActiveBuildAppPermission(ctx, auth, "milestone", "update");
+      const { milestone, submilestone } = await activeBuildStartTarget(ctx, {
+        buildId: args.buildId,
+        milestoneKey: args.milestoneKey,
+        submilestoneKey: args.submilestoneKey,
+      });
+      const requirements = normalizeEvidenceRequirementInputs(args.requirements);
+      const prior = await ctx.db
+        .query("buildSubmilestoneEvidenceRequirements")
+        .withIndex("by_submilestone", (query) =>
+          query
+            .eq("buildSubmilestoneId", submilestone._id)
+            .eq("active", true),
+        )
+        .collect();
+      const revision =
+        prior.reduce((max, row) => Math.max(max, row.revision), 0) + 1;
+      const now = Date.now();
+      for (const row of prior) {
+        await ctx.db.patch(row._id, { active: false, updatedAt: now });
+      }
+      const ids: Id<"buildSubmilestoneEvidenceRequirements">[] = [];
+      for (const requirement of requirements) {
+        ids.push(
+          await ctx.db.insert("buildSubmilestoneEvidenceRequirements", {
+            active: true,
+            brokerageId: auth.brokerage._id,
+            buildId: args.buildId,
+            buildMilestoneId: milestone._id,
+            buildSubmilestoneId: submilestone._id,
+            createdAt: now,
+            createdByWorkosUserId: auth.subject,
+            description: requirement.description,
+            kind: requirement.kind,
+            label: requirement.label,
+            locationRequired: requirement.locationRequired,
+            milestoneKey: milestone.key,
+            organizationId: auth.build.organizationId,
+            proposalId: auth.proposal._id,
+            required: requirement.required,
+            requirementKey: requirement.requirementKey,
+            revision,
+            submilestoneKey: submilestone.key,
+            updatedAt: now,
+          }),
+        );
+      }
+      await writeActiveBuildEvent(ctx, {
+        auth,
+        build: auth.build,
+        command: "configureActiveBuildSubmilestoneEvidenceRequirements",
+        eventType: "active_build.submilestone.evidence_requirements_configured",
+        newState: JSON.stringify({
+          requirementKeys: requirements.map((requirement) => requirement.requirementKey),
+          revision,
+          submilestoneKey: submilestone.key,
+        }),
+        priorState: JSON.stringify({
+          requirementKeys: prior.map((requirement) => requirement.requirementKey),
+          revision: prior.reduce((max, row) => Math.max(max, row.revision), 0),
+        }),
+      });
+      return ids;
+    })
+    .public();
+
+/** Add an upload to the canonical, revisioned Evidence Package. */
+export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    evidence: v.object({
+      evidenceKey: v.optional(v.string()),
+      fileName: v.string(),
+      label: v.optional(v.string()),
+      locationAttempt: v.optional(siteVisitLocationAttemptValidator),
+      mimeType: v.string(),
+      requirementKey: v.optional(v.string()),
+      sizeBytes: v.number(),
+      storageId: v.optional(v.id("_storage")),
+      tag: v.optional(v.string()),
+    }),
+    expectedRevision: v.optional(v.number()),
+    idempotencyKey: v.string(),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeCanonicalSubmilestoneOperator(ctx, args);
+    const { milestone, submilestone } = await activeBuildStartTarget(ctx, {
+      buildId: args.buildId,
+      milestoneKey: args.milestoneKey,
+      submilestoneKey: args.submilestoneKey,
+    });
+    const existing = await findSubmilestoneIdempotentAudit(ctx, {
+      submilestoneId: submilestone._id,
+      idempotencyKey: args.idempotencyKey,
+    });
+    if (existing) {
+      return {
+        ...(JSON.parse(existing.resultJson) as Record<string, unknown>),
+        replayed: true,
+      };
+    }
+    if (submilestone.status !== "in_progress") {
+      throw new ConvexError({
+        code: "SUBMILESTONE_NOT_ACTIVE",
+        message: "Evidence can be added only while work is active.",
+      });
+    }
+    assertExpectedSubmilestoneRevision(submilestone, args.expectedRevision);
+    const requirements = await resolveActiveSubmilestoneEvidenceRequirements(
+      ctx,
+      { build: auth.build, milestone, submilestone },
+    );
+    const requirementKey =
+      args.evidence.requirementKey?.trim() || requirements[0]?.requirementKey;
+    if (!requirementKey || !requirements.some((row) => row.requirementKey === requirementKey)) {
+      throw new ConvexError({
+        code: "EVIDENCE_REQUIREMENT_NOT_FOUND",
+        message: "Evidence must target a current Sub-milestone requirement.",
+        requirementKey,
+      });
+    }
+    const now = Date.now();
+    const locationAttempt = args.evidence.locationAttempt
+      ? resolveSiteVisitGeofenceAttempt({
+          locationAttempt: args.evidence.locationAttempt,
+          siteLatitude: auth.build.locationLatitude,
+          siteLongitude: auth.build.locationLongitude,
+        })
+      : undefined;
+    const packageRevision = await ensureDraftSubmilestoneEvidencePackage(ctx, {
+      auth,
+      milestone,
+      submilestone,
+    });
+    const evidenceKey =
+      args.evidence.evidenceKey?.trim() ||
+      `submilestone-${submilestone.key}-${crypto.randomUUID()}`;
+    const duplicateEvidence = await ctx.db
+      .query("buildEvidenceAssets")
+      .withIndex("by_build_key", (query) =>
+        query.eq("buildId", args.buildId).eq("evidenceKey", evidenceKey),
+      )
+      .unique();
+    if (duplicateEvidence) {
+      throw new ConvexError({
+        code: "EVIDENCE_KEY_CONFLICT",
+        message: "Evidence key already exists; choose a new key.",
+      });
+    }
+    const persistedAssetId = await ctx.db.insert("buildEvidenceAssets", {
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      createdAt: now,
+      evidenceKey,
+      evidencePackageRevisionId: packageRevision._id,
+      fileName: args.evidence.fileName.trim(),
+      label: args.evidence.label?.trim() || args.evidence.fileName.trim(),
+      locationVerified: locationAttempt?.verified ?? false,
+      ...(locationAttempt?.accuracyMeters === undefined
+        ? {}
+        : { locationAccuracyMeters: locationAttempt.accuracyMeters }),
+      ...(locationAttempt?.attemptedAt === undefined
+        ? {}
+        : { locationAttemptedAt: locationAttempt.attemptedAt }),
+      ...(locationAttempt?.distanceMeters === undefined
+        ? {}
+        : { locationDistanceMeters: locationAttempt.distanceMeters }),
+      ...(locationAttempt?.failureReason
+        ? { locationFailureReason: locationAttempt.failureReason }
+        : {}),
+      ...(locationAttempt?.geofenceRadiusMeters === undefined
+        ? {}
+        : { locationGeofenceRadiusMeters: locationAttempt.geofenceRadiusMeters }),
+      milestoneKey: milestone.key,
+      mimeType: args.evidence.mimeType.trim().toLowerCase(),
+      organizationId: auth.build.organizationId,
+      proposalId: auth.proposal._id,
+      sizeBytes: Math.max(0, Math.round(args.evidence.sizeBytes)),
+      source: "active_build_submilestone_evidence_upload",
+      storageId: args.evidence.storageId,
+      submilestoneKey: submilestone.key,
+      tag: args.evidence.tag?.trim() || milestone.name,
+      updatedAt: now,
+    });
+    await ctx.db.insert("buildSubmilestoneEvidencePackageItems", {
+      brokerageId: auth.brokerage._id,
+      buildId: args.buildId,
+      buildMilestoneId: milestone._id,
+      buildSubmilestoneId: submilestone._id,
+      createdAt: now,
+      evidenceAssetId: persistedAssetId,
+      locationVerified: locationAttempt?.verified ?? false,
+      organizationId: auth.build.organizationId,
+      packageRevisionId: packageRevision._id,
+      requirementKey,
+      sourceKind: "canonical_upload",
+      sourceUploaderWorkosUserId: auth.subject,
+    });
+    const nextWorkflowRevision = (submilestone.workflowRevision ?? 0) + 1;
+    await ctx.db.patch(submilestone._id, {
+      evidencePackageRevisionId: packageRevision._id,
+      evidenceReviewState: "not_ready",
+      updatedAt: now,
+      workflowRevision: nextWorkflowRevision,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "addActiveBuildSubmilestoneEvidence",
+      eventType: "active_build.submilestone.evidence_added",
+      newState: JSON.stringify({
+        evidenceAssetId: persistedAssetId,
+        evidencePackageRevision: packageRevision.revision,
+        idempotencyKey: args.idempotencyKey,
+        locationVerified: locationAttempt?.verified ?? false,
+        requirementKey,
+        submilestoneKey: submilestone.key,
+      }),
+      priorState: JSON.stringify({ workflowRevision: submilestone.workflowRevision ?? 0 }),
+      warnings:
+        locationAttempt && !locationAttempt.verified
+          ? ["evidence_location_unverified"]
+          : [],
+    });
+    await insertSubmilestoneCommandReceipt(ctx, {
+      buildId: args.buildId,
+      command: "addActiveBuildSubmilestoneEvidence",
+      idempotencyKey: args.idempotencyKey,
+      organizationId: auth.build.organizationId,
+      result: {
+        evidenceAssetId: persistedAssetId,
+        evidencePackageRevisionId: packageRevision._id,
+        locationVerified: locationAttempt?.verified ?? false,
+        replayed: false,
+        revision: nextWorkflowRevision,
+      },
+      submilestoneId: submilestone._id,
+    });
+    const persistedAsset = await ctx.db.get(persistedAssetId);
+    if (!persistedAsset) {
+      throw new Error("Canonical Evidence Asset became unavailable.");
+    }
+    await publishEvidenceSubmittedCollaborationEvents(ctx, {
+      asset: persistedAsset,
+      revision: packageRevision.revision,
+    });
+    return {
+      evidenceAssetId: persistedAssetId,
+      evidencePackageRevisionId: packageRevision._id,
+      locationVerified: persistedAsset.locationVerified,
+      replayed: false,
+      revision: nextWorkflowRevision,
+    };
+  })
+  .public();
+
+/** Freeze a draft package only after every current required item is present. */
+export const freezeActiveBuildSubmilestoneEvidencePackage = authenticatedMutation
+  .input({
+    buildId: v.id("activeBuilds"),
+    expectedRevision: v.optional(v.number()),
+    milestoneKey: v.string(),
+    packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
+    submilestoneKey: v.string(),
+    workosOrganizationId: v.string(),
+  })
+  .returns(v.any())
+  .handler(async (ctx, args) => {
+    const auth = await authorizeCanonicalSubmilestoneOperator(ctx, args);
+    const { milestone, submilestone } = await activeBuildStartTarget(ctx, {
+      buildId: args.buildId,
+      milestoneKey: args.milestoneKey,
+      submilestoneKey: args.submilestoneKey,
+    });
+    assertExpectedSubmilestoneRevision(submilestone, args.expectedRevision);
+    const packageRevision = await getScopedSubmilestonePackageRevision(ctx, {
+      auth,
+      milestone,
+      packageRevisionId: args.packageRevisionId,
+      submilestone,
+    });
+    if (packageRevision.status !== "draft") {
+      return {
+        packageRevisionId: packageRevision._id,
+        readyExceptFor: [],
+        revision: submilestone.workflowRevision ?? 0,
+        status: "frozen" as const,
+      };
+    }
+    const readiness = await resolveActiveSubmilestoneEvidencePackageReadiness(ctx, {
+      build: auth.build,
+      milestone,
+      packageRevisionId: packageRevision._id,
+      submilestone,
+      includeFrozenRequirement: false,
+    });
+    if (readiness.readyExceptFor.length > 0) {
+      throw new ConvexError({
+        code: "EVIDENCE_PACKAGE_NOT_READY",
+        message: "Evidence Package is not ready to freeze.",
+        readyExceptFor: readiness.readyExceptFor,
+      });
+    }
+    const now = Date.now();
+    await ctx.db.patch(packageRevision._id, {
+      frozenAt: now,
+      frozenByWorkosUserId: auth.subject,
+      status: "frozen",
+      updatedAt: now,
+    });
+    const nextWorkflowRevision = (submilestone.workflowRevision ?? 0) + 1;
+    await ctx.db.patch(submilestone._id, {
+      evidencePackageRevisionId: packageRevision._id,
+      updatedAt: now,
+      workflowRevision: nextWorkflowRevision,
+    });
+    await writeActiveBuildEvent(ctx, {
+      auth,
+      build: auth.build,
+      command: "freezeActiveBuildSubmilestoneEvidencePackage",
+      eventType: "active_build.submilestone.evidence_package_frozen",
+      newState: JSON.stringify({
+        packageRevisionId: packageRevision._id,
+        revision: packageRevision.revision,
+        submilestoneKey: submilestone.key,
+      }),
+      priorState: JSON.stringify({ status: packageRevision.status }),
+    });
+    return {
+      packageRevisionId: packageRevision._id,
+      readyExceptFor: [],
+      revision: nextWorkflowRevision,
+      status: "frozen" as const,
+    };
+  })
+  .public();
+
+/** Enter review with an explicit completion declaration and frozen package. */
+export const submitActiveBuildSubmilestoneCompletionForReview =
+  authenticatedMutation
+    .input({
+      buildId: v.id("activeBuilds"),
+      completionNote: v.optional(v.string()),
+      declareComplete: v.boolean(),
+      expectedPackageRevision: v.number(),
+      expectedRevision: v.optional(v.number()),
+      idempotencyKey: v.string(),
+      milestoneKey: v.string(),
+      packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
+      submilestoneKey: v.string(),
+      workosOrganizationId: v.string(),
+    })
+    .returns(v.any())
+    .handler(async (ctx, args) => {
+      const auth = await authorizeCanonicalSubmilestoneOperator(ctx, args);
+      const { milestone, submilestone } = await activeBuildStartTarget(ctx, {
+        buildId: args.buildId,
+        milestoneKey: args.milestoneKey,
+        submilestoneKey: args.submilestoneKey,
+      });
+      const existing = await ctx.db
+        .query("buildSubmilestoneCompletionSubmissions")
+        .withIndex("by_submilestone_idempotency", (query) =>
+          query
+            .eq("buildSubmilestoneId", submilestone._id)
+            .eq("idempotencyKey", args.idempotencyKey),
+        )
+        .first();
+      if (existing) {
+        const round = await ctx.db
+          .query("buildSubmilestoneReviewRounds")
+          .withIndex("by_submilestone_round", (query) =>
+            query
+              .eq("buildSubmilestoneId", submilestone._id)
+              .eq("round", existing.revision),
+          )
+          .first();
+        return {
+          completionSubmissionId: existing._id,
+          readyExceptFor: [],
+          reviewRound: round?.round ?? existing.revision,
+          replayed: true,
+          status: "in_review" as const,
+        };
+      }
+      if (!args.declareComplete) {
+        throw new ConvexError({
+          code: "COMPLETION_DECLARATION_REQUIRED",
+          message: "Explicit completion declaration is required for review entry.",
+        });
+      }
+      if (submilestone.status !== "in_progress" || submilestone.actualStartedAt === undefined) {
+        throw new ConvexError({
+          code: "SUBMILESTONE_NOT_ACTIVE",
+          message: "Review entry requires an actively started Sub-milestone.",
+        });
+      }
+      assertExpectedSubmilestoneRevision(submilestone, args.expectedRevision);
+      const packageRevision = await getScopedSubmilestonePackageRevision(ctx, {
+        auth,
+        milestone,
+        packageRevisionId: args.packageRevisionId,
+        submilestone,
+      });
+      if (
+        packageRevision.status !== "frozen" ||
+        packageRevision.revision !== args.expectedPackageRevision
+      ) {
+        throw new ConvexError({
+          code: "STALE_EVIDENCE_PACKAGE_REVISION",
+          message: "Evidence Package revision is stale or not frozen.",
+          expectedPackageRevision: args.expectedPackageRevision,
+          actualPackageRevision: packageRevision.revision,
+        });
+      }
+      const readiness = await resolveActiveSubmilestoneEvidencePackageReadiness(ctx, {
+        build: auth.build,
+        milestone,
+        packageRevisionId: packageRevision._id,
+        submilestone,
+        includeFrozenRequirement: false,
+      });
+      if (readiness.readyExceptFor.length > 0) {
+        throw new ConvexError({
+          code: "EVIDENCE_PACKAGE_NOT_READY",
+          message: "Review entry is blocked by current Evidence Package requirements.",
+          readyExceptFor: readiness.readyExceptFor,
+        });
+      }
+      const now = Date.now();
+      const priorRound =
+        submilestone.evidenceReviewRound ?? 0;
+      const nextRound = priorRound + 1;
+      const submissionId = await ctx.db.insert("buildSubmilestoneCompletionSubmissions", {
+        actorRoles: auth.roles,
+        actorWorkosUserId: auth.subject,
+        actualCostCents: submilestone.actualCostCents,
+        buildId: args.buildId,
+        buildMilestoneId: milestone._id,
+        buildSubmilestoneId: submilestone._id,
+        brokerageId: auth.brokerage._id,
+        completionForecastDate: submilestone.completionForecastDate,
+        declaredAt: now,
+        fieldNote: args.completionNote?.trim() || submilestone.fieldNote,
+        idempotencyKey: args.idempotencyKey,
+        milestoneKey: milestone.key,
+        organizationId: auth.build.organizationId,
+        packageRevisionId: packageRevision._id,
+        progressPercent: 100,
+        revision: nextRound,
+        submilestoneKey: submilestone.key,
+      });
+      await ctx.db.insert("buildSubmilestoneReviewRounds", {
+        buildId: args.buildId,
+        buildMilestoneId: milestone._id,
+        buildSubmilestoneId: submilestone._id,
+        brokerageId: auth.brokerage._id,
+        completionSubmissionId: submissionId,
+        enteredAt: now,
+        enteredByWorkosUserId: auth.subject,
+        milestoneKey: milestone.key,
+        organizationId: auth.build.organizationId,
+        packageRevisionId: packageRevision._id,
+        remediation: [],
+        reviewNote: args.completionNote?.trim() || undefined,
+        round: nextRound,
+        status: "in_review",
+        submilestoneKey: submilestone.key,
+      });
+      const nextWorkflowRevision = (submilestone.workflowRevision ?? 0) + 1;
+      await ctx.db.patch(submilestone._id, {
+        completionSubmissionId: submissionId,
+        evidencePackageRevisionId: packageRevision._id,
+        evidenceReviewRound: nextRound,
+        evidenceReviewState: "in_review",
+        progressPercent: 100,
+        updatedAt: now,
+        workflowRevision: nextWorkflowRevision,
+      });
+      await writeActiveBuildEvent(ctx, {
+        auth,
+        build: auth.build,
+        command: "submitActiveBuildSubmilestoneCompletionForReview",
+        eventType: "active_build.submilestone.completion_submitted_for_review",
+        newState: JSON.stringify({
+          completionSubmissionId: submissionId,
+          idempotencyKey: args.idempotencyKey,
+          packageRevision: packageRevision.revision,
+          reviewRound: nextRound,
+          submilestoneKey: submilestone.key,
+        }),
+        priorState: JSON.stringify({
+          evidenceReviewRound: submilestone.evidenceReviewRound ?? 0,
+          evidenceReviewState: submilestone.evidenceReviewState ?? "not_ready",
+        }),
+      });
+      return {
+        completionSubmissionId: submissionId,
+        readyExceptFor: [],
+        reviewRound: nextRound,
+        replayed: false,
+        status: "in_review" as const,
+      };
+    })
+    .public();
+
 export const submitActiveBuildMilestoneCompletion = authenticatedMutation
   .input({
     actualCostCents: v.optional(v.number()),
@@ -17413,6 +18560,7 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
     buildId: v.id("activeBuilds"),
     completedDay: v.number(),
     dependencyOverrideReason: v.optional(v.string()),
+    expectedEvidencePackageRevision: v.optional(v.number()),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     note: v.optional(v.string()),
@@ -17460,6 +18608,56 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
         milestoneKey: milestone.key,
       });
     }
+    const evidencePackages: Array<{
+      packageRevision: Doc<"buildSubmilestoneEvidencePackageRevisions">;
+      submilestone: Doc<"buildSubmilestones">;
+    }> = [];
+    for (const submilestone of submilestones) {
+      const packageRevision = await ensureDraftSubmilestoneEvidencePackage(ctx, {
+        auth,
+        milestone,
+        submilestone,
+      });
+      if (
+        args.expectedEvidencePackageRevision !== undefined &&
+        packageRevision.revision !== args.expectedEvidencePackageRevision
+      ) {
+        throw new ConvexError({
+          code: "STALE_EVIDENCE_PACKAGE_REVISION",
+          actualPackageRevision: packageRevision.revision,
+          expectedPackageRevision: args.expectedEvidencePackageRevision,
+          message:
+            "Evidence Package revision changed; refresh the canonical package before review entry.",
+        });
+      }
+      const readiness = await resolveActiveSubmilestoneEvidencePackageReadiness(
+        ctx,
+        {
+          build: auth.build,
+          milestone,
+          packageRevisionId: packageRevision._id,
+          submilestone,
+          includeFrozenRequirement: false,
+        },
+      );
+      if (readiness.readyExceptFor.length > 0) {
+        throw new ConvexError({
+          code: "EVIDENCE_PACKAGE_NOT_READY",
+          message:
+            "Review entry is blocked by current Evidence Package requirements.",
+          readyExceptFor: readiness.readyExceptFor,
+          submilestoneKey: submilestone.key,
+        });
+      }
+      const now = Date.now();
+      await ctx.db.patch(packageRevision._id, {
+        frozenAt: now,
+        frozenByWorkosUserId: auth.subject,
+        status: "frozen",
+        updatedAt: now,
+      });
+      evidencePackages.push({ packageRevision, submilestone });
+    }
     if (milestone.actualStartedAt === undefined) {
       if (args.actualStartedAt === undefined) {
         throw new ConvexError({
@@ -17499,6 +18697,15 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
         ? {}
         : { qualityRating: normalizeQualityRating(args.qualityRating) }),
       ...(args.qualityNote ? { qualityNote: args.qualityNote } : {}),
+      ...(evidencePackages.length > 0
+        ? {
+            evidencePackageRevisionIds: evidencePackages.map(({ packageRevision, submilestone }) => ({
+              revision: packageRevision.revision,
+              revisionId: packageRevision._id,
+              submilestoneKey: submilestone.key,
+            })),
+          }
+        : {}),
       submittedAt: new Date().toISOString(),
     };
     const collaborationEventRevision =
@@ -17509,11 +18716,64 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       completionReview: activeBuildPendingCompletionReview(
         milestone.completionReview,
       ),
-      evidenceState: milestone.evidenceState ?? "Completion claimed",
+      evidenceState:
+        evidencePackages.length > 0
+          ? "Submitted package"
+          : (milestone.evidenceState ?? "Completion claimed"),
       progressPercent: 100,
       status: "in_progress",
       updatedAt: Date.now(),
     });
+    for (const { packageRevision, submilestone } of evidencePackages) {
+      const now = Date.now();
+      const revision = (submilestone.evidenceReviewRound ?? 0) + 1;
+      const completionSubmissionId = await ctx.db.insert(
+        "buildSubmilestoneCompletionSubmissions",
+        {
+          actorRoles: normalizeRoleSlugs(auth.roles),
+          actorWorkosUserId: auth.subject,
+          actualCostCents: submilestone.actualCostCents,
+          buildId: args.buildId,
+          buildMilestoneId: milestone._id,
+          buildSubmilestoneId: submilestone._id,
+          brokerageId: auth.brokerage._id,
+          completionForecastDate: submilestone.completionForecastDate,
+          declaredAt: now,
+          fieldNote: submilestone.fieldNote,
+          idempotencyKey: `${args.idempotencyKey}:${submilestone.key}`,
+          milestoneKey: milestone.key,
+          organizationId: auth.build.organizationId,
+          packageRevisionId: packageRevision._id,
+          progressPercent: 100,
+          revision,
+          submilestoneKey: submilestone.key,
+        },
+      );
+      await ctx.db.insert("buildSubmilestoneReviewRounds", {
+        buildId: args.buildId,
+        buildMilestoneId: milestone._id,
+        buildSubmilestoneId: submilestone._id,
+        brokerageId: auth.brokerage._id,
+        completionSubmissionId,
+        enteredAt: now,
+        enteredByWorkosUserId: auth.subject,
+        milestoneKey: milestone.key,
+        organizationId: auth.build.organizationId,
+        packageRevisionId: packageRevision._id,
+        remediation: [],
+        round: revision,
+        status: "in_review",
+        submilestoneKey: submilestone.key,
+      });
+      await ctx.db.patch(submilestone._id, {
+        completionSubmissionId,
+        evidencePackageRevisionId: packageRevision._id,
+        evidenceReviewRound: revision,
+        evidenceReviewState: "in_review",
+        progressPercent: 100,
+        updatedAt: now,
+      });
+    }
     await writeActiveBuildEvent(ctx, {
       auth,
       build: auth.build,
@@ -17917,6 +19177,35 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     const persistedAsset = await ctx.db.get(assetId);
     if (!persistedAsset) {
       throw new Error("Submitted Site Visit Evidence became unavailable.");
+    }
+    if (targetSubmilestoneKey) {
+      const submilestone = (
+        (await ctx.db
+          .query("buildSubmilestones")
+          .withIndex("by_milestone", (query) =>
+            query.eq("buildMilestoneId", visit.buildMilestoneId),
+          )
+          .collect()) as Doc<"buildSubmilestones">[]
+      ).find((candidate) => candidate.key === targetSubmilestoneKey);
+      if (!submilestone) {
+        throw new ConvexError({
+          code: "SUBMILESTONE_NOT_FOUND",
+          message: "Site Visit Evidence Sub-milestone is unavailable.",
+          submilestoneKey: targetSubmilestoneKey,
+        });
+      }
+      const visitMilestone = await ctx.db.get(visit.buildMilestoneId);
+      if (!visitMilestone) {
+        throw new Error("Site Visit milestone was not found.");
+      }
+      await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorWorkosUserId: "tokenized_site_visitor",
+        asset: persistedAsset,
+        build,
+        milestone: visitMilestone,
+        sourceKind: "site_visit",
+        submilestone,
+      });
     }
     await publishEvidenceSubmittedCollaborationEvents(ctx, {
       asset: persistedAsset,
@@ -23546,6 +24835,204 @@ function isBackoffice(roles: readonly RoleSlug[]) {
   );
 }
 
+type CanonicalSubmilestoneCommandInput = {
+  buildId: Id<"activeBuilds">;
+  milestoneKey: string;
+  submilestoneKey: string;
+  workosOrganizationId: string;
+};
+
+type CanonicalSubmilestoneAuth = Awaited<
+  ReturnType<typeof authorizeActiveBuildOrThrow>
+>;
+
+async function authorizeCanonicalSubmilestoneOperator(
+  ctx: (QueryCtx | MutationCtx) & { viewer: AuthorizedViewer },
+  input: CanonicalSubmilestoneCommandInput,
+): Promise<CanonicalSubmilestoneAuth> {
+  const auth = await authorizeActiveBuildForStart(
+    ctx,
+    input.buildId,
+    input.workosOrganizationId,
+  );
+  const { milestone, submilestone } = await activeBuildStartTarget(ctx, {
+    buildId: input.buildId,
+    milestoneKey: input.milestoneKey,
+    submilestoneKey: input.submilestoneKey,
+  });
+  if (auth.roles.includes("contractor")) {
+    const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
+      build: auth.build,
+      milestone,
+      submilestone,
+    });
+    if (
+      ownership.state !== "assigned" ||
+      ownership.contractor?.accountWorkosUserId !== auth.subject
+    ) {
+      throw new ConvexError({
+        code: "ASSIGNMENT_REQUIRED",
+        message: "Only the exact assigned Contractor may update this Sub-milestone.",
+      });
+    }
+    return auth;
+  }
+  if (isBackoffice(auth.roles)) {
+    throw new ConvexError({
+      code: "LENDER_EXECUTION_FORBIDDEN",
+      message: "Lender staff may review evidence but cannot execute Builder work.",
+    });
+  }
+  await requireActiveBuildAppPermission(ctx, auth, "submilestone", "update");
+  return auth;
+}
+
+function assertProgressPercent(value: number) {
+  if (!Number.isFinite(value) || value < 0 || value > 100) {
+    throw new ConvexError({
+      code: "INVALID_PROGRESS_PERCENT",
+      message: "Progress must be between 0 and 100 percent.",
+    });
+  }
+}
+
+function assertExpectedSubmilestoneRevision(
+  submilestone: Doc<"buildSubmilestones">,
+  expectedRevision?: number,
+) {
+  if (
+    expectedRevision !== undefined &&
+    expectedRevision !== (submilestone.workflowRevision ?? 0)
+  ) {
+    throw new ConvexError({
+      code: "STALE_SUBMILESTONE_REVISION",
+      message: "Sub-milestone changed; refresh before retrying the command.",
+      actualRevision: submilestone.workflowRevision ?? 0,
+      expectedRevision,
+    });
+  }
+}
+
+function normalizeEvidenceRequirementInputs(
+  requirements: Array<{
+    description?: string;
+    kind: "photo" | "document" | "site_visit" | "any";
+    label: string;
+    locationRequired?: boolean;
+    required: boolean;
+    requirementKey: string;
+  }>,
+) {
+  const seen = new Set<string>();
+  return requirements.flatMap((requirement) => {
+    const requirementKey = requirement.requirementKey.trim();
+    const label = requirement.label.trim();
+    if (!requirementKey || !label || seen.has(requirementKey)) {
+      return [];
+    }
+    seen.add(requirementKey);
+    return [
+      {
+        ...(requirement.description?.trim()
+          ? { description: requirement.description.trim() }
+          : {}),
+        kind: requirement.kind,
+        label,
+        locationRequired: requirement.locationRequired === true,
+        required: requirement.required,
+        requirementKey,
+      },
+    ];
+  });
+}
+
+async function findSubmilestoneIdempotentAudit(
+  ctx: MutationCtx,
+  input: {
+    idempotencyKey: string;
+    submilestoneId: Id<"buildSubmilestones">;
+  },
+) {
+  return await ctx.db
+    .query("buildSubmilestoneCommandReceipts")
+    .withIndex("by_submilestone_idempotency", (query) =>
+      query
+        .eq("buildSubmilestoneId", input.submilestoneId)
+        .eq("idempotencyKey", input.idempotencyKey),
+    )
+    .first();
+}
+
+async function insertSubmilestoneCommandReceipt(
+  ctx: MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    command: string;
+    idempotencyKey: string;
+    organizationId: string;
+    result: Record<string, unknown>;
+    submilestoneId: Id<"buildSubmilestones">;
+  },
+) {
+  const existing = await findSubmilestoneIdempotentAudit(ctx, {
+    idempotencyKey: input.idempotencyKey,
+    submilestoneId: input.submilestoneId,
+  });
+  if (existing) {
+    return existing._id;
+  }
+  return await ctx.db.insert("buildSubmilestoneCommandReceipts", {
+    buildId: input.buildId,
+    command: input.command,
+    createdAt: Date.now(),
+    idempotencyKey: input.idempotencyKey,
+    organizationId: input.organizationId,
+    resultJson: JSON.stringify(input.result),
+    buildSubmilestoneId: input.submilestoneId,
+  });
+}
+
+async function ensureDraftSubmilestoneEvidencePackage(
+  ctx: MutationCtx,
+  input: {
+    auth: CanonicalSubmilestoneAuth;
+    milestone: Doc<"buildMilestones">;
+    submilestone: Doc<"buildSubmilestones">;
+  },
+) {
+  return await ensureActiveSubmilestoneEvidencePackageDraft(ctx, {
+    actorWorkosUserId: input.auth.subject,
+    build: input.auth.build,
+    milestone: input.milestone,
+    submilestone: input.submilestone,
+  });
+}
+async function getScopedSubmilestonePackageRevision(
+  ctx: MutationCtx,
+  input: {
+    auth: CanonicalSubmilestoneAuth;
+    milestone: Doc<"buildMilestones">;
+    packageRevisionId: Id<"buildSubmilestoneEvidencePackageRevisions">;
+    submilestone: Doc<"buildSubmilestones">;
+  },
+) {
+  const packageRevision = await ctx.db.get(input.packageRevisionId);
+  if (
+    !packageRevision ||
+    packageRevision.buildId !== input.auth.build._id ||
+    packageRevision.organizationId !== input.auth.build.organizationId ||
+    packageRevision.brokerageId !== input.auth.brokerage._id ||
+    packageRevision.buildMilestoneId !== input.milestone._id ||
+    packageRevision.buildSubmilestoneId !== input.submilestone._id
+  ) {
+    throw new ConvexError({
+      code: "EVIDENCE_PACKAGE_NOT_FOUND",
+      message: "Evidence Package revision is unavailable for this Sub-milestone.",
+    });
+  }
+  return packageRevision;
+}
+
 function resolveBorrowerStartingCashCents(record: {
   borrowerStartingCashCents?: number;
   borrowerWorkingCapitalLimitCents?: number;
@@ -28892,6 +30379,28 @@ async function getActiveBuildMilestoneOrThrow(
   return milestone;
 }
 
+async function activeBuildStartTarget(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    milestoneKey: string;
+    submilestoneKey: string;
+  },
+): Promise<{
+  milestone: Doc<"buildMilestones">;
+  submilestone: Doc<"buildSubmilestones">;
+}>;
+async function activeBuildStartTarget(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    milestoneKey: string;
+    submilestoneKey?: string;
+  },
+): Promise<{
+  milestone: Doc<"buildMilestones">;
+  submilestone: Doc<"buildSubmilestones"> | undefined;
+}>;
 async function activeBuildStartTarget(
   ctx: QueryCtx | MutationCtx,
   input: {

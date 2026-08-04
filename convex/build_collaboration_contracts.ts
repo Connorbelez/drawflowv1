@@ -35,6 +35,25 @@ const collaborationSystemPostValidator = v.object({
 
 export const systemActionItemPresentationValidator = v.object({
   attention: v.optional(v.literal("overdue_completion")),
+  canAddEvidence: v.optional(v.boolean()),
+  canReview: v.optional(v.boolean()),
+  canSubmitForReview: v.optional(v.boolean()),
+  canUpdateExecution: v.optional(v.boolean()),
+  completionForecastDate: v.optional(v.string()),
+  evidenceCount: v.optional(v.number()),
+  evidencePackageRevision: v.optional(v.number()),
+  evidencePackageRevisionId: v.optional(
+    v.id("buildSubmilestoneEvidencePackageRevisions")
+  ),
+  evidenceReviewRound: v.optional(v.number()),
+  evidenceReviewState: v.optional(
+    v.union(
+      v.literal("not_ready"),
+      v.literal("in_review"),
+      v.literal("changes_requested"),
+      v.literal("approved")
+    )
+  ),
   executionOwnership: v.optional(
     v.object({
       assigneeDisplayName: v.optional(v.string()),
@@ -46,6 +65,9 @@ export const systemActionItemPresentationValidator = v.object({
       viewerIsAssignee: v.boolean(),
     })
   ),
+  progressPercent: v.optional(v.number()),
+  readyExceptFor: v.optional(v.array(v.string())),
+  workflowRevision: v.optional(v.number()),
   column: v.union(
     v.literal("backlog"),
     v.literal("behind_schedule"),

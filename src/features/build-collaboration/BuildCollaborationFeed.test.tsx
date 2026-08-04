@@ -52,6 +52,7 @@ const mocks = vi.hoisted(() => ({
   authUserId: "user_admin" as string | undefined,
   assetStatuses: [] as Array<Record<string, unknown>>,
   buildActionItems: [] as Array<Record<string, unknown>>,
+  canonicalSystemActionItem: false,
   comments: [] as Array<Record<string, unknown>>,
   commentsLoading: false,
   convexConnectionState: {
@@ -653,6 +654,39 @@ vi.mock("convex/react", () => ({
           title: "Upload engineer seal",
           updatedAt: now,
           workKind: mocks.actionItemWorkKind,
+          ...(mocks.canonicalSystemActionItem
+            ? {
+                systemMode: "generated_milestone_submilestone",
+                systemPresentation: {
+                  canAddEvidence: mocks.viewerBinding.role === "builder",
+                  canReview: mocks.viewerBinding.role === "broker",
+                  canSubmitForReview: false,
+                  canUpdateExecution: mocks.viewerBinding.role === "builder",
+                  column: "in_review",
+                  evidenceCount: 0,
+                  evidencePackageRevision: 1,
+                  evidencePackageRevisionId: "package-1",
+                  progressPercent: 100,
+                  readyExceptFor: ["Forms photo"],
+                  startCommand: {
+                    allowed: false,
+                    buildName: "UI fixture Build",
+                    dependencyBlockers: [],
+                    denialReason: "already_started",
+                    milestoneKey: "foundation",
+                    milestoneName: "Foundation",
+                    plannedStartDate: "2026-08-03",
+                    scope: "submilestone",
+                    source: "submilestone_detail",
+                    submilestoneKey: "foundation-1",
+                    submilestoneName: "Excavate",
+                  },
+                  state: "known",
+                  timezone: "America/Toronto",
+                  workflowRevision: 2,
+                },
+              }
+            : {}),
         },
         labels: ["evidence"],
         references: [
@@ -1024,6 +1058,7 @@ afterEach(() => {
   mocks.authUserId = "user_admin";
   mocks.assetStatuses = [];
   mocks.buildActionItems = [];
+  mocks.canonicalSystemActionItem = false;
   mocks.feedStatus = "Exhausted";
   mocks.feedRows = [];
   mocks.focusedAssetContext = undefined;
@@ -1136,6 +1171,78 @@ describe("BuildCollaborationFeed", () => {
         "System · Milestone — status follows the canonical Sub-milestone."
       )
     ).toBeTruthy();
+  });
+
+  test("exposes accessible readiness and Evidence Package actions to a Builder", async () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "builder",
+      workosUserId: "user_builder",
+    };
+    mocks.authUserId = "user_builder";
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Excavate",
+      }),
+    );
+
+    expect(await screen.findByText("Canonical Sub-milestone")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save progress" })).toBeTruthy();
+    expect(screen.getByLabelText("Evidence 0")).toBeTruthy();
+    expect(screen.getByText("Ready except for:")).toBeTruthy();
+    expect(screen.getByText("Forms photo")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Freeze Evidence Package" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Submit completion for review" }),
+    ).toBeNull();
+  });
+
+  test("keeps Evidence Package execution controls out of the lender view", async () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "broker",
+      workosUserId: "user_broker",
+    };
+    mocks.authUserId = "user_broker";
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Excavate",
+      }),
+    );
+
+    expect(await screen.findByText("Canonical Sub-milestone")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save progress" })).toBeNull();
+    expect(screen.queryByLabelText("Evidence 0")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Freeze Evidence Package" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Submit completion for review" }),
+    ).toBeNull();
   });
 
   test("distills list Action Items into a clickable card with compact metadata", () => {

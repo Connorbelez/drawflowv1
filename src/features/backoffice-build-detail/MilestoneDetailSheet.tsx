@@ -191,12 +191,9 @@ interface MilestoneDetailSheetProps {
   onUpdateSubmilestone?: (
     input: SubmilestoneUpdateInput
   ) => Promise<unknown> | unknown;
-  onUploadEvidence?: (input: {
-    file: File;
-    locationVerified: boolean;
-    milestoneKey: string;
-    submilestoneKey: string;
-  }) => Promise<unknown> | unknown;
+  onUploadEvidence?: (
+    input: EvidenceUploaderUploadInput
+  ) => Promise<unknown> | unknown;
   pending?: boolean;
   prototypeSubmilestoneStartTrigger?: boolean;
 }
@@ -1443,16 +1440,23 @@ function SubmilestoneHistory({ item }: { item: MilestoneSheetSubmilestone }) {
   );
 }
 
-function EvidenceUploader({
+export interface EvidenceUploaderUploadInput {
+  file: File;
+  locationVerified: boolean;
+  milestoneKey: string;
+  submilestoneKey: string;
+}
+
+export function EvidenceUploader({
   compact = false,
   data,
   item,
   onUpload,
 }: {
   compact?: boolean;
-  data: MilestoneSheetData;
-  item: MilestoneSheetSubmilestone;
-  onUpload?: MilestoneDetailSheetProps["onUploadEvidence"];
+  data: Pick<MilestoneSheetData, "milestoneKey">;
+  item: Pick<MilestoneSheetSubmilestone, "evidence" | "key">;
+  onUpload?: (input: EvidenceUploaderUploadInput) => Promise<unknown> | unknown;
 }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);

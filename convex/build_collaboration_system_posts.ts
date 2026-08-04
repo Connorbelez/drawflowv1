@@ -9,15 +9,16 @@ import {
   type BuildCollaborationRole,
   resolveEffectiveCollaborationRole,
 } from "./build_collaboration_model";
+import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
 import {
   canBuilderStartMilestone,
   resolveCanonicalMilestoneExecutionOwnership,
 } from "./build_collaboration_system_event_access";
-import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
 import {
   publishCanonicalBuildCollaborationSystemEvent,
   resolveSystemEventScope,
 } from "./build_collaboration_system_events";
+import { resolveActiveSubmilestoneEvidencePackageReadiness } from "./build_submilestone_evidence";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 const SYSTEM_AUTHOR = "system";
@@ -37,7 +38,21 @@ export type SystemActionItemPresentationColumn =
 
 export type SystemActionItemPresentation = {
   attention?: "overdue_completion";
+  canAddEvidence?: boolean;
+  canReview?: boolean;
+  canSubmitForReview?: boolean;
+  canUpdateExecution?: boolean;
   column: SystemActionItemPresentationColumn;
+  completionForecastDate?: string;
+  evidenceCount?: number;
+  evidencePackageRevisionId?: Id<"buildSubmilestoneEvidencePackageRevisions">;
+  evidencePackageRevision?: number;
+  evidenceReviewRound?: number;
+  evidenceReviewState?:
+    | "not_ready"
+    | "in_review"
+    | "changes_requested"
+    | "approved";
   executionOwnership?: {
     assigneeDisplayName?: string;
     assigneeId?: Id<"contractorProfiles">;
@@ -46,6 +61,9 @@ export type SystemActionItemPresentation = {
   };
   plannedCompletionDate?: string;
   plannedStartDate?: string;
+  progressPercent?: number;
+  readyExceptFor?: string[];
+  workflowRevision?: number;
   state: "known" | "unknown";
   startCommand?: {
     allowed: boolean;
@@ -171,6 +189,18 @@ function unknownSystemActionItemPresentation(reason: string) {
   } satisfies SystemActionItemPresentation;
 }
 
+function evidenceReviewColumn(
+  state: SystemActionItemPresentation["evidenceReviewState"],
+): SystemActionItemPresentationColumn | undefined {
+  if (state === "approved") {
+    return "approved";
+  }
+  if (state === "in_review") {
+    return "in_review";
+  }
+  return undefined;
+}
+
 export async function deriveMilestoneSystemActionItemPresentation(
   ctx: QueryCtx,
   input: {
@@ -187,8 +217,10 @@ export async function deriveMilestoneSystemActionItemPresentation(
     return;
   }
   if (
-    !input.actionItem.canonicalBuildMilestoneId ||
-    !input.actionItem.canonicalBuildSubmilestoneId
+    !(
+      input.actionItem.canonicalBuildMilestoneId &&
+      input.actionItem.canonicalBuildSubmilestoneId
+    )
   ) {
     return unknownSystemActionItemPresentation(
       "Generated System Action Item is missing its canonical Milestone binding."
@@ -262,6 +294,14 @@ export async function deriveMilestoneSystemActionItemPresentation(
     state: "known" as const,
     timezone: input.build.timezone,
   };
+  const reviewColumn = evidenceReviewColumn(submilestone.evidenceReviewState);
+  if (reviewColumn) {
+    return {
+      ...base,
+      ...execution,
+      column: reviewColumn,
+    };
+  }
   if (
     submilestone.status === "complete" ||
     milestone.completionClaim !== undefined
@@ -304,13 +344,36 @@ async function projectMilestoneExecutionPresentation(
     };
   }
 ): Promise<
-  Pick<SystemActionItemPresentation, "executionOwnership" | "startCommand">
+  Pick<
+    SystemActionItemPresentation,
+    | "canAddEvidence"
+    | "canReview"
+    | "canSubmitForReview"
+    | "canUpdateExecution"
+    | "completionForecastDate"
+    | "evidenceCount"
+    | "evidencePackageRevision"
+    | "evidencePackageRevisionId"
+    | "evidenceReviewRound"
+    | "evidenceReviewState"
+    | "executionOwnership"
+    | "progressPercent"
+    | "readyExceptFor"
+    | "startCommand"
+    | "workflowRevision"
+  >
 > {
   const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
     build: input.build,
     milestone: input.milestone,
     submilestone: input.submilestone,
   });
+  const evidenceReadiness =
+    await resolveActiveSubmilestoneEvidencePackageReadiness(ctx, {
+      build: input.build,
+      milestone: input.milestone,
+      submilestone: input.submilestone,
+    });
   const viewerIsAssignee =
     ownership.state === "assigned" &&
     ownership.contractor?.accountWorkosUserId === input.viewer.workosUserId;
@@ -375,7 +438,48 @@ async function projectMilestoneExecutionPresentation(
   } else {
     denialReason = "permission_denied";
   }
+  const viewerIsBuilder =
+    input.viewer.role === "builder" || input.viewer.role === "builder-staff";
+  const viewerIsContractor = input.viewer.role === "contractor";
+  const canUpdateExecution =
+    input.submilestone.evidenceReviewState !== "in_review" &&
+    input.submilestone.evidenceReviewState !== "approved" &&
+    ((viewerIsContractor && viewerIsAssignee) ||
+      (viewerIsBuilder && allowed));
+  const canAddEvidence =
+    canUpdateExecution &&
+    input.submilestone.status === "in_progress" &&
+    input.submilestone.actualStartedAt !== undefined;
+  const canSubmitForReview =
+    canAddEvidence &&
+    input.submilestone.evidenceReviewState !== "in_review" &&
+    input.submilestone.evidenceReviewState !== "approved" &&
+    evidenceReadiness.readyExceptFor.length === 0;
+  const canReview = [
+    "admin",
+    "principle-broker",
+    "broker",
+    "broker-staff",
+  ].includes(input.viewer.role);
   return {
+    canAddEvidence,
+    canReview,
+    canSubmitForReview,
+    canUpdateExecution,
+    ...(input.submilestone.completionForecastDate
+      ? { completionForecastDate: input.submilestone.completionForecastDate }
+      : {}),
+    evidenceCount: evidenceReadiness.evidenceCount,
+    ...(evidenceReadiness.latestRevision
+      ? { evidencePackageRevisionId: evidenceReadiness.latestRevision._id }
+      : {}),
+    ...(evidenceReadiness.latestRevision
+      ? { evidencePackageRevision: evidenceReadiness.latestRevision.revision }
+      : {}),
+    ...(input.submilestone.evidenceReviewRound === undefined
+      ? {}
+      : { evidenceReviewRound: input.submilestone.evidenceReviewRound }),
+    evidenceReviewState: input.submilestone.evidenceReviewState ?? "not_ready",
     executionOwnership: {
       ...(input.viewer.role === "contractor"
         ? {}
@@ -388,6 +492,9 @@ async function projectMilestoneExecutionPresentation(
       state: ownership.state,
       viewerIsAssignee,
     },
+    progressPercent: input.submilestone.progressPercent ?? 0,
+    readyExceptFor: evidenceReadiness.readyExceptFor,
+    workflowRevision: input.submilestone.workflowRevision ?? 0,
     startCommand: {
       allowed,
       buildName: input.build.buildName,

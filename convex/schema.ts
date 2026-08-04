@@ -5014,6 +5014,19 @@ export default defineSchema({
     locationDistanceMeters: v.optional(v.number()),
     locationFailureReason: v.optional(v.string()),
     locationGeofenceRadiusMeters: v.optional(v.number()),
+    evidencePackageRevisionId: v.optional(
+      v.id("buildSubmilestoneEvidencePackageRevisions")
+    ),
+    sourceDiscussionAssetId: v.optional(v.id("buildCollaborationAssets")),
+    sourceDiscussionAssetVersion: v.optional(v.number()),
+    sourceDiscussionUploadedByWorkosUserId: v.optional(v.string()),
+    sourceDiscussionPostId: v.optional(v.id("buildCollaborationPosts")),
+    sourceDiscussionCapturedAt: v.optional(v.number()),
+    sourceDiscussionPublishedAt: v.optional(v.number()),
+    sourceDiscussionOwnerKind: v.optional(v.string()),
+    sourceDiscussionOwnerRecordId: v.optional(v.string()),
+    promotedByWorkosUserId: v.optional(v.string()),
+    promotedAt: v.optional(v.number()),
     source: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -5271,6 +5284,24 @@ export default defineSchema({
     startDay: v.optional(v.number()),
     durationDays: v.optional(v.number()),
     fieldNote: v.optional(v.string()),
+    progressPercent: v.optional(v.number()),
+    completionForecastDate: v.optional(v.string()),
+    evidencePackageRevisionId: v.optional(
+      v.id("buildSubmilestoneEvidencePackageRevisions")
+    ),
+    evidenceReviewState: v.optional(
+      v.union(
+        v.literal("not_ready"),
+        v.literal("in_review"),
+        v.literal("changes_requested"),
+        v.literal("approved")
+      )
+    ),
+    evidenceReviewRound: v.optional(v.number()),
+    completionSubmissionId: v.optional(
+      v.id("buildSubmilestoneCompletionSubmissions")
+    ),
+    workflowRevision: v.optional(v.number()),
     actualStartedAt: v.optional(v.number()),
     startEventId: v.optional(v.id("milestoneStartEvents")),
     startReportedAt: v.optional(v.number()),
@@ -5288,6 +5319,167 @@ export default defineSchema({
   })
     .index("by_build", ["buildId"])
     .index("by_milestone", ["buildMilestoneId"]),
+  buildSubmilestoneEvidenceRequirements: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    requirementKey: v.string(),
+    label: v.string(),
+    description: v.optional(v.string()),
+    kind: v.union(
+      v.literal("photo"),
+      v.literal("document"),
+      v.literal("site_visit"),
+      v.literal("any")
+    ),
+    required: v.boolean(),
+    locationRequired: v.boolean(),
+    revision: v.number(),
+    active: v.boolean(),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_submilestone", ["buildSubmilestoneId", "active"])
+    .index("by_build_submilestone_requirement", [
+      "buildId",
+      "buildSubmilestoneId",
+      "requirementKey",
+      "revision",
+    ]),
+  buildSubmilestoneEvidencePackageRevisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    proposalId: v.id("buildProposals"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    revision: v.number(),
+    requirementsRevision: v.number(),
+    status: v.union(v.literal("draft"), v.literal("frozen")),
+    supersedesRevisionId: v.optional(
+      v.id("buildSubmilestoneEvidencePackageRevisions")
+    ),
+    createdByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    frozenByWorkosUserId: v.optional(v.string()),
+    frozenAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_submilestone_revision", ["buildSubmilestoneId", "revision"])
+    .index("by_submilestone_status", ["buildSubmilestoneId", "status"]),
+  buildSubmilestoneEvidencePackageItems: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
+    evidenceAssetId: v.id("buildEvidenceAssets"),
+    requirementKey: v.string(),
+    sourceKind: v.union(
+      v.literal("canonical_upload"),
+      v.literal("discussion_promotion"),
+      v.literal("site_visit")
+    ),
+    sourceDiscussionAssetId: v.optional(v.id("buildCollaborationAssets")),
+    sourceDiscussionPostId: v.optional(v.id("buildCollaborationPosts")),
+    sourceUploaderWorkosUserId: v.string(),
+    sourceAssetVersion: v.optional(v.number()),
+    sourceCapturedAt: v.optional(v.number()),
+    sourcePublishedAt: v.optional(v.number()),
+    locationVerified: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_package_revision", ["packageRevisionId"])
+    .index("by_submilestone", ["buildSubmilestoneId"]),
+  buildSubmilestoneEvidencePromotions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
+    evidenceAssetId: v.id("buildEvidenceAssets"),
+    sourceDiscussionAssetId: v.id("buildCollaborationAssets"),
+    sourceDiscussionPostId: v.optional(v.id("buildCollaborationPosts")),
+    sourceAssetVersion: v.number(),
+    sourceUploaderWorkosUserId: v.string(),
+    sourceCapturedAt: v.optional(v.number()),
+    sourcePublishedAt: v.optional(v.number()),
+    promotedByWorkosUserId: v.string(),
+    promotedAt: v.number(),
+  })
+    .index("by_source_asset", ["sourceDiscussionAssetId"])
+    .index("by_package_revision", ["packageRevisionId"]),
+  buildSubmilestoneCompletionSubmissions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    revision: v.number(),
+    idempotencyKey: v.string(),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    declaredAt: v.number(),
+    progressPercent: v.number(),
+    actualCostCents: v.optional(v.number()),
+    fieldNote: v.optional(v.string()),
+    completionForecastDate: v.optional(v.string()),
+    packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
+  })
+    .index("by_submilestone_revision", ["buildSubmilestoneId", "revision"])
+    .index("by_submilestone_idempotency", [
+      "buildSubmilestoneId",
+      "idempotencyKey",
+    ]),
+  buildSubmilestoneReviewRounds: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    round: v.number(),
+    status: v.union(
+      v.literal("in_review"),
+      v.literal("changes_requested"),
+      v.literal("approved")
+    ),
+    completionSubmissionId: v.id("buildSubmilestoneCompletionSubmissions"),
+    packageRevisionId: v.id("buildSubmilestoneEvidencePackageRevisions"),
+    enteredByWorkosUserId: v.string(),
+    enteredAt: v.number(),
+    reviewedByWorkosUserId: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()),
+    remediation: v.optional(v.array(v.string())),
+  })
+    .index("by_submilestone_round", ["buildSubmilestoneId", "round"])
+    .index("by_submilestone_status", ["buildSubmilestoneId", "status"]),
+  buildSubmilestoneCommandReceipts: defineTable({
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    command: v.string(),
+    idempotencyKey: v.string(),
+    resultJson: v.string(),
+    createdAt: v.number(),
+  }).index("by_submilestone_idempotency", [
+    "buildSubmilestoneId",
+    "idempotencyKey",
+  ]),
   milestoneStartEvents: defineTable({
     actualStartedAt: v.optional(v.number()),
     actorRoles: v.array(v.string()),
