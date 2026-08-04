@@ -1,6 +1,6 @@
 export type BuildCollaborationSearchAuthorityRole =
   | "admin"
-  | "principle-broker";
+  | "principal-broker";
 
 export function buildCollaborationSearchAuthorityRole(
   roles: ReadonlyArray<string | undefined>
@@ -11,5 +11,7 @@ export function buildCollaborationSearchAuthorityRole(
   if (normalized.has("admin")) {
     return "admin";
   }
-  return normalized.has("principle-broker") ? "principle-broker" : undefined;
+  return normalized.has("principal-broker") || normalized.has("principle-broker")
+    ? "principal-broker"
+    : undefined;
 }

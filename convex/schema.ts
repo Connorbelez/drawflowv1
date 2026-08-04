@@ -4400,7 +4400,7 @@ export default defineSchema({
     organizationId: v.string(),
     workosMembershipId: v.string(),
     workosUserId: v.string(),
-    role: v.union(v.literal("admin"), v.literal("principle-broker")),
+    role: v.union(v.literal("admin"), v.literal("principal-broker")),
     updatedAt: v.number(),
   })
     .index("by_workosMembershipId", ["workosMembershipId"])

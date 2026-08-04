@@ -1681,7 +1681,7 @@ describe("BuildCollaborationFeed", () => {
     );
   });
 
-  test.each(["admin", "principle-broker"] as const)(
+  test.each(["admin", "principal-broker"] as const)(
     "shows silent oversight for %s without joining or creating coordination work",
     (role) => {
       mocks.viewerBinding = {

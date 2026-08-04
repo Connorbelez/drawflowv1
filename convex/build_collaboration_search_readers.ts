@@ -82,12 +82,12 @@ async function resolveOrganizationSearchAuthorities(
 ) {
   const [admins, principalBrokers] = await Promise.all([
     authorityMemberships(ctx, organizationId, "admin"),
-    authorityMemberships(ctx, organizationId, "principle-broker"),
+    authorityMemberships(ctx, organizationId, "principal-broker"),
   ]);
   const authorities = new Map<string, BuildCollaborationSearchReader>();
   for (const authority of [...principalBrokers, ...admins]) {
     authorities.set(authority.workosUserId, {
-      role: authority.role,
+      role: authority.role === "principal-broker" ? "principle-broker" : authority.role,
       workosUserId: authority.workosUserId,
     });
   }
@@ -99,7 +99,7 @@ async function resolveOrganizationSearchAuthorities(
 async function authorityMemberships(
   ctx: QueryCtx | MutationCtx,
   organizationId: string,
-  roleSlug: "admin" | "principle-broker"
+  roleSlug: "admin" | "principal-broker"
 ) {
   const authorities = await ctx.db
     .query("buildCollaborationSearchAuthorities")
