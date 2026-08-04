@@ -70,6 +70,7 @@ import type {
   WorkosRoleRow,
   WorkosUserRow,
 } from "./-user-management-types";
+import { canonicalizeWorkosMembershipRows } from "./-user-management-types";
 
 const BROKER_ROLES = ["principle-broker", "broker", "broker-staff"];
 const BUILDER_ROLES = ["builder", "builder-staff"];
@@ -131,7 +132,13 @@ export function UserManagementSurface({
   };
 
   const users = (projections?.users ?? []) as WorkosUserRow[];
-  const memberships = (projections?.memberships ?? []) as WorkosMembershipRow[];
+  const memberships = useMemo(
+    () =>
+      canonicalizeWorkosMembershipRows(
+        (projections?.memberships ?? []) as WorkosMembershipRow[]
+      ),
+    [projections?.memberships]
+  );
   const organizations = (projections?.organizations ??
     []) as WorkosOrganizationRow[];
   const roles = (projections?.roles ?? []) as WorkosRoleRow[];
@@ -1081,7 +1088,7 @@ function PersonRow({
             {orgsForUser.slice(0, 2).map((membership) => (
               <li
                 className="truncate text-xs"
-                key={membership.workosMembershipId}
+                key={membership._id ?? membership.workosMembershipId}
               >
                 {organizationsById.get(membership.workosOrganizationId)?.name ??
                   membership.workosOrganizationId}

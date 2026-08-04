@@ -22,6 +22,7 @@ import type {
   WorkosOrganizationRow,
   WorkosUserRow,
 } from "./-user-management-types";
+import { canonicalizeWorkosMembershipRows } from "./-user-management-types";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -530,6 +531,19 @@ describe("UserDetailSheet destructive actions", () => {
 });
 
 describe("UserManagementSurface directory rows", () => {
+  test("deduplicates a primary role repeated in the membership role set", () => {
+    expect(
+      canonicalizeWorkosMembershipRows([
+        membership({
+          roleSlug: "builder",
+          roleSlugs: ["builder", "builder-staff", "builder"],
+          workosMembershipId: "om_duplicate_roles",
+          workosOrganizationId: "org_alpha",
+        }),
+      ])[0]?.roleSlugs
+    ).toEqual(["builder", "builder-staff"]);
+  });
+
   function renderSurface(
     handlers: UserManagementHandlers,
     overrides?: {
@@ -594,6 +608,79 @@ describe("UserManagementSurface directory rows", () => {
     });
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("River Han")).toBeTruthy();
+  });
+
+  test("canonicalizes duplicate membership projections before rendering mutation controls", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const handlers = noopHandlers();
+      renderSurface(handlers, {
+      projections: {
+        memberships: [
+          {
+            _id: "membership-row-1",
+            roleSlug: "broker",
+            roleSlugs: ["broker"],
+            status: "active",
+            workosMembershipId: "seed_membership_user_broker",
+            workosOrganizationId: "org_alpha",
+            workosUserId: "user_1",
+          },
+          {
+            _id: "membership-row-2",
+            roleSlug: "builder",
+            roleSlugs: ["builder"],
+            status: "active",
+            workosMembershipId: "seed_membership_user_broker",
+            workosOrganizationId: "org_alpha",
+            workosUserId: "user_1",
+          },
+        ],
+        organizationRoles: [],
+        organizations: [ORG_ALPHA],
+        permissions: [],
+        roles: [
+          { name: "Broker", slug: "broker", status: "active" },
+          { name: "Builder", slug: "builder", status: "active" },
+        ],
+        users: [
+          {
+            email: "river@alpha.test",
+            name: "River Han",
+            status: "active",
+            workosUserId: "user_1",
+          },
+        ],
+      } as unknown as UserManagementProjection,
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Manage River Han" }));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      const dialog = screen.getByRole("dialog");
+      expect(
+        within(dialog).getAllByText("seed_membership_user_broker")
+      ).toHaveLength(1);
+      expect(
+        within(dialog)
+          .getByRole("checkbox", { name: "broker" })
+          .getAttribute("aria-checked")
+      ).toBe("true");
+      expect(
+        within(dialog)
+          .getByRole("checkbox", { name: "builder" })
+          .getAttribute("aria-checked")
+      ).toBe("true");
+
+      expect(
+        consoleError.mock.calls.some((args) =>
+          args.some((value) => String(value).includes("same key"))
+        )
+      ).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   test("orders attention rows first and supports profile and organization filters", async () => {

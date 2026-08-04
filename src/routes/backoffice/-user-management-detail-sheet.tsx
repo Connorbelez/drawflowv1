@@ -48,6 +48,7 @@ import type {
   WorkosOrganizationRow,
   WorkosUserRow,
 } from "./-user-management-types";
+import { canonicalizeWorkosMembershipRows } from "./-user-management-types";
 
 const BROKER_ROLES = ["principle-broker", "broker", "broker-staff"];
 const BUILDER_ROLES = ["builder", "builder-staff"];
@@ -203,22 +204,26 @@ function MembershipsSection({
   organizationsById: Map<string, WorkosOrganizationRow>;
   roleOptionsByOrganization: Map<string, string[]>;
 }): ReactElement {
+  const canonicalMemberships = useMemo(
+    () => canonicalizeWorkosMembershipRows(memberships),
+    [memberships]
+  );
   return (
     <section className="flex flex-col gap-3">
       <SectionLabel
-        count={memberships.length}
+        count={canonicalMemberships.length}
         title="Organization memberships"
       />
-      {memberships.length === 0 ? (
+      {canonicalMemberships.length === 0 ? (
         <EmptyHint>
           This account belongs to no organization yet. Add one below.
         </EmptyHint>
       ) : (
         <div className="flex flex-col gap-2.5">
-          {memberships.map((membership) => (
+          {canonicalMemberships.map((membership) => (
             <MembershipCard
               handlers={handlers}
-              key={membership.workosMembershipId}
+              key={membership._id ?? membership.workosMembershipId}
               membership={membership}
               organizationName={organizationDisplayLabel(
                 organizationsById.get(membership.workosOrganizationId),
