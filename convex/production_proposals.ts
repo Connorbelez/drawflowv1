@@ -16762,7 +16762,11 @@ export const deleteActiveBuildTimelineMilestone = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
-    await deleteActiveBuildMilestoneCascade(ctx, args.buildId, milestone);
+    const supersededSubmilestoneIds = await deleteActiveBuildMilestoneCascade(
+      ctx,
+      args.buildId,
+      milestone,
+    );
     await recalculateActiveBuildBudget(ctx, args.buildId);
     const planningRevision = await recordApprovedActiveBuildPlanningRevision(
       ctx,
@@ -16781,6 +16785,12 @@ export const deleteActiveBuildTimelineMilestone = authenticatedMutation
         supersededByPlanningRevision: planningRevision.revision,
         updatedAt: Date.now(),
       });
+      for (const submilestoneId of supersededSubmilestoneIds) {
+        await ctx.db.patch(submilestoneId, {
+          supersededByPlanningRevision: planningRevision.revision,
+          updatedAt: Date.now(),
+        });
+      }
     }
     const currentMilestone = await ctx.db.get(milestone._id);
     if (currentMilestone) {
@@ -17274,14 +17284,18 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
       throw new Error("Submitted Evidence became unavailable.");
     }
     if (args.asset.submilestoneKey) {
-      const submilestone = (
+      const submilestones = (
         (await ctx.db
           .query("buildSubmilestones")
           .withIndex("by_milestone", (query) =>
             query.eq("buildMilestoneId", milestone._id),
           )
           .collect()) as Doc<"buildSubmilestones">[]
-      ).find((candidate) => candidate.key === args.asset.submilestoneKey);
+      );
+      const submilestone = findActiveBuildSubmilestoneByKey(
+        submilestones,
+        args.asset.submilestoneKey,
+      );
       if (!submilestone) {
         throw new ConvexError({
           code: "SUBMILESTONE_NOT_FOUND",
@@ -17391,8 +17405,9 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
       query.eq("buildMilestoneId", milestone._id),
     )
     .collect()) as Doc<"buildSubmilestones">[];
-  const submilestone = submilestones.find(
-    (candidate) => candidate.key === args.submilestoneKey,
+  const submilestone = findActiveBuildSubmilestoneByKey(
+    submilestones,
+    args.submilestoneKey,
   );
   if (!submilestone) {
     throw new ConvexError({
@@ -17648,7 +17663,7 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
     auth: {
       brokerage: auth.brokerage,
       proposal: auth.proposal,
-      roles: normalizeRoleSlugs(auth.roles.filter((role) => role !== "homeowner")),
+      roles: normalizeRoleSlugs(auth.roles),
       subject: auth.viewer.subject,
     },
     build: auth.build,
@@ -17847,15 +17862,16 @@ export const startActiveBuildMilestone = authenticatedMutation
       collectByIndex(ctx, "buildMilestones", "by_build", args.buildId),
     ]);
     assertActiveBuildPlanningTargetActive(milestone);
+    const submilestones = args.submilestoneKey
+      ? ((await ctx.db
+          .query("buildSubmilestones")
+          .withIndex("by_milestone", (query) =>
+            query.eq("buildMilestoneId", milestone._id),
+          )
+          .take(500)) as Doc<"buildSubmilestones">[])
+      : [];
     const submilestone = args.submilestoneKey
-      ? (
-          (await ctx.db
-            .query("buildSubmilestones")
-            .withIndex("by_milestone", (query) =>
-              query.eq("buildMilestoneId", milestone._id),
-            )
-            .take(500)) as Doc<"buildSubmilestones">[]
-        ).find((candidate) => candidate.key === args.submilestoneKey)
+      ? findActiveBuildSubmilestoneByKey(submilestones, args.submilestoneKey)
       : undefined;
     if (args.submilestoneKey && !submilestone) {
       throw new ConvexError({
@@ -18378,16 +18394,15 @@ export const configureActiveBuildSubmilestoneEvidenceRequirements =
         submilestoneKey: args.submilestoneKey,
       });
       const requirements = normalizeEvidenceRequirementInputs(args.requirements);
-      const prior = await ctx.db
+      const allRequirementRows = await ctx.db
         .query("buildSubmilestoneEvidenceRequirements")
         .withIndex("by_submilestone", (query) =>
-          query
-            .eq("buildSubmilestoneId", submilestone._id)
-            .eq("active", true),
+          query.eq("buildSubmilestoneId", submilestone._id),
         )
         .collect();
+      const prior = allRequirementRows.filter((row) => row.active);
       const revision =
-        prior.reduce((max, row) => Math.max(max, row.revision), 0) + 1;
+        allRequirementRows.reduce((max, row) => Math.max(max, row.revision), 0) + 1;
       const now = Date.now();
       for (const row of prior) {
         await ctx.db.patch(row._id, { active: false, updatedAt: now });
@@ -19651,14 +19666,18 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       throw new Error("Submitted Site Visit Evidence became unavailable.");
     }
     if (targetSubmilestoneKey) {
-      const submilestone = (
+      const submilestones = (
         (await ctx.db
           .query("buildSubmilestones")
           .withIndex("by_milestone", (query) =>
             query.eq("buildMilestoneId", visit.buildMilestoneId),
           )
           .collect()) as Doc<"buildSubmilestones">[]
-      ).find((candidate) => candidate.key === targetSubmilestoneKey);
+      );
+      const submilestone = findActiveBuildSubmilestoneByKey(
+        submilestones,
+        targetSubmilestoneKey,
+      );
       if (!submilestone) {
         throw new ConvexError({
           code: "SUBMILESTONE_NOT_FOUND",
@@ -20748,6 +20767,10 @@ export const removeActiveBuildContractorFromMilestone = authenticatedMutation
       args.workosOrganizationId,
     );
     await requireActiveBuildAppPermission(ctx, auth, "contractor", "update");
+    await ensureActiveBuildPlanningActivationRevision(ctx, {
+      actor: { actorRoles: auth.roles, actorWorkosUserId: auth.subject },
+      build: auth.build,
+    });
     const contractor = await getScopedContractorOrThrow(
       ctx,
       args.contractorId,
@@ -25582,6 +25605,12 @@ function normalizeEvidenceRequirementInputs(
     requirementKey: string;
   }>,
 ) {
+  if (requirements.length === 0) {
+    throw new ConvexError({
+      code: "EVIDENCE_REQUIREMENT_EMPTY",
+      message: "At least one Evidence requirement is required.",
+    });
+  }
   const seen = new Set<string>();
   return requirements.map((requirement) => {
     const requirementKey = requirement.requirementKey.trim();
@@ -31068,6 +31097,17 @@ function assertActiveBuildPlanningTargetActive(
   }
 }
 
+function findActiveBuildSubmilestoneByKey(
+  rows: readonly Doc<"buildSubmilestones">[],
+  key: string,
+) {
+  return (
+    rows.find(
+      (row) => row.key === key && row.planningState !== "superseded",
+    ) ?? rows.find((row) => row.key === key)
+  );
+}
+
 async function activeBuildStartTarget(
   ctx: QueryCtx | MutationCtx,
   input: {
@@ -31123,8 +31163,9 @@ async function activeBuildStartTarget(
       query.eq("buildMilestoneId", milestone._id),
     )
     .take(500)) as Doc<"buildSubmilestones">[];
-  const submilestone = submilestones.find(
-    (candidate) => candidate.key === input.submilestoneKey,
+  const submilestone = findActiveBuildSubmilestoneByKey(
+    submilestones,
+    input.submilestoneKey,
   );
   if (!submilestone) {
     throw new ConvexError({
@@ -31416,11 +31457,20 @@ async function replaceActiveBuildSubmilestones(
     .take(1000)) as Doc<"buildSubmilestones">[];
   const now = Date.now();
   const supersededIds: Id<"buildSubmilestones">[] = [];
-  const existingByKey = new Map(
-    existing
-      .filter((row) => row.planningState !== "superseded")
-      .map((row) => [row.key, row]),
-  );
+  const existingByKey = new Map<string, Doc<"buildSubmilestones">>();
+  for (const row of existing) {
+    const current = existingByKey.get(row.key);
+    if (
+      !current ||
+      (current.planningState === "superseded" &&
+        row.planningState !== "superseded") ||
+      (current.planningState === "superseded" &&
+        row.planningState === "superseded" &&
+        row.createdAt > current.createdAt)
+    ) {
+      existingByKey.set(row.key, row);
+    }
+  }
   for (const row of existing) {
     if (nextSubmilestoneByKey.has(row.key)) continue;
     if (row.planningState === "superseded") continue;
@@ -31436,6 +31486,34 @@ async function replaceActiveBuildSubmilestones(
     const normalizedName = row.name.trim() || "Submilestone";
     const existingRow = existingByKey.get(row.key);
     if (existingRow) {
+      const resetReactivatedState =
+        existingRow.planningState === "superseded"
+          ? {
+              actualStartedAt: undefined,
+              actualCostCents: undefined,
+              completionForecastDate: undefined,
+              completedAt: undefined,
+              completedByWorkosUserId: undefined,
+              evidencePackageRevisionId: undefined,
+              evidenceReviewRound: undefined,
+              evidenceReviewState: undefined,
+              fieldNote: undefined,
+              progressPercent: 0,
+              reviewDecisionId: undefined,
+              reviewDecisionState: undefined,
+              reviewRevision: undefined,
+              startEventId: undefined,
+              startReportedAt: undefined,
+              startedByWorkosUserId: undefined,
+              startSource: undefined,
+              status: "planned" as const,
+              workflowRevision: undefined,
+              activationPlanningRevision: undefined,
+              scheduledActivationJobId: undefined,
+              siteVisitRequirementId: undefined,
+              completionSubmissionId: undefined,
+            }
+          : {};
       await ctx.db.patch(existingRow._id, {
         budgetCents: row.budgetCents,
         durationDays: row.durationDays,
@@ -31447,6 +31525,7 @@ async function replaceActiveBuildSubmilestones(
         supersededAt: undefined,
         supersededByPlanningRevision: undefined,
         updatedAt: now,
+        ...resetReactivatedState,
       });
       const proposalRow = await ctx.db.get(existingRow.proposalSubmilestoneId);
       if (proposalRow) {
@@ -31576,8 +31655,9 @@ async function deleteActiveBuildMilestoneCascade(
   ctx: MutationCtx,
   buildId: Id<"activeBuilds">,
   milestone: Doc<"buildMilestones">,
-) {
+): Promise<Id<"buildSubmilestones">[]> {
   const now = Date.now();
+  const supersededIds: Id<"buildSubmilestones">[] = [];
   const submilestones = await ctx.db
     .query("buildSubmilestones")
     .withIndex("by_milestone", (q) => q.eq("buildMilestoneId", milestone._id))
@@ -31590,6 +31670,7 @@ async function deleteActiveBuildMilestoneCascade(
       supersededByPlanningRevision: undefined,
       updatedAt: now,
     });
+    supersededIds.push(row._id);
   }
   await ctx.db.patch(milestone._id, {
     planningState: "superseded",
@@ -31597,6 +31678,7 @@ async function deleteActiveBuildMilestoneCascade(
     supersededByPlanningRevision: undefined,
     updatedAt: now,
   });
+  return supersededIds;
 }
 
 async function authorizeActiveBuildCostItemWrite(

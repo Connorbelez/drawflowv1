@@ -347,7 +347,21 @@ export async function resolveActiveSubmilestoneEvidenceRequirements(
       },
     ];
   }
-  return scopedRows
+  const latestByRequirementKey = new Map<
+    string,
+    (typeof scopedRows)[number]
+  >();
+  for (const row of scopedRows) {
+    const current = latestByRequirementKey.get(row.requirementKey);
+    if (
+      !current ||
+      row.revision > current.revision ||
+      (row.revision === current.revision && row._creationTime > current._creationTime)
+    ) {
+      latestByRequirementKey.set(row.requirementKey, row);
+    }
+  }
+  return [...latestByRequirementKey.values()]
     .map((row) => ({
       active: row.active,
       buildId: row.buildId,

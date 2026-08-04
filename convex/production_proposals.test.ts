@@ -2446,6 +2446,8 @@ describe("production proposal foundation", () => {
     const builderTimelineDraw = builderTimeline.draws.find(
       (draw: any) => draw.drawKey === receipt.requestKey,
     );
+    expect(builderDetailDraw).toBeDefined();
+    expect(builderTimelineDraw).toBeDefined();
     expect(builderDetailDraw).not.toHaveProperty("requestNote");
     expect(builderDetailDraw).not.toHaveProperty("requestReviewNote");
     expect(builderTimelineDraw).not.toHaveProperty("requestNote");

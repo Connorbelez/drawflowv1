@@ -6118,6 +6118,12 @@ function normalizeTimelineMilestoneInput(input: AssistantActionInput) {
       )
     )
   );
+  const submilestones = normalizeSubmilestones(milestone.submilestones);
+  if (submilestones.length === 0) {
+    throw new Error(
+      "Milestone creation requires at least one Sub-milestone.",
+    );
+  }
   return {
     budgetCents: requiredPositiveCents(
       milestone.budgetCents ?? milestone.amountCents,
@@ -6137,7 +6143,7 @@ function normalizeTimelineMilestoneInput(input: AssistantActionInput) {
     ),
     name: requiredString(milestone.name ?? milestone.title, "Milestone name"),
     order: Math.max(1, Math.round(optionalNumber(milestone.order) ?? 1)),
-    submilestones: normalizeSubmilestones(milestone.submilestones),
+    submilestones,
   };
 }
 
