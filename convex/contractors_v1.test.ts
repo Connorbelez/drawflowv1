@@ -584,6 +584,11 @@ describe("contractors v1", () => {
           milestoneKey: "foundation",
           mimeType: "image/jpeg",
           sizeBytes: 12_000,
+          storageId: await t.run(async (ctx: any) =>
+            ctx.storage.store(
+              new Blob(["forms-photo-01"], { type: "image/jpeg" }),
+            ),
+          ),
           source: "builder_evidence",
           submilestoneKey: "forms",
           tag: "Forms and pour",
@@ -603,6 +608,11 @@ describe("contractors v1", () => {
           milestoneKey: "foundation",
           mimeType: "image/jpeg",
           sizeBytes: 12_000,
+          storageId: await t.run(async (ctx: any) =>
+            ctx.storage.store(
+              new Blob(["waterproofing-photo-01"], { type: "image/jpeg" }),
+            ),
+          ),
           source: "builder_evidence",
           submilestoneKey: "waterproofing",
           tag: "Waterproofing",
