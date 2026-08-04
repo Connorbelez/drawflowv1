@@ -87,7 +87,7 @@ describe("Build collaboration scheduled publication", () => {
     }
   });
 
-  test("revalidates a stale scheduled activation after the Build due date moves", async () => {
+  test("revalidates a stale scheduled activation after the Build startDate moves", async () => {
     vi.useFakeTimers();
     const initialNow = Date.parse("2026-01-01T12:00:00.000Z");
     const initialDue = Date.parse("2026-02-01T05:00:00.000Z");
