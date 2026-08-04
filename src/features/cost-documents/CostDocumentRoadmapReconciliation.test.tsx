@@ -186,7 +186,10 @@ describe("CostDocumentRoadmapReconciliation", () => {
 
   const renderWorkspace = (input?: {
     interactionMode?: "brokerage-review" | "read-only" | "standard";
+    milestoneActualCostCents?: number;
+    milestoneStatus?: "planned" | "in_progress" | "complete";
     selectedCostDocumentId?: string;
+    submilestoneActualCostCents?: Record<string, number>;
   }) =>
     render(
       <CostDocumentRoadmapReconciliation
@@ -200,13 +203,54 @@ describe("CostDocumentRoadmapReconciliation", () => {
         submilestones={[
           {
             id: "sub-foundation-footings" as Id<"buildSubmilestones">,
-            label: "Foundation · Footings",
+            label: "Site prep & foundation · Footings",
             milestoneKey: "foundation",
+            milestoneName: "Site prep & foundation",
+            milestoneOrder: 1,
+            actualCostCents:
+              input?.submilestoneActualCostCents?.[
+                "sub-foundation-footings"
+              ],
+            budgetCents: 200_000,
+            milestoneBudgetCents: 500_000,
+            milestoneActualCostCents: input?.milestoneActualCostCents,
+            milestoneStatus: input?.milestoneStatus ?? "in_progress",
+            milestoneDayStart: 0,
+            milestoneDayEnd: 20,
           },
           {
             id: "sub-foundation-waterproofing" as Id<"buildSubmilestones">,
-            label: "Foundation · Waterproofing",
+            label: "Site prep & foundation · Waterproofing",
             milestoneKey: "foundation",
+            milestoneName: "Site prep & foundation",
+            milestoneOrder: 1,
+            actualCostCents:
+              input?.submilestoneActualCostCents?.[
+                "sub-foundation-waterproofing"
+              ],
+            budgetCents: 300_000,
+            milestoneBudgetCents: 500_000,
+            milestoneActualCostCents: input?.milestoneActualCostCents,
+            milestoneStatus: input?.milestoneStatus ?? "in_progress",
+            milestoneDayStart: 0,
+            milestoneDayEnd: 20,
+          },
+          {
+            id: "sub-foundation-excavation" as Id<"buildSubmilestones">,
+            label: "Site prep & foundation · Excavation",
+            milestoneKey: "foundation",
+            milestoneName: "Site prep & foundation",
+            milestoneOrder: 1,
+            actualCostCents:
+              input?.submilestoneActualCostCents?.[
+                "sub-foundation-excavation"
+              ],
+            budgetCents: 150_000,
+            milestoneBudgetCents: 500_000,
+            milestoneActualCostCents: input?.milestoneActualCostCents,
+            milestoneStatus: input?.milestoneStatus ?? "in_progress",
+            milestoneDayStart: 0,
+            milestoneDayEnd: 20,
           },
         ]}
       />
@@ -280,24 +324,163 @@ describe("CostDocumentRoadmapReconciliation", () => {
     vi.unstubAllGlobals();
   });
 
-  test("organizes submitted records by Milestone with distinct Materials and Labour lanes and filter controls", () => {
+  test("organizes the selected Milestone by Sub-milestone with Materials and Labour budget comparisons, including empty Sub-milestones", () => {
     renderWorkspace();
 
     expect(screen.getByText("Roadmap reconciliation")).toBeTruthy();
-    expect(screen.getByText("Materials submitted gross")).toBeTruthy();
-    expect(screen.getByText("Labour submitted gross")).toBeTruthy();
-    expect(screen.getByText("Foundation · Waterproofing")).toBeTruthy();
-    expect(screen.getByText("Foundation · Footings")).toBeTruthy();
+    expect(screen.getAllByText("Site prep & foundation").length).toBeGreaterThan(0);
+    expect(screen.getByText("Days 0–20")).toBeTruthy();
+    expect(screen.getByText("of $5,000.00 planned budget")).toBeTruthy();
+    expect(screen.getAllByText("42%").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Search and filters")).toBeNull();
+
+    expect(screen.getByTestId("roadmap-submilestone-sub-foundation-footings")).toBeTruthy();
+    expect(
+      screen.getByTestId("roadmap-submilestone-sub-foundation-waterproofing")
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("roadmap-submilestone-sub-foundation-excavation")
+    ).toBeTruthy();
+
+    expect(screen.getByText("Footings")).toBeTruthy();
+    expect(screen.getByText("Waterproofing")).toBeTruthy();
+    expect(screen.getByText("Excavation")).toBeTruthy();
+
+    expect(
+      screen.getByText("1 record · $1,245.00 invoiced of $2,000.00 planned budget")
+    ).toBeTruthy();
+    expect(
+      screen.getByText("1 record · $863.20 invoiced of $3,000.00 planned budget")
+    ).toBeTruthy();
+    expect(
+      screen.getByText("0 records · $0.00 invoiced of $1,500.00 planned budget")
+    ).toBeTruthy();
+
+    expect(
+      screen.getAllByText(
+        "No materials records assigned to this Sub-milestone."
+      ).length
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        "No labour records assigned to this Sub-milestone."
+      ).length
+    ).toBeGreaterThan(0);
+
     expect(
       screen.getByRole("button", { name: "Open Waterproofing membrane receipt" })
     ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Open Foundation formwork labour" })
+    ).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     fireEvent.change(screen.getByLabelText("Filter by document kind"), {
       target: { value: "receipt" },
     });
 
     expect(screen.getByText("Waterproofing membrane receipt")).toBeTruthy();
     expect(screen.queryByText("Foundation formwork labour")).toBeNull();
+    expect(
+      screen.getByTestId("roadmap-submilestone-sub-foundation-excavation")
+    ).toBeTruthy();
+  });
+
+  test("shows allocation amount within a Sub-milestone when a document spans multiple Sub-milestones", () => {
+    const splitMaterialsDocument: Summary = {
+      ...materialsDocument,
+      _id: "cost-materials-split" as Id<"costDocuments">,
+      allocations: [
+        {
+          amountCents: 50_000,
+          buildSubmilestoneId:
+            "sub-foundation-waterproofing" as Id<"buildSubmilestones">,
+          order: 1,
+          submilestoneKey: "waterproofing",
+          submilestoneName: "Waterproofing",
+        },
+        {
+          amountCents: 36_320,
+          buildSubmilestoneId:
+            "sub-foundation-footings" as Id<"buildSubmilestones">,
+          order: 2,
+          submilestoneKey: "footings",
+          submilestoneName: "Footings",
+        },
+      ],
+      grossTotalCents: 86_320,
+      title: "Split waterproofing and footings receipt",
+    };
+    usePaginatedQuery.mockReturnValue({
+      loadMore,
+      results: [splitMaterialsDocument],
+      status: "Exhausted",
+    });
+
+    renderWorkspace();
+
+    expect(screen.getByText("$500.00")).toBeTruthy();
+    expect(screen.getByText("$363.20")).toBeTruthy();
+    expect(screen.getAllByText("of $863.20 document").length).toBe(2);
+    expect(
+      screen.getAllByRole("button", {
+        name: "Open Split waterproofing and footings receipt",
+      }).length
+    ).toBe(2);
+  });
+
+  test("uses completed milestone actual cost as the coverage target", () => {
+    renderWorkspace({
+      milestoneActualCostCents: 300_000,
+      milestoneStatus: "complete",
+    });
+
+    expect(screen.getByText("of $3,000.00 actual cost")).toBeTruthy();
+    expect(screen.getAllByText("70%").length).toBeGreaterThan(0);
+  });
+
+  test("surfaces documentation coverage and claimed-without-receipt on the rail, category cards, and Sub-milestones", () => {
+    renderWorkspace({
+      submilestoneActualCostCents: {
+        "sub-foundation-excavation": 150_000,
+        "sub-foundation-footings": 200_000,
+        "sub-foundation-waterproofing": 300_000,
+      },
+      milestoneActualCostCents: 650_000,
+      milestoneStatus: "complete",
+    });
+
+    expect(screen.queryByText("Products & rentals")).toBeNull();
+    expect(screen.queryByText("Crews & services")).toBeNull();
+
+    const rail = screen.getByTestId("roadmap-milestone-foundation");
+    expect(rail.textContent).toMatch(/Documented/);
+    expect(rail.textContent).toMatch(/32%/);
+    expect(rail.textContent).toMatch(/\$4,391\.80 without receipt/);
+    expect(rail.className).toMatch(/min-w-0/);
+    expect(rail.className).toMatch(/whitespace-normal/);
+    expect(
+      rail.querySelector('[data-slot="progress"]')
+    ).toBeTruthy();
+
+    expect(screen.getByText("$4,391.80 claimed without receipt")).toBeTruthy();
+    expect(
+      screen.getAllByText("Documentation coverage").length
+    ).toBeGreaterThan(3);
+
+    const footings = screen.getByTestId(
+      "roadmap-submilestone-sub-foundation-footings"
+    );
+    expect(footings.textContent).toMatch(/\$755\.00 without receipt/);
+    expect(footings.textContent).toMatch(
+      /\$1,245\.00 of \$2,000\.00 actual cost/
+    );
+    expect(footings.textContent).toMatch(/\$0\.00 of \$2,000\.00 actual cost/);
+
+    const excavation = screen.getByTestId(
+      "roadmap-submilestone-sub-foundation-excavation"
+    );
+    expect(excavation.textContent).toMatch(/\$1,500\.00 without receipt/);
   });
 
   test("opens route-owned progressive detail and retrieves private source pages with an access token", async () => {

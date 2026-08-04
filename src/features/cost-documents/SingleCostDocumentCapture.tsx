@@ -38,11 +38,86 @@ const MAX_COST_DOCUMENT_PAGES = 50;
 const CAD_AMOUNT_PATTERN = /^\d+(?:\.\d{1,2})?$/;
 const TRAILING_SLASH_PATTERN = /\/$/;
 
+export type CostDocumentMilestoneStatus =
+  | "planned"
+  | "in_progress"
+  | "complete";
+
 export interface CostDocumentSubmilestoneOption {
+  actualCostCents?: number;
+  /** Allocation-level budget context used as a fallback for older callers. */
+  budgetCents?: number;
   id: Id<"buildSubmilestones">;
   label: string;
+  milestoneActualCostCents?: number;
+  milestoneBudgetCents?: number;
+  milestoneDayEnd?: number;
+  milestoneDayStart?: number;
   /** Canonical roadmap Milestone key for reconciliation grouping/filtering. */
   milestoneKey?: string;
+  /** Canonical roadmap Milestone presentation and reconciliation context. */
+  milestoneName?: string;
+  milestoneOrder?: number;
+  milestoneStatus?: CostDocumentMilestoneStatus;
+}
+
+interface CostDocumentMilestoneOptionInput {
+  budgetCents: number;
+  dayEnd: number;
+  dayStart: number;
+  key: string;
+  name: string;
+  order: number;
+  status: CostDocumentMilestoneStatus;
+}
+
+interface CostDocumentSubmilestoneOptionInput {
+  _id: Id<"buildSubmilestones"> | string;
+  actualCostCents?: number;
+  budgetCents?: number;
+  key: string;
+  milestoneKey: string;
+  name: string;
+}
+
+export function buildCostDocumentSubmilestoneOptions(
+  milestones: readonly CostDocumentMilestoneOptionInput[],
+  submilestones: readonly CostDocumentSubmilestoneOptionInput[]
+): CostDocumentSubmilestoneOption[] {
+  const milestoneByKey = new Map(
+    milestones.map((milestone) => [milestone.key, milestone])
+  );
+  const actualCostByMilestoneKey = new Map<string, number>();
+  for (const submilestone of submilestones) {
+    actualCostByMilestoneKey.set(
+      submilestone.milestoneKey,
+      (actualCostByMilestoneKey.get(submilestone.milestoneKey) ?? 0) +
+        Math.max(0, submilestone.actualCostCents ?? 0)
+    );
+  }
+  return submilestones.map((submilestone) => {
+    const milestone = milestoneByKey.get(submilestone.milestoneKey);
+    const milestoneName = milestone?.name ?? submilestone.milestoneKey;
+    return {
+      ...(submilestone.actualCostCents === undefined
+        ? {}
+        : { actualCostCents: submilestone.actualCostCents }),
+      ...(submilestone.budgetCents === undefined
+        ? {}
+        : { budgetCents: submilestone.budgetCents }),
+      id: submilestone._id as Id<"buildSubmilestones">,
+      label: `${milestoneName} · ${submilestone.name}`,
+      milestoneActualCostCents:
+        actualCostByMilestoneKey.get(submilestone.milestoneKey) ?? 0,
+      milestoneBudgetCents: milestone?.budgetCents,
+      milestoneDayEnd: milestone?.dayEnd,
+      milestoneDayStart: milestone?.dayStart,
+      milestoneKey: submilestone.milestoneKey,
+      milestoneName,
+      milestoneOrder: milestone?.order,
+      milestoneStatus: milestone?.status,
+    };
+  });
 }
 
 export function SingleCostDocumentCapture({

@@ -30,6 +30,7 @@ import type { CalendarTimeframe } from "#/features/calendar-workspace/calendarTy
 import { CostDocumentBatchWorkspace } from "#/features/cost-documents/CostDocumentBatchWorkspace.tsx";
 import { CostDocumentRoadmapReconciliation } from "#/features/cost-documents/CostDocumentRoadmapReconciliation.tsx";
 import { normalizeCostDocumentSearch } from "#/features/cost-documents/costDocumentRouteState.ts";
+import { buildCostDocumentSubmilestoneOptions } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
 import {
   getVisualParityActiveBuildDetail,
   getVisualParityActiveBuildTimelineWorkspace,
@@ -832,12 +833,9 @@ export function BuilderBuildWorkspaceRoute({
     detail.viewerBuildRoles?.includes(requestedCostDocumentCapacity)
       ? requestedCostDocumentCapacity
       : backofficeCostDocumentCapacity;
-  const costDocumentSubmilestones = (detail.submilestones ?? []).map(
-    (submilestone) => ({
-      id: submilestone._id as Id<"buildSubmilestones">,
-      label: `${submilestone.milestoneKey} · ${submilestone.name}`,
-      milestoneKey: submilestone.milestoneKey,
-    })
+  const costDocumentSubmilestones = buildCostDocumentSubmilestoneOptions(
+    detail.milestones ?? [],
+    detail.submilestones ?? []
   );
   const onCostDocumentIdChange = (costDocumentId?: string) =>
     navigate({

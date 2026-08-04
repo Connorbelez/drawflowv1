@@ -296,16 +296,6 @@ describe("Cost Document public contract", () => {
       vendorName: "Cedar Supply Ltd.",
     });
     await completeDraft(fixture, draftId);
-    await fixture.base.run(async (ctx) => {
-      await ctx.db.insert("users", {
-        authId: "builder_owner",
-        email: "Builder_Owner@Example.com",
-        emailVerified: true,
-        name: "Builder owner",
-        status: "active",
-        workosUserId: "builder_owner",
-      });
-    });
     const builderWithoutEmail = fixture.base.withIdentity({
       name: "builder_owner",
       organizationId: ORGANIZATION_ID,
@@ -368,14 +358,16 @@ describe("Cost Document public contract", () => {
     });
     await completeDraft(fixture, draftId);
     await fixture.base.run(async (ctx) => {
-      await ctx.db.insert("users", {
-        authId: "builder_owner",
-        email: "builder_owner@example.com",
-        emailVerified: false,
-        name: "Builder owner",
-        status: "active",
-        workosUserId: "builder_owner",
-      });
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_workos_user_id", (query) =>
+          query.eq("workosUserId", "builder_owner")
+        )
+        .unique();
+      if (!user) {
+        throw new Error("Missing builder owner identity fixture");
+      }
+      await ctx.db.patch(user._id, { emailVerified: false });
     });
 
     await expect(
@@ -2395,8 +2387,15 @@ describe("Cost Document public contract", () => {
     ).resolves.toEqual([
       {
         id: fixture.buildSubmilestoneId,
-        label: "foundation · Footings",
+        label: "Foundation · Footings",
+        milestoneActualCostCents: 0,
+        milestoneBudgetCents: 50_000_000,
+        milestoneDayEnd: 20,
+        milestoneDayStart: 0,
         milestoneKey: "foundation",
+        milestoneName: "Foundation",
+        milestoneOrder: 1,
+        milestoneStatus: "in_progress",
       },
     ]);
     await expect(
@@ -2496,8 +2495,15 @@ describe("Cost Document public contract", () => {
     ).resolves.toEqual([
       {
         id: fixture.buildSubmilestoneId,
-        label: "foundation · Footings",
+        label: "Foundation · Footings",
+        milestoneActualCostCents: 0,
+        milestoneBudgetCents: 50_000_000,
+        milestoneDayEnd: 20,
+        milestoneDayStart: 0,
         milestoneKey: "foundation",
+        milestoneName: "Foundation",
+        milestoneOrder: 1,
+        milestoneStatus: "in_progress",
       },
     ]);
   });
@@ -5210,6 +5216,21 @@ async function seedFixture() {
   );
   const seeded = await base.run(async (ctx) => {
     const now = Date.now();
+    await Promise.all(
+      [
+        ["admin", "admin@example.com"],
+        ["builder_owner", "builder_owner@example.com"],
+      ].map(([workosUserId, email]) =>
+        ctx.db.insert("users", {
+          authId: workosUserId,
+          email,
+          emailVerified: true,
+          name: workosUserId,
+          status: "active",
+          workosUserId,
+        })
+      )
+    );
     await ctx.db.insert("builderAccountLinks", {
       assignedEmail: "builder_owner@example.com",
       brokerageId: foundation.brokerageId,
@@ -5367,6 +5388,22 @@ async function addEligibleBuilderStaff(
       throw new Error("Missing Cost Document fixture build");
     }
     const now = Date.now();
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_workos_user_id", (query) =>
+        query.eq("workosUserId", subject)
+      )
+      .take(1);
+    if (existingUser.length === 0) {
+      await ctx.db.insert("users", {
+        authId: subject,
+        email: `${subject}@example.com`,
+        emailVerified: true,
+        name: subject,
+        status: "active",
+        workosUserId: subject,
+      });
+    }
     const builderAccountLinkId = await ctx.db.insert("builderAccountLinks", {
       assignedEmail: `${subject}@example.com`,
       brokerageId: build.brokerageId,
@@ -5421,6 +5458,22 @@ async function addQualifyingContractor(
       throw new Error("Missing Contractor Cost Document fixture milestone");
     }
     const now = Date.now();
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_workos_user_id", (query) =>
+        query.eq("workosUserId", subject)
+      )
+      .take(1);
+    if (existingUser.length === 0) {
+      await ctx.db.insert("users", {
+        authId: subject,
+        email: `${subject}@example.com`,
+        emailVerified: true,
+        name: subject,
+        status: "active",
+        workosUserId: subject,
+      });
+    }
     const contractorId = await ctx.db.insert("contractorProfiles", {
       accountWorkosUserId: subject,
       brokerageId: build.brokerageId,
@@ -5603,6 +5656,22 @@ async function addActiveBuildParticipant(
       throw new Error("Missing Cost Document fixture build");
     }
     const now = Date.now();
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_workos_user_id", (query) =>
+        query.eq("workosUserId", input.subject)
+      )
+      .take(1);
+    if (existingUser.length === 0) {
+      await ctx.db.insert("users", {
+        authId: input.subject,
+        email: `${input.subject}@example.com`,
+        emailVerified: true,
+        name: input.subject,
+        status: "active",
+        workosUserId: input.subject,
+      });
+    }
     await ctx.db.insert("buildParticipants", {
       brokerageId: build.brokerageId,
       buildId: build._id,

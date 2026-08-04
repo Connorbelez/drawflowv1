@@ -1286,7 +1286,12 @@ describe("CostDocumentBatchWorkspace", () => {
     );
     await waitFor(() => expect(screen.getByText("retry.pdf")).toBeTruthy());
     expect(screen.getByText("The second page scan failed.")).toBeTruthy();
-    expect(screen.queryByText("retained.pdf")).toBeNull();
+    expect(screen.getByTestId("pending-source-pages").textContent).toContain(
+      "retry.pdf"
+    );
+    expect(screen.getByTestId("pending-source-pages").textContent).not.toContain(
+      "retained.pdf"
+    );
     expect(
       screen.getByRole("button", { name: "Upload source pages" }).hasAttribute(
         "disabled"

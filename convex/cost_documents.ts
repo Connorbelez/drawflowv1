@@ -436,6 +436,19 @@ export const listCostDocumentSubmilestoneOptions = authenticatedQuery
         id: v.id("buildSubmilestones"),
         label: v.string(),
         milestoneKey: v.string(),
+        milestoneName: v.string(),
+        milestoneOrder: v.number(),
+        milestoneBudgetCents: v.number(),
+        milestoneActualCostCents: v.number(),
+        milestoneStatus: v.union(
+          v.literal("planned"),
+          v.literal("in_progress"),
+          v.literal("complete")
+        ),
+        milestoneDayStart: v.number(),
+        milestoneDayEnd: v.number(),
+        budgetCents: v.optional(v.number()),
+        actualCostCents: v.optional(v.number()),
       })
     )
   )
@@ -444,13 +457,24 @@ export const listCostDocumentSubmilestoneOptions = authenticatedQuery
       ...args,
       intent: "create",
     });
-    const rows = await ctx.db
-      .query("buildSubmilestones")
-      .withIndex("by_build", (query) =>
-        query.eq("buildId", authorization.build._id)
-      )
-      .take(501);
+    const [rows, milestones] = await Promise.all([
+      ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query) =>
+          query.eq("buildId", authorization.build._id)
+        )
+        .take(501),
+      ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (query) =>
+          query.eq("buildId", authorization.build._id)
+        )
+        .take(501),
+    ]);
     if (rows.length > 500) {
+      throw new Error("Cost Document allocation options are unavailable.");
+    }
+    if (milestones.length > 500) {
       throw new Error("Cost Document allocation options are unavailable.");
     }
     if (
@@ -463,6 +487,26 @@ export const listCostDocumentSubmilestoneOptions = authenticatedQuery
     ) {
       throw new Error("Cost Document allocation options are unavailable.");
     }
+    if (
+      milestones.some(
+        (milestone) =>
+          milestone.organizationId !== authorization.organizationId ||
+          milestone.brokerageId !== authorization.brokerage._id ||
+          milestone.buildId !== authorization.build._id
+      )
+    ) {
+      throw new Error("Cost Document allocation options are unavailable.");
+    }
+    const milestoneById = new Map(
+      milestones.map((milestone) => [String(milestone._id), milestone])
+    );
+    const rowsWithMilestones = rows.map((row) => {
+      const milestone = milestoneById.get(String(row.buildMilestoneId));
+      if (!milestone || milestone.key !== row.milestoneKey) {
+        throw new Error("Cost Document allocation options are unavailable.");
+      }
+      return { milestone, row };
+    });
     let allowedIds: Set<string> | undefined;
     if (authorization.effectiveRole.role === "contractor") {
       const contractorScope = await requireCurrentContractorCostDocumentScope(
@@ -477,18 +521,42 @@ export const listCostDocumentSubmilestoneOptions = authenticatedQuery
         contractorScope.qualifyingSubmilestoneIds.map(String)
       );
     }
-    return rows
-      .filter((row) => !allowedIds || allowedIds.has(String(row._id)))
+    const rowsForProjection = rowsWithMilestones.filter(
+      ({ row }) => !allowedIds || allowedIds.has(String(row._id))
+    );
+    const milestoneActualCostByKey = new Map<string, number>();
+    for (const { row } of rowsForProjection) {
+      milestoneActualCostByKey.set(
+        row.milestoneKey,
+        (milestoneActualCostByKey.get(row.milestoneKey) ?? 0) +
+          Math.max(0, row.actualCostCents ?? 0)
+      );
+    }
+    return rowsForProjection
       .sort(
         (left, right) =>
-          left.milestoneKey.localeCompare(right.milestoneKey) ||
-          left.order - right.order ||
-          left.name.localeCompare(right.name)
+          left.milestone.order - right.milestone.order ||
+          left.row.order - right.row.order ||
+          left.row.name.localeCompare(right.row.name)
       )
-      .map((row) => ({
+      .map(({ milestone, row }) => ({
+        ...(row.actualCostCents === undefined
+          ? {}
+          : { actualCostCents: row.actualCostCents }),
+        ...(row.budgetCents === undefined
+          ? {}
+          : { budgetCents: row.budgetCents }),
         id: row._id,
-        label: `${row.milestoneKey} · ${row.name}`,
-        milestoneKey: row.milestoneKey,
+        label: `${milestone.name} · ${row.name}`,
+        milestoneActualCostCents:
+          milestoneActualCostByKey.get(row.milestoneKey) ?? 0,
+        milestoneBudgetCents: milestone.budgetCents,
+        milestoneDayEnd: milestone.dayEnd,
+        milestoneDayStart: milestone.dayStart,
+        milestoneKey: milestone.key,
+        milestoneName: milestone.name,
+        milestoneOrder: milestone.order,
+        milestoneStatus: milestone.status,
       }));
   })
   .public();
@@ -2571,9 +2639,6 @@ async function resolveCostDocumentUploaderEmail(
     .take(2);
 
   if (projectedUsers.length === 0) {
-    if (tokenEmail) {
-      return tokenEmail;
-    }
     throw new Error("A verified uploader email is required for the receipt.");
   }
 

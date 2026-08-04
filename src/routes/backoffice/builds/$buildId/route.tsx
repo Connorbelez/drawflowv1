@@ -25,6 +25,7 @@ import {
   type CostDocumentRouteSearch,
   normalizeCostDocumentSearch,
 } from "#/features/cost-documents/costDocumentRouteState.ts";
+import { buildCostDocumentSubmilestoneOptions } from "#/features/cost-documents/SingleCostDocumentCapture.tsx";
 import {
   getVisualParityActiveBuildDetail,
   getVisualParityActiveBuildTimelineWorkspace,
@@ -871,6 +872,10 @@ function RouteComponent() {
         }).then(() => toast.success("Build details updated.")),
       materialPlanning: materialPlanningActions,
     };
+    const costDocumentSubmilestones = buildCostDocumentSubmilestoneOptions(
+      detail.milestones ?? [],
+      detail.submilestones ?? []
+    );
     return (
       <ProductionBuildDetailSurface
         actions={actions}
@@ -932,11 +937,7 @@ function RouteComponent() {
                   } as never),
                 selectedCostDocumentId: search.costDocument,
               }}
-              submilestones={detail.submilestones.map((submilestone) => ({
-                id: submilestone._id as Id<"buildSubmilestones">,
-                label: `${submilestone.milestoneKey} · ${submilestone.name}`,
-                milestoneKey: submilestone.milestoneKey,
-              }))}
+              submilestones={costDocumentSubmilestones}
             />
           ) : (
             <CostDocumentRoadmapReconciliation
@@ -961,11 +962,7 @@ function RouteComponent() {
               }
               organizationId={workosOrganizationId}
               selectedCostDocumentId={search.costDocument}
-              submilestones={detail.submilestones.map((submilestone) => ({
-                id: submilestone._id as Id<"buildSubmilestones">,
-                label: `${submilestone.milestoneKey} · ${submilestone.name}`,
-                milestoneKey: submilestone.milestoneKey,
-              }))}
+              submilestones={costDocumentSubmilestones}
             />
           )
         }

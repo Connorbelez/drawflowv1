@@ -226,9 +226,11 @@ function ContractorBuildDetail() {
           String(scope.buildSubmilestoneId),
           {
             id: scope.buildSubmilestoneId as Id<"buildSubmilestones">,
-            label: `${scope.milestoneKey} · ${
+            label: `${scope.milestoneName} · ${
               scope.submilestoneName ?? scope.submilestoneKey ?? "Sub-milestone"
             }`,
+            milestoneKey: scope.milestoneKey,
+            milestoneName: scope.milestoneName,
           },
         ])
     ).values(),

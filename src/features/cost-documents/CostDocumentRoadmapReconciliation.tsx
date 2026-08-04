@@ -4,10 +4,15 @@ import { useAccessToken } from "@workos/authkit-tanstack-react-start/client";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
   AlertTriangle,
+  Check,
+  ChevronRight,
   Download,
   Eye,
   FileText,
+  Filter,
+  Hammer,
   History,
+  Package,
   Search,
   ShieldCheck,
 } from "lucide-react";
@@ -38,6 +43,7 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "#/components/ui/native-select.tsx";
+import { Progress } from "#/components/ui/progress.tsx";
 import {
   Sheet,
   SheetDescription,
@@ -229,6 +235,7 @@ export function CostDocumentRoadmapReconciliation(
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This coordinator keeps pagination, filters, role redaction, and the two approved roadmap modes together.
 function CostDocumentRoadmapReconciliationContent({
   actorCapacity,
   buildId,
@@ -242,7 +249,10 @@ function CostDocumentRoadmapReconciliationContent({
 }: CostDocumentRoadmapReconciliationProps) {
   const actorCapacityInput = actorCapacity ? { actorCapacity } : {};
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [mode, setMode] = useState<"milestones" | "documents">("milestones");
   const [search, setSearch] = useState("");
+  const [selectedMilestoneKey, setSelectedMilestoneKey] = useState<string>();
   const { loadMore, results, status } = usePaginatedQuery(
     api.cost_documents.listCostDocumentRoadmapReconciliation,
     { buildId, organizationId, ...actorCapacityInput } as never,
@@ -280,19 +290,96 @@ function CostDocumentRoadmapReconciliationContent({
     () => groupDocumentsByMilestone(visibleDocuments, submilestones),
     [submilestones, visibleDocuments]
   );
-  const currentTotals = useMemo(
+  useEffect(() => {
+    if (status !== "Exhausted") {
+      return;
+    }
+    const firstMilestone = milestoneOptions[0]?.[0];
+    if (
+      selectedMilestoneKey &&
+      milestoneOptions.some(([key]) => key === selectedMilestoneKey)
+    ) {
+      return;
+    }
+    setSelectedMilestoneKey(firstMilestone);
+  }, [milestoneOptions, selectedMilestoneKey, status]);
+  const activeMilestoneKey =
+    selectedMilestoneKey ?? milestoneOptions[0]?.[0] ?? "";
+  const selectedSubmilestoneGroups = useMemo(
     () =>
-      documents.reduce(
-        (totals, document) => {
-          if (document.lifecycle.state === "current") {
-            totals[document.category] += document.grossTotalCents;
-          }
-          return totals;
-        },
-        { labour: 0, materials: 0 }
+      groupDocumentsBySubmilestone(
+        visibleDocuments,
+        submilestones,
+        activeMilestoneKey
       ),
-    [documents]
+    [activeMilestoneKey, submilestones, visibleDocuments]
   );
+  const selectedMaterialTotal = selectedSubmilestoneGroups.reduce(
+    (total, group) => total + group.materialsInvoicedCents,
+    0
+  );
+  const selectedLabourTotal = selectedSubmilestoneGroups.reduce(
+    (total, group) => total + group.labourInvoicedCents,
+    0
+  );
+  const selectedTotal = selectedMaterialTotal + selectedLabourTotal;
+  const selectedMilestone = milestoneContextForKey(
+    submilestones,
+    activeMilestoneKey
+  );
+  const selectedMilestoneBudget = selectedMilestone?.budgetCents ?? 0;
+  const selectedMilestoneIsActual = selectedMilestone?.usesActualCost ?? false;
+  const coverage = documentationCoveragePercent(
+    selectedTotal,
+    selectedMilestoneBudget
+  );
+  const coverageLabel = formatCoverage(coverage);
+  const selectedClaimedWithoutReceiptCents = claimedWithoutReceiptCents(
+    selectedTotal,
+    selectedMilestoneBudget
+  );
+  const selectedMaterialsCoverage = documentationCoveragePercent(
+    selectedMaterialTotal,
+    selectedMilestoneBudget
+  );
+  const selectedLabourCoverage = documentationCoveragePercent(
+    selectedLabourTotal,
+    selectedMilestoneBudget
+  );
+  const roadmapMilestones = milestoneOptions.map(([key, label], index) => {
+    const group = groups.find((item) => item.key === key);
+    const submilestoneGroups = groupDocumentsBySubmilestone(
+      visibleDocuments,
+      submilestones,
+      key
+    );
+    const materialGross = submilestoneGroups.reduce(
+      (total, item) => total + item.materialsInvoicedCents,
+      0
+    );
+    const labourGross = submilestoneGroups.reduce(
+      (total, item) => total + item.labourInvoicedCents,
+      0
+    );
+    const documentedGross = materialGross + labourGross;
+    const context = milestoneContextForKey(submilestones, key);
+    const targetCents = context?.budgetCents ?? 0;
+    return {
+      claimedWithoutReceiptCents: claimedWithoutReceiptCents(
+        documentedGross,
+        targetCents
+      ),
+      coverage: documentationCoveragePercent(documentedGross, targetCents),
+      group,
+      key,
+      label,
+      labourGross,
+      materialGross,
+      number: index + 1,
+      targetCents,
+      usesActualCost: context?.usesActualCost ?? false,
+    };
+  });
 
   return (
     <div
@@ -311,201 +398,228 @@ function CostDocumentRoadmapReconciliationContent({
             </div>
             <Badge variant="outline">Cost Documents</Badge>
           </div>
+        </FrameHeader>
+        <FramePanel>
           <Alert>
             <ShieldCheck />
             <AlertTitle>Supporting cost context only</AlertTitle>
             <AlertDescription>{SUPPORTING_CONTEXT_DISCLOSURE}</AlertDescription>
           </Alert>
-        </FrameHeader>
-        {status === "Exhausted" ? (
-          <FramePanel className="grid gap-3 sm:grid-cols-2">
-            <LedgerTotal
-              amountCents={currentTotals.materials}
-              category="materials"
-              label="Materials submitted gross"
-            />
-            <LedgerTotal
-              amountCents={currentTotals.labour}
-              category="labour"
-              label="Labour submitted gross"
-            />
-          </FramePanel>
-        ) : (
-          <FramePanel>
-            <p className="text-muted-foreground text-sm">
-              Loading the complete authorized Cost Document ledger…
-            </p>
-          </FramePanel>
-        )}
+        </FramePanel>
       </Frame>
 
       <Frame>
-        <FrameHeader>
-          <FrameTitle>Search and filters</FrameTitle>
-          <FrameDescription>
-            Narrow the immutable record set without changing its financial or
-            roadmap facts.
-          </FrameDescription>
-        </FrameHeader>
-        <FramePanel className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Field className="md:col-span-2 xl:col-span-4">
-            <FieldLabel htmlFor="cost-document-search">
-              Search Cost Documents
-            </FieldLabel>
-            <div className="relative">
-              <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="ps-9"
-                id="cost-document-search"
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Vendor, title, allocation, or document date"
-                value={search}
-              />
-            </div>
-          </Field>
-          <FilterSelect
-            id="cost-document-kind-filter"
-            label="Filter by document kind"
-            onChange={(value) =>
-              updateFilters(setFilters, "kind", value as Filters["kind"])
-            }
-            options={[
-              ["all", "All kinds"],
-              ["invoice", "Invoice"],
-              ["receipt", "Receipt"],
-            ]}
-            value={filters.kind}
-          />
-          <FilterSelect
-            id="cost-document-category-filter"
-            label="Filter by category"
-            onChange={(value) =>
-              updateFilters(
-                setFilters,
-                "category",
-                value as Filters["category"]
-              )
-            }
-            options={[
-              ["all", "All categories"],
-              ["materials", "Materials"],
-              ["labour", "Labour"],
-            ]}
-            value={filters.category}
-          />
-          <FilterSelect
-            id="cost-document-lifecycle-filter"
-            label="Filter by lifecycle"
-            onChange={(value) =>
-              updateFilters(
-                setFilters,
-                "lifecycle",
-                value as Filters["lifecycle"]
-              )
-            }
-            options={[
-              ["all", "All lifecycle states"],
-              ["current", "Current"],
-              ["superseded", "Superseded"],
-              ["voided", "Voided"],
-            ]}
-            value={filters.lifecycle}
-          />
-          {interactionMode === "read-only" ? null : (
-            <>
-              <FilterSelect
-                id="cost-document-review-filter"
-                label="Filter by review attention"
-                onChange={(value) =>
-                  updateFilters(
-                    setFilters,
-                    "review",
-                    value as Filters["review"]
-                  )
-                }
-                options={[
-                  ["all", "All review states"],
-                  ["unreviewed", "Unreviewed"],
-                  ["partially_reviewed", "Partially reviewed"],
-                  ["reviewed", "Reviewed"],
-                  ["needs_correction", "Needs correction"],
-                ]}
-                value={filters.review}
-              />
-              <FilterSelect
-                id="cost-document-duplicate-filter"
-                label="Filter by duplicate signal"
-                onChange={(value) =>
-                  updateFilters(
-                    setFilters,
-                    "duplicate",
-                    value as Filters["duplicate"]
-                  )
-                }
-                options={[
-                  ["all", "All duplicate states"],
-                  ["has_duplicate", "Duplicate override"],
-                  ["none", "No duplicate override"],
-                ]}
-                value={filters.duplicate}
-              />
-              <FilterSelect
-                id="cost-document-integrity-filter"
-                label="Filter by file integrity"
-                onChange={(value) =>
-                  updateFilters(
-                    setFilters,
-                    "integrity",
-                    value as Filters["integrity"]
-                  )
-                }
-                options={[
-                  ["all", "All integrity states"],
-                  ["healthy", "Healthy files"],
-                  ["attention", "Integrity attention"],
-                ]}
-                value={filters.integrity}
-              />
-            </>
-          )}
-          <FilterSelect
-            id="cost-document-uploader-filter"
-            label="Filter by uploader"
-            onChange={(value) =>
-              updateFilters(
-                setFilters,
-                "uploader",
-                value as Filters["uploader"]
-              )
-            }
-            options={[
-              ["all", "All uploaders"],
-              ["self", "Uploaded by me"],
-              ["other", "Uploaded by another participant"],
-            ]}
-            value={filters.uploader}
-          />
-          <FilterSelect
-            id="cost-document-milestone-filter"
-            label="Filter by Milestone"
-            onChange={(value) => updateFilters(setFilters, "milestone", value)}
-            options={[["all", "All Milestones"], ...milestoneOptions]}
-            value={filters.milestone}
-          />
-          <FilterSelect
-            id="cost-document-submilestone-filter"
-            label="Filter by Sub-milestone"
-            onChange={(value) =>
-              updateFilters(setFilters, "submilestone", value)
-            }
-            options={[
-              ["all", "All Sub-milestones"],
-              ...submilestones.map((item) => [String(item.id), item.label]),
-            ]}
-            value={filters.submilestone}
-          />
+        <FramePanel className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
+          <div className="grid grid-cols-2 gap-1">
+            <Button
+              aria-pressed={mode === "milestones"}
+              onClick={() => setMode("milestones")}
+              size="sm"
+              variant={mode === "milestones" ? "default" : "outline"}
+            >
+              By milestone
+            </Button>
+            <Button
+              aria-pressed={mode === "documents"}
+              onClick={() => setMode("documents")}
+              size="sm"
+              variant={mode === "documents" ? "default" : "outline"}
+            >
+              All documents
+            </Button>
+          </div>
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="ps-9"
+              id="cost-document-search"
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search records, vendors, or people"
+              value={search}
+            />
+          </div>
+          <Button
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((current) => !current)}
+            size="sm"
+            variant="outline"
+          >
+            <Filter /> Filters
+          </Button>
         </FramePanel>
       </Frame>
+
+      {filtersOpen ? (
+        <Frame>
+          <FrameHeader>
+            <FrameTitle>Search and filters</FrameTitle>
+            <FrameDescription>
+              Narrow the immutable record set without changing its financial or
+              roadmap facts.
+            </FrameDescription>
+          </FrameHeader>
+          <FramePanel className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Field className="md:col-span-2 xl:col-span-4">
+              <FieldLabel htmlFor="cost-document-search-filters">
+                Search Cost Documents
+              </FieldLabel>
+              <div className="relative">
+                <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="ps-9"
+                  id="cost-document-search-filters"
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Vendor, title, allocation, or document date"
+                  value={search}
+                />
+              </div>
+            </Field>
+            <FilterSelect
+              id="cost-document-kind-filter"
+              label="Filter by document kind"
+              onChange={(value) =>
+                updateFilters(setFilters, "kind", value as Filters["kind"])
+              }
+              options={[
+                ["all", "All kinds"],
+                ["invoice", "Invoice"],
+                ["receipt", "Receipt"],
+              ]}
+              value={filters.kind}
+            />
+            <FilterSelect
+              id="cost-document-category-filter"
+              label="Filter by category"
+              onChange={(value) =>
+                updateFilters(
+                  setFilters,
+                  "category",
+                  value as Filters["category"]
+                )
+              }
+              options={[
+                ["all", "All categories"],
+                ["materials", "Materials"],
+                ["labour", "Labour"],
+              ]}
+              value={filters.category}
+            />
+            <FilterSelect
+              id="cost-document-lifecycle-filter"
+              label="Filter by lifecycle"
+              onChange={(value) =>
+                updateFilters(
+                  setFilters,
+                  "lifecycle",
+                  value as Filters["lifecycle"]
+                )
+              }
+              options={[
+                ["all", "All lifecycle states"],
+                ["current", "Current"],
+                ["superseded", "Superseded"],
+                ["voided", "Voided"],
+              ]}
+              value={filters.lifecycle}
+            />
+            {interactionMode === "read-only" ? null : (
+              <>
+                <FilterSelect
+                  id="cost-document-review-filter"
+                  label="Filter by review attention"
+                  onChange={(value) =>
+                    updateFilters(
+                      setFilters,
+                      "review",
+                      value as Filters["review"]
+                    )
+                  }
+                  options={[
+                    ["all", "All review states"],
+                    ["unreviewed", "Unreviewed"],
+                    ["partially_reviewed", "Partially reviewed"],
+                    ["reviewed", "Reviewed"],
+                    ["needs_correction", "Needs correction"],
+                  ]}
+                  value={filters.review}
+                />
+                <FilterSelect
+                  id="cost-document-duplicate-filter"
+                  label="Filter by duplicate signal"
+                  onChange={(value) =>
+                    updateFilters(
+                      setFilters,
+                      "duplicate",
+                      value as Filters["duplicate"]
+                    )
+                  }
+                  options={[
+                    ["all", "All duplicate states"],
+                    ["has_duplicate", "Duplicate override"],
+                    ["none", "No duplicate override"],
+                  ]}
+                  value={filters.duplicate}
+                />
+                <FilterSelect
+                  id="cost-document-integrity-filter"
+                  label="Filter by file integrity"
+                  onChange={(value) =>
+                    updateFilters(
+                      setFilters,
+                      "integrity",
+                      value as Filters["integrity"]
+                    )
+                  }
+                  options={[
+                    ["all", "All integrity states"],
+                    ["healthy", "Healthy files"],
+                    ["attention", "Integrity attention"],
+                  ]}
+                  value={filters.integrity}
+                />
+              </>
+            )}
+            <FilterSelect
+              id="cost-document-uploader-filter"
+              label="Filter by uploader"
+              onChange={(value) =>
+                updateFilters(
+                  setFilters,
+                  "uploader",
+                  value as Filters["uploader"]
+                )
+              }
+              options={[
+                ["all", "All uploaders"],
+                ["self", "Uploaded by me"],
+                ["other", "Uploaded by another participant"],
+              ]}
+              value={filters.uploader}
+            />
+            <FilterSelect
+              id="cost-document-milestone-filter"
+              label="Filter by Milestone"
+              onChange={(value) =>
+                updateFilters(setFilters, "milestone", value)
+              }
+              options={[["all", "All Milestones"], ...milestoneOptions]}
+              value={filters.milestone}
+            />
+            <FilterSelect
+              id="cost-document-submilestone-filter"
+              label="Filter by Sub-milestone"
+              onChange={(value) =>
+                updateFilters(setFilters, "submilestone", value)
+              }
+              options={[
+                ["all", "All Sub-milestones"],
+                ...submilestones.map((item) => [String(item.id), item.label]),
+              ]}
+              value={filters.submilestone}
+            />
+          </FramePanel>
+        </Frame>
+      ) : null}
 
       {status === "Exhausted" ? (
         documents.length === 0 ? (
@@ -518,16 +632,236 @@ function CostDocumentRoadmapReconciliationContent({
             description="Change or clear a filter to see other authorized submitted records."
             title="No Cost Documents match these filters"
           />
-        ) : (
-          <div className="space-y-4">
-            {groups.map((group) => (
-              <MilestoneReconciliationGroup
-                group={group}
-                key={group.key}
+        ) : mode === "documents" ? (
+          <Frame>
+            <FrameHeader>
+              <FrameTitle>All documents</FrameTitle>
+              <FrameDescription>
+                Every authorized record in the immutable Cost Document set.
+              </FrameDescription>
+            </FrameHeader>
+            <FramePanel className="grid min-w-0 gap-4 lg:grid-cols-2">
+              <CostDocumentLane
+                category="materials"
+                documents={visibleDocuments.filter(
+                  (document) => document.category === "materials"
+                )}
                 onOpenCostDocument={onOpenCostDocument}
                 showInternalSignals={interactionMode !== "read-only"}
+                submilestones={submilestones}
               />
-            ))}
+              <CostDocumentLane
+                category="labour"
+                documents={visibleDocuments.filter(
+                  (document) => document.category === "labour"
+                )}
+                onOpenCostDocument={onOpenCostDocument}
+                showInternalSignals={interactionMode !== "read-only"}
+                submilestones={submilestones}
+              />
+            </FramePanel>
+          </Frame>
+        ) : (
+          <div className="grid min-w-0 gap-4 lg:grid-cols-[19rem_minmax(0,1fr)]">
+            <Frame className="h-fit min-w-0 overflow-hidden">
+              <FrameHeader>
+                <FrameTitle>Construction roadmap</FrameTitle>
+                <FrameDescription>
+                  Submitted gross is deduplicated by canonical document.
+                </FrameDescription>
+              </FrameHeader>
+              <FramePanel className="grid min-w-0 gap-1 overflow-hidden p-1.5">
+                {roadmapMilestones.map((milestone) => {
+                  const active = milestone.key === activeMilestoneKey;
+                  const residualLabel = milestone.usesActualCost
+                    ? "without receipt"
+                    : "undocumented";
+                  return (
+                    <Button
+                      className="h-auto min-h-20 w-full min-w-0 max-w-full shrink justify-start gap-2 overflow-hidden whitespace-normal px-2.5 py-2 text-left focus-visible:ring-offset-0 sm:h-auto sm:gap-2.5"
+                      data-testid={`roadmap-milestone-${milestone.key}`}
+                      key={milestone.key}
+                      onClick={() => setSelectedMilestoneKey(milestone.key)}
+                      variant={active ? "secondary" : "ghost"}
+                    >
+                      <span className="grid size-7 shrink-0 place-items-center rounded-full bg-background font-semibold text-xs">
+                        {active ? <Check /> : milestone.number}
+                      </span>
+                      <span className="min-w-0 flex-1 overflow-hidden">
+                        <span className="block truncate font-medium">
+                          {milestone.label}
+                        </span>
+                        <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground text-xs tabular-nums">
+                          <span className="inline-flex items-center gap-1">
+                            <Package className="size-3" />
+                            {formatCad(milestone.materialGross)}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Hammer className="size-3" />
+                            {formatCad(milestone.labourGross)}
+                          </span>
+                        </span>
+                        {milestone.targetCents ? (
+                          <span className="mt-1.5 grid min-w-0 gap-1">
+                            <span className="flex min-w-0 items-center justify-between gap-2 text-muted-foreground text-xs">
+                              <span className="truncate">Documented</span>
+                              <span className="shrink-0 tabular-nums">
+                                {formatCoverage(milestone.coverage)}
+                              </span>
+                            </span>
+                            <Progress
+                              aria-label={`${milestone.label} documentation coverage`}
+                              className="gap-0"
+                              value={milestone.coverage}
+                            />
+                            {milestone.claimedWithoutReceiptCents > 0 ? (
+                              <span className="block truncate text-muted-foreground text-xs tabular-nums">
+                                {formatCad(
+                                  milestone.claimedWithoutReceiptCents
+                                )}{" "}
+                                {residualLabel}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          <span className="mt-1.5 block text-muted-foreground text-xs">
+                            Coverage unavailable
+                          </span>
+                        )}
+                      </span>
+                      <ChevronRight className="size-4 shrink-0" />
+                    </Button>
+                  );
+                })}
+              </FramePanel>
+            </Frame>
+
+            <div className="grid min-w-0 gap-4">
+              <Frame>
+                <FramePanel className="grid gap-5 p-4 sm:p-5">
+                  <div className="flex flex-col justify-between gap-3 sm:flex-row">
+                    <div>
+                      <Badge variant="outline">
+                        Days {selectedMilestone?.dayStart ?? "—"}–
+                        {selectedMilestone?.dayEnd ?? "—"}
+                      </Badge>
+                      <h3 className="mt-2 font-semibold text-xl">
+                        {selectedMilestone?.label ??
+                          milestoneLabel(activeMilestoneKey, submilestones)}
+                      </h3>
+                      <p className="mt-1 text-muted-foreground text-sm">
+                        Scope-level document context, not work progress.
+                      </p>
+                    </div>
+                    <div className="text-left sm:text-right">
+                      <p className="text-muted-foreground text-xs">
+                        Submitted document gross
+                      </p>
+                      <p className="font-semibold text-xl tabular-nums">
+                        {formatCad(selectedTotal)}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        {selectedMilestoneBudget
+                          ? `of ${formatCad(selectedMilestoneBudget)} ${selectedMilestoneIsActual ? "actual cost" : "planned budget"}`
+                          : "Planned budget not supplied"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2">
+                    <Card className="rounded-r-none bg-sky-500/8">
+                      <CardPanel className="p-3">
+                        <p className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                          <Package className="size-3.5" /> Materials
+                        </p>
+                        <div className="mt-1 flex items-baseline justify-between gap-2">
+                          <p className="font-semibold text-lg tabular-nums">
+                            {formatCad(selectedMaterialTotal)}
+                          </p>
+                          <p className="text-muted-foreground text-xs tabular-nums">
+                            {selectedMilestoneBudget
+                              ? formatCoverage(selectedMaterialsCoverage)
+                              : "—"}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-muted-foreground text-xs">
+                          Documentation coverage
+                        </p>
+                      </CardPanel>
+                    </Card>
+                    <Card className="rounded-l-none bg-amber-500/10">
+                      <CardPanel className="p-3">
+                        <p className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                          <Hammer className="size-3.5" /> Labour
+                        </p>
+                        <div className="mt-1 flex items-baseline justify-between gap-2">
+                          <p className="font-semibold text-lg tabular-nums">
+                            {formatCad(selectedLabourTotal)}
+                          </p>
+                          <p className="text-muted-foreground text-xs tabular-nums">
+                            {selectedMilestoneBudget
+                              ? formatCoverage(selectedLabourCoverage)
+                              : "—"}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-muted-foreground text-xs">
+                          Documentation coverage
+                        </p>
+                      </CardPanel>
+                    </Card>
+                  </div>
+                  <div>
+                    <div className="mb-2 flex justify-between text-xs">
+                      <span>Documentation coverage</span>
+                      <span className="font-medium tabular-nums">
+                        {selectedMilestoneBudget ? coverageLabel : "—"}
+                      </span>
+                    </div>
+                    <Progress
+                      aria-label="Documentation coverage"
+                      value={coverage}
+                    />
+                    <div className="mt-2 flex flex-wrap justify-between gap-2 text-muted-foreground text-xs">
+                      <p>
+                        A planning comparison only. Coverage does not communicate
+                        completion or eligibility.
+                      </p>
+                      {selectedMilestoneBudget ? (
+                        <p className="tabular-nums">
+                          {selectedClaimedWithoutReceiptCents > 0
+                            ? `${formatCad(selectedClaimedWithoutReceiptCents)} ${
+                                selectedMilestoneIsActual
+                                  ? "claimed without receipt"
+                                  : "undocumented vs budget"
+                              }`
+                            : selectedMilestoneIsActual
+                              ? "Fully documented vs actual cost"
+                              : "Fully documented vs budget"}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </FramePanel>
+              </Frame>
+
+              <div className="grid min-w-0 gap-4">
+                {selectedSubmilestoneGroups.length === 0 ? (
+                  <EmptyLedger
+                    description="Sub-milestones for this Milestone will appear here once the Construction Roadmap includes them."
+                    title="No Sub-milestones on this Milestone"
+                  />
+                ) : (
+                  selectedSubmilestoneGroups.map((group) => (
+                    <SubmilestoneReconciliationSection
+                      group={group}
+                      key={String(group.id)}
+                      onOpenCostDocument={onOpenCostDocument}
+                      showInternalSignals={interactionMode !== "read-only"}
+                      submilestones={submilestones}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         )
       ) : (
@@ -553,32 +887,6 @@ function CostDocumentRoadmapReconciliationContent({
         />
       ) : null}
     </div>
-  );
-}
-
-function LedgerTotal({
-  amountCents,
-  category,
-  label,
-}: {
-  amountCents: number;
-  category: "labour" | "materials";
-  label: string;
-}) {
-  return (
-    <Card
-      className={category === "materials" ? "bg-sky-500/8" : "bg-amber-500/10"}
-    >
-      <CardPanel className="p-3">
-        <p className="text-muted-foreground text-xs">{label}</p>
-        <p className="mt-1 font-semibold text-xl tabular-nums">
-          {formatCad(amountCents)}
-        </p>
-        <p className="mt-1 text-muted-foreground text-xs">
-          Current records only; submitted gross totals remain independent.
-        </p>
-      </CardPanel>
-    </Card>
   );
 }
 
@@ -641,37 +949,187 @@ interface MilestoneGroup {
   materials: CostDocumentSummary[];
 }
 
-function MilestoneReconciliationGroup({
+interface SubmilestoneDocumentEntry {
+  allocationAmountCents: number;
+  document: CostDocumentSummary;
+}
+
+interface SubmilestoneGroup {
+  budgetCents: number;
+  id: Id<"buildSubmilestones">;
+  labour: SubmilestoneDocumentEntry[];
+  labourInvoicedCents: number;
+  materials: SubmilestoneDocumentEntry[];
+  materialsInvoicedCents: number;
+  name: string;
+  usesActualCost: boolean;
+}
+
+function SubmilestoneReconciliationSection({
   group,
   onOpenCostDocument,
   showInternalSignals,
+  submilestones,
 }: {
-  group: MilestoneGroup;
+  group: SubmilestoneGroup;
   onOpenCostDocument: (costDocumentId: string) => void;
   showInternalSignals: boolean;
+  submilestones: CostDocumentSubmilestoneOption[];
 }) {
+  const invoicedTotal =
+    group.materialsInvoicedCents + group.labourInvoicedCents;
+  const coverage = documentationCoveragePercent(
+    invoicedTotal,
+    group.budgetCents
+  );
+  const withoutReceiptCents = claimedWithoutReceiptCents(
+    invoicedTotal,
+    group.budgetCents
+  );
+  const recordCount = group.materials.length + group.labour.length;
+  const budgetLabel = group.usesActualCost ? "actual cost" : "planned budget";
+  const budgetSummary = group.budgetCents
+    ? ` of ${formatCad(group.budgetCents)} ${budgetLabel}`
+    : " · Budget not supplied";
+  const recordSummary = `${recordCount} record${recordCount === 1 ? "" : "s"} · ${formatCad(invoicedTotal)} invoiced${budgetSummary}`;
+
   return (
-    <Frame>
-      <FrameHeader>
-        <FrameTitle>{group.label}</FrameTitle>
-        <FrameDescription>
-          Reconcile supporting cost context against this Milestone’s assigned
-          Sub-milestones.
-        </FrameDescription>
+    <Frame data-testid={`roadmap-submilestone-${String(group.id)}`}>
+      <FrameHeader className="flex-row flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <FrameTitle>{group.name}</FrameTitle>
+          <FrameDescription>{recordSummary}</FrameDescription>
+        </div>
+        <div className="text-right">
+          <p className="text-muted-foreground text-xs">Documentation coverage</p>
+          <p className="font-semibold tabular-nums">
+            {group.budgetCents ? formatCoverage(coverage) : "—"}
+          </p>
+          {group.budgetCents ? (
+            <p className="mt-1 text-muted-foreground text-xs tabular-nums">
+              {withoutReceiptCents > 0
+                ? `${formatCad(withoutReceiptCents)} ${
+                    group.usesActualCost
+                      ? "without receipt"
+                      : "undocumented"
+                  }`
+                : group.usesActualCost
+                  ? "Fully documented"
+                  : "Fully documented vs budget"}
+            </p>
+          ) : null}
+        </div>
       </FrameHeader>
-      <FramePanel className="grid gap-4 lg:grid-cols-2">
-        <CostDocumentLane
+      <FramePanel className="grid min-w-0 gap-3 p-2 xl:grid-cols-2">
+        <SubmilestoneCategoryLane
+          budgetCents={group.budgetCents}
           category="materials"
-          documents={group.materials}
+          entries={group.materials}
+          focusBuildSubmilestoneId={group.id}
+          invoicedCents={group.materialsInvoicedCents}
           onOpenCostDocument={onOpenCostDocument}
           showInternalSignals={showInternalSignals}
+          submilestones={submilestones}
+          usesActualCost={group.usesActualCost}
         />
-        <CostDocumentLane
+        <SubmilestoneCategoryLane
+          budgetCents={group.budgetCents}
           category="labour"
-          documents={group.labour}
+          entries={group.labour}
+          focusBuildSubmilestoneId={group.id}
+          invoicedCents={group.labourInvoicedCents}
           onOpenCostDocument={onOpenCostDocument}
           showInternalSignals={showInternalSignals}
+          submilestones={submilestones}
+          usesActualCost={group.usesActualCost}
         />
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function SubmilestoneCategoryLane({
+  budgetCents,
+  category,
+  entries,
+  focusBuildSubmilestoneId,
+  invoicedCents,
+  onOpenCostDocument,
+  showInternalSignals,
+  submilestones,
+  usesActualCost,
+}: {
+  budgetCents: number;
+  category: "labour" | "materials";
+  entries: SubmilestoneDocumentEntry[];
+  focusBuildSubmilestoneId: Id<"buildSubmilestones">;
+  invoicedCents: number;
+  onOpenCostDocument: (costDocumentId: string) => void;
+  showInternalSignals: boolean;
+  submilestones: CostDocumentSubmilestoneOption[];
+  usesActualCost: boolean;
+}) {
+  const title = category === "materials" ? "Materials" : "Labour";
+  const coverage = documentationCoveragePercent(invoicedCents, budgetCents);
+  const targetLabel = usesActualCost ? "actual cost" : "planned budget";
+  return (
+    <Frame
+      aria-label={`${title} for this Sub-milestone`}
+      className={category === "materials" ? "bg-sky-500/8" : "bg-amber-500/10"}
+    >
+      <FrameHeader className="flex-row items-start justify-between gap-3">
+        <div>
+          <FrameTitle className="flex items-center gap-2 text-sm">
+            {category === "materials" ? (
+              <Package className="size-3.5" />
+            ) : (
+              <Hammer className="size-3.5" />
+            )}
+            {title}
+          </FrameTitle>
+          <FrameDescription className="tabular-nums">
+            {entries.length} record{entries.length === 1 ? "" : "s"} ·{" "}
+            {formatCad(invoicedCents)} invoiced
+          </FrameDescription>
+        </div>
+        <div className="max-w-[11rem] text-right">
+          <p className="text-muted-foreground text-[0.65rem] uppercase tracking-wide">
+            Documentation coverage
+          </p>
+          <p className="font-semibold text-sm tabular-nums">
+            {budgetCents ? formatCoverage(coverage) : "—"}
+          </p>
+          {budgetCents ? (
+            <p className="mt-1 text-muted-foreground text-xs tabular-nums">
+              {formatCad(invoicedCents)} of {formatCad(budgetCents)}{" "}
+              {targetLabel}
+            </p>
+          ) : (
+            <p className="mt-1 text-muted-foreground text-xs">
+              Budget not supplied
+            </p>
+          )}
+        </div>
+      </FrameHeader>
+      <FramePanel className="space-y-2 p-2">
+        {entries.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No {title.toLocaleLowerCase("en-CA")} records assigned to this
+            Sub-milestone.
+          </p>
+        ) : (
+          entries.map((entry) => (
+            <CostDocumentCard
+              document={entry.document}
+              focusAllocationAmountCents={entry.allocationAmountCents}
+              focusBuildSubmilestoneId={focusBuildSubmilestoneId}
+              key={`${entry.document._id}:${String(focusBuildSubmilestoneId)}`}
+              onOpen={() => onOpenCostDocument(String(entry.document._id))}
+              showInternalSignals={showInternalSignals}
+              submilestones={submilestones}
+            />
+          ))
+        )}
       </FramePanel>
     </Frame>
   );
@@ -682,23 +1140,50 @@ function CostDocumentLane({
   documents,
   onOpenCostDocument,
   showInternalSignals,
+  submilestones,
 }: {
   category: "labour" | "materials";
   documents: CostDocumentSummary[];
   onOpenCostDocument: (costDocumentId: string) => void;
   showInternalSignals: boolean;
+  submilestones: CostDocumentSubmilestoneOption[];
 }) {
   const title = category === "materials" ? "Materials" : "Labour";
+  const submittedGross = documents.reduce(
+    (total, document) =>
+      document.lifecycle.state === "current"
+        ? total + document.grossTotalCents
+        : total,
+    0
+  );
   return (
     <Frame
       aria-label={`${title} Cost Documents`}
       className={category === "materials" ? "bg-sky-500/8" : "bg-amber-500/10"}
     >
-      <FrameHeader className="flex-row items-center justify-between py-3">
-        <FrameTitle>{title}</FrameTitle>
-        <Badge variant="outline">{documents.length}</Badge>
+      <FrameHeader className="flex-row items-start justify-between gap-3">
+        <div>
+          <FrameTitle className="flex items-center gap-2">
+            {category === "materials" ? (
+              <Package className="size-4" />
+            ) : (
+              <Hammer className="size-4" />
+            )}
+            {title} documents
+          </FrameTitle>
+          <FrameDescription>
+            {documents.length} record{documents.length === 1 ? "" : "s"} ·{" "}
+            {formatCad(submittedGross)} submitted gross
+          </FrameDescription>
+        </div>
+        <div className="text-right">
+          <p className="text-muted-foreground text-xs">Submitted gross</p>
+          <p className="font-semibold text-sm tabular-nums">
+            {formatCad(submittedGross)}
+          </p>
+        </div>
       </FrameHeader>
-      <FramePanel className="space-y-2 p-3">
+      <FramePanel className="space-y-2 p-2">
         {documents.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             No {title.toLocaleLowerCase("en-CA")} records match this Milestone.
@@ -710,6 +1195,7 @@ function CostDocumentLane({
               key={document._id}
               onOpen={() => onOpenCostDocument(String(document._id))}
               showInternalSignals={showInternalSignals}
+              submilestones={submilestones}
             />
           ))
         )}
@@ -720,13 +1206,21 @@ function CostDocumentLane({
 
 function CostDocumentCard({
   document,
+  focusAllocationAmountCents,
+  focusBuildSubmilestoneId,
   onOpen,
   showInternalSignals,
+  submilestones,
 }: {
   document: CostDocumentSummary;
+  focusAllocationAmountCents?: number;
+  focusBuildSubmilestoneId?: Id<"buildSubmilestones">;
   onOpen: () => void;
   showInternalSignals: boolean;
+  submilestones: CostDocumentSubmilestoneOption[];
 }) {
+  const displayAmountCents =
+    focusAllocationAmountCents ?? document.grossTotalCents;
   return (
     <Card
       className="text-start transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
@@ -741,23 +1235,39 @@ function CostDocumentCard({
       <CardPanel className="space-y-3 p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
+            <div className="mb-1 flex flex-wrap items-center gap-1.5">
+              <Badge
+                size="sm"
+                variant={
+                  document.lifecycle.state === "current"
+                    ? "secondary"
+                    : "warning"
+                }
+              >
+                {titleCase(document.lifecycle.state)}
+              </Badge>
+              <Badge size="sm" variant="outline">
+                {titleCase(document.kind)}
+              </Badge>
+            </div>
             <p className="truncate font-semibold">{document.title}</p>
             <p className="text-muted-foreground text-sm">
-              {document.vendorName} · {formatCad(document.grossTotalCents)}
+              {document.vendorName} · {document.documentDate}
             </p>
           </div>
-          <Badge
-            variant={
-              document.lifecycle.state === "current" ? "secondary" : "warning"
-            }
-          >
-            {titleCase(document.lifecycle.state)}
-          </Badge>
+          <div className="text-right">
+            <p className="font-semibold tabular-nums">
+              {formatCad(displayAmountCents)}
+            </p>
+            {focusAllocationAmountCents !== undefined &&
+            focusAllocationAmountCents !== document.grossTotalCents ? (
+              <p className="text-muted-foreground text-xs tabular-nums">
+                {`of ${formatCad(document.grossTotalCents)} document`}
+              </p>
+            ) : null}
+          </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <Badge size="sm" variant="outline">
-            {titleCase(document.kind)}
-          </Badge>
           <Badge size="sm" variant="outline">
             {titleCase(document.category)}
           </Badge>
@@ -780,24 +1290,46 @@ function CostDocumentCard({
             </Badge>
           ) : null}
         </div>
-        <div className="space-y-1 text-muted-foreground text-xs">
+        <div className="space-y-2 text-muted-foreground text-xs">
+          <p>Assigned Sub-milestones</p>
+          <div className="flex flex-wrap gap-1.5">
+            {document.allocations.map((allocation) => {
+              const focused =
+                focusBuildSubmilestoneId !== undefined &&
+                allocation.buildSubmilestoneId === focusBuildSubmilestoneId;
+              return (
+                <Badge
+                  key={`${allocation.buildSubmilestoneId}:${allocation.order}`}
+                  variant={focused ? "default" : "secondary"}
+                >
+                  <span>{allocationLabel(allocation, submilestones)}</span>
+                  <span> · {formatCad(allocation.amountCents)}</span>
+                </Badge>
+              );
+            })}
+          </div>
           <p>
             {document.uploaderScope === "self"
               ? "Uploaded by you"
               : "Uploaded by another authorized participant"}
           </p>
-          <ul aria-label="Assigned Sub-milestones" className="space-y-1">
-            {document.allocations.map((allocation) => (
-              <li key={`${allocation.buildSubmilestoneId}:${allocation.order}`}>
-                {allocation.submilestoneKey} · {allocation.submilestoneName} ·{" "}
-                {formatCad(allocation.amountCents)}
-              </li>
-            ))}
-          </ul>
         </div>
       </CardPanel>
+      <div className="flex items-center justify-end gap-1 border-t px-3.5 py-3 text-muted-foreground text-xs">
+        View full record <ChevronRight className="size-3.5" />
+      </div>
     </Card>
   );
+}
+
+function allocationLabel(
+  allocation: CostDocumentSummary["allocations"][number],
+  submilestones: CostDocumentSubmilestoneOption[]
+) {
+  const option = submilestones.find(
+    (submilestone) => submilestone.id === allocation.buildSubmilestoneId
+  );
+  return option?.label ?? allocation.submilestoneName;
 }
 
 export function CostDocumentDetailSheet({
@@ -1606,7 +2138,7 @@ function groupDocumentsByMilestone(
     for (const key of keys) {
       const group = groups.get(key) || {
         key,
-        label: milestoneLabel(key),
+        label: milestoneLabel(key, submilestones),
         labour: [],
         materials: [],
       };
@@ -1614,21 +2146,106 @@ function groupDocumentsByMilestone(
       groups.set(key, group);
     }
   }
-  return [...groups.values()].sort((left, right) =>
-    left.label.localeCompare(right.label, "en-CA")
+  return [...groups.values()].sort((left, right) => {
+    const leftOrder = milestoneOrderForKey(left.key, submilestones);
+    const rightOrder = milestoneOrderForKey(right.key, submilestones);
+    return (
+      leftOrder - rightOrder || left.label.localeCompare(right.label, "en-CA")
+    );
+  });
+}
+
+function groupDocumentsBySubmilestone(
+  documents: CostDocumentSummary[],
+  submilestones: CostDocumentSubmilestoneOption[],
+  milestoneKey: string
+): SubmilestoneGroup[] {
+  if (!milestoneKey) {
+    return [];
+  }
+  const scoped = submilestones.filter(
+    (item) => milestoneForOption(item) === milestoneKey
   );
+  return scoped.map((submilestone) => {
+    const materials: SubmilestoneDocumentEntry[] = [];
+    const labour: SubmilestoneDocumentEntry[] = [];
+    let materialsInvoicedCents = 0;
+    let labourInvoicedCents = 0;
+
+    for (const document of documents) {
+      for (const allocation of document.allocations) {
+        if (allocation.buildSubmilestoneId !== submilestone.id) {
+          continue;
+        }
+        const amountCents =
+          document.lifecycle.state === "current"
+            ? Math.max(0, allocation.amountCents)
+            : 0;
+        const entry: SubmilestoneDocumentEntry = {
+          allocationAmountCents: allocation.amountCents,
+          document,
+        };
+        if (document.category === "materials") {
+          materials.push(entry);
+          materialsInvoicedCents += amountCents;
+        } else {
+          labour.push(entry);
+          labourInvoicedCents += amountCents;
+        }
+      }
+    }
+
+    const plannedBudget = Math.max(0, submilestone.budgetCents ?? 0);
+    const actualCost = Math.max(0, submilestone.actualCostCents ?? 0);
+    const usesActualCost =
+      submilestone.milestoneStatus === "complete" && actualCost > 0;
+
+    return {
+      budgetCents: usesActualCost ? actualCost : plannedBudget,
+      id: submilestone.id,
+      labour,
+      labourInvoicedCents,
+      materials,
+      materialsInvoicedCents,
+      name: submilestoneDisplayName(submilestone),
+      usesActualCost,
+    };
+  });
+}
+
+function submilestoneDisplayName(option: CostDocumentSubmilestoneOption) {
+  const separator = " · ";
+  const separatorIndex = option.label.indexOf(separator);
+  if (separatorIndex === -1) {
+    return option.label;
+  }
+  return option.label.slice(separatorIndex + separator.length);
 }
 
 function uniqueMilestoneOptions(
   submilestones: CostDocumentSubmilestoneOption[]
 ) {
-  const values = new Set<string>();
-  for (const submilestone of submilestones) {
-    values.add(submilestone.milestoneKey || submilestone.label.split(" · ")[0]);
+  const values = new Map<string, number>();
+  for (const [index, submilestone] of submilestones.entries()) {
+    const key = milestoneForOption(submilestone);
+    if (!values.has(key)) {
+      values.set(key, index);
+    }
   }
-  return [...values]
-    .sort((left, right) => left.localeCompare(right, "en-CA"))
-    .map((value) => [value, milestoneLabel(value)] as [string, string]);
+  return [...values.entries()]
+    .sort((left, right) => {
+      const leftOrder = milestoneOrderForKey(left[0], submilestones);
+      const rightOrder = milestoneOrderForKey(right[0], submilestones);
+      return (
+        leftOrder - rightOrder ||
+        left[1] - right[1] ||
+        left[0].localeCompare(right[0], "en-CA")
+      );
+    })
+    .map(
+      ([value]) =>
+        [value, milestoneLabel(value, submilestones)] as [string, string]
+    );
 }
 
 function milestoneForAllocation(
@@ -1646,10 +2263,86 @@ function milestoneForAllocation(
   );
 }
 
-function milestoneLabel(value: string) {
+function milestoneForOption(item: CostDocumentSubmilestoneOption) {
+  return item.milestoneKey || item.label.split(" · ")[0] || "unmapped-roadmap";
+}
+
+function milestoneLabel(
+  value: string,
+  submilestones: CostDocumentSubmilestoneOption[] = []
+) {
+  const context = submilestones.find(
+    (item) => milestoneForOption(item) === value && item.milestoneName
+  );
   return value === "unmapped-roadmap"
     ? "Unmapped roadmap allocation"
-    : titleCase(value);
+    : (context?.milestoneName ?? titleCase(value));
+}
+
+function milestoneOrderForKey(
+  key: string,
+  submilestones: CostDocumentSubmilestoneOption[]
+) {
+  const order = submilestones.find(
+    (item) => milestoneForOption(item) === key
+  )?.milestoneOrder;
+  return order ?? Number.POSITIVE_INFINITY;
+}
+
+function milestoneContextForKey(
+  submilestones: CostDocumentSubmilestoneOption[],
+  key: string
+) {
+  const scoped = submilestones.filter(
+    (item) => milestoneForOption(item) === key
+  );
+  if (scoped.length === 0) {
+    return null;
+  }
+  const first = scoped[0];
+  const plannedBudget =
+    first.milestoneBudgetCents ??
+    scoped.reduce(
+      (total, item) => total + Math.max(0, item.budgetCents ?? 0),
+      0
+    );
+  const actualCost =
+    first.milestoneActualCostCents ??
+    scoped.reduce(
+      (total, item) => total + Math.max(0, item.actualCostCents ?? 0),
+      0
+    );
+  const usesActualCost = first.milestoneStatus === "complete" && actualCost > 0;
+  return {
+    budgetCents: usesActualCost ? actualCost : plannedBudget,
+    dayEnd: first.milestoneDayEnd,
+    dayStart: first.milestoneDayStart,
+    label: first.milestoneName ?? milestoneLabel(key, submilestones),
+    usesActualCost,
+  };
+}
+
+function documentationCoveragePercent(
+  documentedCents: number,
+  targetCents: number
+) {
+  return targetCents > 0
+    ? Math.min(100, (documentedCents / targetCents) * 100)
+    : 0;
+}
+
+function claimedWithoutReceiptCents(
+  documentedCents: number,
+  targetCents: number
+) {
+  return Math.max(0, targetCents - documentedCents);
+}
+
+function formatCoverage(value: number) {
+  if (value > 0 && value < 1) {
+    return `${value.toFixed(1)}%`;
+  }
+  return `${Math.round(value)}%`;
 }
 
 function updateFilters<Key extends keyof Filters>(

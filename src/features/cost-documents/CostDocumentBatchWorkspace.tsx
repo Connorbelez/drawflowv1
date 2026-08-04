@@ -1,10 +1,12 @@
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
   CheckCircle2,
+  ChevronRight,
   FileText,
   LockKeyhole,
   Plus,
@@ -13,7 +15,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -406,6 +408,22 @@ export function CostDocumentBatchWorkspace({
   );
   const abandonAssets = useMutation(
     api.build_collaboration_assets.abandonMyBuildCollaborationAssets
+  );
+  const authorizeAssetDownload = useMutation(
+    api.build_collaboration_assets.authorizeBuildCollaborationAssetDownload
+  );
+  const authorizeDraftPage = useCallback(
+    (assetId: Id<"buildCollaborationAssets">) => {
+      if (typeof authorizeAssetDownload !== "function") {
+        return Promise.reject(new Error("Source preview is unavailable."));
+      }
+      return authorizeAssetDownload({
+        assetId,
+        buildId,
+        organizationId,
+      } as never) as Promise<string>;
+    },
+    [authorizeAssetDownload, buildId, organizationId]
   );
 
   const [dismissedBatchId, setDismissedBatchId] = useState<string>();
@@ -1735,7 +1753,12 @@ export function CostDocumentBatchWorkspace({
 
   if (workspaceQuery === undefined) {
     return (
-      <CostDocumentBatchSheet exactDraft={Boolean(draftId)} onClose={close}>
+      <CostDocumentBatchSheet
+        duplicateOverrideRequired={duplicateOverrideRequired}
+        exactDraft={Boolean(draftId)}
+        onClose={close}
+        uploadingPages={uploadingPages}
+      >
         <Frame data-testid="cost-document-batch-workspace">
           <FramePanel className="flex min-h-56 items-center justify-center p-6 text-muted-foreground text-sm">
             {draftId
@@ -1809,7 +1832,12 @@ export function CostDocumentBatchWorkspace({
 
   return (
     <div data-testid="cost-document-batch-workspace">
-      <CostDocumentBatchSheet exactDraft={Boolean(draftId)} onClose={close}>
+      <CostDocumentBatchSheet
+        duplicateOverrideRequired={duplicateOverrideRequired}
+        exactDraft={Boolean(draftId)}
+        onClose={close}
+        uploadingPages={uploadingPages}
+      >
         <SheetPanel className="p-3 sm:p-5">
           <div
             className={
@@ -1872,6 +1900,7 @@ export function CostDocumentBatchWorkspace({
                       ],
                     })
                   }
+                  onAuthorizePage={authorizeDraftPage}
                   onBack={goBack}
                   onComplete={completeDraft}
                   onContinue={continueDraft}
@@ -2050,12 +2079,16 @@ function CostDocumentBatchLaunchPanel({
 
 function CostDocumentBatchSheet({
   children,
+  duplicateOverrideRequired = false,
   exactDraft = false,
   onClose,
+  uploadingPages = false,
 }: {
   children: React.ReactNode;
+  duplicateOverrideRequired?: boolean;
   exactDraft?: boolean;
   onClose: () => void | Promise<void>;
+  uploadingPages?: boolean;
 }) {
   return (
     <Sheet
@@ -2110,6 +2143,20 @@ function CostDocumentBatchSheet({
             </Button>
           </div>
         </SheetHeader>
+        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs sm:px-6">
+          <span className="mr-1 font-medium text-muted-foreground uppercase tracking-[0.16em]">
+            State
+          </span>
+          <Badge variant={uploadingPages ? "outline" : "success"}>
+            {uploadingPages ? "Uploading" : "Ready"}
+          </Badge>
+          {duplicateOverrideRequired ? (
+            <Badge variant="warning">
+              <AlertTriangle /> Near duplicate
+            </Badge>
+          ) : null}
+          <Badge variant="outline">Guided completion</Badge>
+        </div>
         {children}
       </SheetPopup>
     </Sheet>
@@ -2144,18 +2191,30 @@ function CostDocumentRegister({
       className="h-fit max-lg:sticky max-lg:top-0 max-lg:z-20 lg:sticky lg:top-0"
       data-testid="cost-document-batch-register"
     >
-      <FrameHeader className="gap-1 px-3 py-2 lg:gap-2 lg:px-5 lg:py-4">
-        <FrameTitle>Document register</FrameTitle>
-        <FrameDescription className="hidden lg:block">
-          Each document retains its own progress and immutable manifest.
+      <FrameHeader className="gap-1 px-3 py-3 lg:gap-2 lg:px-5 lg:py-5">
+        <FrameTitle>Cost documents</FrameTitle>
+        <FrameDescription>
+          {drafts.length} independent record{drafts.length === 1 ? "" : "s"} in
+          this batch
         </FrameDescription>
       </FrameHeader>
-      <FramePanel className="flex min-w-0 flex-wrap items-end gap-2 p-2 lg:block lg:space-y-3 lg:p-3">
-        <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 lg:grid-cols-1">
+      <FramePanel className="space-y-3 p-2 lg:p-3">
+        <Button
+          aria-label="Add document"
+          className="w-full"
+          disabled={selectionLocked}
+          loading={addingDraft}
+          onClick={onAdd}
+        >
+          <Plus /> Add documents
+        </Button>
+        <div className="grid min-w-0 grid-cols-2 gap-2">
           <Field className="min-w-0">
-            <FieldLabel htmlFor="new-cost-document-kind">Kind</FieldLabel>
+            <FieldLabel className="text-xs" htmlFor="new-cost-document-kind">
+              New kind
+            </FieldLabel>
             <select
-              className="min-h-11 rounded-lg border border-input bg-background px-3 text-sm"
+              className="min-h-9 rounded-lg border border-input bg-background px-2 text-xs"
               disabled={selectionLocked}
               id="new-cost-document-kind"
               onChange={(event) =>
@@ -2168,11 +2227,14 @@ function CostDocumentRegister({
             </select>
           </Field>
           <Field className="min-w-0">
-            <FieldLabel htmlFor="new-cost-document-category">
-              Classification
+            <FieldLabel
+              className="text-xs"
+              htmlFor="new-cost-document-category"
+            >
+              New category
             </FieldLabel>
             <select
-              className="min-h-11 rounded-lg border border-input bg-background px-3 text-sm"
+              className="min-h-9 rounded-lg border border-input bg-background px-2 text-xs"
               disabled={selectionLocked}
               id="new-cost-document-category"
               onChange={(event) =>
@@ -2185,17 +2247,8 @@ function CostDocumentRegister({
             </select>
           </Field>
         </div>
-        <Button
-          className="shrink-0 lg:w-full"
-          disabled={selectionLocked}
-          loading={addingDraft}
-          onClick={onAdd}
-          variant="outline"
-        >
-          <Plus /> Add document
-        </Button>
       </FramePanel>
-      <FramePanel className="p-2">
+      <FramePanel className="bg-muted/20 p-2">
         {drafts.length > 0 ? (
           <ul
             aria-label="Cost Document register"
@@ -2246,7 +2299,9 @@ function CostDocumentRegisterCard({
   return (
     <li className="w-[min(18rem,calc(100vw-3rem))] shrink-0 lg:w-auto lg:min-w-0">
       <Card
-        className="h-full"
+        className={
+          active ? "h-full border-primary ring-1 ring-primary/30" : "h-full"
+        }
         data-testid={`draft-${draftId}`}
         render={
           <button
@@ -2263,12 +2318,19 @@ function CostDocumentRegisterCard({
         <CardPanel className="space-y-3 p-3 text-left">
           <div className="flex min-w-0 items-start justify-between gap-2">
             <span className="min-w-0 truncate font-medium text-sm">
-              {draft.title?.trim() || "Untitled Cost Document"}
+              {draft.vendorName?.trim() ||
+                draft.title?.trim() ||
+                "Untitled Cost Document"}
             </span>
-            <Badge variant={complete ? "success" : "outline"}>
-              {complete ? "Complete" : "In progress"}
-            </Badge>
+            <span className="shrink-0 font-medium text-xs tabular-nums">
+              {amount}
+            </span>
           </div>
+          <p className="text-muted-foreground text-xs">
+            {draft.kind === "invoice" ? "Invoice" : "Receipt"} ·{" "}
+            {draft.category === "materials" ? "Materials" : "Labour"} ·{" "}
+            {draft.pages.length}p
+          </p>
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
             <RegisterFact
               label="Kind"
@@ -2282,7 +2344,7 @@ function CostDocumentRegisterCard({
               label="Pages"
               value={`${draft.pages.length} page${draft.pages.length === 1 ? "" : "s"}`}
             />
-            <RegisterFact label="Amount" value={amount} />
+            <RegisterFact className="sr-only" label="Amount" value={amount} />
             <RegisterFact
               className="col-span-2"
               label="Completion"
@@ -2381,6 +2443,357 @@ function RegisterDraftProgress({
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The source preview deliberately renders capability-aware upload, fallback, and page-management states in one governed surface.
+function CostDocumentSourcePreview({
+  busy,
+  draft,
+  managePages,
+  onAuthorizePage,
+  onMoveSavedPage,
+  onPendingFilesChange,
+  onRemoveSavedPage,
+  onReplaceSavedPage,
+  onUploadPages,
+  pendingFiles,
+  uploadingPages,
+}: {
+  busy: boolean;
+  draft: BatchDraft;
+  managePages: boolean;
+  onAuthorizePage?: (
+    assetId: Id<"buildCollaborationAssets">
+  ) => Promise<string>;
+  onMoveSavedPage: (assetId: string, direction: -1 | 1) => void | Promise<void>;
+  onPendingFilesChange: (files: File[]) => void;
+  onRemoveSavedPage: (assetId: string) => void | Promise<void>;
+  onReplaceSavedPage: (assetId: string, file: File) => void | Promise<void>;
+  onUploadPages: () => void;
+  pendingFiles: File[];
+  uploadingPages: boolean;
+}) {
+  const pages = [...draft.pages].sort(
+    (left, right) => left.order - right.order
+  );
+  const [activePageIndex, setActivePageIndex] = useState(0);
+  const [pageUrl, setPageUrl] = useState<string>();
+  const [pageError, setPageError] = useState<string>();
+  const [loadingPage, setLoadingPage] = useState(false);
+  const activePage = pages[activePageIndex];
+  const activePageId = activePage ? String(activePage.assetId) : undefined;
+
+  useEffect(() => {
+    setActivePageIndex((current) =>
+      pages.length === 0 ? 0 : Math.min(current, pages.length - 1)
+    );
+  }, [pages.length]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPageUrl(undefined);
+    setPageError(undefined);
+    if (!(activePageId && onAuthorizePage)) {
+      return;
+    }
+    setLoadingPage(true);
+    onAuthorizePage(activePageId as Id<"buildCollaborationAssets">)
+      .then((url) => {
+        if (!cancelled) {
+          setPageUrl(url);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPageError(
+            "This source page is not available for inline preview. Use the source row to inspect its verified file state."
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingPage(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePageId, onAuthorizePage]);
+
+  const mimeType = activePage?.mimeType ?? "";
+  const canInlinePreview =
+    mimeType === "application/pdf" || mimeType.startsWith("image/");
+
+  return (
+    <Frame className="min-w-0 overflow-hidden" data-testid="source-preview">
+      <FrameHeader className="gap-2 border-b">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <FrameTitle>Source pages</FrameTitle>
+            <FrameDescription>
+              {pages.length > 0
+                ? `${pages.length} page${pages.length === 1 ? "" : "s"} in this Cost Document`
+                : "Add every page for this one Invoice or Receipt."}
+            </FrameDescription>
+          </div>
+          {activePage ? (
+            <Badge variant="outline">
+              Page {activePageIndex + 1} of {pages.length}
+            </Badge>
+          ) : null}
+        </div>
+      </FrameHeader>
+      <FramePanel className="space-y-4 p-3 sm:p-4">
+        {pages.length > 0 ? (
+          <div className="overflow-hidden rounded-xl border bg-muted/20">
+            <div className="flex min-h-72 items-center justify-center p-3 sm:min-h-[28rem]">
+              {loadingPage ? (
+                <p className="text-muted-foreground text-sm">
+                  Loading verified source page…
+                </p>
+              ) : pageUrl && canInlinePreview ? (
+                mimeType === "application/pdf" ? (
+                  <iframe
+                    className="h-[26rem] w-full rounded-lg bg-white sm:h-[32rem]"
+                    src={pageUrl}
+                    title={activePage?.fileName || "Cost Document source page"}
+                  />
+                ) : (
+                  <img
+                    alt={activePage?.fileName || "Cost Document source page"}
+                    className="max-h-[32rem] max-w-full rounded-lg object-contain"
+                    height={1600}
+                    src={pageUrl}
+                    width={1200}
+                  />
+                )
+              ) : (
+                <div className="max-w-sm space-y-2 text-center">
+                  <FileText className="mx-auto size-8 text-muted-foreground" />
+                  <p className="font-medium text-sm">
+                    {activePage?.fileName || "Verified source page"}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {pageError ||
+                      "Inline preview is unavailable for this file type."}
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
+              <Button
+                aria-label="Previous source page"
+                disabled={activePageIndex === 0}
+                onClick={() =>
+                  setActivePageIndex((current) => Math.max(0, current - 1))
+                }
+                size="icon-sm"
+                variant="ghost"
+              >
+                <ArrowLeft />
+              </Button>
+              <span className="min-w-0 truncate text-muted-foreground text-xs">
+                {activePage?.fileName || "Verified source page"}
+              </span>
+              <Button
+                aria-label="Next source page"
+                disabled={activePageIndex >= pages.length - 1}
+                onClick={() =>
+                  setActivePageIndex((current) =>
+                    Math.min(pages.length - 1, current + 1)
+                  )
+                }
+                size="icon-sm"
+                variant="ghost"
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid min-h-72 place-items-center rounded-xl border border-dashed bg-muted/20 p-6 text-center">
+            <div>
+              <FileText className="mx-auto size-8 text-muted-foreground" />
+              <p className="mt-3 font-medium text-sm">No source pages yet</p>
+              <p className="mt-1 max-w-sm text-muted-foreground text-xs">
+                Upload every page before this Cost Document can reach Freeze.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {managePages ? (
+          <div className="space-y-3">
+            <Input
+              accept="application/pdf,image/*"
+              className="sr-only"
+              data-testid="page-input"
+              disabled={busy || uploadingPages}
+              id="cost-document-batch-pages"
+              multiple
+              onChange={(event) => {
+                onPendingFilesChange(
+                  Array.from(event.currentTarget.files ?? [])
+                );
+              }}
+              type="file"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={busy || uploadingPages}
+                onClick={() =>
+                  document.getElementById("cost-document-batch-pages")?.click()
+                }
+                variant="default"
+              >
+                <UploadCloud /> Choose files
+              </Button>
+              <Button
+                disabled={busy || uploadingPages}
+                onClick={() =>
+                  document.getElementById("cost-document-batch-pages")?.click()
+                }
+                variant="outline"
+              >
+                <FileText /> Take photo
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Each clean page is bound to this private Draft immediately. Add
+              only the remaining pages if an upload is interrupted.
+            </p>
+            {pendingFiles.length > 0 ? (
+              <div className="grid gap-2" data-testid="pending-source-pages">
+                {pendingFiles.map((file, index) => (
+                  <Card key={`${file.name}:${file.lastModified}`}>
+                    <CardPanel className="flex min-w-0 items-center gap-3 p-3">
+                      <FileText className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate text-sm">
+                        {file.name}
+                      </span>
+                      <Badge variant="outline">Page {index + 1}</Badge>
+                    </CardPanel>
+                  </Card>
+                ))}
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                disabled={pendingFiles.length === 0 || busy || uploadingPages}
+                loading={uploadingPages}
+                onClick={onUploadPages}
+                variant="outline"
+              >
+                <UploadCloud /> Upload source pages
+              </Button>
+              {pages.length > 0 ? (
+                <span className="text-muted-foreground text-xs">
+                  <ShieldCheck className="mr-1 inline size-3.5 text-success" />
+                  SHA-256 verified · scan clean · durable
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {pages.length > 0 ? (
+          <ol aria-label="Saved source pages" className="space-y-2">
+            {pages.map((page, index) => (
+              <li className="rounded-lg border p-2.5" key={page.assetId}>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <FileText className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate text-sm">
+                    {page.order}. {page.fileName || "Verified source page"}
+                  </span>
+                  <Badge variant="outline">{page.mimeType || "File"}</Badge>
+                  {page.contentHashSha256 ? (
+                    <Badge variant="success">Verified</Badge>
+                  ) : (
+                    <Badge variant="warning">Scanning</Badge>
+                  )}
+                </div>
+                {managePages ? (
+                  <div className="mt-2 flex flex-wrap items-center justify-end gap-1">
+                    <Button
+                      aria-label={`Move page ${index + 1} earlier`}
+                      disabled={busy || uploadingPages || index === 0}
+                      onClick={() => {
+                        Promise.resolve(
+                          onMoveSavedPage(String(page.assetId), -1)
+                        ).catch(() => undefined);
+                      }}
+                      size="icon-sm"
+                      variant="outline"
+                    >
+                      <ArrowUp />
+                    </Button>
+                    <Button
+                      aria-label={`Move page ${index + 1} later`}
+                      disabled={
+                        busy || uploadingPages || index === pages.length - 1
+                      }
+                      onClick={() => {
+                        Promise.resolve(
+                          onMoveSavedPage(String(page.assetId), 1)
+                        ).catch(() => undefined);
+                      }}
+                      size="icon-sm"
+                      variant="outline"
+                    >
+                      <ArrowDown />
+                    </Button>
+                    <Button
+                      aria-label={`Remove page ${index + 1}`}
+                      disabled={busy || uploadingPages}
+                      onClick={() => {
+                        Promise.resolve(
+                          onRemoveSavedPage(String(page.assetId))
+                        ).catch(() => undefined);
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Remove
+                    </Button>
+                    <Field className="min-w-[12rem]">
+                      <FieldLabel
+                        className="sr-only"
+                        htmlFor={`cost-document-replace-page-${page.assetId}`}
+                      >
+                        Replace page {index + 1}
+                      </FieldLabel>
+                      <Input
+                        accept="application/pdf,image/*"
+                        className="h-8 text-xs"
+                        data-testid={`replace-page-${page.assetId}`}
+                        disabled={busy || uploadingPages}
+                        id={`cost-document-replace-page-${page.assetId}`}
+                        onChange={(event) => {
+                          const replacement = Array.from(
+                            event.currentTarget.files ?? []
+                          )[0];
+                          event.currentTarget.value = "";
+                          if (replacement) {
+                            Promise.resolve(
+                              onReplaceSavedPage(
+                                String(page.assetId),
+                                replacement
+                              )
+                            ).catch(() => undefined);
+                          }
+                        }}
+                        type="file"
+                      />
+                    </Field>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        ) : null}
+      </FramePanel>
+    </Frame>
+  );
+}
+
 interface CostDocumentDraftEditorProps {
   autosaveStatus?: DraftAutosaveStatus;
   busy: boolean;
@@ -2391,6 +2804,7 @@ interface CostDocumentDraftEditorProps {
   error?: string;
   onAddAllocation: () => void;
   onAddFinancialComponent: () => void;
+  onAuthorizePage: (assetId: Id<"buildCollaborationAssets">) => Promise<string>;
   onBack: () => void;
   onComplete: () => void;
   onContinue: () => void;
@@ -2427,6 +2841,7 @@ function CostDocumentDraftEditor({
   error,
   onAddAllocation,
   onAddFinancialComponent,
+  onAuthorizePage,
   onBack,
   onComplete,
   onContinue,
@@ -2466,23 +2881,40 @@ function CostDocumentDraftEditor({
             onMoveToPriorStep={onMoveToPriorStep}
             onReopen={onReopen}
           />
-          <FramePanel className="space-y-4 p-3 sm:p-5">
-            <Alert>
-              <LockKeyhole />
-              <AlertTitle>Read-only Cost Document Draft</AlertTitle>
-              <AlertDescription>
-                Your current Build participation can inspect this exact Draft,
-                but it cannot change facts, pages, allocations, workflow, or
-                batch submission.
-              </AlertDescription>
-            </Alert>
-            <FreezeManifestStep
-              draft={draft}
-              editor={editor}
-              isComplete={isComplete}
-            />
-          </FramePanel>
         </Frame>
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(26rem,1.05fr)]">
+          <CostDocumentSourcePreview
+            busy={busy}
+            draft={draft}
+            managePages={false}
+            onAuthorizePage={onAuthorizePage}
+            onMoveSavedPage={onMoveSavedPage}
+            onPendingFilesChange={onPendingFilesChange}
+            onRemoveSavedPage={onRemoveSavedPage}
+            onReplaceSavedPage={onReplaceSavedPage}
+            onUploadPages={onUploadPages}
+            pendingFiles={pendingFiles}
+            uploadingPages={uploadingPages}
+          />
+          <Frame>
+            <FramePanel className="space-y-4 p-3 sm:p-5">
+              <Alert>
+                <LockKeyhole />
+                <AlertTitle>Read-only Cost Document Draft</AlertTitle>
+                <AlertDescription>
+                  Your current Build participation can inspect this exact Draft,
+                  but it cannot change facts, pages, allocations, workflow, or
+                  batch submission.
+                </AlertDescription>
+              </Alert>
+              <FreezeManifestStep
+                draft={draft}
+                editor={editor}
+                isComplete={isComplete}
+              />
+            </FramePanel>
+          </Frame>
+        </div>
         {error ? (
           <Alert variant="error">
             <AlertTitle>Document unavailable</AlertTitle>
@@ -2492,6 +2924,25 @@ function CostDocumentDraftEditor({
       </div>
     );
   }
+
+  const stepBody = (
+    <DraftStepBody
+      balance={balance}
+      collaborationBusy={collaborationBusy}
+      collaborationError={collaborationError}
+      draft={draft}
+      editor={editor}
+      isComplete={isComplete}
+      onAddAllocation={onAddAllocation}
+      onAddFinancialComponent={onAddFinancialComponent}
+      onEditorChange={onEditorChange}
+      onGrantCollaborator={onGrantCollaborator}
+      onRemoveAllocation={onRemoveAllocation}
+      onRemoveFinancialComponent={onRemoveFinancialComponent}
+      onRevokeCollaborator={onRevokeCollaborator}
+      submilestones={submilestones}
+    />
+  );
 
   return (
     <div className="space-y-4">
@@ -2506,40 +2957,7 @@ function CostDocumentDraftEditor({
           onMoveToPriorStep={onMoveToPriorStep}
           onReopen={onReopen}
         />
-        <FramePanel className="p-3 sm:p-5">
-          <DraftStepBody
-            balance={balance}
-            busy={busy}
-            collaborationBusy={collaborationBusy}
-            collaborationError={collaborationError}
-            draft={draft}
-            editor={editor}
-            isComplete={isComplete}
-            onAddAllocation={onAddAllocation}
-            onAddFinancialComponent={onAddFinancialComponent}
-            onEditorChange={onEditorChange}
-            onGrantCollaborator={onGrantCollaborator}
-            onMoveSavedPage={onMoveSavedPage}
-            onPendingFilesChange={onPendingFilesChange}
-            onRemoveAllocation={onRemoveAllocation}
-            onRemoveFinancialComponent={onRemoveFinancialComponent}
-            onRemoveSavedPage={onRemoveSavedPage}
-            onReplaceSavedPage={onReplaceSavedPage}
-            onRevokeCollaborator={onRevokeCollaborator}
-            onUploadPages={onUploadPages}
-            pendingFiles={pendingFiles}
-            submilestones={submilestones}
-            uploadingPages={uploadingPages}
-          />
-        </FramePanel>
       </Frame>
-
-      {error ? (
-        <Alert variant="error">
-          <AlertTitle>Document not updated</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
 
       <DraftEditorActions
         busy={busy}
@@ -2549,6 +2967,49 @@ function CostDocumentDraftEditor({
         onContinue={onContinue}
         step={step}
       />
+
+      {step === "balance_allocate" ? (
+        <Frame>
+          <FrameHeader>
+            <FrameTitle>Balance &amp; allocate</FrameTitle>
+            <FrameDescription>
+              Reconcile the gross total and assign that exact amount across
+              relevant Sub-milestones.
+            </FrameDescription>
+          </FrameHeader>
+          <FramePanel className="p-3 sm:p-5">{stepBody}</FramePanel>
+        </Frame>
+      ) : (
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(26rem,1.05fr)]">
+          <CostDocumentSourcePreview
+            busy={busy}
+            draft={draft}
+            managePages={step === "capture_confirm"}
+            onAuthorizePage={onAuthorizePage}
+            onMoveSavedPage={onMoveSavedPage}
+            onPendingFilesChange={onPendingFilesChange}
+            onRemoveSavedPage={onRemoveSavedPage}
+            onReplaceSavedPage={onReplaceSavedPage}
+            onUploadPages={onUploadPages}
+            pendingFiles={pendingFiles}
+            uploadingPages={uploadingPages}
+          />
+          <Frame>
+            <FrameHeader>
+              <FrameTitle>{stepLabel(step)}</FrameTitle>
+              <FrameDescription>{guidedStepDescription(step)}</FrameDescription>
+            </FrameHeader>
+            <FramePanel className="p-3 sm:p-5">{stepBody}</FramePanel>
+          </Frame>
+        </div>
+      )}
+
+      {error ? (
+        <Alert variant="error">
+          <AlertTitle>Document not updated</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
     </div>
   );
 }
@@ -2610,23 +3071,26 @@ function DraftEditorHeader({
           </Button>
         ) : null}
       </div>
-      <ol aria-label="Document steps" className="grid gap-2 sm:grid-cols-4">
+      <ol
+        aria-label="Document steps"
+        className="flex min-w-0 flex-wrap items-center gap-1 border-t pt-3 sm:flex-nowrap"
+      >
         {STEPS.map((item, itemIndex) => {
           const current = item.id === draft.activeStep;
           const isImmediatePredecessor = itemIndex === index - 1;
           return (
-            <li key={item.id}>
+            <li className="min-w-[10rem] flex-1" key={item.id}>
               <Button
                 aria-current={current ? "step" : undefined}
-                className="w-full justify-start"
+                className="w-full justify-start gap-2"
                 data-testid={`step-${item.id}`}
                 disabled={busy || isComplete || !isImmediatePredecessor}
                 onClick={() => onMoveToPriorStep(item.id)}
                 size="sm"
                 variant={current ? "default" : "ghost"}
               >
-                <span className="grid size-5 place-items-center rounded-full border text-xs tabular-nums">
-                  {itemIndex + 1}
+                <span className="grid size-5 shrink-0 place-items-center rounded-full border text-xs tabular-nums">
+                  {itemIndex < index ? <CheckCircle2 /> : itemIndex + 1}
                 </span>
                 {item.label}
               </Button>
@@ -2640,7 +3104,6 @@ function DraftEditorHeader({
 
 function DraftStepBody({
   balance,
-  busy,
   collaborationBusy,
   collaborationError,
   draft,
@@ -2649,21 +3112,13 @@ function DraftStepBody({
   onAddAllocation,
   onAddFinancialComponent,
   onEditorChange,
-  onMoveSavedPage,
   onGrantCollaborator,
-  onPendingFilesChange,
   onRemoveAllocation,
   onRemoveFinancialComponent,
-  onRemoveSavedPage,
   onRevokeCollaborator,
-  onReplaceSavedPage,
-  onUploadPages,
-  pendingFiles,
   submilestones,
-  uploadingPages,
 }: {
   balance: ReturnType<typeof balancePreview>;
-  busy: boolean;
   collaborationBusy: boolean;
   collaborationError?: string;
   draft: BatchDraft;
@@ -2672,40 +3127,21 @@ function DraftStepBody({
   onAddAllocation: () => void;
   onAddFinancialComponent: () => void;
   onEditorChange: (patch: Partial<DraftEditor>) => void;
-  onMoveSavedPage: (assetId: string, direction: -1 | 1) => void | Promise<void>;
   onGrantCollaborator: (input: {
     expectedRevision: number;
     granteeWorkosUserId: string;
   }) => Promise<void>;
-  onPendingFilesChange: (files: File[]) => void;
   onRemoveAllocation: (rowId: string) => void;
   onRemoveFinancialComponent: (rowId: string) => void;
-  onRemoveSavedPage: (assetId: string) => void | Promise<void>;
   onRevokeCollaborator: (input: {
     collaboratorWorkosUserId: string;
     expectedRevision: number;
   }) => Promise<void>;
-  onReplaceSavedPage: (assetId: string, file: File) => void | Promise<void>;
-  onUploadPages: () => void;
-  pendingFiles: File[];
   submilestones: CostDocumentSubmilestoneOption[];
-  uploadingPages: boolean;
 }) {
   if (draft.activeStep === "capture_confirm") {
     return (
-      <CaptureConfirmStep
-        busy={busy}
-        draft={draft}
-        editor={editor}
-        onEditorChange={onEditorChange}
-        onMoveSavedPage={onMoveSavedPage}
-        onPendingFilesChange={onPendingFilesChange}
-        onRemoveSavedPage={onRemoveSavedPage}
-        onReplaceSavedPage={onReplaceSavedPage}
-        onUploadPages={onUploadPages}
-        pendingFiles={pendingFiles}
-        uploadingPages={uploadingPages}
-      />
+      <CaptureConfirmStep editor={editor} onEditorChange={onEditorChange} />
     );
   }
   if (draft.activeStep === "balance_allocate") {
@@ -2841,192 +3277,24 @@ function DraftEditorActions({
 }
 
 function CaptureConfirmStep({
-  busy,
-  draft,
   editor,
   onEditorChange,
-  onMoveSavedPage,
-  onPendingFilesChange,
-  onRemoveSavedPage,
-  onReplaceSavedPage,
-  onUploadPages,
-  pendingFiles,
-  uploadingPages,
 }: {
-  busy: boolean;
-  draft: BatchDraft;
   editor: DraftEditor;
   onEditorChange: (patch: Partial<DraftEditor>) => void;
-  onMoveSavedPage: (assetId: string, direction: -1 | 1) => void | Promise<void>;
-  onPendingFilesChange: (files: File[]) => void;
-  onRemoveSavedPage: (assetId: string) => void | Promise<void>;
-  onReplaceSavedPage: (assetId: string, file: File) => void | Promise<void>;
-  onUploadPages: () => void;
-  pendingFiles: File[];
-  uploadingPages: boolean;
 }) {
-  const savedPages = [...draft.pages].sort(
-    (left, right) => left.order - right.order
-  );
-
   return (
-    <div className="space-y-6">
-      <section
-        aria-labelledby="cost-document-source-heading"
-        className="space-y-3"
-      >
-        <div>
-          <h3 className="font-semibold" id="cost-document-source-heading">
-            Source pages
-          </h3>
-          <p className="text-muted-foreground text-sm">
-            Upload every page for this one Invoice or Receipt. Pages are
-            security-scanned and bound to this private draft before any batch
-            submission is possible.
-          </p>
-        </div>
-        <Field>
-          <FieldLabel htmlFor="cost-document-batch-pages">
-            Invoice or Receipt pages
-          </FieldLabel>
-          <Input
-            accept="application/pdf,image/*"
-            data-testid="page-input"
-            disabled={busy || uploadingPages}
-            id="cost-document-batch-pages"
-            multiple
-            onChange={(event) => {
-              const files = Array.from(event.currentTarget.files ?? []);
-              onPendingFilesChange(files);
-            }}
-            type="file"
-          />
-          <FieldDescription>
-            Each clean page is bound to this draft immediately. Add only the
-            remaining pages if an upload is interrupted.
-          </FieldDescription>
-        </Field>
-        {pendingFiles.length > 0 ? (
-          <div className="grid gap-2">
-            {pendingFiles.map((file, index) => (
-              <Card key={`${file.name}:${file.lastModified}`}>
-                <CardPanel className="flex min-w-0 items-center gap-3 p-3">
-                  <FileText className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-sm">
-                    {file.name}
-                  </span>
-                  <Badge variant="outline">Page {index + 1}</Badge>
-                </CardPanel>
-              </Card>
-            ))}
-          </div>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            disabled={pendingFiles.length === 0 || busy || uploadingPages}
-            loading={uploadingPages}
-            onClick={onUploadPages}
-            variant="outline"
-          >
-            <UploadCloud /> Upload source pages
-          </Button>
-          {savedPages.length > 0 ? (
-            <span className="text-muted-foreground text-sm">
-              {savedPages.length} saved source page
-              {savedPages.length === 1 ? "" : "s"}
-            </span>
-          ) : null}
-        </div>
-        {savedPages.length > 0 ? (
-          <ol aria-label="Saved source pages" className="divide-y">
-            {savedPages.map((page, index) => (
-              <li
-                className="flex min-w-0 flex-wrap items-center gap-2 py-2 sm:flex-nowrap"
-                key={page.assetId}
-              >
-                <FileText className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate text-sm">
-                  {page.order}. {page.fileName || "Verified source page"}
-                </span>
-                <Badge variant="outline">{page.mimeType || "File"}</Badge>
-                <div className="ml-auto flex items-center gap-1">
-                  <Button
-                    aria-label={`Move page ${index + 1} earlier`}
-                    disabled={busy || uploadingPages || index === 0}
-                    onClick={() => {
-                      Promise.resolve(
-                        onMoveSavedPage(String(page.assetId), -1)
-                      ).catch(() => undefined);
-                    }}
-                    size="icon-sm"
-                    variant="outline"
-                  >
-                    <ArrowUp />
-                  </Button>
-                  <Button
-                    aria-label={`Move page ${index + 1} later`}
-                    disabled={
-                      busy || uploadingPages || index === savedPages.length - 1
-                    }
-                    onClick={() => {
-                      Promise.resolve(
-                        onMoveSavedPage(String(page.assetId), 1)
-                      ).catch(() => undefined);
-                    }}
-                    size="icon-sm"
-                    variant="outline"
-                  >
-                    <ArrowDown />
-                  </Button>
-                  <Button
-                    aria-label={`Remove page ${index + 1}`}
-                    disabled={busy || uploadingPages}
-                    onClick={() => {
-                      Promise.resolve(
-                        onRemoveSavedPage(String(page.assetId))
-                      ).catch(() => undefined);
-                    }}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Remove
-                  </Button>
-                </div>
-                <Field className="min-w-[11rem] sm:ml-1">
-                  <FieldLabel
-                    htmlFor={`cost-document-replace-page-${page.assetId}`}
-                  >
-                    Replace page {index + 1}
-                  </FieldLabel>
-                  <Input
-                    accept="application/pdf,image/*"
-                    data-testid={`replace-page-${page.assetId}`}
-                    disabled={busy || uploadingPages}
-                    id={`cost-document-replace-page-${page.assetId}`}
-                    onChange={(event) => {
-                      const replacement = Array.from(
-                        event.currentTarget.files ?? []
-                      )[0];
-                      event.currentTarget.value = "";
-                      if (replacement) {
-                        Promise.resolve(
-                          onReplaceSavedPage(String(page.assetId), replacement)
-                        ).catch(() => undefined);
-                      }
-                    }}
-                    type="file"
-                  />
-                </Field>
-              </li>
-            ))}
-          </ol>
-        ) : null}
-      </section>
-
+    <div className="space-y-5">
       <section
         aria-label="Document facts"
         className="grid gap-4 sm:grid-cols-2"
       >
+        <div className="sm:col-span-2">
+          <h3 className="font-semibold">Confirm document facts</h3>
+          <p className="text-muted-foreground text-sm">
+            Extracted values are suggestions until you confirm them.
+          </p>
+        </div>
         <Field>
           <FieldLabel htmlFor="cost-document-batch-title">Title</FieldLabel>
           <Input
@@ -3938,6 +4206,19 @@ function stepIndex(step: DraftStep) {
 
 function stepLabel(step: DraftStep) {
   return STEPS.find((item) => item.id === step)?.label ?? "Capture & confirm";
+}
+
+function guidedStepDescription(step: DraftStep) {
+  switch (step) {
+    case "capture_confirm":
+      return "Add every page, then confirm the required facts for this invoice or receipt.";
+    case "balance_allocate":
+      return "Reconcile the gross total and assign that exact amount across relevant Sub-milestones.";
+    case "share":
+      return "Keep the Draft private or invite eligible Builder-side collaborators.";
+    case "freeze":
+      return "Review the immutable publication manifest before submission.";
+  }
 }
 
 function centsToInput(cents: number) {
