@@ -216,11 +216,11 @@ export function BuildActionItemDetailSheet({
             }
             detail={detail}
             focusedAssetId={focusedAssetId}
-            open={open}
             onGoBack={() => navigateHistory(-1)}
             onGoForward={() => navigateHistory(1)}
             onOpenChange={onOpenChange}
             onReferenceOpen={onReferenceOpen}
+            open={open}
             organizationId={organizationId}
             readOnly={readOnly}
             tagOptions={tagOptions}
@@ -593,11 +593,11 @@ function ActionItemDetailPanel({
       canGoForward={canGoForward}
       detail={detail}
       focusedAssetId={focusedAssetId}
-      open={open}
       onGoBack={onGoBack}
       onGoForward={onGoForward}
       onOpenChange={onOpenChange}
       onReferenceOpen={onReferenceOpen}
+      open={open}
       organizationId={organizationId}
       readOnly={readOnly}
       tagOptions={tagOptions}
@@ -789,22 +789,32 @@ function VisibleActionItemDetail({
   }, [canonicalForecastValue, canonicalProgressValue]);
 
   useEffect(() => {
+    canonicalCommandKeys.current.clear();
     setCanonicalFieldNote("");
     setCanonicalCompletionNote("");
-  }, [detail.item.actionItemId, open]);
+    setCanonicalReviewNote("");
+    setCanonicalReviewReason("");
+    setCanonicalReviewSiteVisitRequired(false);
+  }, [
+    canonicalStartCommand?.milestoneKey,
+    canonicalStartCommand?.submilestoneKey,
+    detail.item.actionItemId,
+    open,
+  ]);
 
   const canonicalCommandKey = (scope: string) => {
-    const existing = canonicalCommandKeys.current.get(scope);
+    const scopedScope = `${detail.item.actionItemId}:${scope}`;
+    const existing = canonicalCommandKeys.current.get(scopedScope);
     if (existing) {
       return existing;
     }
     const generated = `${scope}:${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
-    canonicalCommandKeys.current.set(scope, generated);
+    canonicalCommandKeys.current.set(scopedScope, generated);
     return generated;
   };
 
   const clearCanonicalCommandKey = (scope: string) => {
-    canonicalCommandKeys.current.delete(scope);
+    canonicalCommandKeys.current.delete(`${detail.item.actionItemId}:${scope}`);
   };
 
   const replaceAsset = async (
@@ -1314,6 +1324,7 @@ function VisibleActionItemDetail({
       toast.success(successMessage);
       setCanonicalReviewReason("");
       setCanonicalReviewNote("");
+      setCanonicalReviewSiteVisitRequired(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : fallbackMessage);
     } finally {

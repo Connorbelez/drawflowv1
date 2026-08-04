@@ -3837,6 +3837,7 @@ describe("Build Collaboration operational events", () => {
     expect(staleAdminState.oversight).toBe(true);
     expect(staleAdminState.canJoin).toBe(false);
     expect(staleAdminState.canLeave).toBe(false);
+    expect(staleAdminState.workingAudienceCount).toBe(0);
     await expect(
       fixture.globalAdmin.mutation(
         (api as any).build_draw_coordination.joinDrawCoordination,

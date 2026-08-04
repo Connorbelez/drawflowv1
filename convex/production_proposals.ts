@@ -17351,6 +17351,7 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
       }
       assertActiveBuildPlanningTargetActive(milestone, submilestone);
       await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorRoles: auth.roles,
         actorWorkosUserId: auth.subject,
         asset: persistedAsset,
         build: auth.build,
@@ -17684,6 +17685,7 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
     persistedAsset.collaborationEventRevision ?? 1;
   const packageMembership =
     await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+      actorRoles,
       actorWorkosUserId: auth.viewer.subject,
       asset: persistedAsset,
       build: auth.build,
@@ -19800,6 +19802,7 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       persistedAsset.collaborationEventRevision ?? 1;
     if (targetSubmilestone && activeTargetMilestone) {
       await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorRoles: ["contractor"],
         actorWorkosUserId: "tokenized_site_visitor",
         asset: persistedAsset,
         build,
@@ -25942,6 +25945,7 @@ async function ensureDraftSubmilestoneEvidencePackage(
   },
 ) {
   return await ensureActiveSubmilestoneEvidencePackageDraft(ctx, {
+    actorRoles: input.auth.roles,
     actorWorkosUserId: input.auth.subject,
     build: input.auth.build,
     milestone: input.milestone,

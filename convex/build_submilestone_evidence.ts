@@ -126,7 +126,11 @@ type EvidenceContext = {
  */
 export async function ensureActiveSubmilestoneEvidencePackageDraft(
   ctx: MutationCtx,
-  input: EvidenceContext & { actorWorkosUserId: string }
+  input: EvidenceContext & {
+    actorRoles: string[];
+    actorWorkosUserId: string;
+    reason?: string;
+  }
 ) {
   const latest = await ctx.db
     .query("buildSubmilestoneEvidencePackageRevisions")
@@ -223,6 +227,21 @@ export async function ensureActiveSubmilestoneEvidencePackageDraft(
   if (!created) {
     throw new Error("Evidence Package revision became unavailable.");
   }
+  if (latest?.status === "frozen") {
+    await recordActiveSubmilestoneEvidencePackageSupersessionAudit(ctx, {
+      actorRoles: input.actorRoles,
+      actorWorkosUserId: input.actorWorkosUserId,
+      build: input.build,
+      milestone: input.milestone,
+      newRevision: created,
+      priorRevision: latest,
+      reason:
+        input.reason ??
+        "A new Evidence Package draft superseded the frozen revision.",
+      submilestone: input.submilestone,
+      timestamp: now,
+    });
+  }
   return created;
 }
 
@@ -234,6 +253,7 @@ export async function ensureActiveSubmilestoneEvidencePackageDraft(
 export async function appendActiveSubmilestoneEvidenceAssetToDraft(
   ctx: MutationCtx,
   input: EvidenceContext & {
+    actorRoles: string[];
     actorWorkosUserId: string;
     asset: Doc<"buildEvidenceAssets">;
     sourceKind: ActiveSubmilestoneEvidenceSourceKind;
@@ -457,6 +477,46 @@ async function recordActiveSubmilestoneEvidencePackageFreezeAudit(
     }),
     reason: input.reason,
     warnings: [],
+  });
+}
+
+async function recordActiveSubmilestoneEvidencePackageSupersessionAudit(
+  ctx: MutationCtx,
+  input: EvidenceContext & {
+    actorRoles: string[];
+    actorWorkosUserId: string;
+    newRevision: Doc<"buildSubmilestoneEvidencePackageRevisions">;
+    priorRevision: Doc<"buildSubmilestoneEvidencePackageRevisions">;
+    reason: string;
+    timestamp: number;
+  },
+) {
+  await ctx.db.insert("auditEvents", {
+    actorRoles: input.actorRoles,
+    actorWorkosUserId: input.actorWorkosUserId,
+    brokerageId: input.build.brokerageId,
+    command: "ensureActiveSubmilestoneEvidencePackageDraft",
+    createdAt: input.timestamp,
+    entityId: String(input.submilestone._id),
+    entityType: "buildSubmilestone",
+    eventType:
+      "active_build.submilestone.evidence_package_revision_superseded",
+    newState: JSON.stringify({
+      evidencePackageRevisionId: input.newRevision._id,
+      revision: input.newRevision.revision,
+      status: input.newRevision.status,
+      submilestoneKey: input.submilestone.key,
+      supersedesRevisionId: input.priorRevision._id,
+    }),
+    organizationId: input.build.organizationId,
+    priorState: JSON.stringify({
+      evidencePackageRevisionId: input.priorRevision._id,
+      revision: input.priorRevision.revision,
+      status: input.priorRevision.status,
+      submilestoneKey: input.submilestone.key,
+    }),
+    reason: input.reason,
+    warnings: ["frozen_revision_superseded"],
   });
 }
 

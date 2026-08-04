@@ -330,6 +330,7 @@ describe("canonical Sub-milestone completion review", () => {
         throw new Error("Evidence pair asset is unavailable.");
       }
       const first = await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorRoles: ["builder"],
         actorWorkosUserId: "user_builder",
         asset,
         build,
@@ -339,6 +340,7 @@ describe("canonical Sub-milestone completion review", () => {
         submilestone,
       });
       const second = await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorRoles: ["builder"],
         actorWorkosUserId: "user_builder",
         asset,
         build,
@@ -348,6 +350,7 @@ describe("canonical Sub-milestone completion review", () => {
         submilestone,
       });
       const replay = await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorRoles: ["builder"],
         actorWorkosUserId: "user_builder",
         asset,
         build,
@@ -478,6 +481,7 @@ describe("canonical Sub-milestone completion review", () => {
         const asset = await ctx.db.get(assetId);
         if (!asset) throw new Error("Invalid photo asset is unavailable.");
         return await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+          actorRoles: ["builder"],
           actorWorkosUserId: "user_builder",
           asset,
           build: scope.build,
@@ -516,6 +520,7 @@ describe("canonical Sub-milestone completion review", () => {
       const asset = await ctx.db.get(assetId);
       if (!asset) throw new Error("Normalized photo asset is unavailable.");
       return await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorRoles: ["builder"],
         actorWorkosUserId: "user_builder",
         asset,
         build: scope.build,
@@ -554,6 +559,7 @@ describe("canonical Sub-milestone completion review", () => {
       const asset = await ctx.db.get(assetId);
       if (!asset) throw new Error("Site visit asset is unavailable.");
       return await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorRoles: ["contractor"],
         actorWorkosUserId: "user_contractor",
         asset,
         build: scope.build,
@@ -702,6 +708,7 @@ describe("canonical Sub-milestone completion review", () => {
     await expect(
       fixture.base.run((ctx: any) =>
         appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+          actorRoles: ["builder"],
           actorWorkosUserId: "user_builder",
           asset: image,
           build: scope.build,
@@ -721,6 +728,7 @@ describe("canonical Sub-milestone completion review", () => {
     });
     const documentResult = await fixture.base.run((ctx: any) =>
       appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorRoles: ["builder"],
         actorWorkosUserId: "user_builder",
         asset: document,
         build: scope.build,
@@ -732,6 +740,7 @@ describe("canonical Sub-milestone completion review", () => {
     );
     const anyResult = await fixture.base.run((ctx: any) =>
       appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorRoles: ["builder"],
         actorWorkosUserId: "user_builder",
         asset: image,
         build: scope.build,
@@ -838,6 +847,7 @@ describe("canonical Sub-milestone completion review", () => {
     await expect(
       fixture.base.run(async (ctx: any) =>
         ensureActiveSubmilestoneEvidencePackageDraft(ctx, {
+          actorRoles: ["builder"],
           actorWorkosUserId: "user_builder",
           build: scope.build,
           milestone: scope.milestone,
@@ -893,9 +903,19 @@ describe("canonical Sub-milestone completion review", () => {
         throw new Error("First frozen Evidence Package is unavailable.");
       }
       const draft = await ensureActiveSubmilestoneEvidencePackageDraft(ctx, {
+        actorRoles: ["builder"],
         actorWorkosUserId: "user_builder",
         build,
         milestone,
+        reason: "Builder added replacement evidence.",
+        submilestone,
+      });
+      const draftReplay = await ensureActiveSubmilestoneEvidencePackageDraft(ctx, {
+        actorRoles: ["builder"],
+        actorWorkosUserId: "user_builder",
+        build,
+        milestone,
+        reason: "This draft replay must not create another supersession audit.",
         submilestone,
       });
       const second = await freezeActiveSubmilestoneEvidencePackage(ctx, {
@@ -930,16 +950,55 @@ describe("canonical Sub-milestone completion review", () => {
           q.eq(q.field("command"), "freezeActiveSubmilestoneEvidencePackage"),
         )
         .collect();
+      const supersessionAudits = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "buildSubmilestone")
+            .eq("entityId", String(submilestone._id)),
+        )
+        .filter((q: any) =>
+          q.eq(
+            q.field("command"),
+            "ensureActiveSubmilestoneEvidencePackageDraft",
+          ),
+        )
+        .collect();
       return {
         audits,
         draft,
+        draftReplay,
         first,
         replay,
         second,
+        supersessionAudits,
         submilestoneId: String(submilestone._id),
       };
     });
     expect(result.replay).toEqual(result.second);
+    expect(result.draftReplay).toEqual(result.draft);
+    expect(result.supersessionAudits).toHaveLength(1);
+    expect(result.supersessionAudits[0]).toMatchObject({
+      actorRoles: ["builder"],
+      actorWorkosUserId: "user_builder",
+      command: "ensureActiveSubmilestoneEvidencePackageDraft",
+      entityType: "buildSubmilestone",
+      eventType:
+        "active_build.submilestone.evidence_package_revision_superseded",
+      reason: "Builder added replacement evidence.",
+      warnings: ["frozen_revision_superseded"],
+    });
+    expect(JSON.parse(result.supersessionAudits[0].priorState)).toMatchObject({
+      evidencePackageRevisionId: result.first._id,
+      revision: result.first.revision,
+      status: "frozen",
+    });
+    expect(JSON.parse(result.supersessionAudits[0].newState)).toMatchObject({
+      evidencePackageRevisionId: result.draft._id,
+      revision: result.draft.revision,
+      status: "draft",
+      supersedesRevisionId: result.first._id,
+    });
     expect(result.audits).toHaveLength(2);
     expect(result.audits[0]).toMatchObject({
       actorRoles: ["builder"],
@@ -1196,6 +1255,7 @@ describe("canonical Sub-milestone completion review", () => {
         throw new Error("Evidence freeze fixture is incomplete.");
       }
       await ensureActiveSubmilestoneEvidencePackageDraft(ctx, {
+        actorRoles: ["builder"],
         actorWorkosUserId: "user_builder",
         build,
         milestone,

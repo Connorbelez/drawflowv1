@@ -459,10 +459,15 @@ export async function projectDrawCoordinationState(
     }),
   );
   const eligibleByUser = new Map(eligibilityEntries);
-  const eligibleRows = audienceRows.map(
-    (row) => eligibleByUser.get(row.workosUserId) === true,
-  );
-  const workingAudienceCount = eligibleRows.filter(Boolean).length;
+  const workingAudienceCount = audienceRows.filter((row) => {
+    const role = rolesByUser.get(row.workosUserId);
+    // Oversight rows can survive a stale client or historical projection, but
+    // admins and principle-brokers are never part of the working audience.
+    if (role === "admin" || role === "principle-broker") {
+      return false;
+    }
+    return eligibleByUser.get(row.workosUserId) === true;
+  }).length;
   const writable = await isBuildCollaborationWritableByBuildId(ctx, {
     buildId: authorization.build._id,
     organizationId: authorization.organizationId,

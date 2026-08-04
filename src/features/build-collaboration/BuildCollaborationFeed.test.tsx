@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
     | "unassigned"
     | "requested"
     | "assigned",
+  actionItemDetailId: "action-1",
   actionItemDetailState: "visible" as "revoked" | "visible",
   actionItemRequiresAcceptance: false,
   actionItemAttachments: [] as Array<Record<string, unknown>>,
@@ -945,7 +946,7 @@ vi.mock("convex/react", () => ({
         attachments: mocks.actionItemAttachments,
         comments: [],
         item: {
-          actionItemId: "action-1",
+          actionItemId: mocks.actionItemDetailId,
           assigneeDisplayName: "Alex Chen",
           assigneeWorkosUserId: "user-builder",
           assignmentState: mocks.actionItemAssignmentState,
@@ -1446,6 +1447,7 @@ afterEach(() => {
   mocks.acceptedCommentId = undefined;
   mocks.allQueriesUnavailable = false;
   mocks.actionItemAssignmentState = "unassigned";
+  mocks.actionItemDetailId = "action-1";
   mocks.actionItemDetailState = "visible";
   mocks.actionItemAttachments = [];
   mocks.actionItemRequiresAcceptance = false;
@@ -2451,6 +2453,65 @@ describe("BuildCollaborationFeed", () => {
     ).toBe("");
   });
 
+  test("scopes canonical command keys to the open Action Item and reuses failed retries", async () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "builder",
+      workosUserId: "user_builder",
+    };
+    mocks.authUserId = "user_builder";
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Excavate",
+      }),
+    );
+
+    mocks.mutate.mockClear();
+    mocks.mutate.mockRejectedValueOnce(new Error("temporary progress failure"));
+    fireEvent.click(screen.getByRole("button", { name: "Save progress" }));
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1));
+    const failedKey = (mocks.mutate.mock.calls[0]?.[0] as Record<string, unknown>)
+      .idempotencyKey;
+
+    fireEvent.click(screen.getByRole("button", { name: "Save progress" }));
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(2));
+    const retriedKey = (mocks.mutate.mock.calls[1]?.[0] as Record<string, unknown>)
+      .idempotencyKey;
+    expect(retriedKey).toBe(failedKey);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close Action Item detail" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Save progress" })).toBeNull(),
+    );
+    mocks.actionItemDetailId = "action-2";
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Excavate",
+      }),
+    );
+
+    mocks.mutate.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Save progress" }));
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1));
+    const switchedTargetKey = (
+      mocks.mutate.mock.calls[0]?.[0] as Record<string, unknown>
+    ).idempotencyKey;
+    expect(switchedTargetKey).not.toBe(failedKey);
+  });
+
   test("keeps Evidence Package execution controls out of the lender view", async () => {
     mocks.canonicalSystemActionItem = true;
     mocks.viewerBinding = {
@@ -2515,6 +2576,30 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByRole("button", { name: "Request changes" })).toBeTruthy();
     expect(screen.getByText("Review history")).toBeTruthy();
     expect(screen.getByText(/lender_staff_recommendation/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Review note"), {
+      target: { value: "Inspect footings before release." },
+    });
+    fireEvent.click(screen.getAllByLabelText("Recommend a Site Visit")[0]);
+    mocks.mutate.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Record recommendation" }));
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        expectedRevision: 2,
+        idempotencyKey: expect.stringMatching(/^review-recommendation:/),
+        milestoneKey: "foundation",
+        note: "Inspect footings before release.",
+        siteVisitRequired: true,
+        submilestoneKey: "foundation-1",
+        workosOrganizationId: "org-1",
+      }),
+    );
+    expect((screen.getByLabelText("Review note") as HTMLInputElement).value).toBe("");
+    expect(
+      screen.getAllByLabelText("Recommend a Site Visit")[0].getAttribute(
+        "aria-checked",
+      ),
+    ).toBe("false");
     mocks.mutate.mockClear();
     fireEvent.change(screen.getByLabelText("Review reason"), {
       target: { value: "Missing footing report." },
