@@ -2635,12 +2635,28 @@ export default defineSchema({
   auditEvents: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
+    // Canonical audit producers may include Build-scoped actor/capacity and
+    // revision context. Keep these optional so legacy producers and records
+    // remain readable while the shared audit contract rolls out.
+    buildId: v.optional(v.id("activeBuilds")),
     entityType: v.string(),
     entityId: v.string(),
     eventType: v.string(),
     command: v.string(),
     actorWorkosUserId: v.string(),
+    actorKind: v.optional(buildCollaborationActorKindValidator),
+    actorRole: v.optional(buildCollaborationRoleValidator),
     actorRoles: v.array(v.string()),
+    effectiveCapacity: v.optional(buildCollaborationRoleValidator),
+    targetRevisions: v.optional(
+      v.array(
+        v.object({
+          entityId: v.string(),
+          entityType: v.string(),
+          revision: v.optional(v.number()),
+        }),
+      ),
+    ),
     priorState: v.optional(v.string()),
     newState: v.optional(v.string()),
     reason: v.optional(v.string()),
