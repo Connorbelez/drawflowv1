@@ -24,14 +24,22 @@ type RecipientDelivery = NonNullable<
 >["deliveries"][number];
 
 export function NotificationInbox({
+  authReady = true,
   workosOrganizationId,
 }: {
+  /**
+   * Convex queries must remain skipped until AuthKit has supplied the
+   * authenticated viewer. AppShell can render before the client auth
+   * handshake completes, and issuing the recipient query in that window
+   * produces an avoidable Unauthorized error.
+   */
+  authReady?: boolean;
   workosOrganizationId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const inbox = useRecipientInbox(workosOrganizationId, open);
+  const inbox = useRecipientInbox(workosOrganizationId, open, authReady);
   const markRead = useMutation(
     api.production_proposals.markRecipientDeliveryRead
   );
@@ -65,7 +73,7 @@ export function NotificationInbox({
             : "Notifications"
         }
         className="relative size-11 md:size-8"
-        disabled={!workosOrganizationId}
+        disabled={!workosOrganizationId || !authReady}
         render={<Button size="icon-sm" variant="outline" />}
       >
         <HugeiconsIcon icon={Notification03Icon} strokeWidth={2} />
@@ -176,11 +184,12 @@ export function NotificationInbox({
 
 function useRecipientInbox(
   workosOrganizationId?: string | null,
-  exhaustPages = false
+  exhaustPages = false,
+  authReady = true
 ) {
   const inbox = usePaginatedQuery(
     api.build_collaboration_inbox.listRecipientInbox,
-    workosOrganizationId ? { workosOrganizationId } : "skip",
+    workosOrganizationId && authReady ? { workosOrganizationId } : "skip",
     { initialNumItems: 100 }
   );
   useEffect(() => {

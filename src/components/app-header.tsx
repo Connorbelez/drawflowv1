@@ -12,7 +12,7 @@ export function AppHeader({
 }: {
   workosOrganizationId?: string | null;
 }) {
-  const { user } = useAuth();
+  const { loading, user } = useAuth();
   const navUser = user
     ? {
         name:
@@ -39,7 +39,10 @@ export function AppHeader({
       </div>
       <div className="flex shrink-0 items-center gap-3">
         <ThemeToggle className="size-11 md:size-8" size="icon-sm" />
-        <NotificationInbox workosOrganizationId={workosOrganizationId} />
+        <NotificationInbox
+          authReady={!loading && Boolean(user)}
+          workosOrganizationId={workosOrganizationId}
+        />
         <Separator
           className="h-4 data-[orientation=vertical]:self-center"
           orientation="vertical"

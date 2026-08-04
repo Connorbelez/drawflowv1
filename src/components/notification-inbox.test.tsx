@@ -9,6 +9,7 @@ const resolve = vi.fn();
 const loadMore = vi.fn();
 const useMutation = vi.fn();
 const usePaginatedQuery = vi.fn();
+const paginatedQueryArgs = vi.fn();
 
 vi.mock("convex/react", () => ({
   useMutation: (reference: unknown) => useMutation(reference),
@@ -16,15 +17,17 @@ vi.mock("convex/react", () => ({
     reference: unknown,
     args: unknown,
     options: unknown
-  ) =>
-    args === "skip"
+  ) => {
+    paginatedQueryArgs(reference, args, options);
+    return args === "skip"
       ? {
           isLoading: true,
           loadMore,
           results: [],
           status: "LoadingFirstPage",
         }
-      : usePaginatedQuery(reference, args, options),
+      : usePaginatedQuery(reference, args, options);
+  },
 }));
 
 import { NotificationInbox } from "./notification-inbox.tsx";
@@ -66,6 +69,7 @@ describe("NotificationInbox", () => {
       const mutations = [markRead, dismiss, resolve];
       return mutations[(useMutation.mock.calls.length - 1) % mutations.length];
     });
+    paginatedQueryArgs.mockClear();
     usePaginatedQuery.mockReturnValue({
       isLoading: false,
       loadMore,
@@ -75,6 +79,25 @@ describe("NotificationInbox", () => {
   });
 
   afterEach(() => cleanup());
+
+  test("skips the recipient query until AuthKit has a viewer", () => {
+    render(
+      <NotificationInbox
+        authReady={false}
+        workosOrganizationId="org_production_foundation"
+      />
+    );
+
+    expect(paginatedQueryArgs).toHaveBeenCalledWith(
+      expect.anything(),
+      "skip",
+      { initialNumItems: 100 }
+    );
+    expect(
+      (screen.getByRole("button", { name: "Notifications" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+  });
 
   test("moves focus into the inbox and returns it to the trigger on close", async () => {
     render(
