@@ -719,6 +719,49 @@ describe("canonical Sub-milestone completion review", () => {
         },
       ),
     ).rejects.toThrow(/revision changed/i);
+    const secondEvidence = await fixture.builder.mutation(
+      (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
+      {
+        buildId: fixture.closing.buildId,
+        evidence: {
+          fileName: "forms-photo-replacement.jpg",
+          mimeType: "image/jpeg",
+          requirementKey: "forms-photo",
+          sizeBytes: 2048,
+          storageId: await storeEvidence(fixture, "forms-photo-replacement"),
+        },
+        expectedRevision: replayed.revision,
+        idempotencyKey: "completion-review-forms-evidence-replacement",
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const secondEvidenceState = await submilestoneState(fixture);
+    const secondEvidenceEventKeys = await fixture.base.run(async (ctx: any) =>
+      (await ctx.db.query("buildCollaborationPosts").collect())
+        .map((post: any) => post.systemEventKey)
+        .filter(
+          (key: string | undefined) =>
+            key?.includes(String(secondEvidence.evidenceAssetId)),
+        ),
+    );
+    expect(secondEvidenceState.packageRevision?.revision).toBe(
+      (frozenState.packageRevision?.revision ?? 0) + 1,
+    );
+    expect(secondEvidenceState.packageRevision?.status).toBe("draft");
+    expect(secondEvidenceEventKeys).toEqual(
+      expect.arrayContaining([
+        `operational:evidence:${secondEvidence.evidenceAssetId}:r1:submitted`,
+        `operational:evidence:${secondEvidence.evidenceAssetId}:r1:location-unverified`,
+      ]),
+    );
+    const secondEvidenceAsset = await fixture.base.run((ctx: any) =>
+      ctx.db.get(secondEvidence.evidenceAssetId),
+    );
+    expect(secondEvidenceAsset).toMatchObject({
+      collaborationEventRevision: 1,
+    });
   });
 
   test("rejects lender execution and stale progress atomically", async () => {

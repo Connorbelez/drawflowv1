@@ -16722,6 +16722,10 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
       supersededIds = replacement.supersededIds;
     }
     await recalculateActiveBuildBudget(ctx, args.buildId);
+    const priorPlanningRevision = await latestActiveBuildPlanningRevision(
+      ctx,
+      auth.build._id,
+    );
     const planningRevision = await recordApprovedActiveBuildPlanningRevision(
       ctx,
       {
@@ -16734,7 +16738,14 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
         sourceCommand: "updateActiveBuildTimelineMilestone",
       },
     );
-    if (planningRevision && supersededIds.length > 0) {
+    const createdPlanningRevision =
+      planningRevision != null &&
+      planningRevision._id !== priorPlanningRevision?._id;
+    if (
+      createdPlanningRevision &&
+      planningRevision &&
+      supersededIds.length > 0
+    ) {
       for (const submilestoneId of supersededIds) {
         await ctx.db.patch(submilestoneId, {
           supersededByPlanningRevision: planningRevision.revision,
@@ -16793,6 +16804,10 @@ export const deleteActiveBuildTimelineMilestone = authenticatedMutation
       milestone,
     );
     await recalculateActiveBuildBudget(ctx, args.buildId);
+    const priorPlanningRevision = await latestActiveBuildPlanningRevision(
+      ctx,
+      auth.build._id,
+    );
     const planningRevision = await recordApprovedActiveBuildPlanningRevision(
       ctx,
       {
@@ -16805,7 +16820,10 @@ export const deleteActiveBuildTimelineMilestone = authenticatedMutation
         sourceCommand: "deleteActiveBuildTimelineMilestone",
       },
     );
-    if (planningRevision) {
+    const createdPlanningRevision =
+      planningRevision != null &&
+      planningRevision._id !== priorPlanningRevision?._id;
+    if (createdPlanningRevision && planningRevision) {
       await ctx.db.patch(milestone._id, {
         supersededByPlanningRevision: planningRevision.revision,
         updatedAt: Date.now(),
@@ -17308,6 +17326,8 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
     if (!persistedAsset) {
       throw new Error("Submitted Evidence became unavailable.");
     }
+    const collaborationEventRevision =
+      persistedAsset.collaborationEventRevision ?? 1;
     if (args.asset.submilestoneKey) {
       const submilestones = (
         (await ctx.db
@@ -17341,7 +17361,7 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
     try {
       await publishEvidenceSubmittedCollaborationEvents(ctx, {
         asset: persistedAsset,
-        revision: 1,
+        revision: collaborationEventRevision,
       });
     } catch (error) {
       if (
@@ -17615,6 +17635,7 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
   const evidenceAssetId = await ctx.db.insert("buildEvidenceAssets", {
     brokerageId: auth.brokerage._id,
     buildId: args.buildId,
+    collaborationEventRevision: 1,
     createdAt: now,
     evidenceKey,
     fileName: sourceAsset.fileName,
@@ -17658,6 +17679,8 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
   if (!persistedAsset) {
     throw new Error("Promoted Evidence became unavailable.");
   }
+  const collaborationEventRevision =
+    persistedAsset.collaborationEventRevision ?? 1;
   const packageMembership =
     await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
       actorWorkosUserId: auth.viewer.subject,
@@ -17734,7 +17757,7 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
   }
   await publishEvidenceSubmittedCollaborationEvents(ctx, {
     asset: persistedAsset,
-    revision: 1,
+    revision: collaborationEventRevision,
   });
   return result;
 }
@@ -18208,11 +18231,9 @@ export const updateActiveBuildSubmilestoneExecution = authenticatedMutation
         : row.status === "complete",
     ).length;
     const progressPercent =
-      args.progressPercent !== undefined
-        ? Math.round(args.progressPercent)
-        : submilestones.length === 0
-          ? (milestone.progressPercent ?? 0)
-          : Math.round((completedCount / submilestones.length) * 100);
+      submilestones.length === 0
+        ? (milestone.progressPercent ?? 0)
+        : Math.round((completedCount / submilestones.length) * 100);
     await ctx.db.patch(milestone._id, {
       ...(nextStatus !== "complete" && milestone.completionClaim
         ? {
@@ -18606,6 +18627,7 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
     const persistedAssetId = await ctx.db.insert("buildEvidenceAssets", {
       brokerageId: auth.brokerage._id,
       buildId: args.buildId,
+      collaborationEventRevision: 1,
       createdAt: now,
       evidenceKey,
       evidencePackageRevisionId: packageRevision._id,
@@ -18696,9 +18718,11 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
     if (!persistedAsset) {
       throw new Error("Canonical Evidence Asset became unavailable.");
     }
+    const collaborationEventRevision =
+      persistedAsset.collaborationEventRevision ?? 1;
     await publishEvidenceSubmittedCollaborationEvents(ctx, {
       asset: persistedAsset,
-      revision: packageRevision.revision,
+      revision: collaborationEventRevision,
     });
     return {
       evidenceAssetId: persistedAssetId,
@@ -19761,6 +19785,8 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     if (!persistedAsset) {
       throw new Error("Submitted Site Visit Evidence became unavailable.");
     }
+    const collaborationEventRevision =
+      persistedAsset.collaborationEventRevision ?? 1;
     if (targetSubmilestone && activeTargetMilestone) {
       await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
         actorWorkosUserId: "tokenized_site_visitor",
@@ -19773,7 +19799,7 @@ export const registerActiveBuildSiteVisitFile = publicMutation
     }
     await publishEvidenceSubmittedCollaborationEvents(ctx, {
       asset: persistedAsset,
-      revision: 1,
+      revision: collaborationEventRevision,
     });
     if (evidenceTargetUnassigned) {
       const targetLabel = [
@@ -19788,7 +19814,7 @@ export const registerActiveBuildSiteVisitFile = publicMutation
         unassignedEvidencePostId =
           await publishCanonicalBuildCollaborationSystemEvent(ctx, {
             buildId,
-            idempotencyKey: `operational:evidence:${persistedAsset._id}:r1:target-unassigned`,
+            idempotencyKey: `operational:evidence:${persistedAsset._id}:r${collaborationEventRevision}:target-unassigned`,
             notificationKind: "blocker",
             notificationTitle: "Site Visit Evidence needs assignment",
             organizationId: build.organizationId,
@@ -31815,6 +31841,18 @@ async function deleteActiveBuildStorageRow(
   await ctx.db.delete(row._id);
 }
 
+async function latestActiveBuildPlanningRevision(
+  ctx: MutationCtx,
+  buildId: Id<"activeBuilds">,
+) {
+  return await ctx.db
+    .query("activeBuildPlanningRevisions")
+    .withIndex("by_build_revision", (query) => query.eq("buildId", buildId))
+    .order("desc")
+    .take(1)
+    .then((rows) => rows[0]);
+}
+
 async function deleteActiveBuildCascade(
   ctx: MutationCtx,
   buildId: Id<"activeBuilds">,
@@ -31857,6 +31895,7 @@ async function deleteActiveBuildCascade(
     "activeBuildFacilityChangeRequests",
     "loanFacilities",
     "buildCapitalPlans",
+    "buildMilestones",
     "plannedDrawScheduleRows",
     "buildCostItems",
     "buildSubmilestones",

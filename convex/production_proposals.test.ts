@@ -779,7 +779,15 @@ describe("production proposal foundation", () => {
             key: "foundation",
             name: "Foundation",
             order: 1,
-            submilestones: [],
+            submilestones: [
+              {
+                budgetCents: 50_000_000,
+                durationDays: 20,
+                key: "forms",
+                name: "Forms",
+                order: 1,
+              },
+            ],
           },
         ],
         proposalId,
@@ -6582,11 +6590,21 @@ describe("production proposal foundation", () => {
         buildId: closing.buildId,
         idempotencyKey: "progress-reconciliation-forms-001",
         milestoneKey: "foundation",
+        progressPercent: 100,
         status: "complete",
         submilestoneKey: "forms",
         workosOrganizationId: ORG,
       },
     );
+    const afterFirstCompletion = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(
+      afterFirstCompletion.milestones.find(
+        (milestone: any) => milestone.key === "foundation",
+      ).progressPercent,
+    ).toBe(50);
     await builder.mutation(
       (api as any).production_proposals.startActiveBuildMilestone,
       {
@@ -6707,6 +6725,87 @@ describe("production proposal foundation", () => {
     expect(detail.auditEvents.map((event: any) => event.eventType)).toContain(
       "active_build.submilestone.execution_updated",
     );
+  });
+
+  test("does not restamp superseded submilestones when an approved timeline update replays", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Planning replay build",
+      location: "23 Planning Replay Road",
+      submilestones: [
+        { key: "forms", name: "Forms", order: 1 },
+        { key: "waterproofing", name: "Waterproofing", order: 2 },
+      ],
+    });
+    const update = {
+      buildId: closing.buildId,
+      milestoneKey: "foundation",
+      submilestones: [
+        {
+          budgetCents: 25_000_000,
+          durationDays: 10,
+          key: "waterproofing",
+          name: "Waterproofing",
+          order: 2,
+          startDay: 10,
+        },
+      ],
+      workosOrganizationId: ORG,
+    };
+
+    await admin.mutation(
+      (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+      update,
+    );
+    const first = await admin.run(async (ctx: any) => {
+      const superseded = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .filter((query: any) => query.eq(query.field("key"), "forms"))
+        .unique();
+      const revision = await ctx.db
+        .query("activeBuildPlanningRevisions")
+        .withIndex("by_build_revision", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .order("desc")
+        .first();
+      return { revision, superseded };
+    });
+    expect(first.revision).toBeDefined();
+    expect(first.superseded).toMatchObject({
+      planningState: "superseded",
+      supersededByPlanningRevision: first.revision?.revision,
+    });
+
+    await admin.mutation(
+      (api as any).production_proposals.updateActiveBuildTimelineMilestone,
+      update,
+    );
+    const replay = await admin.run(async (ctx: any) => {
+      const superseded = await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .filter((query: any) => query.eq(query.field("key"), "forms"))
+        .unique();
+      const revision = await ctx.db
+        .query("activeBuildPlanningRevisions")
+        .withIndex("by_build_revision", (query: any) =>
+          query.eq("buildId", closing.buildId),
+        )
+        .order("desc")
+        .first();
+      return { revision, superseded };
+    });
+    expect(replay.revision?._id).toBe(first.revision?._id);
+    expect(replay.superseded).toMatchObject({
+      planningState: "superseded",
+      supersededByPlanningRevision: first.revision?.revision,
+    });
   });
 
   test("site visit token mutations reject cross-build and cross-org mismatches before mutation while keeping visit identity bound", async () => {
@@ -12588,10 +12687,20 @@ describe("draft builder assignment and deletion", () => {
 
     const leftovers = await admin.run(async (ctx: any) => ({
       build: await ctx.db.get(closing.buildId),
+      milestones: await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .collect(),
       proposal: await ctx.db.get(proposalId),
+      submilestones: await ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+        .collect(),
     }));
     expect(leftovers.build).toBeNull();
+    expect(leftovers.milestones).toEqual([]);
     expect(leftovers.proposal?.activeBuildId).toBeUndefined();
+    expect(leftovers.submilestones).toEqual([]);
 
     const dashboard = await admin.query(
       (api as any).production_proposals.getBackofficeDashboard,
