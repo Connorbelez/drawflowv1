@@ -188,6 +188,16 @@ function canonicalDrawSnapshot(draw: Doc<"plannedDrawScheduleRows">) {
   });
 }
 
+function drawPlanningState(
+  draw: Doc<"plannedDrawScheduleRows">,
+): PlanningEntity["planningState"] {
+  return draw.status === "rejected" ||
+    draw.status === "withdrawn" ||
+    draw.status === "cancelled"
+    ? "superseded"
+    : "active";
+}
+
 function canonicalBudgetSnapshot(plan: Doc<"buildCapitalPlans">) {
   return jsonValue({
     borrowerCoPayBps: plan.borrowerCoPayBps,
@@ -388,7 +398,7 @@ async function collectPlanningSnapshot(
           "draw",
           draw.drawKey,
           String(draw._id),
-          "active",
+          drawPlanningState(draw),
           canonicalDrawSnapshot(draw)
         )
       )
@@ -772,6 +782,27 @@ export async function recordApprovedActiveBuildPlanningRevision(
   }
   const revision = (priorRevision?.revision ?? 0) + 1;
   const diffs = kind === "activation" ? [] : planningDiff(previous, current);
+  // Build all bounded materialization payloads before creating the revision
+  // row.  If a diff safety limit is exceeded, the mutation fails without
+  // leaving a partially persisted revision or transient chunks behind.
+  if (diffs.length > PLANNING_REVISION_DIFF_LIMIT) {
+    throw new Error(
+      `Active Build planning revision exceeds the ${PLANNING_REVISION_DIFF_LIMIT} diff safety limit.`,
+    );
+  }
+  const entityChunks = chunkPlanningRows(
+    flattenSnapshot(current),
+    PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE
+  );
+  const diffChunks = chunkPlanningRows(
+    diffs,
+    PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE
+  );
+  if (diffChunks.length > PLANNING_REVISION_CHUNK_LIMIT) {
+    throw new Error(
+      `Active Build planning revision exceeds the ${PLANNING_REVISION_CHUNK_LIMIT} materialization chunk safety limit.`,
+    );
+  }
   const revisionId = await ctx.db.insert("activeBuildPlanningRevisions", {
     actorRoles: [...input.actor.actorRoles],
     actorWorkosUserId: input.actor.actorWorkosUserId,
@@ -788,10 +819,6 @@ export async function recordApprovedActiveBuildPlanningRevision(
     sourceCommand: input.sourceCommand,
     summary: snapshotEntitySummary(current),
   });
-  const entityChunks = chunkPlanningRows(
-    flattenSnapshot(current),
-    PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE
-  );
   for (const [chunkIndex, entities] of entityChunks.entries()) {
     await ctx.db.insert("activeBuildPlanningRevisionChunks", {
       brokerageId: input.build.brokerageId,
@@ -805,10 +832,6 @@ export async function recordApprovedActiveBuildPlanningRevision(
       revisionId,
     });
   }
-  const diffChunks = chunkPlanningRows(
-    diffs,
-    PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE
-  );
   for (const [chunkIndex, diffChunk] of diffChunks.entries()) {
     await ctx.db.insert("activeBuildPlanningRevisionChunks", {
       brokerageId: input.build.brokerageId,
@@ -969,6 +992,56 @@ export const materializeActiveBuildPlanningRevisionChunk = internalMutation
   })
   .internal();
 
+const CONTRACTOR_FINANCIAL_PLANNING_FIELDS = new Set([
+  "budgetCents",
+  "drawAvailabilityCents",
+]);
+
+function redactContractorPlanningSnapshot(
+  snapshot: Record<string, unknown>,
+) {
+  const redacted = { ...snapshot };
+  for (const field of CONTRACTOR_FINANCIAL_PLANNING_FIELDS) {
+    delete redacted[field];
+  }
+  return redacted;
+}
+
+function redactContractorPlanningDiff(diff: PlanningDiff) {
+  if (diff.entityType !== "milestone" && diff.entityType !== "submilestone") {
+    return null;
+  }
+  if (
+    diff.changeType === "changed" &&
+    CONTRACTOR_FINANCIAL_PLANNING_FIELDS.has(diff.field)
+  ) {
+    return null;
+  }
+  return {
+    ...diff,
+    ...(diff.changeType === "added" && diff.nextValue !== undefined
+      ? {
+          nextValue:
+            typeof diff.nextValue === "object" && diff.nextValue !== null
+              ? redactContractorPlanningSnapshot(
+                  diff.nextValue as Record<string, unknown>,
+                )
+              : diff.nextValue,
+        }
+      : {}),
+    ...(diff.changeType === "removed" && diff.priorValue !== undefined
+      ? {
+          priorValue:
+            typeof diff.priorValue === "object" && diff.priorValue !== null
+              ? redactContractorPlanningSnapshot(
+                  diff.priorValue as Record<string, unknown>,
+                )
+              : diff.priorValue,
+        }
+      : {}),
+  };
+}
+
 async function redactSnapshotForViewer(
   ctx: QueryCtx,
   authorization: ActiveBuildAuthorization,
@@ -981,28 +1054,58 @@ async function redactSnapshotForViewer(
   const milestonesByKey = new Map(
     snapshot.milestones.map((entity) => [entity.entityKey, entity])
   );
-  const assignmentIds = snapshot.allocations
-    .map((entity) =>
-      entity.canonicalId
-        ? ctx.db.normalizeId("milestoneContractorAssignments", entity.canonicalId)
-        : null
+  const contractorProfiles = await ctx.db
+    .query("contractorProfiles")
+    .withIndex("by_account_user", (query) =>
+      query.eq("accountWorkosUserId", authorization.viewer.subject)
     )
-    .filter(
-      (id): id is Id<"milestoneContractorAssignments"> => id !== null
-    );
-  const assignmentDocs = await Promise.all(
-    assignmentIds.map((assignmentId) => ctx.db.get(assignmentId))
+    .take(101);
+  const authorizedContractors = contractorProfiles.filter(
+    (contractor) =>
+      contractor.organizationId === authorization.organizationId &&
+      contractor.brokerageId === authorization.brokerage._id &&
+      contractor.status === "active" &&
+      contractor.accountWorkosUserId === authorization.viewer.subject
   );
+  if (authorizedContractors.length !== 1) {
+    return {
+      snapshot: emptyPlanningSnapshot(snapshot.buildId),
+      visibleMilestoneKeys: new Set<string>(),
+      visibleSubmilestoneKeys: new Set<string>(),
+    };
+  }
+  const authorizedContractor = authorizedContractors[0]!;
+  const snapshotAllocationIds = new Set(
+    snapshot.allocations
+      .map((entity) => entity.canonicalId)
+      .filter((canonicalId): canonicalId is string => canonicalId !== undefined)
+  );
+  const assignmentDocs = await ctx.db
+    .query("milestoneContractorAssignments")
+    .withIndex("by_contractor_build", (query) =>
+      query
+        .eq("contractorId", authorizedContractor._id)
+        .eq("buildId", authorization.build._id)
+    )
+    .take(PLANNING_SNAPSHOT_LIMITS.allocations + 1);
+  if (assignmentDocs.length > PLANNING_SNAPSHOT_LIMITS.allocations) {
+    return {
+      snapshot: emptyPlanningSnapshot(snapshot.buildId),
+      visibleMilestoneKeys: new Set<string>(),
+      visibleSubmilestoneKeys: new Set<string>(),
+    };
+  }
   const assignmentsBySubmilestoneId = new Map<
     string,
     Doc<"milestoneContractorAssignments">[]
   >();
   for (const assignment of assignmentDocs) {
     if (
-      !assignment ||
+      !snapshotAllocationIds.has(String(assignment._id)) ||
       assignment.organizationId !== authorization.organizationId ||
       assignment.brokerageId !== authorization.brokerage._id ||
       assignment.buildId !== authorization.build._id ||
+      assignment.contractorId !== authorizedContractor._id ||
       !assignment.buildSubmilestoneId ||
       !(assignment.status === "planned" || assignment.status === "active")
     ) {
@@ -1105,12 +1208,18 @@ async function redactSnapshotForViewer(
   return {
     snapshot: {
       buildId: snapshot.buildId,
-      milestones: snapshot.milestones.filter((entity) =>
-        visibleMilestoneKeys.has(entity.entityKey)
-      ),
-      submilestones: snapshot.submilestones.filter((entity) =>
-        visibleSubmilestoneKeys.has(entity.entityKey)
-      ),
+      milestones: snapshot.milestones
+        .filter((entity) => visibleMilestoneKeys.has(entity.entityKey))
+        .map((entity) => ({
+          ...entity,
+          snapshot: redactContractorPlanningSnapshot(entity.snapshot),
+        })),
+      submilestones: snapshot.submilestones
+        .filter((entity) => visibleSubmilestoneKeys.has(entity.entityKey))
+        .map((entity) => ({
+          ...entity,
+          snapshot: redactContractorPlanningSnapshot(entity.snapshot),
+        })),
       // Financial ownership, Draw allocations, and Evidence requirements are
       // restricted facts and are absent rather than client-hidden.
       allocations: [],
@@ -1205,27 +1314,47 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         snapshot: currentProjection.snapshot,
       },
       diffsTruncated,
-      diffs: diffs
-        .filter((diff) => {
-          if (authorization.effectiveRole.role !== "contractor") return true;
-          if (diff.entityType === "milestone") {
-            return currentProjection.visibleMilestoneKeys?.has(diff.entityKey) ?? false;
+      diffs: diffs.flatMap((diff) => {
+        if (authorization.effectiveRole.role !== "contractor") {
+          return [
+            {
+              category: diff.category,
+              changeType: diff.changeType,
+              entityKey: diff.entityKey,
+              entityType: diff.entityType,
+              field: diff.field,
+              nextValue: diff.nextValue,
+              priorValue: diff.priorValue,
+              revision: diff.revision,
+            },
+          ];
+        }
+        const redacted = redactContractorPlanningDiff(diff);
+        if (!redacted) return [];
+        if (diff.entityType === "milestone") {
+          if (!currentProjection.visibleMilestoneKeys?.has(diff.entityKey)) {
+            return [];
           }
-          if (diff.entityType === "submilestone") {
-            return currentProjection.visibleSubmilestoneKeys?.has(diff.entityKey) ?? false;
+        } else if (diff.entityType === "submilestone") {
+          if (
+            !currentProjection.visibleSubmilestoneKeys?.has(diff.entityKey)
+          ) {
+            return [];
           }
-          return false;
-        })
-        .map((diff) => ({
-          category: diff.category,
-          changeType: diff.changeType,
-          entityKey: diff.entityKey,
-          entityType: diff.entityType,
-          field: diff.field,
-          nextValue: diff.nextValue,
-          priorValue: diff.priorValue,
-          revision: diff.revision,
-        })),
+        }
+        return [
+          {
+            category: redacted.category,
+            changeType: redacted.changeType,
+            entityKey: redacted.entityKey,
+            entityType: redacted.entityType,
+            field: redacted.field,
+            nextValue: redacted.nextValue,
+            priorValue: redacted.priorValue,
+            revision: diff.revision,
+          },
+        ];
+      }),
       materializationPending: pendingChunks.length > 0,
       revisions: revisions.map((revision) => ({
         approvedAt: revision.approvedAt,
