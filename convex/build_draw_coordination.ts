@@ -17,6 +17,22 @@ import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_r
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
+type WorkosOrganizationMembership = Doc<"workosOrganizationMemberships">;
+
+async function getWorkosOrganizationMembership(
+  ctx: QueryCtx | MutationCtx,
+  input: { organizationId: string; workosUserId: string },
+) {
+  return await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_user_and_organization", (query) =>
+      query
+        .eq("workosUserId", input.workosUserId)
+        .eq("workosOrganizationId", input.organizationId),
+    )
+    .first();
+}
+
 /**
  * Draw System Posts retain their canonical Draw read ACL. This module owns the
  * separate ACL for ordinary coordination children: the viewer must be an
@@ -25,16 +41,16 @@ import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
  */
 export async function hasActiveWorkosOrganizationMembership(
   ctx: QueryCtx | MutationCtx,
-  input: { organizationId: string; workosUserId: string },
+  input: {
+    organizationId: string;
+    workosUserId: string;
+    membership?: WorkosOrganizationMembership | null;
+  },
 ) {
-  const membership = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user_and_organization", (query) =>
-      query
-        .eq("workosUserId", input.workosUserId)
-        .eq("workosOrganizationId", input.organizationId),
-    )
-    .first();
+  const membership =
+    input.membership === undefined
+      ? await getWorkosOrganizationMembership(ctx, input)
+      : input.membership;
   return membership?.status === "active";
 }
 
@@ -115,6 +131,7 @@ export async function isInternalDrawCoordinationEligible(
     organizationId: string;
     role: BuildCollaborationRole;
     workosUserId: string;
+    membership?: WorkosOrganizationMembership | null;
   },
 ) {
   if (input.role === "contractor" || input.role === "homeowner") {
@@ -124,6 +141,7 @@ export async function isInternalDrawCoordinationEligible(
     !(await hasActiveWorkosOrganizationMembership(ctx, {
       organizationId: input.organizationId,
       workosUserId: input.workosUserId,
+      membership: input.membership,
     }))
   ) {
     return false;
@@ -220,6 +238,7 @@ export async function projectDrawCoordinationState(
       joined: false,
       oversight: false,
       workingAudienceCount: 0,
+      workingAudienceTruncated: false,
     };
   }
   const joined = await isDrawCoordinationMember(ctx, {
@@ -231,20 +250,39 @@ export async function projectDrawCoordinationState(
     .withIndex("by_postId_and_coordinationActive", (query) =>
       query.eq("postId", post._id).eq("coordinationActive", true),
     )
-    .take(100);
-  let workingAudienceCount = 0;
-  for (const row of rows) {
-    if (
-      await isInternalDrawCoordinationEligible(ctx, {
+    .take(101);
+  const audienceRows = rows.slice(0, 100);
+  const membershipEntries = await Promise.all(
+    [...new Set(audienceRows.map((row) => row.workosUserId))].map(
+      async (workosUserId) => [
+        workosUserId,
+        await getWorkosOrganizationMembership(ctx, {
+          organizationId: authorization.organizationId,
+          workosUserId,
+        }),
+      ] as const,
+    ),
+  );
+  const membershipsByUser = new Map(membershipEntries);
+  const eligibleRows = await Promise.all(
+    audienceRows.map(async (row) => {
+      const membership = membershipsByUser.get(row.workosUserId) ?? null;
+      const role = await roleForUser(
+        ctx,
+        authorization,
+        row.workosUserId,
+        membership,
+      );
+      return await isInternalDrawCoordinationEligible(ctx, {
         buildId: authorization.build._id,
         organizationId: authorization.organizationId,
-        role: await roleForUser(ctx, authorization, row.workosUserId),
+        role,
         workosUserId: row.workosUserId,
-      })
-    ) {
-      workingAudienceCount += 1;
-    }
-  }
+        membership,
+      });
+    }),
+  );
+  const workingAudienceCount = eligibleRows.filter(Boolean).length;
   const writable = await isBuildCollaborationWritableByBuildId(ctx, {
     buildId: authorization.build._id,
     organizationId: authorization.organizationId,
@@ -264,6 +302,7 @@ export async function projectDrawCoordinationState(
     joined,
     oversight,
     workingAudienceCount,
+    workingAudienceTruncated: rows.length > audienceRows.length,
   };
 }
 
@@ -271,6 +310,7 @@ async function roleForUser(
   ctx: QueryCtx | MutationCtx,
   authorization: ActiveBuildAuthorization,
   workosUserId: string,
+  membership?: WorkosOrganizationMembership | null,
 ): Promise<BuildCollaborationRole> {
   if (workosUserId === authorization.viewer.subject) {
     return authorization.effectiveRole.role;
@@ -279,15 +319,14 @@ async function roleForUser(
     (candidate) => candidate.workosUserId === workosUserId,
   );
   if (participant) return participant.role;
-  const membership = await ctx.db
-    .query("workosOrganizationMemberships")
-    .withIndex("by_user_and_organization", (query) =>
-      query
-        .eq("workosUserId", workosUserId)
-        .eq("workosOrganizationId", authorization.organizationId),
-    )
-    .first();
-  const role = membership?.roleSlug ?? membership?.roleSlugs?.[0];
+  const resolvedMembership =
+    membership === undefined
+      ? await getWorkosOrganizationMembership(ctx, {
+          organizationId: authorization.organizationId,
+          workosUserId,
+        })
+      : membership;
+  const role = resolvedMembership?.roleSlug ?? resolvedMembership?.roleSlugs?.[0];
   if (
     role === "admin" ||
     role === "principle-broker" ||
@@ -483,6 +522,7 @@ export const getDrawCoordinationState = authenticatedQuery
       joined: v.boolean(),
       oversight: v.boolean(),
       workingAudienceCount: v.number(),
+      workingAudienceTruncated: v.boolean(),
     }),
   )
   .handler(async (ctx, args) => {
@@ -505,6 +545,7 @@ export const getDrawCoordinationState = authenticatedQuery
         joined: false,
         oversight: false,
         workingAudienceCount: 0,
+        workingAudienceTruncated: false,
       };
     }
     return await projectDrawCoordinationState(ctx, { authorization, post });

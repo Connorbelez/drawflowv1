@@ -103,6 +103,16 @@ const mocks = vi.hoisted(() => ({
     | "reopened"
     | undefined,
   planningReconciliation: undefined as Record<string, unknown> | undefined,
+  planningSnapshotStatus: "Exhausted" as
+    | "CanLoadMore"
+    | "Exhausted"
+    | "LoadingFirstPage"
+    | "LoadingMore",
+  planningDiffStatus: "Exhausted" as
+    | "CanLoadMore"
+    | "Exhausted"
+    | "LoadingFirstPage"
+    | "LoadingMore",
   mutate: vi.fn().mockResolvedValue(null),
   onOpenReference: vi.fn(),
   personalActionItems: [] as Array<Record<string, unknown>>,
@@ -415,6 +425,7 @@ type DrawCoordinationFixtureState = {
   joined: boolean;
   oversight: boolean;
   workingAudienceCount: number;
+  workingAudienceTruncated?: boolean;
 };
 
 function canonicalDrawSystemPostEntryFixture(options: {
@@ -430,6 +441,7 @@ function canonicalDrawSystemPostEntryFixture(options: {
     joined: false,
     oversight: true,
     workingAudienceCount: 0,
+    workingAudienceTruncated: false,
   };
   return {
     acknowledgement: { acknowledged: false, required: false },
@@ -528,7 +540,14 @@ function canonicalDrawSystemPostEntryFixture(options: {
 function planningReconciliationFixture({
   restricted = false,
   truncated = false,
-}: { restricted?: boolean; truncated?: boolean } = {}) {
+  materializationPending = false,
+  diffPagesPending = false,
+}: {
+  restricted?: boolean;
+  truncated?: boolean;
+  materializationPending?: boolean;
+  diffPagesPending?: boolean;
+} = {}) {
   const milestoneDiff = {
     category: "dates",
     changeType: "changed",
@@ -587,7 +606,9 @@ function planningReconciliationFixture({
       },
     },
     diffs,
+    diffPagesPending,
     diffsTruncated: truncated,
+    materializationPending,
     revisionsTruncated: false,
     revisions: [
       {
@@ -704,7 +725,8 @@ vi.mock("convex/react", () => ({
       return {
         loadMore: mocks.loadMore,
         results: args === "skip" ? [] : results,
-        status: args === "skip" ? "LoadingFirstPage" : "Exhausted",
+        status:
+          args === "skip" ? "LoadingFirstPage" : mocks.planningSnapshotStatus,
       };
     }
     if (
@@ -718,7 +740,8 @@ vi.mock("convex/react", () => ({
             ? []
             : ((mocks.planningReconciliation as Record<string, any> | undefined)
                 ?.diffs ?? []),
-        status: args === "skip" ? "LoadingFirstPage" : "Exhausted",
+        status:
+          args === "skip" ? "LoadingFirstPage" : mocks.planningDiffStatus,
       };
     }
     if (
@@ -1400,6 +1423,8 @@ afterEach(() => {
   mocks.lifecycleState = "open";
   mocks.planningLifecycle = undefined;
   mocks.planningReconciliation = undefined;
+  mocks.planningSnapshotStatus = "Exhausted";
+  mocks.planningDiffStatus = "Exhausted";
   mocks.onOpenReference.mockClear();
   mocks.drafts = [];
   mocks.editorReferences = [];
@@ -1708,6 +1733,31 @@ describe("BuildCollaborationFeed", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Action Items/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Show Action Items as a board/ })).toBeNull();
+  });
+
+  test("surfaces a conservative lower bound when the Draw working audience is saturated", () => {
+    mocks.feedRows = [
+      canonicalDrawSystemPostEntryFixture({
+        coordination: {
+          canJoin: false,
+          canLeave: false,
+          eligible: true,
+          joined: false,
+          oversight: false,
+          workingAudienceCount: 100,
+          workingAudienceTruncated: true,
+        },
+      }),
+    ];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(screen.getByText("Working audience · 100+")).toBeTruthy();
+    expect(
+      screen.getByTestId("draw-coordination-audience-truncated"),
+    ).toBeTruthy();
   });
 
   test("keeps a Draw System Post on its kind branch when Draw facts are unavailable", () => {
@@ -2060,6 +2110,96 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByTestId("planning-diffs-truncated").textContent).toContain(
       "Structured planning diffs are truncated at 10,000 changes",
     );
+  });
+
+  test.each([
+    {
+      diffStatus: "Exhausted" as const,
+      name: "canonical server truncation",
+      truncated: true,
+      expectMore: false,
+      expectTruncated: true,
+    },
+    {
+      diffStatus: "CanLoadMore" as const,
+      name: "client pagination",
+      truncated: false,
+      expectMore: true,
+      expectTruncated: false,
+    },
+    {
+      diffStatus: "CanLoadMore" as const,
+      name: "both canonical and client truncation",
+      truncated: true,
+      expectMore: true,
+      expectTruncated: true,
+    },
+  ])(
+    "keeps $name planning status independent",
+    ({ diffStatus, expectMore, expectTruncated, truncated }) => {
+      mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+      mocks.planningDiffStatus = diffStatus;
+      mocks.planningReconciliation = planningReconciliationFixture({
+        truncated,
+      });
+
+      render(
+        <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+      );
+
+      expect(
+        screen.queryByTestId("planning-diffs-truncated") !== null,
+      ).toBe(expectTruncated);
+      expect(
+        screen.queryByTestId("planning-diffs-more-available") !== null,
+      ).toBe(expectMore);
+      if (expectMore) {
+        expect(
+          screen.getByRole("button", { name: "Load more changes" }),
+        ).toBeTruthy();
+      } else {
+        expect(
+          screen.queryByRole("button", { name: "Load more changes" }),
+        ).toBeNull();
+      }
+    },
+  );
+
+  test("does not turn an empty client diff page into an indeterminate canonical result", () => {
+    const reconciliation = planningReconciliationFixture();
+    reconciliation.diffs = [];
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+    mocks.planningDiffStatus = "CanLoadMore";
+    mocks.planningReconciliation = reconciliation;
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(screen.getByTestId("planning-diffs-more-available")).toBeTruthy();
+    expect(screen.queryByTestId("planning-diffs-indeterminate")).toBeNull();
+    expect(
+      screen.queryByText(
+        "No structured planning changes are recorded after activation.",
+      ),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Load more changes" }));
+    expect(mocks.loadMore).toHaveBeenCalledWith(100);
+  });
+
+  test("keeps a loading-more client page distinct from canonical truncation", () => {
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+    mocks.planningDiffStatus = "LoadingMore";
+    mocks.planningReconciliation = planningReconciliationFixture();
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(screen.getByTestId("planning-diffs-more-available").textContent).toContain(
+      "Loading more structured planning changes",
+    );
+    expect(screen.queryByTestId("planning-diffs-truncated")).toBeNull();
   });
 
   test("distinguishes truncated revision history from a complete empty diff set", () => {

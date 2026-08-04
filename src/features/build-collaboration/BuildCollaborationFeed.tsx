@@ -197,6 +197,90 @@ function buildCollaborationScopeArgs(
   return organizationId ? { buildId, organizationId } : ("skip" as const);
 }
 
+function useBuildPlanningReconciliation({
+  buildId,
+  enabled,
+  organizationId,
+}: {
+  buildId: Id<"activeBuilds">;
+  enabled: boolean;
+  organizationId?: string;
+}) {
+  const planningQueryArgs =
+    enabled && organizationId ? { buildId, organizationId } : ("skip" as const);
+  const planningMetadata = useQuery(
+    api.build_collaboration_planning_reconciliation
+      .getActiveBuildPlanningReconciliation,
+    planningQueryArgs,
+  );
+  const currentPlanningSnapshot = usePaginatedQuery(
+    api.build_collaboration_planning_reconciliation
+      .getActiveBuildPlanningReconciliationSnapshot,
+    planningQueryArgs,
+    { initialNumItems: 100 },
+  );
+  const activationPlanningSnapshot = usePaginatedQuery(
+    api.build_collaboration_planning_reconciliation
+      .getActiveBuildPlanningActivationSnapshot,
+    planningQueryArgs,
+    { initialNumItems: 100 },
+  );
+  const planningDiffs = usePaginatedQuery(
+    api.build_collaboration_planning_reconciliation
+      .listActiveBuildPlanningReconciliationDiffs,
+    planningQueryArgs,
+    { initialNumItems: 100 },
+  );
+  const planningReconciliation = useMemo(() => {
+    if (!planningMetadata) return undefined;
+    const pageStillLoading = [
+      currentPlanningSnapshot.status,
+      activationPlanningSnapshot.status,
+      planningDiffs.status,
+    ].some((status) => status === "LoadingFirstPage");
+    if (pageStillLoading) return undefined;
+    const buildIdString = String(buildId);
+    return {
+      activation: planningMetadata.activation
+        ? {
+            ...planningMetadata.activation,
+            snapshot: planningSnapshotFromEntities(
+              buildIdString,
+              activationPlanningSnapshot.results,
+            ),
+          }
+        : null,
+      current: {
+        revision: planningMetadata.current.revision,
+        snapshot: planningSnapshotFromEntities(
+          buildIdString,
+          currentPlanningSnapshot.results,
+        ),
+      },
+      diffs: planningDiffs.results,
+      diffPagesPending: planningDiffs.status === "CanLoadMore",
+      diffsTruncated: planningMetadata.diffsTruncated,
+      materializationPending: planningMetadata.materializationPending,
+      revisionsTruncated: planningMetadata.revisionsTruncated,
+      revisions: planningMetadata.revisions,
+    } satisfies CollaborationPlanningReconciliation;
+  }, [
+    activationPlanningSnapshot.results,
+    activationPlanningSnapshot.status,
+    buildId,
+    currentPlanningSnapshot.results,
+    currentPlanningSnapshot.status,
+    planningDiffs.results,
+    planningDiffs.status,
+    planningMetadata,
+  ]);
+  return {
+    diffsLoadingMore: planningDiffs.status === "LoadingMore",
+    loadMoreDiffPages: () => planningDiffs.loadMore(100),
+    planningReconciliation,
+  };
+}
+
 function actionItemQueueState(query: {
   loadMore: (count: number) => void;
   results: CollaborationActionItemQueueRow[];
@@ -1011,6 +1095,14 @@ function BuildCollaborationFeedContent({
       ),
     [feed.results, focusedPostContext]
   );
+  const planningFeed = useBuildPlanningReconciliation({
+    buildId: activeBuildId,
+    enabled: feedEntries.some(
+      (entry) =>
+        entry.kind === "post" && entry.post.systemPost?.kind === "milestone",
+    ),
+    organizationId,
+  });
   useEffect(() => {
     const focusedPostId =
       focusedAssetPostId ??
@@ -2353,6 +2445,9 @@ function BuildCollaborationFeedContent({
                 openActionItemSheet(actionItemId)
               }
               organizationId={organizationId}
+              onLoadMorePlanningDiffs={planningFeed.loadMoreDiffPages}
+              planningDiffsLoadingMore={planningFeed.diffsLoadingMore}
+              planningReconciliation={planningFeed.planningReconciliation}
               referenceByKey={referenceByKey}
               tagOptions={tagOptions}
             />
@@ -2991,8 +3086,11 @@ function CollaborationPostCard({
   mutationsAllowed,
   onCreateActionItem,
   onFocusReference,
+  onLoadMorePlanningDiffs,
   onOpenActionItem,
   organizationId,
+  planningDiffsLoadingMore,
+  planningReconciliation,
   referenceByKey,
   tagOptions,
 }: {
@@ -3005,88 +3103,15 @@ function CollaborationPostCard({
   mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
   onFocusReference: (reference: FocusedReference) => void;
+  onLoadMorePlanningDiffs: () => void;
   onOpenActionItem: (actionItemId: Id<"buildActionItems">) => void;
   organizationId: string;
+  planningDiffsLoadingMore: boolean;
+  planningReconciliation?: CollaborationPlanningReconciliation;
   referenceByKey: Map<string, ReferenceOption>;
   tagOptions: ReferenceOption[];
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const planningQueryArgs =
-    entry.post.systemPost?.kind === "milestone"
-      ? { buildId, organizationId }
-      : "skip";
-  const planningMetadata = useQuery(
-    api.build_collaboration_planning_reconciliation
-      .getActiveBuildPlanningReconciliation,
-    planningQueryArgs,
-  );
-  const currentPlanningSnapshot = usePaginatedQuery(
-    api.build_collaboration_planning_reconciliation
-      .getActiveBuildPlanningReconciliationSnapshot,
-    planningQueryArgs,
-    { initialNumItems: 100 },
-  );
-  const activationPlanningSnapshot = usePaginatedQuery(
-    api.build_collaboration_planning_reconciliation
-      .getActiveBuildPlanningActivationSnapshot,
-    planningQueryArgs,
-    { initialNumItems: 100 },
-  );
-  const planningDiffs = usePaginatedQuery(
-    api.build_collaboration_planning_reconciliation
-      .listActiveBuildPlanningReconciliationDiffs,
-    planningQueryArgs,
-    { initialNumItems: 100 },
-  );
-  const planningReconciliation = useMemo(() => {
-    if (!planningMetadata) return undefined;
-    const pageStillLoading = [
-      currentPlanningSnapshot.status,
-      activationPlanningSnapshot.status,
-      planningDiffs.status,
-    ].some((status) => status === "LoadingFirstPage");
-    if (pageStillLoading) return undefined;
-    const buildIdString = String(buildId);
-    const currentSnapshot = planningSnapshotFromEntities(
-      buildIdString,
-      currentPlanningSnapshot.results,
-    );
-    const activationSnapshot = planningSnapshotFromEntities(
-      buildIdString,
-      activationPlanningSnapshot.results,
-    );
-    const diffsTruncated =
-      planningMetadata.diffsTruncated || planningDiffs.status === "CanLoadMore";
-    return {
-      activation: planningMetadata.activation
-        ? {
-            ...planningMetadata.activation,
-            snapshot: activationSnapshot,
-          }
-        : null,
-      current: {
-        revision: planningMetadata.current.revision,
-        snapshot: currentSnapshot,
-      },
-      diffs: planningDiffs.results,
-      diffsTruncated,
-      materializationPending:
-        planningMetadata.materializationPending ||
-        activationPlanningSnapshot.status === "CanLoadMore" ||
-        currentPlanningSnapshot.status === "CanLoadMore",
-      revisionsTruncated: planningMetadata.revisionsTruncated,
-      revisions: planningMetadata.revisions,
-    };
-  }, [
-    activationPlanningSnapshot.results,
-    activationPlanningSnapshot.status,
-    buildId,
-    currentPlanningSnapshot.results,
-    currentPlanningSnapshot.status,
-    planningDiffs.results,
-    planningDiffs.status,
-    planningMetadata,
-  ]);
   useFocusedCollaborationPostCard(cardRef, focusedPost);
   const focusPresentation = focusedPostCardPresentation(focusedPost);
   const [tab, setTab] = useState<"actions" | "discussion" | null>(() =>
@@ -3345,7 +3370,9 @@ function CollaborationPostCard({
             entry={entry}
             mutationsAllowed={mutationsAllowed}
             onCreateActionItem={onCreateActionItem}
+            onLoadMorePlanningDiffs={onLoadMorePlanningDiffs}
             organizationId={organizationId}
+            planningDiffsLoadingMore={planningDiffsLoadingMore}
             planningReconciliation={planningReconciliation}
             tagOptions={tagOptions}
           />
@@ -3751,9 +3778,13 @@ function planningSnapshotFromEntities(
 }
 
 function SystemPostPlanningComparison({
+  diffsLoadingMore,
+  onLoadMoreDiffs,
   planningReconciliation,
   systemPost,
 }: {
+  diffsLoadingMore: boolean;
+  onLoadMoreDiffs: () => void;
   planningReconciliation?: CollaborationPlanningReconciliation;
   systemPost: CollaborationSystemPost;
 }) {
@@ -3876,25 +3907,50 @@ function SystemPostPlanningComparison({
           canonical planning record remains authoritative.
         </p>
       ) : null}
+      {planningReconciliation?.diffPagesPending || diffsLoadingMore ? (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground text-xs"
+          data-testid="planning-diffs-more-available"
+          role="status"
+        >
+          <span>
+            {diffsLoadingMore
+              ? "Loading more structured planning changes…"
+              : "More structured planning changes are available."}
+          </span>
+          {!diffsLoadingMore && planningReconciliation?.diffPagesPending ? (
+            <Button
+              onClick={onLoadMoreDiffs}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Load more changes
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {planningReconciliation === undefined ? (
         <p className="text-muted-foreground text-xs" role="status">
           Loading structured planning changes…
         </p>
       ) : diffs.length === 0 ? (
-        planningReconciliation.diffsTruncated || !systemPost.milestoneKey ? (
-          <p
-            className="text-muted-foreground text-xs"
-            data-testid="planning-diffs-indeterminate"
-            role="status"
-          >
-            Structured planning changes cannot be determined because the
-            available diff window is truncated. The canonical planning record
-            remains authoritative.
-          </p>
-        ) : (
-          <p className="text-muted-foreground text-xs">
-            No structured planning changes are recorded after activation.
-          </p>
+        planningReconciliation.diffPagesPending ? null : (
+          planningReconciliation.diffsTruncated || !systemPost.milestoneKey ? (
+            <p
+              className="text-muted-foreground text-xs"
+              data-testid="planning-diffs-indeterminate"
+              role="status"
+            >
+              Structured planning changes cannot be determined because the
+              available diff window is truncated. The canonical planning record
+              remains authoritative.
+            </p>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              No structured planning changes are recorded after activation.
+            </p>
+          )
         )
       ) : (
         <div className="space-y-2">
@@ -4087,11 +4143,22 @@ function SystemPostDrawFacts({
               <Users aria-hidden="true" className="size-4" />
               <span>
                 Working audience · {coordination.workingAudienceCount}
+                {coordination.workingAudienceTruncated ? "+" : ""}
               </span>
               {coordination.oversight ? (
                 <Badge variant="outline">Oversight only</Badge>
               ) : null}
             </div>
+            {coordination.workingAudienceTruncated ? (
+              <p
+                className="basis-full text-amber-700 text-xs dark:text-amber-300"
+                data-testid="draw-coordination-audience-truncated"
+                role="status"
+              >
+                Working audience exceeds the display limit; the count shown is
+                a conservative lower bound.
+              </p>
+            ) : null}
             {!coordination.oversight ? (
               <div className="flex flex-wrap gap-1.5">
                 {coordination.canJoin ? (
@@ -4148,7 +4215,9 @@ function SystemPostFacts({
   entry,
   mutationsAllowed,
   onCreateActionItem,
+  onLoadMorePlanningDiffs,
   organizationId,
+  planningDiffsLoadingMore,
   planningReconciliation,
   tagOptions,
 }: {
@@ -4157,7 +4226,9 @@ function SystemPostFacts({
   entry: CollaborationFeedPostEntry;
   mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
+  onLoadMorePlanningDiffs: () => void;
   organizationId: string;
+  planningDiffsLoadingMore: boolean;
   planningReconciliation?: CollaborationPlanningReconciliation;
   tagOptions: ReferenceOption[];
 }) {
@@ -4263,6 +4334,8 @@ function SystemPostFacts({
           <>
             <SystemPostPlanningSummary summary={entry.post.planningSummary} />
             <SystemPostPlanningComparison
+              diffsLoadingMore={planningDiffsLoadingMore}
+              onLoadMoreDiffs={onLoadMorePlanningDiffs}
               planningReconciliation={planningReconciliation}
               systemPost={systemPost}
             />

@@ -140,6 +140,7 @@ export const drawCoordinationStateValidator = v.object({
   joined: v.boolean(),
   oversight: v.boolean(),
   workingAudienceCount: v.number(),
+  workingAudienceTruncated: v.boolean(),
 });
 
 const historicalBackfillUnknownFactValidator = v.union(

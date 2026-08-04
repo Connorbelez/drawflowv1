@@ -403,6 +403,7 @@ async function planningReconciliation(
       snapshot: planningSnapshotFromRows(buildId, current.rows),
     },
     diffs: diffs.rows,
+    diffPagesPending: false,
     diffsTruncated: diffs.page.diffsTruncated,
     materializationPending:
       planning.materializationPending ||
@@ -3794,6 +3795,8 @@ describe("Build Collaboration operational events", () => {
     expect(adminState.oversight).toBe(true);
     expect(adminState.canJoin).toBe(false);
     expect(adminState.canLeave).toBe(false);
+    expect(adminState.workingAudienceCount).toBe(0);
+    expect(adminState.workingAudienceTruncated).toBe(false);
     const principalState = await fixture.globalPrincipal.query(
       (api as any).build_draw_coordination.getDrawCoordinationState,
       {
@@ -3806,6 +3809,62 @@ describe("Build Collaboration operational events", () => {
     expect(principalState.oversight).toBe(true);
     expect(principalState.canJoin).toBe(false);
     expect(principalState.canLeave).toBe(false);
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 101; index += 1) {
+        const workosUserId = `draw_audience_${index}`;
+        const role = index === 1 ? "contractor" : "broker";
+        await ctx.db.insert("buildParticipants", {
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: now,
+          displayNameSnapshot: `Draw audience ${index}`,
+          joinedAt: now,
+          organizationId: ORGANIZATION_ID,
+          participationPeriod: 1,
+          role,
+          status: "active",
+          updatedAt: now,
+          validFrom: now,
+          workosUserId,
+        });
+        await ctx.db.insert("workosOrganizationMemberships", {
+          createdAt: now,
+          directoryManaged: false,
+          roleSlug: role,
+          roleSlugs: [role],
+          sourceEventId: `draw_audience_membership_${index}`,
+          sourceEventType: "fixture.draw-coordination",
+          status: index === 0 ? "inactive" : "active",
+          updatedAt: now,
+          workosMembershipId: `draw_audience_membership_${index}`,
+          workosOrganizationId: ORGANIZATION_ID,
+          workosUserId,
+        });
+        await ctx.db.insert("buildCollaborationFollows", {
+          active: false,
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          coordinationActive: true,
+          createdAt: now,
+          organizationId: ORGANIZATION_ID,
+          postId: drawPostId,
+          reason: "manual",
+          updatedAt: now,
+          workosUserId,
+        });
+      }
+    });
+    const saturatedAdminState = await fixture.globalAdmin.query(
+      (api as any).build_draw_coordination.getDrawCoordinationState,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: drawPostId,
+      },
+    );
+    expect(saturatedAdminState.workingAudienceCount).toBe(98);
+    expect(saturatedAdminState.workingAudienceTruncated).toBe(true);
     const beforeOversightMutation = await silentBackfillSideEffectSnapshot(
       fixture.base,
       fixture.buildId,

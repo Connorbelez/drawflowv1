@@ -988,6 +988,7 @@ function collaborationPostSummary(input: {
     joined: boolean;
     oversight: boolean;
     workingAudienceCount: number;
+    workingAudienceTruncated: boolean;
   };
   commentCountOverride?: number;
   milestoneKey?: string;

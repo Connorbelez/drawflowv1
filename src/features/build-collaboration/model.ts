@@ -56,6 +56,7 @@ export type CollaborationPlanningReconciliation = FunctionReturnType<
     typeof api.build_collaboration_planning_reconciliation
       .listActiveBuildPlanningReconciliationDiffs
   >["page"];
+  diffPagesPending: boolean;
   diffsTruncated: boolean;
 };
 
@@ -94,7 +95,9 @@ export function systemPresentationSummary(
   presentation?: CollaborationSystemPresentation,
 ) {
   if (!presentation) return undefined;
-  const summary = [systemPresentationLabels[presentation.column]];
+  const summary = [
+    systemPresentationLabels[presentation.column] ?? presentation.column,
+  ];
   if (presentation.attention === "overdue_completion") {
     summary.push("Overdue completion");
   }
