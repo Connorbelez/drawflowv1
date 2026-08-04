@@ -77,7 +77,7 @@ function decodeReconciliationCursor(cursor: string | null | undefined): {
     // Cursors from a prior implementation are treated as the first active
     // status page instead of failing the recovery cron.
   }
-  return { cursor, phase: "active" as ReconciliationPhase };
+  return { cursor: null, phase: "active" as ReconciliationPhase };
 }
 
 function encodeReconciliationCursor(
@@ -91,7 +91,9 @@ async function cancelScheduledActivation(
   ctx: MutationCtx,
   jobId: string | undefined,
 ) {
-  if (!jobId) return;
+  if (!jobId) {
+    return;
+  }
   try {
     const scheduledJob = await ctx.db.system.get(
       "_scheduled_functions",
@@ -108,6 +110,36 @@ async function cancelScheduledActivation(
   } catch {
     // A completed/missing scheduler row is already safe to replace.
   }
+}
+
+async function clearMilestoneScheduledActivation(
+  ctx: MutationCtx,
+  milestone: Doc<"buildMilestones">,
+  now: number,
+) {
+  if (!milestone.scheduledActivationJobId) {
+    return;
+  }
+  await cancelScheduledActivation(ctx, milestone.scheduledActivationJobId);
+  await ctx.db.patch(milestone._id, {
+    scheduledActivationJobId: undefined,
+    updatedAt: now,
+  });
+}
+
+async function clearDrawScheduledActivation(
+  ctx: MutationCtx,
+  plannedDraw: Doc<"plannedDrawScheduleRows">,
+  now: number,
+) {
+  if (!plannedDraw.scheduledActivationJobId) {
+    return;
+  }
+  await cancelScheduledActivation(ctx, plannedDraw.scheduledActivationJobId);
+  await ctx.db.patch(plannedDraw._id, {
+    scheduledActivationJobId: undefined,
+    updatedAt: now,
+  });
 }
 
 export const getBuildCollaborationSchedulingCapabilities = authenticatedQuery
@@ -426,6 +458,7 @@ export async function scheduleCurrentMilestoneSystemPostActivations(
       continue;
     }
     if (milestone.planningState === "superseded") {
+      await clearMilestoneScheduledActivation(ctx, milestone, now);
       continue;
     }
     let scheduledFor: number;
@@ -435,6 +468,7 @@ export async function scheduleCurrentMilestoneSystemPostActivations(
     } catch {
       // Invalid historical dates/timezones remain visible to reconciliation as
       // unknown rather than blocking a Build mutation transaction.
+      await clearMilestoneScheduledActivation(ctx, milestone, now);
       continue;
     }
 
@@ -444,6 +478,7 @@ export async function scheduleCurrentMilestoneSystemPostActivations(
       scheduledFor < now - MAX_MILESTONE_SCHEDULE_HORIZON_MS ||
       scheduledFor > now + MAX_MILESTONE_SCHEDULE_HORIZON_MS
     ) {
+      await clearMilestoneScheduledActivation(ctx, milestone, now);
       continue;
     }
     await cancelScheduledActivation(ctx, milestone.scheduledActivationJobId);
@@ -476,7 +511,16 @@ export async function scheduleCurrentMilestoneSystemPostActivations(
     );
   }
   if (input.cursor === undefined || input.cursor === null) {
-    await scheduleCurrentDrawSystemPostActivations(ctx, input);
+    await ctx.scheduler.runAfter(
+      0,
+      internal.build_collaboration_scheduling
+        .scheduleCurrentDrawSystemPostActivationsInternal,
+      {
+        buildId: build._id,
+        cursor: null,
+        now,
+      },
+    );
   }
 }
 
@@ -509,6 +553,7 @@ export async function scheduleCurrentDrawSystemPostActivations(
       continue;
     }
     if (TERMINAL_DRAW_STATUSES.has(plannedDraw.status)) {
+      await clearDrawScheduledActivation(ctx, plannedDraw, now);
       continue;
     }
     let scheduledFor: number;
@@ -519,12 +564,14 @@ export async function scheduleCurrentDrawSystemPostActivations(
       );
       scheduledFor = buildLocalMidnightUtc(plannedDate, build.timezone);
     } catch {
+      await clearDrawScheduledActivation(ctx, plannedDraw, now);
       continue;
     }
     if (
       scheduledFor < now - MAX_MILESTONE_SCHEDULE_HORIZON_MS ||
       scheduledFor > now + MAX_MILESTONE_SCHEDULE_HORIZON_MS
     ) {
+      await clearDrawScheduledActivation(ctx, plannedDraw, now);
       continue;
     }
     await cancelScheduledActivation(ctx, plannedDraw.scheduledActivationJobId);
@@ -866,6 +913,7 @@ export const reconcileDueMilestoneSystemPostsForBuild = internalMutation
               actionItem.systemMode === "generated_milestone_submilestone" &&
               actionItem.buildId === build._id &&
               actionItem.organizationId === build.organizationId &&
+              actionItem.brokerageId === build.brokerageId &&
               actionItem.canonicalBuildMilestoneId === milestone._id &&
               actionItem.canonicalBuildSubmilestoneId !== undefined,
           )
@@ -935,10 +983,9 @@ export const reconcileDueMilestoneSystemPostsForBuild = internalMutation
               plannedStartDate,
             }),
             organizationId: build.organizationId,
-            priorState: JSON.stringify({ column: "backlog" }),
             reconciliationKey,
             reason:
-              "The canonical Sub-milestone has no actual start after its Build-local planned start date.",
+              "The canonical Sub-milestone has no actual start after its Build-local planned start date; the projected Action Item column is derived from canonical state and is not persisted.",
             warnings: ["canonical_state_is_authoritative", "passive_projection"],
           }),
           ctx.db.insert("eventOutbox", {

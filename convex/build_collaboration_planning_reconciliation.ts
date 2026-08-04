@@ -1,14 +1,15 @@
 import { v } from "convex/values";
 
+import { internal } from "./_generated/api";
+import type { ActiveBuildAuthorization } from "./activeBuildAccess";
 import { authorizeActiveBuildAccess } from "./activeBuildAccess";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import {
   ensureMilestoneSystemPost,
   synchronizeMilestoneSystemPostPlanning,
 } from "./build_collaboration_system_posts";
-import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
 import { buildPlanningReconciliationValidator } from "./build_collaboration_validators";
-import type { ActiveBuildAuthorization } from "./activeBuildAccess";
+import { internalMutation } from "./fluent";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 /**
@@ -45,14 +46,52 @@ type PlanningSnapshot = {
   evidenceRequirements: PlanningEntity[];
 };
 
-const EMPTY_PLAN: Omit<PlanningSnapshot, "buildId"> = {
-  allocations: [],
-  budgets: [],
-  draws: [],
-  evidenceRequirements: [],
-  milestones: [],
-  submilestones: [],
-};
+function emptyPlanningSnapshot(buildId: string): PlanningSnapshot {
+  return {
+    buildId,
+    allocations: [],
+    budgets: [],
+    draws: [],
+    evidenceRequirements: [],
+    milestones: [],
+    submilestones: [],
+  };
+}
+
+const PLANNING_SNAPSHOT_LIMITS = {
+  allocations: 2_000,
+  capitalPlans: 100,
+  draws: 1_000,
+  milestones: 1_000,
+  requirements: 5_000,
+  submilestones: 2_000,
+} as const;
+const PLANNING_REVISION_ENTITY_LIMIT = Object.values(
+  PLANNING_SNAPSHOT_LIMITS
+).reduce((total, limit) => total + limit, 0);
+
+const PLANNING_REVISION_DIFF_LIMIT = 10_000;
+const PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE = 250;
+
+function assertWithinPlanningSnapshotLimit(
+  label: string,
+  count: number,
+  limit: number
+) {
+  if (count > limit) {
+    throw new Error(
+      `Active Build planning snapshot exceeds the ${limit} ${label} safety limit.`
+    );
+  }
+}
+
+function chunkPlanningRows<T>(rows: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let offset = 0; offset < rows.length; offset += size) {
+    chunks.push(rows.slice(offset, offset + size));
+  }
+  return chunks;
+}
 
 function jsonValue(value: unknown) {
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
@@ -177,28 +216,59 @@ async function collectPlanningSnapshot(
       ctx.db
         .query("buildMilestones")
         .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(1000),
+        .take(PLANNING_SNAPSHOT_LIMITS.milestones + 1),
       ctx.db
         .query("buildSubmilestones")
         .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(2000),
+        .take(PLANNING_SNAPSHOT_LIMITS.submilestones + 1),
       ctx.db
         .query("plannedDrawScheduleRows")
         .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(1000),
+        .take(PLANNING_SNAPSHOT_LIMITS.draws + 1),
       ctx.db
         .query("milestoneContractorAssignments")
         .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(2000),
+        .take(PLANNING_SNAPSHOT_LIMITS.allocations + 1),
       ctx.db
         .query("buildCapitalPlans")
         .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(100),
+        .take(PLANNING_SNAPSHOT_LIMITS.capitalPlans + 1),
       ctx.db
         .query("buildSubmilestoneEvidenceRequirements")
         .withIndex("by_build", (query) => query.eq("buildId", build._id))
-        .take(5000),
+        .take(PLANNING_SNAPSHOT_LIMITS.requirements + 1),
     ]);
+
+  assertWithinPlanningSnapshotLimit(
+    "Milestones",
+    milestones.length,
+    PLANNING_SNAPSHOT_LIMITS.milestones
+  );
+  assertWithinPlanningSnapshotLimit(
+    "Sub-milestones",
+    submilestones.length,
+    PLANNING_SNAPSHOT_LIMITS.submilestones
+  );
+  assertWithinPlanningSnapshotLimit(
+    "planned Draws",
+    draws.length,
+    PLANNING_SNAPSHOT_LIMITS.draws
+  );
+  assertWithinPlanningSnapshotLimit(
+    "contractor allocations",
+    allocations.length,
+    PLANNING_SNAPSHOT_LIMITS.allocations
+  );
+  assertWithinPlanningSnapshotLimit(
+    "capital plans",
+    capitalPlans.length,
+    PLANNING_SNAPSHOT_LIMITS.capitalPlans
+  );
+  assertWithinPlanningSnapshotLimit(
+    "evidence requirements",
+    requirementRows.length,
+    PLANNING_SNAPSHOT_LIMITS.requirements
+  );
 
   const evidenceRequirements: PlanningEntity[] = [];
   const submilestonesById = new Map(
@@ -437,34 +507,87 @@ async function latestPlanningRevision(
 async function readRevisionSnapshot(
   ctx: QueryCtx | MutationCtx,
   revisionId: Id<"activeBuildPlanningRevisions">,
-  buildId: Id<"activeBuilds">
+  buildId: Id<"activeBuilds">,
+  options?: { allowPendingMaterialization?: boolean }
 ): Promise<PlanningSnapshot> {
+  const pendingChunks = await ctx.db
+    .query("activeBuildPlanningRevisionChunks")
+    .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
+    .order("asc")
+    .collect();
+  if (
+    pendingChunks.length > 0 &&
+    options?.allowPendingMaterialization !== true
+  ) {
+    throw new Error(
+      "Active Build planning revision materialization is still pending; retry after the bounded reconciliation completes."
+    );
+  }
   const entities = await ctx.db
     .query("activeBuildPlanningRevisionEntities")
     .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
-    .take(10000);
-  const result: PlanningSnapshot = {
-    buildId: String(buildId),
-    ...EMPTY_PLAN,
-  };
-  for (const entity of entities) {
-    const value: PlanningEntity = {
+    .take(PLANNING_REVISION_ENTITY_LIMIT + 1);
+  const stagedEntities = pendingChunks
+    .filter((chunk) => chunk.chunkKind === "entities")
+    .flatMap((chunk) => JSON.parse(chunk.payloadJson) as PlanningEntity[]);
+  if (entities.length + stagedEntities.length > PLANNING_REVISION_ENTITY_LIMIT) {
+    throw new Error(
+      "Active Build planning revision exceeds the supported entity safety limit."
+    );
+  }
+  const result = emptyPlanningSnapshot(String(buildId));
+  const values: PlanningEntity[] = [
+    ...entities.map((entity) => ({
       canonicalId: entity.canonicalId,
       entityKey: entity.entityKey,
       entityType: entity.entityType,
       planningState: entity.planningState,
       snapshot: JSON.parse(entity.snapshotJson) as Record<string, unknown>,
-    };
-    if (entity.entityType === "milestone") result.milestones.push(value);
-    else if (entity.entityType === "submilestone")
+    })),
+    ...stagedEntities,
+  ];
+  for (const value of values) {
+    if (value.entityType === "milestone") result.milestones.push(value);
+    else if (value.entityType === "submilestone")
       result.submilestones.push(value);
-    else if (entity.entityType === "draw") result.draws.push(value);
-    else if (entity.entityType === "budget") result.budgets.push(value);
-    else if (entity.entityType === "allocation") result.allocations.push(value);
-    else if (entity.entityType === "evidenceRequirement")
+    else if (value.entityType === "draw") result.draws.push(value);
+    else if (value.entityType === "budget") result.budgets.push(value);
+    else if (value.entityType === "allocation") result.allocations.push(value);
+    else if (value.entityType === "evidenceRequirement")
       result.evidenceRequirements.push(value);
+    else {
+      throw new Error(
+        `Active Build planning revision contains an unknown entity type: ${value.entityType}.`
+      );
+    }
   }
   return result;
+}
+
+async function readRevisionDiffs(
+  ctx: QueryCtx | MutationCtx,
+  revision: Doc<"activeBuildPlanningRevisions">,
+  limit: number
+) {
+  const persisted = await ctx.db
+    .query("activeBuildPlanningRevisionDiffs")
+    .withIndex("by_revision", (query) => query.eq("revisionId", revision._id))
+    .take(limit + 1);
+  const pendingChunks = await ctx.db
+    .query("activeBuildPlanningRevisionChunks")
+    .withIndex("by_revision", (query) => query.eq("revisionId", revision._id))
+    .collect();
+  const staged = pendingChunks
+    .filter((chunk) => chunk.chunkKind === "diffs")
+    .flatMap((chunk) => JSON.parse(chunk.payloadJson) as PlanningDiff[])
+    .map((diff) => ({ ...diff, revision: revision.revision }));
+  const rows = [...persisted, ...staged];
+  if (rows.length > limit) {
+    throw new Error(
+      "Active Build planning revision diff history exceeds the supported read window."
+    );
+  }
+  return rows;
 }
 
 function snapshotEntitySummary(snapshot: PlanningSnapshot) {
@@ -516,7 +639,9 @@ export async function recordApprovedActiveBuildPlanningRevision(
   const current = await collectPlanningSnapshot(ctx, input.build);
   const priorRevision = await latestPlanningRevision(ctx, input.build._id);
   const previous = priorRevision
-    ? await readRevisionSnapshot(ctx, priorRevision._id, input.build._id)
+    ? await readRevisionSnapshot(ctx, priorRevision._id, input.build._id, {
+        allowPendingMaterialization: true,
+      })
     : undefined;
   const kind = input.kind ?? "approved";
   if (kind === "approved" && priorRevision) {
@@ -541,34 +666,36 @@ export async function recordApprovedActiveBuildPlanningRevision(
     sourceCommand: input.sourceCommand,
     summary: snapshotEntitySummary(current),
   });
-  for (const entity of flattenSnapshot(current)) {
-    await ctx.db.insert("activeBuildPlanningRevisionEntities", {
+  const entityChunks = chunkPlanningRows(
+    flattenSnapshot(current),
+    PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE
+  );
+  for (const [chunkIndex, entities] of entityChunks.entries()) {
+    await ctx.db.insert("activeBuildPlanningRevisionChunks", {
       brokerageId: input.build.brokerageId,
       buildId: input.build._id,
-      canonicalId: entity.canonicalId,
+      chunkIndex,
+      chunkKind: "entities",
       createdAt: now,
-      entityKey: entity.entityKey,
-      entityType: entity.entityType,
       organizationId: input.build.organizationId,
-      planningState: entity.planningState,
+      payloadJson: JSON.stringify(entities),
       revision,
       revisionId,
-      snapshotJson: JSON.stringify(entity.snapshot),
     });
   }
-  for (const diff of diffs) {
-    await ctx.db.insert("activeBuildPlanningRevisionDiffs", {
+  const diffChunks = chunkPlanningRows(
+    diffs,
+    PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE
+  );
+  for (const [chunkIndex, diffChunk] of diffChunks.entries()) {
+    await ctx.db.insert("activeBuildPlanningRevisionChunks", {
       brokerageId: input.build.brokerageId,
       buildId: input.build._id,
-      category: diff.category,
-      changeType: diff.changeType,
+      chunkIndex,
+      chunkKind: "diffs",
       createdAt: now,
-      entityKey: diff.entityKey,
-      entityType: diff.entityType,
-      field: diff.field,
-      nextValue: diff.nextValue,
       organizationId: input.build.organizationId,
-      priorValue: diff.priorValue,
+      payloadJson: JSON.stringify(diffChunk),
       revision,
       revisionId,
     });
@@ -597,8 +724,127 @@ export async function recordApprovedActiveBuildPlanningRevision(
     reason: input.reason.trim() || "Approved planning revision.",
     warnings: [],
   });
+  if (entityChunks.length > 0 || diffChunks.length > 0) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.build_collaboration_planning_reconciliation
+        .materializeActiveBuildPlanningRevisionChunk,
+      { revisionId }
+    );
+  }
   return await ctx.db.get(revisionId);
 }
+
+/**
+ * Materialize one transient planning chunk in a bounded mutation. The chunk
+ * is deleted in the same transaction as its canonical projection rows, so a
+ * retry is idempotent and readers can fail closed while any chunk remains.
+ */
+export const materializeActiveBuildPlanningRevisionChunk = internalMutation
+  .input({ revisionId: v.id("activeBuildPlanningRevisions") })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const revision = await ctx.db.get(args.revisionId);
+    if (!revision) return null;
+
+    let chunk = await ctx.db
+      .query("activeBuildPlanningRevisionChunks")
+      .withIndex("by_revision_and_kind_and_index", (query) =>
+        query.eq("revisionId", args.revisionId).eq("chunkKind", "entities")
+      )
+      .order("asc")
+      .take(1)
+      .then((rows) => rows[0]);
+    if (!chunk) {
+      chunk = await ctx.db
+        .query("activeBuildPlanningRevisionChunks")
+        .withIndex("by_revision_and_kind_and_index", (query) =>
+          query.eq("revisionId", args.revisionId).eq("chunkKind", "diffs")
+        )
+        .order("asc")
+        .take(1)
+        .then((rows) => rows[0]);
+    }
+    if (!chunk) return null;
+    if (
+      chunk.buildId !== revision.buildId ||
+      chunk.brokerageId !== revision.brokerageId ||
+      chunk.organizationId !== revision.organizationId ||
+      chunk.revision !== revision.revision
+    ) {
+      throw new Error(
+        "Active Build planning revision materialization chunk scope is invalid."
+      );
+    }
+
+    if (chunk.chunkKind === "entities") {
+      const entities = JSON.parse(chunk.payloadJson) as PlanningEntity[];
+      if (entities.length > PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE) {
+        throw new Error(
+          "Active Build planning revision entity chunk exceeds its bounded batch size."
+        );
+      }
+      for (const entity of entities) {
+        await ctx.db.insert("activeBuildPlanningRevisionEntities", {
+          brokerageId: revision.brokerageId,
+          buildId: revision.buildId,
+          ...(entity.canonicalId === undefined
+            ? {}
+            : { canonicalId: entity.canonicalId }),
+          createdAt: revision.createdAt,
+          entityKey: entity.entityKey,
+          entityType: entity.entityType,
+          organizationId: revision.organizationId,
+          planningState: entity.planningState,
+          revision: revision.revision,
+          revisionId: revision._id,
+          snapshotJson: JSON.stringify(entity.snapshot),
+        });
+      }
+    } else {
+      const diffs = JSON.parse(chunk.payloadJson) as PlanningDiff[];
+      if (diffs.length > PLANNING_REVISION_MATERIALIZATION_BATCH_SIZE) {
+        throw new Error(
+          "Active Build planning revision diff chunk exceeds its bounded batch size."
+        );
+      }
+      for (const diff of diffs) {
+        await ctx.db.insert("activeBuildPlanningRevisionDiffs", {
+          brokerageId: revision.brokerageId,
+          buildId: revision.buildId,
+          category: diff.category,
+          changeType: diff.changeType,
+          createdAt: revision.createdAt,
+          entityKey: diff.entityKey,
+          entityType: diff.entityType,
+          field: diff.field,
+          ...(diff.nextValue === undefined ? {} : { nextValue: diff.nextValue }),
+          organizationId: revision.organizationId,
+          ...(diff.priorValue === undefined
+            ? {}
+            : { priorValue: diff.priorValue }),
+          revision: revision.revision,
+          revisionId: revision._id,
+        });
+      }
+    }
+
+    await ctx.db.delete(chunk._id);
+    const remaining = await ctx.db
+      .query("activeBuildPlanningRevisionChunks")
+      .withIndex("by_revision", (query) => query.eq("revisionId", revision._id))
+      .take(1);
+    if (remaining.length > 0) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.build_collaboration_planning_reconciliation
+          .materializeActiveBuildPlanningRevisionChunk,
+        { revisionId: revision._id }
+      );
+    }
+    return null;
+  })
+  .internal();
 
 async function redactSnapshotForViewer(
   ctx: QueryCtx,
@@ -609,14 +855,97 @@ async function redactSnapshotForViewer(
     return { snapshot };
   }
   const visibleSubmilestoneKeys = new Set<string>();
+  const milestonesByKey = new Map(
+    snapshot.milestones.map((entity) => [entity.entityKey, entity])
+  );
+  const assignmentIds = snapshot.allocations
+    .map((entity) =>
+      entity.canonicalId
+        ? ctx.db.normalizeId("milestoneContractorAssignments", entity.canonicalId)
+        : null
+    )
+    .filter(
+      (id): id is Id<"milestoneContractorAssignments"> => id !== null
+    );
+  const assignmentDocs = await Promise.all(
+    assignmentIds.map((assignmentId) => ctx.db.get(assignmentId))
+  );
+  const assignmentsBySubmilestoneId = new Map<
+    string,
+    Doc<"milestoneContractorAssignments">[]
+  >();
+  for (const assignment of assignmentDocs) {
+    if (
+      !assignment ||
+      assignment.organizationId !== authorization.organizationId ||
+      assignment.brokerageId !== authorization.brokerage._id ||
+      assignment.buildId !== authorization.build._id ||
+      !assignment.buildSubmilestoneId ||
+      !(assignment.status === "planned" || assignment.status === "active")
+    ) {
+      continue;
+    }
+    const key = String(assignment.buildSubmilestoneId);
+    const existing = assignmentsBySubmilestoneId.get(key) ?? [];
+    existing.push(assignment);
+    assignmentsBySubmilestoneId.set(key, existing);
+  }
+  const assignmentCandidates = [...assignmentsBySubmilestoneId.entries()]
+    .filter(([, assignments]) => assignments.length === 1)
+    .map(([submilestoneId, assignments]) => ({
+      assignment: assignments[0]!,
+      submilestoneId,
+    }));
+  const ownershipCandidates = await Promise.all(
+    assignmentCandidates.map(async ({ assignment, submilestoneId }) => {
+      const [rootAssignment, contractor] = await Promise.all([
+        ctx.db.get(assignment.buildContractorAssignmentId),
+        ctx.db.get(assignment.contractorId),
+      ]);
+      if (
+        !rootAssignment ||
+        rootAssignment.organizationId !== authorization.organizationId ||
+        rootAssignment.brokerageId !== authorization.brokerage._id ||
+        rootAssignment.buildId !== authorization.build._id ||
+        rootAssignment.contractorId !== assignment.contractorId ||
+        rootAssignment.status !== "active" ||
+        !contractor ||
+        contractor.organizationId !== authorization.organizationId ||
+        contractor.brokerageId !== authorization.brokerage._id ||
+        contractor.status !== "active" ||
+        !contractor.accountWorkosUserId
+      ) {
+        return null;
+      }
+      return {
+        submilestoneId,
+        workosUserId: contractor.accountWorkosUserId,
+      };
+    })
+  );
+  const ownerBySubmilestoneId = new Map(
+    ownershipCandidates
+      .filter(
+        (candidate): candidate is {
+          submilestoneId: string;
+          workosUserId: string;
+        } => candidate !== null
+      )
+      .map((candidate) => [candidate.submilestoneId, candidate.workosUserId])
+  );
   for (const submilestone of snapshot.submilestones) {
-    const milestone = snapshot.milestones.find(
-      (candidate) =>
-        candidate.entityKey === submilestone.entityKey.split(":")[0]
+    const ownerWorkosUserId = submilestone.canonicalId
+      ? ownerBySubmilestoneId.get(submilestone.canonicalId)
+      : undefined;
+    if (ownerWorkosUserId !== authorization.viewer.subject) continue;
+    const assignment = submilestone.canonicalId
+      ? assignmentsBySubmilestoneId.get(submilestone.canonicalId)?.[0]
+      : undefined;
+    const milestone = milestonesByKey.get(
+      submilestone.entityKey.split(":")[0] ?? ""
     );
     const milestoneId = milestone?.canonicalId
-      ? authorization.build._id &&
-        ctx.db.normalizeId("buildMilestones", milestone.canonicalId)
+      ? ctx.db.normalizeId("buildMilestones", milestone.canonicalId)
       : null;
     const submilestoneId = submilestone.canonicalId
       ? ctx.db.normalizeId("buildSubmilestones", submilestone.canonicalId)
@@ -627,14 +956,22 @@ async function redactSnapshotForViewer(
       ctx.db.get(submilestoneId),
     ]);
     if (!(milestoneDoc && submilestoneDoc)) continue;
-    const ownership = await resolveCanonicalMilestoneExecutionOwnership(ctx, {
-      build: authorization.build,
-      milestone: milestoneDoc,
-      submilestone: submilestoneDoc,
-    });
+    // Ownership was resolved from the bounded allocation batch above; these
+    // canonical reads only validate that the snapshot IDs still belong to the
+    // same Build before exposing the projection.
     if (
-      ownership.state === "assigned" &&
-      ownership.contractor?.accountWorkosUserId === authorization.viewer.subject
+      milestoneDoc.buildId === authorization.build._id &&
+      milestoneDoc.organizationId === authorization.organizationId &&
+      milestoneDoc.brokerageId === authorization.brokerage._id &&
+      submilestoneDoc.buildId === authorization.build._id &&
+      submilestoneDoc.organizationId === authorization.organizationId &&
+      submilestoneDoc.brokerageId === authorization.brokerage._id &&
+      submilestoneDoc.buildMilestoneId === milestoneDoc._id &&
+      submilestoneDoc.milestoneKey === milestoneDoc.key &&
+      assignment?.buildMilestoneId === milestoneDoc._id &&
+      assignment.milestoneKey === milestoneDoc.key &&
+      assignment.buildSubmilestoneId === submilestoneDoc._id &&
+      assignment.submilestoneKey === submilestoneDoc.key
     ) {
       visibleSubmilestoneKeys.add(submilestone.entityKey);
     }
@@ -671,7 +1008,7 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
   .returns(buildPlanningReconciliationValidator)
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildAccess(ctx, args);
-    const [revisions, currentSnapshot] = await Promise.all([
+    const [revisions, currentSnapshot, pendingChunks] = await Promise.all([
       ctx.db
         .query("activeBuildPlanningRevisions")
         .withIndex("by_build_revision", (query) =>
@@ -680,6 +1017,12 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         .order("desc")
         .take(100),
       collectPlanningSnapshot(ctx, authorization.build),
+      ctx.db
+        .query("activeBuildPlanningRevisionChunks")
+        .withIndex("by_build", (query) =>
+          query.eq("buildId", authorization.build._id)
+        )
+        .take(1),
     ]);
     const activationRevision = revisions.find(
       (revision) => revision.kind === "activation"
@@ -688,17 +1031,23 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
       ? await readRevisionSnapshot(
           ctx,
           activationRevision._id,
-          authorization.build._id
+          authorization.build._id,
+          { allowPendingMaterialization: true }
         )
-      : { buildId: String(authorization.build._id), ...EMPTY_PLAN };
+      : emptyPlanningSnapshot(String(authorization.build._id));
     const diffs = [];
     for (const revision of revisions) {
-      const rows = await ctx.db
-        .query("activeBuildPlanningRevisionDiffs")
-        .withIndex("by_revision", (query) =>
-          query.eq("revisionId", revision._id)
-        )
-        .take(1000);
+      const remainingDiffLimit = PLANNING_REVISION_DIFF_LIMIT - diffs.length;
+      if (remainingDiffLimit <= 0) {
+        throw new Error(
+          "Active Build planning revision diff history exceeds the supported read window."
+        );
+      }
+      const rows = await readRevisionDiffs(
+        ctx,
+        revision,
+        remainingDiffLimit
+      );
       diffs.push(...rows);
     }
     const activationProjection = activationRevision
@@ -744,6 +1093,7 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
           priorValue: diff.priorValue,
           revision: diff.revision,
         })),
+      materializationPending: pendingChunks.length > 0,
       revisions: revisions.map((revision) => ({
         approvedAt: revision.approvedAt,
         actorRoles: revision.actorRoles,
@@ -769,7 +1119,15 @@ export const reconcileActiveBuildMilestonePlanning = authenticatedMutation
     milestoneKey: v.optional(v.string()),
     organizationId: v.string(),
   })
-  .returns(v.any())
+  .returns(
+    v.object({
+      buildId: v.id("activeBuilds"),
+      planningRevision: v.number(),
+      postIds: v.array(v.id("buildCollaborationPosts")),
+      repairedMilestoneCount: v.number(),
+      synchronizedMilestoneCount: v.number(),
+    })
+  )
   .handler(async (ctx, args) => {
     const authorization = await authorizeActiveBuildAccess(ctx, args);
     if (authorization.effectiveRole.tier < 3) {
@@ -789,12 +1147,18 @@ export const reconcileActiveBuildMilestonePlanning = authenticatedMutation
       .withIndex("by_build", (query) =>
         query.eq("buildId", authorization.build._id)
       )
-      .take(1000);
+      .take(PLANNING_SNAPSHOT_LIMITS.milestones + 1);
+    assertWithinPlanningSnapshotLimit(
+      "Milestones",
+      milestones.length,
+      PLANNING_SNAPSHOT_LIMITS.milestones
+    );
     const targets = milestones.filter(
       (milestone) =>
         args.milestoneKey === undefined || milestone.key === args.milestoneKey
     );
-    const posts = [];
+    const posts: Id<"buildCollaborationPosts">[] = [];
+    let repairedMilestoneCount = 0;
     for (const milestone of targets) {
       let postId = await synchronizeMilestoneSystemPostPlanning(ctx, {
         actor: {
@@ -815,6 +1179,7 @@ export const reconcileActiveBuildMilestonePlanning = authenticatedMutation
           milestone,
         });
         postId = repaired?.postId ?? null;
+        if (postId) repairedMilestoneCount += 1;
       }
       if (postId) posts.push(postId);
     }
@@ -824,7 +1189,8 @@ export const reconcileActiveBuildMilestonePlanning = authenticatedMutation
         (await latestPlanningRevision(ctx, authorization.build._id))
           ?.revision ?? 0,
       postIds: posts,
-      repairedMilestoneCount: posts.length,
+      repairedMilestoneCount,
+      synchronizedMilestoneCount: posts.length,
     };
   })
   .public();

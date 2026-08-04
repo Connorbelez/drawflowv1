@@ -1393,11 +1393,17 @@ async function recordRelationLifecycle(
     ctx.db.get(input.sourceActionItemId),
     ctx.db.get(input.targetActionItemId),
   ]);
-  if (!source || !target) {
-    throw new Error("Action Item relationship endpoint became unavailable.");
-  }
-  for (const item of [source, target]) {
-    if (item.systemMode === "generated_milestone_submilestone") continue;
+  const endpoints = [source, target].filter(
+    (item): item is Doc<"buildActionItems"> => item !== null
+  );
+  const warnings =
+    endpoints.length === 2
+      ? input.warnings
+      : [...(input.warnings ?? []), "missing_relationship_endpoint"];
+  for (const item of endpoints) {
+    if (item.systemMode === "generated_milestone_submilestone") {
+      continue;
+    }
     await recordStructuralEvent(ctx, {
       actionItemId: item._id,
       authorization: input.authorization,
@@ -1406,7 +1412,7 @@ async function recordRelationLifecycle(
       newState: state,
       now: input.now,
       reason: input.reason,
-      warnings: input.warnings,
+      warnings,
     });
   }
   await Promise.all([
@@ -1422,7 +1428,7 @@ async function recordRelationLifecycle(
       newState: state,
       organizationId: input.authorization.organizationId,
       reason: input.reason,
-      warnings: input.warnings ?? [],
+      warnings: warnings ?? [],
     }),
     ctx.db.insert("eventOutbox", {
       brokerageId: input.authorization.brokerage._id,

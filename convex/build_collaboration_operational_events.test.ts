@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -3529,5 +3529,219 @@ describe("Build Collaboration operational events", () => {
         },
       ),
     ).rejects.toThrow(/read-only|closed/i);
+  });
+
+  test("rejects a planning snapshot that exceeds the bounded Milestone cap", async () => {
+    const fixture = await seedOperationalBuild();
+    await fixture.base.run(async (ctx) => {
+      const template = await ctx.db.get(fixture.milestoneId);
+      if (!template) throw new Error("Missing Milestone fixture.");
+      const { _creationTime, _id, ...templateFields } = template;
+      void _creationTime;
+      void _id;
+      for (let index = 0; index < 1_001; index += 1) {
+        await ctx.db.insert("buildMilestones", {
+          ...templateFields,
+          key: `overflow-${index}`,
+          name: `Overflow ${index}`,
+          order: index + 2,
+          updatedAt: Date.now(),
+        });
+      }
+    });
+    await expect(
+      fixture.admin.query(
+        (api as any).build_collaboration_planning_reconciliation
+          .getActiveBuildPlanningReconciliation,
+        { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+      ),
+    ).rejects.toThrow(/planning snapshot exceeds the 1000 Milestones safety limit/i);
+  });
+
+  test("reports synchronized versus repaired Milestone posts separately", async () => {
+    const fixture = await seedOperationalBuild();
+    const first = await fixture.admin.mutation(
+      (api as any).build_collaboration_planning_reconciliation
+        .reconcileActiveBuildMilestonePlanning,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(first).toMatchObject({
+      repairedMilestoneCount: 1,
+      synchronizedMilestoneCount: 1,
+    });
+    const second = await fixture.admin.mutation(
+      (api as any).build_collaboration_planning_reconciliation
+        .reconcileActiveBuildMilestonePlanning,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(second).toMatchObject({
+      repairedMilestoneCount: 0,
+      synchronizedMilestoneCount: 1,
+    });
+  });
+
+  test("reconstructs multi-batch planning revisions while materialization is pending and drains idempotently", async () => {
+    vi.useFakeTimers();
+    const fixture = await seedOperationalBuild();
+    const now = Date.now();
+    const entityRows = Array.from({ length: 251 }, (_, index) => ({
+      entityKey: `synthetic-${index}`,
+      entityType: "milestone",
+      planningState: "active" as const,
+      snapshot: { name: `Synthetic ${index}` },
+    }));
+    const diffRows = Array.from({ length: 251 }, (_, index) => ({
+      category: "scope" as const,
+      changeType: "changed" as const,
+      entityKey: `synthetic-${index}`,
+      entityType: "milestone",
+      field: "name",
+      nextValue: `Synthetic ${index} revised`,
+      priorValue: `Synthetic ${index}`,
+    }));
+    const { activationRevisionId, approvedRevisionId } = await fixture.base.run(
+      async (ctx) => {
+        const activationRevisionId = await ctx.db.insert(
+          "activeBuildPlanningRevisions",
+          {
+            actorRoles: ["admin"],
+            actorWorkosUserId: "user_admin",
+            approvedAt: now,
+            brokerageId: fixture.brokerageId,
+            buildId: fixture.buildId,
+            createdAt: now,
+            diffCount: 0,
+            kind: "activation",
+            organizationId: ORGANIZATION_ID,
+            reason: "Synthetic activation materialization test.",
+            revision: 1,
+            sourceCommand: "test",
+            summary: "251 milestone(s)",
+          },
+        );
+        const approvedRevisionId = await ctx.db.insert(
+          "activeBuildPlanningRevisions",
+          {
+            actorRoles: ["admin"],
+            actorWorkosUserId: "user_admin",
+            approvedAt: now + 1,
+            brokerageId: fixture.brokerageId,
+            buildId: fixture.buildId,
+            createdAt: now + 1,
+            diffCount: diffRows.length,
+            kind: "approved",
+            organizationId: ORGANIZATION_ID,
+            previousRevision: 1,
+            reason: "Synthetic approved materialization test.",
+            revision: 2,
+            sourceCommand: "test",
+            summary: "251 milestone(s)",
+          },
+        );
+        for (const [chunkIndex, payload] of [
+          entityRows.slice(0, 250),
+          entityRows.slice(250),
+        ].entries()) {
+          await ctx.db.insert("activeBuildPlanningRevisionChunks", {
+            brokerageId: fixture.brokerageId,
+            buildId: fixture.buildId,
+            chunkIndex,
+            chunkKind: "entities",
+            createdAt: now,
+            organizationId: ORGANIZATION_ID,
+            payloadJson: JSON.stringify(payload),
+            revision: 1,
+            revisionId: activationRevisionId,
+          });
+        }
+        for (const [chunkIndex, payload] of [
+          diffRows.slice(0, 250),
+          diffRows.slice(250),
+        ].entries()) {
+          await ctx.db.insert("activeBuildPlanningRevisionChunks", {
+            brokerageId: fixture.brokerageId,
+            buildId: fixture.buildId,
+            chunkIndex,
+            chunkKind: "diffs",
+            createdAt: now + 1,
+            organizationId: ORGANIZATION_ID,
+            payloadJson: JSON.stringify(payload),
+            revision: 2,
+            revisionId: approvedRevisionId,
+          });
+        }
+        return { activationRevisionId, approvedRevisionId };
+      },
+    );
+
+    const pending = await fixture.admin.query(
+      (api as any).build_collaboration_planning_reconciliation
+        .getActiveBuildPlanningReconciliation,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(pending.materializationPending).toBe(true);
+    expect(
+      pending.activation.snapshot.milestones.filter((milestone: { entityKey: string }) =>
+        milestone.entityKey.startsWith("synthetic-"),
+      ),
+    ).toHaveLength(251);
+    expect(pending.diffs).toHaveLength(251);
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_planning_reconciliation
+        .materializeActiveBuildPlanningRevisionChunk,
+      { revisionId: activationRevisionId },
+    );
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_planning_reconciliation
+        .materializeActiveBuildPlanningRevisionChunk,
+      { revisionId: approvedRevisionId },
+    );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+    const completed = await fixture.admin.query(
+      (api as any).build_collaboration_planning_reconciliation
+        .getActiveBuildPlanningReconciliation,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(completed.materializationPending).toBe(false);
+    expect(
+      completed.activation.snapshot.milestones.filter((milestone: { entityKey: string }) =>
+        milestone.entityKey.startsWith("synthetic-"),
+      ),
+    ).toHaveLength(251);
+    expect(completed.diffs).toHaveLength(251);
+    expect(
+      completed.revisions.find((revision: { revision: number }) => revision.revision === 2)
+        ?.diffCount,
+    ).toBe(251);
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_planning_reconciliation
+        .materializeActiveBuildPlanningRevisionChunk,
+      { revisionId: activationRevisionId },
+    );
+    const persistedCounts = await fixture.base.run(async (ctx) => ({
+      chunks: (await ctx.db.query("activeBuildPlanningRevisionChunks").collect())
+        .length,
+      diffs: (
+        await ctx.db
+          .query("activeBuildPlanningRevisionDiffs")
+          .withIndex("by_revision", (query) =>
+            query.eq("revisionId", approvedRevisionId),
+          )
+          .collect()
+      ).length,
+      entities: (
+        await ctx.db
+          .query("activeBuildPlanningRevisionEntities")
+          .withIndex("by_revision", (query) =>
+            query.eq("revisionId", activationRevisionId),
+          )
+          .collect()
+      ).length,
+    }));
+    expect(persistedCounts).toEqual({ chunks: 0, diffs: 251, entities: 251 });
+    vi.useRealTimers();
   });
 });

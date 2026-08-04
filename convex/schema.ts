@@ -3252,6 +3252,30 @@ export default defineSchema({
     .index("by_revision", ["revisionId"])
     .index("by_build_revision", ["buildId", "revision"])
     .index("by_build_entity", ["buildId", "entityType", "entityKey"]),
+  /**
+   * Transient bounded materialization chunks for an immutable planning
+   * revision. The revision row is canonical; these rows only carry the
+   * captured entity/diff payload between bounded internal mutations and are
+   * deleted atomically after each batch is materialized.
+   */
+  activeBuildPlanningRevisionChunks: defineTable({
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    chunkIndex: v.number(),
+    chunkKind: v.union(v.literal("entities"), v.literal("diffs")),
+    createdAt: v.number(),
+    organizationId: v.string(),
+    payloadJson: v.string(),
+    revision: v.number(),
+    revisionId: v.id("activeBuildPlanningRevisions"),
+  })
+    .index("by_revision", ["revisionId"])
+    .index("by_revision_and_kind_and_index", [
+      "revisionId",
+      "chunkKind",
+      "chunkIndex",
+    ])
+    .index("by_build", ["buildId"]),
   assistantThreads: defineTable({
     brokerageId: v.optional(v.id("brokerages")),
     componentThreadId: v.optional(v.string()),
