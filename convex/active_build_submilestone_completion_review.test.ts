@@ -274,10 +274,10 @@ describe("canonical Sub-milestone completion review", () => {
             requirementKey: "forms-photo",
           },
           {
-            kind: "document",
-            label: "Forms document",
+            kind: "any",
+            label: "Forms any evidence",
             required: true,
-            requirementKey: "forms-document",
+            requirementKey: "forms-any",
           },
         ],
         submilestoneKey: "forms",
@@ -343,7 +343,7 @@ describe("canonical Sub-milestone completion review", () => {
         asset,
         build,
         milestone,
-        requirementKey: "forms-document",
+        requirementKey: "forms-any",
         sourceKind: "canonical_upload",
         submilestone,
       });
@@ -368,7 +368,7 @@ describe("canonical Sub-milestone completion review", () => {
     expect(result.replay.item?._id).toBe(result.first.item?._id);
     expect(result.items).toHaveLength(2);
     expect(result.items.map((item: any) => item.requirementKey).sort()).toEqual([
-      "forms-document",
+      "forms-any",
       "forms-photo",
     ]);
     expect(
@@ -604,6 +604,187 @@ describe("canonical Sub-milestone completion review", () => {
     );
     expect(readinessAfterMismatchedSiteVisitItem.readyExceptFor).toContain(
       "Forms site visit",
+    );
+  });
+
+  test("accepts only document MIME types for document requirements and keeps readiness fail-closed", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    await fixture.builder.mutation(
+      (api as any).production_proposals.configureActiveBuildSubmilestoneEvidenceRequirements,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        requirements: [
+          {
+            kind: "document",
+            label: "Forms document",
+            required: true,
+            requirementKey: "forms-document",
+          },
+          {
+            kind: "any",
+            label: "Forms any evidence",
+            required: true,
+            requirementKey: "forms-any",
+          },
+        ],
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const scope = await fixture.base.run(async (ctx: any) => {
+      const build = await ctx.db.get(fixture.closing.buildId);
+      const milestone = build
+        ? await ctx.db
+            .query("buildMilestones")
+            .withIndex("by_build_key", (q: any) =>
+              q.eq("buildId", fixture.closing.buildId).eq("key", "foundation"),
+            )
+            .unique()
+        : null;
+      const submilestone = milestone
+        ? await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (q: any) =>
+              q.eq("buildMilestoneId", milestone._id),
+            )
+            .filter((q: any) => q.eq(q.field("key"), "forms"))
+            .unique()
+        : null;
+      if (!build || !milestone || !submilestone) {
+        throw new Error("Document evidence fixture is incomplete.");
+      }
+      return { build, milestone, submilestone };
+    });
+    const insertAsset = async (input: {
+      evidenceKey: string;
+      fileName: string;
+      mimeType: string;
+      storageType: string;
+    }) => {
+      const storageId = await fixture.base.run((ctx: any) =>
+        ctx.storage.store(new Blob([input.evidenceKey], { type: input.storageType })),
+      );
+      return await fixture.base.run(async (ctx: any) => {
+        const now = Date.now();
+        const assetId = await ctx.db.insert("buildEvidenceAssets", {
+          brokerageId: scope.build.brokerageId,
+          buildId: scope.build._id,
+          createdAt: now,
+          evidenceKey: input.evidenceKey,
+          fileName: input.fileName,
+          label: input.fileName,
+          locationVerified: true,
+          milestoneKey: scope.milestone.key,
+          mimeType: input.mimeType,
+          organizationId: scope.build.organizationId,
+          proposalId: scope.build.proposalId,
+          sizeBytes: 128,
+          source: "test",
+          storageId,
+          submilestoneKey: scope.submilestone.key,
+          tag: "Forms",
+          updatedAt: now,
+        });
+        const asset = await ctx.db.get(assetId);
+        if (!asset) throw new Error(`${input.evidenceKey} asset is unavailable.`);
+        return asset;
+      });
+    };
+
+    const image = await insertAsset({
+      evidenceKey: "forms-document-image",
+      fileName: "forms-photo.jpg",
+      mimeType: " IMAGE/JPEG ",
+      storageType: "image/jpeg",
+    });
+    await expect(
+      fixture.base.run((ctx: any) =>
+        appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+          actorWorkosUserId: "user_builder",
+          asset: image,
+          build: scope.build,
+          milestone: scope.milestone,
+          requirementKey: "forms-document",
+          sourceKind: "canonical_upload",
+          submilestone: scope.submilestone,
+        }),
+      ),
+    ).rejects.toThrow(/document requirement/i);
+
+    const document = await insertAsset({
+      evidenceKey: "forms-document-pdf",
+      fileName: "forms-document.pdf",
+      mimeType: " Application/PDF ",
+      storageType: "application/pdf",
+    });
+    const documentResult = await fixture.base.run((ctx: any) =>
+      appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorWorkosUserId: "user_builder",
+        asset: document,
+        build: scope.build,
+        milestone: scope.milestone,
+        requirementKey: "forms-document",
+        sourceKind: "canonical_upload",
+        submilestone: scope.submilestone,
+      }),
+    );
+    const anyResult = await fixture.base.run((ctx: any) =>
+      appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorWorkosUserId: "user_builder",
+        asset: image,
+        build: scope.build,
+        milestone: scope.milestone,
+        requirementKey: "forms-any",
+        sourceKind: "canonical_upload",
+        submilestone: scope.submilestone,
+      }),
+    );
+    expect(documentResult.item).toBeDefined();
+    expect(anyResult.item).toBeDefined();
+    const readiness = await fixture.base.run((ctx: any) =>
+      resolveActiveSubmilestoneEvidencePackageReadiness(ctx, {
+        build: scope.build,
+        includeFrozenRequirement: false,
+        milestone: scope.milestone,
+        submilestone: scope.submilestone,
+      }),
+    );
+    expect(readiness.readyExceptFor).toEqual([]);
+
+    if (!documentResult.item || !anyResult.packageRevision || !anyResult.item) {
+      throw new Error("Any evidence package item is unavailable.");
+    }
+    const documentItemId = documentResult.item._id;
+    const readinessAfterInvalidDocumentItem = await fixture.base.run(
+      async (ctx: any) => {
+        const now = Date.now();
+        await ctx.db.delete(documentItemId);
+        await ctx.db.insert("buildSubmilestoneEvidencePackageItems", {
+          brokerageId: scope.build.brokerageId,
+          buildId: scope.build._id,
+          buildMilestoneId: scope.milestone._id,
+          buildSubmilestoneId: scope.submilestone._id,
+          createdAt: now,
+          evidenceAssetId: image._id,
+          locationVerified: true,
+          organizationId: scope.build.organizationId,
+          packageRevisionId: anyResult.packageRevision._id,
+          requirementKey: "forms-document",
+          sourceKind: "canonical_upload",
+          sourceUploaderWorkosUserId: "user_builder",
+        });
+        return await resolveActiveSubmilestoneEvidencePackageReadiness(ctx, {
+          build: scope.build,
+          includeFrozenRequirement: false,
+          milestone: scope.milestone,
+          submilestone: scope.submilestone,
+        });
+      },
+    );
+    expect(readinessAfterInvalidDocumentItem.readyExceptFor).toContain(
+      "Forms document",
     );
   });
 

@@ -2621,6 +2621,7 @@ function ComposerAttachmentInput({
 
 function CollaborationPostHeader({
   buildId,
+  canEdit,
   coordinationVisible,
   entry,
   mutationsAllowed,
@@ -2630,6 +2631,7 @@ function CollaborationPostHeader({
   organizationId,
 }: {
   buildId: Id<"activeBuilds">;
+  canEdit: boolean;
   coordinationVisible: boolean;
   entry: CollaborationFeedPostEntry;
   mutationsAllowed: boolean;
@@ -2674,12 +2676,6 @@ function CollaborationPostHeader({
           : "Unable to update follow state."
       )
     );
-  const canEdit = Boolean(
-    mutationsAllowed &&
-      coordinationVisible &&
-      entry.post.viewerCanEdit &&
-      entry.post.contentState === "active"
-  );
   const canViewHistory =
     entry.post.viewerIsAuthor ||
     (entry.post.contentState === "active" && entry.post.revision > 1);
@@ -3039,6 +3035,12 @@ function CollaborationPostCard({
   const drawCoordinationVisible =
     entry.post.systemPost?.kind !== "draw" ||
     entry.post.systemPost.drawCoordination?.eligible === true;
+  const canEdit = Boolean(
+    mutationsAllowed &&
+      drawCoordinationVisible &&
+      entry.post.viewerCanEdit &&
+      entry.post.contentState === "active"
+  );
   const participants = tagOptions.filter(
     (option) => option.kind === "participant"
   );
@@ -3223,12 +3225,7 @@ function CollaborationPostCard({
   };
   const postEditTarget = () => {
     setEditTarget({
-      canEdit: Boolean(
-        mutationsAllowed &&
-          drawCoordinationVisible &&
-          entry.post.viewerCanEdit &&
-          entry.post.contentState === "active"
-      ),
+      canEdit,
       document: parseDocument(entry.revision.tiptapJson),
       entity: { kind: "post", postId: entry.post._id },
       references: collaborationReferencesForEditor(
@@ -3249,6 +3246,7 @@ function CollaborationPostCard({
     >
       <CollaborationPostHeader
         buildId={buildId}
+        canEdit={canEdit}
         coordinationVisible={drawCoordinationVisible}
         entry={entry}
         mutationsAllowed={mutationsAllowed}

@@ -40,19 +40,30 @@ export function normalizeActiveSubmilestoneEvidenceAssetMetadata(
   };
 }
 
+// Active evidence currently supports the same document format as the
+// contractor evidence contract. Keep this explicit so a document requirement
+// cannot be satisfied by an arbitrary asset (or by a photo).
+const DOCUMENT_EVIDENCE_MIME_TYPES = new Set(["application/pdf"]);
+
 export function activeSubmilestoneEvidenceAssetSatisfiesRequirementKind(input: {
   asset: EvidenceAssetMetadataInput;
   requirement: Pick<ActiveSubmilestoneEvidenceRequirement, "kind">;
   sourceKind: ActiveSubmilestoneEvidenceSourceKind;
 }) {
-  if (input.requirement.kind === "any" || input.requirement.kind === "document") {
+  if (input.requirement.kind === "any") {
     return true;
   }
   if (input.requirement.kind === "site_visit") {
     return input.sourceKind === "site_visit";
   }
   const metadata = normalizeActiveSubmilestoneEvidenceAssetMetadata(input.asset);
-  return metadata.mimeType.startsWith("image/");
+  if (input.requirement.kind === "photo") {
+    return metadata.mimeType.startsWith("image/");
+  }
+  return (
+    !metadata.mimeType.startsWith("image/") &&
+    DOCUMENT_EVIDENCE_MIME_TYPES.has(metadata.mimeType)
+  );
 }
 
 export function assertActiveSubmilestoneEvidenceRequirementKind(input: {

@@ -2248,11 +2248,22 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByRole("button", { name: "Request changes" })).toBeTruthy();
     expect(screen.getByText("Review history")).toBeTruthy();
     expect(screen.getByText(/lender_staff_recommendation/)).toBeTruthy();
+    mocks.mutate.mockClear();
     fireEvent.change(screen.getByLabelText("Review reason"), {
       target: { value: "Missing footing report." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
-    await waitFor(() => expect(mocks.mutate).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        expectedRevision: 2,
+        idempotencyKey: expect.stringMatching(/^review-changes:/),
+        milestoneKey: "foundation",
+        reason: "Missing footing report.",
+        submilestoneKey: "foundation-1",
+        workosOrganizationId: "org-1",
+      }),
+    );
   });
 
   test("projects principal-broker System Action Item oversight without admin approval authority", async () => {
@@ -2295,6 +2306,22 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.queryByRole("button", { name: "Approve Milestone" }),
     ).toBeNull();
+    mocks.mutate.mockClear();
+    fireEvent.change(screen.getByLabelText("Review reason"), {
+      target: { value: "Principal broker escalation with missing footing report." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        expectedRevision: 2,
+        idempotencyKey: expect.stringMatching(/^review-changes:/),
+        milestoneKey: "foundation",
+        reason: "Principal broker escalation with missing footing report.",
+        submilestoneKey: "foundation-1",
+        workosOrganizationId: "org-1",
+      }),
+    );
   });
 
   test("shows Admin Site Visit waiver and independent child/parent approval commands", async () => {
