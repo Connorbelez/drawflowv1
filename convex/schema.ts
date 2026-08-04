@@ -5131,6 +5131,9 @@ export default defineSchema({
     documentType: productionDocumentTypeValidator,
     status: buildDocumentStatusValidator,
     fileName: v.string(),
+    // A Build Document may be the durable document projection of a scanned,
+    // versioned collaboration asset. Keep this optional for legacy documents.
+    governedAssetId: v.optional(v.id("buildCollaborationAssets")),
     mimeType: v.string(),
     sizeBytes: v.number(),
     storageId: v.optional(v.id("_storage")),

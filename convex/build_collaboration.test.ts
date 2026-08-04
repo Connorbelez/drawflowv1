@@ -1487,6 +1487,63 @@ describe("Build collaboration publication and feed", () => {
 });
 
 describe("Build collaboration governed assets", () => {
+  test("preserves the optional governed asset reference on Build Documents", async () => {
+    const { base, buildId } = await seedActiveBuild();
+    const governedAssetId = await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      const storageId = await ctx.storage.store(
+        new Blob(["governed permit"], { type: "application/pdf" }),
+      );
+      const now = Date.now();
+      return await ctx.db.insert("buildCollaborationAssets", {
+        brokerageId: build.brokerageId,
+        buildId,
+        contentHashSha256: "a".repeat(64),
+        createdAt: now,
+        fileName: "permit.pdf",
+        maximumAudienceMode: "build_wide",
+        mimeType: "application/pdf",
+        organizationId: ORGANIZATION_ID,
+        scanState: "clean",
+        sizeBytes: 14,
+        state: "available",
+        storageId,
+        updatedAt: now,
+        uploadedByWorkosUserId: "user_admin",
+        version: 1,
+      });
+    });
+
+    const documentId = await base.run(async (ctx) => {
+      const build = await ctx.db.get(buildId);
+      if (!build) {
+        throw new Error("Build fixture is unavailable.");
+      }
+      return await ctx.db.insert("buildDocuments", {
+        brokerageId: build.brokerageId,
+        buildId,
+        createdAt: Date.now(),
+        documentType: "permit",
+        fileName: "permit.pdf",
+        governedAssetId,
+        mimeType: "application/pdf",
+        organizationId: ORGANIZATION_ID,
+        proposalId: build.proposalId,
+        sizeBytes: 14,
+        status: "uploaded",
+        updatedAt: Date.now(),
+        uploadedByWorkosUserId: "user_admin",
+      });
+    });
+
+    expect(
+      await base.run(async (ctx) => ctx.db.get(documentId)),
+    ).toMatchObject({ governedAssetId });
+  });
+
   test("finalizes through the public scan action and only returns a clean asset", async () => {
     const { admin, base, buildId } = await seedActiveBuild();
     const staged = await admin.mutation(
