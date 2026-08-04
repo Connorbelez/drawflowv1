@@ -40,6 +40,13 @@ export type SystemActionItemPresentation = {
   attention?: "overdue_completion";
   canAddEvidence?: boolean;
   canReview?: boolean;
+  canRecommendReview?: boolean;
+  canRequestChanges?: boolean;
+  canApproveSubmilestone?: boolean;
+  canWaiveSiteVisit?: boolean;
+  canRetractSubmilestoneApproval?: boolean;
+  canApproveMilestone?: boolean;
+  canRetractMilestoneApproval?: boolean;
   canSubmitForReview?: boolean;
   canUpdateExecution?: boolean;
   column: SystemActionItemPresentationColumn;
@@ -53,6 +60,38 @@ export type SystemActionItemPresentation = {
     | "in_review"
     | "changes_requested"
     | "approved";
+  reviewDecisionState?:
+    | "in_review"
+    | "changes_requested"
+    | "approved"
+    | "reopened";
+  milestoneReviewDecisionState?:
+    | "in_review"
+    | "ready_for_approval"
+    | "approved"
+    | "reopened";
+  reviewRevision?: number;
+  milestoneReviewRevision?: number;
+  parentReadyForApproval?: boolean;
+  siteVisitRequirement?: {
+    required: boolean;
+    status: "not_required" | "required" | "satisfied" | "waived";
+    policySignals: string[];
+    riskSignals: string[];
+    manualSignals: string[];
+    siteVisitId?: Id<"buildSiteVisits">;
+  };
+  reviewHistory?: Array<{
+    actorRoles: string[];
+    actorWorkosUserId: string;
+    createdAt: number;
+    kind: string;
+    note?: string;
+    reason?: string;
+    reviewRound: number;
+    scope: "submilestone" | "milestone";
+    warnings: string[];
+  }>;
   executionOwnership?: {
     assigneeDisplayName?: string;
     assigneeId?: Id<"contractorProfiles">;
@@ -199,6 +238,32 @@ function evidenceReviewColumn(
     return "in_review";
   }
   return undefined;
+}
+
+function derivedSubmilestoneReviewDecisionState(
+  submilestone: Doc<"buildSubmilestones">,
+): NonNullable<SystemActionItemPresentation["reviewDecisionState"]> {
+  if (submilestone.reviewDecisionState) {
+    return submilestone.reviewDecisionState;
+  }
+  if (submilestone.evidenceReviewState === "approved") {
+    return "approved";
+  }
+  if (submilestone.evidenceReviewState === "changes_requested") {
+    return "changes_requested";
+  }
+  return "in_review";
+}
+
+function derivedMilestoneReviewDecisionState(
+  milestone: Doc<"buildMilestones">,
+): NonNullable<SystemActionItemPresentation["milestoneReviewDecisionState"]> {
+  if (milestone.reviewDecisionState) {
+    return milestone.reviewDecisionState;
+  }
+  return milestone.completionReview?.status === "approved"
+    ? "approved"
+    : "in_review";
 }
 
 export async function deriveMilestoneSystemActionItemPresentation(
@@ -348,6 +413,13 @@ async function projectMilestoneExecutionPresentation(
     SystemActionItemPresentation,
     | "canAddEvidence"
     | "canReview"
+    | "canRecommendReview"
+    | "canRequestChanges"
+    | "canApproveSubmilestone"
+    | "canWaiveSiteVisit"
+    | "canRetractSubmilestoneApproval"
+    | "canApproveMilestone"
+    | "canRetractMilestoneApproval"
     | "canSubmitForReview"
     | "canUpdateExecution"
     | "completionForecastDate"
@@ -356,6 +428,13 @@ async function projectMilestoneExecutionPresentation(
     | "evidencePackageRevisionId"
     | "evidenceReviewRound"
     | "evidenceReviewState"
+    | "milestoneReviewDecisionState"
+    | "reviewRevision"
+    | "milestoneReviewRevision"
+    | "parentReadyForApproval"
+    | "reviewDecisionState"
+    | "reviewHistory"
+    | "siteVisitRequirement"
     | "executionOwnership"
     | "progressPercent"
     | "readyExceptFor"
@@ -384,6 +463,112 @@ async function projectMilestoneExecutionPresentation(
   const milestonesByKey = new Map(
     milestones.map((milestone) => [milestone.key, milestone])
   );
+  const reviewRound = input.submilestone.evidenceReviewRound ?? 0;
+  const childReviewDecisionState = derivedSubmilestoneReviewDecisionState(
+    input.submilestone,
+  );
+  const milestoneReviewDecisionState = derivedMilestoneReviewDecisionState(
+    input.milestone,
+  );
+  const [milestoneSubmilestones, requirementById, requirementByRound, childDecisions, milestoneDecisions] =
+    await Promise.all([
+      ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (query) =>
+          query.eq("buildMilestoneId", input.milestone._id),
+        )
+        .take(500),
+      input.submilestone.siteVisitRequirementId
+        ? ctx.db.get(input.submilestone.siteVisitRequirementId)
+        : Promise.resolve(null),
+      reviewRound > 0
+        ? ctx.db
+            .query("buildSubmilestoneSiteVisitRequirements")
+            .withIndex("by_submilestone_round", (query) =>
+              query
+                .eq("buildSubmilestoneId", input.submilestone._id)
+                .eq("reviewRound", reviewRound),
+            )
+            .unique()
+        : Promise.resolve(null),
+      ctx.db
+        .query("buildSubmilestoneReviewDecisions")
+        .withIndex("by_submilestone_createdAt", (query) =>
+          query.eq("buildSubmilestoneId", input.submilestone._id),
+        )
+        .order("desc")
+        .take(100),
+      ctx.db
+        .query("buildMilestoneReviewDecisions")
+        .withIndex("by_milestone_revision", (query) =>
+          query.eq("buildMilestoneId", input.milestone._id),
+        )
+        .take(100),
+    ]);
+  const siteVisitRequirement = requirementById ?? requirementByRound;
+  const parentReadyForApproval =
+    milestoneSubmilestones.length > 0 &&
+    milestoneSubmilestones.every(
+      (candidate) =>
+        derivedSubmilestoneReviewDecisionState(candidate) === "approved",
+    );
+  const reviewHistory = [
+    ...childDecisions.map((decision) => ({
+      actorRoles: decision.actorRoles,
+      actorWorkosUserId: decision.actorWorkosUserId,
+      createdAt: decision.createdAt,
+      kind: decision.kind,
+      ...(decision.note ? { note: decision.note } : {}),
+      ...(decision.reason ? { reason: decision.reason } : {}),
+      reviewRound: decision.reviewRound,
+      scope: "submilestone" as const,
+      warnings: decision.warnings,
+    })),
+    ...milestoneDecisions.map((decision) => ({
+      actorRoles: decision.actorRoles,
+      actorWorkosUserId: decision.actorWorkosUserId,
+      createdAt: decision.createdAt,
+      kind: decision.kind,
+      ...(decision.reason ? { reason: decision.reason } : {}),
+      reviewRound: decision.reviewRevision,
+      scope: "milestone" as const,
+      warnings: decision.warnings,
+    })),
+  ]
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, 100);
+  const canReview = [
+    "admin",
+    "principle-broker",
+    "broker",
+    "broker-staff",
+  ].includes(input.viewer.role);
+  const viewerIsAdmin = input.viewer.role === "admin";
+  const canRecommendReview = canReview && childReviewDecisionState === "in_review";
+  const canRequestChanges = canReview && childReviewDecisionState === "in_review";
+  const canApproveSubmilestone =
+    viewerIsAdmin && childReviewDecisionState === "in_review";
+  const canWaiveSiteVisit =
+    viewerIsAdmin &&
+    childReviewDecisionState === "in_review" &&
+    siteVisitRequirement?.required === true &&
+    siteVisitRequirement.status === "required";
+  const canRetractSubmilestoneApproval =
+    viewerIsAdmin && childReviewDecisionState === "approved";
+  const canApproveMilestone =
+    viewerIsAdmin &&
+    parentReadyForApproval &&
+    milestoneReviewDecisionState !== "approved";
+  const canRetractMilestoneApproval =
+    viewerIsAdmin && milestoneReviewDecisionState === "approved";
+  const readyExceptFor = [...evidenceReadiness.readyExceptFor];
+  if (
+    siteVisitRequirement?.required === true &&
+    siteVisitRequirement.status === "required" &&
+    !readyExceptFor.includes("Required Site Visit")
+  ) {
+    readyExceptFor.push("Required Site Visit");
+  }
   const dependencyBlockers = input.milestone.dependencyKeys.flatMap((key) => {
     const dependency = milestonesByKey.get(key);
     if (!dependency || dependency.status === "complete") {
@@ -455,15 +640,16 @@ async function projectMilestoneExecutionPresentation(
     input.submilestone.evidenceReviewState !== "in_review" &&
     input.submilestone.evidenceReviewState !== "approved" &&
     evidenceReadiness.readyExceptFor.length === 0;
-  const canReview = [
-    "admin",
-    "principle-broker",
-    "broker",
-    "broker-staff",
-  ].includes(input.viewer.role);
   return {
     canAddEvidence,
     canReview,
+    canRecommendReview,
+    canRequestChanges,
+    canApproveSubmilestone,
+    canWaiveSiteVisit,
+    canRetractSubmilestoneApproval,
+    canApproveMilestone,
+    canRetractMilestoneApproval,
     canSubmitForReview,
     canUpdateExecution,
     ...(input.submilestone.completionForecastDate
@@ -480,6 +666,29 @@ async function projectMilestoneExecutionPresentation(
       ? {}
       : { evidenceReviewRound: input.submilestone.evidenceReviewRound }),
     evidenceReviewState: input.submilestone.evidenceReviewState ?? "not_ready",
+    reviewDecisionState: childReviewDecisionState,
+    milestoneReviewDecisionState:
+      parentReadyForApproval && milestoneReviewDecisionState !== "approved"
+        ? "ready_for_approval"
+        : milestoneReviewDecisionState,
+    reviewRevision: input.submilestone.reviewRevision ?? 0,
+    milestoneReviewRevision: input.milestone.reviewRevision ?? 0,
+    parentReadyForApproval,
+    ...(siteVisitRequirement
+      ? {
+          siteVisitRequirement: {
+            manualSignals: siteVisitRequirement.manualSignals,
+            policySignals: siteVisitRequirement.policySignals,
+            required: siteVisitRequirement.required,
+            riskSignals: siteVisitRequirement.riskSignals,
+            status: siteVisitRequirement.status,
+            ...(siteVisitRequirement.siteVisitId
+              ? { siteVisitId: siteVisitRequirement.siteVisitId }
+              : {}),
+          },
+        }
+      : {}),
+    reviewHistory,
     executionOwnership: {
       ...(input.viewer.role === "contractor"
         ? {}
@@ -493,7 +702,7 @@ async function projectMilestoneExecutionPresentation(
       viewerIsAssignee,
     },
     progressPercent: input.submilestone.progressPercent ?? 0,
-    readyExceptFor: evidenceReadiness.readyExceptFor,
+    readyExceptFor,
     workflowRevision: input.submilestone.workflowRevision ?? 0,
     startCommand: {
       allowed,
@@ -644,6 +853,100 @@ export async function ensureMilestoneSystemPost(
     postId,
     recoveryRequired: submilestones.length === 0,
   };
+}
+
+/**
+ * Synchronize the collaboration projection after a canonical Milestone review
+ * command.  The review module owns approval state; this helper only updates
+ * the existing System Post lifecycle and appends its collaboration history.
+ */
+export async function synchronizeMilestoneSystemPostLifecycle(
+  ctx: MutationCtx,
+  input: {
+    actorRole: BuildCollaborationRole;
+    actorWorkosUserId: string;
+    buildId: Id<"activeBuilds">;
+    lifecycle: "open" | "resolved";
+    organizationId: string;
+    postId: Id<"buildCollaborationPosts">;
+    reason?: string;
+  },
+) {
+  const post = await ctx.db.get(input.postId);
+  if (
+    !post ||
+    post.buildId !== input.buildId ||
+    post.organizationId !== input.organizationId ||
+    post.systemPostKind !== "milestone" ||
+    post.contentState !== "active"
+  ) {
+    return null;
+  }
+  const nextState = input.lifecycle === "resolved" ? "resolved" : "open";
+  if (post.threadState === nextState) {
+    return post._id;
+  }
+  const now = Date.now();
+  const priorState = JSON.stringify({
+    resolutionSummary: post.resolutionSummary,
+    resolvedAt: post.resolvedAt,
+    threadRevision: post.threadRevision ?? 0,
+    threadState: post.threadState,
+  });
+  await ctx.db.patch(post._id, {
+    acceptedCommentId: undefined,
+    decisionOutcome: undefined,
+    decisionOwnerWorkosUserId: undefined,
+    lastMeaningfulActivityAt: now,
+    latestActivityActorWorkosUserId: input.actorWorkosUserId,
+    resolutionSummary:
+      input.lifecycle === "resolved" ? input.reason?.trim() || "Milestone approved." : undefined,
+    resolvedAt: input.lifecycle === "resolved" ? now : undefined,
+    resolvedByWorkosUserId:
+      input.lifecycle === "resolved" ? input.actorWorkosUserId : undefined,
+    threadRevision: (post.threadRevision ?? 0) + 1,
+    threadState: nextState,
+    updatedAt: now,
+  });
+  await ctx.db.insert("buildCollaborationThreadEvents", {
+    actorRole: input.actorRole,
+    actorWorkosUserId: input.actorWorkosUserId,
+    brokerageId: post.brokerageId,
+    buildId: post.buildId,
+    createdAt: now,
+    eventType: input.lifecycle === "resolved" ? "resolved" : "reopened",
+    newState: JSON.stringify({
+      resolutionSummary:
+        input.lifecycle === "resolved" ? input.reason?.trim() || "Milestone approved." : undefined,
+      threadState: nextState,
+    }),
+    organizationId: post.organizationId,
+    postId: post._id,
+    priorState,
+    reason: input.reason,
+  });
+  await ctx.db.insert("auditEvents", {
+    actorRoles: [input.actorRole],
+    actorWorkosUserId: input.actorWorkosUserId,
+    brokerageId: post.brokerageId,
+    command:
+      input.lifecycle === "resolved"
+        ? "approveActiveBuildMilestoneReview"
+        : "retractActiveBuildMilestoneApproval",
+    createdAt: now,
+    entityId: String(post._id),
+    entityType: "buildCollaborationPost",
+    eventType:
+      input.lifecycle === "resolved"
+        ? "build.collaboration.thread.resolved"
+        : "build.collaboration.thread.reopened",
+    newState: JSON.stringify({ threadState: nextState }),
+    organizationId: post.organizationId,
+    priorState,
+    reason: input.reason,
+    warnings: [],
+  });
+  return post._id;
 }
 
 async function ensureGeneratedSubmilestoneActionItem(

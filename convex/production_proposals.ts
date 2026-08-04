@@ -18522,6 +18522,8 @@ export const submitActiveBuildSubmilestoneCompletionForReview =
         evidencePackageRevisionId: packageRevision._id,
         evidenceReviewRound: nextRound,
         evidenceReviewState: "in_review",
+        reviewDecisionState: "in_review",
+        reviewRevision: (submilestone.reviewRevision ?? 0) + 1,
         progressPercent: 100,
         updatedAt: now,
         workflowRevision: nextWorkflowRevision,
@@ -18770,6 +18772,8 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
         evidencePackageRevisionId: packageRevision._id,
         evidenceReviewRound: revision,
         evidenceReviewState: "in_review",
+        reviewDecisionState: "in_review",
+        reviewRevision: (submilestone.reviewRevision ?? 0) + 1,
         progressPercent: 100,
         updatedAt: now,
       });

@@ -4,7 +4,6 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -188,6 +187,57 @@ async function submilestoneState(
       : null;
     return { milestone, packageRevision, submilestone };
   });
+}
+
+async function submitReviewPackage(
+  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  key: string,
+) {
+  const before = await submilestoneState(fixture);
+  const evidence = await fixture.builder.mutation(
+    (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
+    {
+      buildId: fixture.closing.buildId,
+      evidence: {
+        fileName: `${key}.jpg`,
+        mimeType: "image/jpeg",
+        sizeBytes: 100,
+      },
+      expectedRevision: before.submilestone.workflowRevision ?? 0,
+      idempotencyKey: `${key}-evidence`,
+      milestoneKey: "foundation",
+      submilestoneKey: "forms",
+      workosOrganizationId: ORG,
+    },
+  );
+  const afterEvidence = await submilestoneState(fixture);
+  await fixture.builder.mutation(
+    (api as any).production_proposals.freezeActiveBuildSubmilestoneEvidencePackage,
+    {
+      buildId: fixture.closing.buildId,
+      expectedRevision: afterEvidence.submilestone.workflowRevision,
+      milestoneKey: "foundation",
+      packageRevisionId: evidence.evidencePackageRevisionId,
+      submilestoneKey: "forms",
+      workosOrganizationId: ORG,
+    },
+  );
+  const frozen = await submilestoneState(fixture);
+  return await fixture.builder.mutation(
+    (api as any).production_proposals.submitActiveBuildSubmilestoneCompletionForReview,
+    {
+      buildId: fixture.closing.buildId,
+      completionNote: `Review package ${key}`,
+      declareComplete: true,
+      expectedPackageRevision: frozen.packageRevision?.revision,
+      expectedRevision: frozen.submilestone.workflowRevision,
+      idempotencyKey: `${key}-submit`,
+      milestoneKey: "foundation",
+      packageRevisionId: evidence.evidencePackageRevisionId,
+      submilestoneKey: "forms",
+      workosOrganizationId: ORG,
+    },
+  );
 }
 
 describe("canonical Sub-milestone completion review", () => {
@@ -672,5 +722,336 @@ describe("canonical Sub-milestone completion review", () => {
     });
     expect(remediationText).toMatch(/location could not be verified/i);
     expect(remediationText).toMatch(/lender review is required/i);
+  });
+
+  test("governs staff recommendations, changes-requested rounds, and Admin-only child approval", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    await submitReviewPackage(fixture, "eng411-round-1");
+    const inReview = await fixture.lender.query(
+      (api as any).build_submilestone_review.getActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const recommendation = await fixture.lender.mutation(
+      (api as any).build_submilestone_review.recommendActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        expectedRevision: inReview.child.reviewRevision,
+        idempotencyKey: "eng411-recommend-1",
+        milestoneKey: "foundation",
+        note: "Inspect the forms before final approval.",
+        siteVisitRequired: true,
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(recommendation.requirement).toMatchObject({
+      manualRequired: true,
+      required: true,
+      status: "required",
+    });
+    await expect(
+      fixture.lender.mutation(
+        (api as any).build_submilestone_review.approveActiveBuildSubmilestone,
+        {
+          buildId: fixture.closing.buildId,
+          idempotencyKey: "eng411-staff-approve-denied",
+          milestoneKey: "foundation",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/Lender Admin/i);
+    const changes = await fixture.lender.mutation(
+      (api as any).build_submilestone_review.requestActiveBuildSubmilestoneChanges,
+      {
+        buildId: fixture.closing.buildId,
+        expectedRevision: (await submilestoneState(fixture)).submilestone.workflowRevision,
+        idempotencyKey: "eng411-changes-1",
+        milestoneKey: "foundation",
+        reason: "Provide a clearer completion photo.",
+        remediation: ["Upload one unobstructed forms photo."],
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(changes.status).toBe("changes_requested");
+    const afterChanges = await submilestoneState(fixture);
+    expect(afterChanges.submilestone).toMatchObject({
+      evidenceReviewState: "changes_requested",
+      reviewDecisionState: "changes_requested",
+      status: "in_progress",
+    });
+    expect(afterChanges.packageRevision?.status).toBe("frozen");
+    const historyCount = await fixture.base.run(async (ctx: any) =>
+      (await ctx.db
+        .query("buildSubmilestoneReviewRounds")
+        .withIndex("by_submilestone_round", (q: any) =>
+          q.eq("buildSubmilestoneId", afterChanges.submilestone._id),
+        )
+        .collect()).length,
+    );
+    await submitReviewPackage(fixture, "eng411-round-2");
+    const afterResubmit = await submilestoneState(fixture);
+    const laterHistoryCount = await fixture.base.run(async (ctx: any) =>
+      (await ctx.db
+        .query("buildSubmilestoneReviewRounds")
+        .withIndex("by_submilestone_round", (q: any) =>
+          q.eq("buildSubmilestoneId", afterChanges.submilestone._id),
+        )
+        .collect()).length,
+    );
+    expect(laterHistoryCount).toBe(historyCount + 1);
+    expect(afterResubmit.submilestone.evidenceReviewState).toBe("in_review");
+  });
+
+  test("requires a completed Site Visit or an audited Admin waiver before child approval", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    await submitReviewPackage(fixture, "eng411-site-visit");
+    const reviewed = await fixture.lender.mutation(
+      (api as any).build_submilestone_review.recommendActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-site-recommendation",
+        milestoneKey: "foundation",
+        note: "Site inspection required for this risk signal.",
+        siteVisitRequired: true,
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_submilestone_review.approveActiveBuildSubmilestone,
+        {
+          buildId: fixture.closing.buildId,
+          idempotencyKey: "eng411-approve-without-visit",
+          milestoneKey: "foundation",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/Site Visit/i);
+    await expect(
+      fixture.lender.mutation(
+        (api as any).build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit,
+        {
+          buildId: fixture.closing.buildId,
+          idempotencyKey: "eng411-waiver-staff-denied",
+          milestoneKey: "foundation",
+          reason: "Staff cannot waive this gate.",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/Lender Admin/i);
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit,
+        {
+          buildId: fixture.closing.buildId,
+          idempotencyKey: "eng411-waiver-no-reason",
+          milestoneKey: "foundation",
+          reason: "  ",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/reason is required/i);
+    const waived = await fixture.admin.mutation(
+      (api as any).build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-waiver-admin",
+        milestoneKey: "foundation",
+        reason: "Admin accepted the preserved location-unverified evidence.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(waived.status).toBe("waived");
+    const approved = await fixture.admin.mutation(
+      (api as any).build_submilestone_review.approveActiveBuildSubmilestone,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-child-approve-after-waiver",
+        milestoneKey: "foundation",
+        note: "Approved after the audited waiver.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(approved.status).toBe("approved");
+    const reviewedState = await submilestoneState(fixture);
+    const audit = await fixture.base.run(async (ctx: any) =>
+      (await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q.eq("entityType", "buildSubmilestone").eq("entityId", String(reviewedState.submilestone._id)),
+        )
+        .collect()).filter((event: any) => event.command === "waiveActiveBuildSubmilestoneSiteVisit"),
+    );
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      actorRoles: ["admin"],
+      reason: "Admin accepted the preserved location-unverified evidence.",
+      warnings: expect.any(Array),
+    });
+    void reviewed;
+  });
+
+  test("parent approval resolves one System Post and both retraction commands reopen it without erasing child history", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    await submitReviewPackage(fixture, "eng411-parent");
+    await fixture.admin.mutation(
+      (api as any).build_submilestone_review.recommendActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-parent-site-recommendation",
+        milestoneKey: "foundation",
+        siteVisitRequired: true,
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-parent-site-waiver",
+        milestoneKey: "foundation",
+        reason: "Admin waiver for the parent lifecycle test.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    await fixture.admin.mutation(
+      (api as any).build_submilestone_review.approveActiveBuildSubmilestone,
+      {
+        buildId: fixture.closing.buildId,
+        idempotencyKey: "eng411-parent-child-approve",
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const ready = await fixture.admin.query(
+      (api as any).build_submilestone_review.getActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(ready.parent.readyForApproval).toBe(true);
+    const parent = await fixture.admin.mutation(
+      (api as any).build_submilestone_review.approveActiveBuildMilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        expectedRevision: ready.parent.reviewRevision,
+        idempotencyKey: "eng411-parent-approve",
+        milestoneKey: "foundation",
+        reason: "All independently approved children satisfy the review gate.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(parent.status).toBe("approved");
+    const resolvedPosts = await fixture.base.run(async (ctx: any) =>
+      (await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_systemPostKind_and_canonicalBuildMilestoneId", (q: any) =>
+          q
+            .eq("buildId", fixture.closing.buildId)
+            .eq("systemPostKind", "milestone"),
+        )
+        .collect()).filter((post: any) => post.threadState === "resolved"),
+    );
+    expect(resolvedPosts).toHaveLength(1);
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_resolution.reopenBuildCollaborationThread,
+        {
+          buildId: fixture.closing.buildId,
+          expectedThreadRevision: resolvedPosts[0].threadRevision,
+          organizationId: ORG,
+          postId: resolvedPosts[0]._id,
+          reason: "Discussion cannot reopen canonical review state.",
+        },
+      ),
+    ).rejects.toThrow(/canonical domain command/i);
+    const parentState = await fixture.admin.query(
+      (api as any).build_submilestone_review.getActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const parentRetraction = await fixture.admin.mutation(
+      (api as any).build_submilestone_review.retractActiveBuildMilestoneApproval,
+      {
+        buildId: fixture.closing.buildId,
+        expectedRevision: parentState.parent.reviewRevision,
+        idempotencyKey: "eng411-parent-retract",
+        milestoneKey: "foundation",
+        reason: "Re-open the parent decision for a corrected admin review.",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(parentRetraction.status).toBe("reopened");
+    const afterParentRetraction = await fixture.admin.query(
+      (api as any).build_submilestone_review.getActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(afterParentRetraction.child.reviewDecisionState).toBe("approved");
+    expect(afterParentRetraction.parent.reviewDecisionState).toBe("reopened");
+    const childRetraction = await fixture.admin.mutation(
+      (api as any).build_submilestone_review.retractActiveBuildSubmilestoneApproval,
+      {
+        buildId: fixture.closing.buildId,
+        expectedRevision: afterParentRetraction.child.reviewRevision,
+        idempotencyKey: "eng411-child-retract",
+        milestoneKey: "foundation",
+        reason: "Only the affected child requires another evidence round.",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(childRetraction.status).toBe("reopened");
+    const finalState = await fixture.admin.query(
+      (api as any).build_submilestone_review.getActiveBuildSubmilestoneReview,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    expect(finalState.child.reviewDecisionState).toBe("reopened");
+    expect(finalState.parent.readyForApproval).toBe(false);
+    const posts = await fixture.base.run(async (ctx: any) =>
+      (await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_createdAt", (q: any) =>
+          q.eq("buildId", fixture.closing.buildId),
+        )
+        .collect()).filter((post: any) => post.systemPostKind === "milestone"),
+    );
+    expect(posts).toHaveLength(1);
+    expect(posts[0].threadState).toBe("open");
   });
 });

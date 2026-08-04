@@ -122,10 +122,12 @@ export const getBuildCollaborationThreadContext = authenticatedQuery
         post.contentState === "active" &&
         post.postType === "announcement",
       canReopen:
+        !post.systemPostKind &&
         canManage &&
         post.contentState === "active" &&
         post.threadState === "resolved",
       canResolve:
+        !post.systemPostKind &&
         canManage &&
         post.contentState === "active" &&
         post.threadState === "open",
@@ -189,6 +191,11 @@ export const resolveBuildCollaborationThread = authenticatedMutation
       args
     );
     const post = await requireManageablePost(ctx, authorization, args.postId);
+    if (post.systemPostKind) {
+      throw new Error(
+        "System Post lifecycle is governed by its canonical domain command."
+      );
+    }
     requireExpectedThreadRevision(post, args.expectedThreadRevision);
     if (post.threadState !== "open") {
       throw new Error("This thread is already resolved.");
@@ -256,6 +263,11 @@ export const reopenBuildCollaborationThread = authenticatedMutation
       args
     );
     const post = await requireManageablePost(ctx, authorization, args.postId);
+    if (post.systemPostKind) {
+      throw new Error(
+        "System Post lifecycle is governed by its canonical domain command."
+      );
+    }
     requireExpectedThreadRevision(post, args.expectedThreadRevision);
     const reason = requireText(
       args.reason,
@@ -395,7 +407,7 @@ export async function reopenResolvedThreadForReply(
     post: Doc<"buildCollaborationPosts">;
   }
 ) {
-  if (input.post.threadState !== "resolved") {
+  if (input.post.systemPostKind || input.post.threadState !== "resolved") {
     return false;
   }
   await reopenThread(ctx, {

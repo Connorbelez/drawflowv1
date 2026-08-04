@@ -53,6 +53,17 @@ const mocks = vi.hoisted(() => ({
   assetStatuses: [] as Array<Record<string, unknown>>,
   buildActionItems: [] as Array<Record<string, unknown>>,
   canonicalSystemActionItem: false,
+  canonicalReviewState: "in_review" as
+    | "in_review"
+    | "changes_requested"
+    | "approved"
+    | "reopened",
+  canonicalMilestoneReviewState: "in_review" as
+    | "in_review"
+    | "ready_for_approval"
+    | "approved"
+    | "reopened",
+  canonicalParentReadyForApproval: false,
   comments: [] as Array<Record<string, unknown>>,
   commentsLoading: false,
   convexConnectionState: {
@@ -219,7 +230,7 @@ function focusedPostEntryFixture(id: string, text: string) {
       readRevision: 1,
       revision: 1,
       source: "human",
-      threadState: "open",
+          threadState: mocks.postThreadState,
       updatedAt: now,
       viewerCanAppeal: false,
       viewerCanManageThread: true,
@@ -311,6 +322,7 @@ function canonicalMilestoneSystemPostEntryFixture() {
       postType: "update",
       readRevision: 2,
       revision: 2,
+      resolutionSummary: mocks.postResolutionSummary,
       source: "system",
       systemPost: {
         activationReason: "explicit_start",
@@ -322,7 +334,7 @@ function canonicalMilestoneSystemPostEntryFixture() {
         triggeredByRole: "builder",
         triggeredByWorkosUserId: "user_builder",
       },
-      threadState: "open",
+      threadState: mocks.postThreadState,
       updatedAt: now,
       viewerCanAppeal: false,
       viewerCanManageThread: true,
@@ -660,6 +672,27 @@ vi.mock("convex/react", () => ({
                 systemPresentation: {
                   canAddEvidence: mocks.viewerBinding.role === "builder",
                   canReview: mocks.viewerBinding.role === "broker",
+                  canRecommendReview:
+                    mocks.viewerBinding.role === "broker" ||
+                    mocks.viewerBinding.role === "admin",
+                  canRequestChanges:
+                    mocks.viewerBinding.role === "broker" ||
+                    mocks.viewerBinding.role === "admin",
+                  canApproveSubmilestone:
+                    mocks.viewerBinding.role === "admin" &&
+                    mocks.canonicalReviewState === "in_review",
+                  canWaiveSiteVisit:
+                    mocks.viewerBinding.role === "admin" &&
+                    mocks.canonicalReviewState === "in_review",
+                  canRetractSubmilestoneApproval:
+                    mocks.viewerBinding.role === "admin" &&
+                    mocks.canonicalReviewState === "approved",
+                  canApproveMilestone:
+                    mocks.viewerBinding.role === "admin" &&
+                    mocks.canonicalParentReadyForApproval,
+                  canRetractMilestoneApproval:
+                    mocks.viewerBinding.role === "admin" &&
+                    mocks.canonicalMilestoneReviewState === "approved",
                   canSubmitForReview: false,
                   canUpdateExecution: mocks.viewerBinding.role === "builder",
                   column: "in_review",
@@ -668,6 +701,48 @@ vi.mock("convex/react", () => ({
                   evidencePackageRevisionId: "package-1",
                   progressPercent: 100,
                   readyExceptFor: ["Forms photo"],
+                  reviewDecisionState: mocks.canonicalReviewState,
+                  milestoneReviewDecisionState:
+                    mocks.canonicalMilestoneReviewState,
+                  parentReadyForApproval: mocks.canonicalParentReadyForApproval,
+                  reviewRevision: 2,
+                  milestoneReviewRevision: 4,
+                  siteVisitRequirement: {
+                    manualSignals: ["lender_staff_recommendation"],
+                    policySignals: ["lender_policy"],
+                    required: true,
+                    riskSignals: [],
+                    status:
+                      mocks.canonicalReviewState === "approved"
+                        ? "satisfied"
+                        : "required",
+                    siteVisitId: "site-visit-1",
+                  },
+                  reviewHistory: [
+                    {
+                      actorRoles: ["broker"],
+                      actorWorkosUserId: "user_broker",
+                      createdAt: now - 1000,
+                      kind: "recommendation",
+                      note: "Inspect footings before release.",
+                      reviewRound: 1,
+                      scope: "submilestone",
+                      warnings: [],
+                    },
+                    ...(mocks.canonicalReviewState === "approved"
+                      ? [
+                          {
+                            actorRoles: ["admin"],
+                            actorWorkosUserId: "user_admin",
+                            createdAt: now,
+                            kind: "approved",
+                            reviewRound: 4,
+                            scope: "milestone",
+                            warnings: [],
+                          },
+                        ]
+                      : []),
+                  ],
                   startCommand: {
                     allowed: false,
                     buildName: "UI fixture Build",
@@ -1059,6 +1134,9 @@ afterEach(() => {
   mocks.assetStatuses = [];
   mocks.buildActionItems = [];
   mocks.canonicalSystemActionItem = false;
+  mocks.canonicalReviewState = "in_review";
+  mocks.canonicalMilestoneReviewState = "in_review";
+  mocks.canonicalParentReadyForApproval = false;
   mocks.feedStatus = "Exhausted";
   mocks.feedRows = [];
   mocks.focusedAssetContext = undefined;
@@ -1243,6 +1321,149 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.queryByRole("button", { name: "Submit completion for review" }),
     ).toBeNull();
+  });
+
+  test("exposes Staff review recommendations, changes requests, and review rounds", async () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "broker",
+      workosUserId: "user_broker",
+    };
+    mocks.authUserId = "user_broker";
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Excavate",
+      }),
+    );
+
+    expect(screen.getByText("Governed review lifecycle")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Record recommendation" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Request changes" })).toBeTruthy();
+    expect(screen.getByText("Review history")).toBeTruthy();
+    expect(screen.getByText(/lender_staff_recommendation/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Review reason"), {
+      target: { value: "Missing footing report." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalled());
+  });
+
+  test("shows Admin Site Visit waiver and independent child/parent approval commands", async () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.canonicalParentReadyForApproval = true;
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "admin",
+      workosUserId: "user_admin",
+    };
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Excavate",
+      }),
+    );
+
+    expect(screen.getByText(/Every child is independently approved/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Waive Site Visit" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Approve Sub-milestone" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Approve Milestone" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Review reason"), {
+      target: { value: "Admin reviewed the exception." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Waive Site Visit" }));
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalled());
+  });
+
+  test("keeps resolved discussion on the same System Post while exposing Admin retraction", async () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.canonicalReviewState = "approved";
+    mocks.canonicalMilestoneReviewState = "approved";
+    mocks.canonicalParentReadyForApproval = true;
+    mocks.postThreadState = "resolved";
+    mocks.postResolutionSummary = "Milestone approved by Lender Admin.";
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "admin",
+      workosUserId: "user_admin",
+    };
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+    expect(screen.getByText("Resolved")).toBeTruthy();
+    expect(screen.getByText("Milestone approved by Lender Admin.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Excavate",
+      }),
+    );
+
+    expect(screen.getAllByText("Approved").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "Retract child approval" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Retract Milestone approval" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Milestone · approved")).toBeTruthy();
+  });
+
+  test("presents the same System Post as reopened after formal retraction", async () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.canonicalReviewState = "reopened";
+    mocks.canonicalMilestoneReviewState = "reopened";
+    mocks.postThreadState = "open";
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "admin",
+      workosUserId: "user_admin",
+    };
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+    expect(screen.queryByText("Resolved")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Excavate",
+      }),
+    );
+    expect(screen.getByText(/This review is reopened/)).toBeTruthy();
+    expect(screen.getAllByText("Reopened").length).toBeGreaterThan(0);
   });
 
   test("distills list Action Items into a clickable card with compact metadata", () => {

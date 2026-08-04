@@ -5245,6 +5245,16 @@ export default defineSchema({
     dependencyKeys: v.array(v.string()),
     completionClaim: v.optional(v.any()),
     completionReview: v.optional(v.any()),
+    reviewDecisionState: v.optional(
+      v.union(
+        v.literal("in_review"),
+        v.literal("ready_for_approval"),
+        v.literal("approved"),
+        v.literal("reopened"),
+      ),
+    ),
+    reviewDecisionId: v.optional(v.id("buildMilestoneReviewDecisions")),
+    reviewRevision: v.optional(v.number()),
     collaborationEventRevision: v.optional(v.number()),
     collaborationEvidenceEventRevision: v.optional(v.number()),
     evidenceState: v.optional(v.string()),
@@ -5298,6 +5308,19 @@ export default defineSchema({
       )
     ),
     evidenceReviewRound: v.optional(v.number()),
+    reviewDecisionState: v.optional(
+      v.union(
+        v.literal("in_review"),
+        v.literal("changes_requested"),
+        v.literal("approved"),
+        v.literal("reopened"),
+      ),
+    ),
+    reviewDecisionId: v.optional(v.id("buildSubmilestoneReviewDecisions")),
+    siteVisitRequirementId: v.optional(
+      v.id("buildSubmilestoneSiteVisitRequirements"),
+    ),
+    reviewRevision: v.optional(v.number()),
     completionSubmissionId: v.optional(
       v.id("buildSubmilestoneCompletionSubmissions")
     ),
@@ -5319,6 +5342,81 @@ export default defineSchema({
   })
     .index("by_build", ["buildId"])
     .index("by_milestone", ["buildMilestoneId"]),
+  buildSubmilestoneSiteVisitRequirements: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    reviewRound: v.number(),
+    required: v.boolean(),
+    policyRequired: v.boolean(),
+    riskRequired: v.boolean(),
+    manualRequired: v.boolean(),
+    policySignals: v.array(v.string()),
+    riskSignals: v.array(v.string()),
+    manualSignals: v.array(v.string()),
+    status: v.union(
+      v.literal("not_required"),
+      v.literal("required"),
+      v.literal("satisfied"),
+      v.literal("waived"),
+    ),
+    siteVisitId: v.optional(v.id("buildSiteVisits")),
+    waivedByWorkosUserId: v.optional(v.string()),
+    waivedByRole: v.optional(v.string()),
+    waivedAt: v.optional(v.number()),
+    waiverReason: v.optional(v.string()),
+    evaluatedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_submilestone_round", ["buildSubmilestoneId", "reviewRound"])
+    .index("by_submilestone_status", ["buildSubmilestoneId", "status"])
+    .index("by_build", ["buildId"]),
+  buildSubmilestoneReviewDecisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    buildSubmilestoneId: v.id("buildSubmilestones"),
+    milestoneKey: v.string(),
+    submilestoneKey: v.string(),
+    reviewRound: v.number(),
+    kind: v.union(
+      v.literal("recommendation"),
+      v.literal("changes_requested"),
+      v.literal("approved"),
+      v.literal("site_visit_waived"),
+      v.literal("retracted"),
+    ),
+    siteVisitRequired: v.optional(v.boolean()),
+    siteVisitId: v.optional(v.id("buildSiteVisits")),
+    requirementId: v.optional(
+      v.id("buildSubmilestoneSiteVisitRequirements"),
+    ),
+    remediation: v.optional(v.array(v.string())),
+    note: v.optional(v.string()),
+    priorState: v.string(),
+    newState: v.string(),
+    warnings: v.array(v.string()),
+    reason: v.optional(v.string()),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    createdAt: v.number(),
+    idempotencyKey: v.string(),
+  })
+    .index("by_submilestone_round", ["buildSubmilestoneId", "reviewRound"])
+    .index("by_submilestone_idempotency", [
+      "buildSubmilestoneId",
+      "idempotencyKey",
+    ])
+    .index("by_submilestone_createdAt", [
+      "buildSubmilestoneId",
+      "createdAt",
+    ]),
   buildSubmilestoneEvidenceRequirements: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -5679,6 +5777,28 @@ export default defineSchema({
       "scheduleIdempotencyKey",
     ])
     .index("by_visit", ["visitId"]),
+  buildMilestoneReviewDecisions: defineTable({
+    brokerageId: v.id("brokerages"),
+    organizationId: v.string(),
+    buildId: v.id("activeBuilds"),
+    buildMilestoneId: v.id("buildMilestones"),
+    milestoneKey: v.string(),
+    kind: v.union(v.literal("approved"), v.literal("retracted")),
+    reviewRevision: v.number(),
+    priorState: v.string(),
+    newState: v.string(),
+    warnings: v.array(v.string()),
+    reason: v.optional(v.string()),
+    actorWorkosUserId: v.string(),
+    actorRoles: v.array(v.string()),
+    createdAt: v.number(),
+    idempotencyKey: v.string(),
+  })
+    .index("by_milestone_revision", ["buildMilestoneId", "reviewRevision"])
+    .index("by_milestone_idempotency", [
+      "buildMilestoneId",
+      "idempotencyKey",
+    ]),
   siteVisitLinkRecoveryRequests: defineTable({
     brokerageId: v.optional(v.id("brokerages")),
     buildId: v.string(),

@@ -37,6 +37,13 @@ export const systemActionItemPresentationValidator = v.object({
   attention: v.optional(v.literal("overdue_completion")),
   canAddEvidence: v.optional(v.boolean()),
   canReview: v.optional(v.boolean()),
+  canRecommendReview: v.optional(v.boolean()),
+  canRequestChanges: v.optional(v.boolean()),
+  canApproveSubmilestone: v.optional(v.boolean()),
+  canWaiveSiteVisit: v.optional(v.boolean()),
+  canRetractSubmilestoneApproval: v.optional(v.boolean()),
+  canApproveMilestone: v.optional(v.boolean()),
+  canRetractMilestoneApproval: v.optional(v.boolean()),
   canSubmitForReview: v.optional(v.boolean()),
   canUpdateExecution: v.optional(v.boolean()),
   completionForecastDate: v.optional(v.string()),
@@ -52,6 +59,55 @@ export const systemActionItemPresentationValidator = v.object({
       v.literal("in_review"),
       v.literal("changes_requested"),
       v.literal("approved")
+    )
+  ),
+  reviewDecisionState: v.optional(
+    v.union(
+      v.literal("in_review"),
+      v.literal("changes_requested"),
+      v.literal("approved"),
+      v.literal("reopened"),
+    )
+  ),
+  milestoneReviewDecisionState: v.optional(
+    v.union(
+      v.literal("in_review"),
+      v.literal("ready_for_approval"),
+      v.literal("approved"),
+      v.literal("reopened"),
+    )
+  ),
+  reviewRevision: v.optional(v.number()),
+  milestoneReviewRevision: v.optional(v.number()),
+  parentReadyForApproval: v.optional(v.boolean()),
+  siteVisitRequirement: v.optional(
+    v.object({
+      required: v.boolean(),
+      status: v.union(
+        v.literal("not_required"),
+        v.literal("required"),
+        v.literal("satisfied"),
+        v.literal("waived")
+      ),
+      policySignals: v.array(v.string()),
+      riskSignals: v.array(v.string()),
+      manualSignals: v.array(v.string()),
+      siteVisitId: v.optional(v.id("buildSiteVisits")),
+    })
+  ),
+  reviewHistory: v.optional(
+    v.array(
+      v.object({
+        actorRoles: v.array(v.string()),
+        actorWorkosUserId: v.string(),
+        createdAt: v.number(),
+        kind: v.string(),
+        note: v.optional(v.string()),
+        reason: v.optional(v.string()),
+        reviewRound: v.number(),
+        scope: v.union(v.literal("submilestone"), v.literal("milestone")),
+        warnings: v.array(v.string()),
+      })
     )
   ),
   executionOwnership: v.optional(

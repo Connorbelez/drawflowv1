@@ -683,6 +683,27 @@ function VisibleActionItemDetail({
   const submitCanonicalCompletionForReview = useBuildCollaborationMutation(
     api.production_proposals.submitActiveBuildSubmilestoneCompletionForReview
   );
+  const recommendCanonicalReview = useBuildCollaborationMutation(
+    api.build_submilestone_review.recommendActiveBuildSubmilestoneReview
+  );
+  const requestCanonicalChanges = useBuildCollaborationMutation(
+    api.build_submilestone_review.requestActiveBuildSubmilestoneChanges
+  );
+  const waiveCanonicalSiteVisit = useBuildCollaborationMutation(
+    api.build_submilestone_review.waiveActiveBuildSubmilestoneSiteVisit
+  );
+  const approveCanonicalSubmilestone = useBuildCollaborationMutation(
+    api.build_submilestone_review.approveActiveBuildSubmilestone
+  );
+  const retractCanonicalSubmilestoneApproval = useBuildCollaborationMutation(
+    api.build_submilestone_review.retractActiveBuildSubmilestoneApproval
+  );
+  const approveCanonicalMilestone = useBuildCollaborationMutation(
+    api.build_submilestone_review.approveActiveBuildMilestoneReview
+  );
+  const retractCanonicalMilestoneApproval = useBuildCollaborationMutation(
+    api.build_submilestone_review.retractActiveBuildMilestoneApproval
+  );
   const workflow = useQuery(
     api.build_action_item_workflow.getBuildActionItemWorkflowContext,
     {
@@ -741,6 +762,11 @@ function VisibleActionItemDetail({
   const [canonicalActualCost, setCanonicalActualCost] = useState("");
   const [canonicalFieldNote, setCanonicalFieldNote] = useState("");
   const [canonicalEvidenceBusy, setCanonicalEvidenceBusy] = useState(false);
+  const [canonicalReviewNote, setCanonicalReviewNote] = useState("");
+  const [canonicalReviewReason, setCanonicalReviewReason] = useState("");
+  const [canonicalReviewSiteVisitRequired, setCanonicalReviewSiteVisitRequired] =
+    useState(false);
+  const [canonicalReviewBusy, setCanonicalReviewBusy] = useState(false);
 
   const canonicalPresentation = detail.item.systemPresentation;
   const canonicalStartCommand = canonicalPresentation?.startCommand;
@@ -1216,6 +1242,174 @@ function VisibleActionItemDetail({
     }
   };
 
+  const canonicalReviewTarget = canonicalStartCommand
+    ? {
+        milestoneKey: canonicalStartCommand.milestoneKey,
+        submilestoneKey: canonicalStartCommand.submilestoneKey,
+      }
+    : null;
+  const canonicalReviewRevision =
+    canonicalPresentation?.reviewRevision ??
+    canonicalPresentation?.workflowRevision ??
+    0;
+  const canonicalMilestoneReviewRevision =
+    canonicalPresentation?.milestoneReviewRevision ?? 0;
+  const runCanonicalReviewCommand = async (
+    command: () => Promise<unknown>,
+    successMessage: string,
+    fallbackMessage: string,
+  ) => {
+    setCanonicalReviewBusy(true);
+    try {
+      await command();
+      toast.success(successMessage);
+      setCanonicalReviewReason("");
+      setCanonicalReviewNote("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : fallbackMessage);
+    } finally {
+      setCanonicalReviewBusy(false);
+    }
+  };
+  const recommendCanonicalReviewCommand = () => {
+    if (!canonicalReviewTarget || readOnly) return;
+    void runCanonicalReviewCommand(
+      () =>
+        recommendCanonicalReview({
+          buildId,
+          expectedRevision: canonicalReviewRevision,
+          idempotencyKey: `system-review-recommendation:${detail.item.actionItemId}:${Date.now()}`,
+          milestoneKey: canonicalReviewTarget.milestoneKey,
+          note: canonicalReviewNote.trim() || undefined,
+          siteVisitRequired: canonicalReviewSiteVisitRequired,
+          submilestoneKey: canonicalReviewTarget.submilestoneKey,
+          workosOrganizationId: organizationId,
+        }),
+      "Review recommendation recorded.",
+      "Unable to record review recommendation.",
+    );
+  };
+  const requestCanonicalChangesCommand = () => {
+    if (!canonicalReviewTarget || readOnly) return;
+    const reason = canonicalReviewReason.trim();
+    if (!reason) {
+      toast.error("Changes requested reason is required.");
+      return;
+    }
+    void runCanonicalReviewCommand(
+      () =>
+        requestCanonicalChanges({
+          buildId,
+          expectedRevision: canonicalReviewRevision,
+          idempotencyKey: `system-review-changes:${detail.item.actionItemId}:${Date.now()}`,
+          milestoneKey: canonicalReviewTarget.milestoneKey,
+          reason,
+          submilestoneKey: canonicalReviewTarget.submilestoneKey,
+          workosOrganizationId: organizationId,
+        }),
+      "Changes requested; the child returned to In Progress.",
+      "Unable to request changes.",
+    );
+  };
+  const waiveCanonicalSiteVisitCommand = () => {
+    if (!canonicalReviewTarget || readOnly) return;
+    const reason = canonicalReviewReason.trim();
+    if (!reason) {
+      toast.error("Site Visit waiver reason is required.");
+      return;
+    }
+    void runCanonicalReviewCommand(
+      () =>
+        waiveCanonicalSiteVisit({
+          buildId,
+          expectedRevision: canonicalReviewRevision,
+          idempotencyKey: `system-review-site-visit-waiver:${detail.item.actionItemId}:${Date.now()}`,
+          milestoneKey: canonicalReviewTarget.milestoneKey,
+          reason,
+          submilestoneKey: canonicalReviewTarget.submilestoneKey,
+          workosOrganizationId: organizationId,
+        }),
+      "Required Site Visit waived with an audit reason.",
+      "Unable to waive the required Site Visit.",
+    );
+  };
+  const approveCanonicalSubmilestoneCommand = () => {
+    if (!canonicalReviewTarget || readOnly) return;
+    void runCanonicalReviewCommand(
+      () =>
+        approveCanonicalSubmilestone({
+          buildId,
+          expectedRevision: canonicalReviewRevision,
+          idempotencyKey: `system-review-child-approval:${detail.item.actionItemId}:${Date.now()}`,
+          milestoneKey: canonicalReviewTarget.milestoneKey,
+          note: canonicalReviewNote.trim() || undefined,
+          submilestoneKey: canonicalReviewTarget.submilestoneKey,
+          workosOrganizationId: organizationId,
+        }),
+      "Sub-milestone approved.",
+      "Unable to approve this Sub-milestone.",
+    );
+  };
+  const retractCanonicalSubmilestoneCommand = () => {
+    if (!canonicalReviewTarget || readOnly) return;
+    const reason = canonicalReviewReason.trim();
+    if (!reason) {
+      toast.error("Child approval retraction reason is required.");
+      return;
+    }
+    void runCanonicalReviewCommand(
+      () =>
+        retractCanonicalSubmilestoneApproval({
+          buildId,
+          expectedRevision: canonicalReviewRevision,
+          idempotencyKey: `system-review-child-retraction:${detail.item.actionItemId}:${Date.now()}`,
+          milestoneKey: canonicalReviewTarget.milestoneKey,
+          reason,
+          submilestoneKey: canonicalReviewTarget.submilestoneKey,
+          workosOrganizationId: organizationId,
+        }),
+      "Sub-milestone approval retracted; this child is reopened.",
+      "Unable to retract Sub-milestone approval.",
+    );
+  };
+  const approveCanonicalMilestoneCommand = () => {
+    if (!canonicalReviewTarget || readOnly) return;
+    void runCanonicalReviewCommand(
+      () =>
+        approveCanonicalMilestone({
+          buildId,
+          expectedRevision: canonicalMilestoneReviewRevision,
+          idempotencyKey: `system-review-milestone-approval:${detail.item.actionItemId}:${Date.now()}`,
+          milestoneKey: canonicalReviewTarget.milestoneKey,
+          reason: canonicalReviewNote.trim() || undefined,
+          workosOrganizationId: organizationId,
+        }),
+      "Milestone approved; the System Post is resolved.",
+      "Unable to approve this Milestone.",
+    );
+  };
+  const retractCanonicalMilestoneCommand = () => {
+    if (!canonicalReviewTarget || readOnly) return;
+    const reason = canonicalReviewReason.trim();
+    if (!reason) {
+      toast.error("Parent approval retraction reason is required.");
+      return;
+    }
+    void runCanonicalReviewCommand(
+      () =>
+        retractCanonicalMilestoneApproval({
+          buildId,
+          expectedRevision: canonicalMilestoneReviewRevision,
+          idempotencyKey: `system-review-milestone-retraction:${detail.item.actionItemId}:${Date.now()}`,
+          milestoneKey: canonicalReviewTarget.milestoneKey,
+          reason,
+          workosOrganizationId: organizationId,
+        }),
+      "Milestone approval retracted; the same System Post is reopened.",
+      "Unable to retract Milestone approval.",
+    );
+  };
+
   return (
     <>
       <DetailSheetHeader
@@ -1277,6 +1471,20 @@ function VisibleActionItemDetail({
             onProgressChange={setCanonicalProgress}
             onStart={openCanonicalStart}
             onSubmitReview={submitCanonicalReview}
+            onApproveMilestone={approveCanonicalMilestoneCommand}
+            onApproveSubmilestone={approveCanonicalSubmilestoneCommand}
+            onRecommendReview={recommendCanonicalReviewCommand}
+            onRequestChanges={requestCanonicalChangesCommand}
+            onRetractMilestone={retractCanonicalMilestoneCommand}
+            onRetractSubmilestone={retractCanonicalSubmilestoneCommand}
+            onWaiveSiteVisit={waiveCanonicalSiteVisitCommand}
+            reviewBusy={canonicalReviewBusy}
+            reviewNote={canonicalReviewNote}
+            reviewReason={canonicalReviewReason}
+            reviewSiteVisitRequired={canonicalReviewSiteVisitRequired}
+            onReviewNoteChange={setCanonicalReviewNote}
+            onReviewReasonChange={setCanonicalReviewReason}
+            onReviewSiteVisitRequiredChange={setCanonicalReviewSiteVisitRequired}
             onUpdateExecution={updateCanonicalExecution}
             onUploadEvidence={addCanonicalEvidenceFile}
             progress={canonicalProgress}
@@ -1582,6 +1790,8 @@ function VisibleActionItemDetail({
 
 function CanonicalMilestoneActionItemFacts({
   actualCost,
+  onApproveMilestone,
+  onApproveSubmilestone,
   detail,
   evidenceBusy,
   fieldNote,
@@ -1590,15 +1800,29 @@ function CanonicalMilestoneActionItemFacts({
   onFieldNoteChange,
   onForecastChange,
   onFreezePackage,
+  onRecommendReview,
+  onRequestChanges,
+  onRetractMilestone,
+  onRetractSubmilestone,
   onStart,
   onSubmitReview,
   onUploadEvidence,
   onUpdateExecution,
+  onWaiveSiteVisit,
   onProgressChange,
   progress,
   readOnly,
+  reviewBusy,
+  reviewNote,
+  reviewReason,
+  reviewSiteVisitRequired,
+  onReviewNoteChange,
+  onReviewReasonChange,
+  onReviewSiteVisitRequiredChange,
 }: {
   actualCost: string;
+  onApproveMilestone: () => void;
+  onApproveSubmilestone: () => void;
   detail: VisibleActionItemDetail;
   evidenceBusy: boolean;
   fieldNote: string;
@@ -1607,15 +1831,27 @@ function CanonicalMilestoneActionItemFacts({
   onFieldNoteChange: (value: string) => void;
   onForecastChange: (value: string) => void;
   onFreezePackage: () => void;
+  onRecommendReview: () => void;
+  onRequestChanges: () => void;
+  onRetractMilestone: () => void;
+  onRetractSubmilestone: () => void;
   onStart?: () => void;
   onSubmitReview: () => void;
   onUploadEvidence: (
     input: EvidenceUploaderUploadInput
   ) => Promise<unknown> | unknown;
   onUpdateExecution: () => void;
+  onWaiveSiteVisit: () => void;
   onProgressChange: (value: number) => void;
   progress: number;
   readOnly: boolean;
+  reviewBusy: boolean;
+  reviewNote: string;
+  reviewReason: string;
+  reviewSiteVisitRequired: boolean;
+  onReviewNoteChange: (value: string) => void;
+  onReviewReasonChange: (value: string) => void;
+  onReviewSiteVisitRequiredChange: (value: boolean) => void;
 }) {
   const milestoneReference = detail.references.find(
     (reference) => reference.entityKind === "milestone"
@@ -1696,6 +1932,24 @@ function CanonicalMilestoneActionItemFacts({
             onUploadEvidence={onUploadEvidence}
           />
         ) : null}
+        <CanonicalReviewLifecyclePanel
+          detail={detail}
+          onApproveMilestone={onApproveMilestone}
+          onApproveSubmilestone={onApproveSubmilestone}
+          onRecommendReview={onRecommendReview}
+          onRequestChanges={onRequestChanges}
+          onRetractMilestone={onRetractMilestone}
+          onRetractSubmilestone={onRetractSubmilestone}
+          onReviewNoteChange={onReviewNoteChange}
+          onReviewReasonChange={onReviewReasonChange}
+          onReviewSiteVisitRequiredChange={onReviewSiteVisitRequiredChange}
+          onWaiveSiteVisit={onWaiveSiteVisit}
+          readOnly={readOnly}
+          reviewBusy={reviewBusy}
+          reviewNote={reviewNote}
+          reviewReason={reviewReason}
+          reviewSiteVisitRequired={reviewSiteVisitRequired}
+        />
         <p className="text-muted-foreground text-xs">
           Status, completion, ownership, and identity follow the canonical
           roadmap. Start work is a canonical milestone command; this
@@ -1858,6 +2112,342 @@ function CanonicalEvidencePackagePanel({
             Submit completion for review
           </Button>
         ) : null}
+      </FramePanel>
+    </Frame>
+  );
+}
+
+function reviewDecisionLabel(
+  state:
+    | "in_review"
+    | "changes_requested"
+    | "approved"
+    | "reopened"
+    | "ready_for_approval",
+) {
+  switch (state) {
+    case "approved":
+      return "Approved";
+    case "changes_requested":
+      return "Changes requested";
+    case "ready_for_approval":
+      return "Ready for Admin approval";
+    case "reopened":
+      return "Reopened";
+    default:
+      return "In Review";
+  }
+}
+
+function siteVisitRequirementLabel(
+  status: "not_required" | "required" | "satisfied" | "waived",
+) {
+  switch (status) {
+    case "required":
+      return "Required";
+    case "satisfied":
+      return "Satisfied";
+    case "waived":
+      return "Waived by Admin";
+    default:
+      return "Not required";
+  }
+}
+
+function CanonicalReviewLifecyclePanel({
+  detail,
+  onApproveMilestone,
+  onApproveSubmilestone,
+  onRecommendReview,
+  onRequestChanges,
+  onRetractMilestone,
+  onRetractSubmilestone,
+  onReviewNoteChange,
+  onReviewReasonChange,
+  onReviewSiteVisitRequiredChange,
+  onWaiveSiteVisit,
+  readOnly,
+  reviewBusy,
+  reviewNote,
+  reviewReason,
+  reviewSiteVisitRequired,
+}: {
+  detail: VisibleActionItemDetail;
+  onApproveMilestone: () => void;
+  onApproveSubmilestone: () => void;
+  onRecommendReview: () => void;
+  onRequestChanges: () => void;
+  onRetractMilestone: () => void;
+  onRetractSubmilestone: () => void;
+  onReviewNoteChange: (value: string) => void;
+  onReviewReasonChange: (value: string) => void;
+  onReviewSiteVisitRequiredChange: (value: boolean) => void;
+  onWaiveSiteVisit: () => void;
+  readOnly: boolean;
+  reviewBusy: boolean;
+  reviewNote: string;
+  reviewReason: string;
+  reviewSiteVisitRequired: boolean;
+}) {
+  const presentation = detail.item.systemPresentation;
+  if (!presentation) return null;
+  const canEditReview =
+    !readOnly &&
+    (presentation.canRecommendReview === true ||
+      presentation.canRequestChanges === true ||
+      presentation.canApproveSubmilestone === true ||
+      presentation.canWaiveSiteVisit === true ||
+      presentation.canRetractSubmilestoneApproval === true ||
+      presentation.canApproveMilestone === true ||
+      presentation.canRetractMilestoneApproval === true);
+  const requirement = presentation.siteVisitRequirement;
+  const reviewHistory = presentation.reviewHistory ?? [];
+  const siteVisitSignals = requirement
+    ? [
+        ...requirement.policySignals,
+        ...requirement.riskSignals,
+        ...requirement.manualSignals,
+      ]
+    : [];
+  return (
+    <Frame className="bg-background" size="sm">
+      <FramePanel className="space-y-4 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-medium text-sm">
+            <ShieldCheck aria-hidden="true" className="size-4" />
+            Governed review lifecycle
+          </div>
+          <Badge
+            variant={
+              presentation.reviewDecisionState === "approved"
+                ? "success"
+                : presentation.reviewDecisionState === "reopened"
+                  ? "warning"
+                  : "outline"
+            }
+          >
+            {reviewDecisionLabel(
+              presentation.reviewDecisionState ?? "in_review",
+            )}
+          </Badge>
+        </div>
+        <div className="grid gap-3 text-xs sm:grid-cols-2">
+          <ReadOnlyField
+            label="Review round"
+            value={String(presentation.evidenceReviewRound ?? 0)}
+          />
+          <ReadOnlyField
+            label="Parent Milestone"
+            value={reviewDecisionLabel(
+              presentation.milestoneReviewDecisionState ?? "in_review",
+            )}
+          />
+        </div>
+        {presentation.parentReadyForApproval ? (
+          <p className="rounded-md border border-success/30 bg-success/8 px-3 py-2 text-success-foreground text-xs">
+            Every child is independently approved. The parent still requires
+            explicit Lender Admin approval.
+          </p>
+        ) : null}
+        {presentation.reviewDecisionState === "reopened" ||
+        presentation.milestoneReviewDecisionState === "reopened" ? (
+          <p className="rounded-md border border-warning/30 bg-warning/8 px-3 py-2 text-warning-foreground text-xs">
+            This review is reopened. Prior evidence, Site Visits, decisions,
+            and rounds remain immutable history.
+          </p>
+        ) : null}
+        <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium">Site Visit requirement</span>
+            <Badge
+              variant={
+                requirement?.status === "required" ? "warning" : "outline"
+              }
+            >
+              {requirement
+                ? siteVisitRequirementLabel(requirement.status)
+                : "No snapshot"}
+            </Badge>
+          </div>
+          {requirement ? (
+            <>
+              <p className="text-muted-foreground text-xs">
+                {requirement.required
+                  ? "Required by the current lender policy/risk/manual evaluation."
+                  : "No Site Visit is required for this review round."}
+              </p>
+              {siteVisitSignals.length > 0 ? (
+                <p className="text-muted-foreground text-xs">
+                  Signals: {siteVisitSignals.join(", ")}
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+        {canEditReview ? (
+          <div className="space-y-3 rounded-md border p-3">
+            <p className="font-medium text-xs">Review command</p>
+            {(presentation.canRecommendReview ||
+              presentation.canApproveSubmilestone) ? (
+              <Label className="space-y-1 text-xs">
+                <span>Reviewer note</span>
+                <Input
+                  aria-label="Review note"
+                  disabled={reviewBusy}
+                  onChange={(event) => onReviewNoteChange(event.target.value)}
+                  value={reviewNote}
+                />
+              </Label>
+            ) : null}
+            {(presentation.canRequestChanges ||
+              presentation.canWaiveSiteVisit ||
+              presentation.canRetractSubmilestoneApproval ||
+              presentation.canRetractMilestoneApproval) ? (
+              <Label className="space-y-1 text-xs">
+                <span>Reason (required for this command)</span>
+                <Input
+                  aria-label="Review reason"
+                  disabled={reviewBusy}
+                  onChange={(event) => onReviewReasonChange(event.target.value)}
+                  value={reviewReason}
+                />
+              </Label>
+            ) : null}
+            {presentation.canRecommendReview ? (
+              <label className="flex items-center gap-2 text-xs">
+                <Checkbox
+                  aria-label="Recommend a Site Visit"
+                  checked={reviewSiteVisitRequired}
+                  disabled={reviewBusy}
+                  onCheckedChange={(checked) =>
+                    onReviewSiteVisitRequiredChange(checked === true)
+                  }
+                />
+                Recommend a Site Visit
+              </label>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {presentation.canRecommendReview ? (
+                <Button
+                  disabled={reviewBusy}
+                  onClick={onRecommendReview}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Record recommendation
+                </Button>
+              ) : null}
+              {presentation.canRequestChanges ? (
+                <Button
+                  disabled={reviewBusy}
+                  onClick={onRequestChanges}
+                  size="sm"
+                  type="button"
+                  variant="warning"
+                >
+                  Request changes
+                </Button>
+              ) : null}
+              {presentation.canWaiveSiteVisit ? (
+                <Button
+                  disabled={reviewBusy}
+                  onClick={onWaiveSiteVisit}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Waive Site Visit
+                </Button>
+              ) : null}
+              {presentation.canApproveSubmilestone ? (
+                <Button
+                  disabled={reviewBusy}
+                  onClick={onApproveSubmilestone}
+                  size="sm"
+                  type="button"
+                >
+                  Approve Sub-milestone
+                </Button>
+              ) : null}
+              {presentation.canRetractSubmilestoneApproval ? (
+                <Button
+                  disabled={reviewBusy}
+                  onClick={onRetractSubmilestone}
+                  size="sm"
+                  type="button"
+                  variant="warning"
+                >
+                  Retract child approval
+                </Button>
+              ) : null}
+              {presentation.canApproveMilestone ? (
+                <Button
+                  disabled={reviewBusy}
+                  onClick={onApproveMilestone}
+                  size="sm"
+                  type="button"
+                >
+                  Approve Milestone
+                </Button>
+              ) : null}
+              {presentation.canRetractMilestoneApproval ? (
+                <Button
+                  disabled={reviewBusy}
+                  onClick={onRetractMilestone}
+                  size="sm"
+                  type="button"
+                  variant="warning"
+                >
+                  Retract Milestone approval
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 font-medium text-xs">
+            <History aria-hidden="true" className="size-3.5" />
+            Review history
+          </div>
+          {reviewHistory.length === 0 ? (
+            <p className="text-muted-foreground text-xs">
+              No review decisions recorded yet.
+            </p>
+          ) : (
+            <ol className="space-y-2 text-xs">
+              {reviewHistory.map((entry, index) => (
+                <li
+                  className="rounded-md border bg-muted/20 px-3 py-2"
+                  key={entry.scope + "-" + entry.createdAt + "-" + index}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">
+                      {entry.scope === "milestone"
+                        ? "Milestone"
+                        : "Sub-milestone"}{" "}
+                      · {entry.kind.replaceAll("_", " ")}
+                    </span>
+                    <span className="text-muted-foreground">
+                      Round {entry.reviewRound}
+                    </span>
+                  </div>
+                  <p className="text-muted-foreground">
+                    {entry.actorRoles.join(", ")} · {entry.actorWorkosUserId}
+                  </p>
+                  {entry.reason || entry.note ? (
+                    <p>{entry.reason ?? entry.note}</p>
+                  ) : null}
+                  {entry.warnings.length > 0 ? (
+                    <p className="text-warning-foreground">
+                      Warnings: {entry.warnings.join(", ")}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
       </FramePanel>
     </Frame>
   );

@@ -117,6 +117,7 @@ import type * as build_participant_revocation from "../build_participant_revocat
 import type * as build_participant_revocation_notifications from "../build_participant_revocation_notifications.js";
 import type * as build_participants from "../build_participants.js";
 import type * as build_submilestone_evidence from "../build_submilestone_evidence.js";
+import type * as build_submilestone_review from "../build_submilestone_review.js";
 import type * as builderRoster from "../builderRoster.js";
 import type * as builderStaffIdentity from "../builderStaffIdentity.js";
 import type * as contractorAuth from "../contractorAuth.js";
@@ -267,6 +268,7 @@ declare const fullApi: ApiFromModules<{
   build_participant_revocation_notifications: typeof build_participant_revocation_notifications;
   build_participants: typeof build_participants;
   build_submilestone_evidence: typeof build_submilestone_evidence;
+  build_submilestone_review: typeof build_submilestone_review;
   builderRoster: typeof builderRoster;
   builderStaffIdentity: typeof builderStaffIdentity;
   contractorAuth: typeof contractorAuth;
