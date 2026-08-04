@@ -3828,19 +3828,6 @@ describe("Build Collaboration operational events", () => {
           validFrom: now,
           workosUserId,
         });
-        await ctx.db.insert("workosOrganizationMemberships", {
-          createdAt: now,
-          directoryManaged: false,
-          roleSlug: role,
-          roleSlugs: [role],
-          sourceEventId: `draw_audience_membership_${index}`,
-          sourceEventType: "fixture.draw-coordination",
-          status: index === 0 ? "inactive" : "active",
-          updatedAt: now,
-          workosMembershipId: `draw_audience_membership_${index}`,
-          workosOrganizationId: ORGANIZATION_ID,
-          workosUserId,
-        });
         await ctx.db.insert("buildCollaborationFollows", {
           active: false,
           brokerageId: fixture.brokerageId,
@@ -3855,6 +3842,25 @@ describe("Build Collaboration operational events", () => {
         });
       }
     });
+    for (let index = 0; index < 101; index += 1) {
+      const workosUserId = `draw_audience_${index}`;
+      const role = index === 1 ? "contractor" : "broker";
+      await fixture.base.mutation(
+        (internal as any).workosProjection.ingestWorkosEvent,
+        {
+          data: {
+            id: `draw_audience_membership_${index}`,
+            organization_id: ORGANIZATION_ID,
+            role: { slug: role },
+            roles: [{ slug: role }],
+            status: index === 0 ? "inactive" : "active",
+            user_id: workosUserId,
+          },
+          event: "organization_membership.created",
+          id: `draw_audience_membership_created_${index}`,
+        },
+      );
+    }
     const saturatedAdminState = await fixture.globalAdmin.query(
       (api as any).build_draw_coordination.getDrawCoordinationState,
       {
