@@ -165,7 +165,7 @@ async function isCanonicalBuildAssignment(
     rootAssignment.brokerageId !== build.brokerageId ||
     rootAssignment.buildId !== build._id ||
     rootAssignment.contractorId !== contractorId ||
-    rootAssignment.status !== "active"
+    rootAssignment.status === "inactive"
   ) {
     return false;
   }
@@ -869,7 +869,6 @@ export const startAssignedSubmilestone = contractorRoleMutation
   .input({
     actualStartedAt: v.number(),
     buildId: v.id("activeBuilds"),
-    dependencyOverrideReason: v.optional(v.string()),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     source: v.union(
@@ -952,7 +951,6 @@ export const startAssignedSubmilestone = contractorRoleMutation
       },
       actualStartedAt: args.actualStartedAt,
       build,
-      dependencyOverrideReason: args.dependencyOverrideReason,
       idempotencyKey: args.idempotencyKey,
       milestone,
       milestones,

@@ -391,10 +391,30 @@ async function latestRecommendation(
     .sort((left, right) => right.createdAt - left.createdAt)[0];
 }
 
+async function reviewRoundEnteredAt(
+  ctx: ReviewCtx,
+  submilestoneId: Id<"buildSubmilestones">,
+  reviewRound: number,
+) {
+  if (reviewRound <= 0) return undefined;
+  const round = await ctx.db
+    .query("buildSubmilestoneReviewRounds")
+    .withIndex("by_submilestone_round", (query) =>
+      query.eq("buildSubmilestoneId", submilestoneId).eq("round", reviewRound),
+    )
+    .unique();
+  return round?.enteredAt;
+}
+
 async function matchingSiteVisit(
   ctx: ReviewCtx,
   submilestone: Doc<"buildSubmilestones">,
+  reviewRound?: number,
 ) {
+  const enteredAt =
+    reviewRound === undefined
+      ? undefined
+      : await reviewRoundEnteredAt(ctx, submilestone._id, reviewRound);
   const visits = await ctx.db
     .query("buildSiteVisits")
     .withIndex("by_build_milestone", (query) =>
@@ -407,6 +427,8 @@ async function matchingSiteVisit(
     .filter(
       (visit) =>
         visit.status !== "cancelled" &&
+        (enteredAt === undefined ||
+          (visit.scopeBoundAt ?? visit.createdAt) >= enteredAt) &&
         (!visit.submilestoneKeys || visit.submilestoneKeys.includes(submilestone.key)),
     )
     .sort(
@@ -423,11 +445,21 @@ async function currentRequirementVisit(
 ) {
   if (requirement.siteVisitId) {
     const referenced = await ctx.db.get(requirement.siteVisitId);
-    if (referenced && referenced.status !== "cancelled") {
+    const enteredAt = await reviewRoundEnteredAt(
+      ctx,
+      submilestone._id,
+      requirement.reviewRound,
+    );
+    if (
+      referenced &&
+      referenced.status !== "cancelled" &&
+      (enteredAt === undefined ||
+        (referenced.scopeBoundAt ?? referenced.createdAt) >= enteredAt)
+    ) {
       return referenced;
     }
   }
-  return await matchingSiteVisit(ctx, submilestone);
+  return await matchingSiteVisit(ctx, submilestone, requirement.reviewRound);
 }
 
 async function evaluateSiteVisitRequirement(
@@ -489,7 +521,7 @@ async function evaluateSiteVisitRequirement(
   const manualRequired = manualRequiredOverride ?? recommendation?.siteVisitRequired === true;
   const manualSignals = manualRequired ? ["lender_staff_recommendation"] : [];
   const required = policyRequired || evidencePolicyRequired || riskSignals.length > 0 || manualRequired;
-  const visit = await matchingSiteVisit(ctx, submilestone);
+  const visit = await matchingSiteVisit(ctx, submilestone, reviewRound);
   return {
     manualRequired,
     manualSignals,
@@ -786,7 +818,7 @@ export const getActiveBuildSubmilestoneReview = authenticatedQuery
       .order("desc")
       .take(100);
     const readiness = await parentReadiness(submilestones);
-    const currentVisit = await matchingSiteVisit(ctx, submilestone);
+    const currentVisit = await matchingSiteVisit(ctx, submilestone, reviewRound);
     return {
       child: {
         evidenceReviewState: submilestone.evidenceReviewState ?? "not_ready",

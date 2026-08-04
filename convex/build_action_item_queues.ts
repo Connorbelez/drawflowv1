@@ -79,6 +79,13 @@ const DEADLINE_BATCH_SIZE = 25;
 const MAX_QUEUE_PAGE_SIZE = 50;
 const DAY_MS = BUILD_ACTION_ITEM_DEADLINE_DAY_MS;
 
+function isSupersededGeneratedActionItem(item: Pick<Doc<"buildActionItems">, "systemMode" | "canonicalPlanningState">) {
+  return (
+    item.systemMode === "generated_milestone_submilestone" &&
+    item.canonicalPlanningState === "superseded"
+  );
+}
+
 const queueScopeValidator = v.union(
   v.literal("build"),
   v.literal("post"),
@@ -140,7 +147,7 @@ export const listBuildActionItemQueue = authenticatedQuery
     const readable = await filterReadableBuildActionItems(
       ctx,
       authorization,
-      filtered
+      filtered.filter((item) => !isSupersededGeneratedActionItem(item)),
     );
     const asOf = Date.now();
     return {
@@ -179,8 +186,11 @@ export const listMyBuildActionItemQueue = authenticatedQuery
     const candidates = args.includeCompleted
       ? candidatePage.page
       : candidatePage.page.filter((item) => !isClosedActionItem(item));
+    const activeCandidates = candidates.filter(
+      (item) => !isSupersededGeneratedActionItem(item),
+    );
     const byBuild = new Map<Id<"activeBuilds">, Doc<"buildActionItems">[]>();
-    for (const item of candidates) {
+    for (const item of activeCandidates) {
       const rows = byBuild.get(item.buildId) ?? [];
       rows.push(item);
       byBuild.set(item.buildId, rows);

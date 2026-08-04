@@ -433,6 +433,7 @@ export async function publishBuildCollaborationBundle(
 
 export const listBuildCollaborationFeed = authenticatedQuery
   .input({
+    asOf: v.optional(v.number()),
     buildId: v.id("activeBuilds"),
     organizationId: v.string(),
     paginationOpts: paginationOptsValidator,
@@ -480,6 +481,7 @@ export const listBuildCollaborationFeed = authenticatedQuery
         } else {
           page.push(
             await projectReadableBuildCollaborationPost(ctx, {
+              asOf: args.asOf,
               authorization,
               post,
               unavailableKey: `unavailable-${placeholderKey}`,
