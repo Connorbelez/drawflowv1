@@ -3216,6 +3216,7 @@ function CollaborationPostCard({
     setEditTarget({
       canEdit: Boolean(
         mutationsAllowed &&
+          drawCoordinationVisible &&
           (entry.post.viewerIsAuthor ||
             (entry.post.systemPost && entry.post.viewerCanManageThread)) &&
           entry.post.contentState === "active"
@@ -3265,6 +3266,7 @@ function CollaborationPostCard({
         {entry.post.systemPost ? (
         <SystemPostFacts
             buildId={buildId}
+            coordinationVisible={drawCoordinationVisible}
             entry={entry}
             mutationsAllowed={mutationsAllowed}
             onCreateActionItem={onCreateActionItem}
@@ -3845,6 +3847,7 @@ function drawFactStatusLabel(value: string) {
 function SystemPostDrawFacts({
   buildId,
   coordination,
+  coordinationVisible,
   facts,
   mutationsAllowed,
   onCreateActionItem,
@@ -3853,6 +3856,7 @@ function SystemPostDrawFacts({
 }: {
   buildId: Id<"activeBuilds">;
   coordination?: DrawCoordinationState;
+  coordinationVisible: boolean;
   facts: SystemDrawFacts;
   mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
@@ -3887,6 +3891,7 @@ function SystemPostDrawFacts({
   };
   const planned = facts.planned;
   const request = facts.request;
+  const canCoordinate = coordinationVisible && coordination?.eligible === true;
   return (
     <section
       aria-label="Draw lifecycle facts"
@@ -3941,7 +3946,7 @@ function SystemPostDrawFacts({
           </Badge>
         ) : null}
       </div>
-      {coordination?.eligible ? (
+      {canCoordinate ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/60 p-2">
           <div className="flex items-center gap-2 text-xs">
             <Users aria-hidden="true" className="size-4" />
@@ -4003,6 +4008,7 @@ function SystemPostDrawFacts({
 
 function SystemPostFacts({
   buildId,
+  coordinationVisible,
   entry,
   mutationsAllowed,
   onCreateActionItem,
@@ -4011,6 +4017,7 @@ function SystemPostFacts({
   tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
+  coordinationVisible: boolean;
   entry: CollaborationFeedPostEntry;
   mutationsAllowed: boolean;
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
@@ -4095,6 +4102,7 @@ function SystemPostFacts({
           <SystemPostDrawFacts
             buildId={buildId}
             coordination={systemPost.drawCoordination}
+            coordinationVisible={coordinationVisible}
             facts={drawFacts}
             mutationsAllowed={mutationsAllowed}
             onCreateActionItem={onCreateActionItem}

@@ -1824,6 +1824,44 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.queryByRole("menuitem", { name: "Save privately" })).toBeNull();
   });
 
+  test("keeps hidden Draw coordination controls and edit authority out of the post surface", async () => {
+    const entry = canonicalDrawSystemPostEntryFixture({
+      coordination: {
+        canJoin: false,
+        canLeave: false,
+        eligible: false,
+        joined: false,
+        oversight: false,
+        workingAudienceCount: 0,
+      },
+    });
+    entry.post.revision = 2;
+    entry.post.readRevision = 2;
+    entry.post.viewerIsAuthor = true;
+    mocks.feedRows = [entry];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Add coordination Action Item" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "View revision history" }),
+    );
+    expect(
+      await screen.findByRole("heading", {
+        level: 2,
+        name: "Revision history",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Save revision" }),
+    ).toBeNull();
+  });
+
   test("disables Draw coordination controls in an archived Build", () => {
     mocks.lifecycleState = "closed";
     mocks.feedRows = [
