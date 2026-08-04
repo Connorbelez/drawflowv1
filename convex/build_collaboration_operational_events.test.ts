@@ -158,6 +158,7 @@ async function seedOperationalBuild(options?: {
     }> = [
       { displayName: "Admin", role: "admin", subject: "user_admin" },
       { displayName: "Broker", role: "broker", subject: "user_broker" },
+      { displayName: "Builder", role: "builder", subject: "user_builder" },
       {
         displayName: "Builder staff",
         role: "builder-staff",
@@ -1211,6 +1212,9 @@ describe("Build Collaboration operational events", () => {
         }),
         expect.objectContaining({
           recipientWorkosUserId: "user_global_principal",
+        }),
+        expect.objectContaining({
+          recipientWorkosUserId: "user_builder",
         }),
       ]),
     );
