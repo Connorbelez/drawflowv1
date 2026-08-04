@@ -240,6 +240,7 @@ function focusedPostEntryFixture(id: string, text: string) {
           threadState: mocks.postThreadState,
       updatedAt: now,
       viewerCanAppeal: false,
+      viewerCanEdit: false,
       viewerCanManageThread: true,
       viewerCanModerate: false,
       viewerCanResolveAppeal: false,
@@ -370,6 +371,7 @@ function canonicalMilestoneSystemPostEntryFixture() {
       threadState: mocks.postThreadState,
       updatedAt: now,
       viewerCanAppeal: false,
+      viewerCanEdit: true,
       viewerCanManageThread: true,
       viewerCanModerate: false,
       viewerCanResolveAppeal: false,
@@ -496,6 +498,7 @@ function canonicalDrawSystemPostEntryFixture(options: {
       threadState: "open",
       updatedAt: now,
       viewerCanAppeal: false,
+      viewerCanEdit: false,
       viewerCanManageThread: true,
       viewerCanModerate: false,
       viewerCanResolveAppeal: false,
@@ -585,6 +588,7 @@ function planningReconciliationFixture({
     },
     diffs,
     diffsTruncated: truncated,
+    revisionsTruncated: false,
     revisions: [
       {
         approvedAt: Date.parse("2026-08-03T12:00:00.000Z"),
@@ -749,6 +753,7 @@ vi.mock("convex/react", () => ({
           threadState: mocks.postThreadState,
           updatedAt: Date.parse("2026-07-28T12:00:00.000Z"),
           viewerCanAppeal: false,
+          viewerCanEdit: mocks.postViewerIsAuthor,
           viewerCanModerate: mocks.postViewerCanModerate,
           viewerCanResolveAppeal: false,
           viewerCanManageThread: true,
@@ -1649,6 +1654,41 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.queryByRole("button", { name: /Show Action Items as a board/ })).toBeNull();
   });
 
+  test("keeps a Draw System Post on its kind branch when Draw facts are unavailable", () => {
+    const entry = canonicalDrawSystemPostEntryFixture();
+    delete (entry.post.systemPost as { drawFacts?: unknown }).drawFacts;
+    mocks.feedRows = [entry];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(
+      screen.getByTestId("system-post-draw-facts-unavailable"),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("system-post-planning-summary")).toBeNull();
+    expect(
+      screen.queryByTestId("system-post-planning-comparison"),
+    ).toBeNull();
+  });
+
+  test("keeps planning branches on a non-Draw System Post even if Draw facts are present", () => {
+    const entry = canonicalMilestoneSystemPostEntryFixture();
+    (entry.post.systemPost as { drawFacts?: unknown }).drawFacts = {};
+    mocks.feedRows = [entry];
+    mocks.planningReconciliation = planningReconciliationFixture();
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(screen.getByTestId("system-post-planning-summary")).toBeTruthy();
+    expect(
+      screen.getByTestId("system-post-planning-comparison"),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("system-post-draw-facts")).toBeNull();
+  });
+
   test("lets eligible internal readers join and create ordinary Draw coordination work", async () => {
     mocks.feedRows = [
       canonicalDrawSystemPostEntryFixture({
@@ -1819,10 +1859,37 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.queryByRole("button", { name: "Add coordination Action Item" }),
     ).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
-    expect(screen.queryByRole("menuitem", { name: "Follow thread" })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Save privately" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Post actions" })).toBeNull();
   });
+
+  test.each(["broker", "builder"] as const)(
+    "uses the dedicated admin System Post edit capability for %s readers",
+    (role) => {
+      const entry = canonicalMilestoneSystemPostEntryFixture();
+      entry.post.revision = 2;
+      entry.post.readRevision = 2;
+      entry.post.viewerCanEdit = false;
+      entry.post.viewerCanManageThread = true;
+      mocks.viewerBinding = {
+        buildId: "build-1",
+        organizationId: "org-1",
+        role,
+        workosUserId: `user_${role}`,
+      };
+      mocks.authUserId = `user_${role}`;
+      mocks.feedRows = [entry];
+
+      render(
+        <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
+      expect(
+        screen.getByRole("menuitem", { name: "View revision history" }),
+      ).toBeTruthy();
+      expect(screen.queryByRole("menuitem", { name: "Edit post" })).toBeNull();
+    },
+  );
 
   test("keeps hidden Draw coordination controls and edit authority out of the post surface", async () => {
     const entry = canonicalDrawSystemPostEntryFixture({
@@ -1935,8 +2002,43 @@ describe("BuildCollaborationFeed", () => {
     );
 
     expect(screen.getByTestId("planning-diffs-truncated").textContent).toContain(
-      "Structured planning history is truncated at 10,000 changes",
+      "Structured planning diffs are truncated at 10,000 changes",
     );
+  });
+
+  test("distinguishes truncated revision history from a complete empty diff set", () => {
+    const reconciliation = planningReconciliationFixture();
+    reconciliation.diffs = [];
+    reconciliation.revisionsTruncated = true;
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+    mocks.planningReconciliation = reconciliation;
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(
+      screen.getByTestId("planning-revisions-truncated").textContent,
+    ).toContain("Only the latest 100 planning revisions are shown");
+    expect(
+      screen.getByText("No structured planning changes are recorded after activation."),
+    ).toBeTruthy();
+  });
+
+  test("treats an empty truncated diff window as indeterminate", () => {
+    const reconciliation = planningReconciliationFixture({ truncated: true });
+    reconciliation.diffs = [];
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+    mocks.planningReconciliation = reconciliation;
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(screen.getByTestId("planning-diffs-indeterminate")).toBeTruthy();
+    expect(
+      screen.queryByText("No structured planning changes are recorded after activation."),
+    ).toBeNull();
   });
 
   test("shows a loading comparison badge while structured reconciliation is unresolved", () => {

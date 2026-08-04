@@ -2677,8 +2677,7 @@ function CollaborationPostHeader({
   const canEdit = Boolean(
     mutationsAllowed &&
       coordinationVisible &&
-      (entry.post.viewerIsAuthor ||
-        (entry.post.systemPost && entry.post.viewerCanManageThread)) &&
+      entry.post.viewerCanEdit &&
       entry.post.contentState === "active"
   );
   const canViewHistory =
@@ -2805,6 +2804,16 @@ function CollaborationPostActions({
     entry.post.viewerCanModerate ||
     entry.post.viewerCanAppeal ||
     entry.post.viewerCanResolveAppeal;
+  const hasHistoryActions = canViewHistory;
+  const hasModerationActions = mutationsAllowed && canUseModeration;
+  const hasCoordinationActions = coordinationVisible;
+  if (
+    !hasHistoryActions &&
+    !hasModerationActions &&
+    !hasCoordinationActions
+  ) {
+    return null;
+  }
   return (
     <CardAction>
       <DropdownMenu>
@@ -3217,8 +3226,7 @@ function CollaborationPostCard({
       canEdit: Boolean(
         mutationsAllowed &&
           drawCoordinationVisible &&
-          (entry.post.viewerIsAuthor ||
-            (entry.post.systemPost && entry.post.viewerCanManageThread)) &&
+          entry.post.viewerCanEdit &&
           entry.post.contentState === "active"
       ),
       document: parseDocument(entry.revision.tiptapJson),
@@ -3744,13 +3752,24 @@ function SystemPostPlanningComparison({
           </dd>
         </div>
       </dl>
+      {planningReconciliation?.revisionsTruncated ? (
+        <p
+          className="text-muted-foreground text-xs"
+          data-testid="planning-revisions-truncated"
+          role="status"
+        >
+          Only the latest 100 planning revisions are shown. Earlier revision
+          history is unavailable in this view; the canonical planning record
+          remains authoritative.
+        </p>
+      ) : null}
       {planningReconciliation?.diffsTruncated ? (
         <p
           className="text-muted-foreground text-xs"
           data-testid="planning-diffs-truncated"
           role="status"
         >
-          Structured planning history is truncated at 10,000 changes. The
+          Structured planning diffs are truncated at 10,000 changes. The
           canonical planning record remains authoritative.
         </p>
       ) : null}
@@ -3759,9 +3778,21 @@ function SystemPostPlanningComparison({
           Loading structured planning changes…
         </p>
       ) : diffs.length === 0 ? (
-        <p className="text-muted-foreground text-xs">
-          No structured planning changes are recorded after activation.
-        </p>
+        planningReconciliation.diffsTruncated ? (
+          <p
+            className="text-muted-foreground text-xs"
+            data-testid="planning-diffs-indeterminate"
+            role="status"
+          >
+            Structured planning changes cannot be determined because the
+            available diff window is truncated. The canonical planning record
+            remains authoritative.
+          </p>
+        ) : (
+          <p className="text-muted-foreground text-xs">
+            No structured planning changes are recorded after activation.
+          </p>
+        )
       ) : (
         <div className="space-y-2">
           <p className="font-medium text-xs">
@@ -4032,8 +4063,8 @@ function SystemPostFacts({
   const milestoneReference = entry.references.find(
     (reference) => reference.entityKind === "milestone"
   );
-  const drawFacts =
-    systemPost.kind === "draw" ? systemPost.drawFacts : undefined;
+  const isDrawSystemPost = systemPost.kind === "draw";
+  const drawFacts = isDrawSystemPost ? systemPost.drawFacts : undefined;
   const triggeredByLabel = systemPost.triggeredByWorkosUserId
     ? tagOptions.find(
         (option) =>
@@ -4098,19 +4129,32 @@ function SystemPostFacts({
             </dd>
           </div>
         </dl>
-        {drawFacts ? (
-          <SystemPostDrawFacts
-            buildId={buildId}
-            coordination={systemPost.drawCoordination}
-            coordinationVisible={coordinationVisible}
-            facts={drawFacts}
-            mutationsAllowed={mutationsAllowed}
-            onCreateActionItem={onCreateActionItem}
-            organizationId={organizationId}
-            postId={entry.post._id}
-          />
-        ) : null}
-        {!drawFacts ? (
+        {isDrawSystemPost ? (
+          drawFacts ? (
+            <SystemPostDrawFacts
+              buildId={buildId}
+              coordination={systemPost.drawCoordination}
+              coordinationVisible={coordinationVisible}
+              facts={drawFacts}
+              mutationsAllowed={mutationsAllowed}
+              onCreateActionItem={onCreateActionItem}
+              organizationId={organizationId}
+              postId={entry.post._id}
+            />
+          ) : (
+            <section
+              aria-label="Draw lifecycle facts"
+              className="space-y-2 border-t pt-3"
+              data-testid="system-post-draw-facts-unavailable"
+            >
+              <p className="font-medium text-xs">Draw lifecycle facts</p>
+              <p className="text-muted-foreground text-xs" role="status">
+                Draw facts are unavailable in this view. Open the canonical
+                Draw surface for authoritative lifecycle details.
+              </p>
+            </section>
+          )
+        ) : (
           <>
             <SystemPostPlanningSummary summary={entry.post.planningSummary} />
             <SystemPostPlanningComparison
@@ -4118,7 +4162,7 @@ function SystemPostFacts({
               systemPost={systemPost}
             />
           </>
-        ) : null}
+        )}
         {systemPost.recoveryState === "recovery_required" ? (
           <p className="text-amber-700 text-xs dark:text-amber-300">
             Recovery required: add a valid Sub-milestone through the canonical
