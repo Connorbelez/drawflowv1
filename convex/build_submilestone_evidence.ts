@@ -18,6 +18,68 @@ export type ActiveSubmilestoneEvidenceRequirement = {
   submilestoneKey: string;
 };
 
+export type ActiveSubmilestoneEvidenceSourceKind =
+  | "canonical_upload"
+  | "discussion_promotion"
+  | "site_visit";
+
+type EvidenceAssetMetadataInput = Pick<
+  Doc<"buildEvidenceAssets">,
+  "fileName" | "mimeType"
+> & {
+  tag?: string;
+};
+
+export function normalizeActiveSubmilestoneEvidenceAssetMetadata(
+  asset: EvidenceAssetMetadataInput,
+) {
+  return {
+    fileName: asset.fileName.trim().toLowerCase(),
+    mimeType: asset.mimeType.trim().toLowerCase(),
+    tag: asset.tag?.trim().toLowerCase() ?? "",
+  };
+}
+
+export function activeSubmilestoneEvidenceAssetSatisfiesRequirementKind(input: {
+  asset: EvidenceAssetMetadataInput;
+  requirement: Pick<ActiveSubmilestoneEvidenceRequirement, "kind">;
+  sourceKind: ActiveSubmilestoneEvidenceSourceKind;
+}) {
+  if (input.requirement.kind === "any" || input.requirement.kind === "document") {
+    return true;
+  }
+  if (input.requirement.kind === "site_visit") {
+    return input.sourceKind === "site_visit";
+  }
+  const metadata = normalizeActiveSubmilestoneEvidenceAssetMetadata(input.asset);
+  return metadata.mimeType.startsWith("image/");
+}
+
+export function assertActiveSubmilestoneEvidenceRequirementKind(input: {
+  asset: EvidenceAssetMetadataInput;
+  requirement: Pick<
+    ActiveSubmilestoneEvidenceRequirement,
+    "kind" | "label" | "requirementKey"
+  >;
+  sourceKind: ActiveSubmilestoneEvidenceSourceKind;
+}) {
+  if (
+    activeSubmilestoneEvidenceAssetSatisfiesRequirementKind({
+      asset: input.asset,
+      requirement: input.requirement,
+      sourceKind: input.sourceKind,
+    })
+  ) {
+    return;
+  }
+  throw new ConvexError({
+    code: "EVIDENCE_REQUIREMENT_KIND_MISMATCH",
+    kind: input.requirement.kind,
+    message: `Evidence does not satisfy the ${input.requirement.kind} requirement ${input.requirement.requirementKey}.`,
+    requirementKey: input.requirement.requirementKey,
+  });
+}
+
 const DEFAULT_REQUIREMENT: Omit<
   ActiveSubmilestoneEvidenceRequirement,
   | "buildId"
@@ -62,6 +124,9 @@ export async function ensureActiveSubmilestoneEvidencePackageDraft(
     )
     .order("desc")
     .first();
+  if (latest) {
+    assertActiveSubmilestoneEvidencePackageRevisionScope(latest, input);
+  }
   if (latest?.status === "draft") {
     return latest;
   }
@@ -160,7 +225,7 @@ export async function appendActiveSubmilestoneEvidenceAssetToDraft(
   input: EvidenceContext & {
     actorWorkosUserId: string;
     asset: Doc<"buildEvidenceAssets">;
-    sourceKind: "canonical_upload" | "discussion_promotion" | "site_visit";
+    sourceKind: ActiveSubmilestoneEvidenceSourceKind;
     sourceDiscussionAsset?: Doc<"buildCollaborationAssets">;
     sourceDiscussionPostId?: Id<"buildCollaborationPosts">;
     requirementKey?: string;
@@ -172,10 +237,6 @@ export async function appendActiveSubmilestoneEvidenceAssetToDraft(
       message: "Evidence must reference a stored file before package membership.",
     });
   }
-  const packageRevision = await ensureActiveSubmilestoneEvidencePackageDraft(
-    ctx,
-    input
-  );
   if (
     input.asset.buildId !== input.build._id ||
     input.asset.organizationId !== input.build.organizationId ||
@@ -209,6 +270,17 @@ export async function appendActiveSubmilestoneEvidenceAssetToDraft(
   const requirement =
     explicitlyRequestedRequirement ?? requirements[0];
   const requirementKey = requirement?.requirementKey ?? "completion-evidence";
+  if (requirement) {
+    assertActiveSubmilestoneEvidenceRequirementKind({
+      asset: input.asset,
+      requirement,
+      sourceKind: input.sourceKind,
+    });
+  }
+  const packageRevision = await ensureActiveSubmilestoneEvidencePackageDraft(
+    ctx,
+    input
+  );
   const existing = await ctx.db
     .query("buildSubmilestoneEvidencePackageItems")
     .withIndex("by_package_revision", (query) =>
@@ -471,14 +543,9 @@ export async function resolveActiveSubmilestoneEvidencePackageReadiness(
         .order("desc")
         .first();
   if (
-    latestRevision &&
-    (latestRevision.buildId !== input.build._id ||
-      latestRevision.organizationId !== input.build.organizationId ||
-      latestRevision.buildMilestoneId !== input.milestone._id ||
-      latestRevision.buildSubmilestoneId !== input.submilestone._id ||
-      latestRevision.proposalId !== input.build.proposalId)
+    latestRevision
   ) {
-    throw new Error("Evidence Package revision does not belong to the target sub-milestone.");
+    assertActiveSubmilestoneEvidencePackageRevisionScope(latestRevision, input);
   }
   const packageItems = latestRevision
     ? await ctx.db
@@ -503,13 +570,30 @@ export async function resolveActiveSubmilestoneEvidencePackageReadiness(
     const matchingItems = packageItems.filter(
       (item) => item.requirementKey === requirement.requirementKey
     );
-    const matchingAssets = matchingItems
-      .map((item) => assetById.get(String(item.evidenceAssetId)))
-      .filter(
-        (asset): asset is Doc<"buildEvidenceAssets"> =>
-          Boolean(asset?.storageId),
-      );
-    if (matchingAssets.length === 0) {
+    const matchingRecords = matchingItems.map((item) => ({
+      asset: assetById.get(String(item.evidenceAssetId)),
+      item,
+    }));
+    const matchingAssets = matchingRecords.reduce<
+      Doc<"buildEvidenceAssets">[]
+    >((assets, { asset, item }) => {
+      if (
+        !asset?.storageId ||
+        !activeSubmilestoneEvidenceAssetSatisfiesRequirementKind({
+          asset,
+          requirement,
+          sourceKind: item.sourceKind,
+        })
+      ) {
+        return assets;
+      }
+      assets.push(asset);
+      return assets;
+    }, []);
+    const hasInvalidSiteVisitItem =
+      requirement.kind === "site_visit" &&
+      matchingItems.some((item) => item.sourceKind !== "site_visit");
+    if (matchingAssets.length === 0 || hasInvalidSiteVisitItem) {
       readyExceptFor.push(requirement.label);
       continue;
     }
@@ -537,4 +621,22 @@ export async function resolveActiveSubmilestoneEvidencePackageReadiness(
       1
     ),
   };
+}
+
+function assertActiveSubmilestoneEvidencePackageRevisionScope(
+  revision: Doc<"buildSubmilestoneEvidencePackageRevisions">,
+  input: EvidenceContext,
+) {
+  if (
+    revision.brokerageId !== input.build.brokerageId ||
+    revision.buildId !== input.build._id ||
+    revision.organizationId !== input.build.organizationId ||
+    revision.buildMilestoneId !== input.milestone._id ||
+    revision.buildSubmilestoneId !== input.submilestone._id ||
+    revision.proposalId !== input.build.proposalId
+  ) {
+    throw new Error(
+      "Evidence Package revision does not belong to the target sub-milestone.",
+    );
+  }
 }

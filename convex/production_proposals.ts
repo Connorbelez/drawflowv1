@@ -52,6 +52,7 @@ import {
 import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
 import {
   appendActiveSubmilestoneEvidenceAssetToDraft,
+  assertActiveSubmilestoneEvidenceRequirementKind,
   ensureActiveSubmilestoneEvidencePackageDraft,
   resolveActiveSubmilestoneEvidencePackageReadiness,
   resolveActiveSubmilestoneEvidenceRequirements,
@@ -18586,16 +18587,26 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
           "A requirementKey is required when a sub-milestone has multiple evidence requirements.",
       });
     }
-    const requirementKey =
-      requestedRequirementKey ||
-      requirements[0]?.requirementKey;
-    if (!requirementKey || !requirements.some((row) => row.requirementKey === requirementKey)) {
+    const requirement =
+      requirements.find((row) => row.requirementKey === requestedRequirementKey) ??
+      (!requestedRequirementKey ? requirements[0] : undefined);
+    if (!requirement) {
       throw new ConvexError({
         code: "EVIDENCE_REQUIREMENT_NOT_FOUND",
         message: "Evidence must target a current Sub-milestone requirement.",
-        requirementKey,
+        requirementKey: requestedRequirementKey || undefined,
       });
     }
+    const requirementKey = requirement.requirementKey;
+    assertActiveSubmilestoneEvidenceRequirementKind({
+      asset: {
+        fileName: args.evidence.fileName,
+        mimeType: args.evidence.mimeType,
+        tag: args.evidence.tag ?? milestone.name,
+      },
+      requirement,
+      sourceKind: "canonical_upload",
+    });
     const now = Date.now();
     const locationAttempt = args.evidence.locationAttempt
       ? resolveSiteVisitGeofenceAttempt({

@@ -1043,47 +1043,18 @@ export const reconcileDueDrawSystemPosts = internalMutation
         numItems: MILESTONE_RECONCILIATION_BATCH_SIZE,
       });
     for (const build of page.page) {
-      if (!(build.status === "active" || build.status === "future_start") || !build.timezone) {
+      if (
+        !(build.status === "active" || build.status === "future_start") ||
+        !build.timezone
+      ) {
         continue;
       }
-      let localDate: string;
-      try {
-        localDate = buildLocalDateAt(asOf, build.timezone);
-      } catch {
-        continue;
-      }
-      const plannedDraws = await ctx.db
-        .query("plannedDrawScheduleRows")
-        .withIndex("by_build_order", (query) => query.eq("buildId", build._id))
-        .collect();
-      for (const plannedDraw of plannedDraws) {
-        if (
-          plannedDraw.organizationId !== build.organizationId ||
-          plannedDraw.brokerageId !== build.brokerageId ||
-          TERMINAL_DRAW_STATUSES.has(plannedDraw.status)
-        ) {
-          continue;
-        }
-        let plannedDate: string;
-        try {
-          plannedDate = addBuildLocalDays(build.startDate, plannedDraw.timingDay);
-        } catch {
-          continue;
-        }
-        if (localDate < plannedDate) {
-          continue;
-        }
-        await ensureDrawSystemPost(ctx, {
-          actor: {
-            roles: ["system"],
-            workosUserId: "system:build-collaboration-scheduler",
-          },
-          activationReason: "scheduled",
-          build,
-          now: asOf,
-          plannedDraw,
-        });
-      }
+      await ctx.scheduler.runAfter(
+        0,
+        internal.build_collaboration_scheduling
+          .reconcileDueDrawSystemPostsForBuild,
+        { asOf, buildId: build._id },
+      );
     }
     const continuation = page.isDone
       ? state.phase === "active"
@@ -1095,6 +1066,76 @@ export const reconcileDueDrawSystemPosts = internalMutation
         0,
         internal.build_collaboration_scheduling.reconcileDueDrawSystemPosts,
         { asOf, cursor: continuation },
+      );
+    }
+    return null;
+  })
+  .internal();
+
+export const reconcileDueDrawSystemPostsForBuild = internalMutation
+  .input({
+    asOf: v.number(),
+    buildId: v.id("activeBuilds"),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const build = await ctx.db.get(args.buildId);
+    if (
+      !build ||
+      !(build.status === "active" || build.status === "future_start") ||
+      !build.timezone
+    ) {
+      return null;
+    }
+    let localDate: string;
+    try {
+      localDate = buildLocalDateAt(args.asOf, build.timezone);
+    } catch {
+      return null;
+    }
+    const page = await ctx.db
+      .query("plannedDrawScheduleRows")
+      .withIndex("by_build_order", (query) => query.eq("buildId", build._id))
+      .paginate({ cursor: args.cursor ?? null, numItems: SCHEDULE_BATCH_SIZE });
+    for (const plannedDraw of page.page) {
+      if (
+        plannedDraw.organizationId !== build.organizationId ||
+        plannedDraw.brokerageId !== build.brokerageId ||
+        TERMINAL_DRAW_STATUSES.has(plannedDraw.status)
+      ) {
+        continue;
+      }
+      let plannedDate: string;
+      try {
+        plannedDate = addBuildLocalDays(build.startDate, plannedDraw.timingDay);
+      } catch {
+        continue;
+      }
+      if (localDate < plannedDate) {
+        continue;
+      }
+      await ensureDrawSystemPost(ctx, {
+        actor: {
+          roles: ["system"],
+          workosUserId: "system:build-collaboration-scheduler",
+        },
+        activationReason: "scheduled",
+        build,
+        now: args.asOf,
+        plannedDraw,
+      });
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.build_collaboration_scheduling
+          .reconcileDueDrawSystemPostsForBuild,
+        {
+          asOf: args.asOf,
+          buildId: build._id,
+          cursor: page.continueCursor,
+        },
       );
     }
     return null;

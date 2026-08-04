@@ -1651,7 +1651,7 @@ describe("Build Collaboration operational events", () => {
       afterSubmission.deliveries.some(
         (delivery) =>
           delivery.recipientWorkosUserId === "user_assigned_contractor" &&
-          delivery.href.includes("focus=siteVisit%3A"),
+          delivery.href?.includes("focus=siteVisit%3A") === true,
       ),
     ).toBe(true);
     expect(
@@ -2298,7 +2298,7 @@ describe("Build Collaboration operational events", () => {
     expect(
       snapshot.deliveries.some(
         (delivery) =>
-          delivery.href.match(/focus=draw%3A/) &&
+          delivery.href?.match(/focus=draw%3A/) &&
           delivery.recipientWorkosUserId === "user_global_principal",
       ),
     ).toBe(false);

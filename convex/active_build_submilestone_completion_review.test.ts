@@ -8,6 +8,7 @@ import {
   appendActiveSubmilestoneEvidenceAssetToDraft,
   ensureActiveSubmilestoneEvidencePackageDraft,
   freezeActiveSubmilestoneEvidencePackage,
+  resolveActiveSubmilestoneEvidencePackageReadiness,
 } from "./build_submilestone_evidence";
 import schema from "./schema";
 
@@ -375,6 +376,305 @@ describe("canonical Sub-milestone completion review", () => {
         (item: any) => item.evidenceAssetId === result.first.item?.evidenceAssetId,
       ),
     ).toBe(true);
+  });
+
+  test("enforces configured Evidence kinds while normalizing photo metadata", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    await fixture.builder.mutation(
+      (api as any).production_proposals.configureActiveBuildSubmilestoneEvidenceRequirements,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        requirements: [
+          {
+            kind: "photo",
+            label: "Forms photo",
+            required: true,
+            requirementKey: "forms-photo",
+          },
+          {
+            kind: "site_visit",
+            label: "Forms site visit",
+            required: true,
+            requirementKey: "forms-site-visit",
+          },
+        ],
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const scope = await fixture.base.run(async (ctx: any) => {
+      const build = await ctx.db.get(fixture.closing.buildId);
+      const milestone = build
+        ? await ctx.db
+            .query("buildMilestones")
+            .withIndex("by_build_key", (q: any) =>
+              q.eq("buildId", fixture.closing.buildId).eq("key", "foundation"),
+            )
+            .unique()
+        : null;
+      const submilestone = milestone
+        ? await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (q: any) =>
+              q.eq("buildMilestoneId", milestone._id),
+            )
+            .filter((q: any) => q.eq(q.field("key"), "forms"))
+            .unique()
+        : null;
+      if (!build || !milestone || !submilestone) {
+        throw new Error("Evidence kind fixture is incomplete.");
+      }
+      return { build, milestone, submilestone };
+    });
+    const invalidPdfStorage = await fixture.base.run((ctx: any) =>
+      ctx.storage.store(new Blob(["invalid-photo"], { type: "application/pdf" })),
+    );
+    const beforeInvalidApiWrite = await submilestoneState(fixture);
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.addActiveBuildSubmilestoneEvidence,
+        {
+          buildId: fixture.closing.buildId,
+          evidence: {
+            fileName: "forms-api-invalid.pdf",
+            mimeType: "application/pdf",
+            requirementKey: "forms-photo",
+            sizeBytes: 128,
+            storageId: invalidPdfStorage,
+          },
+          expectedRevision: beforeInvalidApiWrite.submilestone.workflowRevision,
+          idempotencyKey: "forms-api-invalid-photo",
+          milestoneKey: "foundation",
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/photo requirement/i);
+    expect((await submilestoneState(fixture)).packageRevision).toBeNull();
+    await expect(
+      fixture.base.run(async (ctx: any) => {
+        const now = Date.now();
+        const assetId = await ctx.db.insert("buildEvidenceAssets", {
+          brokerageId: scope.build.brokerageId,
+          buildId: scope.build._id,
+          createdAt: now,
+          evidenceKey: "forms-invalid-photo",
+          fileName: "forms.pdf",
+          label: "Forms PDF",
+          locationVerified: true,
+          milestoneKey: scope.milestone.key,
+          mimeType: "application/pdf",
+          organizationId: scope.build.organizationId,
+          proposalId: scope.build.proposalId,
+          sizeBytes: 128,
+          source: "test",
+          storageId: invalidPdfStorage,
+          submilestoneKey: scope.submilestone.key,
+          tag: "Forms",
+          updatedAt: now,
+        });
+        const asset = await ctx.db.get(assetId);
+        if (!asset) throw new Error("Invalid photo asset is unavailable.");
+        return await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+          actorWorkosUserId: "user_builder",
+          asset,
+          build: scope.build,
+          milestone: scope.milestone,
+          requirementKey: "forms-photo",
+          sourceKind: "canonical_upload",
+          submilestone: scope.submilestone,
+        });
+      }),
+    ).rejects.toThrow(/photo requirement/i);
+
+    const normalizedPhotoStorage = await fixture.base.run((ctx: any) =>
+      ctx.storage.store(new Blob(["normalized-photo"], { type: "image/jpeg" })),
+    );
+    const photo = await fixture.base.run(async (ctx: any) => {
+      const now = Date.now();
+      const assetId = await ctx.db.insert("buildEvidenceAssets", {
+        brokerageId: scope.build.brokerageId,
+        buildId: scope.build._id,
+        createdAt: now,
+        evidenceKey: "forms-normalized-photo",
+        fileName: " FORMS.JPG ",
+        label: "Forms Photo",
+        locationVerified: true,
+        milestoneKey: scope.milestone.key,
+        mimeType: " IMAGE/JPEG ",
+        organizationId: scope.build.organizationId,
+        proposalId: scope.build.proposalId,
+        sizeBytes: 128,
+        source: "test",
+        storageId: normalizedPhotoStorage,
+        submilestoneKey: scope.submilestone.key,
+        tag: " Progress Photo ",
+        updatedAt: now,
+      });
+      const asset = await ctx.db.get(assetId);
+      if (!asset) throw new Error("Normalized photo asset is unavailable.");
+      return await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorWorkosUserId: "user_builder",
+        asset,
+        build: scope.build,
+        milestone: scope.milestone,
+        requirementKey: "forms-photo",
+        sourceKind: "canonical_upload",
+        submilestone: scope.submilestone,
+      });
+    });
+    expect(photo.item).toBeDefined();
+
+    const siteVisitStorage = await fixture.base.run((ctx: any) =>
+      ctx.storage.store(new Blob(["site-visit-record"], { type: "application/pdf" })),
+    );
+    const siteVisit = await fixture.base.run(async (ctx: any) => {
+      const now = Date.now();
+      const assetId = await ctx.db.insert("buildEvidenceAssets", {
+        brokerageId: scope.build.brokerageId,
+        buildId: scope.build._id,
+        createdAt: now,
+        evidenceKey: "forms-site-visit-record",
+        fileName: "forms-site-visit.pdf",
+        label: "Forms Site Visit",
+        locationVerified: true,
+        milestoneKey: scope.milestone.key,
+        mimeType: "application/pdf",
+        organizationId: scope.build.organizationId,
+        proposalId: scope.build.proposalId,
+        sizeBytes: 128,
+        source: "site-visit-test",
+        storageId: siteVisitStorage,
+        submilestoneKey: scope.submilestone.key,
+        tag: "Site Visit",
+        updatedAt: now,
+      });
+      const asset = await ctx.db.get(assetId);
+      if (!asset) throw new Error("Site visit asset is unavailable.");
+      return await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorWorkosUserId: "user_contractor",
+        asset,
+        build: scope.build,
+        milestone: scope.milestone,
+        requirementKey: "forms-site-visit",
+        sourceKind: "site_visit",
+        submilestone: scope.submilestone,
+      });
+    });
+    expect(siteVisit.item).toBeDefined();
+    if (!photo.item) {
+      throw new Error("Photo package item is unavailable.");
+    }
+    const photoItem = photo.item;
+    const readiness = await fixture.base.run((ctx: any) =>
+      resolveActiveSubmilestoneEvidencePackageReadiness(ctx, {
+        build: scope.build,
+        includeFrozenRequirement: false,
+        milestone: scope.milestone,
+        submilestone: scope.submilestone,
+      }),
+    );
+    expect(readiness.readyExceptFor).toEqual([]);
+    const readinessAfterMismatchedSiteVisitItem = await fixture.base.run(
+      async (ctx: any) => {
+        const now = Date.now();
+        await ctx.db.insert("buildSubmilestoneEvidencePackageItems", {
+          brokerageId: scope.build.brokerageId,
+          buildId: scope.build._id,
+          buildMilestoneId: scope.milestone._id,
+          buildSubmilestoneId: scope.submilestone._id,
+          createdAt: now,
+          evidenceAssetId: photoItem.evidenceAssetId,
+          locationVerified: true,
+          organizationId: scope.build.organizationId,
+          packageRevisionId: siteVisit.packageRevision._id,
+          requirementKey: "forms-site-visit",
+          sourceKind: "canonical_upload",
+          sourceUploaderWorkosUserId: "user_builder",
+        });
+        return await resolveActiveSubmilestoneEvidencePackageReadiness(ctx, {
+          build: scope.build,
+          includeFrozenRequirement: false,
+          milestone: scope.milestone,
+          submilestone: scope.submilestone,
+        });
+      },
+    );
+    expect(readinessAfterMismatchedSiteVisitItem.readyExceptFor).toContain(
+      "Forms site visit",
+    );
+  });
+
+  test("fails closed when the latest Evidence Package revision crosses scope", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    const scope = await fixture.base.run(async (ctx: any) => {
+      const build = await ctx.db.get(fixture.closing.buildId);
+      const milestone = build
+        ? await ctx.db
+            .query("buildMilestones")
+            .withIndex("by_build_key", (q: any) =>
+              q.eq("buildId", fixture.closing.buildId).eq("key", "foundation"),
+            )
+            .unique()
+        : null;
+      const submilestone = milestone
+        ? await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (q: any) =>
+              q.eq("buildMilestoneId", milestone._id),
+            )
+            .filter((q: any) => q.eq(q.field("key"), "forms"))
+            .unique()
+        : null;
+      if (!build || !milestone || !submilestone) {
+        throw new Error("Evidence scope fixture is incomplete.");
+      }
+      const now = Date.now();
+      const revisionId = await ctx.db.insert(
+        "buildSubmilestoneEvidencePackageRevisions",
+        {
+          brokerageId: build.brokerageId,
+          buildId: build._id,
+          buildMilestoneId: milestone._id,
+          buildSubmilestoneId: submilestone._id,
+          createdAt: now,
+          createdByWorkosUserId: "user_builder",
+          milestoneKey: milestone.key,
+          organizationId: "org_cross_scope",
+          proposalId: build.proposalId,
+          requirementsRevision: 1,
+          revision: 1,
+          status: "draft",
+          submilestoneKey: submilestone.key,
+          updatedAt: now,
+        },
+      );
+      return { build, milestone, revisionId, submilestone };
+    });
+    await expect(
+      fixture.base.run(async (ctx: any) =>
+        ensureActiveSubmilestoneEvidencePackageDraft(ctx, {
+          actorWorkosUserId: "user_builder",
+          build: scope.build,
+          milestone: scope.milestone,
+          submilestone: scope.submilestone,
+        }),
+      ),
+    ).rejects.toThrow(/does not belong/i);
+    const revisions = await fixture.base.run(async (ctx: any) =>
+      (await ctx.db
+        .query("buildSubmilestoneEvidencePackageRevisions")
+        .withIndex("by_submilestone_revision", (q: any) =>
+          q.eq("buildSubmilestoneId", scope.submilestone._id),
+        )
+        .collect()) as any[],
+    );
+    expect(revisions.map((revision: any) => revision._id)).toEqual([
+      scope.revisionId,
+    ]);
   });
 
   test("audits draft-to-frozen Evidence Packages and keeps frozen replay idempotent", async () => {

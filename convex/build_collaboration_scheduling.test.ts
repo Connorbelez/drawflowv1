@@ -305,6 +305,111 @@ describe("Build collaboration scheduled publication", () => {
     });
   });
 
+  test("fans out due Draw reconciliation per Build, paginates, and stays idempotent", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedSchedulingBuild();
+    const firstCanonical = await seedCanonicalSchedulingMilestone(fixture);
+    const secondBuildId = await seedAdditionalSchedulingBuild(fixture);
+    const secondFixture = { ...fixture, buildId: secondBuildId };
+    const secondCanonical = await seedCanonicalSchedulingMilestone(secondFixture);
+
+    await fixture.base.run(async (ctx) => {
+      const now = BASE_TIME;
+      const builds = [
+        {
+          buildId: fixture.buildId,
+          buildMilestoneId: firstCanonical.buildMilestoneId,
+          count: 26,
+        },
+        {
+          buildId: secondBuildId,
+          buildMilestoneId: secondCanonical.buildMilestoneId,
+          count: 1,
+        },
+      ];
+      for (const buildSpec of builds) {
+        const build = await ctx.db.get(buildSpec.buildId);
+        if (!build) {
+          throw new Error("Scheduling Build fixture is unavailable.");
+        }
+        for (let index = 0; index < buildSpec.count; index += 1) {
+          const drawKey = `scheduled-${String(buildSpec.buildId)}-${index + 1}`;
+          const proposalDrawId = await ctx.db.insert(
+            "proposalDrawScheduleRows",
+            {
+              amountCents: 10_000,
+              brokerageId: build.brokerageId,
+              createdAt: now,
+              drawKey,
+              label: `Scheduled draw ${index + 1}`,
+              milestoneKey: "foundation",
+              order: index + 1,
+              organizationId: build.organizationId,
+              proposalId: build.proposalId,
+              proposalMilestoneId: undefined,
+              source: "milestone",
+              timingDay: 0,
+              updatedAt: now,
+            },
+          );
+          await ctx.db.insert("plannedDrawScheduleRows", {
+            amountCents: 10_000,
+            brokerageId: build.brokerageId,
+            buildId: build._id,
+            buildMilestoneId: buildSpec.buildMilestoneId,
+            createdAt: now,
+            drawKey,
+            label: `Scheduled draw ${index + 1}`,
+            milestoneKey: "foundation",
+            order: index + 1,
+            organizationId: build.organizationId,
+            proposalDrawScheduleRowId: proposalDrawId,
+            status: "planned",
+            timingDay: 0,
+            updatedAt: now,
+          });
+        }
+      }
+    });
+
+    const asOf = buildLocalMidnightUtc("2026-03-09", "America/Toronto");
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .reconcileDueDrawSystemPosts,
+      { asOf },
+    );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+
+    const firstPass = await fixture.base.run(async (ctx) => {
+      const posts = await ctx.db.query("buildCollaborationPosts").collect();
+      return {
+        first: posts.filter(
+          (post) =>
+            post.buildId === fixture.buildId && post.systemPostKind === "draw",
+        ),
+        second: posts.filter(
+          (post) =>
+            post.buildId === secondBuildId && post.systemPostKind === "draw",
+        ),
+      };
+    });
+    expect(firstPass.first).toHaveLength(26);
+    expect(firstPass.second).toHaveLength(1);
+
+    await fixture.base.mutation(
+      (internal as any).build_collaboration_scheduling
+        .reconcileDueDrawSystemPosts,
+      { asOf },
+    );
+    await fixture.base.finishAllScheduledFunctions(() => vi.runAllTimers());
+    const secondPass = await fixture.base.run(async (ctx) => {
+      const posts = await ctx.db.query("buildCollaborationPosts").collect();
+      return posts.filter((post) => post.systemPostKind === "draw");
+    });
+    expect(secondPass).toHaveLength(27);
+  });
+
   test("only promotes typed domain validation failures to material conflicts", async () => {
     await expect(
       schedulingModule.revalidateMaterialBoundary(async () => {
@@ -1727,6 +1832,94 @@ async function seedSchedulingBuild() {
       subject: "user_builder_staff",
     }),
   };
+}
+
+async function seedAdditionalSchedulingBuild(
+  fixture: Awaited<ReturnType<typeof seedSchedulingBuild>>,
+) {
+  const buildId = await fixture.base.run(async (ctx) => {
+    const sourceBuild = await ctx.db.get(fixture.buildId);
+    if (!sourceBuild) {
+      throw new Error("Scheduling Build fixture is unavailable.");
+    }
+    const sourceProposal = await ctx.db.get(sourceBuild.proposalId);
+    const sourceWorkflow = await ctx.db.get(sourceBuild.workflowRuleSnapshotId);
+    if (!sourceProposal || !sourceWorkflow) {
+      throw new Error("Scheduling Build source records are unavailable.");
+    }
+    const now = BASE_TIME;
+    const {
+      _creationTime: _proposalCreationTime,
+      _id: _sourceProposalId,
+      activeBuildId: _sourceActiveBuildId,
+      workflowRuleSnapshotId: _sourceProposalWorkflowRuleSnapshotId,
+      ...proposalFields
+    } = sourceProposal;
+    const proposalId = await ctx.db.insert("buildProposals", {
+      ...proposalFields,
+      buildName: "Scheduled Collaboration Build 2",
+      location: "149 Cedar Ridge Road",
+      updatedAt: now,
+    });
+    const {
+      _creationTime: _workflowCreationTime,
+      _id: _sourceWorkflowId,
+      proposalId: _sourceWorkflowProposalId,
+      ...workflowFields
+    } = sourceWorkflow;
+    const workflowRuleSnapshotId = await ctx.db.insert(
+      "workflowRuleSnapshots",
+      {
+        ...workflowFields,
+        createdAt: now,
+        proposalId,
+      },
+    );
+    const {
+      _creationTime: _buildCreationTime,
+      _id: _sourceBuildId,
+      proposalId: _sourceBuildProposalId,
+      workflowRuleSnapshotId: _sourceBuildWorkflowRuleSnapshotId,
+      ...buildFields
+    } = sourceBuild;
+    const activeBuildId = await ctx.db.insert("activeBuilds", {
+      ...buildFields,
+      buildName: "Scheduled Collaboration Build 2",
+      location: "149 Cedar Ridge Road",
+      proposalId,
+      startDate: "2026-03-07",
+      timezone: "America/Toronto",
+      updatedAt: now,
+      workflowRuleSnapshotId,
+    });
+    await ctx.db.patch(proposalId, {
+      activeBuildId,
+      workflowRuleSnapshotId,
+      updatedAt: now,
+    });
+    return activeBuildId;
+  });
+  await fixture.base.run(async (ctx) => {
+    const build = await ctx.db.get(buildId);
+    if (!build) {
+      throw new Error("Scheduling Build fixture is unavailable.");
+    }
+    await ctx.db.insert("buildParticipants", {
+      brokerageId: build.brokerageId,
+      buildId,
+      createdAt: BASE_TIME,
+      displayNameSnapshot: "Builder Staff",
+      joinedAt: BASE_TIME,
+      organizationId: ORGANIZATION_ID,
+      participationPeriod: 1,
+      role: "builder-staff",
+      status: "active",
+      updatedAt: BASE_TIME,
+      validFrom: BASE_TIME,
+      workosUserId: "user_builder_staff",
+    });
+  });
+  return buildId;
 }
 
 async function provisionBuilderStaffParticipant(
