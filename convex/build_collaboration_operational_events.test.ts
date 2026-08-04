@@ -2224,6 +2224,17 @@ describe("Build Collaboration operational events", () => {
     };
 
     const returnedDraw = await requestDraw("draw-returned-v1", 5_000_000);
+    const firstDrawSnapshot = await collaborationSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    expect(
+      firstDrawSnapshot.deliveries.some(
+        (delivery) =>
+          delivery.href?.match(/focus=draw%3A/) &&
+          delivery.recipientWorkosUserId === "user_builder_staff_draw_view",
+      ),
+    ).toBe(true);
     await requestDraw("draw-returned-v1", 5_000_000);
     await prepareForAdmin(returnedDraw.requestKey);
     expect(

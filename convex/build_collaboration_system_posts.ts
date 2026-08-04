@@ -38,6 +38,18 @@ export type DrawSystemActivationReason =
   | "scheduled"
   | "backfill";
 
+/** Only explicit human/domain activations create recipient notifications. */
+export function shouldNotifySystemPost(
+  activationReason:
+    | MilestoneSystemActivationReason
+    | DrawSystemActivationReason,
+) {
+  return (
+    activationReason === "explicit_start" ||
+    activationReason === "draw_request"
+  );
+}
+
 /**
  * Stable identity for one planned Draw occurrence. The proposal schedule-row
  * ID is preferred because a reasonable plan edit can change its display key;
@@ -156,6 +168,16 @@ export type SystemActionItemPresentation = {
   unknownReason?: string;
 };
 
+/**
+ * Per-request roadmap snapshots reused while projecting generated Action Items.
+ * The item-specific evidence/review queries remain in the presentation helper;
+ * these maps only cache canonical Build/Milestone planning rows.
+ */
+export type MilestoneActionItemPlanningCache = {
+  milestonesByBuild: ReadonlyMap<string, Doc<"buildMilestones">[]>;
+  submilestonesByMilestone: ReadonlyMap<string, Doc<"buildSubmilestones">[]>;
+};
+
 /** Validate and normalize the one canonical timezone accepted by Build writes. */
 export function validateBuildTimezone(value: string) {
   const timezone = value.trim();
@@ -269,7 +291,7 @@ function evidenceReviewColumn(
 
 function derivedSubmilestoneReviewDecisionState(
   submilestone: Doc<"buildSubmilestones">
-): NonNullable<SystemActionItemPresentation["reviewDecisionState"]> {
+): SystemActionItemPresentation["reviewDecisionState"] {
   if (submilestone.reviewDecisionState) {
     return submilestone.reviewDecisionState;
   }
@@ -279,7 +301,10 @@ function derivedSubmilestoneReviewDecisionState(
   if (submilestone.evidenceReviewState === "changes_requested") {
     return "changes_requested";
   }
-  return "in_review";
+  if (submilestone.evidenceReviewState === "in_review") {
+    return "in_review";
+  }
+  return undefined;
 }
 
 function derivedMilestoneReviewDecisionState(
@@ -299,6 +324,7 @@ export async function deriveMilestoneSystemActionItemPresentation(
     actionItem: Doc<"buildActionItems">;
     asOf: number;
     build: Doc<"activeBuilds">;
+    planningCache?: MilestoneActionItemPlanningCache;
     viewer?: {
       role: BuildCollaborationRole;
       workosUserId: string;
@@ -356,6 +382,7 @@ export async function deriveMilestoneSystemActionItemPresentation(
     ? await projectMilestoneExecutionPresentation(ctx, {
         build: input.build,
         milestone,
+        planningCache: input.planningCache,
         plannedStartDate,
         submilestone,
         viewer: input.viewer,
@@ -445,6 +472,7 @@ async function projectMilestoneExecutionPresentation(
   input: {
     build: Doc<"activeBuilds">;
     milestone: Doc<"buildMilestones">;
+    planningCache?: MilestoneActionItemPlanningCache;
     plannedStartDate: string;
     submilestone: Doc<"buildSubmilestones">;
     viewer: {
@@ -500,10 +528,12 @@ async function projectMilestoneExecutionPresentation(
   const viewerIsAssignee =
     ownership.state === "assigned" &&
     ownership.contractor?.accountWorkosUserId === input.viewer.workosUserId;
-  const milestones = await ctx.db
-    .query("buildMilestones")
-    .withIndex("by_build", (query) => query.eq("buildId", input.build._id))
-    .take(500);
+  const milestones =
+    input.planningCache?.milestonesByBuild.get(String(input.build._id)) ??
+    (await ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build", (query) => query.eq("buildId", input.build._id))
+      .take(500));
   const milestonesByKey = new Map(
     milestones.map((milestone) => [milestone.key, milestone])
   );
@@ -521,12 +551,15 @@ async function projectMilestoneExecutionPresentation(
     childDecisions,
     milestoneDecisions,
   ] = await Promise.all([
-    ctx.db
-      .query("buildSubmilestones")
-      .withIndex("by_milestone", (query) =>
-        query.eq("buildMilestoneId", input.milestone._id)
-      )
-      .take(500),
+    input.planningCache?.submilestonesByMilestone.get(
+      String(input.milestone._id)
+    ) ??
+      ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_milestone", (query) =>
+          query.eq("buildMilestoneId", input.milestone._id)
+        )
+        .take(500),
     input.submilestone.siteVisitRequirementId
       ? ctx.db.get(input.submilestone.siteVisitRequirementId)
       : Promise.resolve(null),
@@ -552,6 +585,7 @@ async function projectMilestoneExecutionPresentation(
       .withIndex("by_milestone_revision", (query) =>
         query.eq("buildMilestoneId", input.milestone._id)
       )
+      .order("desc")
       .take(100),
   ]);
   const siteVisitRequirement = requirementById ?? requirementByRound;
@@ -815,7 +849,7 @@ export async function ensureMilestoneSystemPost(
     primaryReferenceKind: "milestone",
     systemPostKind: "milestone",
     systemLabel: SYSTEM_LABEL,
-    suppressNotifications: input.activationReason !== "explicit_start",
+    suppressNotifications: !shouldNotifySystemPost(input.activationReason),
     ...(input.historicalBackfill
       ? { silentBackfill: input.historicalBackfill }
       : { now }),
@@ -846,6 +880,12 @@ export async function ensureMilestoneSystemPost(
   const post = await ctx.db.get(postId);
   if (!post || post.buildId !== input.build._id) {
     throw new Error("Milestone System Post became unavailable.");
+  }
+  if (
+    post.organizationId !== input.build.organizationId ||
+    post.brokerageId !== input.build.brokerageId
+  ) {
+    return null;
   }
   const triggeredByRole = input.historicalBackfill
     ? undefined
@@ -977,18 +1017,18 @@ export async function ensureDrawSystemPost(
     now?: number;
   },
 ) {
+  const plannedDrawKey = input.drawRequest?.plannedDrawKey;
   const plannedDraw =
     input.plannedDraw ??
-    (input.drawRequest?.plannedDrawKey
+    (plannedDrawKey
       ? await ctx.db
           .query("plannedDrawScheduleRows")
-          .withIndex("by_build_order", (query) =>
-            query.eq("buildId", input.build._id),
+          .withIndex("by_build_draw_key", (query) =>
+            query
+              .eq("buildId", input.build._id)
+              .eq("drawKey", plannedDrawKey),
           )
-          .collect()
-          .then((rows) =>
-            rows.find((row) => row.drawKey === input.drawRequest?.plannedDrawKey),
-          )
+          .first()
       : undefined);
   const occurrenceKey = plannedDraw
     ? drawSystemOccurrenceKey(input.build, plannedDraw)
@@ -1028,7 +1068,7 @@ export async function ensureDrawSystemPost(
     primaryReferenceKind: "draw",
     systemLabel: SYSTEM_LABEL,
     systemPostKind: "draw",
-    suppressNotifications: input.activationReason === "scheduled",
+    suppressNotifications: !shouldNotifySystemPost(input.activationReason),
     ...(input.historicalBackfill
       ? { silentBackfill: input.historicalBackfill }
       : { now }),
@@ -1058,6 +1098,12 @@ export async function ensureDrawSystemPost(
   const post = await ctx.db.get(postId);
   if (!post || post.buildId !== input.build._id) {
     throw new Error("Draw System Post became unavailable.");
+  }
+  if (
+    post.organizationId !== input.build.organizationId ||
+    post.brokerageId !== input.build.brokerageId
+  ) {
+    return null;
   }
   const triggeredByRole = input.historicalBackfill
     ? undefined
@@ -1109,6 +1155,8 @@ export async function ensureDrawSystemPost(
     post.activationPlanningRevisionId !== postPatch.activationPlanningRevisionId ||
     post.activationReason !== postPatch.activationReason ||
     post.authorDisplayNameSnapshot !== postPatch.authorDisplayNameSnapshot ||
+    JSON.stringify(post.authorRolesSnapshot) !==
+      JSON.stringify(postPatch.authorRolesSnapshot) ||
     post.authorWorkosUserId !== postPatch.authorWorkosUserId ||
     post.canonicalBuildDrawOccurrenceKey !==
       postPatch.canonicalBuildDrawOccurrenceKey ||

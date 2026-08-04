@@ -41,7 +41,10 @@ import {
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
 import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
-import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
+import {
+  deriveMilestoneSystemActionItemPresentation,
+  type MilestoneActionItemPlanningCache,
+} from "./build_collaboration_system_posts";
 import {
   buildActionItemPriorityValidator,
   buildActionItemWorkKindValidator,
@@ -460,6 +463,46 @@ export async function projectBuildActionItemList(
     rows.push(relation);
     relationsBySource.set(relation.sourceActionItemId, rows);
   }
+  const canonicalMilestoneIds = [
+    ...new Set(
+      readable
+        .map((item) => item.canonicalBuildMilestoneId)
+        .filter(
+          (milestoneId): milestoneId is Id<"buildMilestones"> =>
+            milestoneId !== undefined
+        )
+    ),
+  ];
+  const [buildMilestones, submilestonesByMilestoneRows] = await Promise.all([
+    ctx.db
+      .query("buildMilestones")
+      .withIndex("by_build", (query) =>
+        query.eq("buildId", authorization.build._id)
+      )
+      .take(500),
+    Promise.all(
+      canonicalMilestoneIds.map(async (milestoneId) => [
+        milestoneId,
+        await ctx.db
+          .query("buildSubmilestones")
+          .withIndex("by_milestone", (query) =>
+            query.eq("buildMilestoneId", milestoneId)
+          )
+          .take(500),
+      ] as const)
+    ),
+  ]);
+  const planningCache: MilestoneActionItemPlanningCache = {
+    milestonesByBuild: new Map([
+      [String(authorization.build._id), buildMilestones],
+    ]),
+    submilestonesByMilestone: new Map(
+      submilestonesByMilestoneRows.map(([milestoneId, submilestones]) => [
+        String(milestoneId),
+        submilestones,
+      ])
+    ),
+  };
   const asOf = Date.now();
   return await Promise.all(
     readable.map(async (item) => {
@@ -474,6 +517,7 @@ export async function projectBuildActionItemList(
           actionItem: item,
           asOf,
           build: authorization.build,
+          planningCache,
           viewer: {
             role: authorization.effectiveRole.role,
             workosUserId: authorization.viewer.subject,
