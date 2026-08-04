@@ -216,6 +216,7 @@ export function BuildActionItemDetailSheet({
             }
             detail={detail}
             focusedAssetId={focusedAssetId}
+            open={open}
             onGoBack={() => navigateHistory(-1)}
             onGoForward={() => navigateHistory(1)}
             onOpenChange={onOpenChange}
@@ -520,6 +521,7 @@ function ActionItemDetailPanel({
   canGoForward,
   detail,
   focusedAssetId,
+  open,
   onOpenChange,
   onGoBack,
   onGoForward,
@@ -533,6 +535,7 @@ function ActionItemDetailPanel({
   canGoForward: boolean;
   detail: ActionItemDetail | undefined;
   focusedAssetId?: Id<"buildCollaborationAssets">;
+  open: boolean;
   onOpenChange: (open: boolean) => void;
   onGoBack: () => void;
   onGoForward: () => void;
@@ -590,6 +593,7 @@ function ActionItemDetailPanel({
       canGoForward={canGoForward}
       detail={detail}
       focusedAssetId={focusedAssetId}
+      open={open}
       onGoBack={onGoBack}
       onGoForward={onGoForward}
       onOpenChange={onOpenChange}
@@ -608,6 +612,7 @@ function VisibleActionItemDetail({
   canGoForward,
   detail,
   focusedAssetId,
+  open,
   onOpenChange,
   onGoBack,
   onGoForward,
@@ -621,6 +626,7 @@ function VisibleActionItemDetail({
   canGoForward: boolean;
   detail: VisibleActionItemDetail;
   focusedAssetId?: Id<"buildCollaborationAssets">;
+  open: boolean;
   onOpenChange: (open: boolean) => void;
   onGoBack: () => void;
   onGoForward: () => void;
@@ -763,6 +769,7 @@ function VisibleActionItemDetail({
   const [canonicalForecast, setCanonicalForecast] = useState("");
   const [canonicalActualCost, setCanonicalActualCost] = useState("");
   const [canonicalFieldNote, setCanonicalFieldNote] = useState("");
+  const [canonicalCompletionNote, setCanonicalCompletionNote] = useState("");
   const [canonicalEvidenceBusy, setCanonicalEvidenceBusy] = useState(false);
   const [canonicalReviewNote, setCanonicalReviewNote] = useState("");
   const [canonicalReviewReason, setCanonicalReviewReason] = useState("");
@@ -780,6 +787,11 @@ function VisibleActionItemDetail({
     setCanonicalProgress(canonicalProgressValue);
     setCanonicalForecast(canonicalForecastValue);
   }, [canonicalForecastValue, canonicalProgressValue]);
+
+  useEffect(() => {
+    setCanonicalFieldNote("");
+    setCanonicalCompletionNote("");
+  }, [detail.item.actionItemId, open]);
 
   const canonicalCommandKey = (scope: string) => {
     const existing = canonicalCommandKeys.current.get(scope);
@@ -1136,6 +1148,7 @@ function VisibleActionItemDetail({
         workosOrganizationId: organizationId,
       });
       clearCanonicalCommandKey("progress");
+      setCanonicalFieldNote("");
       toast.success("Canonical progress updated.");
     } catch (error) {
       toast.error(
@@ -1252,7 +1265,7 @@ function VisibleActionItemDetail({
     try {
       await submitCanonicalCompletionForReview({
         buildId,
-        completionNote: canonicalFieldNote.trim() || undefined,
+        completionNote: canonicalCompletionNote.trim() || undefined,
         declareComplete: true,
         expectedPackageRevision: canonicalPresentation.evidencePackageRevision,
         expectedRevision: canonicalPresentation.workflowRevision ?? 0,
@@ -1263,6 +1276,7 @@ function VisibleActionItemDetail({
         workosOrganizationId: organizationId,
       });
       clearCanonicalCommandKey("completion-review");
+      setCanonicalCompletionNote("");
       toast.success("Completion entered lender review.");
     } catch (error) {
       toast.error(
@@ -1502,12 +1516,14 @@ function VisibleActionItemDetail({
         {detail.item.systemMode === "generated_milestone_submilestone" ? (
           <CanonicalMilestoneActionItemFacts
             actualCost={canonicalActualCost}
+            completionNote={canonicalCompletionNote}
             detail={detail}
             evidenceBusy={canonicalEvidenceBusy}
             fieldNote={canonicalFieldNote}
             forecast={canonicalForecast}
             tagOptions={tagOptions}
             onActualCostChange={setCanonicalActualCost}
+            onCompletionNoteChange={setCanonicalCompletionNote}
             onFieldNoteChange={setCanonicalFieldNote}
             onForecastChange={setCanonicalForecast}
             onFreezePackage={freezeCanonicalPackage}
@@ -1835,11 +1851,13 @@ function CanonicalMilestoneActionItemFacts({
   actualCost,
   onApproveMilestone,
   onApproveSubmilestone,
+  completionNote,
   detail,
   evidenceBusy,
   fieldNote,
   forecast,
   onActualCostChange,
+  onCompletionNoteChange,
   onFieldNoteChange,
   onForecastChange,
   onFreezePackage,
@@ -1867,11 +1885,13 @@ function CanonicalMilestoneActionItemFacts({
   actualCost: string;
   onApproveMilestone: () => void;
   onApproveSubmilestone: () => void;
+  completionNote: string;
   detail: VisibleActionItemDetail;
   evidenceBusy: boolean;
   fieldNote: string;
   forecast: string;
   onActualCostChange: (value: string) => void;
+  onCompletionNoteChange: (value: string) => void;
   onFieldNoteChange: (value: string) => void;
   onForecastChange: (value: string) => void;
   onFreezePackage: () => void;
@@ -1974,8 +1994,10 @@ function CanonicalMilestoneActionItemFacts({
         ) : null}
         {detail.item.systemPresentation?.canAddEvidence && !readOnly ? (
           <CanonicalEvidencePackagePanel
+            completionNote={completionNote}
             detail={detail}
             evidenceBusy={evidenceBusy}
+            onCompletionNoteChange={onCompletionNoteChange}
             onFreezePackage={onFreezePackage}
             onSubmitReview={onSubmitReview}
             onUploadEvidence={onUploadEvidence}
@@ -2098,14 +2120,18 @@ function CanonicalFieldExecutionPanel({
 }
 
 function CanonicalEvidencePackagePanel({
+  completionNote,
   detail,
   evidenceBusy,
+  onCompletionNoteChange,
   onFreezePackage,
   onSubmitReview,
   onUploadEvidence,
 }: {
+  completionNote: string;
   detail: VisibleActionItemDetail;
   evidenceBusy: boolean;
+  onCompletionNoteChange: (value: string) => void;
   onFreezePackage: () => void;
   onSubmitReview: () => void;
   onUploadEvidence: (
@@ -2155,6 +2181,17 @@ function CanonicalEvidencePackagePanel({
             Current requirements are satisfied.
           </p>
         )}
+        {presentation?.canSubmitForReview ? (
+          <Label className="space-y-1 text-xs">
+            <span>Completion declaration</span>
+            <Input
+              aria-label="Completion declaration"
+              disabled={evidenceBusy}
+              onChange={(event) => onCompletionNoteChange(event.target.value)}
+              value={completionNote}
+            />
+          </Label>
+        ) : null}
         {presentation?.evidencePackageRevisionId ? (
           <Button
             disabled={evidenceBusy}

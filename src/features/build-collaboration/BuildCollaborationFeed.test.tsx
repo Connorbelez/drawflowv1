@@ -63,6 +63,7 @@ const mocks = vi.hoisted(() => ({
     | "ready_for_approval"
     | "approved"
     | "reopened",
+  canonicalCanSubmitForReview: false,
   canonicalParentReadyForApproval: false,
   comments: [] as Array<Record<string, unknown>>,
   commentsLoading: false,
@@ -1010,7 +1011,7 @@ vi.mock("convex/react", () => ({
                   canRetractMilestoneApproval:
                     mocks.viewerBinding.role === "admin" &&
                     mocks.canonicalMilestoneReviewState === "approved",
-                  canSubmitForReview: false,
+                  canSubmitForReview: mocks.canonicalCanSubmitForReview,
                   canUpdateExecution: mocks.viewerBinding.role === "builder",
                   column: "in_review",
                   evidenceCount: 2,
@@ -1455,6 +1456,7 @@ afterEach(() => {
   mocks.assetStatuses = [];
   mocks.buildActionItems = [];
   mocks.canonicalSystemActionItem = false;
+  mocks.canonicalCanSubmitForReview = false;
   mocks.canonicalReviewState = "in_review";
   mocks.canonicalMilestoneReviewState = "in_review";
   mocks.canonicalParentReadyForApproval = false;
@@ -2362,6 +2364,91 @@ describe("BuildCollaborationFeed", () => {
     expect(
       screen.queryByRole("button", { name: "Submit completion for review" }),
     ).toBeNull();
+  });
+
+  test("keeps field and completion notes on their canonical commands", async () => {
+    mocks.canonicalSystemActionItem = true;
+    mocks.canonicalCanSubmitForReview = true;
+    mocks.viewerBinding = {
+      buildId: "build-1",
+      organizationId: "org-1",
+      role: "builder",
+      workosUserId: "user_builder",
+    };
+    mocks.authUserId = "user_builder";
+    mocks.feedRows = [canonicalMilestoneSystemPostEntryFixture()];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Action Items 1" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Action Items as a list" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Action Item: Excavate",
+      }),
+    );
+
+    expect(await screen.findByLabelText("Field note")).toBeTruthy();
+    expect(screen.getByLabelText("Completion declaration")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Field note"), {
+      target: { value: "Field-only note" },
+    });
+    fireEvent.change(screen.getByLabelText("Completion declaration"), {
+      target: { value: "Completion-only declaration" },
+    });
+
+    mocks.mutate.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Submit completion for review" }),
+    );
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        buildId: "build-1",
+        completionNote: "Completion-only declaration",
+        declareComplete: true,
+        expectedPackageRevision: 1,
+        expectedRevision: 2,
+        idempotencyKey: expect.stringMatching(/^completion-review:/),
+        milestoneKey: "foundation",
+        packageRevisionId: "package-1",
+        submilestoneKey: "foundation-1",
+        workosOrganizationId: "org-1",
+      }),
+    );
+    expect(
+      (screen.getByLabelText("Field note") as HTMLInputElement).value,
+    ).toBe("Field-only note");
+    expect(
+      (screen.getByLabelText("Completion declaration") as HTMLInputElement)
+        .value,
+    ).toBe("");
+
+    mocks.mutate.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Save progress" }));
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        actualCostCents: undefined,
+        buildId: "build-1",
+        completionForecastDate: undefined,
+        expectedRevision: 2,
+        fieldNote: "Field-only note",
+        idempotencyKey: expect.stringMatching(/^progress:/),
+        milestoneKey: "foundation",
+        progressPercent: 100,
+        submilestoneKey: "foundation-1",
+        workosOrganizationId: "org-1",
+      }),
+    );
+    expect(
+      (screen.getByLabelText("Field note") as HTMLInputElement).value,
+    ).toBe("");
+    expect(
+      (screen.getByLabelText("Completion declaration") as HTMLInputElement)
+        .value,
+    ).toBe("");
   });
 
   test("keeps Evidence Package execution controls out of the lender view", async () => {
