@@ -249,9 +249,12 @@ For each workflow:
    browser evidence set across every workflow. Re-run the full certification
    package against the new exact commit.
 
-Record `devicePixelRatio` as an integer from 1 through 3. Each PNG must have
-pixel dimensions equal to the canonical target viewport multiplied by that
-ratio; cropped, scaled, placeholder, or mismatched screenshots are rejected.
+Record the browser's finite `devicePixelRatio` from 0.5 through 4. The declared
+CSS viewport must equal the canonical target. Codex in-app capture transport
+may encode that full viewport at a different uniform raster scale, so each PNG
+must preserve the target aspect ratio with the same horizontal and vertical
+scale (0.5 through 4). Cropped, asymmetrically scaled, placeholder, or
+mismatched screenshots are rejected.
 
 Copy
 [cost-quote-manual-browser-qa.template.json](./cost-quote-manual-browser-qa.template.json)

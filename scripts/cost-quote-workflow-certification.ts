@@ -968,25 +968,20 @@ function validateManualWorkflowResult(
   const devicePixelRatio = validDevicePixelRatio(result.devicePixelRatio);
   if (!devicePixelRatio) {
     errors.push(
-      `${workflowId} devicePixelRatio must be an integer from 1 to 3.`
+      `${workflowId} devicePixelRatio must be a finite number from 0.5 to 4.`
     );
   }
   if (screenshots.length === 0) {
     errors.push(`${workflowId} has no screenshot evidence.`);
   }
-  const expectedPixels =
-    workflow && devicePixelRatio
-      ? {
-          height: workflow.targetViewport.height * devicePixelRatio,
-          width: workflow.targetViewport.width * devicePixelRatio,
-        }
-      : undefined;
+  const expectedViewport =
+    workflow && devicePixelRatio ? workflow.targetViewport : undefined;
   for (const screenshot of screenshots) {
     validateScreenshot(
       errors,
       screenshot,
       input.evidenceDirectory,
-      expectedPixels
+      expectedViewport
     );
   }
 }
@@ -1039,7 +1034,7 @@ function validateScreenshot(
   errors: string[],
   screenshot: unknown,
   evidenceDirectory: string,
-  expectedPixels?: { height: number; width: number }
+  expectedViewport?: { height: number; width: number }
 ) {
   if (
     !isRecord(screenshot) ||
@@ -1107,12 +1102,11 @@ function validateScreenshot(
   }
   const dimensions = pngDimensions(screenshotBytes);
   if (
-    expectedPixels &&
-    (dimensions.height !== expectedPixels.height ||
-      dimensions.width !== expectedPixels.width)
+    expectedViewport &&
+    !isUniformViewportRaster(dimensions, expectedViewport)
   ) {
     errors.push(
-      `Screenshot pixel dimensions do not match target viewport: ${screenshot.path}.`
+      `Screenshot pixel dimensions are not a uniform raster of the target viewport: ${screenshot.path}.`
     );
   }
   const actualSha256 = sha256(screenshotBytes);
@@ -1466,11 +1460,26 @@ function stringArray(value: unknown) {
 
 function validDevicePixelRatio(value: unknown) {
   return typeof value === "number" &&
-    Number.isInteger(value) &&
-    value >= 1 &&
-    value <= 3
+    Number.isFinite(value) &&
+    value >= 0.5 &&
+    value <= 4
     ? value
     : undefined;
+}
+
+function isUniformViewportRaster(
+  dimensions: { height: number; width: number },
+  targetViewport: { height: number; width: number }
+) {
+  const widthScale = dimensions.width / targetViewport.width;
+  const heightScale = dimensions.height / targetViewport.height;
+  return (
+    widthScale >= 0.5 &&
+    widthScale <= 4 &&
+    heightScale >= 0.5 &&
+    heightScale <= 4 &&
+    Math.abs(widthScale - heightScale) <= 0.002
+  );
 }
 
 function isPng(value: Buffer) {

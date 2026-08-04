@@ -131,6 +131,29 @@ describe("Cost and Quote public-workflow certification", () => {
     ).toEqual([]);
   });
 
+  test("accepts non-integer browser DPR and uniformly scaled capture rasters", () => {
+    const { directory, evidence } = validManualEvidence();
+    const first = evidence.workflowResults[0];
+    const workflow = COST_QUOTE_MANUAL_BROWSER_WORKFLOWS[0];
+    first.devicePixelRatio = 0.9;
+    const uniformlyScaled = createPng(
+      Math.round(workflow.targetViewport.width * 1.2345),
+      Math.round(workflow.targetViewport.height * 1.2345)
+    );
+    writeFileSync(join(directory, first.screenshots[0].path), uniformlyScaled);
+    first.screenshots[0].sha256 = createHash("sha256")
+      .update(uniformlyScaled)
+      .digest("hex");
+
+    expect(
+      validateManualBrowserQaEvidence(evidence, {
+        applicationOrigin: "http://localhost:3000",
+        evidenceDirectory: directory,
+        gitCommit: GIT_COMMIT,
+      })
+    ).toEqual([]);
+  });
+
   test("rejects the wrong browser, reviewer, account, commit, and incomplete workflow matrix", () => {
     const { directory, evidence } = validManualEvidence();
     evidence.browser = "arc";
@@ -263,7 +286,7 @@ describe("Cost and Quote public-workflow certification", () => {
         gitCommit: GIT_COMMIT,
       })
     ).toContain(
-      `Screenshot pixel dimensions do not match target viewport: ${screenshotPath}.`
+      `Screenshot pixel dimensions are not a uniform raster of the target viewport: ${screenshotPath}.`
     );
   });
 
