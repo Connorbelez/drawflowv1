@@ -3152,7 +3152,38 @@ describe("Build Collaboration operational events", () => {
     const firstCard = beforeCards.find(
       (item) => item.title === "Excavate",
     );
+    const secondCard = beforeCards.find(
+      (item) => item.title === "Pour footings",
+    );
     expect(firstCard).toBeDefined();
+    expect(secondCard).toBeDefined();
+    await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("buildActionItemRelations", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now,
+        createdByWorkosUserId: "user_admin",
+        kind: "blocks",
+        organizationId: ORGANIZATION_ID,
+        sourceActionItemId: firstCard!._id,
+        status: "active",
+        targetActionItemId: secondCard!._id,
+        updatedAt: now,
+      });
+    });
+    const ordinaryDependencyFocused = await fixture.admin.query(
+      (api as any).build_collaboration_focus
+        .getFocusedBuildCollaborationPostContext,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: before.posts.find((post) => post.systemPostKind === "milestone")!._id,
+      },
+    );
+    expect(ordinaryDependencyFocused.entry.post.planningSummary).toMatchObject({
+      attention: { dependencyExceptions: 0 },
+    });
     const beforeDeliveryCount = before.deliveries.length;
 
     await fixture.admin.mutation(
@@ -3257,6 +3288,7 @@ describe("Build Collaboration operational events", () => {
     expect(focused.entry.post.planningSummary).toMatchObject({
       counts: { in_progress: 1, superseded: 1 },
       readyForApproval: false,
+      attention: { dependencyExceptions: 0 },
     });
 
     const contractorReconciliation = await fixture.contractor.query(

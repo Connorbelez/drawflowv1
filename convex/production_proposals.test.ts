@@ -2399,7 +2399,10 @@ describe("production proposal foundation", () => {
     expect(detail.draws[0]).toMatchObject({
       status: "requested",
     });
-    expect(detail.draws[0]).not.toHaveProperty("requestNote");
+    expect(detail.draws[0]).toMatchObject({
+      note: "Ready for reimbursement.",
+      requestNote: "Ready for reimbursement.",
+    });
     expect(detail.draws[0]).not.toHaveProperty("requestReviewNote");
     expect(detail.costItems).toHaveLength(0);
     expect(detail.appPermissions.role).toBe("staff");
@@ -2448,9 +2451,14 @@ describe("production proposal foundation", () => {
     );
     expect(builderDetailDraw).toBeDefined();
     expect(builderTimelineDraw).toBeDefined();
-    expect(builderDetailDraw).not.toHaveProperty("requestNote");
+    expect(builderDetailDraw).toMatchObject({
+      note: "Builder reimbursement note.",
+      requestNote: "Builder reimbursement note.",
+    });
     expect(builderDetailDraw).not.toHaveProperty("requestReviewNote");
-    expect(builderTimelineDraw).not.toHaveProperty("requestNote");
+    expect(builderTimelineDraw).toMatchObject({
+      requestNote: "Builder reimbursement note.",
+    });
     expect(builderTimelineDraw).not.toHaveProperty("requestReviewNote");
 
     await broker.mutation(
@@ -2522,11 +2530,16 @@ describe("production proposal foundation", () => {
       );
     expect(builderDetailDrawAfterRejection).toBeDefined();
     expect(builderTimelineDrawAfterRejection).toBeDefined();
-    expect(builderDetailDrawAfterRejection).not.toHaveProperty("requestNote");
+    expect(builderDetailDrawAfterRejection).toMatchObject({
+      note: "Builder reimbursement note.",
+      requestNote: "Builder reimbursement note.",
+    });
     expect(builderDetailDrawAfterRejection).not.toHaveProperty(
       "requestReviewNote",
     );
-    expect(builderTimelineDrawAfterRejection).not.toHaveProperty("requestNote");
+    expect(builderTimelineDrawAfterRejection).toMatchObject({
+      requestNote: "Builder reimbursement note.",
+    });
     expect(builderTimelineDrawAfterRejection).not.toHaveProperty(
       "requestReviewNote",
     );

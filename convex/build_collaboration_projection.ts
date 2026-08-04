@@ -1,9 +1,6 @@
 import type { ActiveBuildAuthorization } from "./activeBuildAccess";
+import { backofficeRoleSlugs } from "./authz";
 import { canSeeCollaborationReceipt } from "./build_collaboration_access";
-import {
-  canReadDrawCoordination,
-  projectDrawCoordinationState,
-} from "./build_draw_coordination";
 import { projectCollaborationAssetAttachments } from "./build_collaboration_asset_projection";
 import {
   collaborationModeratedContent,
@@ -17,10 +14,16 @@ import {
   addBuildLocalDays,
   deriveMilestoneSystemActionItemPresentation,
 } from "./build_collaboration_system_posts";
+import {
+  canReadDrawCoordination,
+  projectDrawCoordinationState,
+} from "./build_draw_coordination";
 import type { Doc, QueryCtx } from "./types";
 
 const MAX_REFERENCES_PER_POST = 100;
 const MAX_ACTION_ITEMS_PER_POST = 100;
+const PROPOSAL_ROW_OCCURRENCE_PATTERN = /proposal-row:([^:/]+)/;
+const LEGACY_DRAW_KEY_OCCURRENCE_PATTERN = /legacy-key:([^:]+)/;
 
 type SystemMilestonePlanningSummary = {
   attention: {
@@ -129,6 +132,7 @@ type SystemDrawFacts = {
 function deriveSystemMilestonePlanningSummary(input: {
   actionItems: Array<{
     dependencyCount: number;
+    status: "todo" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled";
     systemPresentation?: {
       column:
         | "backlog"
@@ -183,7 +187,12 @@ function deriveSystemMilestonePlanningSummary(input: {
     if (presentation.executionOwnership?.state === "assignment_required") {
       attention.assignmentGaps += 1;
     }
-    attention.dependencyExceptions += Math.max(0, actionItem.dependencyCount);
+    if (
+      presentation.column !== "superseded" &&
+      actionItem.status === "blocked"
+    ) {
+      attention.dependencyExceptions += 1;
+    }
     if (presentation.attention === "overdue_completion") {
       attention.overdueCompletion += 1;
     }
@@ -217,40 +226,72 @@ async function projectSystemDrawFacts(
   if (post.systemPostKind !== "draw" || !post.systemOccurrenceKey) {
     return undefined;
   }
-  const plannedRows = await ctx.db
-    .query("plannedDrawScheduleRows")
-    .withIndex("by_build_order", (query) =>
-      query.eq("buildId", authorization.build._id),
-    )
-    .take(500);
+  const canViewLenderDrawNotes = backofficeRoleSlugs.includes(
+    authorization.effectiveRole.role as (typeof backofficeRoleSlugs)[number],
+  );
   const primaryPlannedId = post.primaryReferenceKind === "draw"
     ? ctx.db.normalizeId("plannedDrawScheduleRows", post.primaryReferenceId ?? "")
     : null;
-  const planned =
-    (primaryPlannedId
-      ? plannedRows.find((row) => row._id === primaryPlannedId)
-      : undefined) ??
-    plannedRows.find((row) =>
-      post.canonicalBuildDrawOccurrenceKey?.includes(
-        `proposal-row:${String(row.proposalDrawScheduleRowId)}`,
-      ),
-    );
-  const requests = await ctx.db
-    .query("activeBuildDrawRequests")
-    .withIndex("by_build", (query) => query.eq("buildId", authorization.build._id))
-    .take(500);
+  const primaryPlanned = primaryPlannedId
+    ? await ctx.db.get(primaryPlannedId)
+    : null;
+  const scopedPrimaryPlanned =
+    primaryPlanned?.buildId === authorization.build._id
+      ? primaryPlanned
+      : undefined;
+  const proposalRowId = post.canonicalBuildDrawOccurrenceKey?.match(
+    PROPOSAL_ROW_OCCURRENCE_PATTERN,
+  )?.[1];
+  const normalizedProposalRowId = proposalRowId
+    ? ctx.db.normalizeId("proposalDrawScheduleRows", proposalRowId)
+    : null;
+  const occurrencePlanned = normalizedProposalRowId
+    ? await ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build_proposal_draw_schedule_row", (query) =>
+          query
+            .eq("buildId", authorization.build._id)
+            .eq("proposalDrawScheduleRowId", normalizedProposalRowId),
+        )
+        .first()
+    : null;
+  const legacyDrawKey = post.canonicalBuildDrawOccurrenceKey?.match(
+    LEGACY_DRAW_KEY_OCCURRENCE_PATTERN,
+  )?.[1];
+  const legacyPlanned = legacyDrawKey
+    ? await ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build_draw_key", (query) =>
+          query
+            .eq("buildId", authorization.build._id)
+            .eq("drawKey", legacyDrawKey),
+        )
+        .first()
+    : null;
+  const planned = scopedPrimaryPlanned ?? occurrencePlanned ?? legacyPlanned;
   const primaryRequestId = post.primaryReferenceKind === "draw"
     ? ctx.db.normalizeId("activeBuildDrawRequests", post.primaryReferenceId ?? "")
     : null;
+  const primaryRequest = primaryRequestId
+    ? await ctx.db.get(primaryRequestId)
+    : null;
+  const scopedPrimaryRequest =
+    primaryRequest?.buildId === authorization.build._id
+      ? primaryRequest
+      : undefined;
+  const requestCandidates = planned?.drawKey
+    ? await ctx.db
+        .query("activeBuildDrawRequests")
+        .withIndex("by_build_planned_draw_key", (query) =>
+          query
+            .eq("buildId", authorization.build._id)
+            .eq("plannedDrawKey", planned.drawKey),
+        )
+        .take(500)
+    : [];
   const request =
-    (primaryRequestId
-      ? requests.find((candidate) => candidate._id === primaryRequestId)
-      : undefined) ??
-    requests
-      .filter(
-        (candidate) =>
-          planned !== undefined && candidate.plannedDrawKey === planned.drawKey,
-      )
+    scopedPrimaryRequest ??
+    requestCandidates
       .sort((left, right) => right.createdAt - left.createdAt)[0];
 
   const allocations = request
@@ -296,10 +337,18 @@ async function projectSystemDrawFacts(
           .first(),
       ),
     ).then((rows) => rows.filter((row): row is Doc<"buildMilestones"> => row !== null)),
-    ctx.db
-      .query("buildSubmilestoneEvidenceRequirements")
-      .withIndex("by_build", (query) => query.eq("buildId", authorization.build._id))
-      .take(5000),
+    Promise.all(
+      milestoneKeys.map((milestoneKey) =>
+        ctx.db
+          .query("buildSubmilestoneEvidenceRequirements")
+          .withIndex("by_build_milestone", (query) =>
+            query
+              .eq("buildId", authorization.build._id)
+              .eq("milestoneKey", milestoneKey),
+          )
+          .take(500),
+      ),
+    ).then((groups) => groups.flat()),
   ]);
   const locationRequiredKeys = new Set(
     evidenceRequirements
@@ -380,13 +429,25 @@ async function projectSystemDrawFacts(
               : ("not_started" as const);
   const disposition = request
     ? request.status === "released"
-      ? { at: request.releasedAt, kind: "released" as const, note: request.releaseNote }
+      ? {
+          at: request.releasedAt,
+          kind: "released" as const,
+          ...(canViewLenderDrawNotes && request.releaseNote
+            ? { note: request.releaseNote }
+            : {}),
+        }
       : request.status === "withdrawn"
         ? { at: request.withdrawnAt, kind: "withdrawal" as const, note: request.withdrawalNote }
         : request.status === "cancelled"
           ? { at: request.cancelledAt, kind: "cancellation" as const, note: request.cancellationNote }
           : request.status === "rejected"
-            ? { at: request.reviewedAt, kind: "final_decline" as const, note: request.reviewNote }
+            ? {
+                at: request.reviewedAt,
+                kind: "final_decline" as const,
+                ...(canViewLenderDrawNotes && request.reviewNote
+                  ? { note: request.reviewNote }
+                  : {}),
+              }
             : undefined
     : undefined;
   let scheduledDate: string | undefined;
@@ -403,7 +464,9 @@ async function projectSystemDrawFacts(
   return {
     approval: {
       ...(request?.reviewedAt ? { approvedAt: request.reviewedAt } : {}),
-      ...(request?.reviewNote ? { note: request.reviewNote } : {}),
+      ...(canViewLenderDrawNotes && request?.reviewNote
+        ? { note: request.reviewNote }
+        : {}),
       state: approvalState,
     },
     ...(disposition ? { disposition } : {}),
@@ -431,7 +494,9 @@ async function projectSystemDrawFacts(
     release: {
       ...(request?.releasedAt ? { releasedAt: request.releasedAt } : {}),
       ...(request?.releaseDate ? { releaseDate: request.releaseDate } : {}),
-      ...(request?.releaseNote ? { note: request.releaseNote } : {}),
+      ...(canViewLenderDrawNotes && request?.releaseNote
+        ? { note: request.releaseNote }
+        : {}),
       state: releaseState,
     },
     ...(request
@@ -440,7 +505,11 @@ async function projectSystemDrawFacts(
             _id: request._id,
             amountCents: request.amountCents,
             displayId: request.displayId,
-            ...(request.note ? { note: request.note } : {}),
+            ...(request.note &&
+            (canViewLenderDrawNotes ||
+              request.requestedByWorkosUserId === authorization.viewer.subject)
+              ? { note: request.note }
+              : {}),
             requestedAt: request.requestedAt,
             requestKey: request.requestKey,
             status: request.status,
@@ -448,15 +517,17 @@ async function projectSystemDrawFacts(
         }
       : {}),
     review: {
-      ...(request?.operationsReviewStartedAt
+      ...(canViewLenderDrawNotes && request?.operationsReviewStartedAt
         ? { operationsReviewStartedAt: request.operationsReviewStartedAt }
         : {}),
-      ...(request?.operationsRecommendationNote
+      ...(canViewLenderDrawNotes && request?.operationsRecommendationNote
         ? { recommendationNote: request.operationsRecommendationNote }
         : {}),
       ...(request?.reviewedAt ? { reviewedAt: request.reviewedAt } : {}),
       state: reviewState,
-      ...(request?.reviewNote ? { note: request.reviewNote } : {}),
+      ...(canViewLenderDrawNotes && request?.reviewNote
+        ? { note: request.reviewNote }
+        : {}),
     },
     siteVisit: {
       cancelled: siteVisits.filter((visit) => visit.status === "cancelled").length,
@@ -523,8 +594,6 @@ export async function projectReadableBuildCollaborationPost(
         moderationCapabilities,
         post,
         redacted: true,
-        systemRecoveryRequired:
-          post.systemPostKind === "milestone" && post.openActionItemCount === 0,
         planningSummary: undefined,
       }),
       reactions: [],

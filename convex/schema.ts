@@ -5660,6 +5660,7 @@ export default defineSchema({
   })
     .index("by_submilestone", ["buildSubmilestoneId", "active"])
     .index("by_build", ["buildId"])
+    .index("by_build_milestone", ["buildId", "milestoneKey"])
     .index("by_build_submilestone_requirement", [
       "buildId",
       "buildSubmilestoneId",
@@ -5897,7 +5898,12 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_build_order", ["buildId", "order"]),
+    .index("by_build_order", ["buildId", "order"])
+    .index("by_build_draw_key", ["buildId", "drawKey"])
+    .index("by_build_proposal_draw_schedule_row", [
+      "buildId",
+      "proposalDrawScheduleRowId",
+    ]),
   activeBuildDrawRequests: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -5936,7 +5942,8 @@ export default defineSchema({
     .index("by_build", ["buildId"])
     .index("by_build_status", ["buildId", "status"])
     .index("by_build_operation", ["buildId", "clientOperationId"])
-    .index("by_build_request_key", ["buildId", "requestKey"]),
+    .index("by_build_request_key", ["buildId", "requestKey"])
+    .index("by_build_planned_draw_key", ["buildId", "plannedDrawKey"]),
   activeBuildDrawRequestAllocations: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),

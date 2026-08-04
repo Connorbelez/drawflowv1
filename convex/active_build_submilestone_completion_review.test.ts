@@ -676,6 +676,49 @@ describe("canonical Sub-milestone completion review", () => {
       progressPercent: 100,
       status: "in_progress",
     });
+    const stalePackageRevisionId = evidence.evidencePackageRevisionId;
+    await fixture.base.run(async (ctx: any) => {
+      const build = await ctx.db.get(fixture.closing.buildId);
+      const milestone = build
+        ? await ctx.db
+            .query("buildMilestones")
+            .withIndex("by_build_key", (q: any) =>
+              q.eq("buildId", fixture.closing.buildId).eq("key", "foundation"),
+            )
+            .unique()
+        : null;
+      const submilestone = milestone
+        ? await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (q: any) =>
+              q.eq("buildMilestoneId", milestone._id),
+            )
+            .filter((q: any) => q.eq(q.field("key"), "forms"))
+            .unique()
+        : null;
+      if (!build || !milestone || !submilestone) {
+        throw new Error("Evidence freeze fixture is incomplete.");
+      }
+      await ensureActiveSubmilestoneEvidencePackageDraft(ctx, {
+        actorWorkosUserId: "user_builder",
+        build,
+        milestone,
+        submilestone,
+      });
+    });
+    await expect(
+      fixture.builder.mutation(
+        (api as any).production_proposals.freezeActiveBuildSubmilestoneEvidencePackage,
+        {
+          buildId: fixture.closing.buildId,
+          expectedRevision: replayed.revision,
+          milestoneKey: "foundation",
+          packageRevisionId: stalePackageRevisionId,
+          submilestoneKey: "forms",
+          workosOrganizationId: ORG,
+        },
+      ),
+    ).rejects.toThrow(/revision changed/i);
   });
 
   test("rejects lender execution and stale progress atomically", async () => {

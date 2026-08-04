@@ -14862,7 +14862,11 @@ export const getActiveBuildDetailByString = authenticatedQuery
               drawKey: request.requestKey,
               label: request.label,
               milestoneKey: undefined,
-              note: request.note,
+              ...(request.note &&
+              (canViewLenderDrawNotes ||
+                request.requestedByWorkosUserId === auth.subject)
+                ? { note: request.note }
+                : {}),
               order: index + 1,
               plannedDrawKey: request.plannedDrawKey,
               ...(canViewLenderDrawNotes
@@ -14884,7 +14888,10 @@ export const getActiveBuildDetailByString = authenticatedQuery
                     requestNote: request.note,
                     requestReviewNote: request.reviewNote,
                   }
-                : {}),
+                : request.requestedByWorkosUserId === auth.subject &&
+                    request.note
+                  ? { requestNote: request.note }
+                  : {}),
               reviewedByWorkosUserId: request.reviewedByWorkosUserId,
               nextAction:
                 request.status === "rejected"
@@ -14910,6 +14917,18 @@ export const getActiveBuildDetailByString = authenticatedQuery
         ? (plannedDraws as Doc<"plannedDrawScheduleRows">[])
             .slice()
             .sort((a, b) => a.order - b.order)
+            .map((draw) => {
+              if (canViewLenderDrawNotes) {
+                return draw;
+              }
+              const {
+                releaseNote: _releaseNote,
+                requestNote: _requestNote,
+                requestReviewNote: _requestReviewNote,
+                ...safeDraw
+              } = draw;
+              return safeDraw;
+            })
         : [],
       evidenceAssets: canUseAppPermission(appPermissions, "evidence", "view")
         ? await withBuildEvidenceAssetStorageUrls(ctx, buildEvidenceAssets)
@@ -15674,7 +15693,10 @@ export const getActiveBuildTimelineWorkspace = authenticatedQuery
                         request.releaseNote ??
                         request.withdrawalNote,
                     }
-                  : {}),
+                  : request.requestedByWorkosUserId === auth.subject &&
+                      request.note
+                    ? { requestNote: request.note }
+                    : {}),
                 requestStatus: activeBuildTimelineRequestStatus(request.status),
                 reviewedAt:
                   request.reviewedAt ??
@@ -18713,13 +18735,39 @@ export const freezeActiveBuildSubmilestoneEvidencePackage = authenticatedMutatio
       packageRevisionId: args.packageRevisionId,
       submilestone,
     });
-    if (packageRevision.status !== "draft") {
+    const currentPackageRevision = await ctx.db
+      .query("buildSubmilestoneEvidencePackageRevisions")
+      .withIndex("by_submilestone_revision", (query) =>
+        query.eq("buildSubmilestoneId", submilestone._id),
+      )
+      .order("desc")
+      .first();
+    if (
+      !currentPackageRevision ||
+      currentPackageRevision._id !== packageRevision._id ||
+      currentPackageRevision.revision !== packageRevision.revision
+    ) {
+      throw new ConvexError({
+        code: "STALE_EVIDENCE_PACKAGE_REVISION",
+        actualPackageRevision: currentPackageRevision?.revision ?? 0,
+        expectedPackageRevision: packageRevision.revision,
+        message:
+          "Evidence Package revision changed; refresh the current draft before freezing.",
+      });
+    }
+    if (packageRevision.status === "frozen") {
       return {
         packageRevisionId: packageRevision._id,
         readyExceptFor: [],
         revision: submilestone.workflowRevision ?? 0,
-        status: "frozen" as const,
+        status: packageRevision.status,
       };
+    }
+    if (packageRevision.status !== "draft") {
+      throw new ConvexError({
+        code: "EVIDENCE_PACKAGE_STATE_INVALID",
+        message: "Only a draft Evidence Package revision can be frozen.",
+      });
     }
     const readiness = await resolveActiveSubmilestoneEvidencePackageReadiness(ctx, {
       build: auth.build,
@@ -25878,6 +25926,7 @@ async function getScopedSubmilestonePackageRevision(
     packageRevision.buildId !== input.auth.build._id ||
     packageRevision.organizationId !== input.auth.build.organizationId ||
     packageRevision.brokerageId !== input.auth.brokerage._id ||
+    packageRevision.proposalId !== input.auth.proposal._id ||
     packageRevision.buildMilestoneId !== input.milestone._id ||
     packageRevision.buildSubmilestoneId !== input.submilestone._id
   ) {
