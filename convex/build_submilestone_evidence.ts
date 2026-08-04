@@ -216,7 +216,9 @@ export async function appendActiveSubmilestoneEvidenceAssetToDraft(
     )
     .collect();
   const alreadyIncluded = existing.find(
-    (item) => item.evidenceAssetId === input.asset._id
+    (item) =>
+      item.evidenceAssetId === input.asset._id &&
+      item.requirementKey === requirementKey,
   );
   if (alreadyIncluded) {
     return { packageRevision, item: alreadyIncluded };
@@ -260,7 +262,9 @@ export async function freezeActiveSubmilestoneEvidencePackage(
   ctx: MutationCtx,
   input: EvidenceContext & {
     actorWorkosUserId: string;
+    actorRoles: string[];
     expectedRevision?: number;
+    reason?: string;
   }
 ) {
   const readiness = await resolveActiveSubmilestoneEvidencePackageReadiness(
@@ -297,6 +301,16 @@ export async function freezeActiveSubmilestoneEvidencePackage(
       status: "frozen",
       updatedAt: now,
     });
+    await recordActiveSubmilestoneEvidencePackageFreezeAudit(ctx, {
+      actorRoles: input.actorRoles,
+      actorWorkosUserId: input.actorWorkosUserId,
+      build: input.build,
+      milestone: input.milestone,
+      packageRevision: created,
+      reason: input.reason,
+      submilestone: input.submilestone,
+      timestamp: now,
+    });
     return await ctx.db.get(created._id);
   }
   if (current.status === "frozen") {
@@ -309,7 +323,55 @@ export async function freezeActiveSubmilestoneEvidencePackage(
     status: "frozen",
     updatedAt: now,
   });
+  await recordActiveSubmilestoneEvidencePackageFreezeAudit(ctx, {
+    actorRoles: input.actorRoles,
+    actorWorkosUserId: input.actorWorkosUserId,
+    build: input.build,
+    milestone: input.milestone,
+    packageRevision: current,
+    reason: input.reason,
+    submilestone: input.submilestone,
+    timestamp: now,
+  });
   return await ctx.db.get(current._id);
+}
+
+async function recordActiveSubmilestoneEvidencePackageFreezeAudit(
+  ctx: MutationCtx,
+  input: EvidenceContext & {
+    actorRoles: string[];
+    actorWorkosUserId: string;
+    packageRevision: Doc<"buildSubmilestoneEvidencePackageRevisions">;
+    reason?: string;
+    timestamp: number;
+  },
+) {
+  await ctx.db.insert("auditEvents", {
+    actorRoles: input.actorRoles,
+    actorWorkosUserId: input.actorWorkosUserId,
+    brokerageId: input.build.brokerageId,
+    command: "freezeActiveSubmilestoneEvidencePackage",
+    createdAt: input.timestamp,
+    entityId: String(input.submilestone._id),
+    entityType: "buildSubmilestone",
+    eventType: "active_build.submilestone.evidence_package_frozen",
+    newState: JSON.stringify({
+      evidencePackageRevisionId: input.packageRevision._id,
+      frozenAt: input.timestamp,
+      revision: input.packageRevision.revision,
+      status: "frozen",
+      submilestoneKey: input.submilestone.key,
+    }),
+    organizationId: input.build.organizationId,
+    priorState: JSON.stringify({
+      evidencePackageRevisionId: input.packageRevision._id,
+      revision: input.packageRevision.revision,
+      status: "draft",
+      submilestoneKey: input.submilestone.key,
+    }),
+    reason: input.reason,
+    warnings: [],
+  });
 }
 
 export async function resolveActiveSubmilestoneEvidenceRequirements(

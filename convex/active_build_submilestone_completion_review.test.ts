@@ -4,6 +4,11 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api } from "./_generated/api";
+import {
+  appendActiveSubmilestoneEvidenceAssetToDraft,
+  ensureActiveSubmilestoneEvidencePackageDraft,
+  freezeActiveSubmilestoneEvidencePackage,
+} from "./build_submilestone_evidence";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -252,6 +257,238 @@ async function submitReviewPackage(
 }
 
 describe("canonical Sub-milestone completion review", () => {
+  test("deduplicates Evidence Package items by asset and requirement pair", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    await fixture.builder.mutation(
+      (api as any).production_proposals.configureActiveBuildSubmilestoneEvidenceRequirements,
+      {
+        buildId: fixture.closing.buildId,
+        milestoneKey: "foundation",
+        requirements: [
+          {
+            kind: "photo",
+            label: "Forms photo",
+            required: true,
+            requirementKey: "forms-photo",
+          },
+          {
+            kind: "document",
+            label: "Forms document",
+            required: true,
+            requirementKey: "forms-document",
+          },
+        ],
+        submilestoneKey: "forms",
+        workosOrganizationId: ORG,
+      },
+    );
+    const storageId = await storeEvidence(fixture, "same-asset");
+    const result = await fixture.base.run(async (ctx: any) => {
+      const build = await ctx.db.get(fixture.closing.buildId);
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", fixture.closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      const submilestone = milestone
+        ? await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (q: any) =>
+              q.eq("buildMilestoneId", milestone._id),
+            )
+            .filter((q: any) => q.eq(q.field("key"), "forms"))
+            .unique()
+        : null;
+      if (!build || !milestone || !submilestone) {
+        throw new Error("Evidence pair fixture is incomplete.");
+      }
+      const now = Date.now();
+      const assetId = await ctx.db.insert("buildEvidenceAssets", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: now,
+        evidenceKey: "same-asset-for-two-requirements",
+        fileName: "same-asset.jpg",
+        label: "Same asset",
+        locationVerified: true,
+        milestoneKey: milestone.key,
+        mimeType: "image/jpeg",
+        organizationId: build.organizationId,
+        proposalId: build.proposalId,
+        sizeBytes: 128,
+        source: "test",
+        storageId,
+        submilestoneKey: submilestone.key,
+        tag: milestone.name,
+        updatedAt: now,
+      });
+      const asset = await ctx.db.get(assetId);
+      if (!asset) {
+        throw new Error("Evidence pair asset is unavailable.");
+      }
+      const first = await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorWorkosUserId: "user_builder",
+        asset,
+        build,
+        milestone,
+        requirementKey: "forms-photo",
+        sourceKind: "canonical_upload",
+        submilestone,
+      });
+      const second = await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorWorkosUserId: "user_builder",
+        asset,
+        build,
+        milestone,
+        requirementKey: "forms-document",
+        sourceKind: "canonical_upload",
+        submilestone,
+      });
+      const replay = await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
+        actorWorkosUserId: "user_builder",
+        asset,
+        build,
+        milestone,
+        requirementKey: "forms-photo",
+        sourceKind: "canonical_upload",
+        submilestone,
+      });
+      const items = await ctx.db
+        .query("buildSubmilestoneEvidencePackageItems")
+        .withIndex("by_package_revision", (q: any) =>
+          q.eq("packageRevisionId", first.packageRevision._id),
+        )
+        .collect();
+      return { first, items, replay, second };
+    });
+    expect(result.second.packageRevision._id).toBe(result.first.packageRevision._id);
+    expect(result.replay.item?._id).toBe(result.first.item?._id);
+    expect(result.items).toHaveLength(2);
+    expect(result.items.map((item: any) => item.requirementKey).sort()).toEqual([
+      "forms-document",
+      "forms-photo",
+    ]);
+    expect(
+      result.items.every(
+        (item: any) => item.evidenceAssetId === result.first.item?.evidenceAssetId,
+      ),
+    ).toBe(true);
+  });
+
+  test("audits draft-to-frozen Evidence Packages and keeps frozen replay idempotent", async () => {
+    const fixture = await seedFixture();
+    await startForms(fixture);
+    const result = await fixture.base.run(async (ctx: any) => {
+      const build = await ctx.db.get(fixture.closing.buildId);
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", fixture.closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      const submilestone = milestone
+        ? await ctx.db
+            .query("buildSubmilestones")
+            .withIndex("by_milestone", (q: any) =>
+              q.eq("buildMilestoneId", milestone._id),
+            )
+            .filter((q: any) => q.eq(q.field("key"), "forms"))
+            .unique()
+        : null;
+      if (!build || !milestone || !submilestone) {
+        throw new Error("Evidence freeze fixture is incomplete.");
+      }
+      const first = await freezeActiveSubmilestoneEvidencePackage(ctx, {
+        actorRoles: ["builder"],
+        actorWorkosUserId: "user_builder",
+        build,
+        milestone,
+        reason: "Builder froze the first completion package.",
+        submilestone,
+      });
+      if (!first) {
+        throw new Error("First frozen Evidence Package is unavailable.");
+      }
+      const draft = await ensureActiveSubmilestoneEvidencePackageDraft(ctx, {
+        actorWorkosUserId: "user_builder",
+        build,
+        milestone,
+        submilestone,
+      });
+      const second = await freezeActiveSubmilestoneEvidencePackage(ctx, {
+        actorRoles: ["admin"],
+        actorWorkosUserId: "user_admin",
+        build,
+        expectedRevision: draft.revision,
+        milestone,
+        reason: "Admin froze the replacement completion package.",
+        submilestone,
+      });
+      if (!second) {
+        throw new Error("Second frozen Evidence Package is unavailable.");
+      }
+      const replay = await freezeActiveSubmilestoneEvidencePackage(ctx, {
+        actorRoles: ["builder"],
+        actorWorkosUserId: "user_builder",
+        build,
+        expectedRevision: second.revision,
+        milestone,
+        reason: "This replay must not create a new audit.",
+        submilestone,
+      });
+      const audits = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q
+            .eq("entityType", "buildSubmilestone")
+            .eq("entityId", String(submilestone._id)),
+        )
+        .filter((q: any) =>
+          q.eq(q.field("command"), "freezeActiveSubmilestoneEvidencePackage"),
+        )
+        .collect();
+      return {
+        audits,
+        draft,
+        first,
+        replay,
+        second,
+        submilestoneId: String(submilestone._id),
+      };
+    });
+    expect(result.replay).toEqual(result.second);
+    expect(result.audits).toHaveLength(2);
+    expect(result.audits[0]).toMatchObject({
+      actorRoles: ["builder"],
+      actorWorkosUserId: "user_builder",
+      command: "freezeActiveSubmilestoneEvidencePackage",
+      entityType: "buildSubmilestone",
+      eventType: "active_build.submilestone.evidence_package_frozen",
+      reason: "Builder froze the first completion package.",
+      warnings: [],
+    });
+    expect(result.audits[1]).toMatchObject({
+      actorRoles: ["admin"],
+      actorWorkosUserId: "user_admin",
+      reason: "Admin froze the replacement completion package.",
+      warnings: [],
+    });
+    for (const [index, audit] of result.audits.entries()) {
+      expect(audit.createdAt).toEqual(expect.any(Number));
+      expect(audit.entityId).toBe(result.submilestoneId);
+      expect(JSON.parse(audit.priorState)).toMatchObject({
+        revision: index + 1,
+        status: "draft",
+      });
+      expect(JSON.parse(audit.newState)).toMatchObject({
+        revision: index + 1,
+        status: "frozen",
+      });
+    }
+  });
+
   test("keeps 100% as progress-only, then enters review only after a frozen package and declaration", async () => {
     const fixture = await seedFixture();
     await startForms(fixture);
