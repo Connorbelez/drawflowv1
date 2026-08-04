@@ -1681,27 +1681,44 @@ describe("BuildCollaborationFeed", () => {
     );
   });
 
-  test("shows silent oversight for an admin or principal-broker without joining coordination", () => {
-    mocks.viewerBinding = {
-      buildId: "build-1",
-      organizationId: "org-1",
-      role: "principle-broker",
-      workosUserId: "user_principal",
-    };
-    mocks.feedRows = [canonicalDrawSystemPostEntryFixture()];
+  test.each(["admin", "principle-broker"] as const)(
+    "shows silent oversight for %s without joining or creating coordination work",
+    (role) => {
+      mocks.viewerBinding = {
+        buildId: "build-1",
+        organizationId: "org-1",
+        role,
+        workosUserId: `user_${role}`,
+      };
+      mocks.feedRows = [
+        canonicalDrawSystemPostEntryFixture({
+          coordination: {
+            canJoin: true,
+            canLeave: true,
+            eligible: true,
+            joined: false,
+            oversight: true,
+            workingAudienceCount: 0,
+          },
+        }),
+      ];
 
-    render(
-      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
-    );
+      render(
+        <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+      );
 
-    expect(screen.getByText("Oversight only")).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Join coordination" }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "Leave coordination" }),
-    ).toBeNull();
-  });
+      expect(screen.getByText("Oversight only")).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: "Join coordination" }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Leave coordination" }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Add coordination Action Item" }),
+      ).toBeNull();
+    },
+  );
 
   test("keeps external Draw readers on canonical facts without a discussion tab or deep-link actions", () => {
     mocks.viewerBinding = {

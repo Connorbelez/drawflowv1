@@ -3901,38 +3901,40 @@ function SystemPostDrawFacts({
               <Badge variant="outline">Oversight only</Badge>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {coordination.canJoin ? (
+          {!coordination.oversight ? (
+            <div className="flex flex-wrap gap-1.5">
+              {coordination.canJoin ? (
+                <Button
+                  disabled={!mutationsAllowed || pending}
+                  onClick={() => updateCoordination("join")}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Join coordination
+                </Button>
+              ) : null}
+              {coordination.canLeave ? (
+                <Button
+                  disabled={!mutationsAllowed || pending}
+                  onClick={() => updateCoordination("leave")}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Leave coordination
+                </Button>
+              ) : null}
               <Button
                 disabled={!mutationsAllowed || pending}
-                onClick={() => updateCoordination("join")}
+                onClick={() => onCreateActionItem(postId)}
                 size="sm"
                 type="button"
-                variant="outline"
               >
-                Join coordination
+                Add coordination Action Item
               </Button>
-            ) : null}
-            {coordination.canLeave ? (
-              <Button
-                disabled={!mutationsAllowed || pending}
-                onClick={() => updateCoordination("leave")}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Leave coordination
-              </Button>
-            ) : null}
-            <Button
-              disabled={!mutationsAllowed || pending}
-              onClick={() => onCreateActionItem(postId)}
-              size="sm"
-              type="button"
-            >
-              Add coordination Action Item
-            </Button>
-          </div>
+            </div>
+          ) : null}
         </div>
       ) : (
         <p className="text-muted-foreground text-xs">

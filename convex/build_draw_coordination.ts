@@ -249,15 +249,20 @@ export async function projectDrawCoordinationState(
     buildId: authorization.build._id,
     organizationId: authorization.organizationId,
   });
+  const oversight =
+    !joined &&
+    (authorization.effectiveRole.role === "admin" ||
+      authorization.effectiveRole.role === "principle-broker");
   return {
-    canJoin: writable && !joined,
-    canLeave: writable && joined,
+    // Admin and principal-broker can inspect Draw coordination but are never
+    // enrolled in its working audience. Keep this guard in the projected
+    // command affordances as well as the UI so stale clients cannot opt them
+    // into ordinary coordination work.
+    canJoin: writable && !joined && !oversight,
+    canLeave: writable && joined && !oversight,
     eligible: true,
     joined,
-    oversight:
-      !joined &&
-      (authorization.effectiveRole.role === "admin" ||
-        authorization.effectiveRole.role === "principle-broker"),
+    oversight,
     workingAudienceCount,
   };
 }
@@ -330,6 +335,12 @@ export const joinDrawCoordination = authenticatedMutation
       authorization,
       args.postId,
     );
+    if (
+      authorization.effectiveRole.role === "admin" ||
+      authorization.effectiveRole.role === "principle-broker"
+    ) {
+      throw new Error("Forbidden: Draw coordination oversight role");
+    }
     const existing = await ctx.db
       .query("buildCollaborationFollows")
       .withIndex("by_postId_and_workosUserId", (query) =>
@@ -398,6 +409,12 @@ export const leaveDrawCoordination = authenticatedMutation
       authorization,
       args.postId,
     );
+    if (
+      authorization.effectiveRole.role === "admin" ||
+      authorization.effectiveRole.role === "principle-broker"
+    ) {
+      throw new Error("Forbidden: Draw coordination oversight role");
+    }
     const existing = await ctx.db
       .query("buildCollaborationFollows")
       .withIndex("by_postId_and_workosUserId", (query) =>

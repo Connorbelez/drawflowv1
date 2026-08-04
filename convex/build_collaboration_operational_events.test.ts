@@ -3425,6 +3425,8 @@ describe("Build Collaboration operational events", () => {
     );
     expect(adminState.joined).toBe(false);
     expect(adminState.oversight).toBe(true);
+    expect(adminState.canJoin).toBe(false);
+    expect(adminState.canLeave).toBe(false);
     const principalState = await fixture.globalPrincipal.query(
       (api as any).build_draw_coordination.getDrawCoordinationState,
       {
@@ -3435,6 +3437,44 @@ describe("Build Collaboration operational events", () => {
     );
     expect(principalState.joined).toBe(false);
     expect(principalState.oversight).toBe(true);
+    expect(principalState.canJoin).toBe(false);
+    expect(principalState.canLeave).toBe(false);
+    const beforeOversightMutation = await silentBackfillSideEffectSnapshot(
+      fixture.base,
+      fixture.buildId,
+    );
+    for (const oversight of [fixture.globalAdmin, fixture.globalPrincipal]) {
+      await expect(
+        oversight.mutation(
+          (api as any).build_draw_coordination.joinDrawCoordination,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            postId: drawPostId,
+          },
+        ),
+      ).rejects.toThrow(/oversight|Forbidden/i);
+      await expect(
+        oversight.mutation(
+          (api as any).build_draw_coordination.leaveDrawCoordination,
+          {
+            buildId: fixture.buildId,
+            organizationId: ORGANIZATION_ID,
+            postId: drawPostId,
+          },
+        ),
+      ).rejects.toThrow(/oversight|Forbidden/i);
+    }
+    const afterOversightMutation = await silentBackfillSideEffectSnapshot(
+      fixture.base,
+      fixture.buildId,
+    );
+    expect(afterOversightMutation.followIds).toEqual(
+      beforeOversightMutation.followIds,
+    );
+    expect(afterOversightMutation.deliveryIds).toEqual(
+      beforeOversightMutation.deliveryIds,
+    );
     await fixture.base.run(async (ctx) => {
       const existingState = await ctx.db
         .query("buildCollaborationBuildStates")
