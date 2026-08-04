@@ -71,6 +71,11 @@ export const editBuildCollaborationPost = authenticatedMutation
       authorization,
       args.postId
     );
+    const editReason = normalizeReason(args.editReason);
+    const systemPostOverride = isSystemPostOverride(post, authorization);
+    if (systemPostOverride && !editReason) {
+      throw new Error("A reason is required to edit a canonical System Post.");
+    }
     assertExpectedRevision(post.revision, args.expectedRevision, "post");
     const references = await canonicalReferencesForPost(ctx, {
       authorization,
@@ -90,7 +95,7 @@ export const editBuildCollaborationPost = authenticatedMutation
       buildId: authorization.build._id,
       contentHash: collaborationContentHash(content.tiptapJson),
       createdAt: now,
-      editReason: normalizeReason(args.editReason),
+      editReason,
       organizationId: authorization.organizationId,
       plainText: content.plainText,
       postId: post._id,
@@ -131,7 +136,8 @@ export const editBuildCollaborationPost = authenticatedMutation
       eventType: "build.collaboration.post.edited",
       newRevision: revision,
       priorRevision: post.revision,
-      reason: normalizeReason(args.editReason),
+      reason: editReason,
+      systemPostOverride,
       timestamp: now,
     });
     await queueBuildCollaborationSearchOwnerRebuild(ctx, {
@@ -517,7 +523,7 @@ async function requireAuthoredReadablePost(
   const systemEditor =
     post?.source === "system" &&
     post.systemPostKind === "milestone" &&
-    authorization.effectiveRole.tier >= 3;
+    authorization.effectiveRole.role === "admin";
   if (
     !post ||
     post.buildId !== authorization.build._id ||
@@ -527,6 +533,17 @@ async function requireAuthoredReadablePost(
     throw new Error("Forbidden: authored collaboration post");
   }
   return post;
+}
+
+function isSystemPostOverride(
+  post: Doc<"buildCollaborationPosts">,
+  authorization: ActiveBuildAuthorization
+) {
+  return (
+    post.source === "system" &&
+    post.systemPostKind === "milestone" &&
+    authorization.effectiveRole.role === "admin"
+  );
 }
 
 async function requireReadableHistoryPost(
@@ -747,6 +764,7 @@ async function recordEditAudit(
     newRevision: number;
     priorRevision: number;
     reason?: string;
+    systemPostOverride?: boolean;
     timestamp: number;
   }
 ) {
@@ -759,10 +777,13 @@ async function recordEditAudit(
     entityId: input.entityId,
     entityType: input.entityType,
     eventType: input.eventType,
-    newState: JSON.stringify({ revision: input.newRevision }),
+    newState: JSON.stringify({
+      revision: input.newRevision,
+      ...(input.systemPostOverride ? { systemPostOverride: true } : {}),
+    }),
     organizationId: input.authorization.organizationId,
     priorState: JSON.stringify({ revision: input.priorRevision }),
     reason: input.reason,
-    warnings: [],
+    warnings: input.systemPostOverride ? ["system_post_override"] : [],
   });
 }

@@ -771,7 +771,7 @@ describe("canonical Sub-milestone completion review", () => {
       (api as any).build_submilestone_review.requestActiveBuildSubmilestoneChanges,
       {
         buildId: fixture.closing.buildId,
-        expectedRevision: (await submilestoneState(fixture)).submilestone.workflowRevision,
+        expectedRevision: (await submilestoneState(fixture)).submilestone.reviewRevision,
         idempotencyKey: "eng411-changes-1",
         milestoneKey: "foundation",
         reason: "Provide a clearer completion photo.",

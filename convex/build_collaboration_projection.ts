@@ -210,6 +210,7 @@ async function projectSystemDrawFacts(
   input: {
     authorization: ActiveBuildAuthorization;
     post: Doc<"buildCollaborationPosts">;
+    generatedActionItems?: number;
   },
 ): Promise<SystemDrawFacts | undefined> {
   const { authorization, post } = input;
@@ -264,7 +265,7 @@ async function projectSystemDrawFacts(
       ...(planned?.milestoneKey ? [planned.milestoneKey] : []),
     ]),
   ];
-  const [evidenceAssets, siteVisits, milestones] = await Promise.all([
+  const [evidenceAssets, siteVisits, milestones, evidenceRequirements] = await Promise.all([
     Promise.all(
       milestoneKeys.map((milestoneKey) =>
         ctx.db
@@ -295,9 +296,32 @@ async function projectSystemDrawFacts(
           .first(),
       ),
     ).then((rows) => rows.filter((row): row is Doc<"buildMilestones"> => row !== null)),
+    ctx.db
+      .query("buildSubmilestoneEvidenceRequirements")
+      .withIndex("by_build", (query) => query.eq("buildId", authorization.build._id))
+      .take(5000),
   ]);
+  const locationRequiredKeys = new Set(
+    evidenceRequirements
+      .filter(
+        (requirement) =>
+          requirement.active &&
+          requirement.locationRequired &&
+          milestoneKeys.includes(requirement.milestoneKey),
+      )
+      .map((requirement) =>
+        requirement.submilestoneKey
+          ? `${requirement.milestoneKey}:${requirement.submilestoneKey}`
+          : requirement.milestoneKey,
+      ),
+  );
   const locationUnverifiedCount = evidenceAssets.filter(
-    (asset) => !asset.locationVerified,
+    (asset) =>
+      !asset.locationVerified &&
+      (locationRequiredKeys.has(
+        `${asset.milestoneKey}:${asset.submilestoneKey}`,
+      ) ||
+        (!asset.submilestoneKey && locationRequiredKeys.has(asset.milestoneKey))),
   ).length;
   const evidenceApproved =
     evidenceAssets.length > 0 &&
@@ -388,7 +412,7 @@ async function projectSystemDrawFacts(
       locationUnverifiedCount,
       state: evidenceState,
     },
-    generatedActionItems: 0,
+    generatedActionItems: input.generatedActionItems ?? 0,
     occurrenceKey: post.systemOccurrenceKey,
     ...(planned
       ? {
@@ -609,13 +633,16 @@ export async function projectReadableBuildCollaborationPost(
         )?.plainText
       : post.resolutionSummary;
   const canonicalMilestoneId = post.canonicalBuildMilestoneId;
+  const canonicalMilestone = canonicalMilestoneId
+    ? await ctx.db.get(canonicalMilestoneId)
+    : null;
   const systemRecoveryRequired =
-    post.systemPostKind === "milestone" && canonicalMilestoneId
+    post.systemPostKind === "milestone" && canonicalMilestone
       ? (
           await ctx.db
             .query("buildSubmilestones")
             .withIndex("by_milestone", (query) =>
-              query.eq("buildMilestoneId", canonicalMilestoneId)
+              query.eq("buildMilestoneId", canonicalMilestone._id)
             )
             .take(1)
         ).length === 0
@@ -652,8 +679,12 @@ export async function projectReadableBuildCollaborationPost(
         })
       : undefined;
   const drawFacts =
-    post.systemPostKind === "draw"
-      ? await projectSystemDrawFacts(ctx, { authorization, post })
+    post.systemPostKind === "draw" && drawCoordinationReadable
+      ? await projectSystemDrawFacts(ctx, {
+          authorization,
+          generatedActionItems: projectedActionItems.length,
+          post,
+        })
       : undefined;
   const drawCoordination =
     post.systemPostKind === "draw" && drawCoordinationReadable
@@ -699,6 +730,7 @@ export async function projectReadableBuildCollaborationPost(
       authorization,
       moderationCapabilities,
       post,
+      milestoneKey: canonicalMilestone?.key,
       redacted: false,
       coordinationRedacted: drawCoordinationRedacted,
       commentCountOverride:
@@ -888,6 +920,7 @@ function collaborationPostSummary(input: {
     workingAudienceCount: number;
   };
   commentCountOverride?: number;
+  milestoneKey?: string;
 }) {
   const {
     authorization,
@@ -902,6 +935,7 @@ function collaborationPostSummary(input: {
     coordinationRedacted = false,
     drawCoordination,
     commentCountOverride,
+    milestoneKey,
   } = input;
   const viewerIsAuthor =
     post.authorWorkosUserId === authorization.viewer.subject;
@@ -931,6 +965,8 @@ function collaborationPostSummary(input: {
       redacted ? 0 : (commentCountOverride ?? post.commentCount),
     contentState: post.contentState,
     createdAt: post.createdAt,
+    openActionItemCount:
+      redacted || coordinationRedacted ? 0 : post.openActionItemCount,
     decisionOutcome:
       redacted || coordinationRedacted ? undefined : post.decisionOutcome,
     decisionOwnerDisplayName,
@@ -955,9 +991,12 @@ function collaborationPostSummary(input: {
             canonicalBuildDrawOccurrenceKey:
               post.canonicalBuildDrawOccurrenceKey,
             currentPlanningRevision: post.currentPlanningRevision,
-            drawCoordination: !redacted ? drawCoordination : undefined,
-            drawFacts: !redacted ? drawFacts : undefined,
+            drawCoordination:
+              !redacted && !coordinationRedacted ? drawCoordination : undefined,
+            drawFacts:
+              !redacted && !coordinationRedacted ? drawFacts : undefined,
             kind: post.systemPostKind,
+            milestoneKey,
             lifecycle: coordinationRedacted
               ? "open"
               : post.systemLifecycle ??

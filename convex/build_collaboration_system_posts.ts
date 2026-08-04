@@ -902,6 +902,8 @@ export async function ensureMilestoneSystemPost(
       postPatch.activationPlanningRevisionId ||
     post.activationReason !== postPatch.activationReason ||
     post.authorDisplayNameSnapshot !== postPatch.authorDisplayNameSnapshot ||
+    JSON.stringify(post.authorRolesSnapshot) !==
+      JSON.stringify(postPatch.authorRolesSnapshot) ||
     post.authorWorkosUserId !== postPatch.authorWorkosUserId ||
     post.canonicalBuildMilestoneId !== postPatch.canonicalBuildMilestoneId ||
     post.systemEventKey !== postPatch.systemEventKey ||
@@ -909,12 +911,16 @@ export async function ensureMilestoneSystemPost(
     post.systemPostKind !== postPatch.systemPostKind ||
     post.currentPlanningRevision !== postPatch.currentPlanningRevision ||
     post.systemLifecycle !== postPatch.systemLifecycle ||
-    post.triggeredAt !== postPatch.triggeredAt ||
-    post.triggeredByRole !== postPatch.triggeredByRole ||
-    post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId ||
-    post.materializedAt !== postPatch.materializedAt ||
-    JSON.stringify(post.historicalBackfill) !==
-      JSON.stringify(postPatch.historicalBackfill);
+    (("triggeredAt" in postPatch && post.triggeredAt !== postPatch.triggeredAt) ||
+      ("triggeredByRole" in postPatch &&
+        post.triggeredByRole !== postPatch.triggeredByRole) ||
+      ("triggeredByWorkosUserId" in postPatch &&
+        post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId) ||
+      ("materializedAt" in postPatch &&
+        post.materializedAt !== postPatch.materializedAt) ||
+      ("historicalBackfill" in postPatch &&
+        JSON.stringify(post.historicalBackfill) !==
+          JSON.stringify(postPatch.historicalBackfill)));
   if (postChanged) {
     await ctx.db.patch(postId, { ...postPatch, updatedAt: now });
   }
@@ -936,7 +942,7 @@ export async function ensureMilestoneSystemPost(
   if (actionItemsChanged && !input.historicalBackfill) {
     await syncPostCounts(ctx, generatedActionItemIds, now);
   } else if (actionItemsChanged && input.historicalBackfill) {
-    await syncPostCountsSilently(ctx, postId, generatedActionItemIds);
+    await syncPostCountsSilently(ctx, postId);
   }
 
   if (postChanged || actionItemsChanged) {
@@ -1071,6 +1077,12 @@ export async function ensureDrawSystemPost(
     currentPlanningRevision:
       post.currentPlanningRevision ?? activationRevision?.revision,
     systemLifecycle: post.systemLifecycle ?? "open",
+    ...(input.drawRequest
+      ? (() => {
+          const disposition = drawSystemDispositionForStatus(input.drawRequest.status);
+          return disposition ? { systemDisposition: disposition } : {};
+        })()
+      : {}),
     ...(input.historicalBackfill
       ? {}
       : { triggeredAt: post.triggeredAt ?? now }),
@@ -1105,12 +1117,18 @@ export async function ensureDrawSystemPost(
     post.systemPostKind !== postPatch.systemPostKind ||
     post.currentPlanningRevision !== postPatch.currentPlanningRevision ||
     post.systemLifecycle !== postPatch.systemLifecycle ||
-    post.triggeredAt !== postPatch.triggeredAt ||
-    post.triggeredByRole !== postPatch.triggeredByRole ||
-    post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId ||
-    post.materializedAt !== postPatch.materializedAt ||
-    JSON.stringify(post.historicalBackfill) !==
-      JSON.stringify(postPatch.historicalBackfill);
+    (("systemDisposition" in postPatch &&
+      post.systemDisposition !== postPatch.systemDisposition) ||
+      ("triggeredAt" in postPatch && post.triggeredAt !== postPatch.triggeredAt) ||
+      ("triggeredByRole" in postPatch &&
+        post.triggeredByRole !== postPatch.triggeredByRole) ||
+      ("triggeredByWorkosUserId" in postPatch &&
+        post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId) ||
+      ("materializedAt" in postPatch &&
+        post.materializedAt !== postPatch.materializedAt) ||
+      ("historicalBackfill" in postPatch &&
+        JSON.stringify(post.historicalBackfill) !==
+          JSON.stringify(postPatch.historicalBackfill)));
   if (postChanged) {
     await ctx.db.patch(postId, { ...postPatch, updatedAt: now });
     await queueBuildCollaborationSearchOwnerRebuild(ctx, {
@@ -1271,9 +1289,7 @@ export async function synchronizeDrawSystemPostLifecycle(
   if (
     input.lifecycle === "open" &&
     (input.drawRequest?.status === "released" ||
-      post.systemLifecycle === "resolved" &&
-        (!input.drawRequest ||
-          post.resolutionSummary?.toLowerCase().includes("released") === true))
+      post.systemDisposition === "released")
   ) {
     return post._id;
   }
@@ -1321,6 +1337,7 @@ export async function synchronizeDrawSystemPostLifecycle(
     lastMeaningfulActivityAt: now,
     latestActivityActorWorkosUserId: input.actorWorkosUserId,
     resolutionSummary,
+    ...(disposition ? { systemDisposition: disposition } : {}),
     resolvedAt: input.lifecycle === "resolved" ? now : undefined,
     resolvedByWorkosUserId:
       input.lifecycle === "resolved" ? input.actorWorkosUserId : undefined,
@@ -1854,13 +1871,20 @@ async function syncPostCounts(
 async function syncPostCountsSilently(
   ctx: MutationCtx,
   postId: Id<"buildCollaborationPosts">,
-  actionItemIds: Id<"buildActionItems">[],
 ) {
   const post = await ctx.db.get(postId);
   if (!post) return;
-  const linkedItems = await Promise.all(actionItemIds.map((id) => ctx.db.get(id)));
+  const linkedItems = await ctx.db
+    .query("buildActionItems")
+    .withIndex("by_originatingPostId_and_createdAt", (query) =>
+      query.eq("originatingPostId", postId),
+    )
+    .take(1001);
+  if (linkedItems.length > 1000) {
+    throw new Error("System Post Action Item count exceeds the supported safety limit.");
+  }
   const openActionItemCount = linkedItems.filter(
-    (item) => item && item.status !== "done" && item.status !== "cancelled",
+    (item) => item.status !== "done" && item.status !== "cancelled",
   ).length;
   await ctx.db.patch(postId, { openActionItemCount });
 }

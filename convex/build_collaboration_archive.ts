@@ -68,7 +68,7 @@ export interface CollaborationPostArchiveSnapshot {
   currentRevisionId?: Id<"buildCollaborationPostRevisions">;
   postId: Id<"buildCollaborationPosts">;
   revision: number;
-  threadRevision: number;
+  threadRevision?: number;
   updatedAt: number;
   [key: string]: unknown;
 }
@@ -179,7 +179,7 @@ export async function buildCollaborationPostArchivePage(
       data: [
         drawCoordinationReadable
           ? postSnapshot
-          : { ...postSnapshot, threadRevision: 0 },
+          : redactArchiveSnapshot(postSnapshot),
       ],
       isDone: true,
     };
@@ -772,6 +772,55 @@ function omitMutableFields<T extends object>(row: T, keys: string[]) {
   return projection;
 }
 
+function redactArchiveSnapshot(snapshot: CollaborationPostArchiveSnapshot) {
+  return {
+    createdAt: snapshot.createdAt,
+    postId: snapshot.postId,
+    redacted: true,
+    redactedFields: ["currentRevisionId", "threadRevision"],
+    revision: snapshot.revision,
+    updatedAt: snapshot.updatedAt,
+  };
+}
+
+function redactArchivePost(post: Doc<"buildCollaborationPosts">) {
+  return {
+    ...omitMutableFields(post, [
+      "acceptedCommentId",
+      "commentCount",
+      "currentRevisionId",
+      "decisionOutcome",
+      "decisionOwnerWorkosUserId",
+      "latestActivityActorWorkosUserId",
+      "openActionItemCount",
+      "resolvedAt",
+      "resolvedByWorkosUserId",
+      "resolutionSummary",
+      "systemDisposition",
+      "systemLifecycle",
+      "threadRevision",
+      "threadState",
+    ]),
+    redacted: true,
+    redactedFields: [
+      "acceptedCommentId",
+      "commentCount",
+      "currentRevisionId",
+      "decisionOutcome",
+      "decisionOwnerWorkosUserId",
+      "latestActivityActorWorkosUserId",
+      "openActionItemCount",
+      "resolvedAt",
+      "resolvedByWorkosUserId",
+      "resolutionSummary",
+      "systemDisposition",
+      "systemLifecycle",
+      "threadRevision",
+      "threadState",
+    ],
+  };
+}
+
 async function archiveActionItemSnapshot(
   ctx: QueryCtx,
   item: Doc<"buildActionItems">,
@@ -845,7 +894,18 @@ async function buildActionItemChildArchivePage(
       workosUserId: input.authorization.viewer.subject,
     }))
   ) {
-    return { continueCursor: "", data: [], isDone: true };
+    const isDone = outerIsDone || nextItemCursor === null;
+    return {
+      continueCursor: isDone
+        ? ""
+        : encodeActionItemChildCursor({
+            actionItemId: undefined,
+            childCursor: null,
+            nextItemCursor,
+          }),
+      data: [],
+      isDone,
+    };
   }
 
   const childPage = await actionItemChildPage(ctx, {
@@ -1212,23 +1272,7 @@ export async function buildCollaborationPostArchive(
         "post pins"
       )
     ).filter((pin) => isVisibleArchivePin(authorization, pin)) : [],
-    post: drawCoordinationReadable
-      ? post
-      : {
-          ...post,
-          acceptedCommentId: undefined,
-          commentCount: 0,
-          decisionOutcome: undefined,
-          decisionOwnerWorkosUserId: undefined,
-          latestActivityActorWorkosUserId: undefined,
-          openActionItemCount: 0,
-          resolvedAt: undefined,
-          resolvedByWorkosUserId: undefined,
-          resolutionSummary: undefined,
-          systemLifecycle: "open",
-          threadRevision: 0,
-          threadState: "open",
-        },
+    post: drawCoordinationReadable ? post : redactArchivePost(post),
     reactions: drawCoordinationReadable ? await limited(
       ctx.db
         .query("buildCollaborationReactions")

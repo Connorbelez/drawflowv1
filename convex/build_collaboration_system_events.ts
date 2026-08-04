@@ -200,6 +200,12 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   const primaryReferenceId = submittedReferences.find(
     (reference) => reference.primary
   )?.entityId;
+  if (
+    input.systemPostKind === "draw" &&
+    primaryReferenceKind !== "draw"
+  ) {
+    throw new Error("Draw System Posts must use a Draw primary reference.");
+  }
   const readerParticipants = await systemEventReaders(ctx, {
     buildId: build._id,
     participants,
@@ -228,8 +234,11 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     "System label",
     120
   );
-  const now = input.now ?? input.silentBackfill?.historicalAt ?? (input.silentBackfill ? 0 : Date.now());
+  const mutationAt =
+    input.silentBackfill?.materializedAt ?? input.now ?? Date.now();
+  const createdAt = input.silentBackfill?.historicalAt ?? mutationAt;
   const materializedAt = input.silentBackfill?.materializedAt;
+  const now = mutationAt;
   const tiptapJson = plainTextDocument(plainText);
   const audience = systemEventAudience(participants, readerParticipants);
   const postId = await ctx.db.insert("buildCollaborationPosts", {
@@ -244,8 +253,8 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     buildId: build._id,
     commentCount: 0,
     contentState: "active",
-    createdAt: now,
-    lastMeaningfulActivityAt: now,
+    createdAt,
+    lastMeaningfulActivityAt: createdAt,
     openActionItemCount: 0,
     organizationId: input.organizationId,
     postType: input.postType,
@@ -269,7 +278,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
           },
         }
       : {}),
-    updatedAt: now,
+    updatedAt: mutationAt,
   });
   const revisionId = await ctx.db.insert("buildCollaborationPostRevisions", {
     authorRole: "admin",
@@ -277,7 +286,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     brokerageId: build.brokerageId,
     buildId: build._id,
     contentHash: stableContentHash(tiptapJson),
-    createdAt: now,
+    createdAt: mutationAt,
     organizationId: input.organizationId,
     plainText,
     postId,
@@ -296,7 +305,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
       brokerageId: build.brokerageId,
       buildId: build._id,
       addedByWorkosUserId: "system",
-      createdAt: now,
+      createdAt: mutationAt,
       organizationId: build.organizationId,
       postId,
       workosUserId,

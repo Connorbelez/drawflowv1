@@ -60,7 +60,10 @@ import {
   BUILD_COLLABORATION_UNAVAILABLE_ERROR,
 } from "./build_collaboration_rollout";
 import { queueBuildCollaborationSearchOwnerRebuild } from "./build_collaboration_search_maintenance";
-import { deriveMilestoneSystemActionItemPresentation } from "./build_collaboration_system_posts";
+import {
+  buildLocalMidnightUtc,
+  deriveMilestoneSystemActionItemPresentation,
+} from "./build_collaboration_system_posts";
 import {
   buildActionItemPriorityValidator,
   buildActionItemStatusValidator,
@@ -766,6 +769,19 @@ async function queueRow(
     }
   );
   const deadline = actionItemOverdueState(item, now);
+  const systemOverdueByMs = systemPresentation?.attention === "overdue_completion"
+    ? systemPresentation.plannedCompletionDate && systemPresentation.timezone
+      ? overdueByBuildLocalDate(
+          systemPresentation.plannedCompletionDate,
+          systemPresentation.timezone,
+          now,
+        )
+      : undefined
+    : undefined;
+  const overdueByMs = Math.max(
+    deadline.overdueByMs ?? 0,
+    systemOverdueByMs ?? 0,
+  );
   return {
     buildId: authorization.build._id,
     buildName: authorization.build.buildName,
@@ -784,12 +800,21 @@ async function queueRow(
       title: item.title,
       updatedAt: item.updatedAt,
     },
-    ...deadline,
+    overdueByMs: overdueByMs > 0 ? overdueByMs : undefined,
     overdue:
       deadline.overdue ||
       systemPresentation?.attention === "overdue_completion",
     queueScope: scope,
   };
+}
+
+function overdueByBuildLocalDate(date: string, timezone: string, now: number) {
+  try {
+    const dueAt = buildLocalMidnightUtc(date, timezone);
+    return now > dueAt ? now - dueAt : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function boundedQueuePagination(input: {

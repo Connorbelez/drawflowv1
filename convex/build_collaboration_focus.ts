@@ -11,7 +11,10 @@ import {
 import { projectReadableBuildCollaborationPost } from "./build_collaboration_projection";
 import { resolveCurrentBuildCollaborationReference } from "./build_collaboration_references";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
-import { canReadMilestoneSystemActionItem } from "./build_collaboration_system_event_access";
+import {
+  canReadMilestoneSystemActionItem,
+  isDrawSystemPost,
+} from "./build_collaboration_system_event_access";
 import { buildCollaborationReferenceKindValidator } from "./build_collaboration_validators";
 import type { Id, QueryCtx } from "./types";
 
@@ -50,7 +53,7 @@ export const getFocusedBuildActionItemContext = authenticatedQuery
     const post = await ctx.db.get(item.originatingPostId);
     if (
       !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
-      (post?.systemPostKind === "draw" &&
+      (post && isDrawSystemPost(post) &&
         !(await canReadDrawCoordination(ctx, { authorization, post }))) ||
       !(await canReadMilestoneSystemActionItem(ctx, {
         actionItem: item,
@@ -94,12 +97,15 @@ export const getFocusedBuildCollaborationReference = authenticatedQuery
           .eq("entityKind", args.entityKind)
           .eq("entityId", args.entityId),
       )
-      .take(100);
+      .take(101);
+    if (referenceRows.length > 100) {
+      return { state: "revoked" as const };
+    }
     for (const referenceRow of referenceRows) {
       const referencedPost = await ctx.db.get(referenceRow.postId);
       if (
-        referencedPost?.systemPostKind === "draw" &&
-        referenceRow.ownerKind !== "postRevision" &&
+        referencedPost &&
+        isDrawSystemPost(referencedPost) &&
         !(await canReadDrawCoordination(ctx, {
           authorization,
           post: referencedPost,
@@ -176,7 +182,7 @@ export const getFocusedBuildCollaborationAssetContext = authenticatedQuery
     const post = postId ? await ctx.db.get(postId) : null;
     if (
       !(post && (await canReadCollaborationPost(ctx, authorization, post))) ||
-      (post?.systemPostKind === "draw" &&
+      (post && isDrawSystemPost(post) &&
         !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       return { state: "revoked" as const };
@@ -210,7 +216,7 @@ export const getFocusedBuildCollaborationPostContext = authenticatedQuery
       post.buildId !== authorization.build._id ||
       post.organizationId !== authorization.organizationId ||
       !(await canReadCollaborationPost(ctx, authorization, post)) ||
-      (post.systemPostKind === "draw" &&
+      (isDrawSystemPost(post) &&
         !(await canReadDrawCoordination(ctx, { authorization, post })))
     ) {
       return { state: "revoked" as const };

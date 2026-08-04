@@ -7,6 +7,7 @@ import {
   ensureDrawSystemPost,
   ensureMilestoneSystemPost,
   projectHistoricalSystemPostLifecycle,
+  drawSystemOccurrenceKey,
 } from "./build_collaboration_system_posts";
 import type { SystemPostHistoricalBackfill } from "./build_collaboration_system_events";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
@@ -129,9 +130,22 @@ export const startBuildCollaborationSystemPostBackfill = authenticatedMutation
       )
       .collect();
     const existing = existingRuns.find((candidate) => candidate.mode === mode);
-    if (existing && existing.status !== "blocked") {
+    if (existing) {
       requireRunOwnership(existing, authorization);
-      return presentRun(existing);
+      if (existing.status !== "blocked") {
+        return presentRun(existing);
+      }
+      const resumed = await ctx.db.get(existing._id);
+      if (!resumed) throw new Error("System Post backfill run became unavailable.");
+      await ctx.db.patch(existing._id, {
+        batchSize,
+        lastError: undefined,
+        status: mode === "validate" ? "validating" : "running",
+        updatedAt: Date.now(),
+      });
+      const resumedRun = await ctx.db.get(existing._id);
+      if (!resumedRun) throw new Error("System Post backfill run became unavailable.");
+      return presentRun(resumedRun);
     }
     const now = Date.now();
     const runId = await ctx.db.insert("buildCollaborationSystemPostBackfillRuns", {
@@ -268,10 +282,22 @@ async function advancePlannedDraws(
     .paginate({ cursor: run.plannedDrawCursor ?? null, numItems: limit });
   let processed = run.processedPlannedDrawCount;
   let posts = run.materializedPostCount;
+  const requests =
+    run.mode === "materialize"
+      ? await ctx.db
+          .query("activeBuildDrawRequests")
+          .withIndex("by_build", (query) => query.eq("buildId", authorization.build._id))
+          .take(MAX_SOURCE_ROWS)
+      : [];
+  const requestByDrawKey = new Map(
+    requests
+      .filter((request) => request.plannedDrawKey)
+      .map((request) => [request.plannedDrawKey as string, request]),
+  );
   for (const plannedDraw of page.page) {
     assertSourceOwnership(plannedDraw, authorization);
     if (run.mode === "materialize") {
-      const request = await findRequestForPlannedDraw(ctx, authorization.build._id, plannedDraw.drawKey);
+      const request = requestByDrawKey.get(plannedDraw.drawKey);
       const result = await materializeDraw(ctx, authorization, plannedDraw, request);
       posts += result.post ? 1 : 0;
     }
@@ -300,11 +326,21 @@ async function advanceDrawRequests(
     .paginate({ cursor: run.drawRequestCursor ?? null, numItems: limit });
   let processed = run.processedDrawRequestCount;
   let posts = run.materializedPostCount;
+  const plannedDraws =
+    run.mode === "materialize"
+      ? await ctx.db
+          .query("plannedDrawScheduleRows")
+          .withIndex("by_build_order", (query) => query.eq("buildId", authorization.build._id))
+          .take(MAX_SOURCE_ROWS)
+      : [];
+  const plannedDrawByKey = new Map(
+    plannedDraws.map((plannedDraw) => [plannedDraw.drawKey, plannedDraw]),
+  );
   for (const request of page.page) {
     assertSourceOwnership(request, authorization);
     if (run.mode === "materialize") {
       const plannedDraw = request.plannedDrawKey
-        ? await findPlannedDraw(ctx, authorization.build._id, request.plannedDrawKey)
+        ? plannedDrawByKey.get(request.plannedDrawKey)
         : undefined;
       const result = await materializeDraw(ctx, authorization, plannedDraw, request);
       posts += result.post ? 1 : 0;
@@ -413,7 +449,7 @@ async function materializeDraw(
     unknownFacts,
   });
   const occurrenceKey = plannedDraw
-    ? `draw-system:${String(authorization.build._id)}:${String(authorization.build.proposalId)}:proposal-row:${String(plannedDraw.proposalDrawScheduleRowId)}`
+    ? drawSystemOccurrenceKey(authorization.build, plannedDraw)
     : `draw-system:${String(authorization.build._id)}:${String(authorization.build.proposalId)}:request:${String(request?._id ?? "unknown")}`;
   const existingPost = await ctx.db
     .query("buildCollaborationPosts")

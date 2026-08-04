@@ -129,6 +129,17 @@ export async function ensureActiveSubmilestoneEvidencePackageDraft(
           ? {}
           : { sourcePublishedAt: item.sourcePublishedAt }),
       });
+      const carriedAsset = await ctx.db.get(item.evidenceAssetId);
+      if (
+        carriedAsset &&
+        carriedAsset.buildId === input.build._id &&
+        carriedAsset.organizationId === input.build.organizationId
+      ) {
+        await ctx.db.patch(carriedAsset._id, {
+          evidencePackageRevisionId: packageRevisionId,
+          updatedAt: now,
+        });
+      }
     }
   }
   const created = await ctx.db.get(packageRevisionId);
@@ -158,14 +169,30 @@ export async function appendActiveSubmilestoneEvidenceAssetToDraft(
     ctx,
     input
   );
+  if (
+    input.asset.buildId !== input.build._id ||
+    input.asset.organizationId !== input.build.organizationId ||
+    input.asset.milestoneKey !== input.milestone.key ||
+    input.asset.submilestoneKey !== input.submilestone.key
+  ) {
+    throw new Error("Evidence Asset does not belong to the target sub-milestone.");
+  }
   const requirements = await resolveActiveSubmilestoneEvidenceRequirements(
     ctx,
     input
   );
+  const explicitlyRequestedRequirement = input.requirementKey
+    ? requirements.find(
+        (candidate) => candidate.requirementKey === input.requirementKey,
+      )
+    : undefined;
+  if (input.requirementKey && !explicitlyRequestedRequirement) {
+    throw new Error(
+      `Evidence requirement ${input.requirementKey} is not active for this sub-milestone.`,
+    );
+  }
   const requirement =
-    requirements.find(
-      (candidate) => candidate.requirementKey === input.requirementKey
-    ) ??
+    explicitlyRequestedRequirement ??
     requirements.find((candidate) => candidate.required) ??
     requirements[0];
   const requirementKey = requirement?.requirementKey ?? "completion-evidence";
@@ -354,6 +381,16 @@ export async function resolveActiveSubmilestoneEvidencePackageReadiness(
         )
         .order("desc")
         .first();
+  if (
+    latestRevision &&
+    (latestRevision.buildId !== input.build._id ||
+      latestRevision.organizationId !== input.build.organizationId ||
+      latestRevision.buildMilestoneId !== input.milestone._id ||
+      latestRevision.buildSubmilestoneId !== input.submilestone._id ||
+      latestRevision.proposalId !== input.build.proposalId)
+  ) {
+    throw new Error("Evidence Package revision does not belong to the target sub-milestone.");
+  }
   const packageItems = latestRevision
     ? await ctx.db
         .query("buildSubmilestoneEvidencePackageItems")
@@ -377,14 +414,17 @@ export async function resolveActiveSubmilestoneEvidencePackageReadiness(
     const matchingItems = packageItems.filter(
       (item) => item.requirementKey === requirement.requirementKey
     );
-    const matchingAsset = matchingItems
+    const matchingAssets = matchingItems
       .map((item) => assetById.get(String(item.evidenceAssetId)))
-      .find((asset) => Boolean(asset));
-    if (!matchingAsset) {
+      .filter((asset): asset is Doc<"buildEvidenceAssets"> => Boolean(asset));
+    if (matchingAssets.length === 0) {
       readyExceptFor.push(requirement.label);
       continue;
     }
-    if (requirement.locationRequired && !matchingAsset.locationVerified) {
+    if (
+      requirement.locationRequired &&
+      !matchingAssets.some((asset) => asset.locationVerified)
+    ) {
       readyExceptFor.push(`Location verification: ${requirement.label}`);
     }
   }

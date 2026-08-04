@@ -157,6 +157,7 @@ type ProductionDrawStatus =
   | "approved_for_release"
   | "rejected"
   | "withdrawn"
+  | "cancelled"
   | "released";
 
 export interface ProductionBuildDetailActions {
@@ -4375,9 +4376,12 @@ function BuildNonFinancialDetailsSheet({
               />
             </Field>
             <Field name="ianaTimezone">
-              <FieldLabel>Build timezone (IANA)</FieldLabel>
+              <FieldLabel htmlFor="build-details-timezone-input">
+                Build timezone (IANA)
+              </FieldLabel>
               <Input
                 data-testid="build-details-timezone-input"
+                id="build-details-timezone-input"
                 onChange={(event) => setIanaTimezone(event.currentTarget.value)}
                 placeholder="America/Toronto"
                 value={ianaTimezone}
@@ -7197,7 +7201,9 @@ function isRequestableDrawStatus(
 function resolveUpcomingDraw(draws: ProductionDraw[]): ProductionDraw | null {
   return (
     draws
-      .filter((draw) => draw.status !== "released")
+      .filter(
+        (draw) => draw.status !== "released" && draw.status !== "cancelled"
+      )
       .slice()
       .sort((a, b) => {
         const statusDelta =
@@ -7474,6 +7480,8 @@ function drawStatusLabel(status: ProductionDrawStatus): string {
       return "Ready for admin";
     case "rejected":
       return "Rejected";
+    case "cancelled":
+      return "Cancelled";
     case "requested":
       return "Requested";
     case "released":

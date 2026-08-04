@@ -1992,6 +1992,8 @@ export function ProductionProposalReviewSurface({
     Boolean(onUpdateInterestRate) && canEditProposalCapitalTerms;
   const reviewReason = reason.trim();
   const permitWaiverReviewReason = permitWaiverReason.trim();
+  const normalizedIanaTimezone = ianaTimezone.trim();
+  const ianaTimezoneValid = isValidIanaTimezone(normalizedIanaTimezone);
   const editableDraws = detail.draws ?? [];
   const headerApprovedAmountCents = calculateProposalApprovedAmountCents(
     proposal,
@@ -2712,23 +2714,31 @@ export function ProductionProposalReviewSurface({
                     Build timezone (IANA)
                   </Label>
                   <Input
+                    aria-invalid={Boolean(
+                      normalizedIanaTimezone && !ianaTimezoneValid
+                    )}
                     id="production-build-timezone"
                     onChange={(event) => setIanaTimezone(event.target.value)}
                     required
                     value={ianaTimezone}
                   />
+                  {normalizedIanaTimezone && !ianaTimezoneValid ? (
+                    <p className="text-destructive text-xs" role="alert">
+                      Enter a valid IANA timezone such as America/Toronto.
+                    </p>
+                  ) : null}
                   <Button
                     disabled={
                       !canRecordClosing ||
                       proposal.status !== "approved" ||
                       !startDate ||
-                      !ianaTimezone.trim()
+                      !ianaTimezoneValid
                     }
                     onClick={() =>
                       onClose?.(
                         startDate,
                         reason || "Loan closed offline.",
-                        ianaTimezone.trim()
+                        normalizedIanaTimezone
                       )
                     }
                     size="sm"
@@ -2756,6 +2766,16 @@ function productionProposalActionErrorMessage(error: unknown) {
   }
   const uncaughtMatch = message.match(/Uncaught Error:\s*([^\n]+)/);
   return uncaughtMatch?.[1]?.trim() || message;
+}
+
+function isValidIanaTimezone(value: string) {
+  if (!value) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function ProposalDrawScheduleSnapshot({ draws }: { draws: ProductionDraw[] }) {

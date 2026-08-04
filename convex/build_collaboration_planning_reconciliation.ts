@@ -165,7 +165,14 @@ async function collectPlanningSnapshot(
   ctx: QueryCtx | MutationCtx,
   build: Doc<"activeBuilds">
 ): Promise<PlanningSnapshot> {
-  const [milestones, submilestones, draws, allocations, capitalPlans] =
+  const [
+    milestones,
+    submilestones,
+    draws,
+    allocations,
+    capitalPlans,
+    requirementRows,
+  ] =
     await Promise.all([
       ctx.db
         .query("buildMilestones")
@@ -187,27 +194,38 @@ async function collectPlanningSnapshot(
         .query("buildCapitalPlans")
         .withIndex("by_build", (query) => query.eq("buildId", build._id))
         .take(100),
+      ctx.db
+        .query("buildSubmilestoneEvidenceRequirements")
+        .withIndex("by_build", (query) => query.eq("buildId", build._id))
+        .take(5000),
     ]);
 
   const evidenceRequirements: PlanningEntity[] = [];
-  for (const submilestone of submilestones) {
-    const requirements = await ctx.db
-      .query("buildSubmilestoneEvidenceRequirements")
-      .withIndex("by_submilestone", (query) =>
-        query.eq("buildSubmilestoneId", submilestone._id)
-      )
-      .take(500);
-    for (const requirement of requirements) {
-      evidenceRequirements.push(
-        stableEntity(
-          "evidenceRequirement",
-          `${submilestone.milestoneKey}:${submilestone.key}:${requirement.requirementKey}`,
-          String(requirement._id),
-          requirement.active ? "active" : "superseded",
-          canonicalEvidenceRequirementSnapshot(requirement)
-        )
-      );
+  const submilestonesById = new Map(
+    submilestones.map((submilestone) => [String(submilestone._id), submilestone])
+  );
+  for (const requirement of requirementRows) {
+    const submilestone = submilestonesById.get(
+      String(requirement.buildSubmilestoneId)
+    );
+    if (
+      !submilestone ||
+      requirement.organizationId !== build.organizationId ||
+      requirement.brokerageId !== build.brokerageId ||
+      requirement.proposalId !== build.proposalId ||
+      requirement.buildMilestoneId !== submilestone.buildMilestoneId
+    ) {
+      continue;
     }
+    evidenceRequirements.push(
+      stableEntity(
+        "evidenceRequirement",
+        `${submilestone.milestoneKey}:${submilestone.key}:${requirement.requirementKey}`,
+        String(requirement._id),
+        requirement.active ? "active" : "superseded",
+        canonicalEvidenceRequirementSnapshot(requirement)
+      )
+    );
   }
 
   return {
@@ -355,10 +373,20 @@ function planningDiff(
       });
       continue;
     }
+    if (prior.planningState !== entity.planningState) {
+      diffs.push({
+        category: categoryFor(entity.entityType, "planningState"),
+        changeType: "changed",
+        entityKey: entity.entityKey,
+        entityType: entity.entityType,
+        field: "planningState",
+        nextValue: entity.planningState,
+        priorValue: prior.planningState,
+      });
+    }
     const fields = new Set([
       ...Object.keys(prior.snapshot),
       ...Object.keys(entity.snapshot),
-      "planningState",
     ]);
     for (const field of fields) {
       const before = prior.snapshot[field];
@@ -577,7 +605,9 @@ async function redactSnapshotForViewer(
   authorization: ActiveBuildAuthorization,
   snapshot: PlanningSnapshot
 ) {
-  if (authorization.effectiveRole.role !== "contractor") return snapshot;
+  if (authorization.effectiveRole.role !== "contractor") {
+    return { snapshot };
+  }
   const visibleSubmilestoneKeys = new Set<string>();
   for (const submilestone of snapshot.submilestones) {
     const milestone = snapshot.milestones.find(
@@ -613,20 +643,24 @@ async function redactSnapshotForViewer(
     [...visibleSubmilestoneKeys].map((key) => key.split(":")[0])
   );
   return {
-    buildId: snapshot.buildId,
-    milestones: snapshot.milestones.filter((entity) =>
-      visibleMilestoneKeys.has(entity.entityKey)
-    ),
-    submilestones: snapshot.submilestones.filter((entity) =>
-      visibleSubmilestoneKeys.has(entity.entityKey)
-    ),
-    // Financial ownership, Draw allocations, and Evidence requirements are
-    // restricted facts and are absent rather than client-hidden.
-    allocations: [],
-    draws: [],
-    evidenceRequirements: [],
-    budgets: [],
-  } satisfies PlanningSnapshot;
+    snapshot: {
+      buildId: snapshot.buildId,
+      milestones: snapshot.milestones.filter((entity) =>
+        visibleMilestoneKeys.has(entity.entityKey)
+      ),
+      submilestones: snapshot.submilestones.filter((entity) =>
+        visibleSubmilestoneKeys.has(entity.entityKey)
+      ),
+      // Financial ownership, Draw allocations, and Evidence requirements are
+      // restricted facts and are absent rather than client-hidden.
+      allocations: [],
+      draws: [],
+      evidenceRequirements: [],
+      budgets: [],
+    } satisfies PlanningSnapshot,
+    visibleMilestoneKeys,
+    visibleSubmilestoneKeys,
+  };
 }
 
 export const getActiveBuildPlanningReconciliation = authenticatedQuery
@@ -667,6 +701,14 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
         .take(1000);
       diffs.push(...rows);
     }
+    const activationProjection = activationRevision
+      ? await redactSnapshotForViewer(ctx, authorization, activationSnapshot)
+      : null;
+    const currentProjection = await redactSnapshotForViewer(
+      ctx,
+      authorization,
+      currentSnapshot,
+    );
     return {
       activation: activationRevision
         ? {
@@ -674,28 +716,24 @@ export const getActiveBuildPlanningReconciliation = authenticatedQuery
             actorRoles: activationRevision.actorRoles,
             actorWorkosUserId: activationRevision.actorWorkosUserId,
             revision: activationRevision.revision,
-            snapshot: await redactSnapshotForViewer(
-              ctx,
-              authorization,
-              activationSnapshot
-            ),
+            snapshot: activationProjection!.snapshot,
           }
         : null,
       current: {
         revision: revisions[0]?.revision ?? 0,
-        snapshot: await redactSnapshotForViewer(
-          ctx,
-          authorization,
-          currentSnapshot
-        ),
+        snapshot: currentProjection.snapshot,
       },
       diffs: diffs
-        .filter((diff) =>
-          authorization.effectiveRole.role === "contractor"
-            ? diff.entityType === "milestone" ||
-              diff.entityType === "submilestone"
-            : true
-        )
+        .filter((diff) => {
+          if (authorization.effectiveRole.role !== "contractor") return true;
+          if (diff.entityType === "milestone") {
+            return currentProjection.visibleMilestoneKeys?.has(diff.entityKey) ?? false;
+          }
+          if (diff.entityType === "submilestone") {
+            return currentProjection.visibleSubmilestoneKeys?.has(diff.entityKey) ?? false;
+          }
+          return false;
+        })
         .map((diff) => ({
           category: diff.category,
           changeType: diff.changeType,

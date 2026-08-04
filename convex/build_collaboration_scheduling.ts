@@ -44,6 +44,71 @@ const MILESTONE_RECONCILIATION_BATCH_SIZE = 25;
 // Historical or far-future plans outside that durable horizon remain eligible
 // for the bounded recovery reconciliation instead of blocking a Build write.
 const MAX_MILESTONE_SCHEDULE_HORIZON_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+const TERMINAL_DRAW_STATUSES = new Set([
+  "rejected",
+  "withdrawn",
+  "cancelled",
+  "released",
+]);
+type ReconciliationPhase = "active" | "future_start";
+
+function decodeReconciliationCursor(cursor: string | null | undefined): {
+  cursor: string | null;
+  phase: ReconciliationPhase;
+} {
+  if (!cursor) {
+    return { cursor: null as string | null, phase: "active" as ReconciliationPhase };
+  }
+  try {
+    const parsed = JSON.parse(cursor) as {
+      cursor?: unknown;
+      phase?: unknown;
+    };
+    if (
+      (parsed.phase === "active" || parsed.phase === "future_start") &&
+      (parsed.cursor === null || typeof parsed.cursor === "string")
+    ) {
+      return {
+        cursor: parsed.cursor,
+        phase: parsed.phase,
+      };
+    }
+  } catch {
+    // Cursors from a prior implementation are treated as the first active
+    // status page instead of failing the recovery cron.
+  }
+  return { cursor, phase: "active" as ReconciliationPhase };
+}
+
+function encodeReconciliationCursor(
+  phase: ReconciliationPhase,
+  cursor: string | null,
+) {
+  return JSON.stringify({ cursor, phase });
+}
+
+async function cancelScheduledActivation(
+  ctx: MutationCtx,
+  jobId: string | undefined,
+) {
+  if (!jobId) return;
+  try {
+    const scheduledJob = await ctx.db.system.get(
+      "_scheduled_functions",
+      jobId as Id<"_scheduled_functions">,
+    );
+    // A callback that is already in progress owns its scheduler row and will
+    // mark it successful/failed when it completes. Cancelling that row races
+    // the callback finalizer and leaves Convex's scheduler state inconsistent.
+    // Only pending jobs need cancellation before a replacement is queued.
+    if (!scheduledJob || scheduledJob.state.kind !== "pending") {
+      return;
+    }
+    await ctx.scheduler.cancel(jobId as Id<"_scheduled_functions">);
+  } catch {
+    // A completed/missing scheduler row is already safe to replace.
+  }
+}
 
 export const getBuildCollaborationSchedulingCapabilities = authenticatedQuery
   .input({
@@ -356,6 +421,9 @@ export async function scheduleCurrentMilestoneSystemPostActivations(
     ) {
       continue;
     }
+    if (milestone.planningState === "superseded") {
+      continue;
+    }
     let scheduledFor: number;
     try {
       const plannedDate = addBuildLocalDays(build.startDate, milestone.dayStart);
@@ -374,7 +442,8 @@ export async function scheduleCurrentMilestoneSystemPostActivations(
     ) {
       continue;
     }
-    await ctx.scheduler.runAt(
+    await cancelScheduledActivation(ctx, milestone.scheduledActivationJobId);
+    const scheduledJobId = await ctx.scheduler.runAt(
       scheduledFor,
       internal.build_collaboration_scheduling
         .executeScheduledMilestoneSystemPostActivation,
@@ -384,6 +453,10 @@ export async function scheduleCurrentMilestoneSystemPostActivations(
         scheduledFor,
       },
     );
+    await ctx.db.patch(milestone._id, {
+      scheduledActivationJobId: String(scheduledJobId),
+      updatedAt: now,
+    });
   }
 
   await scheduleCurrentDrawSystemPostActivations(ctx, input);
@@ -413,6 +486,9 @@ export async function scheduleCurrentDrawSystemPostActivations(
     ) {
       continue;
     }
+    if (TERMINAL_DRAW_STATUSES.has(plannedDraw.status)) {
+      continue;
+    }
     let scheduledFor: number;
     try {
       const plannedDate = addBuildLocalDays(
@@ -429,7 +505,8 @@ export async function scheduleCurrentDrawSystemPostActivations(
     ) {
       continue;
     }
-    await ctx.scheduler.runAt(
+    await cancelScheduledActivation(ctx, plannedDraw.scheduledActivationJobId);
+    const scheduledJobId = await ctx.scheduler.runAt(
       scheduledFor,
       internal.build_collaboration_scheduling
         .executeScheduledDrawSystemPostActivation,
@@ -439,6 +516,10 @@ export async function scheduleCurrentDrawSystemPostActivations(
         scheduledFor,
       },
     );
+    await ctx.db.patch(plannedDraw._id, {
+      scheduledActivationJobId: String(scheduledJobId),
+      updatedAt: now,
+    });
   }
 }
 
@@ -493,6 +574,7 @@ export const executeScheduledMilestoneSystemPostActivation = internalMutation
       milestone.buildId !== build._id ||
       milestone.organizationId !== build.organizationId ||
       milestone.brokerageId !== build.brokerageId ||
+      milestone.planningState === "superseded" ||
       !build.timezone
     ) {
       return null;
@@ -508,7 +590,8 @@ export const executeScheduledMilestoneSystemPostActivation = internalMutation
     }
     if (currentDueAt > now) {
       if (currentDueAt <= now + MAX_MILESTONE_SCHEDULE_HORIZON_MS) {
-        await ctx.scheduler.runAt(
+        await cancelScheduledActivation(ctx, milestone.scheduledActivationJobId);
+        const scheduledJobId = await ctx.scheduler.runAt(
           currentDueAt,
           internal.build_collaboration_scheduling
             .executeScheduledMilestoneSystemPostActivation,
@@ -518,6 +601,10 @@ export const executeScheduledMilestoneSystemPostActivation = internalMutation
             scheduledFor: currentDueAt,
           },
         );
+        await ctx.db.patch(milestone._id, {
+          scheduledActivationJobId: String(scheduledJobId),
+          updatedAt: now,
+        });
       }
       return null;
     }
@@ -557,6 +644,7 @@ export const executeScheduledDrawSystemPostActivation = internalMutation
       plannedDraw.buildId !== build._id ||
       plannedDraw.organizationId !== build.organizationId ||
       plannedDraw.brokerageId !== build.brokerageId ||
+      TERMINAL_DRAW_STATUSES.has(plannedDraw.status) ||
       !build.timezone
     ) {
       return null;
@@ -574,7 +662,8 @@ export const executeScheduledDrawSystemPostActivation = internalMutation
     }
     if (currentDueAt > now) {
       if (currentDueAt <= now + MAX_MILESTONE_SCHEDULE_HORIZON_MS) {
-        await ctx.scheduler.runAt(
+        await cancelScheduledActivation(ctx, plannedDraw.scheduledActivationJobId);
+        const scheduledJobId = await ctx.scheduler.runAt(
           currentDueAt,
           internal.build_collaboration_scheduling
             .executeScheduledDrawSystemPostActivation,
@@ -584,6 +673,10 @@ export const executeScheduledDrawSystemPostActivation = internalMutation
             scheduledFor: currentDueAt,
           },
         );
+        await ctx.db.patch(plannedDraw._id, {
+          scheduledActivationJobId: String(scheduledJobId),
+          updatedAt: now,
+        });
       }
       return null;
     }
@@ -615,11 +708,14 @@ export const reconcileDueMilestoneSystemPosts = internalMutation
   .returns(v.null())
   .handler(async (ctx, args) => {
     const asOf = args.asOf ?? Date.now();
+    const state = decodeReconciliationCursor(args.cursor);
     const page = await ctx.db
       .query("activeBuilds")
-      .order("asc")
+      .withIndex("by_status_and_timezone", (query) =>
+        query.eq("status", state.phase)
+      )
       .paginate({
-        cursor: args.cursor ?? null,
+        cursor: state.cursor,
         numItems: MILESTONE_RECONCILIATION_BATCH_SIZE,
       });
 
@@ -651,10 +747,18 @@ export const reconcileDueMilestoneSystemPosts = internalMutation
         ) {
           continue;
         }
-        const plannedMilestoneStartDate = addBuildLocalDays(
-          build.startDate,
-          milestone.dayStart
-        );
+        if (milestone.planningState === "superseded") {
+          continue;
+        }
+        let plannedMilestoneStartDate: string;
+        try {
+          plannedMilestoneStartDate = addBuildLocalDays(
+            build.startDate,
+            milestone.dayStart,
+          );
+        } catch {
+          continue;
+        }
         if (localDate < plannedMilestoneStartDate) {
           continue;
         }
@@ -711,10 +815,15 @@ export const reconcileDueMilestoneSystemPosts = internalMutation
           if (submilestone.actualStartedAt !== undefined) {
             continue;
           }
-          const plannedStartDate = addBuildLocalDays(
-            build.startDate,
-            submilestone.startDay ?? milestone.dayStart
-          );
+          let plannedStartDate: string;
+          try {
+            plannedStartDate = addBuildLocalDays(
+              build.startDate,
+              submilestone.startDay ?? milestone.dayStart,
+            );
+          } catch {
+            continue;
+          }
           if (localDate <= plannedStartDate) {
             continue;
           }
@@ -789,12 +898,17 @@ export const reconcileDueMilestoneSystemPosts = internalMutation
       }
     }
 
-    if (!page.isDone) {
+    const continuation = page.isDone
+      ? state.phase === "active"
+        ? encodeReconciliationCursor("future_start", null)
+        : null
+      : encodeReconciliationCursor(state.phase, page.continueCursor);
+    if (continuation) {
       await ctx.scheduler.runAfter(
         0,
         internal.build_collaboration_scheduling
           .reconcileDueMilestoneSystemPosts,
-        { asOf, cursor: page.continueCursor }
+        { asOf, cursor: continuation }
       );
     }
     return null;
@@ -810,11 +924,14 @@ export const reconcileDueDrawSystemPosts = internalMutation
   .returns(v.null())
   .handler(async (ctx, args) => {
     const asOf = args.asOf ?? Date.now();
+    const state = decodeReconciliationCursor(args.cursor);
     const page = await ctx.db
       .query("activeBuilds")
-      .order("asc")
+      .withIndex("by_status_and_timezone", (query) =>
+        query.eq("status", state.phase)
+      )
       .paginate({
-        cursor: args.cursor ?? null,
+        cursor: state.cursor,
         numItems: MILESTONE_RECONCILIATION_BATCH_SIZE,
       });
     for (const build of page.page) {
@@ -859,11 +976,16 @@ export const reconcileDueDrawSystemPosts = internalMutation
         });
       }
     }
-    if (!page.isDone) {
+    const continuation = page.isDone
+      ? state.phase === "active"
+        ? encodeReconciliationCursor("future_start", null)
+        : null
+      : encodeReconciliationCursor(state.phase, page.continueCursor);
+    if (continuation) {
       await ctx.scheduler.runAfter(
         0,
         internal.build_collaboration_scheduling.reconcileDueDrawSystemPosts,
-        { asOf, cursor: page.continueCursor },
+        { asOf, cursor: continuation },
       );
     }
     return null;

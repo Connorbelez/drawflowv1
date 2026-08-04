@@ -6,7 +6,9 @@ import type {
 } from "./activeBuildAccess";
 import { authenticatedQuery } from "./authz";
 import { collaborationTagOptionValidator } from "./build_collaboration_contracts";
-import { canReadDrawCoordination } from "./build_draw_coordination";
+import {
+  isInternalDrawCoordinationEligible,
+} from "./build_draw_coordination";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
 import { collaborationRoleTier } from "./build_collaboration_model";
 import type { ReferenceInput } from "./build_collaboration_publication_bundle";
@@ -14,6 +16,7 @@ import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_r
 import {
   canReadCanonicalMilestoneSubmilestone,
   canReadMilestoneSystemActionItem,
+  isDrawSystemPost,
 } from "./build_collaboration_system_event_access";
 import { buildCollaborationValidationError } from "./build_collaboration_validation";
 import type { Doc, QueryCtx } from "./types";
@@ -223,15 +226,13 @@ async function resolveCanonicalReference(
       }
       const readersCanRead = await Promise.all(
         readers.map((reader) =>
-          reader.role !== "contractor"
-            ? true
-            : canReadCanonicalMilestoneSubmilestone(ctx, {
-                build: authorization.build,
-                milestone,
-                role: reader.role,
-                submilestone,
-                workosUserId: reader.workosUserId,
-              })
+          canReadCanonicalMilestoneSubmilestone(ctx, {
+            build: authorization.build,
+            milestone,
+            role: reader.role,
+            submilestone,
+            workosUserId: reader.workosUserId,
+          })
         )
       );
       if (readersCanRead.includes(false)) {
@@ -342,6 +343,19 @@ async function resolveDrawReference(
   }
 ) {
   requireAllReadersCanReadFinancial(input.readers);
+  const readersCanCoordinate = await Promise.all(
+    input.readers.map((reader) =>
+      isInternalDrawCoordinationEligible(ctx, {
+        buildId: input.authorization.build._id,
+        organizationId: input.authorization.organizationId,
+        role: reader.role,
+        workosUserId: reader.workosUserId,
+      }),
+    ),
+  );
+  if (readersCanCoordinate.includes(false)) {
+    throw incompatibleReference();
+  }
   const activeDrawId = ctx.db.normalizeId(
     "activeBuildDrawRequests",
     input.entityId
@@ -494,25 +508,29 @@ async function resolveActionItemReference(
           if (!(await canParticipantReadPost(ctx, post, reader))) {
             return false;
           }
-          return await canReadMilestoneSystemActionItem(ctx, {
+          const canReadActionItem = await canReadMilestoneSystemActionItem(ctx, {
             actionItem: item,
             buildId: input.authorization.build._id,
             role: reader.role,
             workosUserId: reader.workosUserId,
           });
+          if (!canReadActionItem) return false;
+          if (
+            isDrawSystemPost(post) &&
+            !(await isInternalDrawCoordinationEligible(ctx, {
+              buildId: input.authorization.build._id,
+              organizationId: input.authorization.organizationId,
+              role: reader.role,
+              workosUserId: reader.workosUserId,
+            }))
+          ) {
+            return false;
+          }
+          return true;
         })
       )
     : [];
   if (!post || readerAccess.includes(false)) {
-    throw incompatibleReference();
-  }
-  if (
-    post.systemPostKind === "draw" &&
-    !(await canReadDrawCoordination(ctx, {
-      authorization: input.authorization,
-      post,
-    }))
-  ) {
     throw incompatibleReference();
   }
   return {

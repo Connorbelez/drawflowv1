@@ -767,16 +767,31 @@ function VisibleActionItemDetail({
   const [canonicalReviewSiteVisitRequired, setCanonicalReviewSiteVisitRequired] =
     useState(false);
   const [canonicalReviewBusy, setCanonicalReviewBusy] = useState(false);
+  const canonicalCommandKeys = useRef(new Map<string, string>());
 
   const canonicalPresentation = detail.item.systemPresentation;
   const canonicalStartCommand = canonicalPresentation?.startCommand;
+  const canonicalProgressValue = canonicalPresentation?.progressPercent ?? 0;
+  const canonicalForecastValue =
+    canonicalPresentation?.completionForecastDate ?? "";
   useEffect(() => {
-    if (!canonicalPresentation) {
-      return;
+    setCanonicalProgress(canonicalProgressValue);
+    setCanonicalForecast(canonicalForecastValue);
+  }, [canonicalForecastValue, canonicalProgressValue]);
+
+  const canonicalCommandKey = (scope: string) => {
+    const existing = canonicalCommandKeys.current.get(scope);
+    if (existing) {
+      return existing;
     }
-    setCanonicalProgress(canonicalPresentation.progressPercent ?? 0);
-    setCanonicalForecast(canonicalPresentation.completionForecastDate ?? "");
-  }, [canonicalPresentation]);
+    const generated = `${scope}:${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
+    canonicalCommandKeys.current.set(scope, generated);
+    return generated;
+  };
+
+  const clearCanonicalCommandKey = (scope: string) => {
+    canonicalCommandKeys.current.delete(scope);
+  };
 
   const replaceAsset = async (
     asset: BuildCollaborationAssetSummary,
@@ -1089,22 +1104,30 @@ function VisibleActionItemDetail({
     if (!canonicalStartCommand || readOnly) {
       return;
     }
+    const actualCostInput = canonicalActualCost.trim();
+    const actualCostCents = actualCostInput ? Number(actualCostInput) : undefined;
+    if (
+      actualCostInput &&
+      (!Number.isInteger(actualCostCents) || (actualCostCents ?? 0) < 0)
+    ) {
+      toast.error("Actual cost must be a non-negative whole number of cents.");
+      return;
+    }
     setCanonicalEvidenceBusy(true);
     try {
       await updateCanonicalProgress({
-        actualCostCents: canonicalActualCost.trim()
-          ? Number(canonicalActualCost)
-          : undefined,
+        actualCostCents,
         buildId,
         completionForecastDate: canonicalForecast.trim() || undefined,
         fieldNote: canonicalFieldNote.trim() || undefined,
         expectedRevision: canonicalPresentation?.workflowRevision ?? 0,
-        idempotencyKey: `system-action-progress:${detail.item.actionItemId}:${Date.now()}`,
+        idempotencyKey: canonicalCommandKey("progress"),
         milestoneKey: canonicalStartCommand.milestoneKey,
         progressPercent: canonicalProgress,
         submilestoneKey: canonicalStartCommand.submilestoneKey,
         workosOrganizationId: organizationId,
       });
+      clearCanonicalCommandKey("progress");
       toast.success("Canonical progress updated.");
     } catch (error) {
       toast.error(
@@ -1158,11 +1181,12 @@ function VisibleActionItemDetail({
           storageId: uploadResult.storageId,
         },
         expectedRevision: canonicalPresentation?.workflowRevision ?? 0,
-        idempotencyKey: `system-action-evidence:${detail.item.actionItemId}:${Date.now()}`,
+        idempotencyKey: canonicalCommandKey("evidence"),
         milestoneKey: canonicalStartCommand.milestoneKey,
         submilestoneKey: canonicalStartCommand.submilestoneKey,
         workosOrganizationId: organizationId,
       });
+      clearCanonicalCommandKey("evidence");
       toast.success("Evidence added to the canonical package.");
     } catch (error) {
       toast.error(
@@ -1224,12 +1248,13 @@ function VisibleActionItemDetail({
         declareComplete: true,
         expectedPackageRevision: canonicalPresentation.evidencePackageRevision,
         expectedRevision: canonicalPresentation.workflowRevision ?? 0,
-        idempotencyKey: `system-action-review:${detail.item.actionItemId}:${Date.now()}`,
+        idempotencyKey: canonicalCommandKey("completion-review"),
         milestoneKey: canonicalStartCommand.milestoneKey,
         packageRevisionId: canonicalPresentation.evidencePackageRevisionId,
         submilestoneKey: canonicalStartCommand.submilestoneKey,
         workosOrganizationId: organizationId,
       });
+      clearCanonicalCommandKey("completion-review");
       toast.success("Completion entered lender review.");
     } catch (error) {
       toast.error(
@@ -1255,6 +1280,7 @@ function VisibleActionItemDetail({
   const canonicalMilestoneReviewRevision =
     canonicalPresentation?.milestoneReviewRevision ?? 0;
   const runCanonicalReviewCommand = async (
+    commandScope: string,
     command: () => Promise<unknown>,
     successMessage: string,
     fallbackMessage: string,
@@ -1262,6 +1288,7 @@ function VisibleActionItemDetail({
     setCanonicalReviewBusy(true);
     try {
       await command();
+      clearCanonicalCommandKey(commandScope);
       toast.success(successMessage);
       setCanonicalReviewReason("");
       setCanonicalReviewNote("");
@@ -1274,11 +1301,12 @@ function VisibleActionItemDetail({
   const recommendCanonicalReviewCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
     void runCanonicalReviewCommand(
+      "review-recommendation",
       () =>
         recommendCanonicalReview({
           buildId,
           expectedRevision: canonicalReviewRevision,
-          idempotencyKey: `system-review-recommendation:${detail.item.actionItemId}:${Date.now()}`,
+          idempotencyKey: canonicalCommandKey("review-recommendation"),
           milestoneKey: canonicalReviewTarget.milestoneKey,
           note: canonicalReviewNote.trim() || undefined,
           siteVisitRequired: canonicalReviewSiteVisitRequired,
@@ -1297,11 +1325,12 @@ function VisibleActionItemDetail({
       return;
     }
     void runCanonicalReviewCommand(
+      "review-changes",
       () =>
         requestCanonicalChanges({
           buildId,
           expectedRevision: canonicalReviewRevision,
-          idempotencyKey: `system-review-changes:${detail.item.actionItemId}:${Date.now()}`,
+          idempotencyKey: canonicalCommandKey("review-changes"),
           milestoneKey: canonicalReviewTarget.milestoneKey,
           reason,
           submilestoneKey: canonicalReviewTarget.submilestoneKey,
@@ -1319,11 +1348,12 @@ function VisibleActionItemDetail({
       return;
     }
     void runCanonicalReviewCommand(
+      "review-site-visit-waiver",
       () =>
         waiveCanonicalSiteVisit({
           buildId,
           expectedRevision: canonicalReviewRevision,
-          idempotencyKey: `system-review-site-visit-waiver:${detail.item.actionItemId}:${Date.now()}`,
+          idempotencyKey: canonicalCommandKey("review-site-visit-waiver"),
           milestoneKey: canonicalReviewTarget.milestoneKey,
           reason,
           submilestoneKey: canonicalReviewTarget.submilestoneKey,
@@ -1336,11 +1366,12 @@ function VisibleActionItemDetail({
   const approveCanonicalSubmilestoneCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
     void runCanonicalReviewCommand(
+      "review-child-approval",
       () =>
         approveCanonicalSubmilestone({
           buildId,
           expectedRevision: canonicalReviewRevision,
-          idempotencyKey: `system-review-child-approval:${detail.item.actionItemId}:${Date.now()}`,
+          idempotencyKey: canonicalCommandKey("review-child-approval"),
           milestoneKey: canonicalReviewTarget.milestoneKey,
           note: canonicalReviewNote.trim() || undefined,
           submilestoneKey: canonicalReviewTarget.submilestoneKey,
@@ -1358,11 +1389,12 @@ function VisibleActionItemDetail({
       return;
     }
     void runCanonicalReviewCommand(
+      "review-child-retraction",
       () =>
         retractCanonicalSubmilestoneApproval({
           buildId,
           expectedRevision: canonicalReviewRevision,
-          idempotencyKey: `system-review-child-retraction:${detail.item.actionItemId}:${Date.now()}`,
+          idempotencyKey: canonicalCommandKey("review-child-retraction"),
           milestoneKey: canonicalReviewTarget.milestoneKey,
           reason,
           submilestoneKey: canonicalReviewTarget.submilestoneKey,
@@ -1375,11 +1407,12 @@ function VisibleActionItemDetail({
   const approveCanonicalMilestoneCommand = () => {
     if (!canonicalReviewTarget || readOnly) return;
     void runCanonicalReviewCommand(
+      "review-milestone-approval",
       () =>
         approveCanonicalMilestone({
           buildId,
           expectedRevision: canonicalMilestoneReviewRevision,
-          idempotencyKey: `system-review-milestone-approval:${detail.item.actionItemId}:${Date.now()}`,
+          idempotencyKey: canonicalCommandKey("review-milestone-approval"),
           milestoneKey: canonicalReviewTarget.milestoneKey,
           reason: canonicalReviewNote.trim() || undefined,
           workosOrganizationId: organizationId,
@@ -1396,11 +1429,12 @@ function VisibleActionItemDetail({
       return;
     }
     void runCanonicalReviewCommand(
+      "review-milestone-retraction",
       () =>
         retractCanonicalMilestoneApproval({
           buildId,
           expectedRevision: canonicalMilestoneReviewRevision,
-          idempotencyKey: `system-review-milestone-retraction:${detail.item.actionItemId}:${Date.now()}`,
+          idempotencyKey: canonicalCommandKey("review-milestone-retraction"),
           milestoneKey: canonicalReviewTarget.milestoneKey,
           reason,
           workosOrganizationId: organizationId,
@@ -1464,6 +1498,7 @@ function VisibleActionItemDetail({
             evidenceBusy={canonicalEvidenceBusy}
             fieldNote={canonicalFieldNote}
             forecast={canonicalForecast}
+            tagOptions={tagOptions}
             onActualCostChange={setCanonicalActualCost}
             onFieldNoteChange={setCanonicalFieldNote}
             onForecastChange={setCanonicalForecast}
@@ -1816,6 +1851,7 @@ function CanonicalMilestoneActionItemFacts({
   reviewNote,
   reviewReason,
   reviewSiteVisitRequired,
+  tagOptions,
   onReviewNoteChange,
   onReviewReasonChange,
   onReviewSiteVisitRequiredChange,
@@ -1849,6 +1885,7 @@ function CanonicalMilestoneActionItemFacts({
   reviewNote: string;
   reviewReason: string;
   reviewSiteVisitRequired: boolean;
+  tagOptions: CollaborationTagOption[];
   onReviewNoteChange: (value: string) => void;
   onReviewReasonChange: (value: string) => void;
   onReviewSiteVisitRequiredChange: (value: boolean) => void;
@@ -1949,6 +1986,7 @@ function CanonicalMilestoneActionItemFacts({
           reviewNote={reviewNote}
           reviewReason={reviewReason}
           reviewSiteVisitRequired={reviewSiteVisitRequired}
+          tagOptions={tagOptions}
         />
         <p className="text-muted-foreground text-xs">
           Status, completion, ownership, and identity follow the canonical
@@ -1998,7 +2036,9 @@ function CanonicalFieldExecutionPanel({
               max={100}
               min={0}
               onChange={(event) =>
-                onProgressChange(Number(event.target.value) || 0)
+                onProgressChange(
+                  Math.min(100, Math.max(0, Number(event.target.value) || 0))
+                )
               }
               type="number"
               value={progress}
@@ -2072,7 +2112,21 @@ function CanonicalEvidencePackagePanel({
         <EvidenceUploader
           compact
           data={{ milestoneKey: startCommand?.milestoneKey ?? "" }}
-          item={{ evidence: [], key: startCommand?.submilestoneKey ?? "" }}
+          item={{
+            evidence: Array.from(
+              { length: presentation?.evidenceCount ?? 0 },
+              (_, index) => ({
+                evidenceKey: `existing-${index}`,
+                fileName: "",
+                label: "Existing evidence",
+                locationVerified: false,
+                mimeType: "application/octet-stream",
+                sizeBytes: 0,
+                tag: "existing",
+              })
+            ),
+            key: startCommand?.submilestoneKey ?? "",
+          }}
           onUpload={onUploadEvidence}
         />
         {presentation?.readyExceptFor?.length ? (
@@ -2171,6 +2225,7 @@ function CanonicalReviewLifecyclePanel({
   reviewNote,
   reviewReason,
   reviewSiteVisitRequired,
+  tagOptions,
 }: {
   detail: VisibleActionItemDetail;
   onApproveMilestone: () => void;
@@ -2188,6 +2243,7 @@ function CanonicalReviewLifecyclePanel({
   reviewNote: string;
   reviewReason: string;
   reviewSiteVisitRequired: boolean;
+  tagOptions: CollaborationTagOption[];
 }) {
   const presentation = detail.item.systemPresentation;
   if (!presentation) return null;
@@ -2202,6 +2258,9 @@ function CanonicalReviewLifecyclePanel({
       presentation.canRetractMilestoneApproval === true);
   const requirement = presentation.siteVisitRequirement;
   const reviewHistory = presentation.reviewHistory ?? [];
+  const participantOptions = tagOptions.filter(
+    (option) => option.kind === "participant"
+  );
   const siteVisitSignals = requirement
     ? [
         ...requirement.policySignals,
@@ -2288,7 +2347,8 @@ function CanonicalReviewLifecyclePanel({
           <div className="space-y-3 rounded-md border p-3">
             <p className="font-medium text-xs">Review command</p>
             {(presentation.canRecommendReview ||
-              presentation.canApproveSubmilestone) ? (
+              presentation.canApproveSubmilestone ||
+              presentation.canApproveMilestone) ? (
               <Label className="space-y-1 text-xs">
                 <span>Reviewer note</span>
                 <Input
@@ -2433,7 +2493,9 @@ function CanonicalReviewLifecyclePanel({
                     </span>
                   </div>
                   <p className="text-muted-foreground">
-                    {entry.actorRoles.join(", ")} · {entry.actorWorkosUserId}
+                    {entry.actorRoles.join(", ")} · {participantOptions.find(
+                      (option) => option.id === entry.actorWorkosUserId
+                    )?.label ?? "Former Build participant"}
                   </p>
                   {entry.reason || entry.note ? (
                     <p>{entry.reason ?? entry.note}</p>

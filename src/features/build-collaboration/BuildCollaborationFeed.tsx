@@ -1055,9 +1055,7 @@ function BuildCollaborationFeedContent({
           }
           return (
             entry.post.threadState !== "resolved" ||
-            entry.actionItems.some(
-              (item) => item.status !== "done" && item.status !== "cancelled",
-            )
+            entry.post.openActionItemCount > 0
           );
         }
         return true;
@@ -2667,12 +2665,13 @@ function CollaborationPostHeader({
           : "Unable to update follow state."
       )
     );
-  const canEdit =
+  const canEdit = Boolean(
     mutationsAllowed &&
-    coordinationVisible &&
-    (entry.post.viewerIsAuthor ||
-      (entry.post.systemPost && entry.post.viewerCanManageThread)) &&
-    entry.post.contentState === "active";
+      coordinationVisible &&
+      (entry.post.viewerIsAuthor ||
+        (entry.post.systemPost && entry.post.viewerCanManageThread)) &&
+      entry.post.contentState === "active"
+  );
   const canViewHistory =
     entry.post.viewerIsAuthor ||
     (entry.post.contentState === "active" && entry.post.revision > 1);
@@ -3206,11 +3205,12 @@ function CollaborationPostCard({
   };
   const postEditTarget = () => {
     setEditTarget({
-      canEdit:
+      canEdit: Boolean(
         mutationsAllowed &&
-        (entry.post.viewerIsAuthor ||
-          (entry.post.systemPost && entry.post.viewerCanManageThread)) &&
-        entry.post.contentState === "active",
+          (entry.post.viewerIsAuthor ||
+            (entry.post.systemPost && entry.post.viewerCanManageThread)) &&
+          entry.post.contentState === "active"
+      ),
       document: parseDocument(entry.revision.tiptapJson),
       entity: { kind: "post", postId: entry.post._id },
       references: collaborationReferencesForEditor(
@@ -3254,13 +3254,14 @@ function CollaborationPostCard({
           value={parseDocument(entry.revision.tiptapJson)}
         />
         {entry.post.systemPost ? (
-          <SystemPostFacts
+        <SystemPostFacts
             buildId={buildId}
             entry={entry}
             mutationsAllowed={mutationsAllowed}
             onCreateActionItem={onCreateActionItem}
             organizationId={organizationId}
             planningReconciliation={planningReconciliation}
+            tagOptions={tagOptions}
           />
         ) : null}
         {entry.references.length > 0 ? (
@@ -3500,7 +3501,14 @@ const planningAttentionLabels = [
 function planningLifecycleLabel(
   lifecycle: SystemMilestonePlanningSummary["lifecycle"]
 ) {
-  return lifecycle.charAt(0).toUpperCase() + lifecycle.slice(1);
+  return humanizeEnumLabel(lifecycle);
+}
+
+function humanizeEnumLabel(value: string) {
+  const normalized = value.replaceAll("_", " ").trim();
+  return normalized
+    ? normalized.charAt(0).toUpperCase() + normalized.slice(1)
+    : value;
 }
 
 function planningCategoryLabel(category: PlanningDiff["category"]) {
@@ -3633,7 +3641,15 @@ function SystemPostPlanningComparison({
   const currentRevision =
     planningReconciliation?.current.revision ??
     systemPost.currentPlanningRevision;
-  const diffs = planningReconciliation?.diffs ?? [];
+  const diffs =
+    planningReconciliation?.diffs.filter((diff) => {
+      const milestoneKey = systemPost.milestoneKey;
+      return (
+        !milestoneKey ||
+        diff.entityKey === milestoneKey ||
+        diff.entityKey.startsWith(`${milestoneKey}:`)
+      );
+    }) ?? [];
   const hasComparison =
     planningReconciliation !== undefined ||
     activationRevision !== undefined ||
@@ -3781,14 +3797,16 @@ function historicalFactLabel(
 }
 
 function drawFactMoney(amountCents: number) {
-  return `$${(amountCents / 100).toLocaleString("en-US", {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
     maximumFractionDigits: 2,
     minimumFractionDigits: 2,
-  })}`;
+    style: "currency",
+  }).format(amountCents / 100);
 }
 
 function drawFactStatusLabel(value: string) {
-  return value.replaceAll("_", " ");
+  return humanizeEnumLabel(value);
 }
 
 function SystemPostDrawFacts({
@@ -3957,6 +3975,7 @@ function SystemPostFacts({
   onCreateActionItem,
   organizationId,
   planningReconciliation,
+  tagOptions,
 }: {
   buildId: Id<"activeBuilds">;
   entry: CollaborationFeedPostEntry;
@@ -3964,6 +3983,7 @@ function SystemPostFacts({
   onCreateActionItem: (postId: Id<"buildCollaborationPosts">) => void;
   organizationId: string;
   planningReconciliation?: CollaborationPlanningReconciliation;
+  tagOptions: ReferenceOption[];
 }) {
   const systemPost = entry.post.systemPost;
   if (!systemPost) {
@@ -3974,6 +3994,15 @@ function SystemPostFacts({
   );
   const drawFacts =
     systemPost.kind === "draw" ? systemPost.drawFacts : undefined;
+  const triggeredByLabel = systemPost.triggeredByWorkosUserId
+    ? tagOptions.find(
+        (option) =>
+          option.kind === "participant" &&
+          option.id === systemPost.triggeredByWorkosUserId
+      )?.label ?? "Former Build participant"
+    : systemPost.triggeredByRole
+      ? roleLabel(systemPost.triggeredByRole)
+      : "DrawFlow System";
   return (
     <Frame className="border-dashed bg-muted/20" size="sm">
       <FramePanel className="space-y-2 p-3">
@@ -4019,9 +4048,7 @@ function SystemPostFacts({
           <div>
             <dt className="text-muted-foreground">Triggered by</dt>
             <dd className="font-medium">
-              {systemPost.triggeredByWorkosUserId ??
-                systemPost.triggeredByRole ??
-                "DrawFlow System"}
+              {triggeredByLabel}
             </dd>
           </div>
           <div>

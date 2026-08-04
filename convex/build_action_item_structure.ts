@@ -404,6 +404,8 @@ export const linkBuildActionItems = authenticatedMutation
       requireReadableActionItem(ctx, authorization, args.sourceActionItemId),
       requireReadableActionItem(ctx, authorization, args.targetActionItemId),
     ]);
+    assertCanonicalMilestoneActionItemMutable(source);
+    assertCanonicalMilestoneActionItemMutable(target);
     if (source._id === target._id) {
       throw new Error("An Action Item cannot relate to itself.");
     }

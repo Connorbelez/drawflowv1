@@ -336,22 +336,20 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
 
     const posts = await ctx.db
       .query("buildCollaborationPosts")
-      .withIndex("by_buildId_and_createdAt", (query) =>
-        query.eq("buildId", authorization.build._id)
+      .withIndex("by_buildId_and_source_and_createdAt", (query) =>
+        query
+          .eq("buildId", authorization.build._id)
+          .eq("source", "human")
       )
       .take(5001);
-    // Domain-owned System Posts are permanent facts. Retention may purge
-    // human-authored content around them, but never deletes/tombstones the
-    // post tree that projects canonical Milestone/Draw state.
-    const humanPosts = posts.filter((post) => !post.systemPostKind);
-    const batch = humanPosts.slice(0, PURGE_POST_BATCH_SIZE);
+    const batch = posts.slice(0, PURGE_POST_BATCH_SIZE);
     for (const post of batch) {
       await deletePostTree(ctx, post);
     }
     const now = Date.now();
     const deletedPostCount = purge.deletedPostCount + batch.length;
     const batchCount = (purge.batchCount ?? 0) + (batch.length > 0 ? 1 : 0);
-    const hasRemainingPosts = humanPosts.length > PURGE_POST_BATCH_SIZE;
+    const hasRemainingPosts = posts.length > PURGE_POST_BATCH_SIZE;
     if (hasRemainingPosts) {
       await ctx.db.patch(purge._id, {
         batchCount,
@@ -590,9 +588,7 @@ async function deletePostTree(
   ctx: MutationCtx,
   post: Doc<"buildCollaborationPosts">
 ) {
-  if (post.systemPostKind) {
-    return;
-  }
+  const preserveSystemPost = Boolean(post.systemPostKind);
   const revisions = await bounded(
     ctx.db
       .query("buildCollaborationPostRevisions")
@@ -602,21 +598,23 @@ async function deletePostTree(
       .take(MAX_CHILD_ROWS_PER_POST + 1),
     "post revisions"
   );
-  for (const revision of revisions) {
-    await deleteRows(
-      ctx,
-      await bounded(
-        ctx.db
-          .query("buildCollaborationAudienceSnapshots")
-          .withIndex("by_postRevisionId_and_workosUserId", (query) =>
-            query.eq("postRevisionId", revision._id)
-          )
-          .take(MAX_CHILD_ROWS_PER_POST + 1),
-        "audience snapshots"
-      )
-    );
-    await deleteOwnerRows(ctx, "postRevision", revision._id);
-    await ctx.db.delete(revision._id);
+  if (!preserveSystemPost) {
+    for (const revision of revisions) {
+      await deleteRows(
+        ctx,
+        await bounded(
+          ctx.db
+            .query("buildCollaborationAudienceSnapshots")
+            .withIndex("by_postRevisionId_and_workosUserId", (query) =>
+              query.eq("postRevisionId", revision._id)
+            )
+            .take(MAX_CHILD_ROWS_PER_POST + 1),
+          "audience snapshots"
+        )
+      );
+      await deleteOwnerRows(ctx, "postRevision", revision._id);
+      await ctx.db.delete(revision._id);
+    }
   }
 
   const comments = await bounded(
@@ -671,7 +669,7 @@ async function deletePostTree(
     await ctx.db.delete(comment._id);
   }
 
-  const actionItems = await bounded(
+  const actionItems = (await bounded(
     ctx.db
       .query("buildActionItems")
       .withIndex("by_originatingPostId_and_queueSortAt", (query) =>
@@ -679,6 +677,9 @@ async function deletePostTree(
       )
       .take(MAX_CHILD_ROWS_PER_POST + 1),
     "Action Items"
+  )).filter(
+    (item) =>
+      !preserveSystemPost || item.systemMode !== "generated_milestone_submilestone",
   );
   for (const item of actionItems) {
     await deleteActionItem(ctx, item);
@@ -696,7 +697,7 @@ async function deletePostTree(
     )
   );
 
-  await deleteRows(
+  if (!preserveSystemPost) await deleteRows(
     ctx,
     await bounded(
       ctx.db
@@ -708,7 +709,7 @@ async function deletePostTree(
       "decision outcome revisions"
     )
   );
-  await deleteRows(
+  if (!preserveSystemPost) await deleteRows(
     ctx,
     await bounded(
       ctx.db
@@ -720,7 +721,7 @@ async function deletePostTree(
       "thread events"
     )
   );
-  await deleteRows(
+  if (!preserveSystemPost) await deleteRows(
     ctx,
     await bounded(
       ctx.db
@@ -732,7 +733,7 @@ async function deletePostTree(
       "audience members"
     )
   );
-  await deleteRows(
+  if (!preserveSystemPost) await deleteRows(
     ctx,
     await bounded(
       ctx.db
@@ -742,7 +743,7 @@ async function deletePostTree(
       "search records"
     )
   );
-  await deleteRows(
+  if (!preserveSystemPost) await deleteRows(
     ctx,
     await bounded(
       ctx.db
@@ -752,7 +753,7 @@ async function deletePostTree(
       "post references"
     )
   );
-  await deleteRows(
+  if (!preserveSystemPost) await deleteRows(
     ctx,
     await bounded(
       ctx.db
@@ -764,7 +765,7 @@ async function deletePostTree(
       "post follows"
     )
   );
-  await deleteRows(
+  if (!preserveSystemPost) await deleteRows(
     ctx,
     await bounded(
       ctx.db
@@ -776,7 +777,7 @@ async function deletePostTree(
       "post reactions"
     )
   );
-  await deleteRows(
+  if (!preserveSystemPost) await deleteRows(
     ctx,
     await bounded(
       ctx.db
@@ -788,7 +789,7 @@ async function deletePostTree(
       "post receipts"
     )
   );
-  await deleteRows(
+  if (!preserveSystemPost) await deleteRows(
     ctx,
     await bounded(
       ctx.db
@@ -800,30 +801,34 @@ async function deletePostTree(
       "post pins"
     )
   );
-  const targets = await bounded(
-    ctx.db
-      .query("buildCollaborationAcknowledgementTargets")
-      .withIndex("by_postId_and_workosUserId", (query) =>
-        query.eq("postId", post._id)
-      )
-      .take(MAX_CHILD_ROWS_PER_POST + 1),
-    "acknowledgement targets"
-  );
-  for (const target of targets) {
-    await deleteRows(
-      ctx,
-      await bounded(
-        ctx.db
-          .query("buildCollaborationAcknowledgements")
-          .withIndex("by_targetId", (query) => query.eq("targetId", target._id))
-          .take(MAX_CHILD_ROWS_PER_POST + 1),
-        "acknowledgements"
-      )
+  if (!preserveSystemPost) {
+    const targets = await bounded(
+      ctx.db
+        .query("buildCollaborationAcknowledgementTargets")
+        .withIndex("by_postId_and_workosUserId", (query) =>
+          query.eq("postId", post._id)
+        )
+        .take(MAX_CHILD_ROWS_PER_POST + 1),
+      "acknowledgement targets"
     );
-    await ctx.db.delete(target._id);
+    for (const target of targets) {
+      await deleteRows(
+        ctx,
+        await bounded(
+          ctx.db
+            .query("buildCollaborationAcknowledgements")
+            .withIndex("by_targetId", (query) => query.eq("targetId", target._id))
+            .take(MAX_CHILD_ROWS_PER_POST + 1),
+          "acknowledgements"
+        )
+      );
+      await ctx.db.delete(target._id);
+    }
   }
-  await deleteModerationCase(ctx, "post", post._id);
-  await ctx.db.delete(post._id);
+  if (!preserveSystemPost) {
+    await deleteModerationCase(ctx, "post", post._id);
+    await ctx.db.delete(post._id);
+  }
 }
 
 async function deleteActionItem(

@@ -116,6 +116,7 @@ export async function canReadMilestoneSystemActionItem(
     build,
     milestone,
     submilestone,
+    includeCompleted: true,
   });
   return (
     ownership.state === "assigned" &&
@@ -143,6 +144,7 @@ export async function canReadCanonicalMilestoneSubmilestone(
     build: input.build,
     milestone: input.milestone,
     submilestone: input.submilestone,
+    includeCompleted: true,
   });
   return (
     ownership.state === "assigned" &&
@@ -161,6 +163,7 @@ export async function resolveCanonicalMilestoneExecutionOwnership(
     build: Doc<"activeBuilds">;
     milestone: Doc<"buildMilestones">;
     submilestone: Doc<"buildSubmilestones">;
+    includeCompleted?: boolean;
   }
 ): Promise<CanonicalMilestoneExecutionOwnership> {
   const { build, milestone, submilestone } = input;
@@ -199,8 +202,12 @@ export async function resolveCanonicalMilestoneExecutionOwnership(
       row.buildSubmilestoneId === submilestone._id &&
       row.submilestoneKey === submilestone.key
   );
-  const activeRows = scopedRows.filter(
-    (row) => row.status === "planned" || row.status === "active"
+  const activeRows = scopedRows.filter((row) =>
+    input.includeCompleted
+      ? row.status === "planned" ||
+        row.status === "active" ||
+        row.status === "completed"
+      : row.status === "planned" || row.status === "active",
   );
   if (activeRows.length > 1) {
     return {
@@ -226,7 +233,7 @@ export async function resolveCanonicalMilestoneExecutionOwnership(
     rootAssignment.brokerageId !== build.brokerageId ||
     rootAssignment.buildId !== build._id ||
     rootAssignment.contractorId !== assignment.contractorId ||
-    rootAssignment.status === "inactive" ||
+    rootAssignment.status !== "active" ||
     !contractor ||
     contractor.organizationId !== build.organizationId ||
     contractor.brokerageId !== build.brokerageId ||

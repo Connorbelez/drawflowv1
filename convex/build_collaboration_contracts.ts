@@ -170,6 +170,7 @@ const collaborationSystemPostValidator = v.object({
   drawFacts: v.optional(systemDrawFactsValidator),
   drawCoordination: v.optional(drawCoordinationStateValidator),
   kind: buildCollaborationSystemPostKindValidator,
+  milestoneKey: v.optional(v.string()),
   lifecycle: v.optional(
     v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened"))
   ),
@@ -358,6 +359,7 @@ export const collaborationPostSummaryValidator = v.object({
     v.literal("moderated")
   ),
   createdAt: v.number(),
+  openActionItemCount: v.number(),
   decisionOutcome: v.optional(v.string()),
   decisionOwnerDisplayName: v.optional(v.string()),
   decisionOwnerWorkosUserId: v.optional(v.string()),

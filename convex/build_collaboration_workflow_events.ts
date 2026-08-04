@@ -62,7 +62,7 @@ export async function publishMilestoneCollaborationEvent(
 export async function publishDrawCollaborationEvent(
   ctx: MutationCtx,
   input: {
-    actor?: { roles: string[]; workosUserId: string };
+    actor: { roles: string[]; workosUserId: string };
     draw: Doc<"activeBuildDrawRequests">;
     note?: string;
     revision: number;
@@ -70,18 +70,16 @@ export async function publishDrawCollaborationEvent(
   }
 ) {
   const build = await ctx.db.get(input.draw.buildId);
-  if (build) {
-    await synchronizeDrawSystemPostForCanonicalDraw(ctx, {
-      actor: input.actor ?? {
-        roles: ["admin"],
-        workosUserId: "system:draw-collaboration-projector",
-      },
-      activationReason: "draw_request",
-      build,
-      drawRequest: input.draw,
-      reason: input.note,
-    });
+  if (!build) {
+    throw new Error("Cannot publish Draw collaboration event without its Build.");
   }
+  await synchronizeDrawSystemPostForCanonicalDraw(ctx, {
+    actor: input.actor,
+    activationReason: "draw_request",
+    build,
+    drawRequest: input.draw,
+    reason: input.note,
+  });
   // Draw transitions converge on the one deterministic System Post. The
   // canonical Draw Request remains the source of truth; no transition event
   // creates a second collaboration post or an automatic Action Item.

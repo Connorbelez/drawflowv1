@@ -336,6 +336,14 @@ export const joinDrawCoordination = authenticatedMutation
       args.postId,
     );
     if (
+      !(await isBuildCollaborationWritableByBuildId(ctx, {
+        buildId: authorization.build._id,
+        organizationId: authorization.organizationId,
+      }))
+    ) {
+      throw new Error("Draw coordination is read-only while this Build is archived.");
+    }
+    if (
       authorization.effectiveRole.role === "admin" ||
       authorization.effectiveRole.role === "principle-broker"
     ) {
@@ -386,6 +394,10 @@ export const joinDrawCoordination = authenticatedMutation
       eventType: "build.collaboration.draw_coordination.joined",
       newState: JSON.stringify({ coordinationActive: true, postId: post._id }),
       organizationId: authorization.organizationId,
+      priorState: JSON.stringify({
+        coordinationActive: existing?.coordinationActive ?? false,
+        postId: post._id,
+      }),
       warnings: ["coordination_only"],
     });
     return true;
@@ -409,6 +421,14 @@ export const leaveDrawCoordination = authenticatedMutation
       authorization,
       args.postId,
     );
+    if (
+      !(await isBuildCollaborationWritableByBuildId(ctx, {
+        buildId: authorization.build._id,
+        organizationId: authorization.organizationId,
+      }))
+    ) {
+      throw new Error("Draw coordination is read-only while this Build is archived.");
+    }
     if (
       authorization.effectiveRole.role === "admin" ||
       authorization.effectiveRole.role === "principle-broker"
@@ -442,6 +462,7 @@ export const leaveDrawCoordination = authenticatedMutation
       eventType: "build.collaboration.draw_coordination.left",
       newState: JSON.stringify({ coordinationActive: false, postId: post._id }),
       organizationId: authorization.organizationId,
+      priorState: JSON.stringify({ coordinationActive: true, postId: post._id }),
       warnings: ["coordination_only"],
     });
     return false;

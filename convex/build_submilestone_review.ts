@@ -9,6 +9,7 @@ import {
   ensureMilestoneSystemPost,
   synchronizeMilestoneSystemPostLifecycle,
 } from "./build_collaboration_system_posts";
+import { resolveActiveSubmilestoneEvidencePackageReadiness } from "./build_submilestone_evidence";
 import { authenticatedMutation, authenticatedQuery } from "./authz";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
@@ -22,6 +23,17 @@ const LENDER_STAFF_ROLES = [
 type ReviewAuth = ActiveBuildAuthorization;
 type ReviewCtx = QueryCtx | MutationCtx;
 type SiteVisitRequirement = Doc<"buildSubmilestoneSiteVisitRequirements">;
+
+const RISK_POLICY_STATES = new Set([
+  "admin_review_required",
+  "attention_required",
+  "exception",
+  "flagged",
+  "risk",
+  "risk_flagged",
+  "review_required",
+  "site_visit_required",
+]);
 
 function requireLenderStaff(auth: ReviewAuth) {
   if (!auth.roles.some((role) => LENDER_STAFF_ROLES.includes(role as never))) {
@@ -55,12 +67,11 @@ function assertExpectedRevision(
 ) {
   if (
     expectedRevision !== undefined &&
-    expectedRevision !== (submilestone.workflowRevision ?? 0) &&
     expectedRevision !== (submilestone.reviewRevision ?? 0)
   ) {
     throw new ConvexError({
       code: "STALE_SUBMILESTONE_REVIEW_REVISION",
-      actualRevision: submilestone.workflowRevision ?? 0,
+      actualRevision: submilestone.reviewRevision ?? 0,
       expectedRevision,
       message: "Sub-milestone changed; refresh before retrying this review command.",
     });
@@ -156,9 +167,7 @@ function settingMatchesTarget(
     const candidate = value as Record<string, unknown>;
     return (
       candidate[milestoneKey] === true ||
-      candidate[submilestoneKey] === true ||
-      candidate.required === true ||
-      candidate.siteVisitRequired === true
+      candidate[submilestoneKey] === true
     );
   }
   return false;
@@ -205,7 +214,11 @@ async function matchingSiteVisit(
         visit.status !== "cancelled" &&
         (!visit.submilestoneKeys || visit.submilestoneKeys.includes(submilestone.key)),
     )
-    .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+    .sort(
+      (left, right) =>
+        Number(right.status === "complete") - Number(left.status === "complete") ||
+        right.updatedAt - left.updatedAt,
+    )[0];
 }
 
 async function currentRequirementVisit(
@@ -249,21 +262,32 @@ async function evaluateSiteVisitRequirement(
   );
   if (evidencePolicyRequired) policySignals.push("site_visit_evidence_requirement");
 
-  const assets = await ctx.db
-    .query("buildEvidenceAssets")
-    .withIndex("by_build_milestone", (query) =>
-      query.eq("buildId", submilestone.buildId).eq("milestoneKey", milestone.key),
-    )
-    .take(500);
   const riskSignals: string[] = [];
+  const packageReadiness =
+    await resolveActiveSubmilestoneEvidencePackageReadiness(ctx, {
+      build: auth.build,
+      milestone,
+      submilestone,
+      includeFrozenRequirement: false,
+    });
+  const locationRequiredKeys = new Set(
+    packageReadiness.requirements
+      .filter((requirement) => requirement.required && requirement.locationRequired)
+      .map((requirement) => requirement.requirementKey),
+  );
   if (
-    assets.some(
-      (asset) => asset.submilestoneKey === submilestone.key && !asset.locationVerified,
+    packageReadiness.packageItems.some(
+      (item) =>
+        locationRequiredKeys.has(item.requirementKey) && !item.locationVerified,
     )
   ) {
     riskSignals.push("location_unverified_evidence");
   }
-  if (typeof milestone.policyState === "string" && /risk|flag|review/i.test(milestone.policyState)) {
+  const normalizedPolicyState =
+    typeof milestone.policyState === "string"
+      ? milestone.policyState.trim().toLowerCase().replace(/\s+/g, "_")
+      : "";
+  if (RISK_POLICY_STATES.has(normalizedPolicyState)) {
     riskSignals.push(`milestone_policy:${milestone.policyState}`);
   }
   const recommendation = await latestRecommendation(ctx, submilestone._id, reviewRound);
@@ -355,26 +379,42 @@ async function existingChildDecision(
   ctx: ReviewCtx,
   submilestoneId: Id<"buildSubmilestones">,
   idempotencyKey: string,
+  kind: Doc<"buildSubmilestoneReviewDecisions">["kind"],
 ) {
-  return await ctx.db
+  const existing = await ctx.db
     .query("buildSubmilestoneReviewDecisions")
     .withIndex("by_submilestone_idempotency", (query) =>
       query.eq("buildSubmilestoneId", submilestoneId).eq("idempotencyKey", idempotencyKey),
     )
     .unique();
+  if (existing && existing.kind !== kind) {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message: "This idempotency key was already used for a different review command.",
+    });
+  }
+  return existing;
 }
 
 async function existingParentDecision(
   ctx: ReviewCtx,
   milestoneId: Id<"buildMilestones">,
   idempotencyKey: string,
+  kind: Doc<"buildMilestoneReviewDecisions">["kind"],
 ) {
-  return await ctx.db
+  const existing = await ctx.db
     .query("buildMilestoneReviewDecisions")
     .withIndex("by_milestone_idempotency", (query) =>
       query.eq("buildMilestoneId", milestoneId).eq("idempotencyKey", idempotencyKey),
     )
     .unique();
+  if (existing && existing.kind !== kind) {
+    throw new ConvexError({
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message: "This idempotency key was already used for a different review command.",
+    });
+  }
+  return existing;
 }
 
 async function recordReviewAudit(
@@ -456,7 +496,9 @@ async function syncSystemPost(
 async function parentReadiness(
   submilestones: Doc<"buildSubmilestones">[],
 ) {
-  const requiredChildren = submilestones;
+  const requiredChildren = submilestones.filter(
+    (child) => child.planningState !== "superseded",
+  );
   const approvedChildren = requiredChildren.filter(
     (child) => child.reviewDecisionState === "approved",
   );
@@ -548,7 +590,12 @@ export const recommendActiveBuildSubmilestoneReview = authenticatedMutation
       args.submilestoneKey,
     );
     assertExpectedRevision(submilestone, args.expectedRevision);
-    const existing = await existingChildDecision(ctx, submilestone._id, args.idempotencyKey);
+    const existing = await existingChildDecision(
+      ctx,
+      submilestone._id,
+      args.idempotencyKey,
+      "recommendation",
+    );
     if (existing) return { decisionId: existing._id, replayed: true };
     if (submilestone.evidenceReviewState !== "in_review") {
       throw new ConvexError({ code: "SUBMILESTONE_NOT_IN_REVIEW", message: "Recommendations require an In Review child." });
@@ -563,6 +610,7 @@ export const recommendActiveBuildSubmilestoneReview = authenticatedMutation
       args.siteVisitRequired,
     );
     const now = Date.now();
+    const resolvedSiteVisitRequired = requirement.required;
     const decisionId = await ctx.db.insert("buildSubmilestoneReviewDecisions", {
       actorRoles: normalizeRoleSlugs(auth.roles),
       actorWorkosUserId: auth.viewer.subject,
@@ -574,7 +622,7 @@ export const recommendActiveBuildSubmilestoneReview = authenticatedMutation
       idempotencyKey: args.idempotencyKey,
       kind: "recommendation",
       milestoneKey: milestone.key,
-      newState: JSON.stringify({ siteVisitRequired: args.siteVisitRequired }),
+      newState: JSON.stringify({ siteVisitRequired: resolvedSiteVisitRequired }),
       note: args.note?.trim() || undefined,
       organizationId: auth.organizationId,
       priorState: JSON.stringify({
@@ -583,16 +631,22 @@ export const recommendActiveBuildSubmilestoneReview = authenticatedMutation
       remediation: args.remediation?.map((item) => item.trim()).filter(Boolean),
       requirementId: requirement._id,
       reviewRound: round,
-      siteVisitRequired: args.siteVisitRequired,
+      siteVisitRequired: resolvedSiteVisitRequired,
       submilestoneKey: submilestone.key,
       warnings: requirement.riskSignals,
+    });
+    await ctx.db.patch(submilestone._id, {
+      reviewDecisionId: decisionId,
+      reviewRevision: (submilestone.reviewRevision ?? 0) + 1,
+      siteVisitRequirementId: requirement._id,
+      updatedAt: now,
     });
     await recordReviewAudit(ctx, auth, {
       command: "recommendActiveBuildSubmilestoneReview",
       entityId: String(submilestone._id),
       entityType: "buildSubmilestone",
       eventType: "active_build.submilestone.review.recommended",
-      newState: JSON.stringify({ decisionId, siteVisitRequired: args.siteVisitRequired }),
+      newState: JSON.stringify({ decisionId, siteVisitRequired: resolvedSiteVisitRequired }),
       priorState: JSON.stringify({ reviewRound: round }),
       reason: args.note,
       warnings: requirement.riskSignals,
@@ -624,7 +678,12 @@ export const requestActiveBuildSubmilestoneChanges = authenticatedMutation
     const reason = nonBlank(args.reason, "Changes requested reason");
     const { milestone, submilestone } = await getTarget(ctx, auth, args.milestoneKey, args.submilestoneKey);
     assertExpectedRevision(submilestone, args.expectedRevision);
-    const existing = await existingChildDecision(ctx, submilestone._id, args.idempotencyKey);
+    const existing = await existingChildDecision(
+      ctx,
+      submilestone._id,
+      args.idempotencyKey,
+      "changes_requested",
+    );
     if (existing) return { decisionId: existing._id, replayed: true };
     if (submilestone.evidenceReviewState !== "in_review") {
       throw new ConvexError({ code: "SUBMILESTONE_NOT_IN_REVIEW", message: "Changes can be requested only from In Review." });
@@ -715,7 +774,12 @@ export const waiveActiveBuildSubmilestoneSiteVisit = authenticatedMutation
     const reason = nonBlank(args.reason, "Site Visit waiver reason");
     const { milestone, submilestone } = await getTarget(ctx, auth, args.milestoneKey, args.submilestoneKey);
     assertExpectedRevision(submilestone, args.expectedRevision);
-    const existing = await existingChildDecision(ctx, submilestone._id, args.idempotencyKey);
+    const existing = await existingChildDecision(
+      ctx,
+      submilestone._id,
+      args.idempotencyKey,
+      "site_visit_waived",
+    );
     if (existing) return { decisionId: existing._id, replayed: true };
     if (submilestone.evidenceReviewState !== "in_review") {
       throw new ConvexError({ code: "SUBMILESTONE_NOT_IN_REVIEW", message: "A Site Visit may be waived only during In Review." });
@@ -792,7 +856,12 @@ export const approveActiveBuildSubmilestone = authenticatedMutation
     requireLenderAdmin(auth);
     const { milestone, submilestone, submilestones } = await getTarget(ctx, auth, args.milestoneKey, args.submilestoneKey);
     assertExpectedRevision(submilestone, args.expectedRevision);
-    const existing = await existingChildDecision(ctx, submilestone._id, args.idempotencyKey);
+    const existing = await existingChildDecision(
+      ctx,
+      submilestone._id,
+      args.idempotencyKey,
+      "approved",
+    );
     if (existing) return { decisionId: existing._id, replayed: true };
     if (submilestone.evidenceReviewState !== "in_review") {
       throw new ConvexError({ code: "SUBMILESTONE_NOT_IN_REVIEW", message: "Final child approval requires an In Review child." });
@@ -907,7 +976,12 @@ export const retractActiveBuildSubmilestoneApproval = authenticatedMutation
     const reason = nonBlank(args.reason, "Child approval retraction reason");
     const { milestone, submilestone } = await getTarget(ctx, auth, args.milestoneKey, args.submilestoneKey);
     assertExpectedRevision(submilestone, args.expectedRevision);
-    const existing = await existingChildDecision(ctx, submilestone._id, args.idempotencyKey);
+    const existing = await existingChildDecision(
+      ctx,
+      submilestone._id,
+      args.idempotencyKey,
+      "retracted",
+    );
     if (existing) return { decisionId: existing._id, replayed: true };
     if (submilestone.reviewDecisionState !== "approved") {
       throw new ConvexError({ code: "SUBMILESTONE_NOT_APPROVED", message: "Only an approved child can be retracted." });
@@ -981,7 +1055,12 @@ export const approveActiveBuildMilestoneReview = authenticatedMutation
       .unique();
     if (!milestone) throw new ConvexError({ code: "MILESTONE_NOT_FOUND", message: "Milestone is unavailable." });
     assertExpectedMilestoneRevision(milestone, args.expectedRevision);
-    const existing = await existingParentDecision(ctx, milestone._id, args.idempotencyKey);
+    const existing = await existingParentDecision(
+      ctx,
+      milestone._id,
+      args.idempotencyKey,
+      "approved",
+    );
     if (existing) return { decisionId: existing._id, replayed: true };
     const submilestones = await ctx.db
       .query("buildSubmilestones")
@@ -1061,7 +1140,12 @@ export const retractActiveBuildMilestoneApproval = authenticatedMutation
       .unique();
     if (!milestone) throw new ConvexError({ code: "MILESTONE_NOT_FOUND", message: "Milestone is unavailable." });
     assertExpectedMilestoneRevision(milestone, args.expectedRevision);
-    const existing = await existingParentDecision(ctx, milestone._id, args.idempotencyKey);
+    const existing = await existingParentDecision(
+      ctx,
+      milestone._id,
+      args.idempotencyKey,
+      "retracted",
+    );
     if (existing) return { decisionId: existing._id, replayed: true };
     if (milestone.reviewDecisionState !== "approved") {
       throw new ConvexError({ code: "MILESTONE_NOT_APPROVED", message: "Only an approved Milestone can be retracted." });

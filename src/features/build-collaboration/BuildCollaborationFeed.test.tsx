@@ -926,7 +926,7 @@ vi.mock("convex/react", () => ({
                   canSubmitForReview: false,
                   canUpdateExecution: mocks.viewerBinding.role === "builder",
                   column: "in_review",
-                  evidenceCount: 0,
+                  evidenceCount: 2,
                   evidencePackageRevision: 1,
                   evidencePackageRevisionId: "package-1",
                   progressPercent: 100,
@@ -1461,7 +1461,7 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getByText("Canonical facts")).toBeTruthy();
     expect(screen.getByText("Immutable domain binding")).toBeTruthy();
     expect(screen.getAllByText("Foundation").length).toBeGreaterThan(0);
-    expect(screen.getByText("user_builder")).toBeTruthy();
+    expect(screen.getByText("Former Build participant")).toBeTruthy();
     expect(screen.getByText("explicit start")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Post actions" }));
     expect(screen.getByText("Edit post")).toBeTruthy();
@@ -1573,8 +1573,8 @@ describe("BuildCollaborationFeed", () => {
     expect(screen.getAllByText("System · Draw").length).toBeGreaterThan(0);
     expect(screen.getByTestId("system-post-draw-facts")).toBeTruthy();
     expect(screen.getByText("Foundation reimbursement")).toBeTruthy();
-    expect(screen.getByText("DR-0001 · requested")).toBeTruthy();
-    expect(screen.getByText("Evidence · location unverified")).toBeTruthy();
+    expect(screen.getByText("DR-0001 · Requested")).toBeTruthy();
+    expect(screen.getByText("Evidence · Location unverified")).toBeTruthy();
     expect(screen.getByText("Site Visits · 1")).toBeTruthy();
     expect(
       screen.getByText(
@@ -1898,7 +1898,7 @@ describe("BuildCollaborationFeed", () => {
 
     expect(await screen.findByText("Canonical Sub-milestone")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save progress" })).toBeTruthy();
-    expect(screen.getByLabelText("Evidence 0")).toBeTruthy();
+    expect(screen.getByLabelText("Evidence 2")).toBeTruthy();
     expect(screen.getByText("Ready except for:")).toBeTruthy();
     expect(screen.getByText("Forms photo")).toBeTruthy();
     expect(
@@ -1935,7 +1935,7 @@ describe("BuildCollaborationFeed", () => {
 
     expect(await screen.findByText("Canonical Sub-milestone")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save progress" })).toBeNull();
-    expect(screen.queryByLabelText("Evidence 0")).toBeNull();
+    expect(screen.queryByLabelText("Evidence 2")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Freeze Evidence Package" }),
     ).toBeNull();

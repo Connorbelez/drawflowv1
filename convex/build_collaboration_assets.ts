@@ -8,7 +8,10 @@ import {
   resolveCurrentCollaborationPostReaderIds,
 } from "./build_collaboration_access";
 import { authorizeActiveBuildCollaborationPreparerAccess } from "./build_collaboration_actor";
-import { canReadCollaborationAsset } from "./build_collaboration_asset_access";
+import {
+  canReadAssetStagingContext,
+  canReadCollaborationAsset,
+} from "./build_collaboration_asset_access";
 import { canReadDrawCoordination } from "./build_draw_coordination";
 import { authorizeActiveBuildCollaborationAccess } from "./build_collaboration_rollout";
 import { buildCollaborationAssetStagingContextValidator } from "./build_collaboration_validators";
@@ -773,37 +776,6 @@ async function canInspectAsset(
     return true;
   }
   return await canReadCollaborationAsset(ctx, { asset, authorization });
-}
-
-async function canReadAssetStagingContext(
-  ctx: QueryCtx,
-  authorization: ActiveBuildAuthorization,
-  session: Doc<"buildCollaborationAssetStagingSessions">
-) {
-  if (
-    (session.contextKind !== "post" && session.contextKind !== "actionItem") ||
-    !session.contextRecordId
-  ) {
-    return true;
-  }
-  const postId =
-    session.contextKind === "post"
-      ? ctx.db.normalizeId("buildCollaborationPosts", session.contextRecordId)
-      : null;
-  const actionItemId =
-    session.contextKind === "actionItem"
-      ? ctx.db.normalizeId("buildActionItems", session.contextRecordId)
-      : null;
-  const actionItem = actionItemId ? await ctx.db.get(actionItemId) : null;
-  const post = postId
-    ? await ctx.db.get(postId)
-    : actionItem
-      ? await ctx.db.get(actionItem.originatingPostId)
-      : null;
-  if (!post || post.systemPostKind !== "draw") {
-    return Boolean(post);
-  }
-  return await canReadDrawCoordination(ctx, { authorization, post });
 }
 
 function projectAssetStatus(asset: Doc<"buildCollaborationAssets">) {

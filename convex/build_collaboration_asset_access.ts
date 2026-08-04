@@ -42,9 +42,13 @@ export async function canUseCollaborationAssetForPost(
         .eq("buildId", input.authorization.build._id)
         .eq("attachmentKind", "collaborationAsset")
         .eq("attachmentId", input.asset._id)
-    )
-    .take(100);
+  )
+  .take(100);
   for (const attachment of ownerAttachments) {
+    const attachmentPostRecord = await attachmentPost(ctx, attachment);
+    if (!attachmentPostRecord || attachmentPostRecord._id !== input.post._id) {
+      continue;
+    }
     const actionItem = await attachmentActionItem(ctx, attachment);
     if (
       actionItem &&
@@ -216,6 +220,37 @@ export async function resolveCollaborationAssetReadDecision(
     };
   }
   return null;
+}
+
+export async function canReadAssetStagingContext(
+  ctx: QueryCtx,
+  authorization: ActiveBuildAuthorization,
+  session: Doc<"buildCollaborationAssetStagingSessions">
+) {
+  if (
+    (session.contextKind !== "post" && session.contextKind !== "actionItem") ||
+    !session.contextRecordId
+  ) {
+    return true;
+  }
+  const postId =
+    session.contextKind === "post"
+      ? ctx.db.normalizeId("buildCollaborationPosts", session.contextRecordId)
+      : null;
+  const actionItemId =
+    session.contextKind === "actionItem"
+      ? ctx.db.normalizeId("buildActionItems", session.contextRecordId)
+      : null;
+  const actionItem = actionItemId ? await ctx.db.get(actionItemId) : null;
+  const post = postId
+    ? await ctx.db.get(postId)
+    : actionItem
+      ? await ctx.db.get(actionItem.originatingPostId)
+      : null;
+  if (!post || post.systemPostKind !== "draw") {
+    return Boolean(post);
+  }
+  return await canReadDrawCoordination(ctx, { authorization, post });
 }
 
 async function isDraftApprovalOwner(

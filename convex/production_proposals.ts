@@ -16451,6 +16451,7 @@ export const updateActiveBuildTimelineMilestone = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
+    assertActiveBuildPlanningTargetActive(milestone);
     const nextDayStart = Math.round(args.dayStart ?? milestone.dayStart);
     const existingDurationDays = Math.max(
       1,
@@ -17203,7 +17204,6 @@ type ActiveBuildEvidencePromotionArgs = {
   idempotencyKey?: string;
   label?: string;
   locationAttempt?: SiteVisitLocationAttempt;
-  locationVerified?: boolean;
   milestoneKey: string;
   requirementKey?: string;
   submilestoneKey: string;
@@ -17588,7 +17588,6 @@ export const promoteActiveBuildDiscussionAttachmentToEvidence =
       idempotencyKey: v.optional(v.string()),
       label: v.optional(v.string()),
       locationAttempt: v.optional(siteVisitLocationAttemptValidator),
-      locationVerified: v.optional(v.boolean()),
       milestoneKey: v.string(),
       requirementKey: v.optional(v.string()),
       submilestoneKey: v.string(),
@@ -18400,7 +18399,7 @@ export const addActiveBuildSubmilestoneEvidence = authenticatedMutation
     });
     const evidenceKey =
       args.evidence.evidenceKey?.trim() ||
-      `submilestone-${submilestone.key}-${crypto.randomUUID()}`;
+      `submilestone-${submilestone.key}-${args.idempotencyKey.trim()}`;
     const duplicateEvidence = await ctx.db
       .query("buildEvidenceAssets")
       .withIndex("by_build_key", (query) =>
@@ -18780,6 +18779,14 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
     completedDay: v.number(),
     dependencyOverrideReason: v.optional(v.string()),
     expectedEvidencePackageRevision: v.optional(v.number()),
+    expectedEvidencePackageRevisions: v.optional(
+      v.array(
+        v.object({
+          revision: v.number(),
+          submilestoneKey: v.string(),
+        }),
+      ),
+    ),
     idempotencyKey: v.string(),
     milestoneKey: v.string(),
     note: v.optional(v.string()),
@@ -18832,20 +18839,70 @@ export const submitActiveBuildMilestoneCompletion = authenticatedMutation
       packageRevision: Doc<"buildSubmilestoneEvidencePackageRevisions">;
       submilestone: Doc<"buildSubmilestones">;
     }> = [];
+    const expectedPackageRevisionBySubmilestone = new Map(
+      (args.expectedEvidencePackageRevisions ?? []).map((entry) => [
+        entry.submilestoneKey,
+        entry.revision,
+      ]),
+    );
+    const expectedPackageRevisionEntries =
+      args.expectedEvidencePackageRevisions ?? [];
+    const submilestoneKeys = new Set(
+      submilestones.map((submilestone) => submilestone.key),
+    );
+    const duplicateExpectedKeys = expectedPackageRevisionEntries.filter(
+      (entry, index) =>
+        expectedPackageRevisionEntries.findIndex(
+          (candidate) => candidate.submilestoneKey === entry.submilestoneKey,
+        ) !== index,
+    );
+    const unknownExpectedKeys = expectedPackageRevisionEntries.filter(
+      (entry) => !submilestoneKeys.has(entry.submilestoneKey),
+    );
+    const missingExpectedKeys = submilestones
+      .filter(
+        (submilestone) =>
+          !expectedPackageRevisionBySubmilestone.has(submilestone.key),
+      )
+      .map((submilestone) => submilestone.key);
+    if (
+      submilestones.length > 1 &&
+      (args.expectedEvidencePackageRevision !== undefined ||
+        expectedPackageRevisionEntries.length > 0) &&
+      (expectedPackageRevisionBySubmilestone.size === 0 ||
+        missingExpectedKeys.length > 0 ||
+        duplicateExpectedKeys.length > 0 ||
+        unknownExpectedKeys.length > 0)
+    ) {
+      throw new ConvexError({
+        code: "EVIDENCE_PACKAGE_REVISION_MAP_REQUIRED",
+        message:
+          "Provide an expected Evidence Package revision for each Sub-milestone.",
+        missingSubmilestoneKeys: missingExpectedKeys,
+        unknownSubmilestoneKeys: unknownExpectedKeys.map(
+          (entry) => entry.submilestoneKey,
+        ),
+      });
+    }
     for (const submilestone of submilestones) {
       const packageRevision = await ensureDraftSubmilestoneEvidencePackage(ctx, {
         auth,
         milestone,
         submilestone,
       });
+      const expectedPackageRevision =
+        expectedPackageRevisionBySubmilestone.get(submilestone.key) ??
+        (submilestones.length === 1
+          ? args.expectedEvidencePackageRevision
+          : undefined);
       if (
-        args.expectedEvidencePackageRevision !== undefined &&
-        packageRevision.revision !== args.expectedEvidencePackageRevision
+        expectedPackageRevision !== undefined &&
+        packageRevision.revision !== expectedPackageRevision
       ) {
         throw new ConvexError({
           code: "STALE_EVIDENCE_PACKAGE_REVISION",
           actualPackageRevision: packageRevision.revision,
-          expectedPackageRevision: args.expectedEvidencePackageRevision,
+          expectedPackageRevision,
           message:
             "Evidence Package revision changed; refresh the canonical package before review entry.",
         });

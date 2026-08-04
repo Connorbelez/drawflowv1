@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values";
 
-import { backofficeRoleSlugs } from "./authz";
+import { backofficeRoleSlugs, normalizeRoleSlugs } from "./authz";
 import { ensureMilestoneSystemPost } from "./build_collaboration_system_posts";
 import type { Doc, Id, MutationCtx } from "./types";
 
@@ -120,11 +120,8 @@ export async function recordMilestoneStart(
   if (
     dependencySnapshot.length > 0 &&
     reason &&
-    !input.actor.roles.some(
-      (role) =>
-        role.trim().toLowerCase() === "builder" ||
-        role.trim().toLowerCase() === "builder-staff" ||
-        role.trim().toLowerCase() === "builder_staff"
+    !normalizeRoleSlugs(input.actor.roles).some((role) =>
+      ["builder", "builder-staff"].includes(role)
     )
   ) {
     throw new ConvexError({

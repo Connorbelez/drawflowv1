@@ -4030,6 +4030,14 @@ export default defineSchema({
     systemLifecycle: v.optional(
       v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened")),
     ),
+    systemDisposition: v.optional(
+      v.union(
+        v.literal("withdrawal"),
+        v.literal("cancellation"),
+        v.literal("final_decline"),
+        v.literal("released"),
+      ),
+    ),
     // Historical System Posts retain only proven source chronology/actor
     // facts.  `materializedAt` is migration metadata and must never be used
     // as feed activity or unread ordering.
@@ -4067,6 +4075,11 @@ export default defineSchema({
     .index("by_buildId_and_systemOccurrenceKey", [
       "buildId",
       "systemOccurrenceKey",
+    ])
+    .index("by_buildId_and_source_and_createdAt", [
+      "buildId",
+      "source",
+      "createdAt",
     ])
     .index("by_buildId_and_importedSourceId", ["buildId", "importedSourceId"])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
@@ -5440,6 +5453,7 @@ export default defineSchema({
     ),
     planningState: v.optional(buildPlanningStateValidator),
     activationPlanningRevision: v.optional(v.number()),
+    scheduledActivationJobId: v.optional(v.string()),
     supersededAt: v.optional(v.number()),
     supersededByPlanningRevision: v.optional(v.number()),
     createdAt: v.number(),
@@ -5506,6 +5520,7 @@ export default defineSchema({
     ),
     planningState: v.optional(buildPlanningStateValidator),
     activationPlanningRevision: v.optional(v.number()),
+    scheduledActivationJobId: v.optional(v.string()),
     supersededAt: v.optional(v.number()),
     supersededByPlanningRevision: v.optional(v.number()),
     completedAt: v.optional(v.number()),
@@ -5514,7 +5529,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_build", ["buildId"])
-    .index("by_milestone", ["buildMilestoneId"]),
+    .index("by_milestone", ["buildMilestoneId"])
+    .index("by_milestone_and_key", ["buildMilestoneId", "key"]),
   buildSubmilestoneSiteVisitRequirements: defineTable({
     brokerageId: v.id("brokerages"),
     organizationId: v.string(),
@@ -5617,6 +5633,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_submilestone", ["buildSubmilestoneId", "active"])
+    .index("by_build", ["buildId"])
     .index("by_build_submilestone_requirement", [
       "buildId",
       "buildSubmilestoneId",
@@ -5849,6 +5866,7 @@ export default defineSchema({
     releaseNote: v.optional(v.string()),
     releasedAt: v.optional(v.string()),
     status: productionBuildDrawStatusValidator,
+    scheduledActivationJobId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

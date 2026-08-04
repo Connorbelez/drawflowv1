@@ -2292,6 +2292,10 @@ describe("Build Collaboration operational events", () => {
       ),
     }));
     expect(revokedDeliveryState.deliveries.length).toBeGreaterThan(0);
+    expect(revokedDeliveryState.outboxes.length).toBeGreaterThan(0);
+    expect(revokedDeliveryState.outboxes.length).toBe(
+      permittedOutboxIds.length,
+    );
     expect(revokedDeliveryState.deliveries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -3189,21 +3193,37 @@ describe("Build Collaboration operational events", () => {
 
   test("keeps Draw coordination internal, ordinary, and independent from Draw authority", async () => {
     const fixture = await seedOperationalBuild();
+    await fixture.base.mutation(
+      (internal as any).workosProjection.ingestWorkosEvent,
+      {
+        data: {
+          email: "user_broker@example.com",
+          email_verified: true,
+          first_name: "Broker",
+          id: "user_broker",
+          last_name: "Draw Coordinator",
+        },
+        event: "user.created",
+        id: "draw_coordination_broker_user_created",
+      },
+    );
+    await fixture.base.mutation(
+      (internal as any).workosProjection.ingestWorkosEvent,
+      {
+        data: {
+          id: "membership_draw_coordinator",
+          organization_id: ORGANIZATION_ID,
+          role: { slug: "broker" },
+          roles: [{ slug: "broker" }],
+          status: "active",
+          user_id: "user_broker",
+        },
+        event: "organization_membership.created",
+        id: "draw_coordination_broker_membership_created",
+      },
+    );
     const drawPostId = await fixture.base.run(async (ctx) => {
       const now = Date.now();
-      await ctx.db.insert("workosOrganizationMemberships", {
-        createdAt: now,
-        directoryManaged: false,
-        roleSlug: "broker",
-        roleSlugs: ["broker"],
-        sourceEventId: "draw-coordination-broker-membership",
-        sourceEventType: "fixture.draw-coordination",
-        status: "active",
-        updatedAt: now,
-        workosMembershipId: "membership_draw_coordinator",
-        workosOrganizationId: ORGANIZATION_ID,
-        workosUserId: "user_broker",
-      });
       await ctx.db.insert("buildParticipants", {
         brokerageId: fixture.brokerageId,
         buildId: fixture.buildId,

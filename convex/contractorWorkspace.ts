@@ -842,11 +842,13 @@ export const startAssignedSubmilestone = contractorRoleMutation
       ? (
           await ctx.db
             .query("buildSubmilestones")
-            .withIndex("by_milestone", (query) =>
-              query.eq("buildMilestoneId", milestone._id)
+            .withIndex("by_milestone_and_key", (query) =>
+              query
+                .eq("buildMilestoneId", milestone._id)
+                .eq("key", args.submilestoneKey)
             )
-            .take(500)
-        ).find((candidate) => candidate.key === args.submilestoneKey)
+            .unique()
+        )
       : undefined;
     if (
       !(milestone && submilestone) ||
