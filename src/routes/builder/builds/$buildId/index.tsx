@@ -837,6 +837,9 @@ export function BuilderBuildWorkspaceRoute({
         }
         costs={
           <CostDocumentBatchWorkspace
+            actorCapacity={
+              routeBase === "/builder-staff" ? "builder-staff" : "builder"
+            }
             batchId={search.costBatch}
             buildId={activeBuildId as Id<"activeBuilds">}
             draftId={search.costDocumentDraft}

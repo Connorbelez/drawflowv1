@@ -65,6 +65,7 @@ vi.mock(
   "#/features/cost-documents/CostDocumentBatchWorkspace.tsx",
   () => ({
     CostDocumentBatchWorkspace: ({
+      actorCapacity,
       batchId,
       draftId,
       onBatchIdChange,
@@ -73,6 +74,7 @@ vi.mock(
       batchId?: string;
       draftId?: string;
       onBatchIdChange: (batchId?: string) => void;
+      actorCapacity?: "builder" | "builder-staff" | "homeowner" | "contractor";
       reconciliation?: {
         onCostDocumentCorrectionStarted: (input: {
           batchId: string;
@@ -83,6 +85,7 @@ vi.mock(
       };
     }) => (
       <div
+        data-actor-capacity={actorCapacity}
         data-batch-id={batchId}
         data-cost-document-id={reconciliation?.selectedCostDocumentId}
         data-draft-id={draftId}
@@ -332,6 +335,11 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
     expect(screen.getByTestId("active-build-tab").textContent).toBe("costs");
     expect(screen.getByTestId("costs-slot-present")).not.toBeNull();
     expect(
+      screen
+        .getByTestId("cost-document-batch-workspace")
+        .getAttribute("data-actor-capacity")
+    ).toBe("builder");
+    expect(
       screen.getByTestId("cost-document-batch-workspace").getAttribute(
         "data-batch-id"
       )
@@ -364,6 +372,25 @@ describe("BuilderBuildWorkspaceRoute contractor actions", () => {
         }),
       })
     );
+  });
+
+  test("pins Builder Staff Cost Document workspaces to the Builder Staff capacity", () => {
+    render(
+      <BuilderBuildWorkspaceRoute
+        buildId="active-build-01"
+        enableContractorLinks={false}
+        includeStaffTab={false}
+        routeBase="/builder-staff"
+        search={{ tab: "costs" }}
+        workosOrganizationId="org_builder"
+      />
+    );
+
+    expect(
+      screen
+        .getByTestId("cost-document-batch-workspace")
+        .getAttribute("data-actor-capacity")
+    ).toBe("builder-staff");
   });
 
   test("validates Cost Document batch deep links without leaking other values", () => {

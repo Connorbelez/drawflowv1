@@ -248,7 +248,7 @@ export interface CostDocumentBatchWorkspaceProps {
    * Locks a multi-role identity to the capacity chosen by its Build-local
    * workspace. The server still reauthorizes every request.
    */
-  actorCapacity?: "homeowner" | "contractor";
+  actorCapacity?: "builder" | "builder-staff" | "homeowner" | "contractor";
   batchId?: string;
   buildId: Id<"activeBuilds">;
   draftId?: string;
