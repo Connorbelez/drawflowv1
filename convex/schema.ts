@@ -4884,12 +4884,6 @@ export default defineSchema({
     migrationCompletedAt: v.optional(v.number()),
     activatedAt: v.optional(v.number()),
     activatedByWorkosUserId: v.optional(v.string()),
-    serviceLifecycle: v.optional(
-      v.union(v.literal("active"), v.literal("restricted_archive"))
-    ),
-    serviceLifecycleChangedAt: v.optional(v.number()),
-    serviceLifecycleChangedByWorkosUserId: v.optional(v.string()),
-    serviceLifecycleReason: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_organizationId", ["organizationId"]),

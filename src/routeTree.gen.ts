@@ -24,8 +24,8 @@ import { Route as ContractorIndexRouteImport } from './routes/contractor/index'
 import { Route as BuilderIndexRouteImport } from './routes/builder/index'
 import { Route as BuilderStaffIndexRouteImport } from './routes/builder-staff/index'
 import { Route as BackofficeIndexRouteImport } from './routes/backoffice/index'
-import { Route as PrototypeSystemPostsRouteImport } from './routes/prototype/system-posts'
 import { Route as QuoteInvitationMagicTokenRouteImport } from './routes/quote-invitation.$magicToken'
+import { Route as PrototypeSystemPostsRouteImport } from './routes/prototype/system-posts'
 import { Route as PrototypeBuildCollaborationRouteImport } from './routes/prototype/build-collaboration'
 import { Route as PrototypeActionItemsRouteImport } from './routes/prototype/action-items'
 import { Route as ProposalClaimClaimTokenRouteImport } from './routes/proposal-claim.$claimToken'
@@ -183,17 +183,17 @@ const BackofficeIndexRoute = BackofficeIndexRouteImport.update({
   path: '/',
   getParentRoute: () => BackofficeRouteRoute,
 } as any)
-const PrototypeSystemPostsRoute = PrototypeSystemPostsRouteImport.update({
-  id: '/prototype/system-posts',
-  path: '/prototype/system-posts',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const QuoteInvitationMagicTokenRoute =
   QuoteInvitationMagicTokenRouteImport.update({
     id: '/quote-invitation/$magicToken',
     path: '/quote-invitation/$magicToken',
     getParentRoute: () => rootRouteImport,
   } as any)
+const PrototypeSystemPostsRoute = PrototypeSystemPostsRouteImport.update({
+  id: '/prototype/system-posts',
+  path: '/prototype/system-posts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PrototypeBuildCollaborationRoute =
   PrototypeBuildCollaborationRouteImport.update({
     id: '/prototype/build-collaboration',
@@ -1337,18 +1337,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BackofficeIndexRouteImport
       parentRoute: typeof BackofficeRouteRoute
     }
-    '/prototype/system-posts': {
-      id: '/prototype/system-posts'
-      path: '/prototype/system-posts'
-      fullPath: '/prototype/system-posts'
-      preLoaderRoute: typeof PrototypeSystemPostsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/quote-invitation/$magicToken': {
       id: '/quote-invitation/$magicToken'
       path: '/quote-invitation/$magicToken'
       fullPath: '/quote-invitation/$magicToken'
       preLoaderRoute: typeof QuoteInvitationMagicTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prototype/system-posts': {
+      id: '/prototype/system-posts'
+      path: '/prototype/system-posts'
+      fullPath: '/prototype/system-posts'
+      preLoaderRoute: typeof PrototypeSystemPostsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/prototype/build-collaboration': {

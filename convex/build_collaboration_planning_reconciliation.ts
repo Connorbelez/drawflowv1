@@ -155,24 +155,26 @@ function encodePlanningPageCursor(offset: number) {
   return encodeURIComponent(JSON.stringify({ offset }));
 }
 
-type BoundedPlanningQuery<T> = {
+type TakeablePlanningQuery<T> = {
   take: (n: number) => Promise<T[]>;
 };
-type BoundedPlanningQueryFactory<T> = () => BoundedPlanningQuery<T>;
 
 type PlanningRowsPage<T> = {
   isDone: boolean;
   rows: T[];
 };
 
+/**
+ * Bounded multi-table planning reads must use `.take()`, not `.paginate()`.
+ * Convex allows only one paginated query per function, and snapshot/diff
+ * loaders fan out across several tables in a single query or mutation.
+ * Callers that need truncation detection request `limit + 1`.
+ */
 async function readPlanningRows<T>(
-  queryFactory: BoundedPlanningQueryFactory<T>,
+  query: TakeablePlanningQuery<T>,
   maxRows: number
 ): Promise<PlanningRowsPage<T>> {
-  // Use `.take()` rather than `.paginate()`. Callers often read several
-  // planning tables in one query/mutation, and Convex allows only a single
-  // paginated query per function.
-  const rows = await queryFactory().take(maxRows);
+  const rows = await query.take(maxRows);
   return {
     isDone: rows.length < maxRows,
     rows,
@@ -371,45 +373,39 @@ async function collectPlanningSnapshot(
     requirementPage,
   ] = await Promise.all([
     readPlanningRows(
-      () =>
-        ctx.db
-          .query("buildMilestones")
-          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build", (query) => query.eq("buildId", build._id)),
       PLANNING_SNAPSHOT_LIMITS.milestones + 1
     ),
     readPlanningRows(
-      () =>
-        ctx.db
-          .query("buildSubmilestones")
-          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      ctx.db
+        .query("buildSubmilestones")
+        .withIndex("by_build", (query) => query.eq("buildId", build._id)),
       PLANNING_SNAPSHOT_LIMITS.submilestones + 1
     ),
     readPlanningRows(
-      () =>
-        ctx.db
-          .query("plannedDrawScheduleRows")
-          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      ctx.db
+        .query("plannedDrawScheduleRows")
+        .withIndex("by_build", (query) => query.eq("buildId", build._id)),
       PLANNING_SNAPSHOT_LIMITS.draws + 1
     ),
     readPlanningRows(
-      () =>
-        ctx.db
-          .query("milestoneContractorAssignments")
-          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      ctx.db
+        .query("milestoneContractorAssignments")
+        .withIndex("by_build", (query) => query.eq("buildId", build._id)),
       PLANNING_SNAPSHOT_LIMITS.allocations + 1
     ),
     readPlanningRows(
-      () =>
-        ctx.db
-          .query("buildCapitalPlans")
-          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      ctx.db
+        .query("buildCapitalPlans")
+        .withIndex("by_build", (query) => query.eq("buildId", build._id)),
       PLANNING_SNAPSHOT_LIMITS.capitalPlans + 1
     ),
     readPlanningRows(
-      () =>
-        ctx.db
-          .query("buildSubmilestoneEvidenceRequirements")
-          .withIndex("by_build", (query) => query.eq("buildId", build._id)),
+      ctx.db
+        .query("buildSubmilestoneEvidenceRequirements")
+        .withIndex("by_build", (query) => query.eq("buildId", build._id)),
       PLANNING_SNAPSHOT_LIMITS.requirements + 1
     ),
   ]);
@@ -697,11 +693,10 @@ async function readRevisionSnapshot(
   options?: { allowPendingMaterialization?: boolean }
 ): Promise<PlanningSnapshot> {
   const pendingChunkPage = await readPlanningRows(
-    () =>
-      ctx.db
-        .query("activeBuildPlanningRevisionChunks")
-        .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
-        .order("asc"),
+    ctx.db
+      .query("activeBuildPlanningRevisionChunks")
+      .withIndex("by_revision", (query) => query.eq("revisionId", revisionId))
+      .order("asc"),
     PLANNING_REVISION_CHUNK_LIMIT + 1,
   );
   const pendingChunks = pendingChunkPage.rows;
@@ -719,12 +714,11 @@ async function readRevisionSnapshot(
     );
   }
   const entityPage = await readPlanningRows(
-    () =>
-      ctx.db
-        .query("activeBuildPlanningRevisionEntities")
-        .withIndex("by_revision", (query) =>
-          query.eq("revisionId", revisionId)
-        ),
+    ctx.db
+      .query("activeBuildPlanningRevisionEntities")
+      .withIndex("by_revision", (query) =>
+        query.eq("revisionId", revisionId)
+      ),
     PLANNING_REVISION_ENTITY_LIMIT + 1
   );
   const entities = entityPage.rows;
@@ -789,12 +783,11 @@ async function readRevisionDiffs(
 ) {
   if (limit <= 0) return { rows: [], truncated: revision.diffCount > 0 };
   const persistedPage = await readPlanningRows(
-    () =>
-      ctx.db
-        .query("activeBuildPlanningRevisionDiffs")
-        .withIndex("by_revision", (query) =>
-          query.eq("revisionId", revision._id)
-        ),
+    ctx.db
+      .query("activeBuildPlanningRevisionDiffs")
+      .withIndex("by_revision", (query) =>
+        query.eq("revisionId", revision._id)
+      ),
     limit + 1
   );
   const persisted = persistedPage.rows;
@@ -802,13 +795,12 @@ async function readRevisionDiffs(
     return { rows: persisted.slice(0, limit), truncated: true };
   }
   const pendingChunkPage = await readPlanningRows(
-    () =>
-      ctx.db
-        .query("activeBuildPlanningRevisionChunks")
-        .withIndex("by_revision", (query) =>
-          query.eq("revisionId", revision._id)
-        )
-        .order("asc"),
+    ctx.db
+      .query("activeBuildPlanningRevisionChunks")
+      .withIndex("by_revision", (query) =>
+        query.eq("revisionId", revision._id)
+      )
+      .order("asc"),
     PLANNING_REVISION_CHUNK_LIMIT + 1
   );
   const pendingChunks = pendingChunkPage.rows;
@@ -1632,11 +1624,10 @@ async function planningRevisionPage(
   buildId: Id<"activeBuilds">,
 ) {
   const page = await readPlanningRows(
-    () =>
-      ctx.db
-        .query("activeBuildPlanningRevisions")
-        .withIndex("by_build_revision", (query) => query.eq("buildId", buildId))
-        .order("desc"),
+    ctx.db
+      .query("activeBuildPlanningRevisions")
+      .withIndex("by_build_revision", (query) => query.eq("buildId", buildId))
+      .order("desc"),
     PLANNING_REVISION_READ_LIMIT + 1,
   );
   return {
