@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
+import { hasCurrentBuildInvolvement } from "./build_draw_coordination";
 import { resolveCanonicalMilestoneExecutionOwnership } from "./build_collaboration_system_event_access";
 import schema from "./schema";
 import type { Id } from "./types";
@@ -3809,6 +3810,67 @@ describe("Build Collaboration operational events", () => {
     expect(principalState.oversight).toBe(true);
     expect(principalState.canJoin).toBe(false);
     expect(principalState.canLeave).toBe(false);
+    const staleAdminFollowId = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("buildCollaborationFollows", {
+        active: false,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        coordinationActive: true,
+        createdAt: now,
+        organizationId: ORGANIZATION_ID,
+        postId: drawPostId,
+        reason: "manual",
+        updatedAt: now,
+        workosUserId: "user_global_admin",
+      });
+    });
+    const staleAdminState = await fixture.globalAdmin.query(
+      (api as any).build_draw_coordination.getDrawCoordinationState,
+      {
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        postId: drawPostId,
+      },
+    );
+    expect(staleAdminState.joined).toBe(true);
+    expect(staleAdminState.oversight).toBe(true);
+    expect(staleAdminState.canJoin).toBe(false);
+    expect(staleAdminState.canLeave).toBe(false);
+    await expect(
+      fixture.globalAdmin.mutation(
+        (api as any).build_draw_coordination.joinDrawCoordination,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: drawPostId,
+        },
+      ),
+    ).rejects.toThrow(/oversight|Forbidden/i);
+    expect(
+      await fixture.globalAdmin.mutation(
+        (api as any).build_draw_coordination.leaveDrawCoordination,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: drawPostId,
+        },
+      ),
+    ).toBe(false);
+    const clearedAdminFollow = await fixture.base.run(async (ctx) =>
+      ctx.db.get(staleAdminFollowId),
+    );
+    expect(clearedAdminFollow?.coordinationActive).toBe(false);
+    expect(
+      await fixture.globalAdmin.mutation(
+        (api as any).build_draw_coordination.leaveDrawCoordination,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          postId: drawPostId,
+        },
+      ),
+    ).toBe(false);
     await fixture.base.run(async (ctx) => {
       const now = Date.now();
       for (let index = 0; index < 101; index += 1) {
@@ -3886,8 +3948,8 @@ describe("Build Collaboration operational events", () => {
           },
         ),
       ).rejects.toThrow(/oversight|Forbidden/i);
-      await expect(
-        oversight.mutation(
+      expect(
+        await oversight.mutation(
           (api as any).build_draw_coordination.leaveDrawCoordination,
           {
             buildId: fixture.buildId,
@@ -3895,7 +3957,7 @@ describe("Build Collaboration operational events", () => {
             postId: drawPostId,
           },
         ),
-      ).rejects.toThrow(/oversight|Forbidden/i);
+      ).toBe(false);
     }
     const afterOversightMutation = await silentBackfillSideEffectSnapshot(
       fixture.base,
@@ -3941,6 +4003,102 @@ describe("Build Collaboration operational events", () => {
         },
       ),
     ).rejects.toThrow(/read-only|closed/i);
+  });
+
+  test("resolves Draw involvement beyond legacy bounded assignment scans", async () => {
+    const fixture = await seedOperationalBuild();
+    const involvement = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 100; index += 1) {
+        await ctx.db.insert("buildBrokerAssignments", {
+          assignedBrokerWorkosUserId: `draw_beyond_broker_decoy_${index}`,
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          createdAt: now + index,
+          organizationId: ORGANIZATION_ID,
+          role: "support",
+        });
+      }
+      await ctx.db.insert("buildBrokerAssignments", {
+        assignedBrokerWorkosUserId: "draw_beyond_broker_target",
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        createdAt: now + 100,
+        organizationId: ORGANIZATION_ID,
+        role: "primary",
+      });
+      for (let index = 0; index < 20; index += 1) {
+        await ctx.db.insert("builderAccountLinks", {
+          brokerageId: fixture.brokerageId,
+          builderProfileId: fixture.builderProfileId,
+          createdAt: now + index,
+          role: "staff",
+          status: "inactive",
+          updatedAt: now + index,
+          workosUserId: "draw_beyond_builder_target",
+        });
+      }
+      await ctx.db.insert("builderAccountLinks", {
+        brokerageId: fixture.brokerageId,
+        builderProfileId: fixture.builderProfileId,
+        createdAt: now + 20,
+        role: "staff",
+        status: "active",
+        updatedAt: now + 20,
+        workosUserId: "draw_beyond_builder_target",
+      });
+      for (let index = 0; index < 20; index += 1) {
+        await ctx.db.insert("contractorProfiles", {
+          brokerageId: fixture.brokerageId,
+          createdAt: now + index,
+          name: `Beyond contractor decoy ${index}`,
+          organizationId: ORGANIZATION_ID,
+          status: "active",
+          trades: ["concrete"],
+          updatedAt: now + index,
+          accountWorkosUserId: "draw_beyond_contractor_target",
+        });
+      }
+      const targetContractorId = await ctx.db.insert("contractorProfiles", {
+        brokerageId: fixture.brokerageId,
+        createdAt: now + 20,
+        name: "Beyond contractor target",
+        organizationId: ORGANIZATION_ID,
+        status: "active",
+        trades: ["concrete"],
+        updatedAt: now + 20,
+        accountWorkosUserId: "draw_beyond_contractor_target",
+      });
+      await ctx.db.insert("buildContractorAssignments", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        contractorId: targetContractorId,
+        createdAt: now + 20,
+        organizationId: ORGANIZATION_ID,
+        role: "Concrete contractor",
+        status: "active",
+        updatedAt: now + 20,
+      });
+      return {
+        broker: await hasCurrentBuildInvolvement(ctx, {
+          buildId: fixture.buildId,
+          workosUserId: "draw_beyond_broker_target",
+        }),
+        builder: await hasCurrentBuildInvolvement(ctx, {
+          buildId: fixture.buildId,
+          workosUserId: "draw_beyond_builder_target",
+        }),
+        contractor: await hasCurrentBuildInvolvement(ctx, {
+          buildId: fixture.buildId,
+          workosUserId: "draw_beyond_contractor_target",
+        }),
+      };
+    });
+    expect(involvement).toEqual({
+      broker: true,
+      builder: true,
+      contractor: true,
+    });
   });
 
   test("rejects a planning snapshot that exceeds the bounded Milestone cap", async () => {

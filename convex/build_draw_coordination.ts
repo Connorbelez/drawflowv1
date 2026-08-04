@@ -19,6 +19,21 @@ import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
 
 type WorkosOrganizationMembership = Doc<"workosOrganizationMemberships">;
 
+interface DrawCoordinationInvolvementContext {
+  build: Doc<"activeBuilds">;
+  proposal: Doc<"buildProposals">;
+  latestParticipationByUser: ReadonlyMap<
+    string,
+    Doc<"buildParticipants"> | null
+  >;
+  brokerAssignmentByUser: ReadonlyMap<
+    string,
+    Doc<"buildBrokerAssignments"> | null
+  >;
+  hasActiveBuilderLinkByUser: ReadonlyMap<string, boolean>;
+  hasCurrentContractorAssignmentByUser: ReadonlyMap<string, boolean>;
+}
+
 async function getWorkosOrganizationMembership(
   ctx: QueryCtx | MutationCtx,
   input: { organizationId: string; workosUserId: string },
@@ -60,57 +75,108 @@ export async function hasActiveWorkosOrganizationMembership(
  */
 export async function hasCurrentBuildInvolvement(
   ctx: QueryCtx | MutationCtx,
-  input: { buildId: Id<"activeBuilds">; workosUserId: string },
+  input: {
+    buildId: Id<"activeBuilds">;
+    workosUserId: string;
+    involvementContext?: DrawCoordinationInvolvementContext;
+  },
 ) {
-  const build = await ctx.db.get(input.buildId);
-  if (!build) return false;
-  const latestParticipation = await ctx.db
-    .query("buildParticipants")
-    .withIndex("by_buildId_and_workosUserId_and_participationPeriod", (query) =>
-      query
-        .eq("buildId", input.buildId)
-        .eq("workosUserId", input.workosUserId),
-    )
-    .order("desc")
-    .first();
+  const context =
+    input.involvementContext?.build._id === input.buildId
+      ? input.involvementContext
+      : undefined;
+  const build =
+    context?.build ?? (await ctx.db.get(input.buildId));
+  if (!build) {
+    return false;
+  }
+  const latestParticipation = context?.latestParticipationByUser.has(
+    input.workosUserId,
+  )
+    ? context.latestParticipationByUser.get(input.workosUserId) ?? null
+    : await ctx.db
+        .query("buildParticipants")
+        .withIndex(
+          "by_buildId_and_workosUserId_and_participationPeriod",
+          (query) =>
+            query
+              .eq("buildId", input.buildId)
+              .eq("workosUserId", input.workosUserId),
+        )
+        .order("desc")
+        .first();
   if (latestParticipation) {
     return latestParticipation.status === "active";
   }
 
-  const proposal = await ctx.db.get(build.proposalId);
+  const proposal = context?.proposal ?? (await ctx.db.get(build.proposalId));
   if (proposal?.assignedBrokerWorkosUserId === input.workosUserId) {
     return true;
   }
-  const brokerAssignments = await ctx.db
-    .query("buildBrokerAssignments")
-    .withIndex("by_build", (query) => query.eq("buildId", input.buildId))
-    .take(100);
-  if (
-    brokerAssignments.some(
-      (assignment) =>
-        assignment.assignedBrokerWorkosUserId === input.workosUserId,
-    )
-  ) {
+  const brokerAssignment = context?.brokerAssignmentByUser.has(
+    input.workosUserId,
+  )
+    ? context.brokerAssignmentByUser.get(input.workosUserId) ?? null
+    : await ctx.db
+        .query("buildBrokerAssignments")
+        .withIndex("by_build_and_assignedBrokerWorkosUserId", (query) =>
+          query
+            .eq("buildId", input.buildId)
+            .eq("assignedBrokerWorkosUserId", input.workosUserId),
+        )
+        .first();
+  if (brokerAssignment) {
     return true;
   }
-  const builderLinks = await ctx.db
+  const hasActiveBuilderLink = context?.hasActiveBuilderLinkByUser.has(
+    input.workosUserId,
+  )
+    ? context.hasActiveBuilderLinkByUser.get(input.workosUserId) === true
+    : await hasActiveBuilderAccountLink(ctx, {
+        builderProfileId: build.builderProfileId,
+        workosUserId: input.workosUserId,
+      });
+  if (hasActiveBuilderLink) {
+    return true;
+  }
+  return context?.hasCurrentContractorAssignmentByUser.has(
+    input.workosUserId,
+  )
+    ? context.hasCurrentContractorAssignmentByUser.get(input.workosUserId) ===
+        true
+    : await hasCurrentContractorBuildAssignment(ctx, {
+        buildId: input.buildId,
+        workosUserId: input.workosUserId,
+      });
+}
+
+async function hasActiveBuilderAccountLink(
+  ctx: QueryCtx | MutationCtx,
+  input: { builderProfileId: Id<"builderProfiles">; workosUserId: string },
+) {
+  for await (const link of ctx.db
     .query("builderAccountLinks")
     .withIndex("by_builder_user", (query) =>
       query
-        .eq("builderProfileId", build.builderProfileId)
+        .eq("builderProfileId", input.builderProfileId)
         .eq("workosUserId", input.workosUserId),
-    )
-    .take(20);
-  if (builderLinks.some((link) => link.status === "active")) {
-    return true;
+    )) {
+    if (link.status === "active") {
+      return true;
+    }
   }
-  const contractors = await ctx.db
+  return false;
+}
+
+async function hasCurrentContractorBuildAssignment(
+  ctx: QueryCtx | MutationCtx,
+  input: { buildId: Id<"activeBuilds">; workosUserId: string },
+) {
+  for await (const contractor of ctx.db
     .query("contractorProfiles")
     .withIndex("by_account_user", (query) =>
       query.eq("accountWorkosUserId", input.workosUserId),
-    )
-    .take(20);
-  for (const contractor of contractors) {
+    )) {
     const assignment = await ctx.db
       .query("buildContractorAssignments")
       .withIndex("by_build_contractor", (query) =>
@@ -119,9 +185,93 @@ export async function hasCurrentBuildInvolvement(
           .eq("contractorId", contractor._id),
       )
       .first();
-    if (assignment && assignment.status !== "inactive") return true;
+    if (assignment && assignment.status !== "inactive") {
+      return true;
+    }
   }
   return false;
+}
+
+async function resolveDrawCoordinationInvolvementContext(
+  ctx: QueryCtx | MutationCtx,
+  authorization: ActiveBuildAuthorization,
+  workosUserIds: readonly string[],
+) {
+  const uniqueUserIds = [...new Set(workosUserIds)];
+  const latestParticipationByUser = new Map(
+    await Promise.all(
+      uniqueUserIds.map(
+        async (workosUserId) =>
+          [
+            workosUserId,
+            await ctx.db
+              .query("buildParticipants")
+              .withIndex(
+                "by_buildId_and_workosUserId_and_participationPeriod",
+                (query) =>
+                  query
+                    .eq("buildId", authorization.build._id)
+                    .eq("workosUserId", workosUserId),
+              )
+              .order("desc")
+              .first(),
+          ] as const,
+      ),
+    ),
+  );
+  const fallbackUserIds = uniqueUserIds.filter(
+    (workosUserId) => latestParticipationByUser.get(workosUserId) === null,
+  );
+  const fallbackEntries = await Promise.all(
+    fallbackUserIds.map(async (workosUserId) => {
+      const [brokerAssignment, hasActiveBuilderLink, hasContractorAssignment] =
+        await Promise.all([
+          ctx.db
+            .query("buildBrokerAssignments")
+            .withIndex("by_build_and_assignedBrokerWorkosUserId", (query) =>
+              query
+                .eq("buildId", authorization.build._id)
+                .eq("assignedBrokerWorkosUserId", workosUserId),
+            )
+            .first(),
+          hasActiveBuilderAccountLink(ctx, {
+            builderProfileId: authorization.build.builderProfileId,
+            workosUserId,
+          }),
+          hasCurrentContractorBuildAssignment(ctx, {
+            buildId: authorization.build._id,
+            workosUserId,
+          }),
+        ]);
+      return [
+        workosUserId,
+        { brokerAssignment, hasActiveBuilderLink, hasContractorAssignment },
+      ] as const;
+    }),
+  );
+  return {
+    build: authorization.build,
+    proposal: authorization.proposal,
+    latestParticipationByUser,
+    brokerAssignmentByUser: new Map(
+      fallbackEntries.map(([workosUserId, value]) => [
+        workosUserId,
+        value.brokerAssignment,
+      ]),
+    ),
+    hasActiveBuilderLinkByUser: new Map(
+      fallbackEntries.map(([workosUserId, value]) => [
+        workosUserId,
+        value.hasActiveBuilderLink,
+      ]),
+    ),
+    hasCurrentContractorAssignmentByUser: new Map(
+      fallbackEntries.map(([workosUserId, value]) => [
+        workosUserId,
+        value.hasContractorAssignment,
+      ]),
+    ),
+  } satisfies DrawCoordinationInvolvementContext;
 }
 
 export async function isInternalDrawCoordinationEligible(
@@ -132,6 +282,7 @@ export async function isInternalDrawCoordinationEligible(
     role: BuildCollaborationRole;
     workosUserId: string;
     membership?: WorkosOrganizationMembership | null;
+    involvementContext?: DrawCoordinationInvolvementContext;
   },
 ) {
   if (input.role === "contractor" || input.role === "homeowner") {
@@ -252,35 +403,64 @@ export async function projectDrawCoordinationState(
     )
     .take(101);
   const audienceRows = rows.slice(0, 100);
+  const audienceUserIds = [
+    ...new Set(audienceRows.map((row) => row.workosUserId)),
+  ];
   const membershipEntries = await Promise.all(
-    [...new Set(audienceRows.map((row) => row.workosUserId))].map(
-      async (workosUserId) => [
+    audienceUserIds.map(async (workosUserId) => [
+      workosUserId,
+      await getWorkosOrganizationMembership(ctx, {
+        organizationId: authorization.organizationId,
         workosUserId,
-        await getWorkosOrganizationMembership(ctx, {
-          organizationId: authorization.organizationId,
-          workosUserId,
-        }),
-      ] as const,
-    ),
+      }),
+    ] as const),
   );
   const membershipsByUser = new Map(membershipEntries);
-  const eligibleRows = await Promise.all(
-    audienceRows.map(async (row) => {
-      const membership = membershipsByUser.get(row.workosUserId) ?? null;
-      const role = await roleForUser(
+  const roleEntries = await Promise.all(
+    audienceUserIds.map(async (workosUserId) => [
+      workosUserId,
+      await roleForUser(
         ctx,
         authorization,
-        row.workosUserId,
-        membership,
-      );
-      return await isInternalDrawCoordinationEligible(ctx, {
-        buildId: authorization.build._id,
-        organizationId: authorization.organizationId,
-        role,
-        workosUserId: row.workosUserId,
-        membership,
-      });
+        workosUserId,
+        membershipsByUser.get(workosUserId) ?? null,
+      ),
+    ] as const),
+  );
+  const rolesByUser = new Map(roleEntries);
+  const involvementUserIds = audienceUserIds.filter((workosUserId) => {
+    const role = rolesByUser.get(workosUserId);
+    return (
+      role !== "admin" &&
+      role !== "principle-broker" &&
+      role !== "contractor" &&
+      role !== "homeowner"
+    );
+  });
+  const involvementContext = await resolveDrawCoordinationInvolvementContext(
+    ctx,
+    authorization,
+    involvementUserIds,
+  );
+  const eligibilityEntries = await Promise.all(
+    audienceUserIds.map(async (workosUserId) => {
+      const role = rolesByUser.get(workosUserId) ?? "builder-staff";
+      return [
+        workosUserId,
+        await isInternalDrawCoordinationEligible(ctx, {
+          buildId: authorization.build._id,
+          organizationId: authorization.organizationId,
+          role,
+          workosUserId,
+          membership: membershipsByUser.get(workosUserId) ?? null,
+          involvementContext,
+        }),
+      ] as const;
     }),
+  );
+  const eligibleByUser = new Map(eligibilityEntries);
+  const eligibleRows = audienceRows.map(
+    (row) => eligibleByUser.get(row.workosUserId) === true,
   );
   const workingAudienceCount = eligibleRows.filter(Boolean).length;
   const writable = await isBuildCollaborationWritableByBuildId(ctx, {
@@ -288,9 +468,8 @@ export async function projectDrawCoordinationState(
     organizationId: authorization.organizationId,
   });
   const oversight =
-    !joined &&
-    (authorization.effectiveRole.role === "admin" ||
-      authorization.effectiveRole.role === "principle-broker");
+    authorization.effectiveRole.role === "admin" ||
+    authorization.effectiveRole.role === "principle-broker";
   return {
     // Admin and principal-broker can inspect Draw coordination but are never
     // enrolled in its working audience. Keep this guard in the projected
@@ -318,7 +497,9 @@ async function roleForUser(
   const participant = authorization.participants.find(
     (candidate) => candidate.workosUserId === workosUserId,
   );
-  if (participant) return participant.role;
+  if (participant) {
+    return participant.role;
+  }
   const resolvedMembership =
     membership === undefined
       ? await getWorkosOrganizationMembership(ctx, {
@@ -468,12 +649,6 @@ export const leaveDrawCoordination = authenticatedMutation
     ) {
       throw new Error("Draw coordination is read-only while this Build is archived.");
     }
-    if (
-      authorization.effectiveRole.role === "admin" ||
-      authorization.effectiveRole.role === "principle-broker"
-    ) {
-      throw new Error("Forbidden: Draw coordination oversight role");
-    }
     const existing = await ctx.db
       .query("buildCollaborationFollows")
       .withIndex("by_postId_and_workosUserId", (query) =>
@@ -482,7 +657,9 @@ export const leaveDrawCoordination = authenticatedMutation
           .eq("workosUserId", authorization.viewer.subject),
       )
       .unique();
-    if (!existing?.coordinationActive) return false;
+    if (!existing?.coordinationActive) {
+      return false;
+    }
     const now = Date.now();
     await ctx.db.patch(existing._id, {
       coordinationActive: false,

@@ -5346,6 +5346,10 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_build", ["buildId"])
+    .index("by_build_and_assignedBrokerWorkosUserId", [
+      "buildId",
+      "assignedBrokerWorkosUserId",
+    ])
     .index("by_broker", ["brokerageId", "assignedBrokerWorkosUserId"])
     .index("by_organizationId_and_createdAt", ["organizationId", "createdAt"]),
   loanFacilities: defineTable({
