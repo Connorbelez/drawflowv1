@@ -2503,6 +2503,33 @@ describe("production proposal foundation", () => {
       requestNote: "Builder reimbursement note.",
       requestReviewNote: "Lender review requires another supporting invoice.",
     });
+
+    const builderDetailAfterRejection = await builder.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    const builderTimelineAfterRejection = await builder.query(
+      (api as any).production_proposals.getActiveBuildTimelineWorkspace,
+      { buildId: closing.buildId, workosOrganizationId: ORG },
+    );
+    const builderDetailDrawAfterRejection =
+      builderDetailAfterRejection.draws.find(
+        (draw: any) => draw.drawKey === receipt.requestKey,
+      );
+    const builderTimelineDrawAfterRejection =
+      builderTimelineAfterRejection.draws.find(
+        (draw: any) => draw.drawKey === receipt.requestKey,
+      );
+    expect(builderDetailDrawAfterRejection).toBeDefined();
+    expect(builderTimelineDrawAfterRejection).toBeDefined();
+    expect(builderDetailDrawAfterRejection).not.toHaveProperty("requestNote");
+    expect(builderDetailDrawAfterRejection).not.toHaveProperty(
+      "requestReviewNote",
+    );
+    expect(builderTimelineDrawAfterRejection).not.toHaveProperty("requestNote");
+    expect(builderTimelineDrawAfterRejection).not.toHaveProperty(
+      "requestReviewNote",
+    );
   });
 
   test("provisions unknown active-build builder staff emails before assigning app permissions", async () => {
@@ -6921,6 +6948,170 @@ describe("production proposal foundation", () => {
     });
   });
 
+  test("preserves site-visit uploads when their milestone target is superseded or missing and routes review", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Unassigned site-visit evidence build",
+      submilestones: [
+        { key: "excavation", name: "Excavation", order: 1 },
+      ],
+    });
+    const visit = await admin.mutation(
+      (api as any).production_proposals.assignActiveBuildSiteVisit,
+      {
+        buildId: closing.buildId,
+        milestoneKey: "foundation",
+        note: "Inspect the stale target evidence.",
+        requestedDay: 21,
+        submilestoneKeys: ["excavation"],
+        workosOrganizationId: ORG,
+      },
+    );
+    await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      await ctx.db.patch(milestone._id, { planningState: "superseded" });
+    });
+
+    const supersededStorageId = await admin.run(async (ctx: any) =>
+      ctx.storage.store(
+        new Blob(["superseded evidence"], { type: "image/webp" }),
+      ),
+    );
+    const supersededRegistration = await admin.mutation(
+      (api as any).production_proposals.registerActiveBuildSiteVisitFile,
+      {
+        buildId: String(closing.buildId),
+        clientEvidenceId: "superseded-target-evidence",
+        fileName: "superseded-target.webp",
+        mimeType: "image/webp",
+        sizeBytes: 64,
+        storageId: supersededStorageId,
+        targetMilestoneKey: "foundation",
+        targetSubmilestoneKey: "excavation",
+        token: visit.visitId,
+      },
+    );
+    expect(supersededRegistration.status).toBe("registered");
+    expect(
+      await admin.run(async (ctx: any) =>
+        Boolean(await ctx.storage.get(supersededStorageId)),
+      ),
+    ).toBe(true);
+
+    await admin.run(async (ctx: any) => {
+      const milestone = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", closing.buildId).eq("key", "foundation"),
+        )
+        .unique();
+      await ctx.db.delete(milestone._id);
+    });
+    const missingStorageId = await admin.run(async (ctx: any) =>
+      ctx.storage.store(new Blob(["missing evidence"], { type: "image/webp" })),
+    );
+    const missingRegistration = await admin.mutation(
+      (api as any).production_proposals.registerActiveBuildSiteVisitFile,
+      {
+        buildId: String(closing.buildId),
+        clientEvidenceId: "missing-target-evidence",
+        fileName: "missing-target.webp",
+        mimeType: "image/webp",
+        sizeBytes: 48,
+        storageId: missingStorageId,
+        targetMilestoneKey: "foundation",
+        targetSubmilestoneKey: "removed-submilestone",
+        token: visit.visitId,
+      },
+    );
+    expect(missingRegistration.status).toBe("registered");
+    expect(
+      await admin.run(async (ctx: any) =>
+        Boolean(await ctx.storage.get(missingStorageId)),
+      ),
+    ).toBe(true);
+
+    const evidence = await admin.run(async (ctx: any) => {
+      const visitRow = await ctx.db
+        .query("buildSiteVisits")
+        .withIndex("by_visit", (q: any) => q.eq("visitId", visit.visitId))
+        .unique();
+      const assets = await ctx.db
+        .query("buildEvidenceAssets")
+        .withIndex("by_site_visit", (q: any) => q.eq("siteVisitId", visitRow._id))
+        .collect();
+      const posts = (await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_createdAt", (q: any) =>
+          q.eq("buildId", closing.buildId),
+        )
+        .collect()) as any[];
+      const targetReviewPost = posts.find((post) =>
+        post.systemEventKey?.endsWith(":target-unassigned"),
+      );
+      const revision = targetReviewPost?.currentRevisionId
+        ? await ctx.db.get(targetReviewPost.currentRevisionId)
+        : null;
+      const reviewDelivery = (await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient", (q: any) =>
+          q
+            .eq("organizationId", ORG)
+            .eq("recipientWorkosUserId", "user_admin"),
+        )
+        .collect()).find(
+        (delivery: any) =>
+          delivery.title === "Site Visit Evidence needs assignment" &&
+          delivery.entityId === String(closing.buildId),
+      );
+      return { assets, revision, reviewDelivery, targetReviewPost };
+    });
+    expect(evidence.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          clientEvidenceId: "superseded-target-evidence",
+          milestoneKey: "foundation",
+          storageId: supersededStorageId,
+        }),
+        expect.objectContaining({
+          clientEvidenceId: "missing-target-evidence",
+          milestoneKey: "foundation",
+          storageId: missingStorageId,
+        }),
+      ]),
+    );
+    expect(
+      evidence.assets
+        .filter((asset: any) =>
+          ["superseded-target-evidence", "missing-target-evidence"].includes(
+            asset.clientEvidenceId,
+          ),
+        )
+        .every((asset: any) => asset.submilestoneKey === undefined),
+    ).toBe(true);
+    expect(evidence.targetReviewPost ?? evidence.reviewDelivery).toBeDefined();
+    if (evidence.targetReviewPost) {
+      expect(evidence.targetReviewPost).toMatchObject({
+        postType: "issue",
+        systemEventKey: expect.stringContaining(":target-unassigned"),
+      });
+      expect(evidence.revision?.plainText).toContain(
+        "Lender review is required.",
+      );
+    } else {
+      expect(evidence.reviewDelivery).toMatchObject({
+        actionRequired: true,
+        sourceLabel: "Site Visit Staff",
+        title: "Site Visit Evidence needs assignment",
+      });
+    }
+  });
+
   test("starts active-build milestone work explicitly with audit history", async () => {
     const { base, seed, t } = await seeded(["admin"], "user_admin");
     const proposalId = await t.mutation(
@@ -10121,6 +10312,112 @@ describe("production proposal foundation", () => {
     ).toBe(true);
   });
 
+  test("excludes superseded milestone funding, planned draw forecasts, and stale allocations", async () => {
+    const { seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed, {
+      buildName: "Superseded funding exclusion build",
+      milestones: [
+        {
+          budgetCents: 25_000_000,
+          dayEnd: 20,
+          dayStart: 0,
+          dependencyKeys: [],
+          durationDays: 20,
+          key: "foundation",
+          name: "Foundation",
+          order: 1,
+          submilestones: [],
+        },
+        {
+          budgetCents: 25_000_000,
+          dayEnd: 40,
+          dayStart: 20,
+          dependencyKeys: ["foundation"],
+          durationDays: 20,
+          key: "framing",
+          name: "Framing",
+          order: 2,
+          submilestones: [],
+        },
+      ],
+    });
+    await unlockActiveBuildMilestoneForDraw(
+      admin,
+      closing.buildId,
+      "foundation",
+    );
+    await unlockActiveBuildMilestoneForDraw(admin, closing.buildId, "framing");
+    await admin.run(async (ctx: any) => {
+      const framing = await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (q: any) =>
+          q.eq("buildId", closing.buildId).eq("key", "framing"),
+        )
+        .unique();
+      await ctx.db.patch(framing._id, {
+        drawAvailabilityCents: 999_000_000,
+        planningState: "superseded",
+      });
+      const framingDraw = (
+        await ctx.db
+          .query("plannedDrawScheduleRows")
+          .withIndex("by_build", (q: any) => q.eq("buildId", closing.buildId))
+          .collect()
+      ).find((draw: any) => draw.milestoneKey === "framing");
+      expect(framingDraw).toBeDefined();
+      await ctx.db.patch(framingDraw._id, {
+        amountCents: 999_000_000,
+        status: "planned",
+      });
+      const staleRequestId = await ctx.db.insert("activeBuildDrawRequests", {
+        amountCents: 1_000_000,
+        brokerageId: seed.brokerageId,
+        buildId: closing.buildId,
+        clientOperationId: "superseded-allocation-001",
+        createdAt: Date.now(),
+        displayId: "DR-STALE",
+        label: "Stale superseded allocation",
+        organizationId: ORG,
+        requestedAt: "2026-07-01T12:00:00.000Z",
+        requestedByWorkosUserId: "user_builder",
+        requestKey: "draw-stale-superseded",
+        status: "withdrawn",
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("activeBuildDrawRequestAllocations", {
+        amountCents: 1_000_000,
+        brokerageId: seed.brokerageId,
+        buildId: closing.buildId,
+        buildMilestoneId: framing._id,
+        drawGroupKey: "framing",
+        drawRequestId: staleRequestId,
+        milestoneKey: "framing",
+        organizationId: ORG,
+        sourceOrder: 0,
+        createdAt: Date.now(),
+      });
+    });
+
+    const detail = await admin.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    expect(detail.drawFunding).toMatchObject({
+      approvedMilestoneCents: 20_000_000,
+      availableCents: 20_000_000,
+      reservedCents: 0,
+      unlockedCents: 20_000_000,
+    });
+    expect(detail.drawFunding.sources).toEqual([
+      expect.objectContaining({
+        drawGroupKey: "draw-01",
+        milestoneKey: "foundation",
+        reservedCents: 0,
+        unlockedCents: 20_000_000,
+      }),
+    ]);
+  });
+
   test("backfills legacy request attribution and normalizes approved work orders", async () => {
     const { seed, t: admin } = await seeded(["admin"], "user_admin");
     const closing = await createClosedSingleMilestoneBuild(admin, seed);
@@ -11439,6 +11736,20 @@ describe("recipient delivery inbox", () => {
       },
     );
 
+    const builderDetail = await builder.query(
+      (api as any).production_proposals.getActiveBuildDetailByString,
+      { buildId: String(closing.buildId), workosOrganizationId: ORG },
+    );
+    const builderDraw = builderDetail.draws.find(
+      (draw: any) => draw.drawKey === receipt.requestKey,
+    );
+    expect(builderDraw).toMatchObject({
+      releaseDate: "2026-06-15",
+      releasedAt: expect.any(String),
+      requestedAt: expect.any(String),
+    });
+    expect(builderDraw).not.toHaveProperty("releaseNote");
+
     const inbox = await builder.query(
       (api as any).production_proposals.listRecipientInbox,
       { workosOrganizationId: ORG },
@@ -11476,6 +11787,81 @@ describe("recipient delivery inbox", () => {
         (delivery: any) => delivery._id === releaseDelivery._id,
       ),
     ).toMatchObject({ status: "resolved" });
+  });
+
+  test("delivers administrative draw cancellation with the lender reason", async () => {
+    const { base, seed, t: admin } = await seeded(["admin"], "user_admin");
+    const closing = await createClosedSingleMilestoneBuild(admin, seed);
+    await unlockActiveBuildMilestoneForDraw(admin, closing.buildId);
+    const builder = withIdentity(base, ["builder"], "user_builder");
+    const receipt = await builder.mutation(
+      (api as any).production_proposals.requestActiveBuildDraw,
+      {
+        amountCents: 8_000_000,
+        buildId: closing.buildId,
+        clientOperationId: "draw-cancellation-delivery-001",
+        drawKey: "draw-01",
+        note: "Reimbursement request awaiting scope confirmation.",
+        workosOrganizationId: ORG,
+      },
+    );
+    const cancellationNote =
+      "Lender cancelled the request after scope reconciliation.";
+    await admin.mutation(
+      (api as any).production_proposals.cancelActiveBuildDraw,
+      {
+        buildId: closing.buildId,
+        drawKey: receipt.requestKey,
+        note: cancellationNote,
+        workosOrganizationId: ORG,
+      },
+    );
+
+    const inbox = await builder.query(
+      (api as any).production_proposals.listRecipientInbox,
+      { workosOrganizationId: ORG },
+    );
+    expect(inbox.deliveries).toEqual([
+      expect.objectContaining({
+        actionLabel: "View draw",
+        actionRequired: true,
+        body: cancellationNote,
+        entityId: String(closing.buildId),
+        resolutionMode: "domain",
+        sourceLabel: "Lender Admin",
+        title: `${receipt.displayId} cancelled`,
+      }),
+    ]);
+    const records = await admin.run(async (ctx: any) => ({
+      audits: await ctx.db
+        .query("auditEvents")
+        .withIndex("by_entity", (q: any) =>
+          q.eq("entityType", "activeBuild").eq("entityId", String(closing.buildId)),
+        )
+        .collect(),
+      deliveries: await ctx.db
+        .query("recipientDeliveries")
+        .withIndex("by_recipient_dedupe", (q: any) =>
+          q
+            .eq("organizationId", ORG)
+            .eq("recipientWorkosUserId", "user_builder")
+            .eq(
+              "dedupeKey",
+              `draw-decision:${closing.buildId}:${receipt.requestKey}:cancelled`,
+            ),
+        )
+        .collect(),
+    }));
+    expect(records.deliveries).toHaveLength(1);
+    expect(
+      records.audits.find(
+        (event: any) => event.command === "cancelActiveBuildDraw",
+      ),
+    ).toMatchObject({
+      actorRoles: ["admin"],
+      actorWorkosUserId: "user_admin",
+      reason: cancellationNote,
+    });
   });
 });
 

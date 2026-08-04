@@ -43,6 +43,7 @@ import {
   publishSiteVisitRescheduledCollaborationEvent,
   publishSiteVisitScheduledCollaborationEvent,
 } from "./build_collaboration_operational_events";
+import { publishCanonicalBuildCollaborationSystemEvent } from "./build_collaboration_system_events";
 import {
   publishDocumentCollaborationEvent,
   publishDrawCollaborationEvent,
@@ -14874,7 +14875,9 @@ export const getActiveBuildDetailByString = authenticatedQuery
                 : {}),
               releaseDate: request.releaseDate,
               releasedAt: request.releasedAt,
-              releaseNote: request.releaseNote,
+              ...(canViewLenderDrawNotes
+                ? { releaseNote: request.releaseNote }
+                : {}),
               requestedAt: request.requestedAt,
               ...(canViewLenderDrawNotes
                 ? {
@@ -16762,7 +16765,7 @@ export const deleteActiveBuildTimelineMilestone = authenticatedMutation
       args.buildId,
       args.milestoneKey,
     );
-    const supersededSubmilestoneIds = await deleteActiveBuildMilestoneCascade(
+    const supersededSubmilestoneIds = await supersedeActiveBuildMilestoneCascade(
       ctx,
       args.buildId,
       milestone,
@@ -17313,10 +17316,19 @@ export const createActiveBuildTimelineEvidenceAsset = authenticatedMutation
         submilestone,
       });
     }
-    await publishEvidenceSubmittedCollaborationEvents(ctx, {
-      asset: persistedAsset,
-      revision: 1,
-    });
+    try {
+      await publishEvidenceSubmittedCollaborationEvents(ctx, {
+        asset: persistedAsset,
+        revision: 1,
+      });
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        error.message !== "A system event requires at least one authorized reader."
+      ) {
+        throw error;
+      }
+    }
     return null;
   })
   .public();
@@ -17663,7 +17675,7 @@ async function promoteCanonicalDiscussionAttachmentToEvidence(
     auth: {
       brokerage: auth.brokerage,
       proposal: auth.proposal,
-      roles: normalizeRoleSlugs(auth.roles),
+      roles: actorRoles,
       subject: auth.viewer.subject,
     },
     build: auth.build,
@@ -19537,6 +19549,7 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       ctx,
       args.buildId,
       args.token,
+      { allowUnassignedTarget: true },
     );
     if (!state.available) {
       throw new Error("Site visit token is not active.");
@@ -19554,10 +19567,6 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       throw new Error("Site visit token is invalid.");
     }
     const visitMilestone = await ctx.db.get(visit.buildMilestoneId);
-    if (!visitMilestone) {
-      throw new Error("Site visit milestone was not found.");
-    }
-    assertActiveBuildPlanningTargetActive(visitMilestone);
     const clientEvidenceId = normalizeOperationalIdempotencyKey(
       args.clientEvidenceId,
       "Site Visit Evidence client ID",
@@ -19614,6 +19623,43 @@ export const registerActiveBuildSiteVisitFile = publicMutation
         storageDisposition: "preserved_unowned_upload" as const,
       };
     }
+    let targetMilestone: Doc<"buildMilestones"> | undefined;
+    if (targetMilestoneKey) {
+      const targetMilestones = (await ctx.db
+        .query("buildMilestones")
+        .withIndex("by_build_key", (query) =>
+          query.eq("buildId", buildId).eq("key", targetMilestoneKey),
+        )
+        .collect()) as Doc<"buildMilestones">[];
+      targetMilestone =
+        targetMilestones.find(
+          (milestone) => milestone.planningState !== "superseded",
+        ) ?? targetMilestones[0];
+    } else {
+      targetMilestone = visitMilestone ?? undefined;
+    }
+    const activeTargetMilestone =
+      targetMilestone && targetMilestone.planningState !== "superseded"
+        ? targetMilestone
+        : undefined;
+    let targetSubmilestone: Doc<"buildSubmilestones"> | undefined;
+    if (activeTargetMilestone && targetSubmilestoneKey) {
+      targetSubmilestone = (
+        (await ctx.db
+          .query("buildSubmilestones")
+          .withIndex("by_milestone", (query) =>
+            query.eq("buildMilestoneId", activeTargetMilestone._id),
+          )
+          .collect()) as Doc<"buildSubmilestones">[]
+      ).find(
+        (submilestone) =>
+          submilestone.key === targetSubmilestoneKey &&
+          submilestone.planningState !== "superseded",
+      );
+    }
+    const evidenceTargetUnassigned =
+      !activeTargetMilestone ||
+      Boolean(targetSubmilestoneKey && !targetSubmilestone);
     const now = Date.now();
     const assetId = await ctx.db.insert("buildEvidenceAssets", {
       brokerageId: build.brokerageId,
@@ -19653,52 +19699,86 @@ export const registerActiveBuildSiteVisitFile = publicMutation
       siteVisitId: visit._id,
       source: `active_build_site_visit:${args.token}:${targetSubmilestoneKey ?? ""}`,
       storageId: args.storageId,
-      submilestoneKey: targetSubmilestoneKey,
+      ...(targetSubmilestone ? { submilestoneKey: targetSubmilestone.key } : {}),
       tag: "Site visit evidence",
       updatedAt: now,
     });
-    await ctx.db.patch(visit.buildMilestoneId, {
-      evidenceState: "Site visit evidence submitted",
-      updatedAt: now,
-    });
+    if (visitMilestone && visitMilestone.planningState !== "superseded") {
+      await ctx.db.patch(visit.buildMilestoneId, {
+        evidenceState: "Site visit evidence submitted",
+        updatedAt: now,
+      });
+    }
     const persistedAsset = await ctx.db.get(assetId);
     if (!persistedAsset) {
       throw new Error("Submitted Site Visit Evidence became unavailable.");
     }
-    if (targetSubmilestoneKey) {
-      const submilestones = (
-        (await ctx.db
-          .query("buildSubmilestones")
-          .withIndex("by_milestone", (query) =>
-            query.eq("buildMilestoneId", visit.buildMilestoneId),
-          )
-          .collect()) as Doc<"buildSubmilestones">[]
-      );
-      const submilestone = findActiveBuildSubmilestoneByKey(
-        submilestones,
-        targetSubmilestoneKey,
-      );
-      if (!submilestone) {
-        throw new ConvexError({
-          code: "SUBMILESTONE_NOT_FOUND",
-          message: "Site Visit Evidence Sub-milestone is unavailable.",
-          submilestoneKey: targetSubmilestoneKey,
-        });
-      }
-      assertActiveBuildPlanningTargetActive(visitMilestone, submilestone);
+    if (targetSubmilestone && activeTargetMilestone) {
       await appendActiveSubmilestoneEvidenceAssetToDraft(ctx, {
         actorWorkosUserId: "tokenized_site_visitor",
         asset: persistedAsset,
         build,
-        milestone: visitMilestone,
+        milestone: activeTargetMilestone,
         sourceKind: "site_visit",
-        submilestone,
+        submilestone: targetSubmilestone,
       });
     }
     await publishEvidenceSubmittedCollaborationEvents(ctx, {
       asset: persistedAsset,
       revision: 1,
     });
+    if (evidenceTargetUnassigned) {
+      const targetLabel = [
+        targetMilestoneKey ?? visit.milestoneKey,
+        targetSubmilestoneKey,
+      ]
+        .filter(Boolean)
+        .join(" / ");
+      let unassignedEvidencePostId: Id<"buildCollaborationPosts"> | null =
+        null;
+      try {
+        unassignedEvidencePostId =
+          await publishCanonicalBuildCollaborationSystemEvent(ctx, {
+            buildId,
+            idempotencyKey: `operational:evidence:${persistedAsset._id}:r1:target-unassigned`,
+            notificationKind: "blocker",
+            notificationTitle: "Site Visit Evidence needs assignment",
+            organizationId: build.organizationId,
+            plainText: `${persistedAsset.label} was preserved, but target ${targetLabel} is no longer active or could not be found. Lender review is required.`,
+            postType: "issue",
+            references: [
+              {
+                entityId: persistedAsset._id,
+                entityKind: "evidenceAsset",
+                primary: true,
+              },
+            ],
+            remediation: {
+              description:
+                "Review the preserved Site Visit Evidence and assign it to the correct active Milestone or Sub-milestone without deleting the uploaded file.",
+              obligationKey: `evidence-asset:${persistedAsset._id}`,
+              policyKey: "evidence-target-unassigned",
+              title: `Assign preserved Site Visit Evidence for ${targetLabel}`,
+              workKind: "evidence",
+            },
+            systemLabel: "DrawFlow Operations",
+          });
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          error.message !== "A system event requires at least one authorized reader."
+        ) {
+          throw error;
+        }
+      }
+      if (!unassignedEvidencePostId) {
+        await upsertBackofficeUnassignedEvidenceDeliveries(ctx, {
+          asset: persistedAsset,
+          build,
+          targetLabel,
+        });
+      }
+    }
     return { assetId, status: "registered" as const };
   })
   .public();
@@ -21369,6 +21449,12 @@ export const cancelActiveBuildDraw = authenticatedMutation
       drawRequest: { ...request, ...patch },
       reason: note,
     });
+    await upsertBuilderDrawDecisionDeliveries(ctx, {
+      auth,
+      draw: { ...request, ...patch },
+      note,
+      status: "cancelled",
+    });
     return {
       cancelledAt,
       requestKey: request.requestKey,
@@ -22983,26 +23069,31 @@ async function upsertBuilderDrawDecisionDeliveries(
     auth: ActiveBuildDeliveryAuth;
     draw: Doc<"activeBuildDrawRequests">;
     note?: string;
-    status: "approved" | "rejected" | "released";
+    status: "approved" | "rejected" | "released" | "cancelled";
   },
 ) {
   const recipients = await activeBuilderRecipientWorkosUserIds(ctx, input.auth);
   const now = Date.now();
   const rejected = input.status === "rejected";
   const released = input.status === "released";
+  const cancelled = input.status === "cancelled";
   const dedupeKey = `draw-decision:${input.auth.build._id}:${input.draw.requestKey}:${input.status}`;
   const title = rejected
     ? `${input.draw.displayId} changes requested`
     : released
       ? `${input.draw.displayId} funds released`
-      : `${input.draw.displayId} approved`;
+      : cancelled
+        ? `${input.draw.displayId} cancelled`
+        : `${input.draw.displayId} approved`;
   const body =
     normalizeOptionalString(input.note) ??
     (rejected
       ? "Review the lender decision, correct the request, and submit it again."
       : released
         ? "Confirm receipt of the released reimbursement and report any settlement discrepancy."
-        : "The draw is approved and is waiting for Lender Admin release authority.");
+        : cancelled
+          ? "The draw request was cancelled by Lender Admin and will not be released."
+          : "The draw is approved and is waiting for Lender Admin release authority.");
   for (const recipientWorkosUserId of recipients) {
     const existing = await ctx.db
       .query("recipientDeliveries")
@@ -23019,7 +23110,7 @@ async function upsertBuilderDrawDecisionDeliveries(
         : released
           ? "Acknowledge release"
           : "View draw",
-      actionRequired: rejected || released,
+      actionRequired: rejected || released || cancelled,
       body,
       createdAt: now,
       entityId: String(input.auth.build._id),
@@ -23029,7 +23120,7 @@ async function upsertBuilderDrawDecisionDeliveries(
       resolutionMode: (released ? "recipient" : "domain") as
         | "domain"
         | "recipient",
-      sourceLabel: released ? "Lender Admin" : "Lender Operations",
+      sourceLabel: released || cancelled ? "Lender Admin" : "Lender Operations",
       status: "unread" as const,
       title,
       updatedAt: now,
@@ -23103,6 +23194,75 @@ async function upsertBackofficeSiteVisitReportDeliveries(
       sourceLabel: "Site Visit Staff",
       status: "unread" as const,
       title: `${input.milestone.name} site visit submitted`,
+      updatedAt: now,
+    };
+    if (existing) {
+      await ctx.db.patch(existing._id, delivery);
+    } else {
+      await ctx.db.insert("recipientDeliveries", {
+        ...delivery,
+        brokerageId: input.build.brokerageId,
+        dedupeKey,
+        organizationId: input.build.organizationId,
+        recipientWorkosUserId,
+      });
+    }
+  }
+}
+
+async function upsertBackofficeUnassignedEvidenceDeliveries(
+  ctx: MutationCtx,
+  input: {
+    asset: Doc<"buildEvidenceAssets">;
+    build: Doc<"activeBuilds">;
+    targetLabel: string;
+  },
+) {
+  const memberships = await ctx.db
+    .query("workosOrganizationMemberships")
+    .withIndex("by_organization", (q) =>
+      q.eq("workosOrganizationId", input.build.organizationId),
+    )
+    .collect();
+  const recipients = new Set(
+    memberships
+      .filter(
+        (membership) =>
+          membership.status === "active" &&
+          [membership.roleSlug, ...membership.roleSlugs].some(
+            (role) =>
+              role !== undefined &&
+              (BACKOFFICE_ROLES as readonly string[]).includes(role),
+          ),
+      )
+      .map((membership) => membership.workosUserId),
+  );
+  const dedupeKey = `evidence-target-unassigned:${input.build._id}:${input.asset._id}`;
+  const now = Date.now();
+  const body = `${input.asset.label} was preserved, but target ${input.targetLabel} is no longer active or could not be found. Lender review is required.`;
+  for (const recipientWorkosUserId of recipients) {
+    const existing = await ctx.db
+      .query("recipientDeliveries")
+      .withIndex("by_recipient_dedupe", (q) =>
+        q
+          .eq("organizationId", input.build.organizationId)
+          .eq("recipientWorkosUserId", recipientWorkosUserId)
+          .eq("dedupeKey", dedupeKey),
+      )
+      .first();
+    const delivery = {
+      actionLabel: "Review Evidence",
+      actionRequired: true,
+      body,
+      createdAt: now,
+      entityId: String(input.build._id),
+      entityLabel: `${input.build.buildName} · ${input.asset.fileName}`,
+      entityType: "activeBuild",
+      href: `/backoffice/builds/${input.build._id}?milestone=${encodeURIComponent(input.asset.milestoneKey)}&rail=open`,
+      resolutionMode: "domain" as const,
+      sourceLabel: "Site Visit Staff",
+      status: "unread" as const,
+      title: "Site Visit Evidence needs assignment",
       updatedAt: now,
     };
     if (existing) {
@@ -30784,7 +30944,11 @@ function activeBuildDrawFundingSnapshotFromRows(input: {
   requests: readonly Doc<"activeBuildDrawRequests">[];
 }) {
   const approvedMilestones = input.milestones
-    .filter((milestone) => milestone.completionReview?.status === "approved")
+    .filter(
+      (milestone) =>
+        milestone.planningState !== "superseded" &&
+        milestone.completionReview?.status === "approved",
+    )
     .sort(
       (a, b) =>
         a.order - b.order ||
@@ -30808,6 +30972,9 @@ function activeBuildDrawFundingSnapshotFromRows(input: {
   const requestsById = new Map(
     input.requests.map((request) => [String(request._id), request]),
   );
+  const approvedMilestoneIds = new Set(
+    approvedMilestones.map((milestone) => String(milestone._id)),
+  );
   const allocationTotalsByRequest = new Map<string, number>();
   const reservedByMilestone = new Map<string, number>();
   for (const allocation of input.allocations) {
@@ -30823,7 +30990,10 @@ function activeBuildDrawFundingSnapshotFromRows(input: {
       requestId,
       (allocationTotalsByRequest.get(requestId) ?? 0) + allocation.amountCents,
     );
-    if (activeBuildDrawRequestReservesAvailability(request.status)) {
+    if (
+      activeBuildDrawRequestReservesAvailability(request.status) &&
+      approvedMilestoneIds.has(String(allocation.buildMilestoneId))
+    ) {
       const milestoneId = String(allocation.buildMilestoneId);
       reservedByMilestone.set(
         milestoneId,
@@ -30857,13 +31027,18 @@ function activeBuildDrawFundingSnapshotFromRows(input: {
   const reservingRequests = attributedRequests.filter((request) =>
     activeBuildDrawRequestReservesAvailability(request.status),
   );
+  const approvedMilestoneKeys = new Set(
+    approvedMilestones.map((milestone) => milestone.key),
+  );
   const plannedDrawGroupByMilestone = new Map(
     input.plannedDraws
       .filter(
         (
           draw,
         ): draw is Doc<"plannedDrawScheduleRows"> & { milestoneKey: string } =>
-          Boolean(draw.milestoneKey),
+          Boolean(
+            draw.milestoneKey && approvedMilestoneKeys.has(draw.milestoneKey),
+          ),
       )
       .sort((a, b) => a.order - b.order || a.drawKey.localeCompare(b.drawKey))
       .map((draw) => [draw.milestoneKey, draw.drawKey]),
@@ -31602,7 +31777,7 @@ async function deleteActiveBuildCascade(
     buildId,
   );
   for (const milestone of milestones) {
-    await deleteActiveBuildMilestoneCascade(ctx, buildId, milestone);
+    await supersedeActiveBuildMilestoneCascade(ctx, buildId, milestone);
   }
 
   const documents = await collectByIndex(
@@ -31651,7 +31826,7 @@ async function deleteActiveBuildCascade(
   await ctx.db.delete(buildId);
 }
 
-async function deleteActiveBuildMilestoneCascade(
+async function supersedeActiveBuildMilestoneCascade(
   ctx: MutationCtx,
   buildId: Id<"activeBuilds">,
   milestone: Doc<"buildMilestones">,
@@ -32080,6 +32255,7 @@ async function getActiveBuildSiteVisitTokenState(
   ctx: QueryCtx | MutationCtx,
   buildIdValue: string,
   token: string,
+  options?: { allowUnassignedTarget?: boolean },
 ) {
   const buildId = ctx.db.normalizeId("activeBuilds", buildIdValue);
   if (!buildId) {
@@ -32163,15 +32339,19 @@ async function getActiveBuildSiteVisitTokenState(
   ]);
   const expectedWorkOrderId = `WO-${visit.visitId}`;
   const expectedEvidencePackageId = `EP-${String(buildId)}-${visit.milestoneKey}`;
-  const scopeIsInvalid =
-    !milestone ||
-    milestone.buildId !== buildId ||
-    milestone.key !== visit.milestoneKey ||
+  const scopeIdentityIsInvalid =
+    (milestone !== null && milestone.buildId !== buildId) ||
+    (milestone !== null && milestone.key !== visit.milestoneKey) ||
     visit.organizationId !== build.organizationId ||
     (visit.workOrderId !== undefined &&
       visit.workOrderId !== expectedWorkOrderId) ||
     (visit.evidencePackageId !== undefined &&
       visit.evidencePackageId !== expectedEvidencePackageId);
+  const targetIsUnavailable =
+    milestone === null || milestone.planningState === "superseded";
+  const scopeIsInvalid =
+    scopeIdentityIsInvalid ||
+    (targetIsUnavailable && !options?.allowUnassignedTarget);
   if (scopeIsInvalid) {
     return {
       available: false,
