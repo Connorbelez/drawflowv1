@@ -2751,23 +2751,11 @@ export function ProductionProposalReviewSurface({
                     required
                     value={ianaTimezone}
                   />
-<<<<<<< HEAD
                   {normalizedIanaTimezone && !ianaTimezoneValid ? (
                     <p className="text-destructive text-xs" role="alert">
                       Enter a valid IANA timezone such as America/Toronto.
                     </p>
                   ) : null}
-=======
-                  <Label htmlFor="production-closing-reason">
-                    Closing reason
-                  </Label>
-                  <Input
-                    id="production-closing-reason"
-                    onChange={(event) => setClosingReason(event.target.value)}
-                    placeholder="Loan closed offline."
-                    value={closingReason}
-                  />
->>>>>>> af81145a (fix(ENG-403): clear integration review findings)
                   <Button
                     disabled={
                       closingPending ||
@@ -2776,7 +2764,6 @@ export function ProductionProposalReviewSurface({
                       !startDate ||
                       !ianaTimezoneValid
                     }
-<<<<<<< HEAD
                     onClick={() =>
                       onClose?.(
                         startDate,
@@ -2784,9 +2771,6 @@ export function ProductionProposalReviewSurface({
                         normalizedIanaTimezone
                       )
                     }
-=======
-                    onClick={() => void recordClosing()}
->>>>>>> af81145a (fix(ENG-403): clear integration review findings)
                     size="sm"
                   >
                     <CalendarClock />

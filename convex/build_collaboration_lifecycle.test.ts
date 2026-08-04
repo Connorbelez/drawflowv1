@@ -7,6 +7,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { BUILD_COLLABORATION_ARCHIVE_SNAPSHOT_LEASE_MS } from "./build_collaboration_lifecycle_state";
 import type { BuildCollaborationRole } from "./build_collaboration_model";
+import { publishDocumentCollaborationEvent } from "./build_collaboration_workflow_events";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -968,6 +969,78 @@ describe("Build collaboration export and lifecycle governance", () => {
       "purged",
     ]);
     expect(retained.audit.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("retains legacy system document events without systemPostKind", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE_TIME);
+    const fixture = await seedLifecycleFixture();
+    const documentPostId = await fixture.base.run(async (ctx) => {
+      const build = await ctx.db.get(fixture.buildId);
+      if (!build) {
+        throw new Error("Expected lifecycle Build fixture.");
+      }
+      const documentId = await ctx.db.insert("buildDocuments", {
+        brokerageId: build.brokerageId,
+        buildId: build._id,
+        createdAt: BASE_TIME,
+        documentType: "permit",
+        fileName: "legacy-permit.pdf",
+        mimeType: "application/pdf",
+        organizationId: build.organizationId,
+        proposalId: build.proposalId,
+        sizeBytes: 1024,
+        status: "uploaded",
+        updatedAt: BASE_TIME,
+        uploadedByWorkosUserId: "user_admin",
+      });
+      const document = await ctx.db.get(documentId);
+      if (!document) {
+        throw new Error("Expected legacy document fixture.");
+      }
+      await publishDocumentCollaborationEvent(ctx, { document });
+      const post = await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_buildId_and_systemEventKey", (query) =>
+          query
+            .eq("buildId", fixture.buildId)
+            .eq(
+              "systemEventKey",
+              `operational:document:${documentId}:v1:added`,
+            ),
+        )
+        .unique();
+      if (!post) {
+        throw new Error("Expected legacy document System Post fixture.");
+      }
+      return post._id;
+    });
+    await closeLifecycleFixtureForRetention(fixture);
+    vi.setSystemTime(BASE_TIME + 31 * 86_400_000);
+
+    const purged = await fixture.admin.mutation(
+      (api as any).build_collaboration_retention
+        .purgeExpiredBuildCollaborationContent,
+      {
+        buildId: fixture.buildId,
+        expectedLifecycleRevision: 1,
+        organizationId: ORGANIZATION_ID,
+        reason: "Preserve legacy system document events during purge.",
+      },
+    );
+    expect(purged).toMatchObject({ complete: true, deletedPostCount: 2 });
+
+    const retainedPost = await fixture.base.run((ctx) =>
+      ctx.db.get(documentPostId),
+    );
+    expect(retainedPost).toMatchObject({ source: "system" });
+    expect(retainedPost?.systemPostKind).toBeUndefined();
+    expect(
+      await fixture.base.run((ctx) => ctx.db.get(fixture.sharedPostId)),
+    ).toBeNull();
+    expect(
+      await fixture.base.run((ctx) => ctx.db.get(fixture.secretPostId)),
+    ).toBeNull();
   });
 
   test("excludes retention purge and full-archive capture in both race orderings", async () => {
