@@ -330,6 +330,12 @@ async function buildPostSnapshot(
     primaryReferenceKind: post.primaryReferenceKind,
     revision: revision.revision,
     source: post.source,
+    systemPostKind: post.systemPostKind,
+    systemOccurrenceKey: post.systemOccurrenceKey,
+    canonicalBuildMilestoneId: post.canonicalBuildMilestoneId,
+    canonicalBuildDrawOccurrenceKey: post.canonicalBuildDrawOccurrenceKey,
+    materializedAt: post.materializedAt,
+    historicalBackfill: post.historicalBackfill,
     threadRevision: post.threadRevision ?? 0,
     updatedAt: Math.min(post.updatedAt, snapshotAt),
   };

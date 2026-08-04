@@ -436,6 +436,9 @@ export const listBuildCollaborationFeed = authenticatedQuery
     buildId: v.id("activeBuilds"),
     organizationId: v.string(),
     paginationOpts: paginationOptsValidator,
+    filter: v.optional(
+      v.union(v.literal("all"), v.literal("active_operations")),
+    ),
   })
   .returns(collaborationFeedResultValidator)
   .handler(async (ctx, args) => {
@@ -443,17 +446,26 @@ export const listBuildCollaborationFeed = authenticatedQuery
       ctx,
       args
     );
-    const result = await ctx.db
-      .query("buildCollaborationPosts")
-      .withIndex("by_build_prominence_activity", (query) =>
-        query.eq("buildId", authorization.build._id)
-      )
-      .order("desc")
-      .paginate(args.paginationOpts);
-    const page = await Promise.all(
-      result.page.map(async (post, index) => {
+    const page: Array<Awaited<ReturnType<typeof projectReadableBuildCollaborationPost>> | { kind: "restricted"; placeholderKey: string }> = [];
+    let cursor = args.paginationOpts.cursor ?? null;
+    let isDone = false;
+    while (!isDone && page.length < args.paginationOpts.numItems) {
+      const result = await ctx.db
+        .query("buildCollaborationPosts")
+        .withIndex("by_build_prominence_activity", (query) =>
+          query.eq("buildId", authorization.build._id)
+        )
+        .order("desc")
+        .paginate({ cursor, numItems: args.paginationOpts.numItems });
+      for (const [index, post] of result.page.entries()) {
+        if (
+          args.filter === "active_operations" &&
+          !isActiveBuildCollaborationOperation(post)
+        ) {
+          continue;
+        }
         const placeholderKey = stableContentHash(
-          `${args.paginationOpts.cursor ?? "initial"}:${index}`
+          `${cursor ?? "initial"}:${index}`
         );
         const canRead = await canReadCollaborationPost(
           ctx,
@@ -461,22 +473,37 @@ export const listBuildCollaborationFeed = authenticatedQuery
           post
         );
         if (!canRead) {
-          return {
+          page.push({
             kind: "restricted" as const,
             placeholderKey: `restricted-${placeholderKey}`,
-          };
+          });
+        } else {
+          page.push(
+            await projectReadableBuildCollaborationPost(ctx, {
+              authorization,
+              post,
+              unavailableKey: `unavailable-${placeholderKey}`,
+            }),
+          );
         }
-        return projectReadableBuildCollaborationPost(ctx, {
-          authorization,
-          post,
-          unavailableKey: `unavailable-${placeholderKey}`,
-        });
-      })
-    );
-
-    return { ...result, page };
+        if (page.length >= args.paginationOpts.numItems) break;
+      }
+      cursor = result.continueCursor;
+      isDone = result.isDone;
+    }
+    return { continueCursor: cursor ?? "", isDone, page };
   })
   .public();
+
+function isActiveBuildCollaborationOperation(
+  post: Doc<"buildCollaborationPosts">,
+) {
+  if (post.contentState !== "active") return false;
+  if (post.systemPostKind) {
+    return post.systemLifecycle !== "resolved" && post.threadState !== "resolved";
+  }
+  return post.threadState !== "resolved" || post.openActionItemCount > 0;
+}
 
 function validateRichTextContent(input: {
   plainText: string;

@@ -18,6 +18,7 @@ import {
   publishCanonicalBuildCollaborationSystemEvent,
   resolveSystemEventScope,
 } from "./build_collaboration_system_events";
+import type { SystemPostHistoricalBackfill } from "./build_collaboration_system_events";
 import { ensureActiveBuildPlanningActivationRevision } from "./build_collaboration_planning_reconciliation";
 import { resolveActiveSubmilestoneEvidencePackageReadiness } from "./build_submilestone_evidence";
 import type { Doc, Id, MutationCtx, QueryCtx } from "./types";
@@ -28,12 +29,14 @@ const SYSTEM_LABEL = "DrawFlow System";
 export type MilestoneSystemActivationReason =
   | "explicit_start"
   | "recovery"
-  | "scheduled";
+  | "scheduled"
+  | "backfill";
 
 export type DrawSystemActivationReason =
   | "draw_request"
   | "recovery"
-  | "scheduled";
+  | "scheduled"
+  | "backfill";
 
 /**
  * Stable identity for one planned Draw occurrence. The proposal schedule-row
@@ -780,24 +783,26 @@ export async function ensureMilestoneSystemPost(
     build: Doc<"activeBuilds">;
     milestone: Doc<"buildMilestones">;
     activationReason: MilestoneSystemActivationReason;
+    historicalBackfill?: SystemPostHistoricalBackfill;
     now?: number;
   }
 ) {
-  const activationRevision = await ensureActiveBuildPlanningActivationRevision(
-    ctx,
-    {
-      actor: {
-        actorRoles: input.actor.roles,
-        actorWorkosUserId: input.actor.workosUserId,
-      },
-      build: input.build,
-      now: input.now,
-    }
-  );
+  const activationRevision = input.historicalBackfill
+    ? null
+    : await ensureActiveBuildPlanningActivationRevision(ctx, {
+        actor: {
+          actorRoles: input.actor.roles,
+          actorWorkosUserId: input.actor.workosUserId,
+        },
+        build: input.build,
+        now: input.now,
+      });
   const occurrenceKey = `milestone-system:${input.build._id}:${input.milestone._id}`;
   const now = input.now ?? Date.now();
   const plainText =
-    input.activationReason === "scheduled"
+    input.historicalBackfill
+      ? "Backfilled from existing records. Canonical Milestone and Sub-milestone state remain authoritative."
+      : input.activationReason === "scheduled"
       ? `${input.milestone.name} is scheduled to begin today. Canonical Sub-milestone cards are synchronized from the roadmap; this does not record that work has started.`
       : `${input.milestone.name} started. Canonical Sub-milestone cards are synchronized from the roadmap.`;
   const postId = await publishCanonicalBuildCollaborationSystemEvent(ctx, {
@@ -811,7 +816,9 @@ export async function ensureMilestoneSystemPost(
     systemPostKind: "milestone",
     systemLabel: SYSTEM_LABEL,
     suppressNotifications: input.activationReason !== "explicit_start",
-    now,
+    ...(input.historicalBackfill
+      ? { silentBackfill: input.historicalBackfill }
+      : { now }),
   });
   if (!postId) {
     return null;
@@ -840,9 +847,9 @@ export async function ensureMilestoneSystemPost(
   if (!post || post.buildId !== input.build._id) {
     throw new Error("Milestone System Post became unavailable.");
   }
-  const triggeredByRole = resolveEffectiveCollaborationRole(
-    input.actor.roles
-  )?.role;
+  const triggeredByRole = input.historicalBackfill
+    ? undefined
+    : resolveEffectiveCollaborationRole(input.actor.roles)?.role;
   const submilestones = (
     await ctx.db
       .query("buildSubmilestones")
@@ -870,10 +877,25 @@ export async function ensureMilestoneSystemPost(
     currentPlanningRevision:
       post.currentPlanningRevision ?? activationRevision?.revision,
     systemLifecycle: post.systemLifecycle ?? "open",
-    triggeredAt: post.triggeredAt ?? now,
+    ...(input.historicalBackfill
+      ? {}
+      : { triggeredAt: post.triggeredAt ?? now }),
     triggeredByRole: post.triggeredByRole ?? triggeredByRole,
-    triggeredByWorkosUserId:
-      post.triggeredByWorkosUserId ?? input.actor.workosUserId,
+    ...(input.historicalBackfill
+      ? {}
+      : {
+          triggeredByWorkosUserId:
+            post.triggeredByWorkosUserId ?? input.actor.workosUserId,
+        }),
+    ...(input.historicalBackfill
+      ? {
+          historicalBackfill: {
+            ...input.historicalBackfill,
+            source: "existing_records" as const,
+          },
+          materializedAt: input.historicalBackfill.materializedAt,
+        }
+      : {}),
   };
   const postChanged =
     post.activationPlanningRevisionId !==
@@ -889,7 +911,10 @@ export async function ensureMilestoneSystemPost(
     post.systemLifecycle !== postPatch.systemLifecycle ||
     post.triggeredAt !== postPatch.triggeredAt ||
     post.triggeredByRole !== postPatch.triggeredByRole ||
-    post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId;
+    post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId ||
+    post.materializedAt !== postPatch.materializedAt ||
+    JSON.stringify(post.historicalBackfill) !==
+      JSON.stringify(postPatch.historicalBackfill);
   if (postChanged) {
     await ctx.db.patch(postId, { ...postPatch, updatedAt: now });
   }
@@ -900,15 +925,18 @@ export async function ensureMilestoneSystemPost(
     const ensured = await ensureGeneratedSubmilestoneActionItem(ctx, {
       authorization: scope.authorization,
       milestone: input.milestone,
-      now,
+      now: input.historicalBackfill?.materializedAt ?? now,
       postId,
       submilestone,
+      silentBackfill: input.historicalBackfill !== undefined,
     });
     generatedActionItemIds.push(ensured.actionItemId);
     actionItemsChanged ||= ensured.changed;
   }
-  if (actionItemsChanged) {
+  if (actionItemsChanged && !input.historicalBackfill) {
     await syncPostCounts(ctx, generatedActionItemIds, now);
+  } else if (actionItemsChanged && input.historicalBackfill) {
+    await syncPostCountsSilently(ctx, postId, generatedActionItemIds);
   }
 
   if (postChanged || actionItemsChanged) {
@@ -939,6 +967,7 @@ export async function ensureDrawSystemPost(
     drawRequest?: Doc<"activeBuildDrawRequests">;
     plannedDraw?: Doc<"plannedDrawScheduleRows">;
     activationReason: DrawSystemActivationReason;
+    historicalBackfill?: SystemPostHistoricalBackfill;
     now?: number;
   },
 ) {
@@ -959,23 +988,24 @@ export async function ensureDrawSystemPost(
     ? drawSystemOccurrenceKey(input.build, plannedDraw)
     : `draw-system:${String(input.build._id)}:${String(input.build.proposalId)}:request:${String(input.drawRequest?._id ?? "unknown")}`;
   const now = input.now ?? Date.now();
-  const activationRevision = await ensureActiveBuildPlanningActivationRevision(
-    ctx,
-    {
-      actor: {
-        actorRoles: input.actor.roles,
-        actorWorkosUserId: input.actor.workosUserId,
-      },
-      build: input.build,
-      now,
-    },
-  );
+  const activationRevision = input.historicalBackfill
+    ? null
+    : await ensureActiveBuildPlanningActivationRevision(ctx, {
+        actor: {
+          actorRoles: input.actor.roles,
+          actorWorkosUserId: input.actor.workosUserId,
+        },
+        build: input.build,
+        now,
+      });
   const label = plannedDraw?.label ?? input.drawRequest?.label ?? "Draw";
   const drawDisplay = input.drawRequest?.displayId
     ? ` (${input.drawRequest.displayId})`
     : "";
   const plainText =
-    input.activationReason === "scheduled"
+    input.historicalBackfill
+      ? "Backfilled from existing records. Canonical Draw Request, evidence, review, approval, and release state remain authoritative."
+      : input.activationReason === "scheduled"
       ? `${label} is scheduled for Draw coordination today. Canonical Draw Request, evidence, review, approval, and release state remain authoritative; no request was created.`
       : `${label}${drawDisplay} is tracked in DrawFlow System. Canonical Draw Request, evidence, review, approval, and release state remain authoritative.`;
   const primaryReferenceId = String(plannedDraw?._id ?? input.drawRequest?._id ?? "");
@@ -993,7 +1023,9 @@ export async function ensureDrawSystemPost(
     systemLabel: SYSTEM_LABEL,
     systemPostKind: "draw",
     suppressNotifications: input.activationReason === "scheduled",
-    now,
+    ...(input.historicalBackfill
+      ? { silentBackfill: input.historicalBackfill }
+      : { now }),
   });
   if (!postId) {
     return null;
@@ -1021,7 +1053,9 @@ export async function ensureDrawSystemPost(
   if (!post || post.buildId !== input.build._id) {
     throw new Error("Draw System Post became unavailable.");
   }
-  const triggeredByRole = resolveEffectiveCollaborationRole(input.actor.roles)?.role;
+  const triggeredByRole = input.historicalBackfill
+    ? undefined
+    : resolveEffectiveCollaborationRole(input.actor.roles)?.role;
   const postPatch = {
     activationPlanningRevisionId:
       post.activationPlanningRevisionId ?? activationRevision?._id,
@@ -1037,10 +1071,27 @@ export async function ensureDrawSystemPost(
     currentPlanningRevision:
       post.currentPlanningRevision ?? activationRevision?.revision,
     systemLifecycle: post.systemLifecycle ?? "open",
-    triggeredAt: post.triggeredAt ?? now,
-    triggeredByRole: post.triggeredByRole ?? triggeredByRole,
-    triggeredByWorkosUserId:
-      post.triggeredByWorkosUserId ?? input.actor.workosUserId,
+    ...(input.historicalBackfill
+      ? {}
+      : { triggeredAt: post.triggeredAt ?? now }),
+    ...(input.historicalBackfill
+      ? {}
+      : { triggeredByRole: post.triggeredByRole ?? triggeredByRole }),
+    ...(input.historicalBackfill
+      ? {}
+      : {
+          triggeredByWorkosUserId:
+            post.triggeredByWorkosUserId ?? input.actor.workosUserId,
+        }),
+    ...(input.historicalBackfill
+      ? {
+          historicalBackfill: {
+            ...input.historicalBackfill,
+            source: "existing_records" as const,
+          },
+          materializedAt: input.historicalBackfill.materializedAt,
+        }
+      : {}),
   };
   const postChanged =
     post.activationPlanningRevisionId !== postPatch.activationPlanningRevisionId ||
@@ -1056,7 +1107,10 @@ export async function ensureDrawSystemPost(
     post.systemLifecycle !== postPatch.systemLifecycle ||
     post.triggeredAt !== postPatch.triggeredAt ||
     post.triggeredByRole !== postPatch.triggeredByRole ||
-    post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId;
+    post.triggeredByWorkosUserId !== postPatch.triggeredByWorkosUserId ||
+    post.materializedAt !== postPatch.materializedAt ||
+    JSON.stringify(post.historicalBackfill) !==
+      JSON.stringify(postPatch.historicalBackfill);
   if (postChanged) {
     await ctx.db.patch(postId, { ...postPatch, updatedAt: now });
     await queueBuildCollaborationSearchOwnerRebuild(ctx, {
@@ -1093,6 +1147,84 @@ function drawSystemDispositionForStatus(
   if (status === "cancelled") return "cancellation" as const;
   if (status === "rejected") return "final_decline" as const;
   return undefined;
+}
+
+/**
+ * Project a historical canonical lifecycle without emitting collaboration
+ * activity. Backfill callers use this after the idempotent ensure path so the
+ * post remains a durable, read-safe projection of the source records.
+ */
+export async function projectHistoricalSystemPostLifecycle(
+  ctx: MutationCtx,
+  input: {
+    buildId: Id<"activeBuilds">;
+    lifecycle: "open" | "resolved";
+    materializedAt: number;
+    organizationId: string;
+    postId: Id<"buildCollaborationPosts">;
+    historicalBackfill: SystemPostHistoricalBackfill;
+  },
+) {
+  const post = await ctx.db.get(input.postId);
+  if (
+    !post ||
+    post.buildId !== input.buildId ||
+    post.organizationId !== input.organizationId ||
+    !post.systemPostKind ||
+    post.contentState !== "active"
+  ) {
+    return null;
+  }
+  const nextState = input.lifecycle === "resolved" ? "resolved" : "open";
+  const nextLifecycle = input.lifecycle === "resolved" ? "resolved" : "open";
+  const nextSummary =
+    input.lifecycle === "resolved"
+      ? "Backfilled from existing records."
+      : undefined;
+  const nextHistoricalBackfill = {
+    ...input.historicalBackfill,
+    source: "existing_records" as const,
+  };
+  const nextActivityAt = input.historicalBackfill.historicalAt ?? 0;
+  const unchanged =
+    post.threadState === nextState &&
+    post.systemLifecycle === nextLifecycle &&
+    post.resolutionSummary === nextSummary &&
+    post.resolvedAt ===
+      (input.lifecycle === "resolved"
+        ? input.historicalBackfill.historicalAt
+        : undefined) &&
+    post.resolvedByWorkosUserId ===
+      (input.lifecycle === "resolved"
+        ? input.historicalBackfill.historicalActorWorkosUserId
+        : undefined) &&
+    post.lastMeaningfulActivityAt === nextActivityAt &&
+    post.latestActivityActorWorkosUserId ===
+      input.historicalBackfill.historicalActorWorkosUserId &&
+    post.materializedAt === input.materializedAt &&
+    JSON.stringify(post.historicalBackfill) ===
+      JSON.stringify(nextHistoricalBackfill);
+  if (unchanged) return post._id;
+  await ctx.db.patch(post._id, {
+    historicalBackfill: nextHistoricalBackfill,
+    lastMeaningfulActivityAt: nextActivityAt,
+    latestActivityActorWorkosUserId:
+      input.historicalBackfill.historicalActorWorkosUserId,
+    materializedAt: input.materializedAt,
+    resolutionSummary: nextSummary,
+    resolvedAt:
+      input.lifecycle === "resolved"
+        ? input.historicalBackfill.historicalAt
+        : undefined,
+    resolvedByWorkosUserId:
+      input.lifecycle === "resolved"
+        ? input.historicalBackfill.historicalActorWorkosUserId
+        : undefined,
+    systemLifecycle: nextLifecycle,
+    threadState: nextState,
+    updatedAt: input.materializedAt,
+  });
+  return post._id;
 }
 
 /** Synchronize only the existing Draw System Post with canonical lifecycle. */
@@ -1465,6 +1597,7 @@ async function ensureGeneratedSubmilestoneActionItem(
     now: number;
     postId: Id<"buildCollaborationPosts">;
     submilestone: Doc<"buildSubmilestones">;
+    silentBackfill?: boolean;
   }
 ): Promise<{ actionItemId: Id<"buildActionItems">; changed: boolean }> {
   const title = input.submilestone.name.trim() || "Unnamed Sub-milestone";
@@ -1502,14 +1635,15 @@ async function ensureGeneratedSubmilestoneActionItem(
       if (!updated) {
         throw new Error("Generated Milestone Action Item became unavailable.");
       }
-      await Promise.all([
-        recordBuildActionItemRevision(ctx, {
-          authorization: input.authorization,
-          item: updated,
-          now: input.now,
-          reason: "canonical_planning_revision",
-        }),
-        ctx.db.insert("buildActionItemEvents", {
+      if (!input.silentBackfill) {
+        await Promise.all([
+          recordBuildActionItemRevision(ctx, {
+            authorization: input.authorization,
+            item: updated,
+            now: input.now,
+            reason: "canonical_planning_revision",
+          }),
+          ctx.db.insert("buildActionItemEvents", {
           actionItemId: existing._id,
           actorRole: input.authorization.effectiveRole.role,
           actorWorkosUserId: input.authorization.viewer.subject,
@@ -1532,8 +1666,9 @@ async function ensureGeneratedSubmilestoneActionItem(
           }),
           revision: updated.currentRevision,
           warnings: ["canonical_state_is_authoritative"],
-        }),
-      ]);
+          }),
+        ]);
+      }
       return { actionItemId: existing._id, changed: true };
     }
     return { actionItemId: existing._id, changed: false };
@@ -1569,23 +1704,24 @@ async function ensureGeneratedSubmilestoneActionItem(
   if (!item) {
     throw new Error("Generated Milestone Action Item became unavailable.");
   }
-  await Promise.all([
-    linkBuildActionItemToPost(ctx, {
-      actionItemId,
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      linkKind: "originating",
-      organizationId: input.authorization.organizationId,
-      postId: input.postId,
-    }),
-    recordBuildActionItemRevision(ctx, {
-      authorization: input.authorization,
-      item,
-      now: input.now,
-      reason: "canonical_milestone_start",
-    }),
-    ctx.db.insert("buildActionItemEvents", {
+  await linkBuildActionItemToPost(ctx, {
+    actionItemId,
+    brokerageId: input.authorization.brokerage._id,
+    buildId: input.authorization.build._id,
+    createdAt: input.now,
+    linkKind: "originating",
+    organizationId: input.authorization.organizationId,
+    postId: input.postId,
+  });
+  if (!input.silentBackfill) {
+    await Promise.all([
+      recordBuildActionItemRevision(ctx, {
+        authorization: input.authorization,
+        item,
+        now: input.now,
+        reason: "canonical_milestone_start",
+      }),
+      ctx.db.insert("buildActionItemEvents", {
       actionItemId,
       actorRole: "admin",
       actorWorkosUserId: SYSTEM_AUTHOR,
@@ -1603,8 +1739,8 @@ async function ensureGeneratedSubmilestoneActionItem(
       organizationId: input.authorization.organizationId,
       revision: 1,
       warnings: ["canonical_state_is_authoritative"],
-    }),
-    ctx.db.insert("buildActionItemCreationRequests", {
+      }),
+      ctx.db.insert("buildActionItemCreationRequests", {
       actionItemId,
       brokerageId: input.authorization.brokerage._id,
       buildId: input.authorization.build._id,
@@ -1613,7 +1749,10 @@ async function ensureGeneratedSubmilestoneActionItem(
       organizationId: input.authorization.organizationId,
       postId: input.postId,
       requestId: `milestone-system:${input.milestone._id}:${input.submilestone._id}`,
-    }),
+      }),
+    ]);
+  }
+  await Promise.all([
     ctx.db.insert("buildCollaborationReferences", {
       actionItemQueueSortAt: item.queueSortAt,
       brokerageId: input.authorization.brokerage._id,
@@ -1644,51 +1783,55 @@ async function ensureGeneratedSubmilestoneActionItem(
       primary: false,
       summarySnapshot: "Canonical Milestone binding",
     }),
-    ctx.db.insert("buildCollaborationActivityProjections", {
-      actionItemId,
-      actorWorkosUserId: SYSTEM_AUTHOR,
-      brokerageId: input.authorization.brokerage._id,
-      buildId: input.authorization.build._id,
-      createdAt: input.now,
-      eventType: "created_by_canonical_milestone",
-      organizationId: input.authorization.organizationId,
-      postId: input.postId,
-      projectionKey: `milestone-system:${input.milestone._id}:${input.submilestone._id}`,
-      targetId: String(input.submilestone._id),
-      targetKind: "submilestone",
-    }),
-    ctx.db.insert("auditEvents", {
-      actorRoles: ["system"],
-      actorWorkosUserId: SYSTEM_AUTHOR,
-      brokerageId: input.authorization.brokerage._id,
-      command: "ensureMilestoneSystemPost",
-      createdAt: input.now,
-      entityId: actionItemId,
-      entityType: "buildActionItem",
-      eventType: "build.collaboration.action_item.canonical_milestone_created",
-      newState: JSON.stringify({
-        actionItemId,
-        canonicalBuildMilestoneId: input.milestone._id,
-        canonicalBuildSubmilestoneId: input.submilestone._id,
-        postId: input.postId,
-      }),
-      organizationId: input.authorization.organizationId,
-      warnings: ["canonical_state_is_authoritative"],
-    }),
-    ctx.db.insert("eventOutbox", {
-      brokerageId: input.authorization.brokerage._id,
-      createdAt: input.now,
-      eventType: "build.collaboration.action_item.canonical_milestone_created",
-      organizationId: input.authorization.organizationId,
-      payloadPreview: JSON.stringify({
-        actionItemId,
-        canonicalBuildMilestoneId: input.milestone._id,
-        canonicalBuildSubmilestoneId: input.submilestone._id,
-      }),
-      relatedEntityId: actionItemId,
-      relatedEntityType: "buildActionItem",
-      status: "pending",
-    }),
+    ...(input.silentBackfill
+      ? []
+      : [
+          ctx.db.insert("buildCollaborationActivityProjections", {
+            actionItemId,
+            actorWorkosUserId: SYSTEM_AUTHOR,
+            brokerageId: input.authorization.brokerage._id,
+            buildId: input.authorization.build._id,
+            createdAt: input.now,
+            eventType: "created_by_canonical_milestone",
+            organizationId: input.authorization.organizationId,
+            postId: input.postId,
+            projectionKey: `milestone-system:${input.milestone._id}:${input.submilestone._id}`,
+            targetId: String(input.submilestone._id),
+            targetKind: "submilestone",
+          }),
+          ctx.db.insert("auditEvents", {
+            actorRoles: ["system"],
+            actorWorkosUserId: SYSTEM_AUTHOR,
+            brokerageId: input.authorization.brokerage._id,
+            command: "ensureMilestoneSystemPost",
+            createdAt: input.now,
+            entityId: actionItemId,
+            entityType: "buildActionItem",
+            eventType: "build.collaboration.action_item.canonical_milestone_created",
+            newState: JSON.stringify({
+              actionItemId,
+              canonicalBuildMilestoneId: input.milestone._id,
+              canonicalBuildSubmilestoneId: input.submilestone._id,
+              postId: input.postId,
+            }),
+            organizationId: input.authorization.organizationId,
+            warnings: ["canonical_state_is_authoritative"],
+          }),
+          ctx.db.insert("eventOutbox", {
+            brokerageId: input.authorization.brokerage._id,
+            createdAt: input.now,
+            eventType: "build.collaboration.action_item.canonical_milestone_created",
+            organizationId: input.authorization.organizationId,
+            payloadPreview: JSON.stringify({
+              actionItemId,
+              canonicalBuildMilestoneId: input.milestone._id,
+              canonicalBuildSubmilestoneId: input.submilestone._id,
+            }),
+            relatedEntityId: actionItemId,
+            relatedEntityType: "buildActionItem",
+            status: "pending",
+          }),
+        ]),
   ]);
   return { actionItemId, changed: true };
 }
@@ -1705,6 +1848,21 @@ async function syncPostCounts(
       now,
     });
   }
+}
+
+/** Update the canonical open-item count without creating activity records. */
+async function syncPostCountsSilently(
+  ctx: MutationCtx,
+  postId: Id<"buildCollaborationPosts">,
+  actionItemIds: Id<"buildActionItems">[],
+) {
+  const post = await ctx.db.get(postId);
+  if (!post) return;
+  const linkedItems = await Promise.all(actionItemIds.map((id) => ctx.db.get(id)));
+  const openActionItemCount = linkedItems.filter(
+    (item) => item && item.status !== "done" && item.status !== "cancelled",
+  ).length;
+  await ctx.db.patch(postId, { openActionItemCount });
 }
 
 function plainTextDocument(value: string) {

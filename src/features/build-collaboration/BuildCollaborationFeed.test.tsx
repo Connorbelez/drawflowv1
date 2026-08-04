@@ -87,6 +87,7 @@ const mocks = vi.hoisted(() => ({
   entityActionItems: [] as Array<Record<string, unknown>>,
   feedStatus: "Exhausted" as "CanLoadMore" | "Exhausted",
   feedRows: [] as Array<Record<string, unknown>>,
+  feedQueryArgs: undefined as Record<string, unknown> | undefined,
   focusedCommentContext: undefined as
     | Record<string, unknown>
     | undefined,
@@ -692,6 +693,7 @@ vi.mock("convex/react", () => ({
         status: args === "skip" ? "LoadingFirstPage" : mocks.queueStatus,
       };
     }
+    mocks.feedQueryArgs = args === "skip" ? undefined : args;
     return {
       loadMore: mocks.loadMore,
       results: mocks.feedRows.length > 0 ? mocks.feedRows : [
@@ -1369,6 +1371,7 @@ afterEach(() => {
   mocks.canonicalParentReadyForApproval = false;
   mocks.feedStatus = "Exhausted";
   mocks.feedRows = [];
+  mocks.feedQueryArgs = undefined;
   mocks.focusedAssetContext = undefined;
   mocks.focusedCommentContext = undefined;
   mocks.focusedPostContext = undefined;
@@ -1479,6 +1482,85 @@ describe("BuildCollaborationFeed", () => {
         "System · Milestone — status follows the canonical Sub-milestone."
       )
     ).toBeTruthy();
+  });
+
+  test("uses the same feed for Active operations and renders archived historical facts as read-only", () => {
+    const activeEntry = canonicalMilestoneSystemPostEntryFixture() as any;
+    activeEntry.post._id = "active-system-post";
+    activeEntry.revision.plainText = "Active canonical milestone operation.";
+    activeEntry.revision.tiptapJson = JSON.stringify({
+      content: [
+        {
+          content: [{ text: activeEntry.revision.plainText, type: "text" }],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    });
+    const archivedEntry = canonicalMilestoneSystemPostEntryFixture() as any;
+    archivedEntry.post._id = "archived-backfilled-post";
+    archivedEntry.post.threadState = "resolved";
+    archivedEntry.post.resolutionSummary = "Canonical milestone is complete.";
+    archivedEntry.post.revision = 2;
+    archivedEntry.post.systemPost = {
+      ...archivedEntry.post.systemPost,
+      historicalBackfill: {
+        materializedAt: Date.parse("2026-08-03T12:05:00.000Z"),
+        source: "existing_records",
+        unknownFacts: ["start", "actor", "evidence", "review", "approval"],
+      },
+      lifecycle: "resolved",
+    };
+    archivedEntry.revision.plainText = "Historical canonical milestone record.";
+    archivedEntry.revision.tiptapJson = JSON.stringify({
+      content: [
+        {
+          content: [{ text: archivedEntry.revision.plainText, type: "text" }],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    });
+    mocks.lifecycleState = "closed";
+    mocks.feedRows = [activeEntry, archivedEntry];
+
+    render(
+      <BuildCollaborationFeed buildId="build-1" organizationId="org-1" />,
+    );
+
+    expect(mocks.feedQueryArgs).toMatchObject({
+      buildId: "build-1",
+      filter: "all",
+      organizationId: "org-1",
+    });
+    expect(screen.getByText("Historical backfill")).toBeTruthy();
+    expect(screen.getByText(/Unknown historical facts:/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Active operations" }));
+    expect(mocks.feedQueryArgs).toMatchObject({ filter: "active_operations" });
+    expect(screen.getByText("Active canonical milestone operation.")).toBeTruthy();
+    expect(screen.queryByText("Historical canonical milestone record.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "All" }));
+    const archivedCard = screen.getByTestId(
+      "collaboration-post-archived-backfilled-post",
+    );
+    fireEvent.click(
+      within(archivedCard).getByRole("button", { name: "Post actions" }),
+    );
+    expect(within(archivedCard).queryByText("Edit post")).toBeNull();
+    fireEvent.click(
+      within(archivedCard).getByRole("button", { name: "Discussion 0" }),
+    );
+    expect(
+      within(archivedCard).getByText(/archived discussion is available to read/i),
+    ).toBeTruthy();
+    expect(
+      within(archivedCard).queryByRole("button", { name: "Write a reply…" }),
+    ).toBeNull();
+    expect(
+      within(archivedCard).queryByRole("button", { name: "agree" }),
+    ).toBeNull();
   });
 
   test("renders live Draw facts and an explicit absence of generated work or a Draw board", () => {

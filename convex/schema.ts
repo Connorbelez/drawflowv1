@@ -399,6 +399,24 @@ const activeBuildDrawRequestStatusValidator = v.union(
   v.literal("released")
 );
 
+const systemPostBackfillUnknownFactValidator = v.union(
+  v.literal("start"),
+  v.literal("actor"),
+  v.literal("evidence"),
+  v.literal("review"),
+  v.literal("approval"),
+  v.literal("disposition"),
+);
+
+const systemPostHistoricalBackfillValidator = v.object({
+  source: v.literal("existing_records"),
+  materializedAt: v.number(),
+  historicalAt: v.optional(v.number()),
+  historicalActorWorkosUserId: v.optional(v.string()),
+  historicalActorRole: v.optional(buildCollaborationRoleValidator),
+  unknownFacts: v.array(systemPostBackfillUnknownFactValidator),
+});
+
 const contractorKindValidator = v.union(
   v.literal("company"),
   v.literal("individual"),
@@ -3555,6 +3573,47 @@ export default defineSchema({
     "organizationId",
     "verifiedAt",
   ]),
+  buildCollaborationSystemPostBackfillRuns: defineTable({
+    organizationId: v.string(),
+    brokerageId: v.id("brokerages"),
+    buildId: v.id("activeBuilds"),
+    planToken: v.string(),
+    planVersion: v.string(),
+    mode: v.union(v.literal("validate"), v.literal("materialize")),
+    batchSize: v.number(),
+    phase: v.union(
+      v.literal("milestones"),
+      v.literal("planned_draws"),
+      v.literal("draw_requests"),
+      v.literal("complete")
+    ),
+    status: v.union(
+      v.literal("validating"),
+      v.literal("running"),
+      v.literal("complete"),
+      v.literal("blocked")
+    ),
+    milestoneCursor: v.optional(v.string()),
+    plannedDrawCursor: v.optional(v.string()),
+    drawRequestCursor: v.optional(v.string()),
+    processedMilestoneCount: v.number(),
+    processedPlannedDrawCount: v.number(),
+    processedDrawRequestCount: v.number(),
+    materializedPostCount: v.number(),
+    materializedActionItemCount: v.number(),
+    skippedCount: v.number(),
+    warningCount: v.number(),
+    lastError: v.optional(v.string()),
+    startedByWorkosUserId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_buildId_and_planToken", ["buildId", "planToken"])
+    .index("by_organizationId_and_updatedAt", [
+      "organizationId",
+      "updatedAt",
+    ]),
   buildCollaborationLegacyNoteMigrationRuns: defineTable({
     organizationId: v.string(),
     brokerageId: v.id("brokerages"),
@@ -3971,6 +4030,11 @@ export default defineSchema({
     systemLifecycle: v.optional(
       v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened")),
     ),
+    // Historical System Posts retain only proven source chronology/actor
+    // facts.  `materializedAt` is migration metadata and must never be used
+    // as feed activity or unread ordering.
+    materializedAt: v.optional(v.number()),
+    historicalBackfill: v.optional(systemPostHistoricalBackfillValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

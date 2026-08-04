@@ -41,6 +41,7 @@ import {
   buildCollaborationNotificationKindValidator,
   buildCollaborationPostTypeValidator,
   buildCollaborationReferenceKindValidator,
+  buildCollaborationRoleValidator,
 } from "./build_collaboration_validators";
 import { internalMutation } from "./fluent";
 import type { Id, MutationCtx } from "./types";
@@ -62,6 +63,41 @@ const remediationValidator = v.object({
     v.literal("draw_blocker")
   ),
 });
+
+const systemPostBackfillValidator = v.object({
+  historicalActorRole: v.optional(buildCollaborationRoleValidator),
+  historicalActorWorkosUserId: v.optional(v.string()),
+  historicalAt: v.optional(v.number()),
+  materializedAt: v.number(),
+  unknownFacts: v.array(
+    v.union(
+      v.literal("start"),
+      v.literal("actor"),
+      v.literal("evidence"),
+      v.literal("review"),
+      v.literal("approval"),
+      v.literal("disposition"),
+    ),
+  ),
+});
+
+export type SystemPostHistoricalBackfill = {
+  historicalActorRole?:
+    | "admin"
+    | "principle-broker"
+    | "broker"
+    | "builder"
+    | "broker-staff"
+    | "builder-staff"
+    | "homeowner"
+    | "contractor";
+  historicalActorWorkosUserId?: string;
+  historicalAt?: number;
+  materializedAt: number;
+  unknownFacts: Array<
+    "start" | "actor" | "evidence" | "review" | "approval" | "disposition"
+  >;
+};
 
 export interface BuildCollaborationSystemEventInput {
   buildId: Id<"activeBuilds">;
@@ -96,6 +132,8 @@ export interface BuildCollaborationSystemEventInput {
     title: string;
     workKind: "evidence" | "site_visit_remediation" | "draw_blocker";
   };
+  /** Backfill-only mode: preserve source facts without operational side effects. */
+  silentBackfill?: SystemPostHistoricalBackfill;
   suppressNotifications?: boolean;
   systemLabel: string;
   systemPostKind?: "milestone" | "draw";
@@ -115,6 +153,7 @@ export const publishBuildCollaborationSystemEvent = internalMutation
     primaryReferenceKind: v.optional(buildCollaborationReferenceKindValidator),
     references: v.optional(v.array(systemReferenceValidator)),
     remediation: v.optional(remediationValidator),
+    silentBackfill: v.optional(systemPostBackfillValidator),
     suppressNotifications: v.optional(v.boolean()),
     systemPostKind: v.optional(
       v.union(v.literal("milestone"), v.literal("draw"))
@@ -151,7 +190,9 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     return null;
   }
   const { authorization, build, participants } = scope;
-  await requireBuildCollaborationWritable(ctx, authorization);
+  if (!input.silentBackfill) {
+    await requireBuildCollaborationWritable(ctx, authorization);
+  }
   const submittedReferences = normalizeSystemReferences(input);
   const primaryReferenceKind = submittedReferences.find(
     (reference) => reference.primary
@@ -187,7 +228,8 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     "System label",
     120
   );
-  const now = input.now ?? Date.now();
+  const now = input.now ?? input.silentBackfill?.historicalAt ?? (input.silentBackfill ? 0 : Date.now());
+  const materializedAt = input.silentBackfill?.materializedAt;
   const tiptapJson = plainTextDocument(plainText);
   const audience = systemEventAudience(participants, readerParticipants);
   const postId = await ctx.db.insert("buildCollaborationPosts", {
@@ -218,6 +260,15 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
     systemEventKey: idempotencyKey,
     threadState: "open",
     threadRevision: 0,
+    ...(materializedAt === undefined ? {} : { materializedAt }),
+    ...(input.silentBackfill
+      ? {
+          historicalBackfill: {
+            ...input.silentBackfill,
+            source: "existing_records" as const,
+          },
+        }
+      : {}),
     updatedAt: now,
   });
   const revisionId = await ctx.db.insert("buildCollaborationPostRevisions", {
@@ -278,7 +329,7 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
   );
   const primaryReference = references[primaryReferenceIndex];
   const primaryReferenceRowId = referenceRows[primaryReferenceIndex];
-  if (!input.suppressNotifications) {
+  if (!input.suppressNotifications && !input.silentBackfill) {
     // Draw System Posts retain their canonical read audience, but admin and
     // principal-broker are silent oversight roles until they explicitly join
     // coordination. Do not turn publication into implicit coordination.
@@ -318,8 +369,9 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
       });
     }
   }
-  await Promise.all([
-    ctx.db.insert("auditEvents", {
+  if (!input.silentBackfill) {
+    await Promise.all([
+      ctx.db.insert("auditEvents", {
       actorRoles: ["system"],
       actorWorkosUserId: "system",
       brokerageId: build.brokerageId,
@@ -337,8 +389,8 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
       }),
       organizationId: input.organizationId,
       warnings: [],
-    }),
-    ctx.db.insert("eventOutbox", {
+      }),
+      ctx.db.insert("eventOutbox", {
       brokerageId: build.brokerageId,
       createdAt: now,
       eventType: "build.collaboration.system_event.published",
@@ -352,8 +404,12 @@ export async function publishCanonicalBuildCollaborationSystemEvent(
       relatedEntityId: postId,
       relatedEntityType: "buildCollaborationPost",
       status: "pending",
-    }),
-  ]);
+      }),
+    ]);
+  }
+  // Search maintenance is deliberately retained for backfills so the
+  // materialized post is discoverable by the same authorized index. It does
+  // not create notifications, receipts, unread rows, mentions, or activity.
   await queueBuildCollaborationSearchBuildRebuild(ctx, { authorization });
   return postId;
 }

@@ -114,6 +114,7 @@ export function collaborationModerationCapabilities(input: {
   caseStatus?: "moderated" | "appealed" | "restored" | "final_retained";
   contentState: "active" | "moderated" | "tombstoned";
   minimumReviewerTier?: number;
+  systemAuthored?: boolean;
   viewerRole: BuildCollaborationRole;
   viewerWorkosUserId: string;
 }) {
@@ -123,6 +124,7 @@ export function collaborationModerationCapabilities(input: {
     input.authorWorkosUserId === input.viewerWorkosUserId;
   const canModerate =
     input.contentState === "active" &&
+    !input.systemAuthored &&
     !isAuthor &&
     Boolean(input.authorRole) &&
     canRoleModerateAuthor(
@@ -200,6 +202,8 @@ export const getBuildCollaborationModerationContext = authenticatedQuery
       caseStatus: moderationCase?.status,
       contentState: content.contentState,
       minimumReviewerTier: moderationCase?.appealReviewerMinimumTier,
+      systemAuthored:
+        entity.entityKind === "post" && entity.post.systemPostKind !== undefined,
       viewerRole: authorization.effectiveRole.role,
       viewerWorkosUserId: authorization.viewer.subject,
     });
@@ -271,6 +275,9 @@ export const moderateBuildCollaborationContent = authenticatedMutation
       args
     );
     const content = entity.entityKind === "post" ? entity.post : entity.comment;
+    if (entity.entityKind === "post" && entity.post.systemPostKind) {
+      throw new Error("Forbidden: System Post facts cannot be moderated.");
+    }
     const reason = requireReason(args.reason);
     const authorRole = content.authorRole;
     if (content.revision !== args.expectedRevision) {
@@ -280,6 +287,7 @@ export const moderateBuildCollaborationContent = authenticatedMutation
       authorRole: content.authorRole,
       authorWorkosUserId: content.authorWorkosUserId,
       contentState: content.contentState,
+      systemAuthored: false,
       viewerRole: authorization.effectiveRole.role,
       viewerWorkosUserId: authorization.viewer.subject,
     });

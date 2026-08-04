@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import type { Id } from "./types";
 
 const modules = import.meta.glob("./**/*.ts");
 const ORGANIZATION_ID = "org_build_collaboration_operational_events";
@@ -318,6 +319,71 @@ async function collaborationSnapshot(
   });
 }
 
+async function silentBackfillSideEffectSnapshot(
+  base: ReturnType<typeof convexTest>,
+  buildId: string,
+) {
+  return await base.run(async (ctx) => {
+    const actionItems = (await ctx.db.query("buildActionItems").collect()).filter(
+      (row) => String(row.buildId) === buildId,
+    );
+    return {
+      activityProjectionIds: (
+        await ctx.db.query("buildCollaborationActivityProjections").collect()
+      )
+        .filter((row) => String(row.buildId) === buildId)
+        .map((row) => String(row._id)),
+      actionItemAssignmentState: actionItems.map((row) => ({
+        assigneeWorkosUserId: row.assigneeWorkosUserId,
+        assignedByWorkosUserId: row.assignedByWorkosUserId,
+        assignmentRequestedAt: row.assignmentRequestedAt,
+        assignmentState: row.assignmentState,
+        id: String(row._id),
+      })),
+      actionItemCreationRequestIds: (
+        await ctx.db.query("buildActionItemCreationRequests").collect()
+      )
+        .filter((row) => String(row.buildId) === buildId)
+        .map((row) => String(row._id)),
+      actionItemEventIds: (await ctx.db.query("buildActionItemEvents").collect())
+        .filter((row) => String(row.buildId) === buildId)
+        .map((row) => String(row._id)),
+      actionItemRevisionIds: (
+        await ctx.db.query("buildActionItemRevisions").collect()
+      )
+        .filter((row) => String(row.buildId) === buildId)
+        .map((row) => String(row._id)),
+      auditEventIds: (await ctx.db.query("auditEvents").collect()).map((row) =>
+        String(row._id),
+      ),
+      deliveryIds: (await ctx.db.query("recipientDeliveries").collect())
+        .filter(
+          (row) =>
+            row.collaborationBuildId &&
+            String(row.collaborationBuildId) === buildId,
+        )
+        .map((row) => String(row._id)),
+      eventOutboxIds: (await ctx.db.query("eventOutbox").collect()).map((row) =>
+        String(row._id),
+      ),
+      mentionDeliveryIds: (await ctx.db.query("recipientDeliveries").collect())
+        .filter(
+          (row) =>
+            row.collaborationBuildId &&
+            String(row.collaborationBuildId) === buildId &&
+            row.collaborationEventKind === "direct_mention",
+        )
+        .map((row) => String(row._id)),
+      receiptIds: (await ctx.db.query("buildCollaborationReceipts").collect())
+        .filter((row) => String(row.buildId) === buildId)
+        .map((row) => String(row._id)),
+      followIds: (await ctx.db.query("buildCollaborationFollows").collect())
+        .filter((row) => String(row.buildId) === buildId)
+        .map((row) => String(row._id)),
+    };
+  });
+}
+
 async function feedKinds(
   actor: ReturnType<typeof withIdentity>,
   buildId: any,
@@ -355,6 +421,330 @@ async function finishSearchMaintenance(t: ReturnType<typeof convexTest>) {
 }
 
 describe("Build Collaboration operational events", () => {
+  test("backfill preview is read-only and validate mode never materializes posts", async () => {
+    const fixture = await seedOperationalBuild();
+    const before = await collaborationSnapshot(fixture.base, String(fixture.buildId));
+    const preview = await fixture.admin.query(
+      (api as any).build_collaboration_system_post_backfill
+        .previewBuildCollaborationSystemPostBackfill,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    expect(preview.planToken).toMatch(
+      /^build-collaboration-system-posts\/v1:[a-f0-9]{64}$/,
+    );
+    const started = await fixture.admin.mutation(
+      (api as any).build_collaboration_system_post_backfill
+        .startBuildCollaborationSystemPostBackfill,
+      {
+        batchSize: 1,
+        buildId: fixture.buildId,
+        mode: "validate",
+        organizationId: ORGANIZATION_ID,
+        planToken: preview.planToken,
+      },
+    );
+    let run = started;
+    for (let guard = 0; run.status !== "complete"; guard += 1) {
+      expect(guard).toBeLessThan(20);
+      run = await fixture.admin.mutation(
+        (api as any).build_collaboration_system_post_backfill
+          .advanceBuildCollaborationSystemPostBackfill,
+        {
+          buildId: fixture.buildId,
+          maxItems: 1,
+          organizationId: ORGANIZATION_ID,
+          runId: run.runId,
+        },
+      );
+    }
+    expect(run).toMatchObject({
+      mode: "validate",
+      processedMilestoneCount: 1,
+      materializedPostCount: 0,
+      status: "complete",
+    });
+    expect(await collaborationSnapshot(fixture.base, String(fixture.buildId))).toEqual(
+      before,
+    );
+    const materializeRun = await fixture.admin.mutation(
+      (api as any).build_collaboration_system_post_backfill
+        .startBuildCollaborationSystemPostBackfill,
+      {
+        batchSize: 1,
+        buildId: fixture.buildId,
+        mode: "materialize",
+        organizationId: ORGANIZATION_ID,
+        planToken: preview.planToken,
+      },
+    );
+    expect(materializeRun.mode).toBe("materialize");
+    expect(materializeRun.runId).not.toBe(started.runId);
+  });
+
+  test("materializes active and terminal occurrences with explicit unknown history and idempotent retry", async () => {
+    const fixture = await seedOperationalBuild();
+    const source = await fixture.base.run(async (ctx) => {
+      const now = Date.now();
+      const proposalDrawId = await ctx.db.insert("proposalDrawScheduleRows", {
+        amountCents: 10_000,
+        brokerageId: fixture.brokerageId,
+        createdAt: now,
+        drawKey: "draw-foundation",
+        label: "Foundation reimbursement",
+        milestoneKey: "foundation",
+        order: 1,
+        organizationId: ORGANIZATION_ID,
+        proposalId: fixture.proposalId,
+        proposalMilestoneId: undefined,
+        source: "milestone",
+        timingDay: 20,
+        updatedAt: now,
+      });
+      const plannedDrawId = await ctx.db.insert("plannedDrawScheduleRows", {
+        amountCents: 10_000,
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        buildMilestoneId: fixture.milestoneId,
+        createdAt: now,
+        drawKey: "draw-foundation",
+        label: "Foundation reimbursement",
+        milestoneKey: "foundation",
+        order: 1,
+        organizationId: ORGANIZATION_ID,
+        proposalDrawScheduleRowId: proposalDrawId,
+        releaseDate: "2026-07-31",
+        releasedAt: "2026-07-31T15:00:00.000Z",
+        status: "released",
+        timingDay: 20,
+        updatedAt: now,
+      });
+      const secondProposalDrawId = await ctx.db.insert(
+        "proposalDrawScheduleRows",
+        {
+          amountCents: 12_000,
+          brokerageId: fixture.brokerageId,
+          createdAt: now,
+          drawKey: "draw-framing",
+          label: "Framing reimbursement",
+          milestoneKey: "foundation",
+          order: 2,
+          organizationId: ORGANIZATION_ID,
+          proposalId: fixture.proposalId,
+          proposalMilestoneId: undefined,
+          source: "milestone",
+          timingDay: 30,
+          updatedAt: now,
+        },
+      );
+      const plannedActiveDrawId = await ctx.db.insert(
+        "plannedDrawScheduleRows",
+        {
+          amountCents: 12_000,
+          brokerageId: fixture.brokerageId,
+          buildId: fixture.buildId,
+          buildMilestoneId: fixture.milestoneId,
+          createdAt: now,
+          drawKey: "draw-framing",
+          label: "Framing reimbursement",
+          milestoneKey: "foundation",
+          order: 2,
+          organizationId: ORGANIZATION_ID,
+          proposalDrawScheduleRowId: secondProposalDrawId,
+          releaseDate: "2026-08-10",
+          status: "approved",
+          timingDay: 30,
+          updatedAt: now,
+        },
+      );
+      return { plannedActiveDrawId, plannedDrawId };
+    });
+    const sideEffectsBefore = await silentBackfillSideEffectSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    );
+    const preview = await fixture.admin.query(
+      (api as any).build_collaboration_system_post_backfill
+        .previewBuildCollaborationSystemPostBackfill,
+      { buildId: fixture.buildId, organizationId: ORGANIZATION_ID },
+    );
+    const run = await fixture.admin.mutation(
+      (api as any).build_collaboration_system_post_backfill
+        .startBuildCollaborationSystemPostBackfill,
+      {
+        batchSize: 1,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        planToken: preview.planToken,
+      },
+    );
+    let current = run;
+    current = await fixture.admin.mutation(
+      (api as any).build_collaboration_system_post_backfill
+        .advanceBuildCollaborationSystemPostBackfill,
+      {
+        buildId: fixture.buildId,
+        maxItems: 1,
+        organizationId: ORGANIZATION_ID,
+        runId: current.runId,
+      },
+    );
+    current = await fixture.admin.mutation(
+      (api as any).build_collaboration_system_post_backfill
+        .advanceBuildCollaborationSystemPostBackfill,
+      {
+        buildId: fixture.buildId,
+        maxItems: 1,
+        organizationId: ORGANIZATION_ID,
+        runId: current.runId,
+      },
+    );
+    const cursorCheckpoint = await fixture.base.run(async (ctx) =>
+      ctx.db.get(
+        current.runId as Id<"buildCollaborationSystemPostBackfillRuns">,
+      ),
+    );
+    expect(cursorCheckpoint).toMatchObject({
+      phase: "planned_draws",
+      processedMilestoneCount: 1,
+      processedPlannedDrawCount: 1,
+      status: "running",
+    });
+    expect(cursorCheckpoint?.plannedDrawCursor).toBeDefined();
+    for (let guard = 0; current.status !== "complete"; guard += 1) {
+      expect(guard).toBeLessThan(30);
+      current = await fixture.admin.mutation(
+        (api as any).build_collaboration_system_post_backfill
+          .advanceBuildCollaborationSystemPostBackfill,
+        {
+          buildId: fixture.buildId,
+          maxItems: 1,
+          organizationId: ORGANIZATION_ID,
+          runId: current.runId,
+        },
+      );
+    }
+    const posts = await fixture.base.run(async (ctx) =>
+      (await ctx.db.query("buildCollaborationPosts").collect()).filter(
+        (post) => String(post.buildId) === String(fixture.buildId),
+      ),
+    );
+    expect(posts).toHaveLength(3);
+    expect(posts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          historicalBackfill: expect.objectContaining({
+            source: "existing_records",
+            unknownFacts: expect.arrayContaining(["start", "actor", "evidence"]),
+          }),
+          materializedAt: expect.any(Number),
+          systemPostKind: "milestone",
+        }),
+        expect.objectContaining({
+          historicalBackfill: expect.objectContaining({
+            source: "existing_records",
+            unknownFacts: expect.arrayContaining(["actor", "evidence"]),
+          }),
+          systemLifecycle: "resolved",
+          systemPostKind: "draw",
+        }),
+        expect.objectContaining({
+          historicalBackfill: expect.objectContaining({
+            source: "existing_records",
+            unknownFacts: expect.arrayContaining([
+              "start",
+              "actor",
+              "evidence",
+              "review",
+              "disposition",
+            ]),
+          }),
+          systemLifecycle: "open",
+          systemPostKind: "draw",
+        }),
+      ]),
+    );
+    expect(await silentBackfillSideEffectSnapshot(
+      fixture.base,
+      String(fixture.buildId),
+    )).toEqual(sideEffectsBefore);
+    const rerun = await fixture.admin.mutation(
+      (api as any).build_collaboration_system_post_backfill
+        .startBuildCollaborationSystemPostBackfill,
+      {
+        batchSize: 1,
+        buildId: fixture.buildId,
+        organizationId: ORGANIZATION_ID,
+        planToken: preview.planToken,
+      },
+    );
+    expect(rerun.runId).toBe(current.runId);
+    expect(
+      await fixture.base.run(
+        async (ctx) =>
+          (await ctx.db.query("buildCollaborationPosts").collect()).filter(
+            (post) => String(post.buildId) === String(fixture.buildId),
+          ).length,
+      ),
+      ).toBe(3);
+    const activeOperations = await fixture.admin.query(
+      (api as any).build_collaboration.listBuildCollaborationFeed,
+      {
+        buildId: fixture.buildId,
+        filter: "active_operations",
+        organizationId: ORGANIZATION_ID,
+        paginationOpts: { cursor: null, numItems: 10 },
+      },
+    );
+    const activeOperationPosts = activeOperations.page.filter(
+      (entry: any) => entry.kind === "post",
+    );
+    expect(activeOperationPosts).toHaveLength(2);
+    expect(
+      activeOperationPosts.map((entry: any) => entry.post.systemPost?.lifecycle),
+    ).toEqual(expect.arrayContaining(["open"]));
+    expect(
+      activeOperationPosts.every(
+        (entry: any) => entry.post.systemPost?.lifecycle !== "resolved",
+      ),
+    ).toBe(true);
+    const resolvedDrawPost = posts.find(
+      (post) =>
+        post.systemPostKind === "draw" && post.systemLifecycle === "resolved",
+    );
+    expect(resolvedDrawPost).toBeDefined();
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.insert("buildCollaborationBuildStates", {
+        brokerageId: fixture.brokerageId,
+        buildId: fixture.buildId,
+        closeReason: "Historical archive is closed.",
+        closedAt: Date.now(),
+        closedByRole: "admin",
+        closedByWorkosUserId: "user_admin",
+        contentRevision: 0,
+        createdAt: Date.now(),
+        organizationId: ORGANIZATION_ID,
+        revision: 1,
+        state: "closed",
+        updatedAt: Date.now(),
+      });
+    });
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_threads.addBuildCollaborationComment,
+        {
+          buildId: fixture.buildId,
+          organizationId: ORGANIZATION_ID,
+          plainText: "This archived System Post must remain read-only.",
+          postId: resolvedDrawPost!._id,
+          references: [],
+          tiptapJson: JSON.stringify({ content: [], type: "doc" }),
+        },
+      ),
+    ).rejects.toThrow(/closed and read-only/i);
+    expect(source.plannedDrawId).toBeDefined();
+    expect(source.plannedActiveDrawId).toBeDefined();
+  });
+
   test("derives the collaboration viewer binding from authorized server state", async () => {
     const fixture = await seedOperationalBuild();
     await expect(

@@ -101,6 +101,7 @@ import type * as build_collaboration_search_readers from "../build_collaboration
 import type * as build_collaboration_shared_effects from "../build_collaboration_shared_effects.js";
 import type * as build_collaboration_system_event_access from "../build_collaboration_system_event_access.js";
 import type * as build_collaboration_system_events from "../build_collaboration_system_events.js";
+import type * as build_collaboration_system_post_backfill from "../build_collaboration_system_post_backfill.js";
 import type * as build_collaboration_system_posts from "../build_collaboration_system_posts.js";
 import type * as build_collaboration_threads from "../build_collaboration_threads.js";
 import type * as build_collaboration_validation from "../build_collaboration_validation.js";
@@ -254,6 +255,7 @@ declare const fullApi: ApiFromModules<{
   build_collaboration_shared_effects: typeof build_collaboration_shared_effects;
   build_collaboration_system_event_access: typeof build_collaboration_system_event_access;
   build_collaboration_system_events: typeof build_collaboration_system_events;
+  build_collaboration_system_post_backfill: typeof build_collaboration_system_post_backfill;
   build_collaboration_system_posts: typeof build_collaboration_system_posts;
   build_collaboration_threads: typeof build_collaboration_threads;
   build_collaboration_validation: typeof build_collaboration_validation;

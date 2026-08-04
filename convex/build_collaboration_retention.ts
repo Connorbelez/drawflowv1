@@ -339,15 +339,19 @@ export const purgeExpiredBuildCollaborationContent = authenticatedMutation
       .withIndex("by_buildId_and_createdAt", (query) =>
         query.eq("buildId", authorization.build._id)
       )
-      .take(PURGE_POST_BATCH_SIZE + 1);
-    const batch = posts.slice(0, PURGE_POST_BATCH_SIZE);
+      .take(5001);
+    // Domain-owned System Posts are permanent facts. Retention may purge
+    // human-authored content around them, but never deletes/tombstones the
+    // post tree that projects canonical Milestone/Draw state.
+    const humanPosts = posts.filter((post) => !post.systemPostKind);
+    const batch = humanPosts.slice(0, PURGE_POST_BATCH_SIZE);
     for (const post of batch) {
       await deletePostTree(ctx, post);
     }
     const now = Date.now();
     const deletedPostCount = purge.deletedPostCount + batch.length;
     const batchCount = (purge.batchCount ?? 0) + (batch.length > 0 ? 1 : 0);
-    const hasRemainingPosts = posts.length > PURGE_POST_BATCH_SIZE;
+    const hasRemainingPosts = humanPosts.length > PURGE_POST_BATCH_SIZE;
     if (hasRemainingPosts) {
       await ctx.db.patch(purge._id, {
         batchCount,
@@ -586,6 +590,9 @@ async function deletePostTree(
   ctx: MutationCtx,
   post: Doc<"buildCollaborationPosts">
 ) {
+  if (post.systemPostKind) {
+    return;
+  }
   const revisions = await bounded(
     ctx.db
       .query("buildCollaborationPostRevisions")
@@ -1258,16 +1265,23 @@ async function assertBuildCollaborationResidueRemoved(
         .withIndex("by_buildId_and_createdAt", (query) =>
           query.eq("buildId", buildId)
         )
-        .first(),
+        .take(5001)
+        .then((rows) => rows.find((post) => !post.systemPostKind) ?? null),
     ],
     [
       "Action Items",
       await ctx.db
-        .query("buildActionItems")
-        .withIndex("by_buildId_and_queueSortAt", (query) =>
-          query.eq("buildId", buildId)
-        )
-        .first(),
+      .query("buildActionItems")
+      .withIndex("by_buildId_and_queueSortAt", (query) =>
+        query.eq("buildId", buildId)
+      )
+        .take(5001)
+        .then(
+          (rows) =>
+            rows.find(
+              (item) => item.systemMode !== "generated_milestone_submilestone",
+            ) ?? null,
+        ),
     ],
     [
       "assets",

@@ -265,6 +265,47 @@ describe("Build collaboration moderation hierarchy", () => {
     }
   });
 
+  test("never offers moderation controls for permanent System Post facts", async () => {
+    const fixture = await seedModerationFixture();
+    const postId = await publishPostAs(fixture, fixture.contractor, "Canonical fact");
+    await fixture.base.run(async (ctx) => {
+      await ctx.db.patch(postId, {
+        authorDisplayNameSnapshot: "DrawFlow System",
+        authorRolesSnapshot: ["system"],
+        authorWorkosUserId: "system",
+        source: "system",
+        systemEventKey: `milestone-system:${String(fixture.buildId)}:${String(postId)}`,
+        systemOccurrenceKey: `milestone-system:${String(fixture.buildId)}:${String(postId)}`,
+        systemPostKind: "milestone",
+      });
+    });
+    const context = await fixture.admin.query(
+      (api as any).build_collaboration_moderation
+        .getBuildCollaborationModerationContext,
+      {
+        buildId: fixture.buildId,
+        entityId: postId,
+        entityKind: "post",
+        organizationId: ORGANIZATION_ID,
+      },
+    );
+    expect(context.canModerate).toBe(false);
+    await expect(
+      fixture.admin.mutation(
+        (api as any).build_collaboration_moderation
+          .moderateBuildCollaborationContent,
+        {
+          buildId: fixture.buildId,
+          entityId: postId,
+          entityKind: "post",
+          expectedRevision: 1,
+          organizationId: ORGANIZATION_ID,
+          reason: "Attempted fact moderation",
+        },
+      ),
+    ).rejects.toThrow("System Post facts cannot be moderated");
+  });
+
   test("enforces every adjacent hierarchy edge through direct mutations", async () => {
     const fixture = await seedModerationFixture();
     const builderStaffPost = await publishPostAs(

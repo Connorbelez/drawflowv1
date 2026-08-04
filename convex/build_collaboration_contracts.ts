@@ -142,6 +142,24 @@ export const drawCoordinationStateValidator = v.object({
   workingAudienceCount: v.number(),
 });
 
+const historicalBackfillUnknownFactValidator = v.union(
+  v.literal("start"),
+  v.literal("actor"),
+  v.literal("evidence"),
+  v.literal("review"),
+  v.literal("approval"),
+  v.literal("disposition"),
+);
+
+const historicalBackfillValidator = v.object({
+  historicalActorRole: v.optional(buildCollaborationRoleValidator),
+  historicalActorWorkosUserId: v.optional(v.string()),
+  historicalAt: v.optional(v.number()),
+  materializedAt: v.number(),
+  source: v.literal("existing_records"),
+  unknownFacts: v.array(historicalBackfillUnknownFactValidator),
+});
+
 const collaborationSystemPostValidator = v.object({
   activationReason: v.string(),
   activationPlanningRevision: v.optional(v.number()),
@@ -156,6 +174,8 @@ const collaborationSystemPostValidator = v.object({
     v.union(v.literal("open"), v.literal("resolved"), v.literal("reopened"))
   ),
   occurrenceKey: v.string(),
+  historicalBackfill: v.optional(historicalBackfillValidator),
+  materializedAt: v.optional(v.number()),
   recoveryState: v.optional(v.literal("recovery_required")),
   triggeredAt: v.optional(v.number()),
   triggeredByRole: v.optional(buildCollaborationRoleValidator),

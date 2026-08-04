@@ -606,6 +606,13 @@ async function buildExportSnapshot(
           postType: post.postType,
           revision: post.revision,
           source: post.source,
+          systemPostKind: post.systemPostKind,
+          systemOccurrenceKey: post.systemOccurrenceKey,
+          canonicalBuildMilestoneId: post.canonicalBuildMilestoneId,
+          canonicalBuildDrawOccurrenceKey:
+            post.canonicalBuildDrawOccurrenceKey,
+          materializedAt: post.materializedAt,
+          historicalBackfill: post.historicalBackfill,
           threadRevision: post.threadRevision,
           threadState: post.threadState,
           updatedAt: post.updatedAt,
@@ -717,6 +724,12 @@ async function buildExportedPosts(
       revision: post.revision,
       threadState: post.threadState,
       tiptapJson: revision.tiptapJson,
+      systemPostKind: post.systemPostKind,
+      systemOccurrenceKey: post.systemOccurrenceKey,
+      canonicalBuildMilestoneId: post.canonicalBuildMilestoneId,
+      canonicalBuildDrawOccurrenceKey: post.canonicalBuildDrawOccurrenceKey,
+      materializedAt: post.materializedAt,
+      historicalBackfill: post.historicalBackfill,
     });
   }
   return posts;

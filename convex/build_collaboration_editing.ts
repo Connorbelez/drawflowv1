@@ -329,9 +329,9 @@ export const tombstoneBuildCollaborationPost = authenticatedMutation
       authorization,
       args.postId
     );
-    if (post.source === "system" && post.systemPostKind === "milestone") {
+    if (post.systemPostKind) {
       throw new Error(
-        "System Milestone Posts cannot be tombstoned outside canonical domain state."
+        "System Posts cannot be tombstoned outside canonical domain state."
       );
     }
     assertExpectedRevision(post.revision, args.expectedRevision, "post");

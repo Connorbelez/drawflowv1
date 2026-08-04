@@ -475,6 +475,7 @@ export async function projectReadableBuildCollaborationPost(
     caseStatus: moderationCase?.status,
     contentState: post.contentState,
     minimumReviewerTier: moderationCase?.appealReviewerMinimumTier,
+    systemAuthored: post.systemPostKind !== undefined,
     viewerRole: authorization.effectiveRole.role,
     viewerWorkosUserId: authorization.viewer.subject,
   });
@@ -962,6 +963,8 @@ function collaborationPostSummary(input: {
               : post.systemLifecycle ??
                 (post.threadState === "resolved" ? "resolved" : "open"),
             occurrenceKey: post.systemOccurrenceKey,
+            materializedAt: post.materializedAt,
+            historicalBackfill: post.historicalBackfill,
             recoveryState: !coordinationRedacted && systemRecoveryRequired
               ? ("recovery_required" as const)
               : undefined,

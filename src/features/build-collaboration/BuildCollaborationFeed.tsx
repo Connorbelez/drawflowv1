@@ -611,9 +611,20 @@ function BuildCollaborationFeedContent({
   sessionWorkosUserId?: string;
 }) {
   const activeBuildId = buildId as Id<"activeBuilds">;
+  const [filter, setFilter] = useState<FeedFilter>("all");
+  const feedScopeArgs = buildCollaborationScopeArgs(
+    activeBuildId,
+    organizationId,
+  );
   const feed = usePaginatedQuery(
     api.build_collaboration.listBuildCollaborationFeed,
-    buildCollaborationScopeArgs(activeBuildId, organizationId),
+    feedScopeArgs === "skip"
+      ? "skip"
+      : {
+          ...feedScopeArgs,
+          filter:
+            filter === "active_operations" ? "active_operations" : "all",
+        },
     { initialNumItems: 20 }
   );
   const viewerBinding = useQuery(
@@ -771,7 +782,6 @@ function BuildCollaborationFeedContent({
   const abandonAssets = useBuildCollaborationMutation(
     api.build_collaboration_assets.abandonMyBuildCollaborationAssets
   );
-  const [filter, setFilter] = useState<FeedFilter>("all");
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerExtrasOpen, setComposerExtrasOpen] = useState(false);
   const [postType, setPostType] = useState<PostType>("update");
@@ -1034,6 +1044,20 @@ function BuildCollaborationFeedContent({
         if (filter === "actionable") {
           return entry.actionItems.some(
             (item) => item.status !== "done" && item.status !== "cancelled"
+          );
+        }
+        if (filter === "active_operations") {
+          if (entry.post.systemPost) {
+            return (
+              entry.post.threadState !== "resolved" &&
+              entry.post.systemPost.lifecycle !== "resolved"
+            );
+          }
+          return (
+            entry.post.threadState !== "resolved" ||
+            entry.actionItems.some(
+              (item) => item.status !== "done" && item.status !== "cancelled",
+            )
           );
         }
         return true;
@@ -2256,6 +2280,7 @@ function BuildCollaborationFeedContent({
           >
             <TabsList aria-label="Feed filters" variant="underline">
               <TabsTab value="all">All</TabsTab>
+              <TabsTab value="active_operations">Active operations</TabsTab>
               <TabsTab value="actionable">Actionable</TabsTab>
               <TabsTab value="pinned">Pinned</TabsTab>
               <TabsTab value="following">Following</TabsTab>
@@ -3732,6 +3757,28 @@ type SystemDrawFacts = NonNullable<CollaborationSystemPost["drawFacts"]>;
 type DrawCoordinationState = NonNullable<
   CollaborationSystemPost["drawCoordination"]
 >;
+type HistoricalBackfillFacts = NonNullable<
+  CollaborationSystemPost["historicalBackfill"]
+>;
+
+function historicalFactLabel(
+  fact: HistoricalBackfillFacts["unknownFacts"][number],
+) {
+  switch (fact) {
+    case "start":
+      return "start time";
+    case "actor":
+      return "actor";
+    case "evidence":
+      return "evidence";
+    case "review":
+      return "review";
+    case "approval":
+      return "approval";
+    case "disposition":
+      return "disposition";
+  }
+}
 
 function drawFactMoney(amountCents: number) {
   return `$${(amountCents / 100).toLocaleString("en-US", {
@@ -3934,6 +3981,28 @@ function SystemPostFacts({
             Immutable domain binding
           </span>
         </div>
+        {systemPost.historicalBackfill ? (
+          <section
+            aria-label="Historical System Post provenance"
+            className="space-y-1 border-y py-2 text-xs"
+            data-testid="system-post-historical-backfill"
+          >
+            <p className="font-medium">Historical backfill</p>
+            <p className="text-muted-foreground">
+              Materialized from existing canonical records. Missing history is
+              preserved as Unknown; no start, actor, evidence, review,
+              approval, or disposition facts are inferred.
+            </p>
+            {systemPost.historicalBackfill.unknownFacts.length > 0 ? (
+              <p>
+                <span className="font-medium">Unknown historical facts:</span>{" "}
+                {systemPost.historicalBackfill.unknownFacts
+                  .map(historicalFactLabel)
+                  .join(", ")}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
         <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
           <div>
             <dt className="text-muted-foreground">

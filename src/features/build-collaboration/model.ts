@@ -39,7 +39,12 @@ export type CollaborationPlanningReconciliation = FunctionReturnType<
 export type AudienceMode = CollaborationFeedPostEntry["post"]["audienceMode"];
 export type PostType = CollaborationFeedPostEntry["post"]["postType"];
 export type ActionStatus = CollaborationActionItem["status"];
-export type FeedFilter = "actionable" | "all" | "following" | "pinned";
+export type FeedFilter =
+  | "actionable"
+  | "active_operations"
+  | "all"
+  | "following"
+  | "pinned";
 
 export interface ReferenceOption extends CollaborationTagOption {
   entityKind: RawCollaborationTagOption["entityKind"];
